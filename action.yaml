@@ -1,0 +1,37 @@
+name: Continuous Development Setup
+description: Install CD generic skills and scripts for Claude CI workflows
+
+inputs:
+  skills-ref:
+    description: "Git ref to install skills from (default: v1)"
+    default: "v1"
+
+runs:
+  using: composite
+  steps:
+    - name: Install CD skills
+      shell: bash
+      run: |
+        cd_dir="${GITHUB_ACTION_PATH}"
+        mkdir -p .claude/skills
+        for skill_dir in "$cd_dir"/skills/*/; do
+          skill_name=$(basename "$skill_dir")
+          # Don't overwrite project-specific skills that share a name
+          if [ ! -d ".claude/skills/$skill_name" ]; then
+            cp -r "$skill_dir" ".claude/skills/$skill_name"
+          fi
+        done
+
+    - name: Install CD scripts
+      shell: bash
+      run: |
+        cd_dir="${GITHUB_ACTION_PATH}"
+        mkdir -p .github/scripts
+        for script in "$cd_dir"/scripts/*.sh; do
+          script_name=$(basename "$script")
+          # Don't overwrite project-specific scripts
+          if [ ! -f ".github/scripts/$script_name" ]; then
+            cp "$script" ".github/scripts/$script_name"
+            chmod +x ".github/scripts/$script_name"
+          fi
+        done
