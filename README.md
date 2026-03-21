@@ -1,5 +1,7 @@
 # Continuous
 
+> **Early development** — this project is being extracted from [worktrunk](https://github.com/max-sixty/worktrunk)'s CI automation. It's not ready for use yet. Expect breaking changes to inputs, skill names, and workflow structure.
+
 Claude-powered CI workflows for GitHub repositories. Provides automated PR review, issue triage, @bot mentions, CI fixes, nightly code sweeps, and dependency updates.
 
 ## Quick start
