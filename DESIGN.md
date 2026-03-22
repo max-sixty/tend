@@ -158,7 +158,7 @@ two progressively more managed alternatives.
 | Model A | Same files, same size | Same — only the auth step changes (PAT secret → OIDC call) |
 | Model B | None | Zero — logic lives in our service |
 
-**Model A: Token-minting service (stateless infra).**
+**Model A: Token-minting service.**
 
 The adopter's experience:
 
@@ -210,11 +210,12 @@ only on our service.
 a repo secret. We never see it — it's passed directly from the workflow to
 `claude-code-action`. Each adopter uses their own Anthropic billing.
 
-Model A could be extended to push workflow updates via PR (instead of the
-adopter running `continuous update`), but this requires a webhook handler
-to detect config changes — adding infra for a marginal UX improvement.
+Our service holds the App's private key — this is a persistent secret,
+though the service itself has no database or other state. Model A could be
+extended to push workflow updates via PR, but this requires a webhook
+handler to detect config changes.
 
-**Model B: Full webhook handler (stateful infra).**
+**Model B: Full webhook handler.**
 
 The adopter's experience:
 
