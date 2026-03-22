@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from continuous.config import Config, WorkflowConfig
@@ -119,8 +120,13 @@ def _render_review_yaml(cfg: Config, pr_num: str) -> str:
     lines.append(f"          GH_TOKEN: {_bot_token(cfg)}")
     lines.append("")
 
-    # Continuous action
-    review_prompt = cfg.workflows.get("review", WorkflowConfig()).prompt or f"/cd-review {pr_num}"
+    # Continuous action — use format() to avoid nested ${{ }} expressions
+    wf = cfg.workflows.get("review", WorkflowConfig())
+    raw_prompt = wf.prompt or "/cd-review {pr_number}"
+    # Replace placeholder with format() positional arg
+    review_fmt = _escape_yaml_expr(raw_prompt.replace("{pr_number}", "{0}"))
+    needs_format = "{0}" in review_fmt
+
     lines.append("      - uses: max-sixty/continuous@v1")
     lines.append("        with:")
     lines.append(f"          github_token: {_bot_token(cfg)}")
@@ -132,7 +138,10 @@ def _render_review_yaml(cfg: Config, pr_num: str) -> str:
     lines.append("          use_sticky_comment: ${{ github.event_name == 'pull_request_target' }}")
     lines.append(f"          prompt: >-")
     lines.append(f"            ${{{{ github.event_name == 'pull_request_target'")
-    lines.append(f"              && '{_escape_yaml_expr(review_prompt)}'")
+    if needs_format:
+        lines.append(f"              && format('{review_fmt}', github.event.pull_request.number)")
+    else:
+        lines.append(f"              && '{review_fmt}'")
     lines.append(f"              || format(")
     lines.append(f"                'A review was submitted on your PR #{{0}} ({{1}}). Read the review and full PR context (description, diff, comments, CI status), then respond appropriately. If changes were requested, make them, commit, and push. If questions were asked, answer them.',")
     lines.append(f"                github.event.pull_request.number,")
@@ -293,11 +302,9 @@ def generate_mention(cfg: Config) -> GeneratedWorkflow:
     lines.append(f"          GH_TOKEN: {_bot_token(cfg)}")
     lines.append("")
 
-    # Build prompt expressions for each event type
-    comment_url = "${{ github.event.comment.html_url }}"
-    issue_url = "${{ github.event.issue.html_url }}"
-    comment_id = "${{ github.event.comment.id }}"
-    pr_number = "${{ github.event_name == 'issue_comment' && github.event.issue.number || github.event.pull_request.number }}"
+    # Build prompt expressions for each event type.
+    # These are used inside ${{ }}, so no ${{ }} wrapping.
+    pr_number_expr = "(github.event_name == 'issue_comment' && github.event.issue.number || github.event.pull_request.number)"
     is_mention_comment = f"contains(github.event.comment.body, '@{cfg.bot_name}')"
     is_issue_edit = "github.event_name == 'issues'"
     is_review_comment = "github.event_name == 'pull_request_review_comment'"
@@ -317,9 +324,9 @@ def generate_mention(cfg: Config) -> GeneratedWorkflow:
 
     # Review comment prompts (mention vs engaged)
     lines.append(f"              || ({is_review_comment} && {is_mention_comment}")
-    lines.append(f"                && format('You were mentioned in an inline review comment on PR #{{0}} ({{1}}, review comment ID {{2}}). Read the full PR context (description, diff, recent comments, CI status) and respond. If they are requesting changes, make the changes, commit, and push. Reply in the review thread using `gh api repos/{{3}}/pulls/{{0}}/comments/{{2}}/replies -f body=\"...\"` — do not create a new top-level comment.', {pr_number}, github.event.comment.html_url, github.event.comment.id, github.repository))")
+    lines.append(f"                && format('You were mentioned in an inline review comment on PR #{{0}} ({{1}}, review comment ID {{2}}). Read the full PR context (description, diff, recent comments, CI status) and respond. If they are requesting changes, make the changes, commit, and push. Reply in the review thread using `gh api repos/{{3}}/pulls/{{0}}/comments/{{2}}/replies -f body=\"...\"` — do not create a new top-level comment.', {pr_number_expr}, github.event.comment.html_url, github.event.comment.id, github.repository))")
     lines.append(f"              || ({is_review_comment}")
-    lines.append(f"                && format('A user left an inline review comment on a PR where you previously participated (PR #{{0}}, {{1}}, review comment ID {{2}}). Read the full context. Only respond if the comment is directed at you or requests changes. Reply in the review thread using `gh api repos/{{3}}/pulls/{{0}}/comments/{{2}}/replies -f body=\"...\"`.', {pr_number}, github.event.comment.html_url, github.event.comment.id, github.repository))")
+    lines.append(f"                && format('A user left an inline review comment on a PR where you previously participated (PR #{{0}}, {{1}}, review comment ID {{2}}). Read the full context. Only respond if the comment is directed at you or requests changes. Reply in the review thread using `gh api repos/{{3}}/pulls/{{0}}/comments/{{2}}/replies -f body=\"...\"`.', {pr_number_expr}, github.event.comment.html_url, github.event.comment.id, github.repository))")
 
     # Issue comment prompts (mention vs engaged)
     lines.append(f"              || ({is_mention_comment}")
@@ -391,14 +398,7 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
     watched = wf.watched_workflows or ["ci"]
     prompt = wf.prompt or "/fix-ci {run_id}"
 
-    # Build the prompt with all run context
     prompt_expr = prompt.replace("{run_id}", "${{ github.event.workflow_run.id }}")
-    full_prompt = (
-        f"{prompt_expr}\\n"
-        "- Run URL: ${{ github.event.workflow_run.html_url }}\\n"
-        "- Commit: ${{ github.event.workflow_run.head_sha }}\\n"
-        "- Commit message: ${{ github.event.workflow_run.head_commit.message }}"
-    )
 
     lines = [HEADER]
     lines.append("name: cd-ci-fix")
@@ -507,7 +507,7 @@ def generate_renovate(cfg: Config) -> GeneratedWorkflow:
     return _generate_scheduled(cfg, "renovate", "17 9 * * 0", "/cd-renovate")
 
 
-GENERATORS: dict[str, callable] = {
+GENERATORS: dict[str, Callable[[Config], GeneratedWorkflow]] = {
     "review": generate_review,
     "mention": generate_mention,
     "triage": generate_triage,
