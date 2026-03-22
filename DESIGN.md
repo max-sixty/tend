@@ -150,36 +150,15 @@ everything else.
 
 ## Auth
 
-Two modes, set via `auth:` in `.continuous.yml`:
+Each adopter creates a GitHub bot account and generates a PAT with
+`contents:write`, `pull-requests:write`, `issues:write`. The PAT and a Claude
+OAuth token are stored as repo secrets.
 
-**`pat`** (default) — long-lived personal access token. The generator stamps
-`${{ secrets.BOT_TOKEN }}` into the workflows. Simple to set up, token lives
-indefinitely.
-
-**`app`** — GitHub App installation token. The generator adds a
-`create-github-app-token` step before checkout. Tokens expire in ~1 hour.
-Requires registering a GitHub App and storing the App ID as a variable and
-private key as a secret.
-
-```yaml
-# Generated when auth: app
-- uses: actions/create-github-app-token@v2
-  id: app-token
-  with:
-    app-id: ${{ vars.APP_ID }}
-    private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-- uses: actions/checkout@v6
-  with:
-    token: ${{ steps.app-token.outputs.token }}
-
-- uses: max-sixty/continuous@v1
-  with:
-    github_token: ${{ steps.app-token.outputs.token }}
-```
-
-The Anthropic token (`claude_code_oauth_token`) is always a long-lived secret
-in both modes — Anthropic doesn't support short-lived API tokens.
+Short-lived tokens via a shared GitHub App aren't feasible without centralized
+infrastructure — the App's private key can mint tokens for any repo it's
+installed on, which means whoever holds the key has write access to every
+adopter's repo. Adopters who want ephemeral tokens can register their own
+GitHub App, but that's not part of the initial product.
 
 ## What lives in the continuous repo
 
