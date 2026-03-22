@@ -1,0 +1,40 @@
+name: review-reviewers
+# Hourly analysis of Claude CI session logs from adopter repos.
+# Currently monitors worktrunk only.
+on:
+  schedule:
+    - cron: '47 * * * *'
+  workflow_dispatch:
+
+jobs:
+  review-reviewers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: max-sixty/worktrunk
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.WORKTRUNK_BOT_TOKEN }}
+
+      # worktrunk project setup
+      - uses: ./.github/actions/claude-setup
+      - run: echo "CARGO_TERM_COLOR=always" >> "$GITHUB_ENV"
+      - run: echo "RUSTFLAGS=-C debuginfo=0" >> "$GITHUB_ENV"
+      - run: echo "RUSTDOCFLAGS=-Dwarnings" >> "$GITHUB_ENV"
+
+      - uses: max-sixty/continuous@v1
+        with:
+          github_token: ${{ secrets.WORKTRUNK_BOT_TOKEN }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          bot_name: worktrunk-bot
+          system_prompt_append: "You are operating in a GitHub Actions CI environment. Use /running-in-ci before starting work."
+          prompt: /review-reviewers

@@ -13,9 +13,6 @@ inputs:
   bot_name:
     required: true
     description: GitHub username of the bot account
-  bot_id:
-    required: true
-    description: GitHub user ID of the bot account
   prompt:
     required: true
     description: The prompt to send to Claude Code
@@ -28,9 +25,6 @@ inputs:
   system_prompt_append:
     default: "You are operating in a GitHub Actions CI environment. Use /cd-running-in-ci before starting work."
     description: Text appended to the system prompt
-  trigger_phrase:
-    default: ""
-    description: "Bot trigger phrase (e.g., @my-bot). Empty disables."
   allowed_bots:
     default: "*"
     description: Bots allowed to trigger workflows
@@ -57,7 +51,6 @@ runs:
         mkdir -p .claude/skills
         for skill_dir in "$cd_dir"/skills/*/; do
           skill_name=$(basename "$skill_dir")
-          # Don't overwrite project-specific skills that share a name
           if [ ! -d ".claude/skills/$skill_name" ]; then
             cp -r "$skill_dir" ".claude/skills/$skill_name"
           fi
@@ -71,12 +64,18 @@ runs:
         for script in "$cd_dir"/scripts/*.sh; do
           [ -f "$script" ] || continue
           script_name=$(basename "$script")
-          # Don't overwrite project-specific scripts
           if [ ! -f ".github/scripts/$script_name" ]; then
             cp "$script" ".github/scripts/$script_name"
             chmod +x ".github/scripts/$script_name"
           fi
         done
+
+    - name: Resolve bot ID
+      id: bot
+      shell: bash
+      run: echo "id=$(gh api users/${{ inputs.bot_name }} --jq '.id')" >> "$GITHUB_OUTPUT"
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
 
     - name: Run Claude Code
       id: claude
@@ -85,11 +84,11 @@ runs:
         show_full_output: ${{ inputs.show_full_output }}
         claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
         github_token: ${{ inputs.github_token }}
-        bot_id: ${{ inputs.bot_id }}
+        bot_id: ${{ steps.bot.outputs.id }}
         bot_name: ${{ inputs.bot_name }}
         allowed_bots: ${{ inputs.allowed_bots }}
         allowed_non_write_users: ${{ inputs.allowed_non_write_users }}
-        trigger_phrase: ${{ inputs.trigger_phrase }}
+        trigger_phrase: "@${{ inputs.bot_name }}"
         use_sticky_comment: ${{ inputs.use_sticky_comment }}
         additional_permissions: ${{ inputs.additional_permissions }}
         prompt: ${{ inputs.prompt }}
