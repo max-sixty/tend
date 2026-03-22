@@ -36,7 +36,7 @@ continuous/
 ├── action.yaml            # Composite action: installs skills + scripts
 ├── skills/                # Generic CI skills for Claude
 ├── scripts/               # Helper scripts (survey, run listing)
-├── docs/                  # Security model, configuration reference
+├── docs/                  # Security model
 └── templates/             # Starter caller workflows for adopters
 ```
 
