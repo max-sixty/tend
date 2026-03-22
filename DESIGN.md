@@ -152,13 +152,20 @@ everything else.
 
 Each adopter creates a GitHub bot account and generates a PAT with
 `contents:write`, `pull-requests:write`, `issues:write`. The PAT and a Claude
-OAuth token are stored as repo secrets.
+OAuth token are stored as repo secrets. We never see either token.
 
-Short-lived tokens via a shared GitHub App aren't feasible without centralized
-infrastructure — the App's private key can mint tokens for any repo it's
-installed on, which means whoever holds the key has write access to every
-adopter's repo. Adopters who want ephemeral tokens can register their own
-GitHub App, but that's not part of the initial product.
+*Token leak risk:* The PAT is long-lived and available to every workflow run.
+A prompt injection that exfiltrates it gets permanent write access to
+everything the bot account can reach (not just the current repo, unless the
+bot account is scoped to one repo). Mitigations: merge restriction (ruleset)
+caps what the token can do, environment protection keeps release secrets
+safe, periodic rotation limits exposure window.
+
+*Anthropic token:* The adopter stores their own `CLAUDE_CODE_OAUTH_TOKEN`
+as a repo secret. It's passed directly from the workflow to
+`claude-code-action`. Each adopter uses their own Anthropic billing. If
+leaked, the attacker can run Claude sessions on the adopter's account but
+can't access GitHub.
 
 ### Alternative models
 
@@ -171,36 +178,38 @@ three progressively more managed alternatives.
 The adopter's experience:
 
 1. Install our GitHub App on their repo
-2. Run `continuous init` (generates workflow files, no secrets to configure
-   for GitHub — only the Claude token)
+2. Run `continuous init` (generates workflow files, no GitHub secrets to
+   configure — only their Claude token as a repo secret)
 3. Push the generated workflows. Done.
 
 Each workflow run authenticates to our service via GitHub's OIDC token
 (`id-token: write`), which proves the caller's repo identity without any
 shared secret. Our service mints a scoped installation token (~1h lifetime)
-for that repo and returns it. The workflow uses this token for the rest of
-the job.
+for that repo and returns it.
 
 ```yaml
-# In the generated workflow
 - uses: max-sixty/continuous/auth@v1  # OIDC → our service → scoped token
   id: auth
 - uses: actions/checkout@v6
   with:
     token: ${{ steps.auth.outputs.token }}
-- uses: ./.github/actions/project-setup   # adopter's own setup
+- uses: ./.github/actions/project-setup
 - uses: max-sixty/continuous@v1
   with:
     github_token: ${{ steps.auth.outputs.token }}
     claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
-No bot account, no PAT, no GitHub private key in the adopter's repo.
-Trigger logic and project setup remain in the adopter's generated
-workflows. The service is a single stateless function (Lambda / Cloud Run)
-called once per workflow run. We hold the App's private key; adopters trust
-us not to abuse write access. If the service is down, workflows fail at
-the auth step.
+*Token leak risk:* The GitHub token minted during a workflow run is scoped
+to that single repo and expires in ~1h. A prompt injection that exfiltrates
+it gets temporary write access to one repo — same blast radius as the
+default model's PAT during a single run, but the exposure window is bounded.
+The App's private key never touches the adopter's repo or workflow; it lives
+only on our service.
+
+*Anthropic token:* The adopter stores their own `CLAUDE_CODE_OAUTH_TOKEN` as
+a repo secret. We never see it — it's passed directly from the workflow to
+`claude-code-action`. Each adopter uses their own Anthropic billing.
 
 **Model B: Managed workflows (stateless infra + generator).**
 
@@ -212,29 +221,53 @@ instead of a local CLI. The adopter's experience:
 3. Our CI detects the config and opens a PR adding the workflow files
 
 Updates work the same way — we push a PR when the generator changes.
-Adopters review and merge. Same trust model as A (we have write access via
-the App, but we only use it to propose workflow file changes via PRs — the
-adopter merges). Same auth (OIDC → token-minting service).
+Adopters review and merge.
+
+*Token leak risk:* Same as Model A — OIDC-minted tokens, ~1h lifetime,
+single-repo scope. The App's write access is used only to open PRs
+proposing workflow changes; the adopter decides whether to merge.
+
+*Anthropic token:* Same as Model A — adopter's own repo secret, we never
+see it.
 
 **Model C: Full webhook handler (stateful infra).**
 
 The adopter's experience:
 
 1. Install our GitHub App
-2. Add `.continuous.yml` to their repo
+2. Add `.continuous.yml` to their repo (including their Anthropic token
+   reference, or provide it via our dashboard)
 3. Done. No workflow files.
 
 We receive webhooks directly from GitHub. Our service handles trigger
 logic, engagement verification, concurrency, checkout, and Claude session
-execution. The adopter's repo has no workflow files for continuous at all —
-just the config file and optionally project-specific skills in
-`.claude/skills/`.
+execution.
 
 This is the most cohesive UX and the only model that solves the fork PR
-inline comment gap (we receive all webhooks regardless of fork status). But
-it requires persistent infrastructure, Claude session management, and
-billing. The adopter trusts us with both repo write access and code
-execution.
+inline comment gap (we receive all webhooks regardless of fork status).
+
+*Token leak risk:* Our service holds the App's private key and executes
+code in the context of the adopter's repo. A compromise of our
+infrastructure exposes write access to every adopter's repo and their
+code. This is a fundamentally different trust model — the adopter trusts
+us with code execution, not just token minting.
+
+*Anthropic token:* This is the hard one. Options:
+
+- *Adopter provides token to our service* (via dashboard or encrypted
+  config). We hold it and use it to run Claude sessions. The adopter
+  trusts us with their Anthropic billing. If our service is compromised,
+  the attacker gets every adopter's Claude token.
+- *We provide Claude access* and bill the adopter. We hold a single
+  Anthropic account, run all sessions, and charge adopters for usage.
+  Simpler for adopters (no Anthropic account needed) but we take on
+  billing and usage management.
+- *Adopter runs Claude on their own runners* via `workflow_dispatch`.
+  Our service receives webhooks and dispatches back to the adopter's
+  repo. The Claude token stays in the adopter's repo secrets, never
+  reaches our service. This hybrid keeps the Anthropic token fully
+  under adopter control but adds latency (webhook → our service →
+  workflow_dispatch → runner) and complexity.
 
 ## What lives in the continuous repo
 
