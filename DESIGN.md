@@ -148,7 +148,15 @@ can't access GitHub.
 
 The design above (composite action + generator + PAT) optimizes for
 simplicity and zero trust — we never touch the adopter's repo. Below are
-three progressively more managed alternatives.
+two progressively more managed alternatives.
+
+**Workflow verbosity across models:**
+
+| Model | Workflow files in adopter's repo | Lines per workflow (approx) |
+|-------|--------------------------------|----------------------------|
+| Default (PAT) | 5-7 generated files | 30-80 each (mention is largest due to engagement verification) |
+| Model A | Same files, same size | Same — only the auth step changes (PAT secret → OIDC call) |
+| Model B | None | Zero — logic lives in our service |
 
 **Model A: Token-minting service (stateless infra).**
 
@@ -170,10 +178,13 @@ model.
 default model. The only difference is how the GitHub token is obtained — an
 OIDC call to our service replaces reading a PAT from repo secrets.
 
-Each workflow run authenticates to our service via GitHub's OIDC token
-(`id-token: write`), which proves the caller's repo identity without any
-shared secret. Our service mints a scoped installation token (~1h lifetime)
-for that repo and returns it.
+We register a GitHub App and hold its private key on our service — the
+adopter never sees it. When the adopter installs the App on their repo,
+GitHub records the installation. Each workflow run authenticates to our
+service via GitHub's OIDC token (`id-token: write`), which proves the
+caller's repo identity without any shared secret. Our service verifies the
+OIDC token, uses the private key to mint a scoped installation token (~1h
+lifetime) for that specific repo, and returns it.
 
 ```yaml
 - uses: max-sixty/continuous/auth@v1  # OIDC → our service → scoped token
@@ -229,8 +240,8 @@ we receive all webhooks (including inline review comments on fork PRs) and
 can respond via the API regardless of fork status. Pushing code to fork
 branches still requires the fork author to enable maintainer edits.
 
-*Token leak risk:* Our service holds the App's private key and executes
-code in the context of the adopter's repo. A compromise of our
+*Token leak risk:* Same as Model A, we hold the App's private key. But
+here our service also executes code in the context of the adopter's repo. A compromise of our
 infrastructure exposes write access to every adopter's repo and their
 code. This is a fundamentally different trust model — the adopter trusts
 us with code execution, not just token minting.
