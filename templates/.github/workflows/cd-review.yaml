@@ -35,6 +35,7 @@ jobs:
       pr_number: ${{ github.event.pull_request.number }}
       event_name: ${{ github.event_name }}
       trigger_phrase: "@YOUR_BOT"
+      review_url: ${{ github.event.review.html_url }}
     secrets:
       bot_token: ${{ secrets.BOT_TOKEN }}
       claude_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
