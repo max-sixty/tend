@@ -1,5 +1,51 @@
-name: Continuous Development Setup
-description: Install CD generic skills and scripts for Claude CI workflows
+name: Continuous
+description: >-
+  Claude-powered CI for GitHub repos. Installs generic CD skills,
+  runs Claude Code, and uploads session logs.
+
+inputs:
+  github_token:
+    required: true
+    description: GitHub token for API access and pushing commits
+  claude_code_oauth_token:
+    required: true
+    description: Claude Code OAuth token for Anthropic API
+  bot_name:
+    required: true
+    description: GitHub username of the bot account
+  bot_id:
+    required: true
+    description: GitHub user ID of the bot account
+  prompt:
+    required: true
+    description: The prompt to send to Claude Code
+  model:
+    default: "opus"
+    description: Claude model to use
+  allowed_tools:
+    default: "Bash,Edit,Read,Write,Glob,Grep,WebSearch,WebFetch,Task,Skill"
+    description: Comma-separated list of allowed tools
+  system_prompt_append:
+    default: "You are operating in a GitHub Actions CI environment. Use /cd-running-in-ci before starting work."
+    description: Text appended to the system prompt
+  trigger_phrase:
+    default: ""
+    description: "Bot trigger phrase (e.g., @my-bot). Empty disables."
+  allowed_bots:
+    default: "*"
+    description: Bots allowed to trigger workflows
+  allowed_non_write_users:
+    default: "*"
+    description: Non-write users allowed to trigger workflows
+  show_full_output:
+    default: "true"
+    description: Show full Claude output in workflow logs
+  use_sticky_comment:
+    default: "false"
+    description: Use a sticky (updated) comment instead of new comments
+  additional_permissions:
+    default: "actions: read"
+    description: Additional permissions for claude-code-action
 
 runs:
   using: composite
@@ -23,6 +69,7 @@ runs:
         cd_dir="${GITHUB_ACTION_PATH}"
         mkdir -p .github/scripts
         for script in "$cd_dir"/scripts/*.sh; do
+          [ -f "$script" ] || continue
           script_name=$(basename "$script")
           # Don't overwrite project-specific scripts
           if [ ! -f ".github/scripts/$script_name" ]; then
@@ -30,3 +77,32 @@ runs:
             chmod +x ".github/scripts/$script_name"
           fi
         done
+
+    - name: Run Claude Code
+      id: claude
+      uses: anthropics/claude-code-action@v1
+      with:
+        show_full_output: ${{ inputs.show_full_output }}
+        claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
+        github_token: ${{ inputs.github_token }}
+        bot_id: ${{ inputs.bot_id }}
+        bot_name: ${{ inputs.bot_name }}
+        allowed_bots: ${{ inputs.allowed_bots }}
+        allowed_non_write_users: ${{ inputs.allowed_non_write_users }}
+        trigger_phrase: ${{ inputs.trigger_phrase }}
+        use_sticky_comment: ${{ inputs.use_sticky_comment }}
+        additional_permissions: ${{ inputs.additional_permissions }}
+        prompt: ${{ inputs.prompt }}
+        claude_args: |
+          --model ${{ inputs.model }}
+          --allowedTools ${{ inputs.allowed_tools }}
+          --append-system-prompt "${{ inputs.system_prompt_append }}"
+
+    - name: Upload session logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: claude-session-logs
+        path: /home/runner/.claude/projects/
+        retention-days: 30
+        if-no-files-found: warn
