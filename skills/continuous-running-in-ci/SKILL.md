@@ -229,7 +229,7 @@ Find the right run among multiple workflows:
 
 ```bash
 gh api 'repos/{owner}/{repo}/actions/runs?per_page=30' \
-  --jq '.workflow_runs[] | select(.name | startswith("claude-")) |
+  --jq '.workflow_runs[] | select(.name | startswith("continuous-")) |
     {id, name, event, head_branch, created_at, conclusion}'
 ```
 

@@ -10,14 +10,15 @@ CI fixes, nightly sweeps, dependency updates.
 Three pieces:
 
 1. **Composite action** (`max-sixty/continuous@v1`) — installs generic skills,
-   runs Claude Code, uploads session logs. The stable interface.
+   resolves bot ID at runtime, runs Claude Code, uploads session logs. The
+   stable interface.
 
 2. **Generator** (`uvx continuous init`) — stamps out workflow files into the
    adopter's `.github/workflows/`. Handles triggers, conditions, engagement
-   verification, checkout. Preserves project-specific setup on regeneration.
+   verification, checkout. Idempotent — always overwrites from config.
 
-3. **Config** (`.config/continuous.toml`) — bot identity and secret names. The
-   generator reads this to produce workflows.
+3. **Config** (`.config/continuous.toml`) — bot identity, secret names, project
+   setup steps. Only overrides from defaults are needed.
 
 ## Quick start
 
@@ -32,50 +33,49 @@ Three pieces:
 
    ```toml
    bot_name = "my-bot"
-   bot_id = "123456789"
 
    [secrets]
    bot_token = "BOT_TOKEN"
    claude_token = "CLAUDE_CODE_OAUTH_TOKEN"
-
-   [workflows.review]
-   [workflows.mention]
-   [workflows.triage]
-   [workflows.ci-fix]
-   [workflows.nightly]
-   [workflows.renovate]
    ```
 
 5. Generate and commit:
 
    ```bash
    uvx continuous init
-   git add .github/workflows/cd-*.yaml
+   git add .github/workflows/continuous-*.yaml
    git commit -m "Add continuous workflows"
    ```
 
-6. Add project setup (build tools, caches) between the marker comments in each
-   generated workflow, then push.
+## Customization
 
-## Updating
+Override defaults in `.config/continuous.toml`:
 
-```bash
-uvx continuous update
+```toml
+[setup]
+uses = ["./.github/actions/my-setup"]
+run = ["echo FOO=bar >> $GITHUB_ENV"]
+
+[workflows.ci-fix]
+watched_workflows = ["ci", "build"]
+
+[workflows.nightly]
+cron = "0 8 * * *"
+
+[workflows.renovate]
+enabled = false
 ```
-
-Regenerates generator-owned sections. Content between `# --- project setup ---`
-markers is preserved.
 
 ## What's generated
 
 | Workflow | Trigger |
 |---|---|
-| `cd-review` | PR opened/updated, review submitted |
-| `cd-mention` | @bot mentions, engaged conversations |
-| `cd-triage` | Issue opened |
-| `cd-ci-fix` | CI fails on default branch |
-| `cd-nightly` | Daily schedule |
-| `cd-renovate` | Weekly schedule |
+| `continuous-review` | PR opened/updated, review submitted |
+| `continuous-mention` | @bot mentions, engaged conversations |
+| `continuous-triage` | Issue opened |
+| `continuous-ci-fix` | CI fails on default branch |
+| `continuous-nightly` | Daily schedule |
+| `continuous-renovate` | Weekly schedule |
 
 ## Architecture
 
@@ -90,7 +90,8 @@ continuous/
 ```
 
 Project-specific behavior (test commands, review criteria, labels) stays in the
-adopter's repo as skill overlays that reference the generic `cd-*` skills.
+adopter's repo as skill overlays that reference the generic `continuous-*`
+skills.
 
 ## Security
 
