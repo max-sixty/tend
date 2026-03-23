@@ -1,7 +1,7 @@
-name: Continuous
+name: Tend
 description: >-
-  Claude-powered CI for GitHub repos. Resolves bot identity,
-  runs Claude Code, and uploads session logs.
+  Claude-powered CI for GitHub repos. Loads CI skills via plugin,
+  resolves bot identity, runs Claude Code, and uploads session logs.
 
 inputs:
   github_token:
@@ -97,6 +97,7 @@ runs:
           --model ${{ inputs.model }}
           --allowedTools ${{ inputs.allowed_tools }}
           --append-system-prompt "${{ inputs.system_prompt_append }}"
+          --plugin-dir ${{ github.action_path }}
 
     - name: Upload session logs
       if: always()

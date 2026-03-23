@@ -9,14 +9,14 @@ CI fixes, nightly sweeps, dependency updates.
 
 Four pieces:
 
-1. **Plugin** (`continuous`) — Claude Code plugin providing CI skills (review,
+1. **Plugin** (`tend`) — Claude Code plugin providing CI skills (review,
    triage, ci-fix, nightly, renovate, etc.). Install from the marketplace or
    directly from the repo.
 
-2. **Composite action** (`max-sixty/continuous@v1`) — resolves bot ID at
+2. **Composite action** (`max-sixty/tend@v1`) — resolves bot ID at
    runtime, runs Claude Code, uploads session logs. The stable interface.
 
-3. **Generator** (`uvx continuous init`) — stamps out workflow files into
+3. **Generator** (`uvx tend init`) — stamps out workflow files into
    `.github/workflows/`. Handles triggers, conditions, engagement verification,
    checkout. Idempotent — always overwrites from config.
 
@@ -74,17 +74,17 @@ claude_token = "MY_CLAUDE_TOKEN"
 
 ### 5. Install the plugin
 
-Install the `continuous` Claude Code plugin so the CI skills are available:
+Install the `tend` Claude Code plugin so the CI skills are available:
 
 ```bash
-claude plugin add max-sixty/continuous
+claude plugin add max-sixty/tend
 ```
 
 ### 6. Generate and commit
 
 ```bash
-uvx continuous init
-uvx continuous check          # verify branch protection, secrets, bot access
+uvx tend init
+uvx tend check          # verify branch protection, secrets, bot access
 git add .github/workflows/continuous-*.yaml .config/continuous.toml
 git commit -m "Add continuous workflows"
 git push
@@ -154,7 +154,7 @@ continuous/
 ├── skills/           # CI skills (distributed via plugin)
 ├── action.yaml       # Composite action (the interface)
 ├── scripts/          # Helper scripts (survey, run listing)
-├── generator/        # Python package (uvx continuous)
+├── generator/        # Python package (uvx tend)
 └── docs/
     └── security-model.md
 ```

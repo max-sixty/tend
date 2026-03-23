@@ -1,5 +1,5 @@
 {
-  "name": "continuous",
+  "name": "tend",
   "owner": {
     "name": "Maximilian Roos",
     "email": "m@maxroos.com"
@@ -10,7 +10,7 @@
   },
   "plugins": [
     {
-      "name": "continuous",
+      "name": "tend",
       "description": "CI skills for GitHub repos — PR review, issue triage, CI fixes, nightly sweeps, dependency updates, and session analysis.",
       "source": "./"
     }
