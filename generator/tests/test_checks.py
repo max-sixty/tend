@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from continuous.checks import (
@@ -110,6 +111,14 @@ def test_bot_permission_403() -> None:
     assert "admin access" in result.message
 
 
+def test_bot_permission_404_wrong_username() -> None:
+    with patch("continuous.checks._gh", return_value=_make_completed(returncode=1, stderr="HTTP 404 Not Found")):
+        result = check_bot_permission("owner/repo", "typo-bot")
+    assert result.passed is None
+    assert "not found" in result.message.lower()
+    assert "typo-bot" in result.message
+
+
 # ---------------------------------------------------------------------------
 # check_secrets
 # ---------------------------------------------------------------------------
@@ -185,9 +194,9 @@ def test_run_all_checks_with_explicit_repo() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_cli_check_all_pass(tmp_path: Path, monkeypatch: object) -> None:
+def test_cli_check_all_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_config(tmp_path)
-    monkeypatch.chdir(tmp_path)  # type: ignore[union-attr]
+    monkeypatch.chdir(tmp_path)
 
     pass_results = [
         CheckResult("branch-protection", True, "protected"),
@@ -200,9 +209,9 @@ def test_cli_check_all_pass(tmp_path: Path, monkeypatch: object) -> None:
     assert "PASS" in result.output
 
 
-def test_cli_check_failure_exits_1(tmp_path: Path, monkeypatch: object) -> None:
+def test_cli_check_failure_exits_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_config(tmp_path)
-    monkeypatch.chdir(tmp_path)  # type: ignore[union-attr]
+    monkeypatch.chdir(tmp_path)
 
     results = [
         CheckResult("branch-protection", False, "NOT protected"),
@@ -213,10 +222,10 @@ def test_cli_check_failure_exits_1(tmp_path: Path, monkeypatch: object) -> None:
     assert "FAIL" in result.output
 
 
-def test_cli_check_skips_exit_0(tmp_path: Path, monkeypatch: object) -> None:
+def test_cli_check_skips_exit_0(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """All skipped checks should not be treated as failures."""
     _write_config(tmp_path)
-    monkeypatch.chdir(tmp_path)  # type: ignore[union-attr]
+    monkeypatch.chdir(tmp_path)
 
     results = [CheckResult("prerequisites", None, "gh not found")]
     with patch("continuous.cli.run_all_checks", return_value=results):
@@ -230,9 +239,9 @@ def test_cli_check_skips_exit_0(tmp_path: Path, monkeypatch: object) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_init_prints_check_reminder(tmp_path: Path, monkeypatch: object) -> None:
+def test_init_prints_check_reminder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_config(tmp_path)
-    monkeypatch.chdir(tmp_path)  # type: ignore[union-attr]
+    monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(main, ["init"])
     assert result.exit_code == 0
     assert "continuous check" in result.output

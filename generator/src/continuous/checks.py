@@ -72,6 +72,12 @@ def check_bot_permission(repo: str, bot_name: str) -> CheckResult:
     if result is None:
         return CheckResult("bot-permission", None, "gh CLI not found")
     if result.returncode != 0:
+        stderr = result.stderr.strip()
+        if "Not Found" in stderr or "404" in stderr:
+            return CheckResult(
+                "bot-permission", None,
+                f"Bot '{bot_name}' not found as a collaborator — check the bot_name in config",
+            )
         return CheckResult("bot-permission", None, "Could not check (may require admin access to read)")
 
     perm = result.stdout.strip()
