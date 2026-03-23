@@ -3,6 +3,9 @@
 # Opens a browser for the user to sign in with their Claude account.
 # Token is valid for 1 year (31536000 seconds).
 #
+# TODO: Verify end-to-end token exchange works (PKCE + callback verified,
+#       but token exchange was blocked by rate limiting during testing)
+#
 # Usage: TOKEN=$(./oauth-token.sh)
 set -euo pipefail
 
