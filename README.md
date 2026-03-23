@@ -1,4 +1,4 @@
-# Continuous
+# Tend
 
 > **Early development** — extracted from [worktrunk](https://github.com/max-sixty/worktrunk)'s CI automation. Expect breaking changes.
 
@@ -20,7 +20,7 @@ Four pieces:
    `.github/workflows/`. Handles triggers, conditions, engagement verification,
    checkout. Idempotent — always overwrites from config.
 
-4. **Config** (`.config/continuous.toml`) — bot identity, secret names, project
+4. **Config** (`.config/tend.toml`) — bot identity, secret names, project
    setup steps. Only overrides from defaults are needed.
 
 ## Quick start
@@ -47,7 +47,7 @@ See [docs/security-model.md](docs/security-model.md) for details.
 
 ### 4. Add config
 
-Create `.config/continuous.toml`:
+Create `.config/tend.toml`:
 
 ```toml
 bot_name = "my-project-bot"
@@ -85,8 +85,8 @@ claude plugin add max-sixty/tend
 ```bash
 uvx tend init
 uvx tend check          # verify branch protection, secrets, bot access
-git add .github/workflows/continuous-*.yaml .config/continuous.toml
-git commit -m "Add continuous workflows"
+git add .github/workflows/tend-*.yaml .config/tend.toml
+git commit -m "Add tend workflows"
 git push
 ```
 
@@ -126,9 +126,9 @@ enabled = false                       # disable a workflow entirely
 
 ### Project-specific skills
 
-The generic `continuous-*` skills handle CI patterns. Project-specific behavior
+The generic `tend-*` skills handle CI patterns. Project-specific behavior
 (test commands, review criteria, labels) goes in a skill overlay in the
-adopter's repo — e.g., `.claude/skills/running-continuous/SKILL.md`. This skill
+adopter's repo — e.g., `.claude/skills/running-tend/SKILL.md`. This skill
 can reference the generic skills and add project conventions.
 
 ## What's generated
@@ -138,17 +138,17 @@ All six workflows are enabled by default. Disable individual workflows with
 
 | Workflow | Trigger |
 |---|---|
-| `continuous-review` | PR opened/updated, review submitted |
-| `continuous-mention` | @bot mentions, engaged conversations |
-| `continuous-triage` | Issue opened |
-| `continuous-ci-fix` | CI fails on default branch |
-| `continuous-nightly` | Daily schedule, manual dispatch |
-| `continuous-renovate` | Weekly schedule, manual dispatch |
+| `tend-review` | PR opened/updated, review submitted |
+| `tend-mention` | @bot mentions, engaged conversations |
+| `tend-triage` | Issue opened |
+| `tend-ci-fix` | CI fails on default branch |
+| `tend-nightly` | Daily schedule, manual dispatch |
+| `tend-renovate` | Weekly schedule, manual dispatch |
 
 ## Architecture
 
 ```
-continuous/
+tend/
 ├── .claude-plugin/
 │   └── plugin.json   # Plugin manifest
 ├── skills/           # CI skills (distributed via plugin)
