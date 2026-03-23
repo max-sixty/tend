@@ -375,7 +375,7 @@ jobs:
 
 def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("ci-fix", WorkflowConfig())
-    watched = wf.watched_workflows or ["ci"]
+    watched = wf.watched_workflows if wf.watched_workflows is not None else ["ci"]
     prompt = (wf.prompt or "/continuous-ci-fix {run_id}").replace(
         "{run_id}", "${{ github.event.workflow_run.id }}"
     )
