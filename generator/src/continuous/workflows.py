@@ -362,7 +362,8 @@ jobs:
           github_token: {bt}
           claude_code_oauth_token: {ct}
           bot_name: {bn}
-          prompt: "{prompt}"
+          prompt: |
+            {prompt}
 """
     return GeneratedWorkflow(filename="continuous-triage.yaml", content=content)
 
@@ -383,7 +384,7 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
 
     setup = _setup_yaml(cfg)
     perms = _permissions(issues=False)
-    watched_yaml = ", ".join(watched)
+    watched_yaml = ", ".join(f'"{w}"' for w in watched)
 
     content = f"""\
 {HEADER}
@@ -440,12 +441,8 @@ def _generate_scheduled(cfg: Config, name: str, default_cron: str, default_promp
     setup = _setup_yaml(cfg)
     perms = _permissions()
 
-    if "\n" in prompt:
-        prompt_yaml = "prompt: |\n" + "\n".join(
-            f"            {line}" for line in prompt.split("\n")
-        )
-    else:
-        prompt_yaml = f'prompt: "{prompt}"'
+    prompt_lines = "\n".join(f"            {line}" for line in prompt.split("\n"))
+    prompt_yaml = f"prompt: |\n{prompt_lines}"
 
     content = f"""\
 {HEADER}
