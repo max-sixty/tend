@@ -1,5 +1,5 @@
 ---
-name: continuous-review-reviewers
+name: tend-review-reviewers
 description: Hourly analysis of Claude CI session logs — identifies behavioral problems, skill gaps, and workflow issues.
 metadata:
   internal: true
@@ -190,7 +190,7 @@ was the outcome?
 
 ## Step 3: Cross-check review sessions
 
-For `continuous-review` runs, compare what the bot said against what happened next:
+For `tend-review` runs, compare what the bot said against what happened next:
 
 ```bash
 HEAD_BRANCH=$(gh run view <run-id> --json headBranch --jq '.headBranch')

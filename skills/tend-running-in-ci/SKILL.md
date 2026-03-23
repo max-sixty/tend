@@ -1,5 +1,5 @@
 ---
-name: continuous-running-in-ci
+name: tend-running-in-ci
 description: Generic CI environment rules for GitHub Actions workflows. Use when operating in CI — covers security, CI monitoring, comment formatting, and investigating session logs from other runs.
 metadata:
   internal: true
@@ -229,7 +229,7 @@ Find the right run among multiple workflows:
 
 ```bash
 gh api 'repos/{owner}/{repo}/actions/runs?per_page=30' \
-  --jq '.workflow_runs[] | select(.name | startswith("continuous-")) |
+  --jq '.workflow_runs[] | select(.name | startswith("tend-")) |
     {id, name, event, head_branch, created_at, conclusion}'
 ```
 

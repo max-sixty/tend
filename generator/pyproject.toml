@@ -20,13 +20,13 @@ classifiers = [
 dependencies = ["click>=8.0"]
 
 [project.scripts]
-tend = "continuous.cli:main"
+tend = "tend.cli:main"
 
 [project.urls]
 homepage = "https://github.com/max-sixty/tend"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/continuous"]
+packages = ["src/tend"]
 
 [dependency-groups]
 dev = ["pytest>=9.0.2", "pyyaml>=6.0.3"]

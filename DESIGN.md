@@ -1,4 +1,4 @@
-# Continuous — Design
+# Tend — Design
 
 ## What this is
 
@@ -26,7 +26,7 @@ Four pieces:
      prompt: { required: true }
      model: { default: "opus" }
      allowed_tools: { default: "Bash,Edit,Read,Write,Glob,Grep,WebSearch,WebFetch,Task,Skill" }
-     system_prompt_append: { default: "...Use /continuous-running-in-ci..." }
+     system_prompt_append: { default: "...Use /tend-running-in-ci..." }
      allowed_bots: { default: "*" }
      allowed_non_write_users: { default: "*" }
      show_full_output: { default: "true" }
@@ -46,7 +46,7 @@ Four pieces:
    generated files. Generation is idempotent — running `init` again overwrites
    all files from the current config.
 
-4. **Config** (`.config/continuous.toml`) — stores the inputs to the generator.
+4. **Config** (`.config/tend.toml`) — stores the inputs to the generator.
    Only overrides from defaults need to be specified. All six workflows are
    enabled by default.
 
@@ -74,8 +74,8 @@ vars) is defined in the `[setup]` section of the config and rendered into each
 workflow.
 
 ```yaml
-# .github/workflows/continuous-review.yaml (generated)
-name: continuous-review
+# .github/workflows/tend-review.yaml (generated)
+name: tend-review
 on:
   pull_request_target:
     types: [opened, synchronize, ready_for_review, reopened]
@@ -111,7 +111,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           bot_name: worktrunk-bot
           prompt: >-
-            ${{ format('/continuous-review {0}', github.event.pull_request.number) }}
+            ${{ format('/tend-review {0}', github.event.pull_request.number) }}
 ```
 
 ## What the generator owns vs what the adopter owns
@@ -124,10 +124,10 @@ jobs:
 | Concurrency groups | Generator | generated workflow |
 | Permissions | Generator | generated workflow |
 | Checkout | Generator | generated workflow |
-| Project setup (build tools, cache) | Adopter | `[setup]` in `.config/continuous.toml` |
+| Project setup (build tools, cache) | Adopter | `[setup]` in `.config/tend.toml` |
 | Composite action call | Generator | generated workflow |
-| Bot identity, auth config | Adopter | `.config/continuous.toml` |
-| Skills (generic) | Continuous | `tend` plugin (marketplace) |
+| Bot identity, auth config | Adopter | `.config/tend.toml` |
+| Skills (generic) | Tend | `tend` plugin (marketplace) |
 | Skills (project-specific) | Adopter | `.claude/skills/` in their repo |
 
 ## Auth
@@ -224,7 +224,7 @@ requires a webhook handler to detect config changes.
 The adopter's experience:
 
 1. Install our GitHub App
-2. Add `.config/continuous.toml` to their repo
+2. Add `.config/tend.toml` to their repo
 3. Done. No workflow files.
 
 *Where workflows live:* Nowhere in the adopter's repo. The logic lives
@@ -268,25 +268,25 @@ us with code execution, not just token minting.
   under adopter control but adds latency (webhook → our service →
   workflow_dispatch → runner) and complexity.
 
-## What lives in the continuous repo
+## What lives in the tend repo
 
 ```
-continuous/
+tend/
 ├── .claude-plugin/
 │   └── plugin.json         # Plugin manifest
 ├── skills/                 # CI skills (distributed via plugin)
-│   ├── continuous-running-in-ci/
-│   ├── continuous-review/
-│   ├── continuous-triage/
-│   ├── continuous-ci-fix/
-│   ├── continuous-nightly/
-│   ├── continuous-renovate/
-│   └── continuous-review-reviewers/
+│   ├── tend-running-in-ci/
+│   ├── tend-review/
+│   ├── tend-triage/
+│   ├── tend-ci-fix/
+│   ├── tend-nightly/
+│   ├── tend-renovate/
+│   └── tend-review-reviewers/
 ├── action.yaml             # Composite action (the interface)
 ├── scripts/                # Helper scripts installed by the action
 ├── generator/              # Python package (uvx tend init)
 │   ├── pyproject.toml
-│   └── src/continuous/
+│   └── src/tend/
 ├── docs/
 │   └── security-model.md
 └── README.md
