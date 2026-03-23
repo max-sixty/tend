@@ -106,6 +106,7 @@ jobs:
         with:
           ref: refs/pull/${{{{ github.event.pull_request.number }}}}/merge
           fetch-depth: 0
+          fetch-tags: true
           token: {bt}
 
       - name: Checkout (review response)
