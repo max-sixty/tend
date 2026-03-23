@@ -13,60 +13,107 @@ Three pieces:
    resolves bot ID at runtime, runs Claude Code, uploads session logs. The
    stable interface.
 
-2. **Generator** (`uvx continuous init`) — stamps out workflow files into the
-   adopter's `.github/workflows/`. Handles triggers, conditions, engagement
-   verification, checkout. Idempotent — always overwrites from config.
+2. **Generator** (`uvx continuous init`) — stamps out workflow files into
+   `.github/workflows/`. Handles triggers, conditions, engagement verification,
+   checkout. Idempotent — always overwrites from config.
 
 3. **Config** (`.config/continuous.toml`) — bot identity, secret names, project
    setup steps. Only overrides from defaults are needed.
 
 ## Quick start
 
-1. Create a bot GitHub account with a PAT (`contents:write`,
-   `pull-requests:write`, `issues:write`).
+### 1. Create a bot account
 
-2. Add repo secrets: `BOT_TOKEN` (the PAT) and `CLAUDE_CODE_OAUTH_TOKEN`.
+Create a GitHub user account for the bot (e.g., `my-project-bot`). Generate a
+classic PAT with scopes: `repo` (or fine-grained with `contents:write`,
+`pull-requests:write`, `issues:write`).
 
-3. Set up merge protection — the bot must not be able to merge PRs.
+### 2. Add repo secrets
 
-4. Add `.config/continuous.toml`:
+| Secret | Value |
+|--------|-------|
+| `BOT_TOKEN` | The bot account's PAT |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token from [console.anthropic.com](https://console.anthropic.com) |
 
-   ```toml
-   bot_name = "my-bot"
+### 3. Protect the default branch
 
-   [secrets]
-   bot_token = "BOT_TOKEN"
-   claude_token = "CLAUDE_CODE_OAUTH_TOKEN"
-   ```
+The bot must not be able to merge PRs — this is the primary security boundary.
+Create a **ruleset** on the repo: "Restrict updates" on the default branch,
+with only the repo admin as a bypass actor. The bot has `write` access but
+cannot merge.
 
-5. Generate and commit:
+### 4. Add config
 
-   ```bash
-   uvx continuous init
-   git add .github/workflows/continuous-*.yaml
-   git commit -m "Add continuous workflows"
-   ```
+Create `.config/continuous.toml`:
+
+```toml
+bot_name = "my-project-bot"
+```
+
+This generates all six workflows using default secret names (`BOT_TOKEN`,
+`CLAUDE_CODE_OAUTH_TOKEN`). Override secret names if yours differ:
+
+```toml
+bot_name = "my-project-bot"
+
+[secrets]
+bot_token = "MY_BOT_PAT"
+claude_token = "MY_CLAUDE_TOKEN"
+```
+
+### 5. Generate and commit
+
+```bash
+uvx continuous init
+git add .github/workflows/continuous-*.yaml .config/continuous.toml
+git commit -m "Add continuous workflows"
+git push
+```
+
+### 6. Add project context (recommended)
+
+Without project-specific guidance, Claude uses only the generic CI skills. For
+better results, add a `.claude/CLAUDE.md` with build commands, test commands,
+and project conventions. For detailed per-workflow guidance, add a skill overlay
+(see [Customization](#customization)).
 
 ## Customization
 
-Override defaults in `.config/continuous.toml`:
+### Project setup steps
+
+Build tools, caches, and environment variables run before Claude in every
+workflow. Define them in config:
 
 ```toml
 [setup]
 uses = ["./.github/actions/my-setup"]
-run = ["echo FOO=bar >> $GITHUB_ENV"]
-
-[workflows.ci-fix]
-watched_workflows = ["ci", "build"]
-
-[workflows.nightly]
-cron = "0 8 * * *"
-
-[workflows.renovate]
-enabled = false
+run = ["echo CARGO_TERM_COLOR=always >> $GITHUB_ENV"]
 ```
 
+### Workflow overrides
+
+```toml
+[workflows.ci-fix]
+watched_workflows = ["ci", "build"]   # which workflows trigger ci-fix
+
+[workflows.nightly]
+cron = "0 8 * * *"                    # override default schedule
+
+[workflows.renovate]
+enabled = false                       # disable a workflow entirely
+```
+
+### Project-specific skills
+
+The generic `continuous-*` skills handle CI patterns. Project-specific behavior
+(test commands, review criteria, labels) goes in a skill overlay in the
+adopter's repo — e.g., `.claude/skills/running-continuous/SKILL.md`. This skill
+can reference the generic skills and add project conventions.
+
 ## What's generated
+
+All six workflows are enabled by default. Disable individual workflows with
+`enabled = false` in config.
 
 | Workflow | Trigger |
 |---|---|
@@ -88,10 +135,6 @@ continuous/
 └── docs/
     └── security-model.md
 ```
-
-Project-specific behavior (test commands, review criteria, labels) stays in the
-adopter's repo as skill overlays that reference the generic `continuous-*`
-skills.
 
 ## Security
 

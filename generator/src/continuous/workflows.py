@@ -19,7 +19,11 @@ def _claude_token(cfg: Config) -> str:
 
 
 def _setup_yaml(cfg: Config, indent: int = 6) -> str:
-    """Render setup steps as YAML, indented to `indent` spaces."""
+    """Render setup steps as YAML, indented to `indent` spaces.
+
+    Returns empty string when no steps, or newline-prefixed block when present,
+    so templates can write `{setup}` without extra blank lines.
+    """
     pad = " " * indent
     lines = []
     for step in cfg.setup:
@@ -27,7 +31,9 @@ def _setup_yaml(cfg: Config, indent: int = 6) -> str:
             lines.append(f"{pad}- uses: {step.uses}")
         elif step.run:
             lines.append(f"{pad}- run: {step.run}")
-    return "\n".join(lines)
+    if not lines:
+        return ""
+    return "\n" + "\n".join(lines)
 
 
 def _permissions(issues: bool = True) -> str:
@@ -116,7 +122,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
-
 {setup}
 
       - name: Check out PR branch (review response)
@@ -273,7 +278,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
-
 {setup}
 
       - name: Check out PR branch
@@ -354,7 +358,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
-
 {setup}
 
       - uses: max-sixty/continuous@v1
@@ -409,7 +412,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
-
 {setup}
 
       - uses: max-sixty/continuous@v1
@@ -465,7 +467,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
-
 {setup}
 
       - uses: max-sixty/continuous@v1
