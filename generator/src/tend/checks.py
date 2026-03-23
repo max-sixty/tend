@@ -1,4 +1,4 @@
-"""Security checks for continuous setup.
+"""Security checks for tend setup.
 
 Verifies the repository has the security prerequisites described in
 docs/security-model.md: branch protection on the default branch, bot
@@ -15,7 +15,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
-from continuous.config import Config
+from tend.config import Config
 
 
 @dataclass

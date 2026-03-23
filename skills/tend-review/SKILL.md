@@ -1,5 +1,5 @@
 ---
-name: continuous-review
+name: tend-review
 description: Reviews a pull request for code quality and correctness. Use when asked to review a PR or when running as an automated PR reviewer.
 argument-hint: "[PR number]"
 metadata:
@@ -271,7 +271,7 @@ array indices to object keys, which GitHub rejects.
 ### 6. Monitor CI
 
 After approving or staying silent, monitor CI using the approach from
-/continuous-running-in-ci.
+/tend-running-in-ci.
 
 - **All required checks passed** -> done.
 - **A check failed** and it's related to the PR -> post a follow-up COMMENT

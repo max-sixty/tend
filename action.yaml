@@ -1,4 +1,4 @@
-name: Continuous
+name: Tend
 description: >-
   Claude-powered CI for GitHub repos. Installs generic CI skills,
   runs Claude Code, and uploads session logs.
@@ -23,7 +23,7 @@ inputs:
     default: "Bash,Edit,Read,Write,Glob,Grep,WebSearch,WebFetch,Task,Skill"
     description: Comma-separated list of allowed tools
   system_prompt_append:
-    default: "You are operating in a GitHub Actions CI environment. Use /continuous-running-in-ci before starting work."
+    default: "You are operating in a GitHub Actions CI environment. Use /tend-running-in-ci before starting work."
     description: Text appended to the system prompt
   allowed_bots:
     default: "*"
@@ -50,7 +50,7 @@ runs:
         DEFAULT_BRANCH=$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.default_branch')
         PROTECTED=$(gh api "repos/${GITHUB_REPOSITORY}/branches/${DEFAULT_BRANCH}" --jq '.protected')
         if [ "$PROTECTED" != "true" ]; then
-          echo "::error::Default branch '${DEFAULT_BRANCH}' is NOT protected. Without branch protection, the bot can merge PRs without review. Add a branch protection rule or ruleset before using Continuous. See docs/security-model.md in the Continuous repo."
+          echo "::error::Default branch '${DEFAULT_BRANCH}' is NOT protected. Without branch protection, the bot can merge PRs without review. Add a branch protection rule or ruleset before using Tend. See docs/security-model.md in the Tend repo."
           exit 1
         fi
         echo "Security preflight passed: default branch '${DEFAULT_BRANCH}' is protected"

@@ -9,12 +9,12 @@ import pytest
 import yaml
 from click import ClickException
 
-from continuous.config import Config, WorkflowConfig
-from continuous.workflows import generate_all
+from tend.config import Config, WorkflowConfig
+from tend.workflows import generate_all
 
 
 def _write_config(tmp_path: Path, content: str) -> Path:
-    cfg = tmp_path / ".config" / "continuous.toml"
+    cfg = tmp_path / ".config" / "tend.toml"
     cfg.parent.mkdir(parents=True, exist_ok=True)
     cfg.write_text(content)
     return cfg
@@ -141,7 +141,7 @@ def test_empty_cron(tmp_path: Path) -> None:
     assert cfg.workflows["nightly"].cron == ""
     # Empty string is falsy, so the generator falls back to the default cron
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    nightly = workflows["continuous-nightly.yaml"]
+    nightly = workflows["tend-nightly.yaml"]
     assert "17 6 * * *" in nightly.content  # default cron used
 
 
@@ -198,7 +198,7 @@ def test_prompt_with_zero_placeholder(tmp_path: Path) -> None:
     """))
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    review = workflows["continuous-review.yaml"]
+    review = workflows["tend-review.yaml"]
     # User's {0} is escaped to {{0}}, while {pr_number} becomes {0}
     assert "format(" in review.content
     assert "Fix {{0}} in {0}" in review.content
@@ -213,7 +213,7 @@ def test_prompt_with_numbered_placeholders(tmp_path: Path) -> None:
     """))
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    review = workflows["continuous-review.yaml"]
+    review = workflows["tend-review.yaml"]
     # {1} and {2} are escaped to {{1}} and {{2}} — literals in format()
     assert "format(" in review.content
     assert "{{1}}" in review.content
@@ -235,7 +235,7 @@ def test_prompt_with_single_quotes(tmp_path: Path) -> None:
     """))
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    review = workflows["continuous-review.yaml"]
+    review = workflows["tend-review.yaml"]
     # The _escape() function doubles single quotes for GHA expressions
     assert "Don''t" in review.content
 
@@ -249,7 +249,7 @@ def test_prompt_with_single_quotes_triage(tmp_path: Path) -> None:
     """))
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    triage = workflows["continuous-triage.yaml"]
+    triage = workflows["tend-triage.yaml"]
     # Triage uses YAML block scalar (prompt: |) so single quotes should be fine
     assert "Don't break" in triage.content
     data = yaml.safe_load(triage.content)
@@ -272,7 +272,7 @@ def test_very_long_prompt(tmp_path: Path) -> None:
     cfg = Config.load(path)
     assert len(cfg.workflows["review"].prompt) == 2500
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    review = workflows["continuous-review.yaml"]
+    review = workflows["tend-review.yaml"]
     data = yaml.safe_load(review.content)
     assert isinstance(data, dict)
     assert long_text in review.content
@@ -288,7 +288,7 @@ def test_very_long_prompt_nightly(tmp_path: Path) -> None:
     """))
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    nightly = workflows["continuous-nightly.yaml"]
+    nightly = workflows["tend-nightly.yaml"]
     data = yaml.safe_load(nightly.content)
     assert isinstance(data, dict)
 
@@ -341,7 +341,7 @@ def test_watched_workflows_explicit_value(tmp_path: Path) -> None:
     """))
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    ci_fix = workflows["continuous-ci-fix.yaml"]
+    ci_fix = workflows["tend-ci-fix.yaml"]
     assert '"build"' in ci_fix.content
     assert '"ci"' not in ci_fix.content
 
@@ -378,7 +378,7 @@ def test_prompt_with_multiline(tmp_path: Path) -> None:
     assert "Line one." in cfg.workflows["nightly"].prompt
     assert "Line two." in cfg.workflows["nightly"].prompt
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    nightly = workflows["continuous-nightly.yaml"]
+    nightly = workflows["tend-nightly.yaml"]
     data = yaml.safe_load(nightly.content)
     assert isinstance(data, dict)
 
@@ -400,4 +400,4 @@ def test_workflow_disabled_boolean_shorthand_not_generated(tmp_path: Path) -> No
     cfg = Config.load(path)
     workflows = generate_all(cfg)
     names = {wf.filename for wf in workflows}
-    assert "continuous-review.yaml" not in names
+    assert "tend-review.yaml" not in names
