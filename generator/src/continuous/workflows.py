@@ -122,13 +122,13 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
-{setup}
 
       - name: Check out PR branch (review response)
         if: github.event_name == 'pull_request_review'
         run: gh pr checkout ${{{{ github.event.pull_request.number }}}}
         env:
           GH_TOKEN: {bt}
+{setup}
 
       - uses: max-sixty/continuous@v1
         with:
@@ -278,7 +278,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
-{setup}
 
       - name: Check out PR branch
         if: |
@@ -294,6 +293,7 @@ jobs:
           fi
         env:
           GH_TOKEN: {bt}
+{setup}
 
       - uses: max-sixty/continuous@v1
         with:

@@ -51,7 +51,15 @@ bot_name = "my-project-bot"
 ```
 
 This generates all six workflows using default secret names (`BOT_TOKEN`,
-`CLAUDE_CODE_OAUTH_TOKEN`). Override secret names if yours differ:
+`CLAUDE_CODE_OAUTH_TOKEN`). If the repo's default branch isn't `main`, set
+`default_branch`:
+
+```toml
+bot_name = "my-project-bot"
+default_branch = "master"
+```
+
+Override secret names if yours differ:
 
 ```toml
 bot_name = "my-project-bot"
@@ -98,6 +106,7 @@ watched_workflows = ["ci", "build"]   # which workflows trigger ci-fix
 
 [workflows.nightly]
 cron = "0 8 * * *"                    # override default schedule
+prompt = "/my-custom-nightly"         # override the default prompt
 
 [workflows.renovate]
 enabled = false                       # disable a workflow entirely
@@ -121,8 +130,8 @@ All six workflows are enabled by default. Disable individual workflows with
 | `continuous-mention` | @bot mentions, engaged conversations |
 | `continuous-triage` | Issue opened |
 | `continuous-ci-fix` | CI fails on default branch |
-| `continuous-nightly` | Daily schedule |
-| `continuous-renovate` | Weekly schedule |
+| `continuous-nightly` | Daily schedule, manual dispatch |
+| `continuous-renovate` | Weekly schedule, manual dispatch |
 
 ## Architecture
 

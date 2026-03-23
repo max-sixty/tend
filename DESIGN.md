@@ -275,7 +275,8 @@ continuous/
 │   ├── continuous-triage/
 │   ├── continuous-ci-fix/
 │   ├── continuous-nightly/
-│   └── continuous-renovate/
+│   ├── continuous-renovate/
+│   └── continuous-review-reviewers/
 ├── scripts/                # Helper scripts installed by the action
 ├── generator/              # Python package (uvx continuous init)
 │   ├── pyproject.toml
