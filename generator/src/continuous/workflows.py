@@ -33,7 +33,7 @@ def _setup_yaml(cfg: Config, indent: int = 6) -> str:
             lines.append(f"{pad}- run: {step.run}")
     if not lines:
         return ""
-    return "\n" + "\n".join(lines)
+    return "\n" + "\n".join(lines) + "\n"
 
 
 def _permissions(issues: bool = True) -> str:
@@ -129,7 +129,6 @@ jobs:
         env:
           GH_TOKEN: {bt}
 {setup}
-
       - uses: max-sixty/continuous@v1
         with:
           github_token: {bt}
@@ -294,7 +293,6 @@ jobs:
         env:
           GH_TOKEN: {bt}
 {setup}
-
       - uses: max-sixty/continuous@v1
         with:
           github_token: {bt}
@@ -360,7 +358,6 @@ jobs:
           fetch-tags: true
           token: {bt}
 {setup}
-
       - uses: max-sixty/continuous@v1
         with:
           github_token: {bt}
@@ -415,7 +412,6 @@ jobs:
           fetch-tags: true
           token: {bt}
 {setup}
-
       - uses: max-sixty/continuous@v1
         with:
           github_token: {bt}
@@ -471,7 +467,6 @@ jobs:
           fetch-tags: true
           token: {bt}
 {setup}
-
       - uses: max-sixty/continuous@v1
         with:
           github_token: {bt}

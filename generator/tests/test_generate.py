@@ -1,0 +1,171 @@
+"""Smoke tests for workflow generation."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from textwrap import dedent
+
+import yaml
+from click.testing import CliRunner
+
+from continuous.cli import main
+from continuous.config import Config
+from continuous.workflows import generate_all
+
+
+def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
+    cfg = tmp_path / ".config" / "continuous.toml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text(f'bot_name = "test-bot"\n{extra}')
+    return cfg
+
+
+def test_minimal_config_generates_six_workflows(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path))
+    workflows = generate_all(cfg)
+    assert len(workflows) == 6
+    names = {wf.filename for wf in workflows}
+    assert names == {
+        "continuous-review.yaml",
+        "continuous-mention.yaml",
+        "continuous-triage.yaml",
+        "continuous-ci-fix.yaml",
+        "continuous-nightly.yaml",
+        "continuous-renovate.yaml",
+    }
+
+
+def test_generated_yaml_is_valid(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path))
+    for wf in generate_all(cfg):
+        data = yaml.safe_load(wf.content)
+        assert isinstance(data, dict), f"{wf.filename} did not parse as dict"
+        assert "name" in data, f"{wf.filename} missing name"
+        assert "jobs" in data, f"{wf.filename} missing jobs"
+
+
+def test_disabled_workflow_not_generated(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path, "[workflows.renovate]\nenabled = false"))
+    workflows = generate_all(cfg)
+    names = {wf.filename for wf in workflows}
+    assert "continuous-renovate.yaml" not in names
+    assert len(workflows) == 5
+
+
+def test_default_branch_propagates(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path, 'default_branch = "master"'))
+    for wf in generate_all(cfg):
+        data = yaml.safe_load(wf.content)
+        # Triage, ci-fix, nightly, renovate use ref: <branch>
+        if wf.filename in ("continuous-triage.yaml", "continuous-ci-fix.yaml",
+                           "continuous-nightly.yaml", "continuous-renovate.yaml"):
+            yaml_str = wf.content
+            assert "ref: master" in yaml_str, f"{wf.filename} missing ref: master"
+            assert "ref: main" not in yaml_str, f"{wf.filename} still has ref: main"
+
+
+def test_setup_steps_rendered(tmp_path: Path) -> None:
+    extra = dedent("""\
+        [setup]
+        uses = ["./.github/actions/my-setup"]
+        run = ["echo FOO=bar >> $GITHUB_ENV"]
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    for wf in generate_all(cfg):
+        assert "./.github/actions/my-setup" in wf.content, f"{wf.filename} missing uses step"
+        assert 'echo FOO=bar >> $GITHUB_ENV' in wf.content, f"{wf.filename} missing run step"
+
+
+def test_empty_setup_no_blank_lines(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path))
+    for wf in generate_all(cfg):
+        assert "\n\n\n" not in wf.content, f"{wf.filename} has triple blank lines"
+
+
+def test_custom_secrets(tmp_path: Path) -> None:
+    extra = dedent("""\
+        [secrets]
+        bot_token = "MY_BOT_PAT"
+        claude_token = "MY_CLAUDE"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    for wf in generate_all(cfg):
+        assert "MY_BOT_PAT" in wf.content, f"{wf.filename} missing custom bot token"
+        assert "MY_CLAUDE" in wf.content, f"{wf.filename} missing custom claude token"
+
+
+def test_custom_prompt(tmp_path: Path) -> None:
+    extra = dedent("""\
+        [workflows.triage]
+        prompt = "Custom triage: {issue_number}"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    triage = workflows["continuous-triage.yaml"]
+    assert "Custom triage:" in triage.content
+
+
+def test_watched_workflows(tmp_path: Path) -> None:
+    extra = dedent("""\
+        [workflows.ci-fix]
+        watched_workflows = ["build", "test", "lint"]
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    ci_fix = workflows["continuous-ci-fix.yaml"]
+    assert '"build"' in ci_fix.content
+    assert '"test"' in ci_fix.content
+    assert '"lint"' in ci_fix.content
+
+
+def test_cli_init_dry_run(tmp_path: Path, monkeypatch: object) -> None:
+    _minimal_config(tmp_path)
+    monkeypatch.chdir(tmp_path)  # type: ignore[union-attr]
+    runner = CliRunner()
+    result = runner.invoke(main, ["init", "--dry-run"])
+    assert result.exit_code == 0
+    assert "continuous-review.yaml" in result.output
+    # Dry run should not create files
+    assert not (tmp_path / ".github" / "workflows").exists()
+
+
+def test_cli_init_writes_files(tmp_path: Path, monkeypatch: object) -> None:
+    _minimal_config(tmp_path)
+    monkeypatch.chdir(tmp_path)  # type: ignore[union-attr]
+    runner = CliRunner()
+    result = runner.invoke(main, ["init"])
+    assert result.exit_code == 0
+    assert "Generated 6 workflow files" in result.output
+    wf_dir = tmp_path / ".github" / "workflows"
+    assert wf_dir.exists()
+    assert len(list(wf_dir.glob("continuous-*.yaml"))) == 6
+
+
+def test_setup_after_pr_checkout_in_review(tmp_path: Path) -> None:
+    """Setup steps must run after PR checkout, not before."""
+    extra = dedent("""\
+        [setup]
+        uses = ["./.github/actions/my-setup"]
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    review = workflows["continuous-review.yaml"]
+    # Setup should come after "Check out PR branch"
+    checkout_idx = review.content.index("Check out PR branch")
+    setup_idx = review.content.index("./.github/actions/my-setup")
+    assert setup_idx > checkout_idx, "Setup must come after PR checkout"
+
+
+def test_setup_after_pr_checkout_in_mention(tmp_path: Path) -> None:
+    """Setup steps must run after PR checkout, not before."""
+    extra = dedent("""\
+        [setup]
+        uses = ["./.github/actions/my-setup"]
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    mention = workflows["continuous-mention.yaml"]
+    # Setup should come after "Check out PR branch"
+    checkout_idx = mention.content.index("Check out PR branch")
+    setup_idx = mention.content.index("./.github/actions/my-setup")
+    assert setup_idx > checkout_idx, "Setup must come after PR checkout"
