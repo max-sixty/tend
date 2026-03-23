@@ -1,12 +1,12 @@
 ---
-name: install-continuous
-description: Sets up continuous (Claude-powered CI) on a GitHub repo. Creates config, generates workflows, configures secrets and branch protection via API, guides bot account and PAT creation via browser. Use when setting up continuous on a new repo or when asked to install/configure continuous.
+name: install-tend
+description: Sets up tend (Claude-powered CI) on a GitHub repo. Creates config, generates workflows, configures secrets and branch protection via API, guides bot account and PAT creation via browser. Use when setting up tend on a new repo or when asked to install/configure tend.
 argument-hint: "[bot-name]"
 ---
 
-# Install Continuous
+# Install Tend
 
-Set up continuous on the current repo.
+Set up tend on the current repo.
 
 **Bot name:** $ARGUMENTS (or ask the user if not provided)
 
@@ -32,7 +32,7 @@ REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 
 ## 2. Create config
 
-Create `.config/continuous.toml`:
+Create `.config/tend.toml`:
 
 ```toml
 bot_name = "<bot-name>"
@@ -49,10 +49,10 @@ Ask the user about overrides. Only add what differs from defaults:
 ## 3. Generate workflows
 
 ```bash
-uvx continuous init
+uvx tend init
 ```
 
-Verify 6 workflow files appear in `.github/workflows/continuous-*.yaml`.
+Verify 6 workflow files appear in `.github/workflows/tend-*.yaml`.
 
 ## 4. Bot account
 
@@ -107,7 +107,7 @@ This must be done while logged in as the bot.
 Open Chrome to the token creation page:
 
 ```
-Navigate to: https://github.com/settings/tokens/new?scopes=repo&description=continuous-ci
+Navigate to: https://github.com/settings/tokens/new?scopes=repo&description=tend-ci
 ```
 
 Tell the user: "Log in as `<bot-name>` and generate the token. Copy the token
@@ -137,13 +137,12 @@ If none exist, create a "Restrict updates" ruleset. This blocks all pushes
 and merges to the default branch — only admins can bypass. The bot (write
 role) cannot merge regardless of review status.
 
-**This is NOT a "require PR reviews" ruleset.** The merge restriction itself
-is the security boundary. Required reviews create problems for solo
-maintainers (CODEOWNERS deadlock) and are unnecessary when only admins can
-merge.
+The merge restriction itself is the security boundary — not required reviews.
+Required reviews create problems for solo maintainers (CODEOWNERS deadlock)
+and are unnecessary when only admins can merge.
 
 ```bash
-cat > /tmp/continuous-ruleset.json << 'EOF'
+cat > /tmp/tend-ruleset.json << 'EOF'
 {
   "name": "Merge access",
   "target": "branch",
@@ -170,7 +169,7 @@ cat > /tmp/continuous-ruleset.json << 'EOF'
 EOF
 
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-gh api "repos/$REPO/rulesets" --method POST --input /tmp/continuous-ruleset.json
+gh api "repos/$REPO/rulesets" --method POST --input /tmp/tend-ruleset.json
 ```
 
 - `type: update` — restricts who can push to or merge into the branch
@@ -203,7 +202,7 @@ Skip if the bot is already a member of the org that owns the repo.
 Stage only the generated files:
 
 ```bash
-git add .config/continuous.toml .github/workflows/continuous-*.yaml
+git add .config/tend.toml .github/workflows/tend-*.yaml
 ```
 
 Commit with co-author attribution. Do NOT push without explicit permission.
@@ -212,7 +211,7 @@ Commit with co-author attribution. Do NOT push without explicit permission.
 
 After completing all steps, present this checklist:
 
-- [ ] Config: `.config/continuous.toml` created
+- [ ] Config: `.config/tend.toml` created
 - [ ] Workflows: 6 files in `.github/workflows/`
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Claude token: `CLAUDE_CODE_OAUTH_TOKEN` set (via OAuth script)
