@@ -1,4 +1,4 @@
-"""CLI for generating continuous workflow files."""
+"""CLI for generating tend workflow files."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ from pathlib import Path
 
 import click
 
-from continuous.checks import CheckResult, run_all_checks
-from continuous.config import Config
-from continuous.workflows import generate_all
+from tend.checks import CheckResult, run_all_checks
+from tend.config import Config
+from tend.workflows import generate_all
 
 
 def _print_check_results(results: list[CheckResult]) -> None:
@@ -25,7 +25,7 @@ def _print_check_results(results: list[CheckResult]) -> None:
 
 @click.group()
 def main() -> None:
-    """Generate Claude-powered CI workflows from .config/continuous.toml."""
+    """Generate Claude-powered CI workflows from .config/tend.toml."""
 
 
 @main.command()
@@ -56,7 +56,7 @@ def init(config_path: Path | None, dry_run: bool) -> None:
 
     if not dry_run:
         click.echo(f"\nGenerated {len(workflows)} workflow files.")
-        click.echo("Run `continuous check` to verify security prerequisites.")
+        click.echo("Run `tend check` to verify security prerequisites.")
 
 
 @main.command()

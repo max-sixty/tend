@@ -1,5 +1,5 @@
 ---
-name: continuous-ci-fix
+name: tend-ci-fix
 description: Debug and fix failing CI on the default branch. Use when CI fails on main.
 argument-hint: "[run-id and context]"
 metadata:
@@ -63,5 +63,5 @@ Automated fix for [failed run](run-url)
 
 ### 4. Monitor CI
 
-Poll CI using the approach from `/continuous-running-in-ci`. If CI fails, diagnose with
+Poll CI using the approach from `/tend:tend-running-in-ci`. If CI fails, diagnose with
 `gh run view <run-id> --log-failed`, fix, commit, push, and repeat.

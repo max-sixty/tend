@@ -1,4 +1,4 @@
-"""Read and validate .config/continuous.toml."""
+"""Read and validate .config/tend.toml."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ class Config:
     @classmethod
     def load(cls, path: Path | None = None) -> Config:
         if path is None:
-            path = Path(".config/continuous.toml")
+            path = Path(".config/tend.toml")
         if not path.exists():
             raise click.ClickException(f"Config not found: {path}")
         with path.open("rb") as f:

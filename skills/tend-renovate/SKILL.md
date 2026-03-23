@@ -1,5 +1,5 @@
 ---
-name: continuous-renovate
+name: tend-renovate
 description: Weekly dependency update — reviews open Dependabot/Renovate PRs and merges those that pass CI.
 metadata:
   internal: true

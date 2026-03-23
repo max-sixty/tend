@@ -9,13 +9,13 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from continuous.cli import main
-from continuous.config import Config
-from continuous.workflows import generate_all
+from tend.cli import main
+from tend.config import Config
+from tend.workflows import generate_all
 
 
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
-    cfg = tmp_path / ".config" / "continuous.toml"
+    cfg = tmp_path / ".config" / "tend.toml"
     cfg.parent.mkdir(parents=True)
     cfg.write_text(f'bot_name = "test-bot"\n{extra}')
     return cfg
@@ -27,12 +27,12 @@ def test_minimal_config_generates_six_workflows(tmp_path: Path) -> None:
     assert len(workflows) == 6
     names = {wf.filename for wf in workflows}
     assert names == {
-        "continuous-review.yaml",
-        "continuous-mention.yaml",
-        "continuous-triage.yaml",
-        "continuous-ci-fix.yaml",
-        "continuous-nightly.yaml",
-        "continuous-renovate.yaml",
+        "tend-review.yaml",
+        "tend-mention.yaml",
+        "tend-triage.yaml",
+        "tend-ci-fix.yaml",
+        "tend-nightly.yaml",
+        "tend-renovate.yaml",
     }
 
 
@@ -49,7 +49,7 @@ def test_disabled_workflow_not_generated(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path, "[workflows.renovate]\nenabled = false"))
     workflows = generate_all(cfg)
     names = {wf.filename for wf in workflows}
-    assert "continuous-renovate.yaml" not in names
+    assert "tend-renovate.yaml" not in names
     assert len(workflows) == 5
 
 
@@ -58,8 +58,8 @@ def test_default_branch_propagates(tmp_path: Path) -> None:
     for wf in generate_all(cfg):
         data = yaml.safe_load(wf.content)
         # Triage, ci-fix, nightly, renovate use ref: <branch>
-        if wf.filename in ("continuous-triage.yaml", "continuous-ci-fix.yaml",
-                           "continuous-nightly.yaml", "continuous-renovate.yaml"):
+        if wf.filename in ("tend-triage.yaml", "tend-ci-fix.yaml",
+                           "tend-nightly.yaml", "tend-renovate.yaml"):
             yaml_str = wf.content
             assert "ref: master" in yaml_str, f"{wf.filename} missing ref: master"
             assert "ref: main" not in yaml_str, f"{wf.filename} still has ref: main"
@@ -102,7 +102,7 @@ def test_custom_prompt(tmp_path: Path) -> None:
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    triage = workflows["continuous-triage.yaml"]
+    triage = workflows["tend-triage.yaml"]
     assert "Custom triage:" in triage.content
 
 
@@ -113,7 +113,7 @@ def test_watched_workflows(tmp_path: Path) -> None:
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    ci_fix = workflows["continuous-ci-fix.yaml"]
+    ci_fix = workflows["tend-ci-fix.yaml"]
     assert '"build"' in ci_fix.content
     assert '"test"' in ci_fix.content
     assert '"lint"' in ci_fix.content
@@ -125,7 +125,7 @@ def test_cli_init_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     runner = CliRunner()
     result = runner.invoke(main, ["init", "--dry-run"])
     assert result.exit_code == 0
-    assert "continuous-review.yaml" in result.output
+    assert "tend-review.yaml" in result.output
     # Dry run should not create files
     assert not (tmp_path / ".github" / "workflows").exists()
 
@@ -139,7 +139,7 @@ def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert "Generated 6 workflow files" in result.output
     wf_dir = tmp_path / ".github" / "workflows"
     assert wf_dir.exists()
-    assert len(list(wf_dir.glob("continuous-*.yaml"))) == 6
+    assert len(list(wf_dir.glob("tend-*.yaml"))) == 6
 
 
 def test_setup_after_pr_checkout_in_review(tmp_path: Path) -> None:
@@ -150,7 +150,7 @@ def test_setup_after_pr_checkout_in_review(tmp_path: Path) -> None:
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    review = workflows["continuous-review.yaml"]
+    review = workflows["tend-review.yaml"]
     # Setup should come after "Check out PR branch"
     checkout_idx = review.content.index("Check out PR branch")
     setup_idx = review.content.index("./.github/actions/my-setup")
@@ -165,7 +165,7 @@ def test_setup_after_pr_checkout_in_mention(tmp_path: Path) -> None:
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    mention = workflows["continuous-mention.yaml"]
+    mention = workflows["tend-mention.yaml"]
     # Setup should come after "Check out PR branch"
     checkout_idx = mention.content.index("Check out PR branch")
     setup_idx = mention.content.index("./.github/actions/my-setup")
