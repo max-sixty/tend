@@ -8,6 +8,8 @@ from pathlib import Path
 
 import click
 
+KNOWN_WORKFLOWS = {"review", "mention", "triage", "ci-fix", "nightly", "renovate"}
+
 
 @dataclass
 class SetupStep:
@@ -28,6 +30,7 @@ class WorkflowConfig:
 @dataclass
 class Config:
     bot_name: str
+    default_branch: str
     bot_token_secret: str
     claude_token_secret: str
     setup: list[SetupStep]
@@ -42,6 +45,9 @@ class Config:
         with path.open("rb") as f:
             raw = tomllib.load(f)
 
+        if "bot_name" not in raw:
+            raise click.ClickException("Missing required field: bot_name")
+
         secrets = raw.get("secrets", {})
 
         setup: list[SetupStep] = []
@@ -53,6 +59,8 @@ class Config:
 
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in raw.get("workflows", {}).items():
+            if name not in KNOWN_WORKFLOWS:
+                click.echo(f"Warning: unknown workflow '{name}' in config (known: {', '.join(sorted(KNOWN_WORKFLOWS))})", err=True)
             if isinstance(wf_raw, dict):
                 workflows[name] = WorkflowConfig(
                     enabled=wf_raw.get("enabled", True),
@@ -65,6 +73,7 @@ class Config:
 
         return cls(
             bot_name=raw["bot_name"],
+            default_branch=raw.get("default_branch", "main"),
             bot_token_secret=secrets.get("bot_token", "BOT_TOKEN"),
             claude_token_secret=secrets.get("claude_token", "CLAUDE_CODE_OAUTH_TOKEN"),
             setup=setup,

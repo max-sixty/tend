@@ -212,7 +212,7 @@ jobs:
               if [ "$ISSUE_AUTHOR" = "{bn}" ]; then
                 echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
               fi
-              if echo "$ISSUE_BODY" | grep -qF '@{bn}'; then
+              if printf '%s\\n' "$ISSUE_BODY" | grep -qF '@{bn}'; then
                 echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
               fi
               BOT_COMMENTS=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \\
@@ -327,6 +327,7 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
     bt = _bot_token(cfg)
     ct = _claude_token(cfg)
     bn = cfg.bot_name
+    db = cfg.default_branch
 
     setup = _setup_yaml(cfg)
     perms = _permissions()
@@ -354,7 +355,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: main
+          ref: {db}
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
@@ -384,6 +385,7 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
     bt = _bot_token(cfg)
     ct = _claude_token(cfg)
     bn = cfg.bot_name
+    db = cfg.default_branch
 
     setup = _setup_yaml(cfg)
     perms = _permissions(issues=False)
@@ -396,7 +398,7 @@ on:
   workflow_run:
     workflows: [{watched_yaml}]
     types: [completed]
-    branches: [main]
+    branches: [{db}]
 
 jobs:
   fix-ci:
@@ -408,7 +410,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: main
+          ref: {db}
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
@@ -439,6 +441,7 @@ def _generate_scheduled(cfg: Config, name: str, default_cron: str, default_promp
     bt = _bot_token(cfg)
     ct = _claude_token(cfg)
     bn = cfg.bot_name
+    db = cfg.default_branch
 
     setup = _setup_yaml(cfg)
     perms = _permissions()
@@ -463,7 +466,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: main
+          ref: {db}
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
