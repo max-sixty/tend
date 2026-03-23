@@ -1,7 +1,7 @@
-name: Continuous
+name: Tend
 description: >-
-  Claude-powered CI for GitHub repos. Installs generic CI skills,
-  runs Claude Code, and uploads session logs.
+  Claude-powered CI for GitHub repos. Loads CI skills via plugin,
+  resolves bot identity, runs Claude Code, and uploads session logs.
 
 inputs:
   github_token:
@@ -57,18 +57,6 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github_token }}
 
-    - name: Install CI skills
-      shell: bash
-      run: |
-        cd_dir="${GITHUB_ACTION_PATH}"
-        mkdir -p .claude/skills
-        for skill_dir in "$cd_dir"/skills/*/; do
-          skill_name=$(basename "$skill_dir")
-          if [ ! -d ".claude/skills/$skill_name" ]; then
-            cp -r "$skill_dir" ".claude/skills/$skill_name"
-          fi
-        done
-
     - name: Install CI scripts
       shell: bash
       run: |
@@ -109,6 +97,7 @@ runs:
           --model ${{ inputs.model }}
           --allowedTools ${{ inputs.allowed_tools }}
           --append-system-prompt "${{ inputs.system_prompt_append }}"
+          --plugin-dir ${{ github.action_path }}
 
     - name: Upload session logs
       if: always()
