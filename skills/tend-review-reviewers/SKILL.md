@@ -1,6 +1,7 @@
 ---
 name: tend-review-reviewers
 description: Hourly analysis of Claude CI session logs — identifies behavioral problems, skill gaps, and workflow issues.
+argument-hint: "<owner/repo>"
 metadata:
   internal: true
 ---
@@ -9,6 +10,16 @@ metadata:
 
 Analyze Claude-powered CI runs from the past hour. Identify behavioral problems,
 skill gaps, and workflow issues — then create PRs or issues to fix them.
+
+## Target repo
+
+**Target repo:** $ARGUMENTS
+
+Analysis targets an adopter repo whose CI runs are analyzed. Findings result in
+PRs/issues on the current repo (tend) to improve skills and workflows.
+
+Use `-R $ARGUMENTS` for commands that access the target repo (downloading
+artifacts, querying runs and PRs). Commands without `-R` default to tend.
 
 ## Confidence and magnitude gates
 
@@ -106,7 +117,7 @@ text alone, which lacks sufficient context to judge relatedness:
 
 ```bash
 # Each tracking entry has a Run ID — use it to pull the actual logs
-gh run download <run-id> --name claude-session-logs --dir /tmp/logs/<run-id>/
+gh -R $ARGUMENTS run download <run-id> --pattern 'claude-session-logs*' --dir /tmp/logs/<run-id>/
 ```
 
 Trace the original decision chain in the session JSONL to confirm the historical
@@ -161,16 +172,22 @@ trace incidents to session logs.
 
 ## Step 1: Find recent runs
 
-Run `.github/scripts/list-recent-runs.sh` for recently completed Claude CI runs.
-If empty, report "no runs to review" and exit.
+List recently completed Claude CI runs on the target repo:
 
-Include `review-reviewers` runs — self-analysis is intentional so
-we can catch bugs in the reviewer itself.
+```bash
+TARGET_REPO=$ARGUMENTS .github/scripts/list-recent-runs.sh
+```
+
+The script discovers `tend-*` workflows by default. Pass additional prefixes
+as arguments to include other workflows (e.g., `review-reviewers` when
+analyzing tend itself).
+
+If empty, report "no runs to review" and exit.
 
 ## Step 2: Download and analyze session logs
 
 ```bash
-gh run download <run-id> --name claude-session-logs --dir /tmp/logs/<run-id>/
+gh -R $ARGUMENTS run download <run-id> --pattern 'claude-session-logs*' --dir /tmp/logs/<run-id>/
 ```
 
 Skip runs without artifacts. Find JSONL files under `/tmp/logs/` and extract:
@@ -193,8 +210,8 @@ was the outcome?
 For `tend-review` runs, compare what the bot said against what happened next:
 
 ```bash
-HEAD_BRANCH=$(gh run view <run-id> --json headBranch --jq '.headBranch')
-PR_NUMBER=$(gh pr list --head "$HEAD_BRANCH" --state all --json number --jq '.[0].number')
+HEAD_BRANCH=$(gh -R $ARGUMENTS run view <run-id> --json headBranch --jq '.headBranch')
+PR_NUMBER=$(gh -R $ARGUMENTS pr list --head "$HEAD_BRANCH" --state all --json number --jq '.[0].number')
 ```
 
 Check for subsequent commits that undid something the bot approved (gap in
