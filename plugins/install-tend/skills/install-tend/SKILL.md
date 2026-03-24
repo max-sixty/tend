@@ -1,14 +1,13 @@
 ---
 name: install-tend
 description: Sets up tend (Claude-powered CI) on a GitHub repo. Creates config, generates workflows, configures secrets and branch protection via API, creates bot account and PAT via Chrome. Use when setting up tend on a new repo or when asked to install/configure tend.
-argument-hint: "[bot-name]"
 ---
 
 # Install Tend
 
-Set up tend on the current repo.
+@README.md for config options and available settings.
 
-**Bot name:** $ARGUMENTS (or ask the user if not provided)
+Set up tend on the current repo. Ask the user for the bot name if not provided.
 
 Follow each step in order. Skip steps that are already done — check each
 prerequisite before acting. Derive `REPO` once at the start:
@@ -36,7 +35,8 @@ before proceeding.
 
 ## 1. Create config
 
-Create `.config/tend.toml`:
+Create `.config/tend.toml` with at minimum `bot_name`. See README.md for all
+available config sections (`[secrets]`, `[setup]`, `[workflows.*]`).
 
 ```toml
 bot_name = "<bot-name>"
@@ -73,11 +73,7 @@ watched_workflows = ["ci", "lint"]  # names of workflows to watch
 If no CI workflows exist, either skip ci-fix (`enabled = false`) or help the
 user create one first.
 
-Ask the user about other overrides. Only add what differs from defaults:
-
-- **Setup steps** — build tools, caches (`[setup]` section)
-- **Workflow overrides** — disable workflows, custom cron
-- **Default branch** — only needed if not `main`
+Ask the user about other overrides (setup steps, workflow overrides).
 
 ## 2. Generate workflows
 
@@ -134,7 +130,9 @@ echo "$TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO"
 
 ## 5. Bot PAT and secret
 
-The bot needs a classic PAT with `repo` scope. Use Chrome:
+The bot needs a classic PAT with `repo` scope. Fine-grained PATs also work
+(`contents:write`, `pull-requests:write`, `issues:write`) — create one manually
+and skip to step 6. Use Chrome for classic PATs:
 
 1. Verify the browser is logged in as `<bot-name>` (click avatar, check
    username). If not, tell the user to log in as the bot first.
@@ -144,7 +142,8 @@ The bot needs a classic PAT with `repo` scope. Use Chrome:
    "No expiration" via the dropdown.
 4. Click "Generate token" (scroll to bottom of page).
 5. Read the token from the resulting page using `get_page_text`.
-6. Set as repo secret:
+6. Set as repo secret (use the configured secret name from config, default
+   `BOT_TOKEN`):
 
 ```bash
 echo "<pat-value>" | gh secret set BOT_TOKEN --repo "$REPO"
@@ -247,7 +246,7 @@ After completing all steps, present this checklist:
 - [ ] Workflows: generated in `.github/workflows/`
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Claude token: `CLAUDE_CODE_OAUTH_TOKEN` secret set
-- [ ] Bot PAT: `BOT_TOKEN` secret set (classic PAT, `repo` scope)
+- [ ] Bot PAT: `BOT_TOKEN` secret set (classic `repo` or fine-grained)
 - [ ] Ruleset: merge restriction on default branch, admin bypass
 - [ ] Bot access: write collaborator, invitation accepted
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)

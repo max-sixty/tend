@@ -53,27 +53,12 @@ def test_disabled_workflow_not_generated(tmp_path: Path) -> None:
     assert len(workflows) == 4
 
 
-def test_default_branch_propagates(tmp_path: Path) -> None:
-    extra = dedent("""\
-        default_branch = "master"
-        [workflows.ci-fix]
-        watched_workflows = ["ci"]
-    """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    for wf in generate_all(cfg):
-        # Triage, ci-fix, nightly, renovate use ref: <branch>
-        if wf.filename in ("tend-triage.yaml", "tend-ci-fix.yaml",
-                           "tend-nightly.yaml", "tend-renovate.yaml"):
-            yaml_str = wf.content
-            assert "ref: master" in yaml_str, f"{wf.filename} missing ref: master"
-            assert "ref: main" not in yaml_str, f"{wf.filename} still has ref: main"
-
-
 def test_setup_steps_rendered(tmp_path: Path) -> None:
     extra = dedent("""\
-        [setup]
-        uses = ["./.github/actions/my-setup"]
-        run = ["echo FOO=bar >> $GITHUB_ENV"]
+        setup = [
+          {uses = "./.github/actions/my-setup"},
+          {run = "echo FOO=bar >> $GITHUB_ENV"},
+        ]
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     for wf in generate_all(cfg):
@@ -148,10 +133,7 @@ def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
 def test_setup_after_pr_checkout_in_review(tmp_path: Path) -> None:
     """Setup steps must run after PR checkout, not before."""
-    extra = dedent("""\
-        [setup]
-        uses = ["./.github/actions/my-setup"]
-    """)
+    extra = 'setup = [{uses = "./.github/actions/my-setup"}]'
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     review = workflows["tend-review.yaml"]
@@ -161,12 +143,54 @@ def test_setup_after_pr_checkout_in_review(tmp_path: Path) -> None:
     assert setup_idx > checkout_idx, "Setup must come after PR checkout"
 
 
+def test_setup_raw_yaml_injected(tmp_path: Path) -> None:
+    extra = dedent("""\
+        setup_raw = \"\"\"
+        - uses: Swatinem/rust-cache@v2
+          with:
+            save-if: false
+        - run: cargo binstall cargo-insta --no-confirm
+          shell: bash
+        \"\"\"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    for wf in generate_all(cfg):
+        data = yaml.safe_load(wf.content)
+        assert isinstance(data, dict), f"{wf.filename} did not parse as valid YAML"
+        assert "Swatinem/rust-cache@v2" in wf.content, f"{wf.filename} missing raw uses step"
+        assert "save-if: false" in wf.content, f"{wf.filename} missing with parameter"
+        assert "cargo binstall" in wf.content, f"{wf.filename} missing raw run step"
+
+
+def test_setup_raw_combined_with_steps(tmp_path: Path) -> None:
+    extra = dedent("""\
+        setup = [
+          {uses = "./.github/actions/my-setup"},
+          {run = "echo FOO=bar >> $GITHUB_ENV"},
+        ]
+        setup_raw = \"\"\"
+        - uses: Swatinem/rust-cache@v2
+          with:
+            save-if: false
+        \"\"\"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    for wf in generate_all(cfg):
+        assert "./.github/actions/my-setup" in wf.content
+        assert "echo FOO=bar" in wf.content
+        assert "Swatinem/rust-cache@v2" in wf.content
+        assert "save-if: false" in wf.content
+        # raw steps must come after uses and run steps
+        uses_idx = wf.content.index("./.github/actions/my-setup")
+        run_idx = wf.content.index("echo FOO=bar")
+        raw_idx = wf.content.index("Swatinem/rust-cache@v2")
+        assert uses_idx < raw_idx, f"{wf.filename}: raw before uses"
+        assert run_idx < raw_idx, f"{wf.filename}: raw before run"
+
+
 def test_setup_after_pr_checkout_in_mention(tmp_path: Path) -> None:
     """Setup steps must run after PR checkout, not before."""
-    extra = dedent("""\
-        [setup]
-        uses = ["./.github/actions/my-setup"]
-    """)
+    extra = 'setup = [{uses = "./.github/actions/my-setup"}]'
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     mention = workflows["tend-mention.yaml"]

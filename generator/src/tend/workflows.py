@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -20,6 +21,15 @@ def _claude_token(cfg: Config) -> str:
     return f"${{{{ secrets.{cfg.claude_token_secret} }}}}"
 
 
+def _reindent(text: str, indent: int) -> str:
+    """Dedent raw YAML and re-indent to `indent` spaces."""
+    stripped = textwrap.dedent(text).strip("\n")
+    if not stripped:
+        return ""
+    pad = " " * indent
+    return "\n".join(pad + line if line.strip() else line for line in stripped.splitlines())
+
+
 def _setup_yaml(cfg: Config, indent: int = 6) -> str:
     """Render setup steps as YAML, indented to `indent` spaces.
 
@@ -33,6 +43,8 @@ def _setup_yaml(cfg: Config, indent: int = 6) -> str:
             lines.append(f"{pad}- uses: {step.uses}")
         elif step.run:
             lines.append(f"{pad}- run: {step.run}")
+    if cfg.setup_raw:
+        lines.append(_reindent(cfg.setup_raw, indent))
     if not lines:
         return ""
     return "\n" + "\n".join(lines) + "\n"
@@ -347,7 +359,6 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
     bt = _bot_token(cfg)
     ct = _claude_token(cfg)
     bn = cfg.bot_name
-    db = cfg.default_branch
 
     setup = _setup_yaml(cfg)
     perms = _permissions()
@@ -375,7 +386,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: {db}
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
@@ -410,7 +420,6 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
     bt = _bot_token(cfg)
     ct = _claude_token(cfg)
     bn = cfg.bot_name
-    db = cfg.default_branch
 
     setup = _setup_yaml(cfg)
     perms = _permissions(issues=False)
@@ -423,11 +432,12 @@ on:
   workflow_run:
     workflows: [{watched_yaml}]
     types: [completed]
-    branches: [{db}]
 
 jobs:
   fix-ci:
-    if: github.event.workflow_run.conclusion == 'failure'
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.head_branch == github.event.repository.default_branch
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -435,7 +445,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: {db}
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
@@ -465,7 +474,6 @@ def _generate_scheduled(cfg: Config, name: str, default_cron: str, default_promp
     bt = _bot_token(cfg)
     ct = _claude_token(cfg)
     bn = cfg.bot_name
-    db = cfg.default_branch
 
     setup = _setup_yaml(cfg)
     perms = _permissions()
@@ -478,7 +486,7 @@ def _generate_scheduled(cfg: Config, name: str, default_cron: str, default_promp
 name: tend-{name}
 on:
   schedule:
-    - cron: '{cron}'
+    - cron: "{cron}"
   workflow_dispatch:
 
 jobs:
@@ -490,7 +498,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: {db}
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
