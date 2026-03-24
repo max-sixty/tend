@@ -89,24 +89,24 @@ setup = [
 ]
 ```
 
-For actions that need `with:` parameters, use `setup_raw` — a multiline string of
-GitHub Actions YAML injected verbatim into the workflow steps:
+For actions that need `with:` parameters, use `{raw = "..."}` — a multiline
+string of GitHub Actions YAML injected verbatim:
 
 ```toml
 setup = [
   {uses = "cargo-bins/cargo-binstall@main"},
   {run = "cargo binstall cargo-insta --no-confirm"},
-]
-setup_raw = """
+  {raw = """
 - uses: Swatinem/rust-cache@v2
   with:
     save-if: false
-"""
+"""},
+]
 ```
 
-`setup` entries are `{uses = "..."}` or `{run = "..."}` (no `with:` support).
-`setup_raw` handles everything else. For very complex setups, a local composite
-action (`.github/actions/tend-setup/action.yaml`) referenced via `uses` is an
+Each entry is `{uses = "..."}`, `{run = "..."}`, or `{raw = "..."}`. For very
+complex setups, a local composite action
+(`.github/actions/tend-setup/action.yaml`) referenced via `uses` is an
 alternative.
 
 ### Workflow overrides
@@ -152,6 +152,27 @@ rules, dependency management preferences. Don't duplicate CLAUDE.md content.
 Repos using `anthropics/claude-code-action` should delete that workflow — tend
 replaces it. Update team members to @-mention the bot account instead of
 `@claude`. Verify no other workflows reference `anthropics/claude-code-action`.
+
+## Limitations
+
+### Inline review comments on fork PRs
+
+GitHub has no event type that provides secret access for inline code review
+comments on fork PRs. The `pull_request_review_comment` event fires, but
+[secrets are unavailable for workflows triggered from forks][gh-secrets-forks].
+Unlike `pull_request` (which has `pull_request_target` as a secrets-safe
+equivalent), there is no `pull_request_review_comment_target` — GitHub has
+[no plans to add one][gh-discussion-55940].
+
+In practice this means `tend-mention` cannot respond to inline review comments
+on fork PRs. Conversation-tab comments work fine — the `issue_comment` event
+always runs in the base repository context with full secret access.
+
+**Workaround:** comment on the conversation tab instead of inline when
+interacting with the bot on a fork PR.
+
+[gh-secrets-forks]: https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions#using-secrets-in-a-workflow
+[gh-discussion-55940]: https://github.com/orgs/community/discussions/55940
 
 ## Security
 

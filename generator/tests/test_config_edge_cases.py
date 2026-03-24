@@ -337,6 +337,27 @@ def test_watched_workflows_explicit_value(tmp_path: Path) -> None:
     assert '"ci"' not in ci_fix.content
 
 
+def test_watched_workflows_missing_raises_on_direct_call(tmp_path: Path) -> None:
+    """generate_ci_fix errors when watched_workflows is not configured."""
+    from tend.workflows import generate_ci_fix
+
+    path = _write_config(tmp_path, 'bot_name = "my-bot"')
+    cfg = Config.load(path)
+    with pytest.raises(ClickException, match="ci-fix requires watched_workflows"):
+        generate_ci_fix(cfg)
+
+
+def test_watched_workflows_missing_skips_ci_fix(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """ci-fix is skipped with a warning when watched_workflows is not configured."""
+    path = _write_config(tmp_path, 'bot_name = "my-bot"')
+    cfg = Config.load(path)
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    assert "tend-ci-fix.yaml" not in workflows
+    captured = capsys.readouterr()
+    assert "Skipping ci-fix" in captured.err
+    assert "watched_workflows" in captured.err
+
+
 # ---------------------------------------------------------------------------
 # Additional edge cases discovered during analysis
 # ---------------------------------------------------------------------------
@@ -421,12 +442,12 @@ def test_setup_steps_empty_list(tmp_path: Path) -> None:
 
 
 def test_setup_steps_entry_missing_key(tmp_path: Path) -> None:
-    """setup entry without uses or run is rejected."""
+    """setup entry without uses, run, or raw is rejected."""
     path = _write_config(tmp_path, dedent("""\
         bot_name = "my-bot"
         setup = [{name = "oops"}]
     """))
-    with pytest.raises(ClickException, match="setup\\[0\\] must have 'uses' or 'run'"):
+    with pytest.raises(ClickException, match="setup\\[0\\] must have exactly one"):
         Config.load(path)
 
 
@@ -436,7 +457,7 @@ def test_setup_steps_entry_both_keys(tmp_path: Path) -> None:
         bot_name = "my-bot"
         setup = [{uses = "action", run = "cmd"}]
     """))
-    with pytest.raises(ClickException, match="setup\\[0\\] must have 'uses' or 'run', not both"):
+    with pytest.raises(ClickException, match="setup\\[0\\] must have exactly one"):
         Config.load(path)
 
 
