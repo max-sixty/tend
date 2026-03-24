@@ -270,8 +270,8 @@ array indices to object keys, which GitHub rejects.
 
 ### 6. Monitor CI
 
-After approving or staying silent, monitor CI using the approach from
-/tend:tend-running-in-ci.
+After approving or staying silent, monitor CI using the polling approach from
+/tend:tend-running-in-ci. **NEVER use `--watch` flags** — they hang forever.
 
 - **All required checks passed** -> done.
 - **A check failed** and it's related to the PR -> post a follow-up COMMENT
