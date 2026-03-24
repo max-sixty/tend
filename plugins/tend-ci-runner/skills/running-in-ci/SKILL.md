@@ -270,6 +270,44 @@ find the mechanism rather than saying "this may be related." Never claim a
 failure is "pre-existing" without checking main branch CI history. Distinguish
 what you verified from what you inferred.
 
+### User-facing comments require source evidence
+
+Public comments — on issues, PRs, or in review threads — are permanent and
+visible. A hallucinated detail (wrong syntax, invented API, nonexistent flag)
+misleads users and erodes trust. **It is always better to take longer and
+produce a correct response than to respond quickly with fabricated details.**
+
+Before posting any specific claim — a configuration snippet, command syntax,
+variable name, or API behavior — find the **source text** that confirms it.
+Source text means documentation, help output, test expectations, or the code
+that implements the public interface. Internal implementation code (struct
+fields, variable names in Rust/Python/etc.) shows what exists internally but not
+how it's exposed to users — read the docs or user-facing layer too.
+
+<example>
+<bad reason="Read Rust code showing a 'target' variable and invented $WT_TARGET">
+
+Bad: Saw `extra_vars.push(("target", target_branch))` in Rust source →
+posted a hook example using `$WT_TARGET` (an environment variable that doesn't
+exist — hooks use `{{ target }}` Jinja templates).
+
+</bad>
+<good reason="Verified syntax against user-facing documentation before posting">
+
+Good: Saw `("target", target_branch)` in Rust source → read `docs/hook.md` →
+confirmed hooks use `{{ target }}` syntax → posted correct example.
+
+</good>
+</example>
+
+When a project has user-facing documentation (a docs site, `--help` pages, a
+wiki), link to it. A link to the relevant docs page is more useful than a
+paraphrased explanation — and finding the link forces verifying the claim.
+
+If you can't find source evidence for a specific detail, say so ("I'm not sure
+of the exact syntax") rather than guessing. An honest gap is fixable; a
+confident hallucination gets copy-pasted.
+
 ## Tone
 
 Raise observations, don't assign work. Never create checklists or task lists
