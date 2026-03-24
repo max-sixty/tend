@@ -153,22 +153,6 @@ Repos using `anthropics/claude-code-action` should delete that workflow — tend
 replaces it. Update team members to @-mention the bot account instead of
 `@claude`. Verify no other workflows reference `anthropics/claude-code-action`.
 
-## Architecture
-
-```
-tend/
-├── .claude-plugin/
-│   └── marketplace.json   # Lists both plugins
-├── plugins/
-│   ├── install-tend/      # User-facing plugin (setup skill)
-│   └── tend/              # CI plugin (review, triage, ci-fix, etc.)
-├── action.yaml            # Composite action (the interface)
-├── scripts/               # Helper scripts (survey, run listing)
-├── generator/             # Python package (uvx tend)
-└── docs/
-    └── security-model.md
-```
-
 ## Security
 
 See [docs/security-model.md](docs/security-model.md).
