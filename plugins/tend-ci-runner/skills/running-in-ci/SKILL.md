@@ -81,9 +81,11 @@ point.
 
 ```bash
 # Run with Bash tool's run_in_background: true
+# Filter out the current workflow ($GITHUB_WORKFLOW) — it will always show as
+# "pending" since it IS the running job. Watching yourself deadlocks.
 for i in $(seq 1 10); do
   sleep 60
-  if ! gh pr checks <number> --required 2>&1 | grep -q 'pending\|queued\|in_progress'; then
+  if ! gh pr checks <number> --required 2>&1 | grep -v "$GITHUB_WORKFLOW" | grep -q 'pending\|queued\|in_progress'; then
     gh pr checks <number> --required
     exit 0
   fi
@@ -94,13 +96,14 @@ exit 1
 
 1. Poll `gh pr checks <number> --required` every 60 seconds until all required
    checks complete (up to ~10 minutes). Ignore non-required checks (benchmarks).
+   **Filter out `$GITHUB_WORKFLOW`** — the current workflow's own check is always
+   pending while polling and must be excluded to avoid a deadlock.
 2. If a required check fails, diagnose with `gh run view <run-id> --log-failed`,
    fix, commit, push, repeat.
 3. Report completion only after all required checks pass.
 
-Never report "done" before CI passes. **NEVER use `gh run watch` or
-`gh pr checks --watch`** — both hang indefinitely and will consume the
-entire job timeout. Always poll with `gh pr checks` in a loop instead.
+**NEVER use `gh run watch` or `gh pr checks --watch`** — both hang indefinitely
+and consume the entire job timeout. Always poll with `gh pr checks` in a loop.
 
 Before dismissing local test failures as "pre-existing", check main branch CI:
 
