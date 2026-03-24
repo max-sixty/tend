@@ -87,8 +87,9 @@ exit 1
    fix, commit, push, repeat.
 3. Report completion only after all required checks pass.
 
-Never report "done" before CI passes. Avoid `gh run watch` and
-`gh pr checks --watch` — both can hang indefinitely.
+Never report "done" before CI passes. **NEVER use `gh run watch` or
+`gh pr checks --watch`** — both hang indefinitely and will consume the
+entire job timeout. Always poll with `gh pr checks` in a loop instead.
 
 Before dismissing local test failures as "pre-existing", check main branch CI:
 
