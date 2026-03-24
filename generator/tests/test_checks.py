@@ -58,7 +58,13 @@ def test_detect_repo_no_gh() -> None:
 
 
 def test_branch_protected() -> None:
-    with patch("tend.checks._gh", return_value=_make_completed("true\n")):
+    def fake_gh(*args, **kwargs):
+        cmd = " ".join(args)
+        if "rulesets" in cmd:
+            return _make_completed("1\n")
+        return _make_completed("true\n")
+
+    with patch("tend.checks._gh", side_effect=fake_gh):
         result = check_branch_protection("owner/repo", "main")
     assert result.passed is True
     assert "protected" in result.message
@@ -135,6 +141,18 @@ def test_secrets_missing() -> None:
         result = check_secrets("owner/repo", ["BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
     assert result.passed is False
     assert "CLAUDE_CODE_OAUTH_TOKEN" in result.message
+    assert "admin:org" not in result.message
+
+
+def test_secrets_missing_with_org_403_hint() -> None:
+    """When org secrets return 403 and secrets are missing, include the hint."""
+    with patch("tend.checks._gh", return_value=_make_completed('["BOT_TOKEN"]\n')), \
+         patch("tend.checks._list_org_secrets", return_value=(None, True)):
+        result = check_secrets("owner/repo", ["BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
+    assert result.passed is False
+    assert "CLAUDE_CODE_OAUTH_TOKEN" in result.message
+    assert "admin:org" in result.message
+    assert "gh auth refresh" in result.message
 
 
 def test_secrets_api_error() -> None:
@@ -156,7 +174,7 @@ def test_secrets_bad_json() -> None:
 
 def test_run_all_checks_no_gh() -> None:
     with patch("shutil.which", return_value=None):
-        results = run_all_checks(Config("bot", "T1", "T2", [], {}))
+        results = run_all_checks(Config("bot", "T1", "T2", [], "", {}))
     assert len(results) == 1
     assert results[0].passed is None
     assert "gh CLI" in results[0].message
@@ -165,17 +183,19 @@ def test_run_all_checks_no_gh() -> None:
 def test_run_all_checks_no_repo() -> None:
     with patch("shutil.which", return_value="/usr/bin/gh"), \
          patch("tend.checks.detect_repo", return_value=None):
-        results = run_all_checks(Config("bot", "T1", "T2", [], {}))
+        results = run_all_checks(Config("bot", "T1", "T2", [], "", {}))
     assert len(results) == 1
     assert "detect" in results[0].message
 
 
 def test_run_all_checks_with_explicit_repo() -> None:
     """Explicit --repo skips auto-detection."""
-    def fake_gh(*args: str) -> subprocess.CompletedProcess[str]:
-        cmd = args[1] if len(args) > 1 else ""
-        if cmd == "repos/owner/repo":
+    def fake_gh(*args, **kwargs) -> subprocess.CompletedProcess[str]:
+        cmd = " ".join(args)
+        if args[1] == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
             return _make_completed("main\n")
+        if "rulesets" in cmd:
+            return _make_completed("1\n")
         if "branches" in cmd:
             return _make_completed("true\n")
         if "collaborators" in cmd:
@@ -186,7 +206,7 @@ def test_run_all_checks_with_explicit_repo() -> None:
 
     with patch("shutil.which", return_value="/usr/bin/gh"), \
          patch("tend.checks._gh", side_effect=fake_gh):
-        results = run_all_checks(Config("bot", "T1", "T2", [], {}), repo="owner/repo")
+        results = run_all_checks(Config("bot", "T1", "T2", [], "", {}), repo="owner/repo")
     assert len(results) == 3
     assert all(r.passed is True for r in results)
 

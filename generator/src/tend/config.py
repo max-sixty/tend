@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 
 KNOWN_WORKFLOWS = {"review", "mention", "triage", "ci-fix", "nightly", "renovate"}
-KNOWN_TOP_LEVEL = {"bot_name", "secrets", "setup", "workflows"}
+KNOWN_TOP_LEVEL = {"bot_name", "secrets", "setup", "setup_raw", "workflows"}
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
 
@@ -36,6 +36,7 @@ class Config:
     bot_token_secret: str
     claude_token_secret: str
     setup: list[SetupStep]
+    setup_raw: str
     workflows: dict[str, WorkflowConfig]
 
     @classmethod
@@ -110,5 +111,6 @@ class Config:
             bot_token_secret=secrets.get("bot_token", "BOT_TOKEN"),
             claude_token_secret=secrets.get("claude_token", "CLAUDE_CODE_OAUTH_TOKEN"),
             setup=setup,
+            setup_raw=raw.get("setup_raw", ""),
             workflows=workflows,
         )
