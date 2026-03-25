@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="assets/logo-256.png" width="128" alt="tend logo">
-</p>
-
-# Tend
+<h1><img src="assets/logo-256.png" alt="tend logo" width="50" align="absmiddle">&nbsp;&nbsp;Tend</h1>
 
 > **Early development** — extracted from [worktrunk](https://github.com/max-sixty/worktrunk)'s CI automation. Expect breaking changes.
 
