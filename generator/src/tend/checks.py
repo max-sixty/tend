@@ -123,8 +123,12 @@ def _has_restrict_updates_ruleset(repo: str, branch: str) -> bool:
         return False
 
 
-def check_bot_permission(repo: str, bot_name: str) -> CheckResult:
-    """Check the bot's permission level (should be write, not admin)."""
+def check_bot_permission(repo: str, bot_name: str, mode: str = "write") -> CheckResult:
+    """Check the bot's permission level.
+
+    In write mode: should be write, not admin.
+    In fork mode: should be triage (not write or admin — write is unnecessary risk).
+    """
     result = _gh("api", f"repos/{repo}/collaborators/{bot_name}/permission", "--jq", ".permission")
     if result is None:
         return CheckResult("bot-permission", None, "gh CLI not found")
@@ -143,8 +147,17 @@ def check_bot_permission(repo: str, bot_name: str) -> CheckResult:
             "bot-permission",
             False,
             f"Bot '{bot_name}' has admin permission — it can bypass branch protection. "
-            "Downgrade to write access.",
+            f"Downgrade to {'triage' if mode == 'fork' else 'write'} access.",
         )
+    if mode == "fork":
+        if perm in ("write", "maintain"):
+            return CheckResult(
+                "bot-permission",
+                False,
+                f"Bot '{bot_name}' has '{perm}' permission — fork mode only needs triage. "
+                "Downgrade to triage to reduce blast radius.",
+            )
+        return CheckResult("bot-permission", True, f"Bot '{bot_name}' has '{perm}' permission")
     return CheckResult("bot-permission", True, f"Bot '{bot_name}' has '{perm}' permission")
 
 
@@ -262,8 +275,14 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
     if default_branch is None:
         return [CheckResult("prerequisites", None, f"Could not detect default branch for {repo}")]
 
-    return [
-        check_branch_protection(repo, default_branch),
-        check_bot_permission(repo, cfg.bot_name),
-        check_secrets(repo, [cfg.bot_token_secret, cfg.claude_token_secret]),
-    ]
+    checks = []
+    if cfg.mode == "fork":
+        checks.append(CheckResult(
+            "branch-protection", True,
+            "Fork mode — branch protection not required (triage collaborator level is the security boundary)",
+        ))
+    else:
+        checks.append(check_branch_protection(repo, default_branch))
+    checks.append(check_bot_permission(repo, cfg.bot_name, cfg.mode))
+    checks.append(check_secrets(repo, [cfg.bot_token_secret, cfg.claude_token_secret]))
+    return checks
