@@ -1,0 +1,11 @@
+{
+  "name": "tend",
+  "version": "0.1.0",
+  "description": "Legacy alias for tend-ci-runner. Resolves pre-0.0.2 skill names like /tend:tend-review.",
+  "author": {
+    "name": "Maximilian Roos",
+    "url": "https://github.com/max-sixty"
+  },
+  "repository": "https://github.com/max-sixty/tend",
+  "license": "MIT"
+}

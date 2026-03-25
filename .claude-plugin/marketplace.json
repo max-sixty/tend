@@ -18,6 +18,11 @@
       "name": "tend-ci-runner",
       "description": "Internal CI skills loaded by tend's GitHub Action. Not for manual installation.",
       "source": "./plugins/tend-ci-runner"
+    },
+    {
+      "name": "tend",
+      "description": "Legacy alias for tend-ci-runner. Resolves pre-0.0.2 skill names (e.g. /tend:tend-review).",
+      "source": "./plugins/tend-compat"
     }
   ]
 }
