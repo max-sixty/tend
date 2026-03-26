@@ -46,8 +46,8 @@ user-controlled input.
 ## What we do
 
 **Merge restriction** is the primary security boundary. A GitHub ruleset (or
-branch protection) prevents the bot from merging to the default branch
-regardless of review status. The composite action refuses to start if the
+branch protection) prevents the bot from merging to protected branches
+(default branch plus any in `protected_branches`) regardless of review status. The composite action refuses to start if the
 default branch isn't protected. Everything below is defense in depth — useful,
 but not load-bearing.
 
