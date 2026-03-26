@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
@@ -19,6 +19,7 @@ KNOWN_TOP_LEVEL = {
     "workflows",
 }
 VALID_MODES = ("fork", "write")
+KNOWN_SECRETS_KEYS = {"bot_token", "claude_token", "allowed"}
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
 
@@ -50,6 +51,7 @@ class Config:
     claude_token_secret: str
     setup: list[SetupStep]
     workflows: dict[str, WorkflowConfig]
+    allowed_repo_secrets: list[str] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path | None = None) -> Config:
@@ -93,6 +95,9 @@ class Config:
             )
 
         secrets = raw.get("secrets", {})
+        unknown_secrets = set(secrets.keys()) - KNOWN_SECRETS_KEYS
+        for key in sorted(unknown_secrets):
+            click.echo(f"Warning: unknown secrets key '{key}'", err=True)
 
         setup: list[SetupStep] = []
         for i, entry in enumerate(raw.get("setup", [])):
@@ -133,6 +138,15 @@ class Config:
             else:
                 workflows[name] = WorkflowConfig(enabled=bool(wf_raw))
 
+        allowed = secrets.get("allowed", [])
+        if not isinstance(allowed, list) or not all(
+            isinstance(s, str) for s in allowed
+        ):
+            raise click.ClickException(
+                "secrets.allowed must be a list of strings, "
+                'e.g. allowed = ["CODECOV_TOKEN"]'
+            )
+
         return cls(
             bot_name=bot_name,
             mode=mode,
@@ -142,4 +156,5 @@ class Config:
             claude_token_secret=secrets.get("claude_token", "CLAUDE_CODE_OAUTH_TOKEN"),
             setup=setup,
             workflows=workflows,
+            allowed_repo_secrets=allowed,
         )
