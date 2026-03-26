@@ -89,7 +89,7 @@ All workflows should pass the bot token to both paths.
 
 | Workflow | Injection surface | Attacker control | Mitigations |
 |----------|-------------------|-------------------|-------------|
-| **review** | PR diff content, review body on bot PRs | Full (any PR) / Medium (reviewers) | Fixed prompt, merge restriction |
+| **review** | PR diff content, review body on bot PRs | Full (any PR) / Medium (reviewers) | Fixed prompt, merge restriction, CLAUDE.md pinning (fork PRs) |
 | **triage** | Issue body | Partial (structured skill) | Fixed prompt, merge restriction, environment protection |
 | **mention** | Comment body on any issue/PR | Full | Fixed prompt, merge restriction, engagement verification |
 | **ci-fix** | Failed CI logs | Minimal (must break CI on default branch) | Fixed prompt, automatic trigger |
@@ -107,6 +107,43 @@ code — it's exfiltrating other secrets:
 
 This is why release secrets must be in a protected environment, not repo-level
 secrets.
+
+## Runtime rate limits
+
+The composite action aborts if recent bot activity exceeds any limit,
+before starting Claude. This catches runaway loops (e.g., triage creating a
+fix PR whose CI failure triggers ci-fix, which creates another PR) and
+prompt injection that tricks the bot into creating PRs or issues in bulk.
+
+Two layers of detection:
+
+- **Burst** — caps creation rate over a short window (20 minutes). Catches
+  tight loops that produce many artifacts quickly.
+- **Spike** — compares today's total against the daily average of the previous
+  6 days. The formula `10 + 2 × daily_avg` adapts to each repo's normal
+  activity level: a repo that averages 0 posts/day trips at 11, while one
+  averaging 15/day trips at 41.
+
+| Check | Limit | Layer |
+|-------|-------|-------|
+| PRs created in last 20 min | 10 | Burst |
+| Issues created in last 20 min | 10 | Burst |
+| Items created today | 10 + 2× daily avg (past 6 days) | Spike |
+
+These are hardcoded in `action.yaml`. Because the check runs outside Claude's
+session, a prompt injection attack cannot instruct the bot to skip it.
+
+## CLAUDE.md pinning on fork PRs
+
+Claude Code loads `CLAUDE.md` into the system prompt. On `pull_request_target`,
+the checkout includes fork changes, so a fork PR that modifies `CLAUDE.md`
+injects instructions at system-prompt level — the same authority as the
+`system_prompt_append` conduct rules.
+
+The composite action detects fork PRs (via `GITHUB_EVENT_PATH`) and overwrites
+`CLAUDE.md` with the base branch version before running Claude. Same-repo PRs
+are unaffected — the branch's `CLAUDE.md` is used as-is, so changes to it can
+be reviewed normally.
 
 ## Future hardening
 

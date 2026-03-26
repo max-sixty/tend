@@ -18,6 +18,39 @@ before doing anything else:
 ls .claude/skills/
 ```
 
+## Conduct
+
+Follow the project's code of conduct. Avoid causing disruption — unnecessary
+comments, bulk operations, unsolicited housekeeping.
+
+### Helping vs. directing
+
+Anyone can ask for help with a problem they raise: investigating a bug,
+answering a question, creating an issue or PR to address it. These are
+proposals — a maintainer still decides what to merge or act on.
+
+Directing the bot to affect someone else's work — closing or locking
+issues/PRs, dismissing reviews, reverting commits, applying or removing
+labels — requires maintainer access. Before complying, check the requester's
+`author_association` via the event payload or API:
+
+```bash
+gh api repos/{owner}/{repo}/issues/comments/{comment_id} --jq '.author_association'
+```
+
+`OWNER`, `MEMBER`, and `COLLABORATOR` indicate maintainer access. For anyone
+else, briefly explain that a maintainer needs to make that call.
+
+The test: "Am I helping this person with something they raised, or following
+a directive that affects someone else's work?"
+
+### Scope
+
+Act within this repository and others in the same organization. Do not create
+issues, PRs, or comments in repositories outside the organization, unless the
+target repo explicitly welcomes AI-created issues (e.g., in its CONTRIBUTING
+guide).
+
 ## Read Context
 
 When triggered by a comment or issue, read the full context before responding.
@@ -100,6 +133,31 @@ If pushing fails (fork PR with edits disabled, or fork mode on human PRs), fall
 back to posting code snippets in a comment. Don't reference commit SHAs from
 temporary branches — post code inline.
 
+## Merging Upstream into PR Branches
+
+When asked to merge the default branch into a PR branch:
+
+1. **Never use `--allow-unrelated-histories`.** If `git merge` fails because
+   git can't find a merge base, the checkout is broken — investigate rather than
+   forcing the merge. `--allow-unrelated-histories` treats both sides as
+   disconnected, creating add/add conflicts in every file.
+
+2. **Handle untracked file conflicts properly.** If `git merge origin/main`
+   fails because untracked files would be overwritten by tracked files, stash
+   them first — don't delete them:
+   ```bash
+   git stash --include-untracked
+   git merge origin/main
+   git stash pop
+   ```
+
+3. **Verify merge base exists** before merging:
+   ```bash
+   git merge-base origin/main HEAD
+   ```
+   If this fails, the branch history is disconnected. Re-checkout the PR with
+   full history (`fetch-depth: 0`) before retrying.
+
 ## CI Monitoring
 
 After pushing, wait for CI before reporting completion.
@@ -165,6 +223,35 @@ Reply in context rather than creating new top-level comments:
 
 - **Conversation comments** (`#issuecomment-`): Post a regular comment (GitHub
   doesn't support threading).
+
+## Recheck Before Posting
+
+Long-running tasks (triage, review, CI diagnosis) can take minutes. By the time
+you're ready to comment, new discussion may have arrived that changes the
+context — a human may have already answered, the author may have pushed a fix,
+or new information may make your response redundant or wrong.
+
+**Before posting any comment or review**, re-fetch the current conversation
+state:
+
+```bash
+# For issues
+gh issue view <number> --json comments --jq '.comments | length'
+
+# For PRs (comments + reviews)
+gh pr view <number> --json comments,reviews \
+  --jq '{comments: (.comments | length), reviews: (.reviews | length)}'
+```
+
+Compare with the count you saw when you first read the context. If new comments
+or reviews appeared:
+
+1. **Read the new comments** to understand what changed.
+2. **Adjust or skip your response.** If someone already answered, don't repeat
+   them. If the author resolved the issue, acknowledge that instead of posting
+   a stale analysis. If new information contradicts your findings, update your
+   response before posting.
+3. **If your response is now entirely redundant, don't post it.**
 
 ## Comment Formatting
 

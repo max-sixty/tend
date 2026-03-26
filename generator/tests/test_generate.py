@@ -48,7 +48,9 @@ def test_generated_yaml_is_valid(tmp_path: Path) -> None:
 
 
 def test_disabled_workflow_not_generated(tmp_path: Path) -> None:
-    cfg = Config.load(_minimal_config(tmp_path, "[workflows.renovate]\nenabled = false"))
+    cfg = Config.load(
+        _minimal_config(tmp_path, "[workflows.renovate]\nenabled = false")
+    )
     workflows = generate_all(cfg)
     names = {wf.filename for wf in workflows}
     assert "tend-renovate.yaml" not in names
@@ -64,8 +66,12 @@ def test_setup_steps_rendered(tmp_path: Path) -> None:
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     for wf in generate_all(cfg):
-        assert "./.github/actions/my-setup" in wf.content, f"{wf.filename} missing uses step"
-        assert 'echo FOO=bar >> $GITHUB_ENV' in wf.content, f"{wf.filename} missing run step"
+        assert "./.github/actions/my-setup" in wf.content, (
+            f"{wf.filename} missing uses step"
+        )
+        assert "echo FOO=bar >> $GITHUB_ENV" in wf.content, (
+            f"{wf.filename} missing run step"
+        )
 
 
 def test_empty_setup_no_blank_lines(tmp_path: Path) -> None:
@@ -174,7 +180,9 @@ def test_setup_raw_yaml_injected(tmp_path: Path) -> None:
     for wf in generate_all(cfg):
         data = yaml.safe_load(wf.content)
         assert isinstance(data, dict), f"{wf.filename} did not parse as valid YAML"
-        assert "Swatinem/rust-cache@v2" in wf.content, f"{wf.filename} missing raw uses step"
+        assert "Swatinem/rust-cache@v2" in wf.content, (
+            f"{wf.filename} missing raw uses step"
+        )
         assert "save-if: false" in wf.content, f"{wf.filename} missing with parameter"
         assert "cargo binstall" in wf.content, f"{wf.filename} missing raw run step"
 
@@ -225,15 +233,21 @@ def test_fork_mode_adds_fork_remote_step(tmp_path: Path) -> None:
     """Fork mode workflows include a step to configure the fork remote."""
     cfg = Config.load(_minimal_config(tmp_path, 'mode = "fork"'))
     for wf in generate_all(cfg):
-        assert "Configure fork remote" in wf.content, f"{wf.filename} missing fork remote step"
-        assert "git remote add fork" in wf.content, f"{wf.filename} missing git remote add"
+        assert "Configure fork remote" in wf.content, (
+            f"{wf.filename} missing fork remote step"
+        )
+        assert "git remote add fork" in wf.content, (
+            f"{wf.filename} missing git remote add"
+        )
 
 
 def test_write_mode_no_fork_remote_step(tmp_path: Path) -> None:
     """Write mode workflows do not include fork remote step."""
     cfg = Config.load(_minimal_config(tmp_path))
     for wf in generate_all(cfg):
-        assert "Configure fork remote" not in wf.content, f"{wf.filename} has unexpected fork step"
+        assert "Configure fork remote" not in wf.content, (
+            f"{wf.filename} has unexpected fork step"
+        )
 
 
 def test_fork_mode_contents_read(tmp_path: Path) -> None:
@@ -241,7 +255,9 @@ def test_fork_mode_contents_read(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path, 'mode = "fork"'))
     for wf in generate_all(cfg):
         assert "contents: read" in wf.content, f"{wf.filename} missing contents: read"
-        assert "contents: write" not in wf.content, f"{wf.filename} has contents: write in fork mode"
+        assert "contents: write" not in wf.content, (
+            f"{wf.filename} has contents: write in fork mode"
+        )
 
 
 def test_fork_mode_passes_mode_to_action(tmp_path: Path) -> None:
@@ -274,7 +290,12 @@ def test_fork_mode_with_setup_steps(tmp_path: Path) -> None:
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     for wf in generate_all(cfg):
-        if "Configure fork remote" in wf.content and "./.github/actions/my-setup" in wf.content:
+        if (
+            "Configure fork remote" in wf.content
+            and "./.github/actions/my-setup" in wf.content
+        ):
             fork_idx = wf.content.index("Configure fork remote")
             setup_idx = wf.content.index("./.github/actions/my-setup")
-            assert fork_idx < setup_idx, f"{wf.filename}: fork remote must come before setup"
+            assert fork_idx < setup_idx, (
+                f"{wf.filename}: fork remote must come before setup"
+            )

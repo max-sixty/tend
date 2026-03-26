@@ -65,12 +65,12 @@ class Config:
             )
 
         if "mode" not in raw:
-            raise click.ClickException("Missing required field: mode (must be 'fork' or 'write')")
+            raise click.ClickException(
+                "Missing required field: mode (must be 'fork' or 'write')"
+            )
         mode = raw["mode"]
         if mode not in VALID_MODES:
-            raise click.ClickException(
-                f"mode must be 'fork' or 'write', got '{mode}'"
-            )
+            raise click.ClickException(f"mode must be 'fork' or 'write', got '{mode}'")
 
         unknown = set(raw.keys()) - KNOWN_TOP_LEVEL
         for key in sorted(unknown):
@@ -95,7 +95,10 @@ class Config:
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in raw.get("workflows", {}).items():
             if name not in KNOWN_WORKFLOWS:
-                click.echo(f"Warning: unknown workflow '{name}' in config (known: {', '.join(sorted(KNOWN_WORKFLOWS))})", err=True)
+                click.echo(
+                    f"Warning: unknown workflow '{name}' in config (known: {', '.join(sorted(KNOWN_WORKFLOWS))})",
+                    err=True,
+                )
             if isinstance(wf_raw, dict):
                 watched = wf_raw.get("watched_workflows")
                 if watched is not None and len(watched) == 0 and name == "ci-fix":

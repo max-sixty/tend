@@ -27,7 +27,9 @@ def _reindent(text: str, indent: int) -> str:
     if not stripped:
         return ""
     pad = " " * indent
-    return "\n".join(pad + line if line.strip() else line for line in stripped.splitlines())
+    return "\n".join(
+        pad + line if line.strip() else line for line in stripped.splitlines()
+    )
 
 
 def _setup_yaml(cfg: Config, indent: int = 6) -> str:
@@ -90,6 +92,7 @@ class GeneratedWorkflow:
 # ---------------------------------------------------------------------------
 # Review
 # ---------------------------------------------------------------------------
+
 
 def _escape_braces(prompt: str, placeholder: str) -> tuple[str, bool]:
     """Escape literal braces in a prompt, preserving only {placeholder}.
@@ -197,6 +200,7 @@ jobs:
 # ---------------------------------------------------------------------------
 # Mention
 # ---------------------------------------------------------------------------
+
 
 def generate_mention(cfg: Config) -> GeneratedWorkflow:
     bt = _bot_token(cfg)
@@ -370,6 +374,7 @@ jobs:
 # Triage
 # ---------------------------------------------------------------------------
 
+
 def generate_triage(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("triage", WorkflowConfig())
     prompt = (wf.prompt or "/tend-ci-runner:triage {issue_number}").replace(
@@ -425,6 +430,7 @@ jobs:
 # ---------------------------------------------------------------------------
 # CI Fix
 # ---------------------------------------------------------------------------
+
 
 def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("ci-fix", WorkflowConfig())
@@ -491,7 +497,10 @@ jobs:
 # Scheduled (nightly, renovate)
 # ---------------------------------------------------------------------------
 
-def _generate_scheduled(cfg: Config, name: str, default_cron: str, default_prompt: str) -> GeneratedWorkflow:
+
+def _generate_scheduled(
+    cfg: Config, name: str, default_cron: str, default_prompt: str
+) -> GeneratedWorkflow:
     wf = cfg.workflows.get(name, WorkflowConfig())
     cron = wf.cron or default_cron
     prompt = wf.prompt or default_prompt
@@ -543,7 +552,9 @@ def generate_nightly(cfg: Config) -> GeneratedWorkflow:
 
 
 def generate_renovate(cfg: Config) -> GeneratedWorkflow:
-    return _generate_scheduled(cfg, "renovate", "17 9 * * 0", "/tend-ci-runner:renovate")
+    return _generate_scheduled(
+        cfg, "renovate", "17 9 * * 0", "/tend-ci-runner:renovate"
+    )
 
 
 # ---------------------------------------------------------------------------

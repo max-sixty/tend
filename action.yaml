@@ -23,7 +23,7 @@ inputs:
     default: "Bash,Edit,Read,Write,Glob,Grep,WebSearch,WebFetch,Task,Skill"
     description: Comma-separated list of allowed tools
   system_prompt_append:
-    default: "You are operating in a GitHub Actions CI environment. Use /tend-ci-runner:running-in-ci before starting work."
+    default: "You are operating in a GitHub Actions CI environment. Use /tend-ci-runner:running-in-ci before starting work. Conduct: follow the code of conduct; help anyone with problems they raise (issues, PRs, answers); actions affecting others' work (closing, locking, dismissing reviews, reverting, labeling) require the requester to be a maintainer (check author_association). Act within this repository and its organization only."
     description: Text appended to the system prompt
   allowed_bots:
     default: "*"
@@ -65,6 +65,54 @@ runs:
         GH_TOKEN: ${{ inputs.github_token }}
         MODE: ${{ inputs.mode }}
 
+    - name: Rate limit preflight
+      shell: bash
+      run: |
+        REPO="${GITHUB_REPOSITORY}"
+        BOT="${{ inputs.bot_name }}"
+        # GNU date — runs on Ubuntu (GitHub Actions runners)
+        TWENTY_MIN_AGO=$(date -u -d '20 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+        TODAY=$(date -u +%Y-%m-%d)
+        YESTERDAY=$(date -u -d 'yesterday' +%Y-%m-%d)
+        SIX_DAYS_AGO=$(date -u -d '6 days ago' +%Y-%m-%d)
+
+        # Burst check: too many in the last 20 minutes
+        RECENT_PRS=$(gh api "repos/$REPO/pulls?state=all&sort=created&direction=desc&per_page=30" \
+          --jq "[.[] | select(.user.login == \"$BOT\" and .created_at > \"$TWENTY_MIN_AGO\")] | length" || echo 0)
+        RECENT_ISSUES=$(gh api "repos/$REPO/issues?creator=$BOT&state=all&sort=created&direction=desc&per_page=30" \
+          --jq "[.[] | select(.pull_request == null and .created_at > \"$TWENTY_MIN_AGO\")] | length" || echo 0)
+
+        # Spike check: abnormal daily volume vs 6-day baseline
+        # search/issues covers both issues and PRs
+        TODAY_POSTS=$(gh api "search/issues?q=author:${BOT}+repo:${REPO}+created:${TODAY}" \
+          --jq '.total_count' || echo 0)
+        PAST_POSTS=$(gh api "search/issues?q=author:${BOT}+repo:${REPO}+created:${SIX_DAYS_AGO}..${YESTERDAY}" \
+          --jq '.total_count' || echo 0)
+        # spike_limit = 10 + 2 * daily_avg = 10 + 2 * (past_posts / 6) = 10 + past_posts / 3
+        SPIKE_LIMIT=$((10 + PAST_POSTS / 3))
+
+        echo "Rate limit: burst=${RECENT_PRS} PRs, ${RECENT_ISSUES} issues (20min); today=${TODAY_POSTS} (limit: ${SPIKE_LIMIT})"
+
+        ABORT=false
+        if [ "$RECENT_PRS" -gt 10 ]; then
+          echo "::error::Rate limit: bot created ${RECENT_PRS} PRs in the last 20 minutes (limit: 10)"
+          ABORT=true
+        fi
+        if [ "$RECENT_ISSUES" -gt 10 ]; then
+          echo "::error::Rate limit: bot created ${RECENT_ISSUES} issues in the last 20 minutes (limit: 10)"
+          ABORT=true
+        fi
+        if [ "$TODAY_POSTS" -gt "$SPIKE_LIMIT" ]; then
+          echo "::error::Rate limit: bot created ${TODAY_POSTS} items today, above spike limit of ${SPIKE_LIMIT} (baseline: ${PAST_POSTS} over past 6 days)"
+          ABORT=true
+        fi
+        if [ "$ABORT" = true ]; then
+          exit 1
+        fi
+        echo "Rate limit check passed"
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+
     - name: Install CI scripts
       shell: bash
       run: |
@@ -86,13 +134,24 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github_token }}
 
-    - name: Install tend CI plugin
+    - name: Pin CLAUDE.md to base branch (fork PRs)
       shell: bash
       run: |
-        npm install -g @anthropic-ai/claude-code
-        claude plugin marketplace add https://github.com/max-sixty/tend.git
-        claude plugin install install-tend@tend
-        claude plugin install tend-ci-runner@tend
+        if [ "$GITHUB_EVENT_NAME" != "pull_request_target" ]; then
+          exit 0
+        fi
+        IS_FORK=$(jq -r '.pull_request.head.repo.fork // false' "$GITHUB_EVENT_PATH")
+        if [ "$IS_FORK" != "true" ]; then
+          exit 0
+        fi
+        DEFAULT_BRANCH=$(jq -r '.repository.default_branch' "$GITHUB_EVENT_PATH")
+        if git show "origin/${DEFAULT_BRANCH}:CLAUDE.md" > /tmp/base-claude.md 2>/dev/null; then
+          cp /tmp/base-claude.md CLAUDE.md
+          echo "Pinned CLAUDE.md to ${DEFAULT_BRANCH}"
+        else
+          rm -f CLAUDE.md
+          echo "No CLAUDE.md on ${DEFAULT_BRANCH} — removed fork version"
+        fi
 
     - name: Run Claude Code
       id: claude
@@ -111,6 +170,10 @@ runs:
         use_sticky_comment: ${{ inputs.use_sticky_comment }}
         additional_permissions: ${{ inputs.additional_permissions }}
         prompt: ${{ inputs.prompt }}
+        plugin_marketplaces: https://github.com/max-sixty/tend.git
+        plugins: |
+          install-tend@tend
+          tend-ci-runner@tend
         claude_args: |
           --model ${{ inputs.model }}
           --allowedTools ${{ inputs.allowed_tools }}
