@@ -126,14 +126,6 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github_token }}
 
-    - name: Install tend CI plugin
-      shell: bash
-      run: |
-        npm install -g @anthropic-ai/claude-code
-        claude plugin marketplace add https://github.com/max-sixty/tend.git
-        claude plugin install install-tend@tend
-        claude plugin install tend-ci-runner@tend
-
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@v1
@@ -149,6 +141,10 @@ runs:
         use_sticky_comment: ${{ inputs.use_sticky_comment }}
         additional_permissions: ${{ inputs.additional_permissions }}
         prompt: ${{ inputs.prompt }}
+        plugin_marketplaces: https://github.com/max-sixty/tend.git
+        plugins: |
+          install-tend@tend
+          tend-ci-runner@tend
         claude_args: |
           --model ${{ inputs.model }}
           --allowedTools ${{ inputs.allowed_tools }}
