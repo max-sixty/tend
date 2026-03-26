@@ -342,6 +342,40 @@ us with code execution, not just token minting.
   under adopter control but adds latency (webhook → our service →
   workflow_dispatch → runner) and complexity.
 
+## Concurrency strategy
+
+Every event-driven workflow uses `cancel-in-progress: true` — when a new event
+arrives for the same PR/issue while a previous run is still going, the old run
+is cancelled and only the latest event is processed.
+
+| Workflow | Group key | Scope |
+|----------|-----------|-------|
+| review | `workflow-event_name-PR#` | per PR, split by event type |
+| mention (verify) | none | stateless, completes in seconds |
+| mention (handle) | `workflow-handle-issue#` | per issue/PR |
+| triage | `workflow-issue#` | per issue |
+| ci-fix | none | only fires on failure, rare overlap |
+| nightly / renovate | none | scheduled, single instance |
+
+**Why cancel-in-progress:** The cancelled run was processing a stale event. A
+new push invalidates the old review, a new comment supersedes the old mention,
+a re-opened issue supersedes the old triage. The alternative —
+`cancel-in-progress: false` — queues the old run to complete, but it produces
+a response based on outdated context.
+
+**Tradeoff — wasted work:** A handle job that has been running for 20 minutes
+gets killed when a new event arrives. The work is lost. This is acceptable
+because the response it was composing was based on an older state. For mention,
+where each comment is arguably independent, queueing (`cancel-in-progress:
+false`) could preserve work but risks posting stale or duplicate responses —
+the exact problem that motivated adding concurrency control (#61).
+
+**Workflows without concurrency groups:** ci-fix, nightly, and renovate don't
+need them. ci-fix triggers on workflow failure, which is rare enough that
+overlapping runs are unlikely. Nightly and renovate are scheduled with
+`workflow_dispatch` — GitHub already serializes cron-triggered runs, and manual
+dispatches are infrequent.
+
 ## What lives in the tend repo
 
 ```
