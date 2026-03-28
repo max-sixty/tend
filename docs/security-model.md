@@ -1,10 +1,11 @@
 # CI Automation Security Model
 
-Tend gives an AI agent write access to a repository and runs it on
+Tend gives an AI agent access to a repository and runs it on
 attacker-controlled input (PR diffs, issue bodies, comments, CI logs). The
 agent needs enough access to be useful (push commits, post reviews, create
 PRs) but every capability is a capability an attacker inherits if they can
-hijack the session.
+hijack the session. The `mode` config field selects the privilege model —
+see DESIGN.md for the full comparison.
 
 A determined attacker with time and skill will eventually get the tokens —
 they're in memory during every workflow run, and Claude executes arbitrary
@@ -22,13 +23,15 @@ Three things an attacker wants, roughly in order of severity:
 1. **Merge malicious code to the default branch.** Game over — the attacker
    controls the repo. Everything else is damage limitation compared to this.
 
-2. **Exfiltrate tokens.** The bot token grants write access to the repo
-   (branches, PRs, comments). The Claude OAuth token grants billed API access.
-   With a long-lived PAT, the attacker keeps access indefinitely.
+2. **Exfiltrate tokens.** The bot token grants access to the repo — write
+   access in write mode, triage (comments/reviews only) in fork mode. The
+   Claude OAuth token grants billed API access. With a long-lived PAT, the
+   attacker keeps access indefinitely.
 
 3. **Hijack a single session.** Even without stealing tokens, an attacker who
-   controls what Claude does in one run can push malicious branches, post
-   misleading reviews, or create spam PRs.
+   controls what Claude does in one run can push malicious branches (write
+   mode) or branches to the fork (fork mode), post misleading reviews, or
+   create spam PRs.
 
 The attack surface varies by workflow. `tend-review` is the most exposed —
 the attacker controls the entire PR diff, which Claude reads and reasons
@@ -37,19 +40,30 @@ user-controlled input.
 
 | Workflow | Injection surface | Attacker control | Mitigations |
 |----------|-------------------|-------------------|-------------|
-| **review** | PR diff content, review body on bot PRs | Full (any PR) / Medium (reviewers) | Fixed prompt, merge restriction, CLAUDE.md pinning (fork PRs) |
-| **triage** | Issue body | Partial (structured skill) | Fixed prompt, merge restriction, environment protection |
-| **mention** | Comment body on any issue/PR | Full | Fixed prompt, merge restriction, engagement verification |
+| **review** | PR diff content, review body on bot PRs | Full (any PR) / Medium (reviewers) | Fixed prompt, privilege model, CLAUDE.md pinning (fork PRs) |
+| **triage** | Issue body | Partial (structured skill) | Fixed prompt, privilege model, environment protection |
+| **mention** | Comment body on any issue/PR | Full | Fixed prompt, privilege model, engagement verification |
 | **ci-fix** | Failed CI logs | Minimal (must break CI on default branch) | Fixed prompt, automatic trigger |
 | **renovate** | None | None | Fixed prompt, scheduled trigger |
 
 ## What we do
 
-**Merge restriction** is the primary security boundary. A GitHub ruleset (or
-branch protection) prevents the bot from merging to protected branches
-(default branch plus any in `protected_branches`) regardless of review status. The composite action refuses to start if the
-default branch isn't protected. Everything below is defense in depth — useful,
-but not load-bearing.
+**The privilege model** is the primary security boundary, selected by the
+`mode` config field.
+
+In **fork mode** (`mode = "fork"`), the bot has triage access on the target
+repo. Triage cannot push, merge, or modify workflows — GitHub enforces this
+server-side regardless of the PAT's scope. The bot pushes to its own fork
+and creates cross-fork PRs. No branch protection or rulesets are required.
+`tend check` verifies the bot has exactly triage access (not more, not less).
+
+In **write mode** (`mode = "write"`), the bot has write access. A merge
+restriction (ruleset or branch protection) prevents the bot from merging to
+protected branches regardless of review status. The composite action refuses
+to start if the default branch isn't protected. `tend check` verifies both
+the permission level and the branch protection configuration.
+
+Everything below is defense in depth — useful, but not load-bearing.
 
 **Config pinning.** `claude-code-action` restores `.claude/`, `.mcp.json`,
 `.claude.json`, `.gitmodules`, and `.ripgreprc` from the base branch on all
@@ -118,10 +132,12 @@ tricks that bypass the log filter. On GitHub-hosted runners, there's no way
 to restrict outbound network access.
 
 **Long-lived PAT exposure.** A classic PAT is valid until revoked and grants
-access to every repo the bot account can reach. A single successful
-exfiltration gives the attacker persistent, broad write access. The merge
-restriction limits what they can *do* with it, but they can still push
-branches, create PRs, and post comments indefinitely.
+access to every repo the bot account can reach. In write mode, a single
+successful exfiltration gives the attacker persistent, broad write access —
+the merge restriction limits what they can do, but they can still push
+branches, create PRs, and post comments indefinitely. In fork mode, the
+leaked PAT is limited to triage on the target repo (comments and reviews)
+plus write access to the bot's own fork — a much smaller blast radius.
 
 **Prompt injection without code execution.** Even without hijacking the
 tools, an attacker who controls what Claude reads can influence its behavior.
@@ -150,7 +166,9 @@ useful as a tripwire against unsophisticated attacks. Not yet implemented.
 can review the diff and post comments but can't execute code or push commits.
 This would close the "attacker-controlled code execution" gap entirely for
 fork PRs. The tradeoff: the bot can't suggest fixes on fork PRs, only
-review them.
+review them. Fork privilege mode (`mode = "fork"`) is orthogonal — it
+restricts what the *token* can do but doesn't restrict what *Claude* does
+locally. Both could be combined for maximum restriction on fork PRs.
 
 **Network isolation.** Self-hosted runners with outbound traffic restricted
 to GitHub API and Anthropic API endpoints would prevent token exfiltration via
@@ -214,11 +232,11 @@ consistent identity for reviews and comments and avoids the
 
 **If a token leaks:**
 
-| Token | Lifetime | If leaked, attacker can... | ...but cannot |
-|-------|----------|---------------------------|---------------|
-| Bot token (PAT) | Long-lived | Push to unprotected branches, create PRs, impersonate bot — **indefinitely** | Merge PRs (merge restriction), push to default branch, access release secrets (environment-protected) |
-| Bot token (App) | ~1 hour | Same as PAT, but only until token expires | Same + token auto-expires |
-| Claude OAuth | Long-lived | Run Claude sessions billed to the account | Access GitHub |
+| Token | Lifetime | If leaked (write mode) | If leaked (fork mode) |
+|-------|----------|------------------------|----------------------|
+| Bot token (PAT) | Long-lived | Push to unprotected branches, create PRs, impersonate bot — **indefinitely**. Cannot merge (merge restriction), push to default branch, or access release secrets (environment-protected). | Post comments/reviews on target repo, push to bot's fork only. Cannot push to target, merge, or modify workflows. |
+| Bot token (App) | ~1 hour | Same as PAT, but only until token expires | Same as PAT, but only until token expires |
+| Claude OAuth | Long-lived | Run Claude sessions billed to the account. Cannot access GitHub. | Same as write mode |
 
 `GITHUB_TOKEN` is ephemeral (single job) and automatically scoped by each
 workflow's `permissions:` block. Not a meaningful leak target.
@@ -275,5 +293,5 @@ Conversation-tab comments (`issue_comment`) are unaffected.
   `--append-system-prompt "You are operating in a GitHub Actions CI environment. Use /tend-ci-runner:running-in-ci before starting work."`.
 - **Token choice**: All Claude workflows use the bot token for consistent
   identity.
-- **`permissions:` block**: Set `contents: read` for read-only workflows.
+- **`permissions:` block**: Fork mode uses `contents: read` for all workflows (the bot pushes to its fork, not the target). Write mode uses `contents: write`.
 - **Sensitive secrets** must be in protected environments, never repo-level.
