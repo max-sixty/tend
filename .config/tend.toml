@@ -1,5 +1,6 @@
 bot_name = "tend-agent"
 mode = "write"
+protected_branches = ["v1"]
 
 [workflows.ci-fix]
 watched_workflows = ["ci"]
