@@ -15,6 +15,7 @@ import json
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 from tend.config import Config
 
@@ -407,6 +408,50 @@ def fix_branch_protection(
         True,
         f"Created 'Merge access' ruleset — only admins can merge ({', '.join(branches)})",
     )
+
+
+def check_workflows_current(cfg: Config, workflow_dir: Path) -> list[CheckResult]:
+    """Check that on-disk workflows match what the generator would produce.
+
+    Detects stale workflows (e.g. after a tend upgrade that changed skill names
+    or workflow structure). Returns one result per mismatched file, plus one
+    for any extra tend-*.yaml files that shouldn't exist.
+    """
+    from tend.workflows import generate_all
+
+    expected = {wf.filename: wf.content for wf in generate_all(cfg)}
+    results: list[CheckResult] = []
+
+    for filename, content in sorted(expected.items()):
+        path = workflow_dir / filename
+        name = f"workflow-current:{filename}"
+        if not path.exists():
+            results.append(CheckResult(name, False, f"{filename} missing — run `uvx tend init`"))
+            continue
+        on_disk = path.read_text()
+        if on_disk != content:
+            results.append(
+                CheckResult(
+                    name, False, f"{filename} is stale — run `uvx tend init` to regenerate"
+                )
+            )
+        else:
+            results.append(CheckResult(name, True, f"{filename} is up to date"))
+
+    # Check for extra tend-*.yaml files that the generator wouldn't produce.
+    if workflow_dir.is_dir():
+        for path in sorted(workflow_dir.glob("tend-*.yaml")):
+            if path.name not in expected:
+                name = f"workflow-current:{path.name}"
+                results.append(
+                    CheckResult(
+                        name,
+                        False,
+                        f"{path.name} exists but is not in config — remove it or enable the workflow",
+                    )
+                )
+
+    return results
 
 
 def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:

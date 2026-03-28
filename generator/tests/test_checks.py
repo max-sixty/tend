@@ -19,11 +19,12 @@ from tend.checks import (
     check_branch_protection,
     check_repo_secret_allowlist,
     check_secrets,
+    check_workflows_current,
     detect_repo,
     run_all_checks,
 )
 from tend.cli import main
-from tend.config import Config
+from tend.config import Config, WorkflowConfig
 
 
 def _make_completed(
@@ -629,6 +630,79 @@ def test_run_all_checks_deduplicates_default_branch() -> None:
 
 
 # ---------------------------------------------------------------------------
+# check_workflows_current
+# ---------------------------------------------------------------------------
+
+
+def test_workflows_current_all_match(tmp_path: Path) -> None:
+    """All generated workflows match on disk — all pass."""
+    cfg = Config("bot", "main", [], "T1", "T2", [], {})
+    from tend.workflows import generate_all
+
+    wf_dir = tmp_path / ".github" / "workflows"
+    wf_dir.mkdir(parents=True)
+    for wf in generate_all(cfg):
+        (wf_dir / wf.filename).write_text(wf.content)
+
+    results = check_workflows_current(cfg, wf_dir)
+    assert all(r.passed is True for r in results)
+    assert all("up to date" in r.message for r in results)
+
+
+def test_workflows_current_stale(tmp_path: Path) -> None:
+    """A modified workflow is detected as stale."""
+    cfg = Config("bot", "main", [], "T1", "T2", [], {})
+    from tend.workflows import generate_all
+
+    wf_dir = tmp_path / ".github" / "workflows"
+    wf_dir.mkdir(parents=True)
+    workflows = generate_all(cfg)
+    for wf in workflows:
+        (wf_dir / wf.filename).write_text(wf.content)
+
+    # Corrupt one file
+    first = workflows[0]
+    (wf_dir / first.filename).write_text("# old content\n")
+
+    results = check_workflows_current(cfg, wf_dir)
+    stale = [r for r in results if r.passed is False]
+    assert len(stale) == 1
+    assert first.filename in stale[0].name
+    assert "stale" in stale[0].message
+
+
+def test_workflows_current_missing(tmp_path: Path) -> None:
+    """A missing workflow is detected."""
+    cfg = Config("bot", "main", [], "T1", "T2", [], {})
+    wf_dir = tmp_path / ".github" / "workflows"
+    wf_dir.mkdir(parents=True)
+    # Don't write any files
+
+    results = check_workflows_current(cfg, wf_dir)
+    assert all(r.passed is False for r in results)
+    assert all("missing" in r.message for r in results)
+
+
+def test_workflows_current_extra_file(tmp_path: Path) -> None:
+    """An extra tend-*.yaml not in config is flagged."""
+    cfg = Config("bot", "main", [], "T1", "T2", [], {"renovate": WorkflowConfig(enabled=False)})
+    from tend.workflows import generate_all
+
+    wf_dir = tmp_path / ".github" / "workflows"
+    wf_dir.mkdir(parents=True)
+    for wf in generate_all(cfg):
+        (wf_dir / wf.filename).write_text(wf.content)
+
+    # Add an extra workflow file that the generator wouldn't produce
+    (wf_dir / "tend-renovate.yaml").write_text("# leftover\n")
+
+    results = check_workflows_current(cfg, wf_dir)
+    extra = [r for r in results if "not in config" in r.message]
+    assert len(extra) == 1
+    assert "tend-renovate.yaml" in extra[0].name
+
+
+# ---------------------------------------------------------------------------
 # CLI: tend check
 # ---------------------------------------------------------------------------
 
@@ -642,7 +716,10 @@ def test_cli_check_all_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         CheckResult("bot-permission", True, "write"),
         CheckResult("secrets", True, "present"),
     ]
-    with patch("tend.cli.run_all_checks", return_value=pass_results):
+    with (
+        patch("tend.cli.run_all_checks", return_value=pass_results),
+        patch("tend.cli.check_workflows_current", return_value=[]),
+    ):
         result = CliRunner().invoke(main, ["check"])
     assert result.exit_code == 0
     assert "PASS" in result.output
@@ -657,7 +734,10 @@ def test_cli_check_failure_exits_1(
     results = [
         CheckResult("branch-protection", False, "NOT protected"),
     ]
-    with patch("tend.cli.run_all_checks", return_value=results):
+    with (
+        patch("tend.cli.run_all_checks", return_value=results),
+        patch("tend.cli.check_workflows_current", return_value=[]),
+    ):
         result = CliRunner().invoke(main, ["check"])
     assert result.exit_code == 1
     assert "FAIL" in result.output
@@ -671,10 +751,35 @@ def test_cli_check_skips_exit_0(
     monkeypatch.chdir(tmp_path)
 
     results = [CheckResult("prerequisites", None, "gh not found")]
-    with patch("tend.cli.run_all_checks", return_value=results):
+    with (
+        patch("tend.cli.run_all_checks", return_value=results),
+        patch("tend.cli.check_workflows_current", return_value=[]),
+    ):
         result = CliRunner().invoke(main, ["check"])
     assert result.exit_code == 0
     assert "SKIP" in result.output
+
+
+def test_cli_check_stale_workflow_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stale workflows cause check to fail even if security checks pass."""
+    _write_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    pass_results = [
+        CheckResult("branch-protection", True, "protected"),
+    ]
+    wf_results = [
+        CheckResult("workflow-current:tend-review.yaml", False, "stale"),
+    ]
+    with (
+        patch("tend.cli.run_all_checks", return_value=pass_results),
+        patch("tend.cli.check_workflows_current", return_value=wf_results),
+    ):
+        result = CliRunner().invoke(main, ["check"])
+    assert result.exit_code == 1
+    assert "FAIL" in result.output
 
 
 # ---------------------------------------------------------------------------

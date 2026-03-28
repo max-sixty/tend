@@ -9,6 +9,7 @@ import click
 
 from tend.checks import (
     CheckResult,
+    check_workflows_current,
     detect_default_branch,
     detect_repo,
     fix_branch_protection,
@@ -107,10 +108,21 @@ def init(config_path: Path | None, dry_run: bool) -> None:
 def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
     """Verify security prerequisites (branch protection, bot access, secrets)."""
     cfg = Config.load(config_path)
+    cfg.default_branch = _detect_default_branch_local()
+
+    workflow_dir = Path(".github/workflows")
+    wf_results = check_workflows_current(cfg, workflow_dir)
+    if wf_results:
+        click.echo("Workflow checks:")
+        _print_check_results(wf_results)
+        click.echo()
+
     results = run_all_checks(cfg, repo)
 
     click.echo("Security checks:")
     _print_check_results(results)
+
+    results.extend(wf_results)
 
     failures = [r for r in results if r.passed is False]
     if not failures:
