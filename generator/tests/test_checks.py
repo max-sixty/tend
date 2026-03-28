@@ -685,7 +685,9 @@ def test_workflows_current_missing(tmp_path: Path) -> None:
 
 def test_workflows_current_extra_file(tmp_path: Path) -> None:
     """An extra tend-*.yaml not in config is flagged."""
-    cfg = Config("bot", "main", [], "T1", "T2", [], {"renovate": WorkflowConfig(enabled=False)})
+    cfg = Config(
+        "bot", "main", [], "T1", "T2", [], {"renovate": WorkflowConfig(enabled=False)}
+    )
     from tend.workflows import generate_all
 
     wf_dir = tmp_path / ".github" / "workflows"

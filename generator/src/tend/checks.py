@@ -426,13 +426,17 @@ def check_workflows_current(cfg: Config, workflow_dir: Path) -> list[CheckResult
         path = workflow_dir / filename
         name = f"workflow-current:{filename}"
         if not path.exists():
-            results.append(CheckResult(name, False, f"{filename} missing — run `uvx tend init`"))
+            results.append(
+                CheckResult(name, False, f"{filename} missing — run `uvx tend init`")
+            )
             continue
         on_disk = path.read_text()
         if on_disk != content:
             results.append(
                 CheckResult(
-                    name, False, f"{filename} is stale — run `uvx tend init` to regenerate"
+                    name,
+                    False,
+                    f"{filename} is stale — run `uvx tend init` to regenerate",
                 )
             )
         else:
