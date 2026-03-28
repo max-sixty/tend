@@ -7,13 +7,19 @@ from pathlib import Path
 
 import click
 
-from tend.checks import CheckResult, detect_repo, fix_branch_protection, run_all_checks
+from tend.checks import (
+    CheckResult,
+    detect_default_branch,
+    detect_repo,
+    fix_branch_protection,
+    run_all_checks,
+)
 from tend.config import Config
 from tend.workflows import generate_all
 
 
-def _detect_default_branch() -> str:
-    """Detect the default branch from git remote."""
+def _detect_default_branch_local() -> str:
+    """Detect the default branch from the local git remote."""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "origin/HEAD"],
@@ -60,7 +66,7 @@ def main() -> None:
 def init(config_path: Path | None, dry_run: bool) -> None:
     """Generate workflow files from config. Idempotent — always overwrites."""
     cfg = Config.load(config_path)
-    cfg.default_branch = _detect_default_branch()
+    cfg.default_branch = _detect_default_branch_local()
     outdir = Path(".github/workflows")
 
     workflows = generate_all(cfg)
@@ -121,16 +127,23 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
         raise SystemExit(1)
 
     fixed_any = False
-    for r in failures:
-        if r.name == "branch-protection" and "bot can still merge" in r.message:
-            click.echo()
-            click.echo(
-                "Creating 'Merge access' ruleset — only admins can merge to default branch..."
-            )
-            fix_result = fix_branch_protection(repo)
-            _print_check_results([fix_result])
-            if fix_result.passed:
-                fixed_any = True
+    bp_fixable = [
+        r
+        for r in failures
+        if r.name.startswith("branch-protection:")
+        and "bot can still merge" in r.message
+    ]
+    if bp_fixable:
+        branches_desc = ", ".join(r.name.split(":", 1)[1] for r in bp_fixable)
+        click.echo()
+        click.echo(
+            f"Creating 'Merge access' ruleset — only admins can merge ({branches_desc})..."
+        )
+        default_branch = detect_default_branch(repo) or "main"
+        fix_result = fix_branch_protection(repo, default_branch, cfg.protected_branches)
+        _print_check_results([fix_result])
+        if fix_result.passed:
+            fixed_any = True
 
     if fixed_any:
         click.echo()

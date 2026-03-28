@@ -42,10 +42,65 @@ def test_bot_name_only(tmp_path: Path) -> None:
     path = _write_config(tmp_path, 'bot_name = "my-bot"')
     cfg = Config.load(path)
     assert cfg.bot_name == "my-bot"
+    assert cfg.protected_branches == []
     assert cfg.bot_token_secret == "BOT_TOKEN"
     assert cfg.claude_token_secret == "CLAUDE_CODE_OAUTH_TOKEN"
     assert cfg.setup == []
     assert cfg.workflows == {}
+    assert cfg.allowed_repo_secrets == []
+
+
+# ---------------------------------------------------------------------------
+# 2b. protected_branches
+# ---------------------------------------------------------------------------
+
+
+def test_protected_branches_parsed(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name = "my-bot"
+        protected_branches = ["v1", "v2"]
+    """),
+    )
+    cfg = Config.load(path)
+    assert cfg.protected_branches == ["v1", "v2"]
+
+
+def test_protected_branches_empty_list(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name = "my-bot"
+        protected_branches = []
+    """),
+    )
+    cfg = Config.load(path)
+    assert cfg.protected_branches == []
+
+
+def test_protected_branches_non_list_rejected(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name = "my-bot"
+        protected_branches = "v1"
+    """),
+    )
+    with pytest.raises(ClickException, match="protected_branches must be a list"):
+        Config.load(path)
+
+
+def test_protected_branches_empty_string_rejected(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name = "my-bot"
+        protected_branches = ["v1", ""]
+    """),
+    )
+    with pytest.raises(ClickException, match="non-empty strings"):
+        Config.load(path)
 
 
 # ---------------------------------------------------------------------------
@@ -544,3 +599,53 @@ def test_workflow_disabled_boolean_shorthand_not_generated(tmp_path: Path) -> No
     workflows = generate_all(cfg)
     names = {wf.filename for wf in workflows}
     assert "tend-review.yaml" not in names
+
+
+# ---------------------------------------------------------------------------
+# secrets.allowed
+# ---------------------------------------------------------------------------
+
+
+def test_allowed_secrets_parsed(tmp_path: Path) -> None:
+    """secrets.allowed is parsed as a list of secret names."""
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name = "my-bot"
+        [secrets]
+        allowed = ["CODECOV_TOKEN", "SENTRY_DSN"]
+    """),
+    )
+    cfg = Config.load(path)
+    assert cfg.allowed_repo_secrets == ["CODECOV_TOKEN", "SENTRY_DSN"]
+
+
+def test_unknown_secrets_key_warned(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Typos like secrets.aallowed should produce a warning."""
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name = "my-bot"
+        [secrets]
+        aallowed = ["PYPI_TOKEN"]
+    """),
+    )
+    Config.load(path)
+    captured = capsys.readouterr()
+    assert "Warning: unknown secrets key 'aallowed'" in captured.err
+
+
+def test_allowed_secrets_string_rejected(tmp_path: Path) -> None:
+    """secrets.allowed = 'CODECOV_TOKEN' (string) must be rejected."""
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name = "my-bot"
+        [secrets]
+        allowed = "CODECOV_TOKEN"
+    """),
+    )
+    with pytest.raises(ClickException, match="secrets.allowed must be a list"):
+        Config.load(path)

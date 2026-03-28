@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
 
 KNOWN_WORKFLOWS = {"review", "mention", "triage", "ci-fix", "nightly", "renovate"}
-KNOWN_TOP_LEVEL = {"bot_name", "secrets", "setup", "workflows"}
+KNOWN_TOP_LEVEL = {"bot_name", "protected_branches", "secrets", "setup", "workflows"}
+KNOWN_SECRETS_KEYS = {"bot_token", "claude_token", "allowed"}
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
 
@@ -36,10 +37,12 @@ class WorkflowConfig:
 class Config:
     bot_name: str
     default_branch: str
+    protected_branches: list[str]
     bot_token_secret: str
     claude_token_secret: str
     setup: list[SetupStep]
     workflows: dict[str, WorkflowConfig]
+    allowed_repo_secrets: list[str] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path | None = None) -> Config:
@@ -66,7 +69,18 @@ class Config:
         for key in sorted(unknown):
             click.echo(f"Warning: unknown config key '{key}'", err=True)
 
+        protected_branches = raw.get("protected_branches", [])
+        if not isinstance(protected_branches, list) or not all(
+            isinstance(b, str) and b for b in protected_branches
+        ):
+            raise click.ClickException(
+                "protected_branches must be a list of non-empty strings"
+            )
+
         secrets = raw.get("secrets", {})
+        unknown_secrets = set(secrets.keys()) - KNOWN_SECRETS_KEYS
+        for key in sorted(unknown_secrets):
+            click.echo(f"Warning: unknown secrets key '{key}'", err=True)
 
         setup: list[SetupStep] = []
         for i, entry in enumerate(raw.get("setup", [])):
@@ -107,11 +121,22 @@ class Config:
             else:
                 workflows[name] = WorkflowConfig(enabled=bool(wf_raw))
 
+        allowed = secrets.get("allowed", [])
+        if not isinstance(allowed, list) or not all(
+            isinstance(s, str) for s in allowed
+        ):
+            raise click.ClickException(
+                "secrets.allowed must be a list of strings, "
+                'e.g. allowed = ["CODECOV_TOKEN"]'
+            )
+
         return cls(
             bot_name=bot_name,
             default_branch="main",
+            protected_branches=protected_branches,
             bot_token_secret=secrets.get("bot_token", "BOT_TOKEN"),
             claude_token_secret=secrets.get("claude_token", "CLAUDE_CODE_OAUTH_TOKEN"),
             setup=setup,
             workflows=workflows,
+            allowed_repo_secrets=allowed,
         )

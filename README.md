@@ -82,6 +82,19 @@ bot_name = "my-project-bot"
 
 Only overrides from defaults are needed.
 
+### Protected branches
+
+The default branch is always protected. To protect additional branches (e.g.,
+release branches), list them explicitly:
+
+```toml
+protected_branches = ["v1", "v2"]
+```
+
+`tend check` verifies branch protection on all listed branches. `tend check
+--fix` creates a single ruleset covering the default branch and all extra
+branches.
+
 ### Secrets
 
 Two repo secrets are required:
@@ -98,6 +111,19 @@ Override secret names if yours differ:
 bot_token = "MY_BOT_PAT"
 claude_token = "MY_CLAUDE_TOKEN"
 ```
+
+`tend check` flags any repo-level secret not in an explicit allowlist (the bot
+tokens above are always allowed). Repos with additional legitimate repo-level
+secrets — coverage tokens, linter keys — must list them:
+
+```toml
+[secrets]
+allowed = ["CODECOV_TOKEN"]
+```
+
+Release secrets (registry tokens, signing keys) should never be repo-level.
+Store them in a protected GitHub Environment instead — see
+`docs/security-model.md`.
 
 ### Setup steps
 

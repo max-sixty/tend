@@ -1,7 +1,7 @@
 """Security checks for tend setup.
 
 Verifies the repository has the security prerequisites described in
-docs/security-model.md: branch protection on the default branch, bot
+docs/security-model.md: branch protection on configured branches, bot
 permission level, and required secrets.
 
 Uses the `gh` CLI for GitHub API access. Checks degrade gracefully when
@@ -10,6 +10,7 @@ gh is unavailable or the token lacks permission.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import shutil
 import subprocess
@@ -53,7 +54,7 @@ def detect_repo() -> str | None:
     return None
 
 
-def _detect_default_branch(repo: str) -> str | None:
+def detect_default_branch(repo: str) -> str | None:
     """Detect the default branch for a repo via the GitHub API."""
     result = _gh("api", f"repos/{repo}", "--jq", ".default_branch")
     if result and result.returncode == 0:
@@ -62,91 +63,122 @@ def _detect_default_branch(repo: str) -> str | None:
     return None
 
 
-def check_branch_protection(repo: str, branch: str) -> CheckResult:
-    """Check if the default branch is protected against bot merges.
+def check_branch_protection(
+    repo: str, branch: str, *, default_branch: str | None = None
+) -> CheckResult:
+    """Check if a branch is protected against bot merges.
 
     Checks both that the branch is protected and that the protection actually
     prevents the bot from merging (via required reviews or a restrict-updates
-    ruleset).
+    ruleset). Pass ``default_branch`` so ``~DEFAULT_BRANCH`` ruleset patterns
+    can be resolved.
     """
+    name = f"branch-protection:{branch}"
     result = _gh("api", f"repos/{repo}/branches/{branch}", "--jq", ".protected")
     if result is None:
-        return CheckResult("branch-protection", None, "gh CLI not found")
+        return CheckResult(name, None, "gh CLI not found")
     if result.returncode != 0:
-        return CheckResult(
-            "branch-protection", None, f"API error: {result.stderr.strip()}"
-        )
+        return CheckResult(name, None, f"API error: {result.stderr.strip()}")
 
     if result.stdout.strip() != "true":
         return CheckResult(
-            "branch-protection",
+            name,
             False,
-            f"Default branch '{branch}' is NOT protected. "
+            f"Branch '{branch}' is NOT protected. "
             "The bot must not be able to merge PRs — this is the primary security boundary. "
             "Add a branch protection rule or ruleset. See docs/security-model.md.",
         )
 
     # Branch is protected — now check if the bot can still merge.
     # A restrict-updates ruleset is sufficient (and preferred).
-    if _has_restrict_updates_ruleset(repo, branch):
+    if _has_restrict_updates_ruleset(repo, branch, default_branch=default_branch):
         return CheckResult(
-            "branch-protection",
+            name,
             True,
-            f"Default branch '{branch}' is protected (restrict-updates ruleset)",
+            f"Branch '{branch}' is protected (restrict-updates ruleset)",
         )
 
     # Fall back to checking branch protection rules for required reviews.
     prot = _gh("api", f"repos/{repo}/branches/{branch}/protection")
     if prot is None or prot.returncode != 0:
         # Can't read details — branch is protected, assume OK.
-        return CheckResult(
-            "branch-protection", True, f"Default branch '{branch}' is protected"
-        )
+        return CheckResult(name, True, f"Branch '{branch}' is protected")
 
     try:
         data = json.loads(prot.stdout)
     except json.JSONDecodeError:
-        return CheckResult(
-            "branch-protection", True, f"Default branch '{branch}' is protected"
-        )
+        return CheckResult(name, True, f"Branch '{branch}' is protected")
 
     if not isinstance(data, dict):
-        return CheckResult(
-            "branch-protection", True, f"Default branch '{branch}' is protected"
-        )
+        return CheckResult(name, True, f"Branch '{branch}' is protected")
 
     reviews = data.get("required_pull_request_reviews")
     if reviews and reviews.get("required_approving_review_count", 0) > 0:
         return CheckResult(
-            "branch-protection",
+            name,
             True,
-            f"Default branch '{branch}' is protected (requires reviews)",
+            f"Branch '{branch}' is protected (requires reviews)",
         )
 
     return CheckResult(
-        "branch-protection",
+        name,
         False,
-        f"Default branch '{branch}' is protected but the bot can still merge PRs "
+        f"Branch '{branch}' is protected but the bot can still merge PRs "
         f"(required_approving_review_count is 0 and no restrict-updates ruleset found). "
         "Either require at least 1 approving review, or add a 'Restrict updates' "
         "ruleset with only admins bypassing. See docs/security-model.md.",
     )
 
 
-def _has_restrict_updates_ruleset(repo: str, branch: str) -> bool:
-    """Check if any active ruleset restricts updates to the branch."""
+def _has_restrict_updates_ruleset(
+    repo: str, branch: str, *, default_branch: str | None = None
+) -> bool:
+    """Check if any active ruleset restricts updates to the branch.
+
+    Fetches rulesets and checks whether their ``conditions.ref_name.include``
+    patterns actually cover ``branch``. Supports ``~DEFAULT_BRANCH``, ``~ALL``,
+    exact refs, and fnmatch glob patterns.
+    """
     result = _gh(
         "api",
         f"repos/{repo}/rulesets",
         "--jq",
-        '[.[] | select(.enforcement == "active" and .target == "branch" and (.rules[]? | .type == "update"))] | length',
+        '[.[] | select(.enforcement == "active" and .target == "branch" and (.rules[]? | .type == "update"))]',
     )
     if result is None or result.returncode != 0:
         return False
     try:
-        return int(result.stdout.strip()) > 0
-    except ValueError:
+        rulesets = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
         return False
+
+    ref = f"refs/heads/{branch}"
+    for ruleset in rulesets:
+        conditions = ruleset.get("conditions") or {}
+        ref_name = conditions.get("ref_name") or {}
+        include = ref_name.get("include") or []
+        exclude = ref_name.get("exclude") or []
+        if _ref_matches_patterns(
+            ref, include, default_branch
+        ) and not _ref_matches_patterns(ref, exclude, default_branch):
+            return True
+    return False
+
+
+def _ref_matches_patterns(
+    ref: str, patterns: list[str], default_branch: str | None
+) -> bool:
+    """Check if a ref matches any GitHub ruleset pattern."""
+    for pattern in patterns:
+        if pattern == "~ALL":
+            return True
+        if pattern == "~DEFAULT_BRANCH":
+            if default_branch and ref == f"refs/heads/{default_branch}":
+                return True
+            continue
+        if fnmatch.fnmatch(ref, pattern):
+            return True
+    return False
 
 
 def check_bot_permission(repo: str, bot_name: str) -> CheckResult:
@@ -250,34 +282,107 @@ def _list_org_secrets(org: str) -> tuple[set[str] | None, bool]:
         return None, False
 
 
-RESTRICT_UPDATES_RULESET = json.dumps(
-    {
-        "name": "Merge access",
-        "target": "branch",
-        "enforcement": "active",
-        "conditions": {
-            "ref_name": {
-                "include": ["~DEFAULT_BRANCH"],
-                "exclude": [],
-            }
-        },
-        "rules": [{"type": "update"}],
-        "bypass_actors": [
-            {
-                "actor_id": 5,
-                "actor_type": "RepositoryRole",
-                "bypass_mode": "exempt",
-            }
-        ],
-    }
-)
+def check_repo_secret_allowlist(repo: str, allowed: set[str]) -> CheckResult:
+    """Check that secrets available to workflows are in the allowlist.
 
-
-def fix_branch_protection(repo: str) -> CheckResult:
-    """Create a restrict-updates ruleset on the default branch.
-
-    Only admins (actor_id 5) can bypass. The bot (write role) cannot merge.
+    Checks repo-level secrets (always) and org-level secrets (best-effort).
+    Any secret not in the allowlist is flagged — this catches release secrets
+    (registry tokens, signing keys) that should be in a protected GitHub
+    Environment instead.
     """
+    result = _gh("api", f"repos/{repo}/actions/secrets", "--jq", "[.secrets[].name]")
+    if result is None:
+        return CheckResult("repo-secret-allowlist", None, "gh CLI not found")
+    if result.returncode != 0:
+        return CheckResult(
+            "repo-secret-allowlist",
+            None,
+            "Could not list secrets (may require admin access)",
+        )
+
+    try:
+        repo_secrets = set(json.loads(result.stdout))
+    except json.JSONDecodeError:
+        return CheckResult(
+            "repo-secret-allowlist", None, "Could not parse secrets response"
+        )
+
+    # Best-effort: include org-level secrets (also available to workflows).
+    org = repo.split("/")[0] if "/" in repo else None
+    org_secrets: set[str] = set()
+    org_forbidden = False
+    if org:
+        fetched, org_forbidden = _list_org_secrets(org)
+        if fetched is not None:
+            org_secrets = fetched
+
+    unexpected_repo = sorted(repo_secrets - allowed)
+    unexpected_org = sorted(org_secrets - allowed - repo_secrets)
+
+    if unexpected_repo or unexpected_org:
+        parts = []
+        if unexpected_repo:
+            parts.append(f"repo-level: {', '.join(unexpected_repo)}")
+        if unexpected_org:
+            parts.append(f"org-level: {', '.join(unexpected_org)}")
+        return CheckResult(
+            "repo-secret-allowlist",
+            False,
+            f"Unexpected secrets ({'; '.join(parts)}). "
+            "These are available to all workflows, including those triggered "
+            "by PRs. Move release secrets to a protected environment. "
+            "If intentionally available, add to secrets.allowed "
+            "in .config/tend.toml. See docs/security-model.md.",
+        )
+
+    msg = "All secrets available to workflows are in allowlist"
+    if org_forbidden:
+        msg += " (could not check org-level — grant admin:org scope to verify)"
+    return CheckResult("repo-secret-allowlist", True, msg)
+
+
+def _restrict_updates_ruleset(extra_branches: list[str]) -> str:
+    """Build the JSON body for a restrict-updates ruleset.
+
+    Always includes ~DEFAULT_BRANCH. Extra branches are added as
+    refs/heads/<name> patterns.
+    """
+    include = ["~DEFAULT_BRANCH"] + [f"refs/heads/{b}" for b in extra_branches]
+    return json.dumps(
+        {
+            "name": "Merge access",
+            "target": "branch",
+            "enforcement": "active",
+            "conditions": {
+                "ref_name": {
+                    "include": include,
+                    "exclude": [],
+                }
+            },
+            "rules": [{"type": "update"}],
+            "bypass_actors": [
+                {
+                    "actor_id": 5,
+                    "actor_type": "RepositoryRole",
+                    "bypass_mode": "exempt",
+                }
+            ],
+        }
+    )
+
+
+def fix_branch_protection(
+    repo: str,
+    default_branch: str,
+    extra_branches: list[str] | None = None,
+) -> CheckResult:
+    """Create a restrict-updates ruleset covering protected branches.
+
+    Always covers the default branch. Extra branches from config are included
+    in the same ruleset. Only admins (actor_id 5) can bypass.
+    """
+    extra = [b for b in (extra_branches or []) if b != default_branch]
+    body = _restrict_updates_ruleset(extra)
     result = _gh(
         "api",
         f"repos/{repo}/rulesets",
@@ -285,20 +390,22 @@ def fix_branch_protection(repo: str) -> CheckResult:
         "POST",
         "--input",
         "-",
-        input=RESTRICT_UPDATES_RULESET,
+        input=body,
     )
+    name = f"branch-protection:{default_branch}"
     if result is None:
-        return CheckResult("branch-protection", None, "gh CLI not found")
+        return CheckResult(name, None, "gh CLI not found")
     if result.returncode != 0:
         return CheckResult(
-            "branch-protection",
+            name,
             False,
             f"Failed to create ruleset: {result.stderr.strip()}",
         )
+    branches = [default_branch] + extra
     return CheckResult(
-        "branch-protection",
+        name,
         True,
-        "Created 'Merge access' ruleset — only admins can merge",
+        f"Created 'Merge access' ruleset — only admins can merge ({', '.join(branches)})",
     )
 
 
@@ -324,7 +431,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
             )
         ]
 
-    default_branch = _detect_default_branch(repo)
+    default_branch = detect_default_branch(repo)
     if default_branch is None:
         return [
             CheckResult(
@@ -332,8 +439,19 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
             )
         ]
 
-    return [
-        check_branch_protection(repo, default_branch),
-        check_bot_permission(repo, cfg.bot_name),
-        check_secrets(repo, [cfg.bot_token_secret, cfg.claude_token_secret]),
+    allowed = {cfg.bot_token_secret, cfg.claude_token_secret} | set(
+        cfg.allowed_repo_secrets
+    )
+
+    results = [
+        check_branch_protection(repo, default_branch, default_branch=default_branch)
     ]
+    for branch in cfg.protected_branches:
+        if branch != default_branch:
+            results.append(
+                check_branch_protection(repo, branch, default_branch=default_branch)
+            )
+    results.append(check_bot_permission(repo, cfg.bot_name))
+    results.append(check_secrets(repo, [cfg.bot_token_secret, cfg.claude_token_secret]))
+    results.append(check_repo_secret_allowlist(repo, allowed))
+    return results
