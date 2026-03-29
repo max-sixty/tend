@@ -389,7 +389,7 @@ the rapid-comment scenario (see below).
 | Workflow | Job | Group key | Cancel | Behavior |
 |----------|-----|-----------|--------|----------|
 | **review** | review | `workflow-event_name-PR#` | yes | New push cancels in-flight review (stale context) |
-| **mention** | verify | `workflow-issue#\|PR#` | yes | Rapid comments: latest verify wins (cheap, stateless) |
+| **mention** | verify | none | — | Stateless, fast; parallel runs are harmless |
 | **mention** | handle | `workflow-handle-issue#\|PR#` | **no** | Queues — each mention runs to completion (#93) |
 | **triage** | triage | `workflow-issue#` | yes | Re-opened/rapid edits: latest wins |
 | **ci-fix** | — | none | — | Rare overlap (failure-triggered) |
@@ -398,9 +398,9 @@ the rapid-comment scenario (see below).
 
 ### Design rationale
 
-**Cancel-in-progress: true** (review, triage, mention verify): the cancelled
-run was processing stale context. A new push invalidates a review, a new
-comment supersedes triage, and verify is stateless — no work is lost.
+**Cancel-in-progress: true** (review, triage): the cancelled run was
+processing stale context. A new push invalidates a review, a new comment
+supersedes triage — no work is lost.
 
 **Cancel-in-progress: false** (mention handle): each `@bot` mention is an
 independent request. Cancelling a 20-minute handle run because a second mention
