@@ -351,7 +351,7 @@ consumes no resources.
 | Workflow | Event | Runs when | Skips |
 |----------|-------|-----------|-------|
 | **review** | `pull_request_target` | PR is not a draft | Draft PRs |
-| **mention** (verify) | `issues` (edited) | Issue body contains `@bot` and editor is not bot | Bot's own edits; edits that don't mention bot |
+| **mention** (verify) | `issues` (edited) | Issue body contains `@$bot_name` and editor is not bot | Bot's own edits; edits that don't mention bot |
 | **mention** (verify) | `issue_comment` | Comment author is not bot | Bot's own comments (prevents loops) |
 | **mention** (verify) | `pull_request_review_comment` | Comment author is not bot | Bot's own inline comments |
 | **mention** (handle) | — | Verify job output `should_run == true` | Events where verify determined no engagement (Layer 2) |
@@ -366,9 +366,9 @@ outputs `should_run=true` or `should_run=false` based on these checks (in
 order):
 
 1. **Issue edits** (`issues` event): always `true` (the GHA condition already
-   confirmed `@bot` is in the body).
-2. **Direct mention**: comment body contains `@bot` → `true`.
-3. **Non-mention on an issue** (not a PR): bot authored the issue, or `@bot`
+   confirmed `@$bot_name` is in the body).
+2. **Direct mention**: comment body contains `@$bot_name` → `true`.
+3. **Non-mention on an issue** (not a PR): bot authored the issue, or `@$bot_name`
    appears in the issue body, or bot has previously commented → `true`.
    Otherwise → `false`.
 4. **Non-mention on a PR**: bot authored the PR, or bot left reviews, or bot
@@ -397,7 +397,7 @@ the rapid-comment scenario (see below).
 processing stale context. A new push invalidates a review, a new comment
 supersedes triage — no work is lost.
 
-**Cancel-in-progress: false** (mention handle): each `@bot` mention is an
+**Cancel-in-progress: false** (mention handle): each `@$bot_name` mention is an
 independent request. Cancelling a 20-minute handle run because a second mention
 arrived loses work. Queuing ensures every mention is processed. The key insight
 is that a `should_run=false` handle is **skipped entirely** (Layer 1) and never
