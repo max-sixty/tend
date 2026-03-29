@@ -466,6 +466,20 @@ def test_watched_workflows_missing_skips_ci_fix(
 # ---------------------------------------------------------------------------
 
 
+def test_renovate_renamed_to_weekly(tmp_path: Path) -> None:
+    """Old workflows.renovate key must fail with a clear rename error."""
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name = "my-bot"
+        [workflows.renovate]
+        cron = "0 12 * * 0"
+    """),
+    )
+    with pytest.raises(ClickException, match="renamed to workflows.weekly"):
+        Config.load(path)
+
+
 def test_unknown_workflow_warns(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

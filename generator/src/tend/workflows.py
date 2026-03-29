@@ -463,7 +463,7 @@ jobs:
 
 
 # ---------------------------------------------------------------------------
-# Scheduled (nightly, renovate)
+# Scheduled (nightly, weekly)
 # ---------------------------------------------------------------------------
 
 
@@ -518,10 +518,8 @@ def generate_nightly(cfg: Config) -> GeneratedWorkflow:
     return _generate_scheduled(cfg, "nightly", "17 6 * * *", "/tend-ci-runner:nightly")
 
 
-def generate_renovate(cfg: Config) -> GeneratedWorkflow:
-    return _generate_scheduled(
-        cfg, "renovate", "17 9 * * 0", "/tend-ci-runner:renovate"
-    )
+def generate_weekly(cfg: Config) -> GeneratedWorkflow:
+    return _generate_scheduled(cfg, "weekly", "17 9 * * 0", "/tend-ci-runner:weekly")
 
 
 def generate_notifications(cfg: Config) -> GeneratedWorkflow:
@@ -540,7 +538,7 @@ GENERATORS: dict[str, Callable[[Config], GeneratedWorkflow]] = {
     "triage": generate_triage,
     "ci-fix": generate_ci_fix,
     "nightly": generate_nightly,
-    "renovate": generate_renovate,
+    "weekly": generate_weekly,
     "notifications": generate_notifications,
 }
 

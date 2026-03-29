@@ -15,7 +15,7 @@ KNOWN_WORKFLOWS = {
     "triage",
     "ci-fix",
     "nightly",
-    "renovate",
+    "weekly",
     "notifications",
 }
 KNOWN_TOP_LEVEL = {"bot_name", "protected_branches", "secrets", "setup", "workflows"}
@@ -106,6 +106,10 @@ class Config:
 
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in raw.get("workflows", {}).items():
+            if name == "renovate":
+                raise click.ClickException(
+                    "workflows.renovate has been renamed to workflows.weekly"
+                )
             if name not in KNOWN_WORKFLOWS:
                 click.echo(
                     f"Warning: unknown workflow '{name}' in config (known: {', '.join(sorted(KNOWN_WORKFLOWS))})",

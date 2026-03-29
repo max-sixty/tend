@@ -24,7 +24,7 @@ steps, and event-specific prompts. All six are enabled by default.
 | `tend-triage` | Issue opened | `triage` |
 | `tend-ci-fix` | CI fails on default branch | `ci-fix` |
 | `tend-nightly` | Daily schedule, manual dispatch | `nightly` |
-| `tend-renovate` | Weekly schedule, manual dispatch | `renovate` |
+| `tend-weekly` | Weekly schedule, manual dispatch | `weekly` |
 
 Each workflow ends with `uses: max-sixty/tend@v1`, handing off to the action.
 
@@ -167,7 +167,7 @@ watched_workflows = ["ci", "build"]   # which workflows trigger ci-fix
 cron = "0 8 * * *"                    # override default schedule
 prompt = "/my-custom-nightly"         # override the default prompt
 
-[workflows.renovate]
+[workflows.weekly]
 enabled = false                       # disable a workflow entirely
 ```
 

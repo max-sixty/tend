@@ -390,7 +390,7 @@ the rapid-comment scenario (see below).
 | **triage** | triage | `workflow-issue#` | yes | Re-opened/rapid edits: latest wins |
 | **ci-fix** | — | none | — | Rare overlap (failure-triggered) |
 | **nightly** | — | none | — | Scheduled; GitHub serializes cron |
-| **renovate** | — | none | — | Scheduled; GitHub serializes cron |
+| **weekly** | — | none | — | Scheduled; GitHub serializes cron |
 
 ### Design rationale
 
@@ -406,9 +406,9 @@ enters the queue, so non-mention comments can't displace real mentions. Only
 genuine `should_run=true` handles queue against each other — the correct
 behavior (#93).
 
-**No concurrency group** (ci-fix, nightly, renovate): ci-fix triggers on
+**No concurrency group** (ci-fix, nightly, weekly): ci-fix triggers on
 workflow failure, which is rare enough that overlapping runs are unlikely.
-Nightly and renovate use `schedule` + `workflow_dispatch` — GitHub serializes
+Nightly and weekly use `schedule` + `workflow_dispatch` — GitHub serializes
 cron-triggered runs, and manual dispatches are infrequent.
 
 ### Known limitation: GHA queue depth of 1
@@ -469,7 +469,7 @@ tend/
 │           ├── tend-triage/
 │           ├── tend-ci-fix/
 │           ├── tend-nightly/
-│           ├── tend-renovate/
+│           ├── tend-weekly/
 │           └── tend-review-reviewers/
 ├── action.yaml                 # Composite action (the interface)
 ├── scripts/                    # Helper scripts installed by the action
