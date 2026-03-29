@@ -234,7 +234,7 @@ that tend workflows need beyond what CLAUDE.md already provides:
 - PR title conventions (prefix format, scope rules)
 - CI workflow names (which workflow tend-ci-fix watches)
 - Automerge behavior (which bot PRs get auto-merged)
-- Dependency management (Dependabot vs Renovate, tend-renovate enabled/disabled)
+- Dependency management (Dependabot vs Renovate, tend-weekly enabled/disabled)
 
 Build commands, test commands, error conventions, code style, and project
 structure belong in CLAUDE.md — tend reads CLAUDE.md like any other Claude

@@ -32,7 +32,7 @@ def test_minimal_config_generates_six_workflows(tmp_path: Path) -> None:
         "tend-mention.yaml",
         "tend-triage.yaml",
         "tend-nightly.yaml",
-        "tend-renovate.yaml",
+        "tend-weekly.yaml",
         "tend-notifications.yaml",
     }
 
@@ -47,12 +47,10 @@ def test_generated_yaml_is_valid(tmp_path: Path) -> None:
 
 
 def test_disabled_workflow_not_generated(tmp_path: Path) -> None:
-    cfg = Config.load(
-        _minimal_config(tmp_path, "[workflows.renovate]\nenabled = false")
-    )
+    cfg = Config.load(_minimal_config(tmp_path, "[workflows.weekly]\nenabled = false"))
     workflows = generate_all(cfg)
     names = {wf.filename for wf in workflows}
-    assert "tend-renovate.yaml" not in names
+    assert "tend-weekly.yaml" not in names
     assert len(workflows) == 5
 
 
