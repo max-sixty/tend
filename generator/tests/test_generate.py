@@ -156,10 +156,10 @@ def test_setup_after_pr_checkout_in_review(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     review = workflows["tend-review.yaml"]
-    # Setup should come after "Check out PR branch"
-    checkout_idx = review.content.index("Check out PR branch")
+    # Setup should come after checkout
+    checkout_idx = review.content.index("actions/checkout@")
     setup_idx = review.content.index("./.github/actions/my-setup")
-    assert setup_idx > checkout_idx, "Setup must come after PR checkout"
+    assert setup_idx > checkout_idx, "Setup must come after checkout"
 
 
 def test_setup_raw_yaml_injected(tmp_path: Path) -> None:

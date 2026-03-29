@@ -355,7 +355,6 @@ consumes no resources.
 | Workflow | Event | Runs when | Skips |
 |----------|-------|-----------|-------|
 | **review** | `pull_request_target` | PR is not a draft | Draft PRs |
-| **review** | `pull_request_review` | PR was authored by bot, reviewer is not bot, and review is either non-approval or has a body | Reviews on non-bot PRs; bot self-reviews; bare approve-clicks with no text |
 | **mention** (verify) | `issues` (edited) | Issue body contains `@bot` and editor is not bot | Bot's own edits; edits that don't mention bot |
 | **mention** (verify) | `issue_comment` | Comment author is not bot | Bot's own comments (prevents loops) |
 | **mention** (verify) | `pull_request_review_comment` | Comment author is not bot | Bot's own inline comments |
@@ -388,7 +387,7 @@ the rapid-comment scenario (see below).
 
 | Workflow | Job | Group key | Cancel | Behavior |
 |----------|-----|-----------|--------|----------|
-| **review** | review | `workflow-event_name-PR#` | yes | New push cancels in-flight review (stale context) |
+| **review** | review | `workflow-PR#` | yes | New push cancels in-flight review (stale context) |
 | **mention** | verify | none | — | Stateless, fast; parallel runs are harmless |
 | **mention** | handle | `workflow-handle-issue#\|PR#` | **no** | Queues — each mention runs to completion (#93) |
 | **triage** | triage | `workflow-issue#` | yes | Re-opened/rapid edits: latest wins |

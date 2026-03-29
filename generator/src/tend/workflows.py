@@ -119,64 +119,33 @@ name: tend-review
 on:
   pull_request_target:
     types: [opened, synchronize, ready_for_review, reopened]
-  pull_request_review:
-    types: [submitted]
 
 jobs:
   review:
-    if: |
-      (github.event_name == 'pull_request_target' &&
-        github.event.pull_request.draft == false) ||
-      (github.event_name == 'pull_request_review' &&
-        github.event.pull_request.user.login == '{bn}' &&
-        github.event.review.user.login != '{bn}' &&
-        (github.event.review.state != 'approved' || github.event.review.body))
+    if: github.event.pull_request.draft == false
     concurrency:
-      group: ${{{{ github.workflow }}}}-${{{{ github.event_name }}}}-${{{{ github.event.pull_request.number }}}}
+      group: ${{{{ github.workflow }}}}-${{{{ github.event.pull_request.number }}}}
       cancel-in-progress: true
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
 {perms}
     steps:
-      - name: Checkout (initial review)
-        if: github.event_name == 'pull_request_target'
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           ref: refs/pull/${{{{ github.event.pull_request.number }}}}/merge
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
-
-      - name: Checkout (review response)
-        if: github.event_name == 'pull_request_review'
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-          token: {bt}
-
-      - name: Check out PR branch (review response)
-        if: github.event_name == 'pull_request_review'
-        run: gh pr checkout "$PR_NUMBER"
-        env:
-          GH_TOKEN: {bt}
-          PR_NUMBER: ${{{{ github.event.pull_request.number }}}}
 {setup}
       - uses: max-sixty/tend@v1
         with:
           github_token: {bt}
           claude_code_oauth_token: {ct}
           bot_name: {bn}
-          use_sticky_comment: ${{{{ github.event_name == 'pull_request_target' }}}}
+          use_sticky_comment: true
           prompt: >-
-            ${{{{ github.event_name == 'pull_request_target'
-              && {prompt_expr}
-              || format(
-                'A review was submitted on your PR #{{0}} ({{1}}). Read the review and full PR context (description, diff, comments, CI status), then respond appropriately. If changes were requested, make them, commit, and push. If questions were asked, answer them.',
-                github.event.pull_request.number,
-                github.event.review.html_url
-              ) }}}}
+            ${{{{ {prompt_expr} }}}}
 """
     return GeneratedWorkflow(filename="tend-review.yaml", content=content)
 
