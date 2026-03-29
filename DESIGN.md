@@ -341,39 +341,79 @@ us with code execution, not just token minting.
   under adopter control but adds latency (webhook → our service →
   workflow_dispatch → runner) and complexity.
 
-## Concurrency strategy
+## Concurrency and filtering
 
-Every event-driven workflow uses `cancel-in-progress: true` — when a new event
-arrives for the same PR/issue while a previous run is still going, the old run
-is cancelled and only the latest event is processed.
+Events pass through up to three filtering layers before the bot does work.
+Each layer can drop an event; this section documents where and why.
 
-| Workflow | Group key | Scope |
-|----------|-----------|-------|
-| review | `workflow-event_name-PR#` | per PR, split by event type |
-| mention (verify) | none | stateless, completes in seconds |
-| mention (handle) | `workflow-handle-issue#` | per issue/PR |
-| triage | `workflow-issue#` | per issue |
-| ci-fix | none | only fires on failure, rare overlap |
-| nightly / renovate | none | scheduled, single instance |
+### Layer 1: GHA job `if:` conditions
 
-**Why cancel-in-progress:** The cancelled run was processing a stale event. A
-new push invalidates the old review, a new comment supersedes the old mention,
-a re-opened issue supersedes the old triage. The alternative —
-`cancel-in-progress: false` — queues the old run to complete, but it produces
-a response based on outdated context.
+GitHub Actions evaluates these before the job starts. A false condition means
+the job is **skipped** — it never runs, never enters a concurrency group, and
+consumes no resources.
 
-**Tradeoff — wasted work:** A handle job that has been running for 20 minutes
-gets killed when a new event arrives. The work is lost. This is acceptable
-because the response it was composing was based on an older state. For mention,
-where each comment is arguably independent, queueing (`cancel-in-progress:
-false`) could preserve work but risks posting stale or duplicate responses —
-the exact problem that motivated adding concurrency control (#61).
+| Workflow | Condition | Filters out |
+|----------|-----------|-------------|
+| **review** | `event == pull_request_target && !draft` | Draft PRs |
+| **review** | `event == pull_request_review && pr.user == bot && reviewer != bot && (state != approved \|\| body)` | Reviews on non-bot PRs; bot self-reviews; bare approvals with no body |
+| **mention (verify)** | `event == issues && body contains @bot && author != bot` | Issue edits by the bot itself, edits without a mention |
+| **mention (verify)** | `event == issue_comment && comment.author != bot` | Bot's own comments |
+| **mention (verify)** | `event == pull_request_review_comment && comment.author != bot` | Bot's own inline comments |
+| **mention (handle)** | `needs.verify.outputs.should_run == 'true'` | Events where verify determined no engagement (see Layer 2) |
+| **triage** | `issue.user.type != 'Bot' && issue.user.login != bot` | Issues opened by bots |
+| **ci-fix** | `workflow_run.conclusion == 'failure'` | Successful CI runs |
 
-**Workflows without concurrency groups:** ci-fix, nightly, and renovate don't
-need them. ci-fix triggers on workflow failure, which is rare enough that
-overlapping runs are unlikely. Nightly and renovate are scheduled with
-`workflow_dispatch` — GitHub already serializes cron-triggered runs, and manual
-dispatches are infrequent.
+### Layer 2: Custom `should_run` logic (mention only)
+
+The mention workflow has a lightweight **verify** job that checks whether the
+bot should engage, before the expensive **handle** job runs. The verify job
+outputs `should_run=true` or `should_run=false` based on these checks (in
+order):
+
+1. **Issue edits** (`issues` event): always `true` (the GHA condition already
+   confirmed `@bot` is in the body).
+2. **Direct mention**: comment body contains `@bot` → `true`.
+3. **Non-mention on an issue** (not a PR): bot authored the issue, or `@bot`
+   appears in the issue body, or bot has previously commented → `true`.
+   Otherwise → `false`.
+4. **Non-mention on a PR**: bot authored the PR, or bot left reviews, or bot
+   commented → `true`. Otherwise → `false`.
+
+The handle job's `if: needs.verify.outputs.should_run == 'true'` is a GHA
+condition (Layer 1), but the _decision_ is made by our custom script. A
+skipped handle job never enters the concurrency group — this is critical for
+the rapid-comment scenario (see below).
+
+### Layer 3: Concurrency groups
+
+| Workflow | Job | Group key | Cancel | Behavior |
+|----------|-----|-----------|--------|----------|
+| **review** | review | `workflow-event_name-PR#` | yes | New push cancels in-flight review (stale context) |
+| **mention** | verify | `workflow-issue#\|PR#` | yes | Rapid comments: latest verify wins (cheap, stateless) |
+| **mention** | handle | `workflow-handle-issue#\|PR#` | **no** | Queues — each mention runs to completion (#93) |
+| **triage** | triage | `workflow-issue#` | yes | Re-opened/rapid edits: latest wins |
+| **ci-fix** | — | none | — | Rare overlap (failure-triggered) |
+| **nightly** | — | none | — | Scheduled; GitHub serializes cron |
+| **renovate** | — | none | — | Scheduled; GitHub serializes cron |
+
+### Design rationale
+
+**Cancel-in-progress: true** (review, triage, mention verify): the cancelled
+run was processing stale context. A new push invalidates a review, a new
+comment supersedes triage, and verify is stateless — no work is lost.
+
+**Cancel-in-progress: false** (mention handle): each `@bot` mention is an
+independent request. Cancelling a 20-minute handle run because a second mention
+arrived loses work. Queuing ensures every mention is processed. The key insight
+is that a `should_run=false` handle is **skipped entirely** (Layer 1) and never
+enters the queue, so non-mention comments can't displace real mentions. Only
+genuine `should_run=true` handles queue against each other — the correct
+behavior (#93).
+
+**No concurrency group** (ci-fix, nightly, renovate): ci-fix triggers on
+workflow failure, which is rare enough that overlapping runs are unlikely.
+Nightly and renovate use `schedule` + `workflow_dispatch` — GitHub serializes
+cron-triggered runs, and manual dispatches are infrequent.
 
 ## What lives in the tend repo
 
