@@ -136,6 +136,20 @@ runs:
           echo "No CLAUDE.md on ${DEFAULT_BRANCH} — removed fork version"
         fi
 
+    - name: Normalize prompt
+      id: prompt
+      shell: bash
+      run: |
+        # Rewrite legacy skill names: /tend:tend-X → /tend-ci-runner:X
+        # Pre-v0.0.2 workflows used the old plugin name; the generator now
+        # emits /tend-ci-runner:*, but adopter repos may not have regenerated.
+        PROMPT="${ORIG_PROMPT//\/tend:tend-/\/tend-ci-runner:}"
+        echo "value<<TEND_PROMPT_EOF" >> "$GITHUB_OUTPUT"
+        echo "$PROMPT" >> "$GITHUB_OUTPUT"
+        echo "TEND_PROMPT_EOF" >> "$GITHUB_OUTPUT"
+      env:
+        ORIG_PROMPT: ${{ inputs.prompt }}
+
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@v1
@@ -150,7 +164,7 @@ runs:
         trigger_phrase: "@${{ inputs.bot_name }}"
         use_sticky_comment: ${{ inputs.use_sticky_comment }}
         additional_permissions: ${{ inputs.additional_permissions }}
-        prompt: ${{ inputs.prompt }}
+        prompt: ${{ steps.prompt.outputs.value }}
         plugin_marketplaces: https://github.com/max-sixty/tend.git
         plugins: |
           install-tend@tend
