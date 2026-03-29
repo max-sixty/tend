@@ -418,31 +418,15 @@ With `cancel-in-progress: false`, when a third job arrives while one is running
 and one is pending, the **pending job is replaced** (cancelled) by the new
 arrival. The running job is unaffected.
 
-**Can a displaced job's mention be lost?** The prompt preamble instructs the
-skill to scan recent conversation and pick up unaddressed comments, so mention
-C should self-heal mention B's dropped request. This is a soft mitigation — it
-depends on the skill following the instruction, not a hard guarantee.
-
-Example with three `@$bot_name` mentions arriving within seconds on the same PR:
-
-1. Mention A → handle starts running
-2. Mention B → handle queues (pending slot)
-3. Mention C → handle arrives, **displaces B** from pending slot
-4. Result: A processes ✓, B dropped ✗, C processes ✓
-
-This requires three genuine `should_run=true` mentions on the same PR/issue
-within the ~60-second window of handle job startup — uncommon but possible when
-multiple people are active on a PR.
-
 **Mitigation — conversation-aware loading:**
 
 The prompt preamble instructs the skill to check recent conversation before
-acting. Specifically:
+acting:
 
-1. **Dedup**: If the bot already responded to the triggering comment (a prior
-   queued run handled it), exit silently.
-2. **Self-heal**: If other comments warrant a response but have no bot reply
-   (a prior job was displaced from the queue), handle those too — oldest first.
+1. **Dedup**: If the bot already responded to the triggering comment, exit
+   silently.
+2. **Self-heal**: If other comments warrant a response but have no bot reply,
+   handle those too — oldest first.
 
 The workflow injects the **queue-to-run time delta** (seconds between event
 timestamp and job start) into the prompt. Over ~40s indicates the job was
