@@ -10,9 +10,9 @@ metadata:
 ## First Steps — Load Repo-Specific Guidance
 
 Most repos have a project-specific overlay skill (typically `running-tend`)
-with conventions the generic tend skills don't know — test commands, labels,
-branch naming, survey scripts, codecov requirements. Check for one and load it
-before doing anything else:
+with project-specific CI context — which workflows tend-ci-fix watches, PR
+title conventions, label policies. Check for one and load it before doing
+anything else:
 
 ```bash
 ls .claude/skills/

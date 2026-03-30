@@ -177,9 +177,9 @@ Tend reads `CLAUDE.md` like any other Claude session. Put build/test/lint
 commands and project conventions there.
 
 For tend-specific guidance that doesn't belong in CLAUDE.md, add a skill overlay
-at `.claude/skills/running-tend/SKILL.md`. This is for things only relevant to
-CI: PR title conventions, which CI workflow names tend-ci-fix watches, automerge
-rules, dependency management preferences. Don't duplicate CLAUDE.md content.
+at `.claude/skills/running-tend/SKILL.md`. The main use is recording which CI
+workflow names tend-ci-fix watches. Other project-specific conventions (PR title
+format, label policies) can be added if relevant.
 
 ## Migrating from claude-code-action
 
