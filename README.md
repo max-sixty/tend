@@ -17,14 +17,14 @@ Claude runs: triggers, conditions (skip drafts, prevent bot self-loops),
 engagement verification, concurrency, permissions, checkout strategy, setup
 steps, and event-specific prompts. All six are enabled by default.
 
-| Workflow | Trigger | Skill |
-|---|---|---|
-| `tend-review` | PR opened/updated, review submitted | `review` |
+| Workflow       | Trigger                              | Skill             |
+| -------------- | ------------------------------------ | ----------------- |
+| `tend-review`  | PR opened/updated, review submitted  | `review`          |
 | `tend-mention` | @bot mentions, engaged conversations | — (prompt-driven) |
-| `tend-triage` | Issue opened | `triage` |
-| `tend-ci-fix` | CI fails on default branch | `ci-fix` |
-| `tend-nightly` | Daily schedule, manual dispatch | `nightly` |
-| `tend-weekly` | Weekly schedule, manual dispatch | `weekly` |
+| `tend-triage`  | Issue opened                         | `triage`          |
+| `tend-ci-fix`  | CI fails on default branch           | `ci-fix`          |
+| `tend-nightly` | Daily schedule, manual dispatch      | `nightly`         |
+| `tend-weekly`  | Weekly schedule, manual dispatch     | `weekly`          |
 
 Each workflow ends with `uses: max-sixty/tend@v1`, handing off to the action.
 
@@ -52,7 +52,7 @@ The fastest way to set up tend is with the `install-tend` skill, which handles
 config, workflows, bot account, secrets, branch protection, and collaborator
 setup interactively:
 
-```
+```sh
 /install-tend my-project-bot
 ```
 
@@ -99,10 +99,10 @@ branches.
 
 Two repo secrets are required:
 
-| Secret | Value |
-|--------|-------|
-| `BOT_TOKEN` | Bot account's PAT — classic with `repo` scope, or fine-grained with `contents:write`, `pull-requests:write`, `issues:write` |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token (via OAuth PKCE flow, not an API key) |
+| Secret                    | Value                                                                                                                       |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `BOT_TOKEN`               | Bot account's PAT — classic with `repo` scope, or fine-grained with `contents:write`, `pull-requests:write`, `issues:write` |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token (via OAuth PKCE flow, not an API key)                                                               |
 
 Override secret names if yours differ:
 
