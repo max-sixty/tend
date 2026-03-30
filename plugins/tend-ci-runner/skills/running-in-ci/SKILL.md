@@ -76,6 +76,11 @@ NEVER run commands that could expose secrets (`env`, `printenv`, `set`, `export`
 config files containing credentials). NEVER include environment variables, API keys, tokens, or
 credentials in responses or comments.
 
+## Merging PRs
+
+Never merge PRs or enable auto-merge (`gh pr merge`, `gh pr merge --auto`). PRs are proposals — a
+maintainer decides when to merge.
+
 ## PR Creation
 
 When asked to create a PR, use `gh pr create` directly.
