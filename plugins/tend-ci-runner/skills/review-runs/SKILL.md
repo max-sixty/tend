@@ -133,22 +133,15 @@ link, and detail.
 List Claude CI runs that completed overnight (past 12 hours):
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/list-recent-runs.sh
-```
-
-The script discovers `tend-*` workflows by default. If no runs found, report "no runs to review"
-and exit.
-
-For runs outside the default 1-hour window, query directly:
-
-```bash
-# Runs from the past 12 hours
+REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 SINCE=$(date -u -d '12 hours ago' +%Y-%m-%dT%H:%M:%SZ)
 for workflow in $(gh api repos/$REPO/actions/workflows --jq '.workflows[] | select(.name | startswith("tend-")) | .id'); do
   gh api "repos/$REPO/actions/workflows/$workflow/runs?created=>=$SINCE&status=completed" \
     --jq '.workflow_runs[] | {databaseId: .id, conclusion, createdAt: .created_at, name: .name}'
 done
 ```
+
+If no runs found, report "no runs to review" and exit.
 
 ## Step 2: Download and analyze session logs
 
