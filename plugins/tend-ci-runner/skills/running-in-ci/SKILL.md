@@ -74,6 +74,10 @@ understand the full conversation before taking action.
   the target repo explicitly welcomes AI-created issues (e.g., in its CONTRIBUTING guide).
 - **Hanging commands**: Never use `gh run watch` or `gh pr checks --watch` — both hang indefinitely.
   Poll with `gh pr checks` in a loop instead.
+- **Permission denials**: If Edit, Write, or Bash is denied for a file path, do not circumvent the
+  denial by using a different tool (e.g., `python3` or `perl` via Bash) to write the same file.
+  Permission denials are intentional. Report that you lack write access and suggest the user adjust
+  permissions or make the change manually.
 
 ## PR Creation
 
