@@ -299,7 +299,9 @@ exit 1
 
 - **All required checks passed** -> done.
 - **A check failed** and it's related to the PR -> post a follow-up COMMENT review with analysis
-  and inline suggestions, then dismiss the bot's approval:
+  and inline suggestions, then dismiss the bot's approval. **Do not install tools** (coverage
+  runners like `cargo-llvm-cov`, linters, etc.) to reproduce failures locally — analyze the
+  failure from the check output, PR diff, and source code reading:
   ```bash
   # Use PUT, not POST — the dismiss endpoint requires it
   gh api "repos/$REPO/pulls/<number>/reviews/$REVIEW_ID/dismissals" \
