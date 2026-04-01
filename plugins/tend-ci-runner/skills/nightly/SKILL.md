@@ -48,8 +48,11 @@ git diff ${OLDEST}^..HEAD
 git log --since='24 hours ago' --format='%h %s' main
 ```
 
-Review for: bugs, inconsistencies with existing patterns, missing/outdated documentation, missing
-test coverage, dead code, non-canonical patterns, CLAUDE.md/skill drift.
+Read the project's CLAUDE.md before reviewing (same as Step 4). Review for: bugs, inconsistencies
+with existing patterns, missing/outdated documentation, missing test coverage, dead code,
+non-canonical patterns. Also check whether the changes introduce code that violates CLAUDE.md
+conventions, or whether CLAUDE.md itself needs updating to reflect the new code (e.g., new file
+paths, changed commands, removed patterns).
 
 ## Step 3: Check existing issues and close resolved ones
 
@@ -70,8 +73,25 @@ days):
 ${CLAUDE_PLUGIN_ROOT}/scripts/todays-survey-files.sh
 ```
 
-For each file, look for: bugs, stale documentation, dead code, simplification opportunities,
-missing tests, CLAUDE.md/skill drift. Spend roughly equal time per file.
+Before reviewing files, read the project's CLAUDE.md and any project-specific skills or review
+criteria it references. These define the conventions that surveyed code should follow.
+
+For each file, check against both general quality and project-specific conventions:
+
+**General quality:**
+- Bugs, logic errors, unhandled edge cases
+- Dead code, unused imports, unreachable branches
+- Simplification opportunities — unnecessary abstractions, indirection, or complexity
+- Stale or incorrect documentation (comments, docstrings that no longer match behavior)
+- Missing test coverage for non-trivial logic
+
+**Convention compliance (from CLAUDE.md and project skills):**
+- Code patterns that violate stated conventions (e.g., compatibility layers, defensive programming,
+  wrapper functions, feature flags — whatever the project's CLAUDE.md prohibits)
+- Stale CLAUDE.md entries — conventions that reference renamed files, deleted functions, or
+  outdated patterns
+- Skills that have drifted from actual project behavior (instructions that no longer match how the
+  code works)
 
 ## Step 5: Fix findings
 
