@@ -114,7 +114,14 @@ Based on `reason` and `subject.type`:
 
 - Other reasons (`state_change`, `ci_activity`, etc.) — mark as read without responding.
 
-### 4c. Mark as read
+### 4c. Re-check before responding
+
+Before posting a response — especially after completing a long task (drafting release notes,
+triaging an issue, reviewing a PR) — **re-run the step 4a check** to verify the bot hasn't
+responded via a concurrent workflow (e.g., triage). If a bot comment or PR now exists that wasn't
+there when you started, do not post a duplicate — mark the notification as read and move on.
+
+### 4d. Mark as read
 
 After processing (whether or not a response was posted):
 
