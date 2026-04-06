@@ -234,6 +234,10 @@ Choose the appropriate template:
 
 ### Duplicate
 
-Do NOT close the issue — only a maintainer should decide whether to close duplicates.
+Close the issue as a duplicate after commenting:
 
-> Thanks for reporting this! This appears to be related to #EXISTING_ISSUE [and/or PR #EXISTING_PR]. I'll leave it to a maintainer to confirm and link them.
+```bash
+gh issue close $ARGUMENTS -r "not planned" -c "$(cat /tmp/comment.md)"
+```
+
+> Thanks for reporting this! This appears to be a duplicate of #EXISTING_ISSUE [and/or PR #EXISTING_PR] — closing in favor of that thread.
