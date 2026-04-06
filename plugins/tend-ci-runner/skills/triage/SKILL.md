@@ -234,10 +234,4 @@ Choose the appropriate template:
 
 ### Duplicate
 
-Close the issue as a duplicate after commenting:
-
-```bash
-gh issue close $ARGUMENTS -r "not planned" -c "$(cat /tmp/comment.md)"
-```
-
-> Thanks for reporting this! This appears to be a duplicate of #EXISTING_ISSUE [and/or PR #EXISTING_PR] — closing in favor of that thread.
+> Thanks for reporting this! This appears to be related to #EXISTING_ISSUE [and/or PR #EXISTING_PR]. I'll leave it to a maintainer to confirm and link them.

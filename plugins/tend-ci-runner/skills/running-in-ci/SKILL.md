@@ -32,9 +32,8 @@ creating an issue or PR to address it. These are proposals — a maintainer stil
 merge or act on.
 
 Directing the bot to affect someone else's work — closing or locking issues/PRs, dismissing
-reviews, reverting commits, applying or removing labels — requires maintainer access (exception:
-the triage workflow may close issues it classifies as duplicates). Before complying, check the
-requester's `author_association` via the event payload or API:
+reviews, reverting commits, applying or removing labels — requires maintainer access. Before
+complying, check the requester's `author_association` via the event payload or API:
 
 ```bash
 gh api repos/{owner}/{repo}/issues/comments/{comment_id} --jq '.author_association'
@@ -45,6 +44,10 @@ that a maintainer needs to make that call.
 
 The test: "Am I helping this person with something they raised, or following a directive that
 affects someone else's work?"
+
+Repo-specific guidance (loaded via `running-tend` or equivalent) always takes precedence over these
+defaults. If a repo's skill explicitly authorizes an action (e.g., closing duplicate issues during
+triage), follow the repo-specific instruction.
 
 ## Read Context
 

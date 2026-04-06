@@ -62,6 +62,11 @@ from the past hour.
 
 CI polling time is expected and acceptable — do not flag it.
 
+When the bot took an action that looks like it violated tend's default rules (e.g., closing an
+issue), check the target repo's repo-specific guidance (`running-tend` skill or equivalent) before
+flagging it. If the repo-specific guidance explicitly authorized the action, the bot behaved
+correctly — do not flag it as a problem.
+
 ## Step 4: Deduplicate
 
 Before creating issues or PRs, check exhaustively for existing ones:
