@@ -298,6 +298,9 @@ echo "CI still running after 10 minutes"
 exit 1
 ```
 
+When the loop exits (pass, fail, or timeout), **do not start another loop.** One round of polling
+is enough — if CI is still running after 10 minutes, report the status and move on.
+
 - **All required checks passed** -> done.
 - **A check failed** and it's related to the PR -> post a follow-up COMMENT review with analysis
   and inline suggestions, then dismiss the bot's approval:
@@ -308,7 +311,13 @@ exit 1
   ```
   Skip if already dismissed. **Do not push fixes on human-authored PRs** — post the analysis and
   offer to fix, then wait for the author to accept.
-- **A check failed** and it's a transient flake (unrelated to the PR changes) ->
+- **A check was cancelled** (conclusion `cancelled`) -> do nothing. Cancellations are almost
+  always caused by concurrency groups — a new workflow run (often triggered by your own approval
+  event) replaces the in-progress one. The replacement run will cover the cancelled checks.
+  **Do not re-run cancelled jobs** — that creates another run that gets cancelled again, wasting
+  time in a loop.
+- **A check failed** (conclusion `failure`, not `cancelled`) and it's a transient flake
+  (unrelated to the PR changes) ->
   1. **Re-run the failed jobs:**
      ```bash
      gh run rerun <run-id> --failed
