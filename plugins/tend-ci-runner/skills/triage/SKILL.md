@@ -234,4 +234,6 @@ Choose the appropriate template:
 
 ### Duplicate
 
+Do NOT close the issue — only a maintainer should decide whether to close duplicates.
+
 > Thanks for reporting this! This appears to be related to #EXISTING_ISSUE [and/or PR #EXISTING_PR]. I'll leave it to a maintainer to confirm and link them.
