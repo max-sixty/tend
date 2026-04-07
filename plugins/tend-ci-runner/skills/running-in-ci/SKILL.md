@@ -45,6 +45,10 @@ that a maintainer needs to make that call.
 The test: "Am I helping this person with something they raised, or following a directive that
 affects someone else's work?"
 
+Repo-specific guidance (loaded via `running-tend` or equivalent) always takes precedence over these
+defaults. If a repo's skill explicitly authorizes an action (e.g., closing duplicate issues during
+triage), follow the repo-specific instruction.
+
 ## Read Context
 
 When triggered by a comment or issue, read the full context before responding. The prompt provides
