@@ -25,8 +25,8 @@ documents each step.
 
 | Workflow          | Trigger                     | What happens                                                                                                               |
 | ----------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| **review**        | PR opened/updated, review   | Reviews for correctness and duplication. Traces error paths. Monitors CI. Pushes mechanical fixes to bot-authored PRs.     |
-| **mention**       | @bot comment                | Responds to requests in PR and issue conversations.                                                                        |
+| **review**        | PR opened/updated           | Reviews for correctness and duplication. Traces error paths. Monitors CI. Pushes mechanical fixes to bot-authored PRs.     |
+| **mention**       | @bot mention, review        | Responds to requests in PR and issue conversations.                                                                        |
 | **triage**        | Issue opened                | Classifies the issue, checks for duplicates, reproduces bugs, attempts conservative fixes.                                 |
 | **ci-fix**        | CI fails on default branch  | Reads failure logs, identifies root cause, searches for the same pattern elsewhere, opens a fix PR.                        |
 | **nightly**       | Daily / manual dispatch     | Resolves conflicts on open PRs, reviews recent commits, surveys ~10 files for bugs and stale docs, closes resolved issues. |
@@ -43,7 +43,7 @@ enabled = false
 
 ## How it works
 
-`uvx tend init` reads `.config/tend.toml` and writes `tend-*.yaml` workflow
+`uvx tend@latest init` reads `.config/tend.toml` and writes `tend-*.yaml` workflow
 files into `.github/workflows/`. Each workflow handles triggers, skip
 conditions, concurrency, and permissions — then calls the composite action
 (`max-sixty/tend@v1`).
@@ -55,7 +55,7 @@ the tend plugin. Each workflow's prompt invokes a skill that defines what
 Claude does.
 
 Edit the config or the generator — not the workflow files. They're regenerated
-on every `tend init`.
+on every `tend@latest init`.
 
 ## Security
 

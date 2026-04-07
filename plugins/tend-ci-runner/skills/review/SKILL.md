@@ -56,7 +56,8 @@ gh api "repos/$REPO/compare/$LAST_REVIEW_SHA...$HEAD_SHA" \
 
 If the incremental changes are trivial, skip the full review **and do not submit a new
 approval** — the existing review stands. Go directly to step 7 to resolve any bot threads
-addressed by the new changes, then exit. Do NOT proceed to steps 2, 3, or 4. Rough heuristic:
+addressed by the new changes, then exit. Do NOT proceed to steps 2–6 (no review, no approval, no
+CI polling). Rough heuristic:
 changes under ~20 added+deleted lines that don't introduce new functions, types, or control flow
 are typically trivial.
 
@@ -257,6 +258,24 @@ object keys, which GitHub rejects.
   4. **Never span markdown fences.** If the range includes a `` ``` `` line, GitHub's suggestion
      parser may consume it as a delimiter, corrupting the result. Either shrink the range to avoid
      the fence or push a commit.
+
+#### Recovering from inline comment 422 errors
+
+GitHub returns `422 Unprocessable Entity` with "Line could not be resolved" when inline comment line numbers don't map to valid positions in the diff. This happens most often on large or complex diffs. **Do not retry by posting a second review** — the first `POST` to the reviews endpoint already created a review record (with the body but without the failed inline comments), so a second attempt creates a duplicate.
+
+Instead, when a 422 occurs on inline comments:
+
+1. **Move the failed inline comments into the review body** as fenced code blocks with file paths.
+2. **Edit the existing review** rather than creating a new one:
+   ```bash
+   # Find the review that was just created (body posted, inline comments rejected)
+   REVIEW_ID=$(gh api "repos/$REPO/pulls/<number>/reviews" \
+     --jq "[.[] | select(.user.login == \"$BOT_LOGIN\" and .commit_id == \"$HEAD_SHA\")] | last | .id")
+   # Update its body to include the failed inline suggestions
+   gh api "repos/$REPO/pulls/<number>/reviews/$REVIEW_ID" \
+     -X PUT -F body=@/tmp/updated-review-body.md
+   ```
+3. If editing fails, **do not post another review** — the body-only review is sufficient.
 
 ### 6. Monitor CI
 

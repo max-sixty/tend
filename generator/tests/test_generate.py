@@ -21,11 +21,11 @@ def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
     return cfg
 
 
-def test_minimal_config_generates_six_workflows(tmp_path: Path) -> None:
-    """ci-fix requires watched_workflows, so minimal config produces six."""
+def test_minimal_config_generates_seven_workflows(tmp_path: Path) -> None:
+    """ci-fix requires watched_workflows, so minimal config produces seven."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = generate_all(cfg)
-    assert len(workflows) == 6
+    assert len(workflows) == 7
     names = {wf.filename for wf in workflows}
     assert names == {
         "tend-review.yaml",
@@ -34,6 +34,7 @@ def test_minimal_config_generates_six_workflows(tmp_path: Path) -> None:
         "tend-nightly.yaml",
         "tend-weekly.yaml",
         "tend-notifications.yaml",
+        "tend-review-runs.yaml",
     }
 
 
@@ -51,7 +52,7 @@ def test_disabled_workflow_not_generated(tmp_path: Path) -> None:
     workflows = generate_all(cfg)
     names = {wf.filename for wf in workflows}
     assert "tend-weekly.yaml" not in names
-    assert len(workflows) == 5
+    assert len(workflows) == 6
 
 
 def test_setup_steps_rendered(tmp_path: Path) -> None:
@@ -143,10 +144,10 @@ def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     runner = CliRunner()
     result = runner.invoke(main, ["init"])
     assert result.exit_code == 0
-    assert "Generated 6 workflow files" in result.output
+    assert "Generated 7 workflow files" in result.output
     wf_dir = tmp_path / ".github" / "workflows"
     assert wf_dir.exists()
-    assert len(list(wf_dir.glob("tend-*.yaml"))) == 6
+    assert len(list(wf_dir.glob("tend-*.yaml"))) == 7
 
 
 def test_setup_after_checkout_in_review(tmp_path: Path) -> None:

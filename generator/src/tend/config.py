@@ -17,6 +17,7 @@ KNOWN_WORKFLOWS = {
     "nightly",
     "weekly",
     "notifications",
+    "review-runs",
 }
 KNOWN_TOP_LEVEL = {"bot_name", "protected_branches", "secrets", "setup", "workflows"}
 KNOWN_SECRETS_KEYS = {"bot_token", "claude_token", "allowed"}
