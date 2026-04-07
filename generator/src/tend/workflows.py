@@ -191,14 +191,10 @@ jobs:
   verify:
     if: |
       (github.event_name == 'issues' &&
-        contains(github.event.issue.body, '@{bn}') &&
-        github.event.issue.user.login != '{bn}') ||
-      (github.event_name == 'issue_comment' &&
-        github.event.comment.user.login != '{bn}') ||
-      (github.event_name == 'pull_request_review_comment' &&
-        github.event.comment.user.login != '{bn}') ||
-      (github.event_name == 'pull_request_review' &&
-        github.event.review.user.login != '{bn}')
+        contains(github.event.issue.body, '@{bn}')) ||
+      github.event_name == 'issue_comment' ||
+      github.event_name == 'pull_request_review_comment' ||
+      github.event_name == 'pull_request_review'
     runs-on: ubuntu-24.04
     outputs:
       should_run: ${{{{ steps.check.outputs.should_run }}}}
@@ -389,8 +385,6 @@ concurrency:
 
 jobs:
   triage:
-    if: >-
-      github.event.issue.user.login != '{bn}'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
