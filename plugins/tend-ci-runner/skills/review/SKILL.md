@@ -308,7 +308,13 @@ exit 1
   ```
   Skip if already dismissed. **Do not push fixes on human-authored PRs** — post the analysis and
   offer to fix, then wait for the author to accept.
-- **A check failed** and it's a transient flake (unrelated to the PR changes) ->
+- **A check was cancelled** (conclusion `cancelled`) -> do nothing. Cancellations are almost
+  always caused by concurrency groups — a new workflow run (often triggered by your own approval
+  event) replaces the in-progress one. The replacement run will cover the cancelled checks.
+  **Do not re-run cancelled jobs** — that creates another run that gets cancelled again, wasting
+  time in a loop.
+- **A check failed** (conclusion `failure`, not `cancelled`) and it's a transient flake
+  (unrelated to the PR changes) ->
   1. **Re-run the failed jobs:**
      ```bash
      gh run rerun <run-id> --failed
