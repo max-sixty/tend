@@ -19,7 +19,14 @@ KNOWN_WORKFLOWS = {
     "notifications",
     "review-runs",
 }
-KNOWN_TOP_LEVEL = {"bot_name", "protected_branches", "secrets", "setup", "workflows"}
+KNOWN_TOP_LEVEL = {
+    "bot_name",
+    "model",
+    "protected_branches",
+    "secrets",
+    "setup",
+    "workflows",
+}
 KNOWN_SECRETS_KEYS = {"bot_token", "claude_token", "allowed"}
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
@@ -42,6 +49,9 @@ class WorkflowConfig:
     branches: list[str] | None = None
 
 
+KNOWN_MODELS = {"opus", "sonnet", "haiku"}
+
+
 @dataclass
 class Config:
     bot_name: str
@@ -49,6 +59,7 @@ class Config:
     protected_branches: list[str]
     bot_token_secret: str
     claude_token_secret: str
+    model: str
     setup: list[SetupStep]
     workflows: dict[str, WorkflowConfig]
     allowed_repo_secrets: list[str] = field(default_factory=list)
@@ -72,6 +83,12 @@ class Config:
             raise click.ClickException(
                 f"bot_name '{bot_name}' is not a valid GitHub username "
                 "(only letters, digits, and hyphens)"
+            )
+
+        model = raw.get("model", "opus")
+        if model not in KNOWN_MODELS:
+            raise click.ClickException(
+                f"model '{model}' is not recognized (known: {', '.join(sorted(KNOWN_MODELS))})"
             )
 
         unknown = set(raw.keys()) - KNOWN_TOP_LEVEL
@@ -149,6 +166,7 @@ class Config:
             protected_branches=protected_branches,
             bot_token_secret=secrets.get("bot_token", "BOT_TOKEN"),
             claude_token_secret=secrets.get("claude_token", "CLAUDE_CODE_OAUTH_TOKEN"),
+            model=model,
             setup=setup,
             workflows=workflows,
             allowed_repo_secrets=allowed,
