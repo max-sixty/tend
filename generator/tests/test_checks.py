@@ -470,7 +470,7 @@ def test_repo_secret_allowlist_bad_json() -> None:
 
 def test_run_all_checks_no_gh() -> None:
     with patch("shutil.which", return_value=None):
-        results = run_all_checks(Config("bot", "main", [], "T1", "T2", [], {}))
+        results = run_all_checks(Config("bot", "main", [], "T1", "T2", "opus", [], {}))
     assert len(results) == 1
     assert results[0].passed is None
     assert "gh CLI" in results[0].message
@@ -481,7 +481,7 @@ def test_run_all_checks_no_repo() -> None:
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks.detect_repo", return_value=None),
     ):
-        results = run_all_checks(Config("bot", "main", [], "T1", "T2", [], {}))
+        results = run_all_checks(Config("bot", "main", [], "T1", "T2", "opus", [], {}))
     assert len(results) == 1
     assert "detect" in results[0].message
 
@@ -512,7 +512,7 @@ def test_run_all_checks_with_explicit_repo() -> None:
         patch("tend.checks._gh", side_effect=_fake_gh_all_pass),
     ):
         results = run_all_checks(
-            Config("bot", "main", [], "T1", "T2", [], {}), repo="owner/repo"
+            Config("bot", "main", [], "T1", "T2", "opus", [], {}), repo="owner/repo"
         )
     assert all(r.passed is True for r in results)
 
@@ -524,7 +524,7 @@ def test_run_all_checks_allowlist_includes_bot_secrets() -> None:
         patch("tend.checks._gh", side_effect=_fake_gh_all_pass),
     ):
         results = run_all_checks(
-            Config("bot", "main", [], "T1", "T2", [], {}), repo="owner/repo"
+            Config("bot", "main", [], "T1", "T2", "opus", [], {}), repo="owner/repo"
         )
     allowlist_check = [r for r in results if r.name == "repo-secret-allowlist"]
     assert len(allowlist_check) == 1
@@ -553,7 +553,7 @@ def test_run_all_checks_allowlist_catches_unexpected() -> None:
         patch("tend.checks._gh", side_effect=fake_gh_with_extra_secret),
     ):
         results = run_all_checks(
-            Config("bot", "main", [], "T1", "T2", [], {}), repo="owner/repo"
+            Config("bot", "main", [], "T1", "T2", "opus", [], {}), repo="owner/repo"
         )
     allowlist_check = [r for r in results if r.name == "repo-secret-allowlist"]
     assert len(allowlist_check) == 1
@@ -568,7 +568,7 @@ def test_run_all_checks_with_protected_branches() -> None:
         patch("tend.checks._gh", side_effect=_fake_gh_all_pass),
     ):
         results = run_all_checks(
-            Config("bot", "main", ["v1", "v2"], "T1", "T2", [], {}),
+            Config("bot", "main", ["v1", "v2"], "T1", "T2", "opus", [], {}),
             repo="owner/repo",
         )
     # default + v1 + v2 + bot-permission + secrets + allowlist = 6
@@ -590,7 +590,7 @@ def test_run_all_checks_deduplicates_default_branch() -> None:
         patch("tend.checks._gh", side_effect=_fake_gh_all_pass),
     ):
         results = run_all_checks(
-            Config("bot", "main", ["main", "v1"], "T1", "T2", [], {}),
+            Config("bot", "main", ["main", "v1"], "T1", "T2", "opus", [], {}),
             repo="owner/repo",
         )
     # main (deduped) + v1 + bot-permission + secrets + allowlist = 5

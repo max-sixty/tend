@@ -42,6 +42,7 @@ def test_bot_name_only(tmp_path: Path) -> None:
     path = _write_config(tmp_path, 'bot_name = "my-bot"')
     cfg = Config.load(path)
     assert cfg.bot_name == "my-bot"
+    assert cfg.model == "opus"
     assert cfg.protected_branches == []
     assert cfg.bot_token_secret == "BOT_TOKEN"
     assert cfg.claude_token_secret == "CLAUDE_CODE_OAUTH_TOKEN"
@@ -101,6 +102,31 @@ def test_protected_branches_empty_string_rejected(tmp_path: Path) -> None:
     )
     with pytest.raises(ClickException, match="non-empty strings"):
         Config.load(path)
+
+
+# ---------------------------------------------------------------------------
+# 2c. model
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("model", ["opus", "sonnet", "haiku"])
+def test_model_accepted(tmp_path: Path, model: str) -> None:
+    path = _write_config(tmp_path, f'bot_name = "my-bot"\nmodel = "{model}"')
+    cfg = Config.load(path)
+    assert cfg.model == model
+
+
+def test_model_unknown_rejected(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, 'bot_name = "my-bot"\nmodel = "gpt-4"')
+    with pytest.raises(ClickException, match="model 'gpt-4' is not recognized"):
+        Config.load(path)
+
+
+def test_model_appears_in_generated_workflows(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, 'bot_name = "my-bot"\nmodel = "opus"')
+    cfg = Config.load(path)
+    for wf in generate_all(cfg):
+        assert "model: opus" in wf.content, f"{wf.filename} missing model"
 
 
 # ---------------------------------------------------------------------------

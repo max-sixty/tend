@@ -152,6 +152,7 @@ jobs:
           github_token: {bt}
           claude_code_oauth_token: {ct}
           bot_name: {bn}
+          model: {cfg.model}
           use_sticky_comment: true
           prompt: >-
             ${{{{ {prompt_expr} }}}}
@@ -329,6 +330,7 @@ jobs:
           github_token: {bt}
           claude_code_oauth_token: {ct}
           bot_name: {bn}
+          model: {cfg.model}
           prompt: >-
             ${{{{ steps.delay.outputs.seconds
             && format('This job started {{0}}s after the triggering event (over ~40s means it was queued). ',
@@ -405,6 +407,7 @@ jobs:
           github_token: {bt}
           claude_code_oauth_token: {ct}
           bot_name: {bn}
+          model: {cfg.model}
           prompt: |
             {prompt}
 """
@@ -467,6 +470,7 @@ jobs:
           github_token: {bt}
           claude_code_oauth_token: {ct}
           bot_name: {bn}
+          model: {cfg.model}
           prompt: |
             {prompt}
             - Run URL: ${{{{ github.event.workflow_run.html_url }}}}
@@ -524,6 +528,7 @@ jobs:
           github_token: {bt}
           claude_code_oauth_token: {ct}
           bot_name: {bn}
+          model: {cfg.model}
           {prompt_yaml}
 """
     return GeneratedWorkflow(filename=f"tend-{name}.yaml", content=content)

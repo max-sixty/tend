@@ -8,6 +8,13 @@
 
 bot_name = "my-project-bot"
 
+# ## Model
+#
+# Claude model to use for all workflows. Valid values: opus, sonnet, haiku.
+# Defaults to opus.
+#
+# model = "opus"
+
 # ## Protected branches
 #
 # The default branch is always protected. Additional branches (release tracks,
