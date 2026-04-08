@@ -32,7 +32,7 @@ documents each step.
 | **nightly**       | Daily                       | Resolves conflicts on open PRs, reviews recent commits, surveys ~10 files for bugs and stale docs, closes resolved issues. |
 | **weekly**        | Weekly                      | Regenerates tend workflow files, reviews dependency PRs, auto-merges safe patch and minor updates.                         |
 | **notifications** | Every 15 minutes            | Polls GitHub notifications, responds to unhandled mentions, marks handled threads as read.                                 |
-| **review-runs**   | Daily                       | Reviews recent workflow runs for flaky tests and recurring failures.                                                       |
+| **review-runs**   | Daily                       | Reviews recent CI runs for behavioral problems and proposes skill/config improvements.                                     |
 
 Scheduled workflows also support manual dispatch for testing. All are
 enabled by default except **ci-fix**, which requires `watched_workflows`
