@@ -166,9 +166,7 @@ def test_init_ci_fix_with_watched_workflows(
 # ---------------------------------------------------------------------------
 
 
-def test_init_is_idempotent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_init_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Running init twice produces identical files."""
     _write_config(tmp_path, 'bot_name = "test-bot"')
     monkeypatch.chdir(tmp_path)
@@ -205,9 +203,7 @@ def test_init_custom_config_path(
     assert result.exit_code == 0
 
     for path in _workflow_dir(tmp_path).glob("tend-*.yaml"):
-        assert "custom-bot" in path.read_text(), (
-            f"{path.name} missing custom bot name"
-        )
+        assert "custom-bot" in path.read_text(), f"{path.name} missing custom bot name"
 
 
 # ---------------------------------------------------------------------------
