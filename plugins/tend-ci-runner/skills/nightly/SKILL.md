@@ -115,6 +115,25 @@ For each finding:
 2. **Create an issue only when there's no obvious fix** — design questions, problems needing
    maintainer input, or findings requiring investigation beyond what the survey can provide.
 
+## Optional steps
+
+Not run by default. Only run a step here when the project's `running-tend` skill explicitly
+enables it.
+
+### Changelog maintenance
+
+Keep the project's changelog up to date with recent changes. The `running-tend` skill specifies the
+changelog file and the branch to push to.
+
+1. Find the changelog file. If it doesn't exist, skip — don't create one.
+2. Check out the changelog branch. Create it from the default branch if it doesn't exist yet.
+3. Merge the default branch into the changelog branch to stay current. If the merge conflicts,
+   delete the branch, recreate it from the default branch, and start fresh.
+4. Identify merged PRs and notable commits since the last entry in the changelog.
+5. Draft entries matching the existing file's style and format.
+6. Commit and push directly to the changelog branch — no PR needed, the branch is kept ready to
+   merge for the next release.
+
 ## Step 6: Summary
 
 Report: commits reviewed, files surveyed, findings, actions taken, assessment (clean / minor
