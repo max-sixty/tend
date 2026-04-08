@@ -393,12 +393,22 @@ Outdated comments (null line) are best-effort — skip if the original context c
 **Bot PRs** (Dependabot, renovate, etc.): If the review found concrete, fixable issues and
 there's no human author to act on feedback, commit and push the fix directly to the PR branch.
 
+When the PR is single-commit and the repo has automerge that gates on commit count (check
+repo-specific guidance), use `--amend` and `--force-with-lease` to keep it single-commit.
+Adding a new commit breaks automerge eligibility.
+
 **Human PRs**: Post inline suggestions first. Additionally, offer to push a commit when the fixes
 are mechanical and correctness is obvious. Only push after the author accepts.
 
 ```bash
 gh pr checkout <number>
 git add <files>
+
+# Single-commit bot PR with automerge: amend to preserve commit count
+git commit --amend --no-edit
+git push --force-with-lease
+
+# Otherwise: new commit
 git commit -m "fix: <description>
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
