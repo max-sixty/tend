@@ -192,7 +192,7 @@ runs:
         fi
 
         echo "$USAGE" > "$LOGS_DIR/token-usage.json"
-        echo "usage=$USAGE" >> "$GITHUB_OUTPUT"
+        echo "usage=$(jq -c . <<< "$USAGE")" >> "$GITHUB_OUTPUT"
 
         jq -r '
           "## Token Usage",
