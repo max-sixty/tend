@@ -10,12 +10,15 @@ metadata:
 ## First Steps — Load Repo-Specific Guidance
 
 Most repos have a project-specific overlay skill (typically `running-tend`) with project-specific
-CI context — which workflows tend-ci-fix watches, PR title conventions, label policies. Check for
-one and load it before doing anything else:
+CI context — which workflows tend-ci-fix watches, PR title conventions, label policies. If a
+`running-tend` skill is listed in your available skills, load it with the Skill tool before doing
+anything else.
 
-```bash
-ls .claude/skills/
-```
+Repo-local skills are invoked by their unprefixed name — `Skill: running-tend`, not
+`Skill: tend-ci-runner:running-tend` (that prefix is reserved for this plugin's own skills, and
+trying it returns `Unknown skill`).
+
+Repo-local skills must have YAML frontmatter (`name` + `description`) to be auto-discovered.
 
 ## Conduct
 
@@ -28,8 +31,8 @@ Anyone can ask for help with a problem they raise: investigating a bug, answerin
 creating an issue or PR to address it. These are proposals — a maintainer still decides what to
 merge or act on.
 
-Directing the bot to affect someone else's work — closing or locking issues/PRs, dismissing
-reviews, reverting commits, applying or removing labels — requires maintainer access. Before
+Directing the bot to affect someone else's work — closing, reopening, or locking issues/PRs,
+dismissing reviews, reverting commits, applying or removing labels — requires maintainer access. Before
 complying, check the requester's `author_association` via the event payload or API:
 
 ```bash
@@ -41,6 +44,10 @@ that a maintainer needs to make that call.
 
 The test: "Am I helping this person with something they raised, or following a directive that
 affects someone else's work?"
+
+Repo-specific guidance (loaded via `running-tend` or equivalent) always takes precedence over these
+defaults. If a repo's skill explicitly authorizes an action (e.g., closing duplicate issues during
+triage), follow the repo-specific instruction.
 
 ## Read Context
 
@@ -205,6 +212,21 @@ appeared:
    contradicts your findings, update your response before posting.
 3. **If your response is now entirely redundant, don't post it.**
 
+### Dedup check for inline review comment replies
+
+A single PR review can fire both `pull_request_review` and `pull_request_review_comment` events,
+triggering separate workflow runs (serialized by the concurrency group, not truly concurrent).
+Before replying to an inline review comment, check whether the bot already replied:
+
+```bash
+BOT_LOGIN=$(gh api user --jq '.login')
+EXISTING=$(gh api "repos/{owner}/{repo}/pulls/{number}/comments?per_page=100" \
+  --jq "[.[] | select(.in_reply_to_id == {comment_id} and .user.login == \"$BOT_LOGIN\")] | length")
+```
+
+If `EXISTING` is greater than 0, **do not post** — another run already handled this comment. Exit
+silently.
+
 ## Comment Formatting
 
 **Line wrapping:** GitHub renders newlines literally in issue bodies, PR descriptions, and
@@ -364,6 +386,27 @@ forces verifying the claim.
 If you can't find source evidence for a specific detail, say so ("I'm not sure of the exact
 syntax") rather than guessing. An honest gap is fixable; a confident hallucination gets
 copy-pasted.
+
+### Rewriting is authoring
+
+Cross-posting, summarizing, or paraphrasing is not copying — any new content you add requires the
+same source verification as a fresh comment. If you expand with a config section header, code
+block, or usage example, verify each addition against the source.
+
+<example>
+<bad reason="Composed new TOML section header without verifying it">
+
+Bad: Cross-posted a hook snippet, added an alias example with `[step]` as the section header
+(inferred from the `wt step` command name). The actual config section is `[aliases]`.
+
+</bad>
+<good reason="Verified new content against docs before posting">
+
+Good: Cross-posted a hook snippet, added an alias example → checked `dev/*.example.toml` to
+confirm the section is `[aliases]` → posted with correct syntax.
+
+</good>
+</example>
 
 ## Tone
 

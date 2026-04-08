@@ -33,13 +33,12 @@ BOT_LOGIN=$(gh api user --jq '.login')
 HEAD_SHA=$(gh pr view <number> --json commits --jq '.commits[-1].oid')
 PR_AUTHOR=$(gh pr view <number> --json author --jq '.author.login')
 
-# Find the bot's most recent substantive review (any state).
-# Include reviews with a non-empty body OR approvals (LGTM uses --approve -b "").
-# Uses "| length > 0" instead of "!= \"\"" to avoid bash ! history expansion.
+# Find the bot's most recent review (any state counts — COMMENTED reviews carry
+# inline comments even when the body is empty).
 # IMPORTANT: `gh pr view --json reviews` returns `.commit.oid` (NOT `.commit_id`).
 # The REST API (`gh api .../reviews`) uses `.commit_id` — don't confuse the two.
 LAST_REVIEW_SHA=$(gh pr view <number> --json reviews \
-  --jq "[.reviews[] | select(.author.login == \"$BOT_LOGIN\" and ((.body | length) > 0 or .state == \"APPROVED\"))] | last | .commit.oid // empty")
+  --jq "[.reviews[] | select(.author.login == \"$BOT_LOGIN\")] | last | .commit.oid // empty")
 ```
 
 If `LAST_REVIEW_SHA == HEAD_SHA`, this commit has already been reviewed — exit silently. The only
@@ -54,10 +53,11 @@ gh api "repos/$REPO/compare/$LAST_REVIEW_SHA...$HEAD_SHA" \
   --jq '{total: ([.files[] | .additions + .deletions] | add), files: [.files[] | "\(.filename)\t+\(.additions)/-\(.deletions)"]}'
 ```
 
-If the incremental changes are trivial, skip the full review **and do not submit a new
-approval** — the existing review stands. Go directly to step 7 to resolve any bot threads
-addressed by the new changes, then exit. Do NOT proceed to steps 2–6 (no review, no approval, no
-CI polling). Rough heuristic:
+If the incremental changes are trivial, skip the full review — go directly to step 7 to resolve
+any bot threads addressed by the new changes. After resolving threads: if the most recent bot
+review was a COMMENT that flagged issues, and those issues are now addressed, submit an APPROVE
+with an empty body so the PR isn't left in limbo. Otherwise do not submit a new review — the
+existing one stands. Do NOT proceed to steps 2–6. Rough heuristic:
 changes under ~20 added+deleted lines that don't introduce new functions, types, or control flow
 are typically trivial.
 
@@ -308,7 +308,13 @@ exit 1
   ```
   Skip if already dismissed. **Do not push fixes on human-authored PRs** — post the analysis and
   offer to fix, then wait for the author to accept.
-- **A check failed** and it's a transient flake (unrelated to the PR changes) ->
+- **A check was cancelled** (conclusion `cancelled`) -> do nothing. Cancellations are almost
+  always caused by concurrency groups — a new workflow run (often triggered by your own approval
+  event) replaces the in-progress one. The replacement run will cover the cancelled checks.
+  **Do not re-run cancelled jobs** — that creates another run that gets cancelled again, wasting
+  time in a loop.
+- **A check failed** (conclusion `failure`, not `cancelled`) and it's a transient flake
+  (unrelated to the PR changes) ->
   1. **Re-run the failed jobs:**
      ```bash
      gh run rerun <run-id> --failed

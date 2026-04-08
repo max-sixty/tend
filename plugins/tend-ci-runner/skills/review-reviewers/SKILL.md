@@ -11,6 +11,21 @@ metadata:
 Analyze Claude-powered CI runs from the past hour. Identify behavioral problems, skill gaps, and
 workflow issues — then create PRs or issues to fix them.
 
+## Core principle: repo-specific guidance is primary
+
+Each adopter repo has its own guidance (`running-tend` skill or equivalent) that shapes how the bot
+should behave in that repo. This repo-specific guidance **takes precedence** over tend's default
+rules. The bot's job is to follow the repo-specific guidance first, falling back to tend's defaults
+only where the repo doesn't specify.
+
+When reviewing a session, always load and read the target repo's repo-specific guidance before
+evaluating whether the bot behaved correctly. An action that would violate tend's defaults (e.g.,
+closing an issue) is correct if the repo's guidance explicitly authorized it. Conversely, an action
+that follows tend's defaults but contradicts repo-specific guidance is a problem.
+
+Frame your analysis around this hierarchy: did the bot follow the repo's guidance? Only fall back
+to evaluating against tend's defaults for behaviors the repo doesn't address.
+
 ## Target repo
 
 **Target repo:** $ARGUMENTS
@@ -39,9 +54,20 @@ include other workflows (e.g., `review-reviewers` when analyzing tend itself).
 
 If empty, report "no runs to review" and exit.
 
-## Step 2: Download and analyze session logs
+## Step 2: Load repo-specific guidance and download session logs
 
-Load `/install-tend:debug-ci-session` for download commands and JSONL parsing queries. Use
+First, read the target repo's repo-specific guidance to understand what the bot was told to do:
+
+```bash
+gh -R $ARGUMENTS api repos/{owner}/{repo}/contents/.claude/skills/running-tend/SKILL.md \
+  --jq '.content' | base64 -d
+```
+
+If the file doesn't exist, try common alternatives (`.claude/skills/running-tend.md`,
+`.claude/CLAUDE.md`). Understanding the repo's guidance is essential context for evaluating every
+session — without it, you'll misjudge authorized behavior as a violation.
+
+Then load `/install-tend:debug-ci-session` for download commands and JSONL parsing queries. Use
 `-R $ARGUMENTS` for all `gh` commands targeting the adopter repo.
 
 Skip runs without artifacts. Trace decision chains: what did Claude decide, what evidence did it

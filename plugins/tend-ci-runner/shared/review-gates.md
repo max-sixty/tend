@@ -123,16 +123,24 @@ EXISTING_COMMENT=$(gh api "repos/$REPO/issues/$TRACKING_NUMBER/comments" \
   --jq "[.[] | select(.user.login == \"$BOT_LOGIN\")] | last | .id // empty")
 ```
 
-If `EXISTING_COMMENT` is non-empty, download existing body, append new findings, then PATCH. Never
-replace the body — prior entries contain per-run evidence needed for gate evaluation.
+If `EXISTING_COMMENT` is non-empty, check its size before appending. GitHub rejects comment bodies
+over 65536 characters — start a new comment when the existing one is too large.
 
 ```bash
 gh api "repos/$REPO/issues/comments/$EXISTING_COMMENT" --jq '.body' > /tmp/existing.md
-cat /tmp/existing.md /tmp/findings.md > /tmp/combined.md
-gh api "repos/$REPO/issues/comments/$EXISTING_COMMENT" -X PATCH -F body=@/tmp/combined.md
+EXISTING_SIZE=$(wc -c < /tmp/existing.md)
+if [ "$EXISTING_SIZE" -lt 50000 ]; then
+  cat /tmp/existing.md /tmp/findings.md > /tmp/combined.md
+  gh api "repos/$REPO/issues/comments/$EXISTING_COMMENT" -X PATCH -F body=@/tmp/combined.md
+else
+  # Comment approaching limit — start a new one
+  gh api "repos/$REPO/issues/$TRACKING_NUMBER/comments" -F body=@/tmp/findings.md
+fi
 ```
 
-Otherwise create a new comment.
+Never replace the body — prior entries contain per-run evidence needed for gate evaluation.
+
+If `EXISTING_COMMENT` is empty, create a new comment.
 
 Format each finding under a `## Run <run-id>` heading:
 
