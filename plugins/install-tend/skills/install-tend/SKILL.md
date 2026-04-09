@@ -19,8 +19,8 @@ REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 
 ## Chrome automation
 
-Steps 3, 5, and 7 require a browser (account creation, PAT generation,
-invitation acceptance). Use Chrome automation tools for all of these:
+Steps 3 and 5 require a browser (account creation, PAT generation).
+Use Chrome automation tools for these:
 
 1. Call `tabs_context_mcp` to connect
 2. Create a tab or reuse an existing one
@@ -163,6 +163,8 @@ and skip to step 6. Use Chrome for classic PATs:
 echo "<pat-value>" | gh secret set BOT_TOKEN --repo "$REPO"
 ```
 
+Keep the PAT value — step 7 uses it to accept invitations as the bot.
+
 Verify both secrets exist:
 
 ```bash
@@ -203,24 +205,58 @@ EOF
 - `actor_id: 5` = Repository Admin role
 - `bypass_mode: exempt` — silently skips the rule for admins
 
-## 7. Add bot as collaborator
+## 7. Grant bot access
+
+All invitation acceptance in this step uses the bot's PAT from step 5 via
+`GH_TOKEN=<bot-pat>` to authenticate as the bot.
+
+First, check whether the repo belongs to a GitHub organization:
+
+```bash
+gh api "repos/$REPO" --jq '.owner.type'
+```
+
+**Organization repos:** The bot must be an **org member**, not just an outside
+collaborator. Outside collaborators have been observed to get empty
+`secrets.BOT_TOKEN` when their actions trigger workflows (e.g., the bot
+submits a review, firing `tend-mention`), causing the verify step to fail
+with exit code 4.
+
+Check whether the bot is already an org member:
+
+```bash
+gh api "orgs/<org>/members/<bot-name>" && echo "ALREADY MEMBER" || echo "NOT MEMBER"
+```
+
+If not a member, invite (requires org admin) and accept:
+
+```bash
+gh api "orgs/<org>/memberships/<bot-name>" -X PUT -f role=member
+GH_TOKEN=<bot-pat> gh api "user/memberships/orgs/<org>" -X PATCH -f state=active
+gh api "orgs/<org>/members/<bot-name>" && echo "MEMBER" || echo "NOT MEMBER"
+```
+
+Then grant write access to the repo (org members don't automatically get
+repo access). For org members, GitHub may grant access directly (204)
+without creating an invitation — only accept if one exists:
 
 ```bash
 gh api "repos/$REPO/collaborators/<bot-name>" -X PUT -f permission=push
-```
-
-The bot must accept the invitation. Use Chrome:
-
-1. Navigate to `https://github.com/<owner>/<repo>/invitations` (not
-   `/notifications` — invitations don't appear there for new accounts).
-2. Click "Accept invitation".
-3. Verify via API:
-
-```bash
+INVITE_ID=$(GH_TOKEN=<bot-pat> gh api "user/repository_invitations" --jq ".[] | select(.repository.full_name == \"$REPO\") | .id")
+if [ -n "$INVITE_ID" ]; then
+  GH_TOKEN=<bot-pat> gh api "user/repository_invitations/$INVITE_ID" -X PATCH
+fi
 gh api "repos/$REPO/collaborators" --jq '.[].login'
 ```
 
-Skip if the bot is already a member of the org that owns the repo.
+**Personal repos:** Add as a repo collaborator and accept:
+
+```bash
+gh api "repos/$REPO/collaborators/<bot-name>" -X PUT -f permission=push
+INVITE_ID=$(GH_TOKEN=<bot-pat> gh api "user/repository_invitations" --jq ".[] | select(.repository.full_name == \"$REPO\") | .id")
+GH_TOKEN=<bot-pat> gh api "user/repository_invitations/$INVITE_ID" -X PATCH
+gh api "repos/$REPO/collaborators" --jq '.[].login'
+```
 
 ## 8. Create skill overlay (recommended)
 
@@ -292,7 +328,7 @@ After completing all steps, present this checklist:
 - [ ] Claude token: `CLAUDE_CODE_OAUTH_TOKEN` secret set
 - [ ] Bot PAT: `BOT_TOKEN` secret set (classic `repo`+`workflow`+`notifications`+`write:discussion` or fine-grained)
 - [ ] Ruleset: merge restriction on default branch, admin bypass
-- [ ] Bot access: write collaborator, invitation accepted
+- [ ] Bot access: org member (org repos) or repo collaborator (personal repos), invitation accepted
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
 - [ ] Badge: offered to add to README (optional)
 - [ ] Committed (push requires explicit permission)
