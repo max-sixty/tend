@@ -11,7 +11,7 @@ from click.testing import CliRunner
 
 from tend.cli import main
 from tend.config import Config
-from tend.workflows import generate_all, generate_mention, generate_notifications
+from tend.workflows import GENERATORS, generate_all, generate_mention
 
 
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
@@ -341,20 +341,34 @@ def test_mention_prompt_omits_delay_when_empty(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Regtest snapshots — full YAML output for notifications workflow
+# Regtest snapshots — full YAML output for every workflow
 # ---------------------------------------------------------------------------
 
 
-def test_notifications_minimal_regtest(regtest: object, tmp_path: Path) -> None:
-    """Snapshot the full notifications YAML with minimal config."""
-    cfg = Config.load(_minimal_config(tmp_path))
-    wf = generate_notifications(cfg)
+def _extra_for(name: str) -> str:
+    """Return extra config needed for a specific generator (e.g. ci-fix)."""
+    if name == "ci-fix":
+        return '[workflows.ci-fix]\nwatched_workflows = ["ci"]'
+    return ""
+
+
+@pytest.mark.parametrize("name", GENERATORS)
+def test_workflow_minimal_regtest(regtest: object, tmp_path: Path, name: str) -> None:
+    """Snapshot each workflow's full YAML with minimal config."""
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for(name)))
+    wf = GENERATORS[name](cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
-def test_notifications_with_setup_regtest(regtest: object, tmp_path: Path) -> None:
-    """Snapshot the full notifications YAML with a setup step."""
+@pytest.mark.parametrize("name", GENERATORS)
+def test_workflow_with_setup_regtest(
+    regtest: object, tmp_path: Path, name: str
+) -> None:
+    """Snapshot each workflow's full YAML with a setup step."""
     extra = 'setup = [{uses = "astral-sh/setup-uv@v6"}]'
+    extra_cfg = _extra_for(name)
+    if extra_cfg:
+        extra += "\n" + extra_cfg
     cfg = Config.load(_minimal_config(tmp_path, extra))
-    wf = generate_notifications(cfg)
+    wf = GENERATORS[name](cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
