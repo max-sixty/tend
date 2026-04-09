@@ -11,7 +11,7 @@ metadata:
 
 1. **Run tests and lints**: `cd generator && uv run pytest` and `pre-commit run --all-files`
 2. **Check current version**: Read `version` in `generator/pyproject.toml`
-3. **Review commits**: `git log v<last-version>..HEAD --oneline` to understand scope
+3. **Review commits**: `git log <last-version>..HEAD --oneline` to understand scope
 4. **Confirm version with user**: Present changes summary and proposed version
 5. **Bump version**: Edit `version` in `generator/pyproject.toml`, then `cd generator && uv lock`
 6. **Commit**: `chore: release X.Y.Z` with a one-line summary of changes since last release
