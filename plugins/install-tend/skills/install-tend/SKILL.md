@@ -306,7 +306,9 @@ gh api "repos/$REPO/collaborators" --jq '.[].login'
 ```bash
 gh api "repos/$REPO/collaborators/<bot-name>" -X PUT -f permission=push
 INVITE_ID=$(GH_TOKEN=<bot-pat> gh api "user/repository_invitations" --jq ".[] | select(.repository.full_name == \"$REPO\") | .id")
-GH_TOKEN=<bot-pat> gh api "user/repository_invitations/$INVITE_ID" -X PATCH
+if [ -n "$INVITE_ID" ]; then
+  GH_TOKEN=<bot-pat> gh api "user/repository_invitations/$INVITE_ID" -X PATCH
+fi
 gh api "repos/$REPO/collaborators" --jq '.[].login'
 ```
 
