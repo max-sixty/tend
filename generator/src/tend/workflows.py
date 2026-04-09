@@ -199,6 +199,9 @@ on:
 
 jobs:
   verify:
+    # Filter out bot's own reviews/comments at the job level. This is required
+    # (not just an optimization) because pull_request_review events on fork PRs
+    # do not have access to secrets, so the verify step's API calls would fail.
     if: |
       (github.event_name == 'issues' &&
         contains(github.event.issue.body, '@{bn}')) ||
@@ -269,7 +272,7 @@ jobs:
 
           echo "should_run=false" >> "$GITHUB_OUTPUT"
         env:
-          GH_TOKEN: {bt}
+          GH_TOKEN: ${{{{ github.token }}}}
           EVENT_NAME: ${{{{ github.event_name }}}}
           COMMENT_BODY: ${{{{ github.event.comment.body || github.event.review.body }}}}
           ISSUE_BODY: ${{{{ github.event.issue.body }}}}
