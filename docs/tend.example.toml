@@ -119,15 +119,16 @@ bot_name = "my-project-bot"
 # ### nightly
 #
 # Daily (default 06:17 UTC). Resolves conflicts on open PRs, reviews recent
-# commits, surveys ~10 files for bugs and stale docs, closes resolved issues.
+# commits, surveys ~10 files for bugs and stale docs, closes resolved issues,
+# regenerates tend workflow files.
 #
 # [workflows.nightly]
 # cron = "0 8 * * *"                          # override schedule
 
 # ### weekly
 #
-# Weekly (default Sunday 09:17 UTC). Regenerates tend workflow files, reviews
-# dependency PRs, auto-merges safe patch and minor updates.
+# Weekly (default Sunday 09:17 UTC). Reviews dependency PRs, auto-merges safe
+# patch and minor updates.
 #
 # [workflows.weekly]
 # cron = "0 10 * * 1"                         # override to Monday
