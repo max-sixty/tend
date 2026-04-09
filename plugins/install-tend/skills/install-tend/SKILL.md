@@ -19,7 +19,7 @@ REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 
 ## Chrome automation
 
-Steps 3 and 5 require a browser (account creation, PAT generation).
+Steps 6 and 8 require Chrome (account creation, PAT generation).
 Use Chrome automation tools for these:
 
 1. Call `tabs_context_mcp` to connect
@@ -105,73 +105,7 @@ grep -rl 'anthropics/claude-code-action' .github/workflows/ 2>/dev/null
 If found, delete them — tend replaces claude-code-action entirely. Remind the
 user that team members should @-mention the bot account instead of `@claude`.
 
-## 3. Bot account
-
-```bash
-gh api users/<bot-name> --jq '.login,.id' 2>/dev/null && echo "EXISTS" || echo "NOT FOUND"
-```
-
-If the account doesn't exist:
-
-1. If the user hasn't chosen a name yet, check availability of candidates
-   using `gh api users/<name>` (404 = available). Suggest options.
-2. Navigate Chrome to `https://github.com/signup`. The user must create the
-   account themselves (account creation is a prohibited action for Claude).
-3. If a verification code is needed, use jean-claude to search for the
-   GitHub email: `jean-claude gmail search "from:github subject:code" -n 1`
-4. After confirmation, re-verify via API.
-
-## 4. Claude OAuth token
-
-An OAuth access token from Claude's auth service — uses the user's Claude
-subscription (Max/Team) for billing. Not an API key from console.anthropic.com.
-
-```bash
-gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q CLAUDE_CODE_OAUTH_TOKEN && echo "SET" || echo "NOT SET"
-```
-
-If not set, obtain the token via `${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh`
-(OAuth 2.0 PKCE flow, opens browser, token valid for 1 year):
-
-```bash
-TOKEN=$("${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh")
-echo "$TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO"
-```
-
-## 5. Bot PAT and secret
-
-The bot needs a classic PAT with `repo`, `workflow`, `notifications`, and
-`write:discussion` scopes. `workflow` is required to push commits that modify
-`.github/workflows/` files. `notifications` lets the bot read/dismiss its own
-notifications. `write:discussion` allows commenting on GitHub Discussions.
-Fine-grained PATs also work (`contents:write`, `pull-requests:write`,
-`issues:write`, `workflows:write`, `discussions:write`) — create one manually
-and skip to step 6. Use Chrome for classic PATs:
-
-1. Verify the browser is logged in as `<bot-name>` (click avatar, check
-   username). If not, tell the user to log in as the bot first.
-2. Navigate to
-   `https://github.com/settings/tokens/new?scopes=repo,workflow,notifications,write:discussion&description=tend-ci`
-3. The URL pre-fills the note and scopes. Set expiration to
-   "No expiration" via the dropdown.
-4. Click "Generate token" (scroll to bottom of page).
-5. Read the token from the resulting page using `get_page_text`.
-6. Set as repo secret (use the configured secret name from config, default
-   `BOT_TOKEN`):
-
-```bash
-echo "<pat-value>" | gh secret set BOT_TOKEN --repo "$REPO"
-```
-
-Keep the PAT value — step 7 uses it to accept invitations as the bot.
-
-Verify both secrets exist:
-
-```bash
-gh secret list --repo "$REPO"
-```
-
-## 6. Branch protection
+## 3. Branch protection
 
 Check existing rulesets — skip if one already protects the default branch:
 
@@ -205,9 +139,125 @@ EOF
 - `actor_id: 5` = Repository Admin role
 - `bypass_mode: exempt` — silently skips the rule for admins
 
-## 7. Grant bot access
+## 4. Create skill overlay (recommended)
 
-All invitation acceptance in this step uses the bot's PAT from step 5 via
+Create `.claude/skills/running-tend/SKILL.md` with tend-specific project
+guidance. This skill is loaded by tend workflows alongside the generic
+`tend-*` skills.
+
+**Do NOT duplicate CLAUDE.md** and **do NOT invent project conventions.**
+
+Ask the user whether they have tend-specific preferences that differ
+from defaults. Examples of things that vary between projects:
+
+- PR title format (e.g., conventional commits, Jira ticket prefix)
+- Labels the bot should apply to its PRs
+- Review request routing (specific teams or people)
+- Target branch if not the default branch
+- Optional nightly actions (e.g., changelog maintenance — specify file and branch)
+
+If the user has preferences, add them. Otherwise create a placeholder:
+
+```markdown
+No project-specific tend preferences yet. Add guidance here as
+needed — this file is loaded by tend workflows alongside CLAUDE.md.
+```
+
+Build commands, test commands, code style, and project structure belong
+in CLAUDE.md — tend reads it like any other Claude session.
+
+## 5. Offer to add a badge
+
+If the repo has a README (any of `README.md`, `README.rst`, `README`), offer
+to add a "maintained with tend" badge.
+
+Base URL (always include the logo):
+
+```
+https://img.shields.io/badge/maintained_with-tend-bba580?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNiAxNiI+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwxNikgc2NhbGUoMC4wMTI1LC0wLjAxMjUpIiBmaWxsPSIjZmZmIiBzdHJva2U9Im5vbmUiPjxwYXRoIGQ9Ik02ODAgMTEyOCBjNjIgLTk2IDY5IC0xNzggMjAgLTI0MSAtMTcgLTIyIC0yMCAtNDAgLTIwIC0xMzQgbDEgLTEwOCAyMSAyOCBjMTEgMTYgMzAgNDcgNDIgNzAgMTIgMjIgMzIgNDkgNDYgNTkgMzcgMjcgMTE0IDM4IDE4NCAyNyA5MyAtMTUgOTQgLTE4IDQ0IC03OSAtNzIgLTg4IC0xMDkgLTExMyAtMTc2IC0xMTcgLTMxIC0yIC02NCAxIC03MiA2IC0yMyAxNSAyMSA1NiAxMDcgOTggNDAgMjAgNzEgMzggNjkgNDAgLTYgNyAtODggLTE3IC0xMjYgLTM3IC00OSAtMjUgLTEwMCAtNzggLTEyMSAtMTI1IC0xNSAtMzMgLTE5IC02NiAtMTkgLTE4OCAwIC0xNTcgOCAtMTk1IDUwIC0yMzIgMTcgLTE2IDM2IC0yMCA4NSAtMTkgNjIgMSA2MyAxIDczIC0zMiA5IC0zMiA5IC0zMyAtMjIgLTQwIC01MCAtMTIgLTEzMiAtNyAtMTY0IDEwIC00MCAyMSAtNzkgNjkgLTkyIDExNCAtNSAyMCAtMTAgMTAyIC0xMCAxODIgMCA4MCAtNSAxNjIgLTExIDE4NCAtMjIgNzkgLTEzNSAxNjYgLTIzNCAxODEgLTM3IDYgLTM1IDMgMzAgLTI4IDc4IC0zOSAxNDQgLTkxIDEzMiAtMTA0IC01IC00IC0zNyAtOCAtNzEgLTggLTc3IDAgLTExNyAyNCAtMTgyIDEwOSAtNTIgNjggLTUxIDcwIDQyIDg1IDcxIDExIDE0MyAwIDE4MyAtMjkgMTYgLTExIDQwIC00MyA1NCAtNzMgMTMgLTI5IDMyIC01OSA0MSAtNjYgMTQgLTEyIDE2IC03IDE2IDU4IDAgNTkgNCA3NyAyMyAxMDIgMTkgMjYgMjMgNDYgMjUgMTMwIDMgNjcgMCA5OSAtNyA5OSAtNyAwIC0xMSAtMjMgLTEyIC01NyAwIC0zMiAtNiAtNzYgLTEyIC05NyBsLTEyIC00MCAtMjcgMzIgYy0zNCA0MSAtNDMgOTYgLTI0IDE1MSAxNCA0MSA3NSAxNDEgODYgMTQxIDMgMCAyMSAtMjQgNDAgLTUyeiIvPjwvZz48L3N2Zz4K
+```
+
+Match the `style` parameter used by existing badges in the README. For
+example, if the repo uses `style=for-the-badge`, append
+`&style=for-the-badge` to the URL. If no existing badges or no style
+parameter, use the default (no style parameter needed).
+
+Show the user the rendered badge and ask before inserting. Place it near
+the top of the README — after the title/heading but before the first
+paragraph. If there are already badges on that line, append to the same
+line.
+
+If no README exists, skip this step.
+
+## 6. Bot account
+
+```bash
+gh api users/<bot-name> --jq '.login,.id' 2>/dev/null && echo "EXISTS" || echo "NOT FOUND"
+```
+
+If the account doesn't exist:
+
+1. If the user hasn't chosen a name yet, check availability of candidates
+   using `gh api users/<name>` (404 = available). Suggest options.
+2. Navigate Chrome to `https://github.com/signup`. The user must create the
+   account themselves (account creation is a prohibited action for Claude).
+3. If a verification code is needed, use jean-claude to search for the
+   GitHub email: `jean-claude gmail search "from:github subject:code" -n 1`
+4. After confirmation, re-verify via API.
+
+## 7. Claude OAuth token
+
+An OAuth access token from Claude's auth service — uses the user's Claude
+subscription (Max/Team) for billing. Not an API key from console.anthropic.com.
+
+```bash
+gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q CLAUDE_CODE_OAUTH_TOKEN && echo "SET" || echo "NOT SET"
+```
+
+If not set, obtain the token via `${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh`
+(OAuth 2.0 PKCE flow, opens browser, token valid for 1 year):
+
+```bash
+TOKEN=$("${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh")
+echo "$TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO"
+```
+
+## 8. Bot PAT and secret
+
+The bot needs a classic PAT with `repo`, `workflow`, `notifications`, and
+`write:discussion` scopes. `workflow` is required to push commits that modify
+`.github/workflows/` files. `notifications` lets the bot read/dismiss its own
+notifications. `write:discussion` allows commenting on GitHub Discussions.
+Fine-grained PATs also work (`contents:write`, `pull-requests:write`,
+`issues:write`, `workflows:write`, `discussions:write`) — create one manually
+and skip to step 9. Use Chrome for classic PATs:
+
+1. Verify the browser is logged in as `<bot-name>` (click avatar, check
+   username). If not, tell the user to log in as the bot first.
+2. Navigate to
+   `https://github.com/settings/tokens/new?scopes=repo,workflow,notifications,write:discussion&description=tend-ci`
+3. The URL pre-fills the note and scopes. Set expiration to
+   "No expiration" via the dropdown.
+4. Click "Generate token" (scroll to bottom of page).
+5. Read the token from the resulting page using `get_page_text`.
+6. Set as repo secret (use the configured secret name from config, default
+   `BOT_TOKEN`):
+
+```bash
+echo "<pat-value>" | gh secret set BOT_TOKEN --repo "$REPO"
+```
+
+Keep the PAT value — step 9 uses it to accept invitations as the bot.
+
+Verify both secrets exist:
+
+```bash
+gh secret list --repo "$REPO"
+```
+
+## 9. Grant bot access
+
+All invitation acceptance in this step uses the bot's PAT from step 8 via
 `GH_TOKEN=<bot-pat>` to authenticate as the bot.
 
 First, check whether the repo belongs to a GitHub organization:
@@ -228,7 +278,9 @@ Check whether the bot is already an org member:
 gh api "orgs/<org>/members/<bot-name>" && echo "ALREADY MEMBER" || echo "NOT MEMBER"
 ```
 
-If not a member, invite (requires org admin) and accept:
+If not a member, invite and accept. The invite requires org admin
+access — if the user lacks it, ask them to have an org admin invite the
+bot manually, then accept via the API call below:
 
 ```bash
 gh api "orgs/<org>/memberships/<bot-name>" -X PUT -f role=member
@@ -258,56 +310,6 @@ GH_TOKEN=<bot-pat> gh api "user/repository_invitations/$INVITE_ID" -X PATCH
 gh api "repos/$REPO/collaborators" --jq '.[].login'
 ```
 
-## 8. Create skill overlay (recommended)
-
-Create `.claude/skills/running-tend/SKILL.md` with tend-specific project
-guidance. This skill is loaded by tend workflows alongside the generic
-`tend-*` skills.
-
-**Do NOT duplicate CLAUDE.md** and **do NOT invent project conventions.**
-
-Ask the user whether they have tend-specific preferences that differ
-from defaults. Examples of things that vary between projects:
-
-- PR title format (e.g., conventional commits, Jira ticket prefix)
-- Labels the bot should apply to its PRs
-- Review request routing (specific teams or people)
-- Target branch if not the default branch
-- Optional nightly actions (e.g., changelog maintenance — specify file and branch)
-
-If the user has preferences, add them. Otherwise create a placeholder:
-
-```markdown
-No project-specific tend preferences yet. Add guidance here as
-needed — this file is loaded by tend workflows alongside CLAUDE.md.
-```
-
-Build commands, test commands, code style, and project structure belong
-in CLAUDE.md — tend reads it like any other Claude session.
-
-## 9. Offer to add a badge
-
-If the repo has a README (any of `README.md`, `README.rst`, `README`), offer
-to add a "maintained with tend" badge.
-
-Base URL (always include the logo):
-
-```
-https://img.shields.io/badge/maintained_with-tend-bba580?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNiAxNiI+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwxNikgc2NhbGUoMC4wMTI1LC0wLjAxMjUpIiBmaWxsPSIjZmZmIiBzdHJva2U9Im5vbmUiPjxwYXRoIGQ9Ik02ODAgMTEyOCBjNjIgLTk2IDY5IC0xNzggMjAgLTI0MSAtMTcgLTIyIC0yMCAtNDAgLTIwIC0xMzQgbDEgLTEwOCAyMSAyOCBjMTEgMTYgMzAgNDcgNDIgNzAgMTIgMjIgMzIgNDkgNDYgNTkgMzcgMjcgMTE0IDM4IDE4NCAyNyA5MyAtMTUgOTQgLTE4IDQ0IC03OSAtNzIgLTg4IC0xMDkgLTExMyAtMTc2IC0xMTcgLTMxIC0yIC02NCAxIC03MiA2IC0yMyAxNSAyMSA1NiAxMDcgOTggNDAgMjAgNzEgMzggNjkgNDAgLTYgNyAtODggLTE3IC0xMjYgLTM3IC00OSAtMjUgLTEwMCAtNzggLTEyMSAtMTI1IC0xNSAtMzMgLTE5IC02NiAtMTkgLTE4OCAwIC0xNTcgOCAtMTk1IDUwIC0yMzIgMTcgLTE2IDM2IC0yMCA4NSAtMTkgNjIgMSA2MyAxIDczIC0zMiA5IC0zMiA5IC0zMyAtMjIgLTQwIC01MCAtMTIgLTEzMiAtNyAtMTY0IDEwIC00MCAyMSAtNzkgNjkgLTkyIDExNCAtNSAyMCAtMTAgMTAyIC0xMCAxODIgMCA4MCAtNSAxNjIgLTExIDE4NCAtMjIgNzkgLTEzNSAxNjYgLTIzNCAxODEgLTM3IDYgLTM1IDMgMzAgLTI4IDc4IC0zOSAxNDQgLTkxIDEzMiAtMTA0IC01IC00IC0zNyAtOCAtNzEgLTggLTc3IDAgLTExNyAyNCAtMTgyIDEwOSAtNTIgNjggLTUxIDcwIDQyIDg1IDcxIDExIDE0MyAwIDE4MyAtMjkgMTYgLTExIDQwIC00MyA1NCAtNzMgMTMgLTI5IDMyIC01OSA0MSAtNjYgMTQgLTEyIDE2IC03IDE2IDU4IDAgNTkgNCA3NyAyMyAxMDIgMTkgMjYgMjMgNDYgMjUgMTMwIDMgNjcgMCA5OSAtNyA5OSAtNyAwIC0xMSAtMjMgLTEyIC01NyAwIC0zMiAtNiAtNzYgLTEyIC05NyBsLTEyIC00MCAtMjcgMzIgYy0zNCA0MSAtNDMgOTYgLTI0IDE1MSAxNCA0MSA3NSAxNDEgODYgMTQxIDMgMCAyMSAtMjQgNDAgLTUyeiIvPjwvZz48L3N2Zz4K
-```
-
-Match the `style` parameter used by existing badges in the README. For
-example, if the repo uses `style=for-the-badge`, append
-`&style=for-the-badge` to the URL. If no existing badges or no style
-parameter, use the default (no style parameter needed).
-
-Show the user the rendered badge and ask before inserting. Place it near
-the top of the README — after the title/heading but before the first
-paragraph. If there are already badges on that line, append to the same
-line.
-
-If no README exists, skip this step.
-
 ## 10. Commit and push
 
 Stage all changes:
@@ -324,11 +326,11 @@ After completing all steps, present this checklist:
 
 - [ ] Config: `.config/tend.toml` created
 - [ ] Workflows: generated in `.github/workflows/`
+- [ ] Ruleset: merge restriction on default branch, admin bypass
+- [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
+- [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Claude token: `CLAUDE_CODE_OAUTH_TOKEN` secret set
 - [ ] Bot PAT: `BOT_TOKEN` secret set (classic `repo`+`workflow`+`notifications`+`write:discussion` or fine-grained)
-- [ ] Ruleset: merge restriction on default branch, admin bypass
 - [ ] Bot access: org member (org repos) or repo collaborator (personal repos), invitation accepted
-- [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
-- [ ] Badge: offered to add to README (optional)
 - [ ] Committed (push requires explicit permission)
