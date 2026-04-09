@@ -5,8 +5,6 @@ description: Sets up tend (Claude-powered CI) on a GitHub repo. Creates config, 
 
 # Install Tend
 
-@README.md for config options and available settings.
-
 Set up tend on the current repo. Ask the user for the bot name if not provided.
 
 Follow each step in order. Skip steps that are already done — check each
