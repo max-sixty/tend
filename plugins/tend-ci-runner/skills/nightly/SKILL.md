@@ -66,12 +66,16 @@ skill) explicitly authorizes closing issues. Otherwise, leave it open for a main
 
 ## Step 4: Rolling survey
 
-Run the survey script to get today's file list (~10 files, rotating through the full repo over 28
-days):
+Run the survey script to get today's file list (rotating through the full repo over 28 days):
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/todays-survey-files.sh
+${CLAUDE_PLUGIN_ROOT}/scripts/nightly-survey-files.sh
 ```
+
+Skip files that aren't meaningfully reviewable: lock files (`uv.lock`, `Cargo.lock`,
+`package-lock.json`), binary assets, vendored dependencies, and generated files (build output,
+compiled protobuf, auto-generated workflow YAML). When unsure, check the file — a quick glance is
+cheaper than missing something.
 
 Before reviewing files, read the project's CLAUDE.md and any project-specific skills or review
 criteria it references. Apply the review checklist below to each file in full.
