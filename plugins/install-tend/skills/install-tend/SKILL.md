@@ -5,8 +5,6 @@ description: Sets up tend (Claude-powered CI) on a GitHub repo. Creates config, 
 
 # Install Tend
 
-@README.md for config options and available settings.
-
 Set up tend on the current repo. Ask the user for the bot name if not provided.
 
 Follow each step in order. Skip steps that are already done — check each
@@ -19,19 +17,9 @@ REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 
 ## Chrome automation
 
-Steps 3, 5, and 7 require a browser (account creation, PAT generation,
-invitation acceptance). Use Chrome automation tools for all of these:
-
-1. Call `tabs_context_mcp` to connect
-2. Create a tab or reuse an existing one
-3. Navigate, interact with forms, and verify outcomes
-
-If Chrome is unavailable, fall back to giving the user URLs and waiting for
-confirmation.
-
-For any step where the browser must be logged in as the bot account, verify
-the logged-in user by clicking the avatar menu and checking the username
-before proceeding.
+Steps 6 and 8 require Chrome. If Chrome is unavailable, give the user URLs
+and wait for confirmation. Before acting as the bot in the browser, verify
+the logged-in user by clicking the avatar menu and checking the username.
 
 ## 1. Create config
 
@@ -94,8 +82,6 @@ uvx tend@latest init
 Verify workflow files appear in `.github/workflows/tend-*.yaml`. Run
 `uvx tend@latest check` to validate branch protection, secrets, and bot access.
 
-## 2b. Remove existing claude-code-action workflows
-
 Check for workflows using `anthropics/claude-code-action`:
 
 ```bash
@@ -105,71 +91,7 @@ grep -rl 'anthropics/claude-code-action' .github/workflows/ 2>/dev/null
 If found, delete them — tend replaces claude-code-action entirely. Remind the
 user that team members should @-mention the bot account instead of `@claude`.
 
-## 3. Bot account
-
-```bash
-gh api users/<bot-name> --jq '.login,.id' 2>/dev/null && echo "EXISTS" || echo "NOT FOUND"
-```
-
-If the account doesn't exist:
-
-1. If the user hasn't chosen a name yet, check availability of candidates
-   using `gh api users/<name>` (404 = available). Suggest options.
-2. Navigate Chrome to `https://github.com/signup`. The user must create the
-   account themselves (account creation is a prohibited action for Claude).
-3. If a verification code is needed, use jean-claude to search for the
-   GitHub email: `jean-claude gmail search "from:github subject:code" -n 1`
-4. After confirmation, re-verify via API.
-
-## 4. Claude OAuth token
-
-An OAuth access token from Claude's auth service — uses the user's Claude
-subscription (Max/Team) for billing. Not an API key from console.anthropic.com.
-
-```bash
-gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q CLAUDE_CODE_OAUTH_TOKEN && echo "SET" || echo "NOT SET"
-```
-
-If not set, obtain the token via `${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh`
-(OAuth 2.0 PKCE flow, opens browser, token valid for 1 year):
-
-```bash
-TOKEN=$("${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh")
-echo "$TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO"
-```
-
-## 5. Bot PAT and secret
-
-The bot needs a classic PAT with `repo`, `workflow`, `notifications`, and
-`write:discussion` scopes. `workflow` is required to push commits that modify
-`.github/workflows/` files. `notifications` lets the bot read/dismiss its own
-notifications. `write:discussion` allows commenting on GitHub Discussions.
-Fine-grained PATs also work (`contents:write`, `pull-requests:write`,
-`issues:write`, `workflows:write`, `discussions:write`) — create one manually
-and skip to step 6. Use Chrome for classic PATs:
-
-1. Verify the browser is logged in as `<bot-name>` (click avatar, check
-   username). If not, tell the user to log in as the bot first.
-2. Navigate to
-   `https://github.com/settings/tokens/new?scopes=repo,workflow,notifications,write:discussion&description=tend-ci`
-3. The URL pre-fills the note and scopes. Set expiration to
-   "No expiration" via the dropdown.
-4. Click "Generate token" (scroll to bottom of page).
-5. Read the token from the resulting page using `get_page_text`.
-6. Set as repo secret (use the configured secret name from config, default
-   `BOT_TOKEN`):
-
-```bash
-echo "<pat-value>" | gh secret set BOT_TOKEN --repo "$REPO"
-```
-
-Verify both secrets exist:
-
-```bash
-gh secret list --repo "$REPO"
-```
-
-## 6. Branch protection
+## 3. Branch protection
 
 Check existing rulesets — skip if one already protects the default branch:
 
@@ -203,26 +125,7 @@ EOF
 - `actor_id: 5` = Repository Admin role
 - `bypass_mode: exempt` — silently skips the rule for admins
 
-## 7. Add bot as collaborator
-
-```bash
-gh api "repos/$REPO/collaborators/<bot-name>" -X PUT -f permission=push
-```
-
-The bot must accept the invitation. Use Chrome:
-
-1. Navigate to `https://github.com/<owner>/<repo>/invitations` (not
-   `/notifications` — invitations don't appear there for new accounts).
-2. Click "Accept invitation".
-3. Verify via API:
-
-```bash
-gh api "repos/$REPO/collaborators" --jq '.[].login'
-```
-
-Skip if the bot is already a member of the org that owns the repo.
-
-## 8. Create skill overlay (recommended)
+## 4. Create skill overlay (recommended)
 
 Create `.claude/skills/running-tend/SKILL.md` with tend-specific project
 guidance. This skill is loaded by tend workflows alongside the generic
@@ -249,7 +152,7 @@ needed — this file is loaded by tend workflows alongside CLAUDE.md.
 Build commands, test commands, code style, and project structure belong
 in CLAUDE.md — tend reads it like any other Claude session.
 
-## 9. Offer to add a badge
+## 5. Offer to add a badge
 
 If the repo has a README (any of `README.md`, `README.rst`, `README`), offer
 to add a "maintained with tend" badge.
@@ -272,6 +175,91 @@ line.
 
 If no README exists, skip this step.
 
+## 6. Bot account
+
+```bash
+gh api users/<bot-name> --jq '.login,.id' 2>/dev/null && echo "EXISTS" || echo "NOT FOUND"
+```
+
+If the account doesn't exist:
+
+1. If the user hasn't chosen a name yet, check availability of candidates
+   using `gh api users/<name>` (404 = available). Suggest options.
+2. Navigate Chrome to `https://github.com/signup`. The user must create the
+   account themselves (account creation is a prohibited action for Claude).
+3. If a verification code is needed, use the `/jean-claude` skill to
+   search Gmail: `/jean-claude gmail search "from:github subject:code" -n 1`
+4. After confirmation, re-verify via API.
+
+## 7. Claude OAuth token
+
+An OAuth access token from Claude's auth service — uses the user's Claude
+subscription (Max/Team) for billing. Not an API key from console.anthropic.com.
+
+```bash
+gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q CLAUDE_CODE_OAUTH_TOKEN && echo "SET" || echo "NOT SET"
+```
+
+If not set, obtain the token via `${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh`
+(OAuth 2.0 PKCE flow, opens browser, token valid for 1 year):
+
+```bash
+TOKEN=$("${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh")
+echo "$TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO"
+```
+
+## 8. Bot PAT and secret
+
+The bot needs a classic PAT with `repo`, `workflow`, `notifications`, and
+`write:discussion` scopes. `workflow` is required to push commits that modify
+`.github/workflows/` files. `notifications` lets the bot read/dismiss its own
+notifications. `write:discussion` allows commenting on GitHub Discussions.
+Fine-grained PATs also work (`contents:write`, `pull-requests:write`,
+`issues:write`, `actions:write`, `workflows:write`, `discussions:write`,
+`notifications:read`) — create one manually and skip to step 9.
+Use Chrome for classic PATs:
+
+1. Verify the browser is logged in as `<bot-name>` (click avatar, check
+   username). If not, tell the user to log in as the bot first.
+2. Navigate to
+   `https://github.com/settings/tokens/new?scopes=repo,workflow,notifications,write:discussion&description=tend-ci`
+3. The URL pre-fills the note and scopes. Set expiration to
+   "No expiration" via the dropdown.
+4. Click "Generate token" (scroll to bottom of page).
+5. Read the token from the resulting page using `get_page_text`.
+6. Set as repo secret (use the configured secret name from config, default
+   `BOT_TOKEN`):
+
+```bash
+echo "<pat-value>" | gh secret set BOT_TOKEN --repo "$REPO"
+```
+
+Keep the PAT value — step 9 uses it to accept invitations as the bot.
+
+Verify both secrets exist:
+
+```bash
+gh secret list --repo "$REPO"
+```
+
+## 9. Grant bot access
+
+All invitation acceptance in this step uses the bot's PAT from step 8 via
+`GH_TOKEN=<bot-pat>` to authenticate as the bot.
+
+Add the bot as a repo collaborator with write access. GitHub may grant
+access directly (204) without creating an invitation — only accept if
+one exists:
+
+```bash
+gh api "repos/$REPO/collaborators/<bot-name>" -X PUT -f permission=push
+INVITE_ID=$(GH_TOKEN=<bot-pat> gh api "user/repository_invitations" --jq ".[] | select(.repository.full_name == \"$REPO\") | .id")
+if [ -n "$INVITE_ID" ]; then
+  GH_TOKEN=<bot-pat> gh api "user/repository_invitations/$INVITE_ID" -X PATCH
+fi
+gh api "repos/$REPO/collaborators" --jq '.[].login'
+```
+
 ## 10. Commit and push
 
 Stage all changes:
@@ -288,11 +276,11 @@ After completing all steps, present this checklist:
 
 - [ ] Config: `.config/tend.toml` created
 - [ ] Workflows: generated in `.github/workflows/`
+- [ ] Ruleset: merge restriction on default branch, admin bypass
+- [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
+- [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Claude token: `CLAUDE_CODE_OAUTH_TOKEN` secret set
 - [ ] Bot PAT: `BOT_TOKEN` secret set (classic `repo`+`workflow`+`notifications`+`write:discussion` or fine-grained)
-- [ ] Ruleset: merge restriction on default branch, admin bypass
-- [ ] Bot access: write collaborator, invitation accepted
-- [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
-- [ ] Badge: offered to add to README (optional)
+- [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Committed (push requires explicit permission)
