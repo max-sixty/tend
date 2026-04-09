@@ -349,7 +349,7 @@ def test_notifications_minimal_regtest(regtest: object, tmp_path: Path) -> None:
     """Snapshot the full notifications YAML with minimal config."""
     cfg = Config.load(_minimal_config(tmp_path))
     wf = generate_notifications(cfg)
-    print(wf.content, file=regtest)  # type: ignore[arg-type]
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
 def test_notifications_with_setup_regtest(regtest: object, tmp_path: Path) -> None:
@@ -357,4 +357,4 @@ def test_notifications_with_setup_regtest(regtest: object, tmp_path: Path) -> No
     extra = 'setup = [{uses = "astral-sh/setup-uv@v6"}]'
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = generate_notifications(cfg)
-    print(wf.content, file=regtest)  # type: ignore[arg-type]
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]

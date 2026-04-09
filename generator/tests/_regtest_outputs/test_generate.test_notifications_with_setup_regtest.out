@@ -55,4 +55,3 @@ jobs:
           model: opus
           prompt: |
             /tend-ci-runner:notifications
-
