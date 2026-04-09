@@ -246,6 +246,33 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     assert "github.event.review.body" in prompt
 
 
+def test_mention_verify_handles_empty_gh_token(tmp_path: Path) -> None:
+    """verify job must exit gracefully when GH_TOKEN is empty (fork PR reviews).
+
+    Secrets are unavailable for pull_request_review events on fork PRs, so
+    GH_TOKEN is empty. The verify script must output should_run=false instead
+    of failing when gh commands can't authenticate (#201).
+    """
+    cfg = Config.load(_minimal_config(tmp_path))
+    wf = generate_mention(cfg)
+
+    # Extract the verify script
+    data = yaml.safe_load(wf.content)
+    verify_script = data["jobs"]["verify"]["steps"][0]["run"]
+
+    # Script must check for empty GH_TOKEN before calling gh commands
+    assert "GH_TOKEN" in verify_script, (
+        "verify script must check GH_TOKEN availability"
+    )
+    # The empty-token guard must appear before any `gh ` command
+    gh_token_check_pos = verify_script.index("-z \"$GH_TOKEN\"")
+    first_gh_cmd_pos = verify_script.index("gh ")
+    assert gh_token_check_pos < first_gh_cmd_pos, (
+        "GH_TOKEN emptiness check must appear before the first gh command "
+        "so fork PR reviews exit gracefully (#201)"
+    )
+
+
 def test_mention_verify_no_concurrency(tmp_path: Path) -> None:
     """verify job must not have concurrency — a non-mention comment can cancel
     an explicit @bot mention if both arrive on the same PR within seconds (#93)."""

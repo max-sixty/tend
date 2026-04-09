@@ -45,6 +45,12 @@ jobs:
             exit 0
           fi
 
+          # No token (fork PR) ? can only detect direct mentions (above)
+          if [ -z "$GH_TOKEN" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Non-mention: check bot engagement
           if [ "$EVENT_NAME" = "issue_comment" ]; then
             ISSUE_NUMBER="$ISSUE_OR_PR_NUMBER"
