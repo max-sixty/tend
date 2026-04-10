@@ -263,8 +263,11 @@ Always use markdown links for files, issues, PRs, and docs. Prefer permalinks (c
 over branch-based links for line references — line numbers shift and `blob/main/...#L42` links go
 stale.
 
-Derive the repository owner/name from `$GITHUB_REPOSITORY` (e.g., `owner/repo`) — never guess or
-hardcode the organization in URLs.
+**GitHub URLs — always embed `$GITHUB_REPOSITORY`.** Construct links as
+`https://github.com/${GITHUB_REPOSITORY}/...`; never hand-type the owner. The model reliably
+guesses wrong — past comments have shipped with `anthropics/worktrunk` and `worktrunk/worktrunk`
+on a repo actually owned by `max-sixty`. Before posting a comment, scan it for `github.com/` and
+confirm every owner matches `$GITHUB_REPOSITORY`.
 
 - **Files**: link to GitHub (`blob/main/...` for file-level, `blob/<sha>/...#L42` for lines)
 - **Issues/PRs**: `#123` shorthand
