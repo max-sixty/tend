@@ -145,7 +145,6 @@ jobs:
       group: ${{{{ github.workflow }}}}-${{{{ github.event.pull_request.number }}}}
       cancel-in-progress: true
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
     permissions:
 {perms}
     steps:
@@ -300,7 +299,6 @@ jobs:
       group: ${{{{ github.workflow }}}}-handle-${{{{ github.event.issue.number || github.event.pull_request.number }}}}
       cancel-in-progress: false
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
     permissions:
 {perms}
     steps:
@@ -404,7 +402,6 @@ concurrency:
 jobs:
   triage:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
     permissions:
 {perms}
     steps:
@@ -467,7 +464,6 @@ jobs:
   fix-ci:
     if: github.event.workflow_run.conclusion == 'failure'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
     permissions:
 {perms}
     steps:
@@ -525,7 +521,6 @@ on:
 jobs:
   {name}:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
     permissions:
 {perms}
     steps:
@@ -583,7 +578,6 @@ on:
 jobs:
   notifications:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
     permissions:
 {perms}
     steps:
