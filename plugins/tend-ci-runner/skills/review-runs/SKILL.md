@@ -40,14 +40,15 @@ done
 
 If no runs found, report "no runs to review" and exit.
 
-Then, for each run ID from above, pull its jobs and flag any that used ≥85% of the 60-min cap (51 min).
-A `success` at the cap is a near miss; a `failure` with no failed step at the cap was killed by the runner.
+Then, for each run ID from above, pull its jobs and flag any that ran over 30 min. Tend runs typically finish
+in single-digit minutes — longer is worth a look, and a ~360-min `failure` signals a runner kill at GitHub's
+default cap.
 
 ```bash
 gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
   --jq '.jobs[]
     | ((.completed_at | fromdateiso8601) - (.started_at | fromdateiso8601)) as $dur
-    | select($dur >= 3060)   # 85% of 60min
+    | select($dur >= 1800)   # 30 min
     | {name, conclusion, duration_min: ($dur / 60 | floor), url: .html_url}'
 ```
 
@@ -59,7 +60,7 @@ push-wait-fix cycles, a stuck tool call. These are **structural** failures: one 
 Run the token report script to get per-run token counts:
 
 ```bash
-"${CLAUDE_SKILL_DIR}/../scripts/token-report.sh" 24 > /tmp/token-report.json
+"${CLAUDE_PLUGIN_ROOT}/scripts/token-report.sh" 24 > /tmp/token-report.json
 ```
 
 Include the totals and per-workflow breakdown in the summary (Step 6). Flag any
@@ -112,6 +113,28 @@ Improvements target **repo-local** files:
   patterns the bot keeps getting wrong.
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
+
+The checkout's `.claude/` directory is bind-mounted read-only under the sandbox
+(protecting bots from modifying their own skills in place), so edits to
+`.claude/skills/` files fail with `OSError: [Errno 30] Read-only file system`.
+Do the edit, commit, and push from a git worktree under `$TMPDIR`, which is
+writable:
+
+```bash
+git worktree add "$TMPDIR/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID HEAD
+cd "$TMPDIR/review-runs-fix"
+# edit .claude/skills/... here
+git add .claude/skills/...
+git commit -m "skills(running-tend): ..."
+git push -u origin daily/review-runs-$GITHUB_RUN_ID
+gh pr create --title "..." --body-file /tmp/pr-body.md --head daily/review-runs-$GITHUB_RUN_ID
+cd -
+git worktree remove "$TMPDIR/review-runs-fix" --force
+```
+
+`.config/tend.toml` and `CLAUDE.md` are not under the read-only mount, but if
+you're already in the worktree for a `.claude/skills/` edit, do those edits
+there too so the branch stays self-contained.
 
 - **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID`, fix, commit, push, create with
   label `review-runs`. Put full analysis in PR description (run IDs, log excerpts, root cause,

@@ -86,7 +86,6 @@ jobs:
     if: >-
       github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
     permissions:
       contents: write
       pull-requests: write
