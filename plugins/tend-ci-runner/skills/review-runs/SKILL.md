@@ -27,11 +27,11 @@ Use `TRACKING_LABEL="review-runs-tracking"` for this skill's tracking issues.
 
 ## Step 1: Find recent runs
 
-List Claude CI runs that completed overnight (past 12 hours):
+List Claude CI runs that completed in the past 24 hours (the cron runs daily):
 
 ```bash
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-SINCE=$(date -u -d '12 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+SINCE=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
 for workflow in $(gh api repos/$REPO/actions/workflows --jq '.workflows[] | select(.name | startswith("tend-")) | .id'); do
   gh api "repos/$REPO/actions/workflows/$workflow/runs?created=>=$SINCE&status=completed" \
     --jq '.workflow_runs[] | {databaseId: .id, conclusion, createdAt: .created_at, name: .name}'
@@ -40,12 +40,26 @@ done
 
 If no runs found, report "no runs to review" and exit.
 
+Then, for each run ID from above, pull its jobs and flag any that used ≥85% of the 60-min cap (51 min).
+A `success` at the cap is a near miss; a `failure` with no failed step at the cap was killed by the runner.
+
+```bash
+gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+  --jq '.jobs[]
+    | ((.completed_at | fromdateiso8601) - (.started_at | fromdateiso8601)) as $dur
+    | select($dur >= 3060)   # 85% of 60min
+    | {name, conclusion, duration_min: ($dur / 60 | floor), url: .html_url}'
+```
+
+For flagged jobs, download session logs in Step 3 and diagnose where the time went — long background waits,
+push-wait-fix cycles, a stuck tool call. These are **structural** failures: one occurrence is enough to act on.
+
 ## Step 2: Token usage report
 
 Run the token report script to get per-run token counts:
 
 ```bash
-"${CLAUDE_SKILL_DIR}/../scripts/token-report.sh" 12 > /tmp/token-report.json
+"${CLAUDE_SKILL_DIR}/../scripts/token-report.sh" 24 > /tmp/token-report.json
 ```
 
 Include the totals and per-workflow breakdown in the summary (Step 6). Flag any
