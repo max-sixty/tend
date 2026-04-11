@@ -130,6 +130,16 @@ When asked to merge the default branch into a PR branch:
    If this fails, the branch history is disconnected. Re-checkout the PR with full history
    (`fetch-depth: 0`) before retrying.
 
+4. **Resolve content conflicts in place — never `git checkout --ours/--theirs <file>`.** Those
+   commands replace the *entire* file with one side's blob, silently dropping any non-conflicting
+   changes from the other side that git already auto-merged into the file. The result looks clean
+   (no conflict markers, `git status` shows the file resolved) but you've quietly reverted unrelated
+   improvements from `main` — and the loss is invisible until someone diffs against `main` later.
+   To keep "ours" *only* for the conflicted hunk while preserving auto-merged content, edit the
+   conflict markers in place. If you genuinely want a per-hunk "favor ours" policy across the whole
+   merge, pass `-X ours` at merge time (`git merge -X ours origin/main`) — it resolves conflicting
+   hunks in favor of HEAD without discarding auto-merged content.
+
 ## CI Monitoring
 
 After pushing, wait for CI before reporting completion.
