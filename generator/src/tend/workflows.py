@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import click
+import yaml
 
 from tend.config import Config, WorkflowConfig
 
@@ -215,8 +216,7 @@ jobs:
     if: |
       (github.event_name == 'issues' &&
         contains(github.event.issue.body, '@{bn}')) ||
-      (github.event_name == 'issue_comment' &&
-        github.event.comment.user.login != '{bn}') ||
+      (github.event_name == 'issue_comment') ||
       (github.event_name == 'pull_request_review_comment' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'pull_request_review' &&
@@ -244,7 +244,7 @@ jobs:
           # Fetch them so a first-contact @-mention inside an inline comment
           # is detected on PRs where the bot has no prior engagement.
           if [ "$EVENT_NAME" = "pull_request_review" ] && [ -n "$REVIEW_ID" ]; then
-            if gh api "repos/$GITHUB_REPOSITORY/pulls/$EVENT_PR_NUMBER/reviews/$REVIEW_ID/comments" \\
+            if gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$EVENT_PR_NUMBER/reviews/$REVIEW_ID/comments" \\
                  --jq '.[].body' | grep -qF '@{bn}'; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
               exit 0
@@ -262,7 +262,7 @@ jobs:
               if printf '%s\\n' "$ISSUE_BODY" | grep -qF '@{bn}'; then
                 echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
               fi
-              BOT_COMMENTS=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \\
+              BOT_COMMENTS=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \\
                 --jq '[.[] | select(.user.login == "{bn}")] | length')
               if [ "$BOT_COMMENTS" -gt "0" ]; then
                 echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
@@ -280,13 +280,13 @@ jobs:
             echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
 
-          BOT_REVIEWS=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \\
+          BOT_REVIEWS=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \\
             --jq '[.[] | select(.user.login == "{bn}")] | length')
           if [ "$BOT_REVIEWS" -gt "0" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
 
-          BOT_COMMENTS=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \\
+          BOT_COMMENTS=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \\
             --jq '[.[] | select(.user.login == "{bn}")] | length')
           if [ "$BOT_COMMENTS" -gt "0" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
@@ -377,21 +377,17 @@ jobs:
             ${{{{ github.event_name == 'issues'
               && format('An issue was updated with a mention of you ({{0}}). Read it and respond.', github.event.issue.html_url)
               || (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@{bn}')
-                && format('You were mentioned in an inline review comment on PR #{{0}} ({{1}}, review comment ID {{2}}). Read the full PR context (description, diff, recent comments, CI status) and respond. If they are requesting changes, make the changes, commit, and push. Reply in the review thread using `gh api repos/{{3}}/pulls/{{0}}/comments/{{2}}/replies -f body="..."` — do not create a new top-level comment.', {pr}, github.event.comment.html_url, github.event.comment.id, github.repository))
+                && format('You were mentioned in an inline review comment on PR #{{0}} ({{1}}, comment ID {{2}}). Read the full context, then respond. If changes are requested, make them, commit, and push.', {pr}, github.event.comment.html_url, github.event.comment.id))
               || (github.event_name == 'pull_request_review_comment'
-                && format('A user left an inline review comment on a PR where you previously participated (PR #{{0}}, {{1}}, review comment ID {{2}}). Read the full context. Only respond if the comment is directed at you or requests changes. Reply in the review thread using `gh api repos/{{3}}/pulls/{{0}}/comments/{{2}}/replies -f body="..."`.', {pr}, github.event.comment.html_url, github.event.comment.id, github.repository))
+                && format('An inline review comment was posted on a PR where you previously participated (PR #{{0}}, {{1}}, comment ID {{2}}). Read the full context. Only respond if the comment is directed at you or requests changes.', {pr}, github.event.comment.html_url, github.event.comment.id))
               || (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@{bn}')
-                && format('A review was submitted on PR #{{0}} that mentions you ({{1}}). Read the review and full PR context (description, diff, comments, CI status), then respond. If changes were requested, make them, commit, and push.', github.event.pull_request.number, github.event.review.html_url))
+                && format('A review was submitted on PR #{{0}} that mentions you ({{1}}, review ID {{2}}). Read the review and full context, then respond. If changes were requested, make them, commit, and push.', github.event.pull_request.number, github.event.review.html_url, github.event.review.id))
               || (github.event_name == 'pull_request_review'
-                && format('A review was submitted on a PR where you previously participated (PR #{{0}}, {{1}}). Read the review and full PR context. If the review requests changes or asks questions, respond appropriately. If the review approves or is between humans, exit silently.', github.event.pull_request.number, github.event.review.html_url))
+                && format('A review was submitted on a PR where you previously participated (PR #{{0}}, {{1}}, review ID {{2}}). Read the review and full context. If the review requests changes or asks questions, respond appropriately. If the review approves or is between humans, exit silently.', github.event.pull_request.number, github.event.review.html_url, github.event.review.id))
               || (contains(github.event.comment.body, '@{bn}')
-                && format('You were mentioned in a comment ({{0}}). Read the full issue or PR (description, diff, recent comments, CI status) and respond. If they are requesting changes, make the changes, commit, and push.', github.event.comment.html_url))
-              || format('A user commented on an issue/PR where you previously participated ({{0}}). Read the full context. Only respond if the comment is directed at you, asks a question you can help with, or requests changes you can make. A comment that responds to concerns you raised in a review is directed at you — briefly acknowledge that the concerns are resolved (or explain why they are not). If the conversation is between other participants, exit silently. In multi-way conversations (other participants besides you and the commenter are active), apply a higher bar: only respond if you have something genuinely new to add — a code fix, reproduction, or specific technical detail no one else provided. Do not restate, agree with, or summarize what a maintainer said.', github.event.comment.html_url)
+                && format('You were mentioned in a comment ({{0}}). Read the full context and respond. If changes are requested, make them, commit, and push.', github.event.comment.html_url))
+              || format('A user commented on an issue/PR where you previously participated ({{0}}). Read the full context. Only respond if the comment is directed at you, asks a question you can help with, or requests changes you can make. If the conversation is between other participants, exit silently.', github.event.comment.html_url)
             }}}}
-
-            If you are responding to your own prior comment or review (not a human's reply to it), be cautious — only respond if there is a distinct role boundary (e.g., you are the reviewer on your own PR and need to address review feedback). If there is no such role distinction, exit silently to avoid self-conversation loops.
-
-            If you are going to propose a code fix for a bug, load /tend-ci-runner:triage first — it contains reproduction and testing gates that apply to all fix attempts, not just initial triage.
 """
     return GeneratedWorkflow(filename="tend-mention.yaml", content=content)
 
@@ -646,6 +642,60 @@ def generate_review_runs(cfg: Config) -> GeneratedWorkflow:
 
 
 # ---------------------------------------------------------------------------
+# Extras (workflow_extra / jobs pass-through)
+# ---------------------------------------------------------------------------
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """RFC 7396 JSON Merge Patch: mappings deep-merge, scalars/lists replace."""
+    result = dict(base)
+    for key, value in override.items():
+        if value is None:
+            result.pop(key, None)
+        elif isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWorkflow:
+    """Merge workflow_extra and per-job extras into rendered YAML (RFC 7396)."""
+    if not wf_cfg.workflow_extra and not wf_cfg.jobs:
+        return wf
+
+    data = yaml.safe_load(wf.content)
+
+    # YAML parses bare `on:` as boolean True — restore the string key
+    if True in data:
+        data["on"] = data.pop(True)
+
+    if wf_cfg.workflow_extra:
+        data = _deep_merge(data, wf_cfg.workflow_extra)
+
+    if wf_cfg.jobs:
+        jobs = data.get("jobs", {})
+        for job_name, job_extra in wf_cfg.jobs.items():
+            if job_name in jobs:
+                jobs[job_name] = _deep_merge(jobs[job_name], job_extra)
+            else:
+                click.echo(
+                    f"Warning: job '{job_name}' not found in {wf.filename} "
+                    f"(known: {', '.join(sorted(jobs))})",
+                    err=True,
+                )
+
+    rendered = yaml.dump(
+        data,
+        default_flow_style=False,
+        sort_keys=False,
+        width=200,
+        allow_unicode=True,
+    )
+    return GeneratedWorkflow(filename=wf.filename, content=HEADER + "\n" + rendered)
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -677,5 +727,7 @@ def generate_all(cfg: Config) -> list[GeneratedWorkflow]:
                 err=True,
             )
             continue
-        results.append(gen_fn(cfg))
+        wf = gen_fn(cfg)
+        wf = _apply_extras(wf, wf_cfg)
+        results.append(wf)
     return results
