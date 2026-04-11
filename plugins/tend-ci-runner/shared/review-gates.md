@@ -142,16 +142,28 @@ Never replace the body — prior entries contain per-run evidence needed for gat
 
 If `EXISTING_COMMENT` is empty, create a new comment.
 
-Format each finding under a `## Run <run-id>` heading:
+Format each finding under a `## Run <run-id>` heading. **Always derive the run ID, timestamp, and
+repo from the CI environment — never hand-type them.** Past sessions have filled the `<run-id>`
+placeholder with fabricated round numbers (e.g. `24294000000`) when the skill didn't explicitly
+point at `$GITHUB_RUN_ID`, producing dead link-anchors in the tracking log.
+
+```bash
+RUN_ID="$GITHUB_RUN_ID"
+TIMESTAMP=$(date -u -Iseconds | sed 's/+00:00/Z/')
+REPO="$GITHUB_REPOSITORY"
+```
+
+When composing the findings file, either interpolate the values with an unquoted heredoc (so
+`$RUN_ID` expands) or read them first and write the literal values into the file:
 
 ```
-## Run <run-id> — <ISO timestamp>
+## Run <RUN_ID> — <TIMESTAMP>
 
 ### <short description>
 - **Evidence level**: Medium
 - **Occurrences this run**: 1
-- **Run ID**: <run-id>
-- **Workflow**: https://github.com/{owner}/{repo}/actions/runs/<run-id>
+- **Run ID**: <RUN_ID>
+- **Workflow**: https://github.com/<REPO>/actions/runs/<RUN_ID>
 - **Session**: <session file>
 - **Detail**: <brief description of what was observed>
 ```
