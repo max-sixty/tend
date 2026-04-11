@@ -17,7 +17,7 @@
 # Environment:
 #   TARGET_REPO - query a different repo (default: current repo)
 #
-# Requires: gh, jq, GNU coreutils (date -d)
+# Requires: gh, jq
 
 set -euo pipefail
 # Disable gh's colored JSON output. NO_COLOR=1 alone is insufficient when the
