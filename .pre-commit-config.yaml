@@ -27,3 +27,39 @@ repos:
     rev: v1.7.10
     hooks:
       - id: actionlint
+  - repo: local
+    hooks:
+      # The Claude Code slash-command preprocessor treats a backticked token
+      # beginning with an exclamation mark as shell command substitution. Any
+      # plugin skill file loaded by /review (or another slash command) that
+      # contains this sequence crashes the session before any assistant turn
+      # runs. Regressed twice already: #217 introduced, #234 fixed, #226
+      # reintroduced, #243 fixed again. This guard rejects a third regression
+      # at commit time. The check uses chr(33)+chr(96) so the script itself
+      # is safe from the pattern it is searching for.
+      - id: no-preprocessor-poison-in-skills
+        name: forbid bang-backtick in plugin skill files
+        language: system
+        entry: python3
+        args:
+          - -c
+          - |
+            import pathlib, sys
+            poison = chr(33) + chr(96)
+            hits = [
+                (str(p), i, line)
+                for p in pathlib.Path("plugins").rglob("*.md")
+                for i, line in enumerate(p.read_text().splitlines(), start=1)
+                if poison in line
+            ]
+            for p, i, line in hits:
+                print(f"{p}:{i}: {line}")
+            if hits:
+                print(
+                    "\nERROR: bang-backtick sequence in plugin skill file. "
+                    "The Claude Code slash-command preprocessor treats this "
+                    "as command substitution and crashes the session. "
+                    "See max-sixty/tend#234, #243, #244."
+                )
+                sys.exit(1)
+        pass_filenames: false
