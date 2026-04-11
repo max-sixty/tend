@@ -7,9 +7,10 @@
 
 <!-- [![Stars](https://img.shields.io/github/stars/max-sixty/tend?style=for-the-badge&logo=github)](https://github.com/max-sixty/tend/stargazers) -->
 
-Tend gives open-source projects an agent to maintain their repo. The agent can
-review PRs, triage issues, fix CI, help out with research, maintain a changelog,
-sweep the repo for improvements, refine documentation, etc.
+Tend allows open-source projects to have an agent as a dutiful junior
+maintainer. The agent can review PRs, triage issues, fix CI, help out with
+research, maintain a changelog, sweep the repo for improvements, refine
+documentation, etc.
 
 > Current status: Tend is in its early days. It has been working _extremely_ well in
 > [Worktrunk](https://www.github.com/max-sixty/worktrunk) for the past couple of
@@ -17,12 +18,12 @@ sweep the repo for improvements, refine documentation, etc.
 
 ## Structure
 
-To use Tend, each project needs:
+To use Tend, a project needs:
 
 - A GitHub account for the agent (for example this project's is **[@tend-agent](https://www.github.com/tend-agent))**
 - A Claude Max subscription
 
-Tend offers the default code & guidance for he agent. Specifically that means:
+Tend offers the default code & guidance for the agent. Specifically that means:
 
 - A set of workflow templates
 - A very particular set of Skills
