@@ -54,7 +54,7 @@ for prefix in "${PREFIXES[@]}"; do
 done
 
 if [ ${#WORKFLOWS[@]} -eq 0 ]; then
-  echo '{"runs":[],"totals":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"turns":0}}'
+  echo '{"runs":[],"totals":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"turns":0,"cost_usd":0}}'
   exit 0
 fi
 
@@ -68,7 +68,7 @@ done
 
 RUN_COUNT=$(echo "$ALL_RUNS" | jq 'length')
 if [ "$RUN_COUNT" -eq 0 ]; then
-  echo '{"runs":[],"totals":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"turns":0}}'
+  echo '{"runs":[],"totals":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"turns":0,"cost_usd":0}}'
   exit 0
 fi
 
@@ -98,12 +98,13 @@ for row in "${ROWS[@]}"; do
     output_tokens: (map(.output_tokens) | add),
     cache_creation_input_tokens: (map(.cache_creation_input_tokens) | add),
     cache_read_input_tokens: (map(.cache_read_input_tokens) | add),
-    turns: (map(.turns) | add)
+    turns: (map(.turns) | add),
+    cost_usd: (map(.cost_usd // 0) | add)
   }')
 
-  jq -c --argjson usage "$USAGE" \
-    '. + $usage + {run_id: .databaseId, workflow: .name, created_at: .createdAt} | del(.databaseId, .name, .createdAt)' \
-    <<< "$row" >> "$ENTRIES"
+  jq -c --argjson usage "$USAGE" '
+    . + $usage + {run_id: .databaseId, workflow: .name, created_at: .createdAt} |
+    del(.databaseId, .name, .createdAt)' <<< "$row" >> "$ENTRIES"
 
   rm -rf "$RUNDIR"
 done
@@ -116,7 +117,8 @@ jq -s '{
     output_tokens: (map(.output_tokens) | add // 0),
     cache_creation_input_tokens: (map(.cache_creation_input_tokens) | add // 0),
     cache_read_input_tokens: (map(.cache_read_input_tokens) | add // 0),
-    turns: (map(.turns) | add // 0)
+    turns: (map(.turns) | add // 0),
+    cost_usd: (map(.cost_usd) | add // 0 | . * 100 | round / 100)
   }
 }' "$ENTRIES" | tee "$WORKDIR/report.json"
 
@@ -127,17 +129,22 @@ jq -r '
     elif . >= 1000 then "\(. / 100 | floor | . / 10)K"
     else "\(.)" end;
 
+  def usd: tostring | if test("\\.") then split(".") | "\(.[0]).\((.[1] + "00")[:2])" else . + ".00" end | "$" + .;
+
   "\n\(.runs | length) runs since '"$SINCE"'",
-  "Totals: \(.totals.input_tokens | fmt) in, \(.totals.output_tokens | fmt) out, \(.totals.cache_creation_input_tokens | fmt) cache-create, \(.totals.cache_read_input_tokens | fmt) cache-read",
+  "Totals: \(.totals.input_tokens | fmt) in, \(.totals.output_tokens | fmt) out, \(.totals.cache_creation_input_tokens | fmt) cache-create, \(.totals.cache_read_input_tokens | fmt) cache-read, \(.totals.cost_usd | usd) cost",
   "",
-  (["WORKFLOW", "RUNS", "INPUT", "OUTPUT", "CACHE-CREATE", "CACHE-READ"] | @tsv),
+  (["WORKFLOW", "RUNS", "INPUT", "OUTPUT", "CACHE-CREATE", "CACHE-READ", "COST"] | @tsv),
   (.runs | group_by(.workflow) | map({
     w: .[0].workflow,
     n: length,
     i: (map(.input_tokens) | add),
     o: (map(.output_tokens) | add),
     cc: (map(.cache_creation_input_tokens) | add),
-    cr: (map(.cache_read_input_tokens) | add)
+    cr: (map(.cache_read_input_tokens) | add),
+    cost: (map(.cost_usd) | add | . * 100 | round / 100)
   }) | sort_by(.cr) | reverse | .[] |
-    [.w, (.n | tostring), (.i | fmt), (.o | fmt), (.cc | fmt), (.cr | fmt)] | @tsv)
+    [.w, (.n | tostring), (.i | fmt), (.o | fmt), (.cc | fmt), (.cr | fmt), (.cost | usd)] | @tsv),
+  "",
+  "Cost at API list prices — a large multiple of the effective rate on Claude Code subscriptions."
 ' "$WORKDIR/report.json" | column -t >&2
