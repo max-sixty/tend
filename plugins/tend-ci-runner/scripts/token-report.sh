@@ -17,7 +17,7 @@
 # Environment:
 #   TARGET_REPO - query a different repo (default: current repo)
 #
-# Requires: gh, jq, GNU coreutils (date -d)
+# Requires: gh, jq
 
 set -euo pipefail
 # Disable gh's colored JSON output. NO_COLOR=1 alone is insufficient when the
@@ -29,7 +29,7 @@ export NO_COLOR=1
 export CLICOLOR_FORCE=0
 
 HOURS=${1:-168}
-SINCE=$(date -u -d "$HOURS hours ago" +%Y-%m-%dT%H:%M:%SZ)
+SINCE=$(date -u -d "$HOURS hours ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-"${HOURS}"H +%Y-%m-%dT%H:%M:%SZ)
 
 repo_args=()
 if [ -n "${TARGET_REPO:-}" ]; then
@@ -128,5 +128,10 @@ jq -r '
   }) | sort_by(.cr) | reverse | .[] |
     [.w, (.n | tostring), (.i | fmt), (.o | fmt), (.cc | fmt), (.cr | fmt), (.cost | usd)] | @tsv),
   "",
-  "Cost at API list prices — a large multiple of the effective rate on Claude Code subscriptions."
+  (["RUN", "WORKFLOW", "INPUT", "OUTPUT", "CACHE-CREATE", "CACHE-READ", "COST", "TIME"] | @tsv),
+  (.runs | sort_by(.created_at) | reverse | .[] |
+    [(.run_id | tostring), .workflow, (.input_tokens | fmt), (.output_tokens | fmt), (.cache_creation_input_tokens | fmt), (.cache_read_input_tokens | fmt), (.cost_usd | usd), .created_at[:16]] | @tsv)
 ' "$WORKDIR/report.json" | column -t >&2
+
+echo >&2 ""
+echo >&2 "Cost at API list prices — a large multiple of the effective rate on Claude Code subscriptions."
