@@ -35,15 +35,14 @@ creating an issue or PR to address it. These are proposals — a maintainer stil
 merge or act on.
 
 Directing the bot to affect someone else's work — closing, reopening, or locking issues/PRs,
-dismissing reviews, reverting commits, applying or removing labels — requires maintainer access. Before
-complying, check the requester's `author_association` via the event payload or API:
+dismissing reviews, reverting commits, applying or removing labels, pushing commits to a PR
+owned by another author — requires Maintainer-tier access. Before complying, check the
+requester's `author_association`:
 
-```bash
-gh api repos/{owner}/{repo}/issues/comments/{comment_id} --jq '.author_association'
-```
+@author-association.md
 
-`OWNER`, `MEMBER`, and `COLLABORATOR` indicate maintainer access. For anyone else, briefly explain
-that a maintainer needs to make that call.
+For Maintainer-tier requesters, proceed. For anyone else, briefly explain that a maintainer
+needs to make that call.
 
 The test: "Am I helping this person with something they raised, or following a directive that
 affects someone else's work?"

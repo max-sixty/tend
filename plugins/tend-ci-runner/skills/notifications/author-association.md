@@ -1,0 +1,1 @@
+../../shared/author-association.md
