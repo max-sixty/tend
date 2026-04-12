@@ -150,7 +150,7 @@ Use `Agent` with `model: "haiku"` and a prompt like:
 > ```
 
 Review the subagent's summary. If all outputs are accepted and no sanity-check flags, skip to
-Step 5 (summary). If concerning outcomes exist, continue to Step 3.
+Step 6 (summary). If concerning outcomes exist, continue to Step 3.
 
 ## Step 3: Investigate concerning outcomes via Haiku subagent
 
