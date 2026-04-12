@@ -221,16 +221,20 @@ runs:
             ;;
         esac
 
-        gh api notifications \
+        RUN_STARTED_AT=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+          --jq '.run_started_at')
+
+        # Wrap in a subshell — a transient API error (non-JSON response)
+        # must not fail the composite action.
+        (gh api notifications \
           | jq -r --arg url "$SUBJECT_URL" --arg started "$RUN_STARTED_AT" \
               '.[] | select(.subject.url == $url and .updated_at <= $started) | .id' \
           | while read -r tid; do
               [ -n "$tid" ] || continue
               gh api "notifications/threads/$tid" -X PATCH || true
-            done
+            done) || echo "::warning::Failed to mark notification as read (non-fatal)"
       env:
         GH_TOKEN: ${{ inputs.github_token }}
-        RUN_STARTED_AT: ${{ github.event.workflow_run.created_at || github.run_started_at }}
 
     - name: Token usage
       if: always()
