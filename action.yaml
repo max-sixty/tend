@@ -250,16 +250,29 @@ runs:
         if [ ${#FILES[@]} -eq 0 ]; then
           USAGE='{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"turns":0,"model":"'"$MODEL"'","cost_usd":0}'
         else
+          # Aggregate usage across assistant turns. claude-code-action's
+          # session JSONL does not emit a `type: "result"` summary entry, so
+          # cost is computed from per-turn usage × published rates rather
+          # than read from `total_cost_usd`. Rates are Claude Opus 4 list
+          # prices ($/MTok): input 15, output 75, cache write 18.75
+          # (5m default), cache read 1.50.
           USAGE=$(cat "${FILES[@]}" | jq -sc --arg model "$MODEL" '
-            [.[] | select(.type == "result")] |
+            [.[] | select(.type == "assistant") | .message.usage | select(.)] |
             {
-              input_tokens: (map(.usage.input_tokens // 0) | add // 0),
-              output_tokens: (map(.usage.output_tokens // 0) | add // 0),
-              cache_creation_input_tokens: (map(.usage.cache_creation_input_tokens // 0) | add // 0),
-              cache_read_input_tokens: (map(.usage.cache_read_input_tokens // 0) | add // 0),
-              turns: (map(.num_turns // 0) | add // 0),
-              model: $model,
-              cost_usd: (map(.total_cost_usd // 0) | add // 0 | . * 100 | round / 100)
+              input_tokens: (map(.input_tokens // 0) | add // 0),
+              output_tokens: (map(.output_tokens // 0) | add // 0),
+              cache_creation_input_tokens: (map(.cache_creation_input_tokens // 0) | add // 0),
+              cache_read_input_tokens: (map(.cache_read_input_tokens // 0) | add // 0),
+              turns: length,
+              model: $model
+            } | . + {
+              cost_usd: (
+                (.input_tokens * 15
+                 + .output_tokens * 75
+                 + .cache_creation_input_tokens * 18.75
+                 + .cache_read_input_tokens * 1.5) / 1000000
+                | . * 100 | round / 100
+              )
             }')
         fi
 
