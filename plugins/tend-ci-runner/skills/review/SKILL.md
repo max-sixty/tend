@@ -174,7 +174,8 @@ when deciding whether to approve — the value of this review is as an uncorrela
 this bypass or duplicate an existing API?" "What does this change *not* handle?" If the design
 involves a judgment call, flag it for human review as a COMMENT.
 
-**Self-authored PRs** (`PR_AUTHOR == BOT_LOGIN`): Still perform the full review (steps 2-3) —
+**Self-authored PRs** (`PR_AUTHOR == BOT_LOGIN` — compare the literal bot login string, not
+"authored by someone senior" or "by the repo owner"): Still perform the full review (steps 2-3) —
 self-review catches real issues (lint failures, edge cases) and is intentionally valuable. Do NOT
 attempt `gh pr review --approve` — GitHub rejects self-approvals. Submit as COMMENT when there are
 concerns, or stay silent and skip to step 6. Always post CI failure analysis as a COMMENT, even on
