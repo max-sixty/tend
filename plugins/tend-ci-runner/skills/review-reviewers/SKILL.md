@@ -58,6 +58,20 @@ flagging expected behaviors creates maintainer churn and costs trust.
   concurrency-group cancellation, that is a *concurrency* issue (the cancelled runs managed to
   POST before the SIGTERM arrived) — do not propose changes to review's approval rules.
 
+- **`tend-mention` firing on the bot's own comments and exiting silently.** When the bot comments
+  on an issue or PR where it has previously participated (including its own tracking issues such
+  as `review-reviewers-tracking` and `review-runs-tracking`), the `issue_comment` event fires
+  `tend-mention`; the prompt's self-conversation guard then detects the self-trigger and exits
+  silently after a few Claude turns. This looks wasteful (each exit costs ~$0.20–$0.50), but
+  [#203](https://github.com/max-sixty/tend/pull/203) ("fix: filter bot self-triggers in
+  tend-mention workflow") added sender-based filters for `pull_request_review` /
+  `pull_request_review_comment` events and was closed by the maintainer without merge — the same
+  authorship-keyed-guard pattern rejected in #154 and #212. Do not propose sender-based or
+  commenter-based filters to `tend-mention`. The outage-loop guard added in
+  [#268](https://github.com/max-sixty/tend/pull/268) (skipping `tend-outage`-labeled issues) is
+  the accepted shape for a label-based skip — propose new filters only when there's a distinct
+  loop risk that can't be expressed with a label.
+
 ## Target repo
 
 **Target repo:** $ARGUMENTS
