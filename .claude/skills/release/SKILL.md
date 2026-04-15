@@ -14,8 +14,8 @@ metadata:
 3. **Review commits**: `git log <last-version>..HEAD --oneline` to understand scope
 4. **Confirm version with user**: Present changes summary and proposed version
 5. **Bump version**: Edit `version` in `generator/pyproject.toml`, then `cd generator && uv lock`
-6. **Commit**: `chore: release X.Y.Z` with a one-line summary of changes since last release
-7. **Merge to main**: Create PR via `gh pr create`, wait for CI, merge with `gh pr merge --squash`
+6. **Commit on the current branch**: `chore: release X.Y.Z` with a one-line summary of changes since last release. Don't create a new branch — this worktree is already on the release branch, and the PR opens from it to `main`.
+7. **Merge to main**: Push, create PR via `gh pr create`, wait for CI, merge with `gh pr merge --squash`
 8. **Tag and push**: `git tag X.Y.Z && git push origin X.Y.Z` (triggers PyPI release workflow in `.github/workflows/pypi-release.yaml`)
 9. **Wait for PyPI release**: Poll the release workflow until `uvx tend@X.Y.Z --help` succeeds
 10. **Regenerate tend's own workflows**: Run `uvx tend@latest init` and open a PR titled `chore: regenerate workflows with tend X.Y.Z`. Until this merges, tend's deployed workflows lag the just-released generator, so critical fixes (e.g. loop-prevention filters) remain unreachable on tend itself.
