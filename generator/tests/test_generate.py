@@ -530,6 +530,31 @@ def test_no_extras_output_unchanged(tmp_path: Path) -> None:
             )
 
 
+def test_job_extras_replace_if_for_skip_review_label(tmp_path: Path) -> None:
+    """Override `if:` on the review job to skip PRs with a dismissal label.
+
+    Documented in docs/tend.example.toml and the install-tend skill as the
+    canonical way to opt out of re-reviews after the initial pass, replacing
+    post-regeneration patching scripts.
+    """
+    skip_if = (
+        "github.event.pull_request.draft == false && "
+        "!contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+    )
+    extra = dedent(f"""\
+        [workflows.review.jobs.review]
+        if = "{skip_if}"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(workflows["tend-review.yaml"].content)
+    assert data["jobs"]["review"]["if"] == skip_if
+    # Other review-job keys are preserved (deep merge of the job mapping).
+    assert data["jobs"]["review"]["runs-on"] == "ubuntu-24.04"
+    assert "permissions" in data["jobs"]["review"]
+    assert "steps" in data["jobs"]["review"]
+
+
 def test_unknown_job_warns(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     extra = dedent("""\
         [workflows.review.jobs.nonexistent]
