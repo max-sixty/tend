@@ -463,6 +463,27 @@ def test_job_extras_deep_merge_permissions(tmp_path: Path) -> None:
     assert perms["packages"] == "read"
 
 
+def test_skip_review_on_label_override(tmp_path: Path) -> None:
+    """The `if:` override example documented in install-tend SKILL.md and
+    tend.example.toml: replace the review job's `if:` to skip labeled PRs."""
+    extra = dedent("""\
+        [workflows.review.jobs.review]
+        if = "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(workflows["tend-review.yaml"].content)
+    condition = data["jobs"]["review"]["if"]
+    # Existing draft check preserved (scalar replace semantics require the
+    # override to include it explicitly)
+    assert "github.event.pull_request.draft == false" in condition
+    # Label check added
+    assert "tend:dismissed" in condition
+    assert "contains(github.event.pull_request.labels.*.name" in condition
+    # Surrounding job keys untouched
+    assert data["jobs"]["review"]["runs-on"] == "ubuntu-24.04"
+
+
 def test_workflow_extras_add_env(tmp_path: Path) -> None:
     extra = dedent("""\
         [workflows.review.workflow_extra.env]

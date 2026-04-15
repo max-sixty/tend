@@ -142,3 +142,39 @@ bot_name = "my-project-bot"
 #
 # Daily (default 07:47 UTC). Reviews recent CI runs for behavioral problems
 # and proposes skill/config improvements.
+
+# ## Workflow overrides (patching)
+#
+# Generated `tend-*.yaml` files are regenerated from this config on every
+# `tend init`. Don't patch them directly — edits will be clobbered. Use the
+# built-in override mechanism instead. Two override points per workflow:
+#
+# - `workflow_extra` — top-level workflow keys (e.g. `env:`)
+# - `jobs.<job-name>` — keys inside a named job (e.g. `if:`, `timeout-minutes`,
+#   `runs-on`, `permissions`)
+#
+# Overrides use RFC 7396 JSON Merge Patch semantics: mappings deep-merge,
+# scalars and lists replace, and `= nil` deletes a key. See DESIGN.md §
+# "Extending generated workflows" for the full spec.
+#
+# ### Example: skip review on labeled PRs
+#
+# The review job's default `if:` is `github.event.pull_request.draft == false`.
+# Replace the scalar to also skip PRs carrying a dismiss label (useful for
+# silencing re-reviews on already-reviewed PRs). Because `if:` is a scalar,
+# the override replaces the base — include the existing draft check too.
+#
+# [workflows.review.jobs.review]
+# if = "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+#
+# ### Example: add a permission without losing the defaults
+#
+# Permissions is a mapping, so keys deep-merge — existing permissions stay.
+#
+# [workflows.review.jobs.review.permissions]
+# packages = "read"
+#
+# ### Example: top-level env var on one workflow
+#
+# [workflows.review.workflow_extra.env]
+# MY_VAR = "hello"

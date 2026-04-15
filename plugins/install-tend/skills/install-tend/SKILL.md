@@ -73,6 +73,45 @@ user create one first.
 
 Ask the user about other overrides (setup steps, workflow overrides).
 
+### Workflow patching
+
+Generated `tend-*.yaml` files carry a "do not edit directly" header — edits
+are clobbered on the next regeneration. To change something the generator
+doesn't expose as a first-class config option, use the built-in override
+mechanism instead of patching the generated YAML.
+
+Two override points live under `[workflows.<name>]`:
+
+- `workflow_extra` — top-level keys on the workflow (e.g. `env:`)
+- `jobs.<job-name>` — keys inside a specific job (e.g. `if:`, `timeout-minutes`,
+  `runs-on`, `permissions`)
+
+Both use [RFC 7396 JSON Merge Patch](https://datatracker.ietf.org/doc/html/rfc7396)
+semantics: mappings deep-merge (new keys added, existing keys overwritten),
+scalars and lists replace wholesale, and `= nil` deletes a key. Overrides
+survive regeneration — they live in `.config/tend.toml`, not in the workflow
+file.
+
+**Example — skip review when a `tend:dismissed` label is present:**
+
+The generated `tend-review.yaml` has `if: github.event.pull_request.draft == false`
+on its `review` job. To also skip PRs carrying a dismiss label (so fixup pushes
+on an already-reviewed PR don't re-trigger), replace the `if:` scalar:
+
+```toml
+[workflows.review.jobs.review]
+if = "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+```
+
+Because `if:` is a scalar, the override replaces the base value — include the
+existing draft check alongside the new label check. The PR author adds the
+label when feedback has been absorbed and removes it if they want another
+pass.
+
+See [DESIGN.md § Extending generated workflows](https://github.com/max-sixty/tend/blob/main/DESIGN.md#extending-generated-workflows)
+for the full mechanism and more examples (adding permissions, per-workflow
+env vars, job timeouts).
+
 ## 2. Generate workflows
 
 ```bash
