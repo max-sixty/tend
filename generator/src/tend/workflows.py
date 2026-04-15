@@ -47,14 +47,22 @@ def _setup_yaml(cfg: Config, indent: int = 6, condition: str = "") -> str:
     Returns empty string when no steps, or newline-prefixed block when present,
     so templates can write `{setup}` without extra blank lines.
 
-    When *condition* is set, each step gets an ``if:`` guard.
+    When *condition* is set, each step gets an ``if:`` guard. `uses` steps may
+    also carry a `with` table which is rendered as a nested block so actions
+    requiring parameters don't have to fall back to `raw` (which can't be
+    conditionally guarded).
     """
     pad = " " * indent
     if_line = f"\n{pad}  if: {condition}" if condition else ""
     lines = []
     for step in cfg.setup:
         if step.uses:
-            lines.append(f"{pad}- uses: {step.uses}{if_line}")
+            block = f"{pad}- uses: {step.uses}{if_line}"
+            if step.with_:
+                block += f"\n{pad}  with:"
+                for k, v in step.with_.items():
+                    block += f"\n{pad}    {k}: {_yaml_scalar(v)}"
+            lines.append(block)
         elif step.run:
             lines.append(f"{pad}- run: {step.run}{if_line}")
         elif step.raw:
@@ -68,6 +76,18 @@ def _setup_yaml(cfg: Config, indent: int = 6, condition: str = "") -> str:
     if not lines:
         return ""
     return "\n" + "\n".join(lines) + "\n"
+
+
+def _yaml_scalar(value: object) -> str:
+    """Render a Python scalar as a YAML scalar using safe_dump semantics."""
+    # yaml.safe_dump emits a trailing newline and may add `...\n` document
+    # terminators; strip both. default_flow_style=True keeps scalars on one line.
+    dumped = yaml.safe_dump(
+        value, default_flow_style=True, allow_unicode=True, width=float("inf")
+    ).strip()
+    if dumped.endswith("\n..."):
+        dumped = dumped[: -len("\n...")]
+    return dumped
 
 
 def _permissions(issues: bool = True) -> str:

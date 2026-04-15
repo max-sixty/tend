@@ -73,6 +73,40 @@ def test_setup_steps_rendered(tmp_path: Path) -> None:
         )
 
 
+def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
+    """A `uses` setup step with `with:` parameters must still receive the
+    `if:` guard in the notifications workflow.
+
+    Without `with` support on `uses`, steps like `actions/setup-node@v4` that
+    require parameters are forced into `raw`, which cannot receive the guard —
+    so they run even when the pre-check has skipped checkout, failing with
+    "The specified node version file does not exist" (issue #281).
+    """
+    extra = dedent("""\
+        setup = [
+          {uses = "actions/setup-node@v4", with = {node-version-file = ".node-version"}},
+        ]
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    notifications = workflows["tend-notifications.yaml"]
+    data = yaml.safe_load(notifications.content)
+
+    steps = data["jobs"]["notifications"]["steps"]
+    setup_node = next(
+        (s for s in steps if s.get("uses") == "actions/setup-node@v4"), None
+    )
+    assert setup_node is not None, "setup-node step missing from notifications workflow"
+    assert setup_node.get("with") == {"node-version-file": ".node-version"}, (
+        "uses step must render `with:` parameters"
+    )
+    assert "if" in setup_node, (
+        "setup-node step must receive the `if:` guard so it is skipped when "
+        "checkout was skipped (otherwise .node-version is missing and the "
+        "step fails)"
+    )
+
+
 def test_empty_setup_no_blank_lines(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     for wf in generate_all(cfg):
