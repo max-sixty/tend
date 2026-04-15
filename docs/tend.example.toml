@@ -56,12 +56,22 @@ bot_name = "my-project-bot"
 # Build tools, caches, and environment variables that run before Claude in every
 # workflow. Three forms:
 #
-# - `uses` — a GitHub Action (local composite or marketplace)
+# - `uses` — a GitHub Action (local composite or marketplace); optional `with`
+#            table passes parameters to the action
 # - `run`  — a shell command
-# - `raw`  — verbatim YAML (for actions needing `with:` parameters)
+# - `raw`  — verbatim YAML (for fall-back cases, e.g. injecting multiple steps
+#            or step-level `shell:`/`env:`)
+#
+# Prefer `uses` + `with` over `raw` when possible: `raw` steps cannot receive
+# the `if:` guard used by the notifications workflow, so they run even when
+# the pre-check has decided to skip the Claude invocation.
 
 # [[setup]]
 # uses = "astral-sh/setup-uv@v6"
+#
+# [[setup]]
+# uses = "actions/setup-node@v4"
+# with = { node-version-file = ".node-version" }
 #
 # [[setup]]
 # run = "echo CARGO_TERM_COLOR=always >> $GITHUB_ENV"

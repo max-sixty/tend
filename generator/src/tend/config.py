@@ -33,11 +33,17 @@ _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
 @dataclass
 class SetupStep:
-    """A single project setup step — `uses:`, `run:`, or `raw:` YAML."""
+    """A single project setup step — `uses:`, `run:`, or `raw:` YAML.
+
+    `uses` steps may carry a `with` table of parameters; this avoids forcing
+    parameterized actions (e.g. `actions/setup-node@v4`) into `raw`, which
+    cannot receive the `if:` guard used by the notifications workflow.
+    """
 
     uses: str = ""
     run: str = ""
     raw: str = ""
+    with_: dict | None = None
 
 
 @dataclass
@@ -122,7 +128,15 @@ class Config:
                     f"setup[{i}] must have exactly one of 'uses', 'run', or 'raw'"
                 )
             key = keys.pop()
-            setup.append(SetupStep(**{key: entry[key]}))
+            with_value = entry.get("with")
+            if with_value is not None:
+                if key != "uses":
+                    raise click.ClickException(
+                        f"setup[{i}]: `with` is only valid alongside `uses`"
+                    )
+                if not isinstance(with_value, dict):
+                    raise click.ClickException(f"setup[{i}]: `with` must be a table")
+            setup.append(SetupStep(**{key: entry[key], "with_": with_value}))
 
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in raw.get("workflows", {}).items():
