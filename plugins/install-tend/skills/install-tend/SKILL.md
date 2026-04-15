@@ -73,6 +73,25 @@ user create one first.
 
 Ask the user about other overrides (setup steps, workflow overrides).
 
+### Customizing generated workflow YAML
+
+The generator owns every `tend-*.yaml` file — direct edits are lost on the next
+`uvx tend@latest init`. Instead, set `workflow_extra` (top-level) or
+`jobs.<name>` (job-level) overrides in `.config/tend.toml`. Overrides follow
+RFC 7396 (JSON Merge Patch): mappings deep-merge, scalars and lists replace.
+
+Common example — skip review on PRs labeled `tend:dismissed` (so authors can
+opt out of re-reviews after the initial pass). Because scalars replace under
+Merge Patch, the override must duplicate the default draft check:
+
+```toml
+[workflows.review.jobs.review]
+if = "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+```
+
+See `docs/tend.example.toml` in the tend repo for more override examples
+(extending permissions, timeouts, top-level env vars).
+
 ## 2. Generate workflows
 
 ```bash

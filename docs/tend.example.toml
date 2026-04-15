@@ -142,3 +142,51 @@ bot_name = "my-project-bot"
 #
 # Daily (default 07:47 UTC). Reviews recent CI runs for behavioral problems
 # and proposes skill/config improvements.
+
+# ## Workflow overrides
+#
+# The generator owns every `tend-*.yaml` file — editing them directly loses
+# changes on the next `uvx tend@latest init`. To customize the generated YAML,
+# set overrides in `.config/tend.toml`; they survive regeneration.
+#
+# Two scopes are supported:
+#
+# - `workflow_extra` — adds or replaces top-level keys (e.g. `env`, `defaults`)
+# - `jobs.<name>`    — adds or replaces keys inside a specific job
+#
+# Overrides use RFC 7396 (JSON Merge Patch): mappings deep-merge, scalars and
+# lists replace. Unknown job names print a warning but don't fail. Step-level
+# overrides aren't supported — use the `[[setup]]` mechanism above to inject
+# steps.
+#
+# ### Example: skip review on labeled PRs
+#
+# The `review` job's default `if:` only skips draft PRs. To also skip PRs
+# carrying a `tend:dismissed` label (useful once a PR has been reviewed and
+# the author doesn't want re-reviews on every push), replace the `if:` —
+# scalars replace under JSON Merge Patch, so duplicate the draft check:
+#
+# [workflows.review.jobs.review]
+# if = "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+#
+# ### Example: extend permissions without losing defaults
+#
+# Mappings deep-merge, so adding one permission preserves the rest:
+#
+# [workflows.review.jobs.review.permissions]
+# packages = "read"
+#
+# ### Example: longer timeout on a specific job
+#
+# [workflows.review.jobs.review]
+# timeout-minutes = 240
+#
+# ### Example: target a specific job in a multi-job workflow
+#
+# [workflows.mention.jobs.handle]
+# timeout-minutes = 180
+#
+# ### Example: top-level env vars
+#
+# [workflows.review.workflow_extra.env]
+# MY_VAR = "hello"
