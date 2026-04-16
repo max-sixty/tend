@@ -56,3 +56,20 @@ and the next release, the local workflows lag the in-tree generator, and
 that is expected; the gap closes at the next release.
 
 Linting: `pre-commit run --all-files` (ruff, typos, actionlint, uv-lock).
+
+## Agent-driven vs deterministic steps
+
+Tend's workflows invoke Claude through `max-sixty/tend@v1`. When adding new
+capability, split work along this line:
+
+- **The agent drives diagnostics and remediation.** Once the action is
+  running, put logic into the relevant skill (or a script the skill calls —
+  see `plugins/tend-ci-runner/scripts/`). The agent handles edge cases,
+  interprets output, and writes clearer messages than shell.
+- **Actions gate whether the agent runs at all.** Agent invocations cost
+  tokens; gating them in YAML is cheap. Pre-check steps that early-exit
+  the job (e.g. `tend-notifications`'s "Check for unread notifications")
+  save an entire agent run when there's nothing to do.
+
+Don't build deterministic YAML steps for work that happens *inside* an
+agent run. Extend the skill instead.
