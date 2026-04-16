@@ -10,7 +10,29 @@ metadata:
 Resolve conflicts on bot PRs, review recent commits, survey a slice of existing code/docs, and
 update tend workflows.
 
-## Step 1: Resolve conflicts on bot PRs
+## Step 1: Verify bot PAT scopes
+
+Run the scope audit script to check the bot PAT against tend's required classic
+OAuth scopes (`repo`, `workflow`, `notifications`, `write:discussion`, `gist`):
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/pat-scope-audit.sh
+```
+
+The script prints `key=value` lines. Act on `STATUS`:
+
+- `STATUS=ok`: all scopes present. Search for an open tracking issue whose
+  body contains the marker `<!-- tend-pat-scope-audit -->`; if found, close it
+  with a comment noting the scopes are now granted.
+- `STATUS=fine-grained`: no `X-OAuth-Scopes` header. Fine-grained PATs have
+  no documented self-introspection endpoint — skip.
+- `STATUS=missing`: open a tracking issue (or update an existing one matched
+  by the marker). The issue body must include the marker on its own line
+  for dedup, list the values from `MISSING=`, and link step 8 of the
+  `install-tend` skill for remediation:
+  https://github.com/max-sixty/tend/blob/main/plugins/install-tend/skills/install-tend/SKILL.md#8-bot-pat-and-secret
+
+## Step 2: Resolve conflicts on bot PRs
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
@@ -32,7 +54,7 @@ Run subagents in parallel. Each must work in isolation (`git worktree add /tmp/p
 
 Skip if no PRs have conflicts.
 
-## Step 2: Review recent commits
+## Step 3: Review recent commits
 
 ```bash
 git log --since='24 hours ago' --oneline main
@@ -52,7 +74,7 @@ Read the project's CLAUDE.md before reviewing. Apply the review checklist below 
 focusing on changes rather than unchanged code. Also check whether CLAUDE.md itself needs updating
 to reflect the new code (e.g., new file paths, changed commands, removed patterns).
 
-## Step 3: Check existing issues
+## Step 4: Check existing issues
 
 ```bash
 gh issue list --state open --json number,title
@@ -72,7 +94,7 @@ issue). Close the issue with `gh issue close` when:
 
 Otherwise, leave it open for a maintainer to close.
 
-## Step 4: Rolling survey
+## Step 5: Rolling survey
 
 Run the survey script to get today's file list (rotating through the full repo over 28 days):
 
@@ -90,7 +112,7 @@ criteria it references. Apply the review checklist below to each file in full.
 
 ## Review checklist
 
-Used by both Step 2 (applied to recent diffs) and Step 4 (applied to full files).
+Used by both Step 3 (applied to recent diffs) and Step 5 (applied to full files).
 
 **General quality:**
 - Bugs, logic errors, unhandled edge cases
@@ -106,7 +128,7 @@ Used by both Step 2 (applied to recent diffs) and Step 4 (applied to full files)
 - Skills that have drifted from actual project behavior (instructions that no longer match how the
   code works)
 
-## Step 5: Update tend workflows
+## Step 6: Update tend workflows
 
 Regenerate the tend workflow files and open a PR if anything changed. The
 checkout's `.github/` directory may be mounted read-only under the sandbox
@@ -138,7 +160,7 @@ cd -
 git worktree remove "$TMPDIR/tend-update-workflows" --force
 ```
 
-## Step 6: Fix findings
+## Step 7: Fix findings
 
 Before acting on findings, check for duplicates and existing work:
 
@@ -178,7 +200,7 @@ changelog file and the branch to push to.
 6. Commit and push directly to the changelog branch — no PR needed, the branch is kept ready to
    merge for the next release.
 
-## Step 7: Summary
+## Step 8: Summary
 
 Report: commits reviewed, files surveyed, findings, actions taken, assessment (clean / minor
 issues / needs attention).
