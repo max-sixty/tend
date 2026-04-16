@@ -147,12 +147,15 @@ GIST_ID=$(gh api /gists --paginate \
   --jq ".[] | select(.description == \"$GIST_DESC\") | .id" | head -1)
 
 if [ -z "$GIST_ID" ]; then
-  cat > /tmp/gist-seed.md << EOF
+  # The gist file takes its name from the local file's basename; later reads
+  # and PATCHes target `findings.md`, so the seed must live at that basename.
+  mkdir -p /tmp/gist-seed
+  cat > /tmp/gist-seed/findings.md << EOF
 # review-reviewers evidence — $TARGET — $MONTH
 
 Secret gist. Append-only log of below-threshold findings used for gate evaluation.
 EOF
-  GIST_URL=$(gh gist create --desc "$GIST_DESC" /tmp/gist-seed.md)
+  GIST_URL=$(gh gist create --desc "$GIST_DESC" /tmp/gist-seed/findings.md)
   if [ -z "$GIST_URL" ]; then
     echo "ERROR: gh gist create failed — BOT_TOKEN likely lacks 'gist' scope (see install-tend)" >&2
     exit 1
