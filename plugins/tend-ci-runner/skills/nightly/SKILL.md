@@ -65,7 +65,7 @@ issue). Close the issue with `gh issue close` when:
 
 - The bot opened the issue itself to report a transient condition (e.g., a "Nightly tests failed"
   report from a prior run) and the condition has clearly resolved — the fix PR is merged and the
-  relevant CI on `main` is passing. Skip this case if the issue body contains "do not close
+  relevant CI on `main` is passing. Skip this case if the issue body contains "Do not close
   manually"; those are recurring tracking issues (e.g., monthly review-runs trackers) with their
   own lifecycle.
 - The repo's guidance (e.g., `running-tend` skill) explicitly authorizes closing issues.
