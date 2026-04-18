@@ -214,13 +214,7 @@ inline suggestion on the exact line — never as a code block in the review body
 let the author apply with one click; code blocks force them to find the line and copy-paste
 manually.
 
-For fixes targeting lines outside the diff, offer to push a fix commit. Use concrete wording —
-**"I can push this as a follow-up commit — let me know."** Hedging like `if helpful` or `if you'd
-like` reads as optional rather than a real offer.
-
-**Apply offers consistently across a single review.** If one concrete finding gets an offer to
-push, every concrete finding in the same review should get one too — or be posted as an inline
-suggestion if it's inside the diff. Don't leave some findings with offers and others bare.
+For fixes targeting lines outside the diff, offer to push a fix commit instead.
 
 Post inline suggestions via the review API:
 
