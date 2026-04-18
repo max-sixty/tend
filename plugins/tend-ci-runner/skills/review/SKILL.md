@@ -303,30 +303,31 @@ the job name (`review`), which does not match `$GITHUB_WORKFLOW` (`tend-review`)
 
 ```bash
 # Run with Bash tool's run_in_background: true.
-# Poll statusCheckRollup (every check-run + status context on the commit)
-# paired with mergeStateStatus. `gh pr checks --required` misses
-# `if: always()` omnibus checks (e.g. `check-ok-to-merge`) that register
-# only once their `needs:` dependencies complete — the loop can exit
-# green while the real matrix is still running. See
-# https://github.com/max-sixty/tend/issues/305.
+# Poll statusCheckRollup (every check-run + status context on the commit).
+# `gh pr checks --required` only sees already-registered check-runs, so a
+# late-starting `if: always()` omnibus (e.g. `check-ok-to-merge`) could race
+# the loop and let it exit green while CI was still running (see
+# https://github.com/max-sixty/tend/issues/305). The 30s grace re-check
+# below covers the short gap between `needs:` jobs finishing and the omnibus
+# check-run registering.
+#
+# Don't use mergeStateStatus as an exit signal: it stays BLOCKED for the
+# entire run because our own check is pending, and the API can't distinguish
+# "self-blocking" from "required context not yet registered".
+pending() {
+  gh pr view <number> --json statusCheckRollup \
+    | jq --arg own "/runs/$GITHUB_RUN_ID/" '
+      [.statusCheckRollup[]
+       | select((.detailsUrl // .targetUrl // "") | test($own) | not)
+       | (.status // .state)
+       | select(. == "IN_PROGRESS" or . == "QUEUED" or . == "PENDING" or . == "WAITING")
+      ] | length'
+}
 for i in $(seq 1 15); do
   sleep 60
-  DATA=$(gh pr view <number> --json mergeStateStatus,reviewDecision,statusCheckRollup)
-  PENDING=$(jq --arg own "/runs/$GITHUB_RUN_ID/" '
-    [.statusCheckRollup[]
-     | select((.detailsUrl // .targetUrl // "") | test($own) | not)
-     | (.status // .state)
-     | select(. == "IN_PROGRESS" or . == "QUEUED" or . == "PENDING" or . == "WAITING")
-    ] | length' <<<"$DATA")
-  STATE=$(jq -r .mergeStateStatus <<<"$DATA")
-  DECISION=$(jq -r .reviewDecision <<<"$DATA")
-  # Keep waiting if a tracked check is still running, mergeability is
-  # still being computed, or the PR is BLOCKED without an approval
-  # requirement — that means a required context hasn't reported yet.
-  if [ "$PENDING" -gt 0 ] || [ "$STATE" = "UNKNOWN" ]; then continue; fi
-  if [ "$STATE" = "BLOCKED" ] \
-     && [ "$DECISION" != "REVIEW_REQUIRED" ] \
-     && [ "$DECISION" != "CHANGES_REQUESTED" ]; then continue; fi
+  [ "$(pending)" -gt 0 ] && continue
+  sleep 30
+  [ "$(pending)" -eq 0 ] || continue
   gh pr checks <number>
   exit 0
 done

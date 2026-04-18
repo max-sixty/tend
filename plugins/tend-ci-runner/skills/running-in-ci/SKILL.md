@@ -159,37 +159,36 @@ background task completes you will be notified — check the result and take any
 
 ```bash
 # Run with Bash tool's run_in_background: true.
-# Poll statusCheckRollup (every check-run + status context on the commit),
-# paired with mergeStateStatus, instead of `gh pr checks --required`.
-# `--required` only sees already-registered check-runs, so a late-starting
-# `if: always()` omnibus (e.g. `check-ok-to-merge`) can race the loop
-# and let it exit green while CI is still running.
-# mergeStateStatus reflects required-but-unreported contexts too, which
-# `gh pr checks` does not.
+# Poll statusCheckRollup (every check-run + status context on the commit).
+# `gh pr checks --required` only sees already-registered check-runs, so a
+# late-starting `if: always()` omnibus (e.g. `check-ok-to-merge`) could race
+# the loop and let it exit green while CI was still running (see
+# https://github.com/max-sixty/tend/issues/305). The 30s grace re-check
+# below covers the short gap between `needs:` jobs finishing and the omnibus
+# check-run registering.
 #
 # Filter out the current run ($GITHUB_RUN_ID) — its own CheckRun is
-# IN_PROGRESS for the whole loop and would deadlock. Match on the run
-# URL, not the check name: `gh pr checks` shows the job name (e.g.
-# "review"), which does not match $GITHUB_WORKFLOW ("tend-review").
+# IN_PROGRESS for the whole loop. Match on the run URL, not the check name:
+# `gh pr checks` shows the job name (e.g. "review"), which does not match
+# $GITHUB_WORKFLOW ("tend-review").
+#
+# Don't use mergeStateStatus as an exit signal: it stays BLOCKED for the
+# entire run because our own check is pending, and the API can't distinguish
+# "self-blocking" from "required context not yet registered".
+pending() {
+  gh pr view <number> --json statusCheckRollup \
+    | jq --arg own "/runs/$GITHUB_RUN_ID/" '
+      [.statusCheckRollup[]
+       | select((.detailsUrl // .targetUrl // "") | test($own) | not)
+       | (.status // .state)
+       | select(. == "IN_PROGRESS" or . == "QUEUED" or . == "PENDING" or . == "WAITING")
+      ] | length'
+}
 for i in $(seq 1 15); do
   sleep 60
-  DATA=$(gh pr view <number> --json mergeStateStatus,reviewDecision,statusCheckRollup)
-  PENDING=$(jq --arg own "/runs/$GITHUB_RUN_ID/" '
-    [.statusCheckRollup[]
-     | select((.detailsUrl // .targetUrl // "") | test($own) | not)
-     | (.status // .state)
-     | select(. == "IN_PROGRESS" or . == "QUEUED" or . == "PENDING" or . == "WAITING")
-    ] | length' <<<"$DATA")
-  STATE=$(jq -r .mergeStateStatus <<<"$DATA")
-  DECISION=$(jq -r .reviewDecision <<<"$DATA")
-  # Keep waiting if a tracked check is still running, mergeability is
-  # still being computed (UNKNOWN), or the PR is BLOCKED without an
-  # approval requirement — that means a required context hasn't
-  # reported yet (the omnibus race above).
-  if [ "$PENDING" -gt 0 ] || [ "$STATE" = "UNKNOWN" ]; then continue; fi
-  if [ "$STATE" = "BLOCKED" ] \
-     && [ "$DECISION" != "REVIEW_REQUIRED" ] \
-     && [ "$DECISION" != "CHANGES_REQUESTED" ]; then continue; fi
+  [ "$(pending)" -gt 0 ] && continue
+  sleep 30
+  [ "$(pending)" -eq 0 ] || continue
   gh pr checks <number>
   exit 0
 done
@@ -197,10 +196,10 @@ echo "CI still running after 15 minutes"
 exit 1
 ```
 
-1. Poll every 60 seconds (up to ~15 minutes) until all check-runs on the commit are terminal
-   and `mergeStateStatus` confirms no required context is still outstanding. **Filter out the
-   current run's URL (`/runs/$GITHUB_RUN_ID/`)** — the current workflow's own check is always
-   pending while polling and must be excluded to avoid a deadlock.
+1. Poll every 60 seconds (up to ~15 minutes) until all non-own check-runs on the commit are
+   terminal. **Filter out the current run's URL (`/runs/$GITHUB_RUN_ID/`)** — the current
+   workflow's own check is always pending while polling and must be excluded to avoid a
+   deadlock. The 30s grace re-check catches late-registering omnibus checks.
 2. If a required check fails, diagnose with `gh run view <run-id> --log-failed`, fix, commit,
    push, repeat.
 3. Report completion only after all required checks pass.
