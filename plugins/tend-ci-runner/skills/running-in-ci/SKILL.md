@@ -156,29 +156,48 @@ background task completes you will be notified — check the result and take any
 
 ```bash
 # Run with Bash tool's run_in_background: true.
-# Filter out the current run ($GITHUB_RUN_ID) — its own job check will always
-# show as "pending" since it IS the running job. Watching yourself deadlocks.
-# Match on the run URL, not the check name: `gh pr checks` shows the job name
-# (e.g. "review"), which does not match $GITHUB_WORKFLOW ("tend-review").
-# Use `||` rather than if-based negation. The Bash tool escapes the
-# exclamation mark to a literal backslash-exclamation, which prevents bash
-# from recognizing the pipeline-negation reserved word and leaves the loop
-# stuck until the 10-minute timeout.
-for i in $(seq 1 10); do
+# Poll statusCheckRollup (every check-run + status context on the commit),
+# paired with mergeStateStatus, instead of `gh pr checks --required`.
+# `--required` only sees already-registered check-runs, so a late-starting
+# `if: always()` omnibus (e.g. `check-ok-to-merge`) can race the loop
+# and let it exit green while CI is still running.
+# mergeStateStatus reflects required-but-unreported contexts too, which
+# `gh pr checks` does not.
+#
+# Filter out the current run ($GITHUB_RUN_ID) — its own CheckRun is
+# IN_PROGRESS for the whole loop and would deadlock. Match on the run
+# URL, not the check name: `gh pr checks` shows the job name (e.g.
+# "review"), which does not match $GITHUB_WORKFLOW ("tend-review").
+for i in $(seq 1 15); do
   sleep 60
-  gh pr checks <number> --required 2>&1 | grep -v "/runs/$GITHUB_RUN_ID/" | grep -q 'pending\|queued\|in_progress' || {
-    gh pr checks <number> --required
-    exit 0
-  }
+  DATA=$(gh pr view <number> --json mergeStateStatus,reviewDecision,statusCheckRollup)
+  PENDING=$(jq --arg own "/runs/$GITHUB_RUN_ID/" '
+    [.statusCheckRollup[]
+     | select((.detailsUrl // .targetUrl // "") | test($own) | not)
+     | (.status // .state)
+     | select(. == "IN_PROGRESS" or . == "QUEUED" or . == "PENDING" or . == "WAITING")
+    ] | length' <<<"$DATA")
+  STATE=$(jq -r .mergeStateStatus <<<"$DATA")
+  DECISION=$(jq -r .reviewDecision <<<"$DATA")
+  # Keep waiting if a tracked check is still running, mergeability is
+  # still being computed (UNKNOWN), or the PR is BLOCKED without an
+  # approval requirement — that means a required context hasn't
+  # reported yet (the omnibus race above).
+  if [ "$PENDING" -gt 0 ] || [ "$STATE" = "UNKNOWN" ]; then continue; fi
+  if [ "$STATE" = "BLOCKED" ] \
+     && [ "$DECISION" != "REVIEW_REQUIRED" ] \
+     && [ "$DECISION" != "CHANGES_REQUESTED" ]; then continue; fi
+  gh pr checks <number>
+  exit 0
 done
-echo "CI still running after 10 minutes"
+echo "CI still running after 15 minutes"
 exit 1
 ```
 
-1. Poll `gh pr checks <number> --required` every 60 seconds until all required checks complete
-   (up to ~10 minutes). Ignore non-required checks (benchmarks). **Filter out the current run's
-   URL (`/runs/$GITHUB_RUN_ID/`)** — the current workflow's own check is always pending while
-   polling and must be excluded to avoid a deadlock.
+1. Poll every 60 seconds (up to ~15 minutes) until all check-runs on the commit are terminal
+   and `mergeStateStatus` confirms no required context is still outstanding. **Filter out the
+   current run's URL (`/runs/$GITHUB_RUN_ID/`)** — the current workflow's own check is always
+   pending while polling and must be excluded to avoid a deadlock.
 2. If a required check fails, diagnose with `gh run view <run-id> --log-failed`, fix, commit,
    push, repeat.
 3. Report completion only after all required checks pass.

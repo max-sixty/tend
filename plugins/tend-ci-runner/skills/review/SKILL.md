@@ -303,19 +303,34 @@ the job name (`review`), which does not match `$GITHUB_WORKFLOW` (`tend-review`)
 
 ```bash
 # Run with Bash tool's run_in_background: true.
-# Use `||` rather than if-based negation. The Bash tool escapes the
-# exclamation mark to a literal backslash-exclamation, which prevents bash
-# from recognizing the pipeline-negation reserved word and leaves the loop
-# stuck until the 10-minute timeout.
-for i in $(seq 1 10); do
+# Poll statusCheckRollup (every check-run + status context on the commit)
+# paired with mergeStateStatus. `gh pr checks --required` misses
+# `if: always()` omnibus checks (e.g. `check-ok-to-merge`) that register
+# only once their `needs:` dependencies complete — the loop can exit
+# green while the real matrix is still running. See
+# https://github.com/max-sixty/tend/issues/305.
+for i in $(seq 1 15); do
   sleep 60
-  gh pr checks <number> --required 2>&1 \
-       | grep -v "/runs/$GITHUB_RUN_ID/" | grep -q 'pending\|queued\|in_progress' || {
-    gh pr checks <number> --required
-    exit 0
-  }
+  DATA=$(gh pr view <number> --json mergeStateStatus,reviewDecision,statusCheckRollup)
+  PENDING=$(jq --arg own "/runs/$GITHUB_RUN_ID/" '
+    [.statusCheckRollup[]
+     | select((.detailsUrl // .targetUrl // "") | test($own) | not)
+     | (.status // .state)
+     | select(. == "IN_PROGRESS" or . == "QUEUED" or . == "PENDING" or . == "WAITING")
+    ] | length' <<<"$DATA")
+  STATE=$(jq -r .mergeStateStatus <<<"$DATA")
+  DECISION=$(jq -r .reviewDecision <<<"$DATA")
+  # Keep waiting if a tracked check is still running, mergeability is
+  # still being computed, or the PR is BLOCKED without an approval
+  # requirement — that means a required context hasn't reported yet.
+  if [ "$PENDING" -gt 0 ] || [ "$STATE" = "UNKNOWN" ]; then continue; fi
+  if [ "$STATE" = "BLOCKED" ] \
+     && [ "$DECISION" != "REVIEW_REQUIRED" ] \
+     && [ "$DECISION" != "CHANGES_REQUESTED" ]; then continue; fi
+  gh pr checks <number>
+  exit 0
 done
-echo "CI still running after 10 minutes"
+echo "CI still running after 15 minutes"
 exit 1
 ```
 
