@@ -263,6 +263,30 @@ def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert len(list(wf_dir.glob("tend-*.yaml"))) == 7
 
 
+def test_review_probes_merge_ref_and_falls_back_to_head(tmp_path: Path) -> None:
+    """tend-review must probe refs/pull/N/merge and fall back to /head on 404.
+
+    GitHub only materializes the merge ref for mergeable PRs, so without a
+    fallback the checkout 404s on every conflicting PR and the whole review
+    job cascades as skipped. The probe step wires its output into checkout's
+    `ref:` so review always runs.
+    """
+    cfg = Config.load(_minimal_config(tmp_path))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(workflows["tend-review.yaml"].content)
+    steps = data["jobs"]["review"]["steps"]
+    probe_idx = next(i for i, s in enumerate(steps) if s.get("id") == "pr_ref")
+    checkout_idx = next(
+        i for i, s in enumerate(steps) if s.get("uses") == "actions/checkout@v6"
+    )
+    assert probe_idx < checkout_idx
+    probe = steps[probe_idx]
+    assert "gh api" in probe["run"]
+    assert "refs/pull/$PR/merge" in probe["run"]
+    assert "refs/pull/$PR/head" in probe["run"]
+    assert steps[checkout_idx]["with"]["ref"] == "${{ steps.pr_ref.outputs.ref }}"
+
+
 def test_setup_after_checkout_in_review(tmp_path: Path) -> None:
     """Setup steps must run after checkout, not before."""
     extra = 'setup = [{uses = "./.github/actions/my-setup"}]'
