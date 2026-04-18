@@ -210,7 +210,7 @@ jobs:
       - name: Resolve PR checkout ref
         id: pr_ref
         env:
-          GH_TOKEN: ${{{{ secrets.GITHUB_TOKEN }}}}
+          GH_TOKEN: {bt}
           PR: ${{{{ github.event.pull_request.number }}}}
         run: |
           if gh api "repos/${{{{ github.repository }}}}/git/ref/pull/$PR/merge" --silent 2>/dev/null; then
