@@ -293,17 +293,12 @@ bot to do, then reflect that stance in the bot's profile bio (≤160 chars)
 so it's discoverable on the bot's user page. This is advisory — the bot
 doesn't gate behavior on it.
 
-Ask the creator which stance applies. Typical answers:
+Ask the creator which stance applies. Each option is a drop-in bio suffix;
+the middle one is the recommended default.
 
-- **Open to anyone** — anyone may @-mention the bot
-- **Contributors only** — only prior contributors to the repo
-- **Maintainers only** — only repo maintainers
-
-Draft a short bio from the stance. Examples:
-
-- `Claude-powered CI bot for <owner>/<repo>. @-mention me — open to anyone.`
-- `Claude-powered CI bot for <owner>/<repo>. Contributors welcome to @-mention.`
-- `Claude-powered CI bot for <owner>/<repo>. Maintainers only, please.`
+- `tend agent for <owner>/<repo>. Feel free to ask me questions about <repo>.`
+- `tend agent for <owner>/<repo>. I triage issues and help maintain <repo>.` (recommended)
+- `tend agent for <owner>/<repo>. I respond to maintainers of <repo>.`
 
 Check the current bio as the bot — skip if already set to the chosen value:
 
