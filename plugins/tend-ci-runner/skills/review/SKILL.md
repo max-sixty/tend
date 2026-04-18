@@ -209,10 +209,9 @@ changes"). Use `gh pr review` for reviews, not `gh pr comment`. Note: `--comment
 non-empty body — if there's nothing to say, use the approve-with-empty-body pattern.
 
 **Inline suggestions are mandatory for concrete fixes.** Whenever there's a concrete fix (typos,
-doc updates, naming, missing imports, minor refactors, one-line test additions), post it as an
-inline suggestion on the exact line — never as a code block in the review body. Inline suggestions
-let the author apply with one click; code blocks force them to find the line and copy-paste
-manually.
+doc updates, naming, missing imports, minor refactors, test additions), post it as an inline
+suggestion on the exact line — never as a code block in the review body. Inline suggestions let
+the author apply with one click; code blocks force them to find the line and copy-paste manually.
 
 For fixes targeting lines outside the diff, offer to push a fix commit instead.
 
