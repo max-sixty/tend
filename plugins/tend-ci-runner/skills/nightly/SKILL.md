@@ -138,28 +138,70 @@ regeneration in a git worktree under `$TMPDIR`, which is writable:
 
 ```bash
 git worktree add "$TMPDIR/tend-update-workflows" -b tend/update-workflows HEAD
-(cd "$TMPDIR/tend-update-workflows" && uvx tend@latest init)
-git -C "$TMPDIR/tend-update-workflows" status --porcelain .github/workflows
+cd "$TMPDIR/tend-update-workflows"
+
+# Capture the pinned tend version (if any) before regenerating, so the PR
+# body can report the bump. Supports `uvx tend@X.Y.Z` and `tend==X.Y.Z`
+# markers. Today's templates use `uvx tend@latest` and the rolling
+# `max-sixty/tend@v1` action tag, so extraction typically returns an empty
+# string — the renderer below falls back to omitting the version line rather
+# than printing `unknown → unknown`.
+extract_tend_version() {
+  grep -hoE '(uvx tend@|tend==)[0-9]+\.[0-9]+\.[0-9]+' \
+    .github/workflows/tend-*.yaml 2>/dev/null \
+    | sed -E 's/^(uvx tend@|tend==)//' | sort -u | head -1
+}
+OLD_VER=$(extract_tend_version)
+
+uvx tend@latest init
+git status --porcelain .github/workflows
 ```
 
 If `git status` shows no changes, clean up and continue:
 
 ```bash
-git worktree remove "$TMPDIR/tend-update-workflows" --force
-```
-
-If files changed, commit and open the PR from the worktree:
-
-```bash
-cd "$TMPDIR/tend-update-workflows"
-git add .github/workflows/tend-*.yaml
-git commit -m "chore: update tend workflows"
-git push -u origin tend/update-workflows
-gh pr create --title "chore: update tend workflows" \
-  --body "Automated nightly regeneration of tend workflow files."
 cd -
 git worktree remove "$TMPDIR/tend-update-workflows" --force
 ```
+
+If files changed, build the PR title and body with the version bump (when
+detected) and a `git diff --stat` summary, then commit, push, and open the
+PR:
+
+`````bash
+NEW_VER=$(extract_tend_version)
+DIFF_STAT=$(git diff --stat .github/workflows)
+
+TITLE="chore: update tend workflows"
+if [ -n "$OLD_VER" ] && [ -n "$NEW_VER" ] && [ "$OLD_VER" != "$NEW_VER" ]; then
+  TITLE="chore: update tend workflows ($OLD_VER → $NEW_VER)"
+fi
+
+{
+  echo "Automated nightly regeneration of tend workflow files."
+  echo
+  if [ -n "$OLD_VER" ] && [ -n "$NEW_VER" ] && [ "$OLD_VER" != "$NEW_VER" ]; then
+    echo "**tend version:** $OLD_VER → $NEW_VER"
+    echo
+  fi
+  echo "**Changed files:**"
+  echo '```'
+  printf '%s\n' "$DIFF_STAT"
+  echo '```'
+} > "$TMPDIR/tend-update-body.md"
+
+git add .github/workflows/tend-*.yaml
+git commit -m "$TITLE"
+git push -u origin tend/update-workflows
+gh pr create --title "$TITLE" --body-file "$TMPDIR/tend-update-body.md"
+cd -
+git worktree remove "$TMPDIR/tend-update-workflows" --force
+`````
+
+The version line (and the versions in the title) are omitted when either
+side of the detection is empty or both sides match — e.g. a template tweak
+at the same pinned version, or the current state where no version is
+embedded in the workflow YAML.
 
 ## Step 7: Fix findings
 
