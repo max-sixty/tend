@@ -80,8 +80,39 @@ or failed.
 
 Cross-repo notifications are exempt from the freshness gate — no dedicated workflow handles them.
 
-**Dedup check:** For same-repo notifications older than 10 minutes, check whether the bot already
-responded:
+**In-flight check (same-repo only):** The freshness gate is a time-based proxy; dedicated workflows
+that implement real code changes (especially `tend-mention`) routinely run well past 10 minutes. If
+the bot proceeds, it duplicates in-progress work — observed on worktrunk run 24742688091, which
+spent ~79 min / ~$25 re-implementing [PR #2361](https://github.com/max-sixty/worktrunk/pull/2361)
+because dedup at minute 43 saw nothing (the dedicated run didn't push until minute 65). For
+same-repo notifications past the freshness gate, check for a concurrent `tend-*` run on the same
+subject:
+
+```bash
+# $NOTIF_SUBJECT_URL is .subject.url from the notification record
+SUBJECT_TITLE=$(gh api "$NOTIF_SUBJECT_URL" --jq '.title')
+IN_PROGRESS=$(gh api \
+  "repos/$GITHUB_REPOSITORY/actions/runs?status=in_progress&per_page=50" \
+  | jq --arg title "$SUBJECT_TITLE" --argjson own "$GITHUB_RUN_ID" \
+      '[.workflow_runs[]
+        | select(.name | startswith("tend-"))
+        | select(.id != $own)
+        | select(.display_title == $title)
+       ] | length')
+```
+
+If `IN_PROGRESS > 0`, **skip without marking read** — same behavior as the freshness gate. The next
+scheduled poll picks it up once the dedicated run succeeds (dedup below finds its response and
+marks read) or fails (stale-items path in 4b processes it).
+
+Match on `display_title` because the `workflow_run` payload does not expose the triggering issue
+number for `issue_comment` / `pull_request_review` events; `display_title` equals the issue/PR
+title for those events. Title collisions across unrelated subjects are rare enough that skipping
+one unrelated notification is cheaper than one duplicate implementation session. Note also that
+`gh api --jq` does not accept `--arg`/`--argjson` — pipe to a standalone `jq` as above.
+
+**Dedup check:** For same-repo notifications older than 10 minutes with no in-flight dedicated run,
+check whether the bot already responded:
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
