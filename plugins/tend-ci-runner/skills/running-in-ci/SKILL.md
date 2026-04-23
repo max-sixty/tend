@@ -326,6 +326,32 @@ comments — a line break in the source becomes a `<br>` in the output. Write ea
 single long line and let the browser reflow. Hard wraps at 72–80 chars create awkward mid-sentence
 breaks on GitHub. (This applies to GitHub-rendered content only, not to skill files or code.)
 
+This applies to every delivery path — heredoc, `--body "…"`, and `--body-file`. The Write tool
+does not reflow paragraphs, so authoring to a file is not a fix on its own: the wrapping you
+type is the wrapping that ships.
+
+<example>
+<bad reason="Paragraph hard-wrapped at ~72 chars; GitHub renders each newline as `<br>`, producing mid-sentence breaks">
+
+```
+Extend the bang-escape workaround in `running-in-ci` to cover PR and issue
+titles. PR #318 restored the warning for comment bodies (via `--body-file`);
+titles are still uncovered because `gh pr create` has no `--title-file` flag.
+```
+
+</bad>
+<good reason="Paragraph is one long line; GitHub reflows it to the reader's window width">
+
+```
+Extend the bang-escape workaround in `running-in-ci` to cover PR and issue titles. PR #318 restored the warning for comment bodies (via `--body-file`); titles are still uncovered because `gh pr create` has no `--title-file` flag.
+```
+
+</good>
+</example>
+
+Code blocks, bullet lists, and tables keep their newlines as-is — only prose paragraphs need to
+be unwrapped.
+
 Keep comments concise. Put supporting detail inside `<details>` tags — the reader should get the
 gist without expanding. Don't collapse content that *is* the answer (e.g., a requested analysis).
 
@@ -350,6 +376,27 @@ confirm every owner matches `$GITHUB_REPOSITORY`. **Also check that the variable
 expanded** — if you see a literal `${GITHUB_REPOSITORY}` in the rendered comment, you used a
 single-quoted heredoc (`<< 'EOF'`) which disables expansion. Rewrite using an unquoted `<<EOF`
 (so `${GITHUB_REPOSITORY}` interpolates) or compose the body with the Write tool.
+
+The Bash tool rewrites every exclamation mark to a literal backslash-bang before bash parses
+the command, so a greeting like "Thanks for the suggestion!" renders as "Thanks for the
+suggestion\!" in the posted comment. Quoting and heredoc form don't matter: `<< 'EOF'`,
+`<<EOF`, plain single-quoted, and double-quoted arguments all lose the character. Use the
+Write tool for any comment body containing an exclamation mark, then pass the file to
+`gh ... --body-file`. The same trap applies to `--jq` filters with `!=` — either avoid the
+`!=` operator (rephrase as `== "x" | not`), filter client-side after fetching, or load the
+jq script from a file written with the Write tool via `jq -f`.
+
+`gh pr create` / `gh pr edit` / `gh issue create` / `gh issue edit` have no
+`--title-file` flag, so a title containing an exclamation mark (e.g. the
+conventional-commits breaking-change marker in a title like "feat(hooks)!:
+rename …") hits the same rewrite and ships a visibly corrupted title. Write the
+title with the Write tool and pass it via command substitution — `$(cat …)` is
+evaluated by bash after the preprocessor's string scan, so the exclamation mark
+stays literal:
+
+```bash
+gh pr create --title "$(cat /tmp/pr-title.txt)" --body-file /tmp/pr-body.md ...
+```
 
 - **File-level link (no `#L` anchor)**: `blob/main/src/foo.rs` is fine
 - **Line reference**: `blob/<sha>/src/foo.rs#L42` — commit SHA required, never `blob/main/...#L42`

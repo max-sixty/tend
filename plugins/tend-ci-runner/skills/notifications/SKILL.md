@@ -80,8 +80,33 @@ or failed.
 
 Cross-repo notifications are exempt from the freshness gate — no dedicated workflow handles them.
 
-**Dedup check:** For same-repo notifications older than 10 minutes, check whether the bot already
-responded:
+**In-flight check (same-repo only):** A dedicated workflow can still be executing past the
+freshness gate. For notifications older than 10 minutes, check for a concurrent `tend-*` run on the
+same subject:
+
+```bash
+# $NOTIF_SUBJECT_URL is .subject.url from the notification record
+SUBJECT_TITLE=$(gh api "$NOTIF_SUBJECT_URL" --jq '.title')
+IN_PROGRESS=$(gh api \
+  "repos/$GITHUB_REPOSITORY/actions/runs?status=in_progress&per_page=50" \
+  | jq --arg title "$SUBJECT_TITLE" --argjson own "$GITHUB_RUN_ID" \
+      '[.workflow_runs[]
+        | select(.name | startswith("tend-"))
+        | select((.id == $own) | not)
+        | select(.display_title == $title)
+       ] | length')
+```
+
+If `IN_PROGRESS > 0`, **skip without marking read** — the next poll will see the completed response
+via the dedup check below. Match on `display_title` because the `workflow_run` payload does not
+expose the triggering issue number for `issue_comment` / `pull_request_review` events.
+
+`gh api --jq` does not accept `--arg`/`--argjson` — pipe to standalone `jq`. Avoid jq's not-equal
+operator in filters authored via the Bash tool (a bare bang can get rewritten outside heredocs);
+use `(X) | not`.
+
+**Dedup check:** For same-repo notifications older than 10 minutes with no in-flight dedicated run,
+check whether the bot already responded:
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
