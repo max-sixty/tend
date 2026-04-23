@@ -498,6 +498,41 @@ If you can't find source evidence for a specific detail, say so ("I'm not sure o
 syntax") rather than guessing. An honest gap is fixable; a confident hallucination gets
 copy-pasted.
 
+### External-tool behavioral claims need a hand-test
+
+When a review or triage turns on how an external CLI, API, or system behaves — and that tool
+is not installed in CI and not exercised by automated tests — the "run the command yourself"
+fallback above doesn't apply. Upstream docs for fast-moving tools lag or describe flags that
+were removed or renamed, and reading the tool's source isn't an option when it lives in a
+separate project. Do not post a confident claim or commit code/doc changes that depend on
+the behavior.
+
+1. Name the gap. Quote the question back and state that the behavior needs hand-testing on
+   a machine with the tool installed.
+2. If you have partial evidence (upstream docs, a commit, a linked issue), cite it and
+   hedge: "According to X's docs, Y — but I haven't verified on a real install. Could
+   someone with X installed confirm before I push a change?"
+3. Don't ship a doc or code change whose correctness depends on the claim until a human
+   confirms. In triage, the same rule applies: if a repro uses a tool not in CI, flag the
+   repro as unverified rather than asserting a fix.
+
+<example>
+<bad reason="Trusted upstream docs for a fast-moving external CLI and shipped a broken recipe">
+
+Bad: Review asked whether `cmux list-workspaces` had structured output. Read a mintlify
+page describing `--json` → rewrote the recipe to `cmux list-workspaces --json | jq ...` →
+committed. The installed cmux had no `--json` flag; every reader hit a broken recipe.
+
+</bad>
+<good reason="Named the verification gap and deferred to a human with the tool installed">
+
+Good: Same question. Read the docs → replied: "The docs describe `--json`, but cmux isn't
+installed in CI so I can't verify against your version. Could you confirm
+`cmux list-workspaces --help` shows `--json` before I push the change?" Waited.
+
+</good>
+</example>
+
 ### Rewriting is authoring
 
 Cross-posting, summarizing, or paraphrasing is not copying — any new content you add requires the
