@@ -498,6 +498,40 @@ If you can't find source evidence for a specific detail, say so ("I'm not sure o
 syntax") rather than guessing. An honest gap is fixable; a confident hallucination gets
 copy-pasted.
 
+### Verifying external-tool behavior
+
+When a claim turns on how an external CLI, API, or system behaves, verify by running the
+code.
+
+Two paths, in order of preference:
+
+1. **Run the tool.** If it's installable in this environment, install it and invoke the
+   specific command or flag in question. Link the output in your reply.
+2. **Read the source.** Tend can clone any public repo. `gh repo clone <owner>/<repo>`
+   then grep for the flag or behavior. Source doesn't lag itself, and a flag that isn't
+   defined in the parser doesn't exist.
+
+If both paths fail (GUI-only tool, private repo, environment-specific behavior), cite
+what you found, name the remaining gap, and ask a human with the tool installed to
+confirm before shipping a dependent change.
+
+<example>
+<bad reason="Trusted upstream docs for a fast-moving external CLI and shipped a broken recipe">
+
+Bad: Review asked whether `cmux list-workspaces` had structured output. Read a mintlify
+page describing `--json` → rewrote the recipe to `cmux list-workspaces --json | jq ...` →
+committed. The installed cmux had no `--json` flag; every reader hit a broken recipe.
+
+</bad>
+<good reason="Cloned the upstream source and verified the flag before shipping">
+
+Good: Same question. Cloned cmux's source repo → grepped the CLI parser for
+`list-workspaces` → saw no `--json` flag defined → replied with the source link and
+proposed an alternative that matched the actual CLI surface.
+
+</good>
+</example>
+
 ### Rewriting is authoring
 
 Cross-posting, summarizing, or paraphrasing is not copying — any new content you add requires the
