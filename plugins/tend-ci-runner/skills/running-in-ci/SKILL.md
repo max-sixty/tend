@@ -501,8 +501,7 @@ copy-pasted.
 ### Verifying external-tool behavior
 
 When a claim turns on how an external CLI, API, or system behaves, verify by running the
-code. Upstream docs for fast-moving tools lag or describe flags that were removed or
-renamed — don't treat them as proof on their own.
+code.
 
 Two paths, in order of preference:
 
