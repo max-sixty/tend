@@ -33,12 +33,19 @@ Each run only sees a window of CI sessions, but patterns emerge over days or wee
 
 `gh issue create` prints the new issue's URL; parse the number from its basename. Sort and pick the lowest-numbered match so later runs stay deterministic if the month ever has duplicate tracking issues.
 
+The lookup retries on empty. GitHub's `/issues` endpoint intermittently returns `[]` even when matching issues exist (read replicas/cached responses disagree). Without a retry, a single empty response would cause spurious duplicate tracking issues.
+
 ```bash
 MONTH=$(date +%Y-%m)
 TRACKING_LABEL="review-runs-tracking"
-TRACKING_NUMBER=$(gh issue list --state open --label "$TRACKING_LABEL" \
-  --json number,title --jq ".[] | select(.title | contains(\"$MONTH\")) | .number" \
-  | sort -n | head -1)
+TRACKING_NUMBER=""
+for _ in 1 2 3; do
+  TRACKING_NUMBER=$(gh issue list --state open --label "$TRACKING_LABEL" \
+    --json number,title --jq ".[] | select(.title | contains(\"$MONTH\")) | .number" \
+    | sort -n | head -1)
+  [ -n "$TRACKING_NUMBER" ] && break
+  sleep 2
+done
 
 if [ -z "$TRACKING_NUMBER" ]; then
   cat > /tmp/tracking-body.md << 'EOF'

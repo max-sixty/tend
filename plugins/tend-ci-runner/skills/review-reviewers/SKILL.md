@@ -74,10 +74,17 @@ The tracking issue lives on tend (the current repo). It indexes gists via one co
 
 The matrix runs three targets concurrently on the same cron tick, so the first run of a new month races: all three targets can find no tracking issue and each create one. Sorting and picking the lowest-numbered match keeps later runs deterministic — maintainers can close any duplicates. `gh issue create` prints the new issue's URL; parse the number from its basename.
 
+The lookup retries on empty. GitHub's `/issues` endpoint intermittently returns `[]` even when matching issues exist — different read replicas/cached responses disagree (observable as different ETags on back-to-back requests). Without a retry, a single empty response would cause spurious duplicate tracking issues mid-month, each of which then triggers a `tend-triage` run that exits silently after burning an agent invocation.
+
 ```bash
-TRACKING_NUMBER=$(gh issue list --state open --label "$TRACKING_LABEL" \
-  --json number,title --jq ".[] | select(.title | contains(\"$MONTH\")) | .number" \
-  | sort -n | head -1)
+TRACKING_NUMBER=""
+for _ in 1 2 3; do
+  TRACKING_NUMBER=$(gh issue list --state open --label "$TRACKING_LABEL" \
+    --json number,title --jq ".[] | select(.title | contains(\"$MONTH\")) | .number" \
+    | sort -n | head -1)
+  [ -n "$TRACKING_NUMBER" ] && break
+  sleep 2
+done
 
 if [ -z "$TRACKING_NUMBER" ]; then
   cat > /tmp/tracking-body.md << 'EOF'
