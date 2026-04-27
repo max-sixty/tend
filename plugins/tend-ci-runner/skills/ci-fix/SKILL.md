@@ -16,9 +16,7 @@ CI has failed on the default branch. Diagnose the root cause, fix it, and create
 
 ### 0. Load environment skills
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, polling conventions,
-and comment formatting guidance. It will also prompt you to load any repo-specific skills (e.g.,
-`running-tend`).
+Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, polling conventions, and comment formatting guidance. It will also prompt you to load any repo-specific skills (e.g., `running-tend`).
 
 ### 1. Check for existing fixes
 
@@ -67,5 +65,4 @@ Automated fix for [failed run](run-url)
 
 ### 4. Monitor CI
 
-Poll CI using the approach from `running-in-ci` (loaded in step 0). If CI fails, diagnose with
-`gh run view <run-id> --log-failed`, fix, commit, push, and repeat.
+Poll CI using the approach from `running-in-ci` (loaded in step 0). If CI fails, diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and repeat.
