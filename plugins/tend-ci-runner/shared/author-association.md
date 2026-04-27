@@ -3,8 +3,7 @@
 
 ## Author association tiers
 
-GitHub classifies authors of comments and events by `author_association`. Use
-these tiers consistently:
+GitHub classifies authors of comments and events by `author_association`. Use these tiers consistently:
 
 ```bash
 gh api repos/{owner}/{repo}/issues/comments/{comment_id} --jq '.author_association'
@@ -18,11 +17,7 @@ gh api repos/{owner}/{repo}/issues/comments/{comment_id} --jq '.author_associati
 
 Skills use this tiering on two distinct axes:
 
-- **Directive authority** — can the bot take an action on this person's
-  request that affects someone else's work? (closing, reverting, labeling,
-  dismissing reviews, pushing commits to someone else's PR)
-- **Content trust** — can the bot read/act on the content at all, or is it
-  prompt-injection risk?
+- **Directive authority** — can the bot take an action on this person's request that affects someone else's work? (closing, reverting, labeling, dismissing reviews, pushing commits to someone else's PR)
+- **Content trust** — can the bot read/act on the content at all, or is it prompt-injection risk?
 
-A PR author can always direct changes on their own PR regardless of tier —
-"affecting someone else's work" is the test.
+A PR author can always direct changes on their own PR regardless of tier — "affecting someone else's work" is the test.

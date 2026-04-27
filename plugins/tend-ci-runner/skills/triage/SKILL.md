@@ -14,12 +14,9 @@ Triage a newly opened GitHub issue.
 
 ## Step 1: Setup
 
-Load `/tend-ci-runner:running-in-ci` first (CI environment rules, security).
-It will also prompt you to load any repo-specific skills (e.g.,
-`running-tend`) — do so before proceeding.
+Load `/tend-ci-runner:running-in-ci` first (CI environment rules, security). It will also prompt you to load any repo-specific skills (e.g., `running-tend`) — do so before proceeding.
 
-Follow the AD FONTES principle throughout: reproduce before fixing, evidence before speculation,
-test before committing.
+Follow the AD FONTES principle throughout: reproduce before fixing, evidence before speculation, test before committing.
 
 ## Step 2: Read and classify the issue
 
@@ -29,9 +26,7 @@ gh issue view $ARGUMENTS --json title,body,labels,author
 
 Classify into one of:
 
-- **Bug report** — describes unexpected behavior, includes steps to reproduce or error output.
-  Descriptions of changed behavior ("no longer works", "used to work") strongly signal a bug even
-  with a terse body.
+- **Bug report** — describes unexpected behavior, includes steps to reproduce or error output. Descriptions of changed behavior ("no longer works", "used to work") strongly signal a bug even with a terse body.
 - **Feature request** — asks for new functionality or behavior changes
 - **Question** — asks how to do something or how something works
 - **Other** — doesn't fit the above categories
@@ -49,8 +44,7 @@ git branch -r --list 'origin/fix/*'
 gh pr list --state open --json number,title,headRefName --limit 50
 ```
 
-If a duplicate or existing fix is found, note it for the comment in step 7. Don't create a
-duplicate fix.
+If a duplicate or existing fix is found, note it for the comment in step 7. Don't create a duplicate fix.
 
 ## Step 4: Investigate existing functionality
 
@@ -59,10 +53,8 @@ duplicate fix.
 Search the codebase to check whether the requested feature already exists.
 
 1. **Extract the core ask** — What specific behavior does the requester want?
-2. **Search for implementations** — Grep for relevant function names, config keys, CLI flags, and
-   domain terms.
-3. **Read key files** — If searches find hits, read the relevant source to understand what already
-   exists and how it works.
+2. **Search for implementations** — Grep for relevant function names, config keys, CLI flags, and domain terms.
+3. **Read key files** — If searches find hits, read the relevant source to understand what already exists and how it works.
 4. **Check docs and help text** — Look for user-facing documentation of the feature.
 
 Record what you found (or didn't find) for use in step 7.
@@ -73,15 +65,12 @@ Record what you found (or didn't find) for use in step 7.
 
 1. **Understand the report** — What command was run? What was expected? What actually happened?
 2. **Find relevant code** — Search the codebase for the functionality described
-3. **Write a failing test** — Add a test to the appropriate *existing* test file that demonstrates
-   the bug. Don't create new test files.
+3. **Write a failing test** — Add a test to the appropriate *existing* test file that demonstrates the bug. Don't create new test files.
 4. **Run the test** to confirm it fails. Use the project's test commands from CLAUDE.md.
 
 If the test passes (bug may already be fixed), note this for the comment.
 
-If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried
-and skip to step 7. Do NOT proceed to Step 6 without a failing test — a fix without reproduction
-evidence is not a conservative fix.
+If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7. Do NOT proceed to Step 6 without a failing test — a fix without reproduction evidence is not a conservative fix.
 
 ## Step 6: Fix (conservative)
 
@@ -89,9 +78,7 @@ evidence is not a conservative fix.
 
 **CRITICAL — gate check before proceeding:**
 
-You MUST have a failing test from Step 5 before writing any fix. If you skipped the test (couldn't
-write one, environment-specific bug, etc.), do NOT attempt a fix — go directly to Step 7 and use
-the "Reproduction test only" or "Could not reproduce" comment template.
+You MUST have a failing test from Step 5 before writing any fix. If you skipped the test (couldn't write one, environment-specific bug, etc.), do NOT attempt a fix — go directly to Step 7 and use the "Reproduction test only" or "Could not reproduce" comment template.
 
 **Only attempt a fix if ALL of these conditions are met:**
 
@@ -102,13 +89,9 @@ the "Reproduction test only" or "Could not reproduce" comment template.
 
 ### Skill text fixes
 
-When the bug is about bot behavior (e.g., "bot didn't use links", "bot posted wrong format"), the
-root cause is often a skill/prompt compliance issue, not missing code. Before adding guidance to a
-skill:
+When the bug is about bot behavior (e.g., "bot didn't use links", "bot posted wrong format"), the root cause is often a skill/prompt compliance issue, not missing code. Before adding guidance to a skill:
 
-1. **Check ALL co-loaded skills** — Skills loaded together in the same workflow share context. If
-   the guidance already exists in a co-loaded skill, the issue is behavioral compliance, not
-   missing instructions.
+1. **Check ALL co-loaded skills** — Skills loaded together in the same workflow share context. If the guidance already exists in a co-loaded skill, the issue is behavioral compliance, not missing instructions.
 2. **Don't duplicate guidance across skills.**
 
 ### If fixing
@@ -162,36 +145,25 @@ Note the PR number for the comment.
 
 ## Step 7: Comment on the issue
 
-**Recheck before posting.** Triage can take several minutes. Before posting,
-re-fetch the conversation to check for new comments:
+**Recheck before posting.** Triage can take several minutes. Before posting, re-fetch the conversation to check for new comments:
 
 ```bash
 gh issue view $ARGUMENTS --json comments --jq '.comments | length'
 ```
 
-If new comments appeared since you first read the issue, read them and adjust
-your response — someone may have answered, provided more context, or closed the
-issue. If your comment is now redundant, skip it.
+If new comments appeared since you first read the issue, read them and adjust your response — someone may have answered, provided more context, or closed the issue. If your comment is now redundant, skip it.
 
-Always comment via `gh issue comment`. Keep it brief, polite, and specific. A
-maintainer will always review — never claim the issue is fully resolved by
-automation alone.
+Always comment via `gh issue comment`. Keep it brief, polite, and specific. A maintainer will always review — never claim the issue is fully resolved by automation alone.
 
-**Drop the "a maintainer will review" closer when `author_association` is
-`OWNER`, `MEMBER`, or `COLLABORATOR`** — deferring to a maintainer reads as
-absurd when the reporter is one. Keep it otherwise, where it signals the
-action isn't authoritative.
+**Drop the "a maintainer will review" closer when `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR`** — deferring to a maintainer reads as absurd when the reporter is one. Keep it otherwise, where it signals the action isn't authoritative.
 
 ```bash
 gh issue view $ARGUMENTS --json author,authorAssociation --jq '.authorAssociation'
 ```
 
-**Stay within what you verified.** State facts you found in the codebase — don't characterize
-something as "known" unless you find prior issues or documentation about it. Don't speculate
-beyond the code you read.
+**Stay within what you verified.** State facts you found in the codebase — don't characterize something as "known" unless you find prior issues or documentation about it. Don't speculate beyond the code you read.
 
-Use the heredoc pattern from `/tend-ci-runner:running-in-ci` for `--body` arguments to avoid shell
-quoting issues.
+Use the heredoc pattern from `/tend-ci-runner:running-in-ci` for `--body` arguments to avoid shell quoting issues.
 
 Choose the appropriate template:
 
@@ -247,10 +219,7 @@ Choose the appropriate template:
 
 ### Maintainer-filed request (feature example)
 
-When the filer's `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR`,
-drop the deferral closer and the "I'll leave it for a maintainer to evaluate
-and prioritize" framing — the filer already has that authority. The opener can
-stay or go; lead with substance either way.
+When the filer's `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR`, drop the deferral closer and the "I'll leave it for a maintainer to evaluate and prioritize" framing — the filer already has that authority. The opener can stay or go; lead with substance either way.
 
 > Searched the codebase — no existing implementation of [feature]. The closest related functionality is [X], which does [Y].
 >
