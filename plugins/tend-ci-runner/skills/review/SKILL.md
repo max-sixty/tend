@@ -149,19 +149,23 @@ gh api "repos/$REPO/issues/<number>/reactions" -f content="+1"
 
 #### Posting mechanics
 
-Before posting, verify HEAD hasn't moved and no review was already posted for this commit:
+Before posting, verify HEAD hasn't moved, the PR is still open, and no review was already posted for this commit:
 
 ```bash
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 BOT_LOGIN=$(gh api user --jq '.login')
-CURRENT_HEAD=$(gh pr view <number> --json commits --jq '.commits[-1].oid')
+read -r CURRENT_HEAD PR_STATE < <(gh pr view <number> --json commits,state \
+  --jq '"\(.commits[-1].oid) \(.state)"')
 [ "$CURRENT_HEAD" != "$HEAD_SHA" ] && echo "HEAD moved — skipping" && exit 0
+[ "$PR_STATE" != "OPEN" ] && echo "PR is $PR_STATE — skipping" && exit 0
 
 # NOTE: REST API uses .commit_id (not .commit.oid from gh pr view --json)
 ALREADY_POSTED=$(gh api "repos/$REPO/pulls/<number>/reviews" \
   --jq "[.[] | select(.user.login == \"$BOT_LOGIN\" and .commit_id == \"$HEAD_SHA\")] | last | .submitted_at // empty")
 [ -n "$ALREADY_POSTED" ] && echo "Already reviewed — skipping" && exit 0
 ```
+
+The state check matters because the maintainer may close (or another path may merge) the PR while a review is in flight — `pull_request_target` reviews routinely run for 5–10 minutes between fetching `HEAD_SHA` and posting the verdict, and HEAD doesn't move when the PR is closed. Approving a CLOSED or MERGED PR creates a confusing artifact (an approval timestamped after the close).
 
 Post exactly one review per run. Always give a verdict: **approve** or **comment** (never "request changes"). Use `gh pr review` for reviews, not `gh pr comment`. Note: `--comment` requires a non-empty body — if there's nothing to say, use the approve-with-empty-body pattern.
 
