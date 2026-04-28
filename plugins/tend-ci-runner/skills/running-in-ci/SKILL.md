@@ -403,6 +403,30 @@ If you can't find source evidence for a specific detail, say so ("I'm not sure o
 
 **"Likely" is a stop-sign.** If a draft contains "likely works", "probably parses as", "should behave like", or "I think" in a user-facing claim, you have two options: verify and replace the hedge with the answer, or hedge explicitly ("I haven't tested this — would appreciate if you can confirm") and don't dress up the guess as analysis. Posting an unverified guess as confident-sounding analysis is the hallucination shape that erodes trust the fastest.
 
+### Distinguish transient incidents from durable bugs
+
+Intermittent or inconsistent behavior — the same query returning different results within seconds, an API silently returning empty when records demonstrably exist, a CLI flag working sometimes — points more strongly at an active upstream incident than at a CLI or skill bug. Reproducing the flake confirms the symptom but not the cause; the cause is often a current incident on the upstream service, in which case the right disposition is to wait for resolution rather than commit a code workaround that outlives the incident. Before designing a workaround, check upstream status. For GitHub-side symptoms:
+
+```bash
+curl -s 'https://www.githubstatus.com/api/v2/incidents/unresolved.json' \
+  | jq '.incidents[] | {created_at, name, impact, components: [.components[].name]}'
+```
+
+If the response is non-empty and the components/timing match the symptom (e.g. Issues / Pull Requests / Actions during a search-degradation incident), record the symptom in the run's evidence log and exit without a PR. Sibling matrix legs that hit different surface symptoms of the same incident otherwise each open their own near-duplicate workaround PR — title and file dedup don't catch them because each leg picks a different command to mitigate.
+
+<example>
+<bad reason="Reproduced an API flake during an active incident, opened code workarounds without checking upstream status">
+
+Bad: 2026-04-27 — `gh issue list` returned `[]` for queries whose matching issues clearly existed (3 of 5 attempts). Bot opened [PR #345](https://github.com/max-sixty/tend/pull/345) adding a 3-attempt retry. An hour later, a sibling matrix leg saw the same shape on `gh run list --workflow X --created Y` and opened [PR #348](https://github.com/max-sixty/tend/pull/348) swapping to client-side filtering. Both were workarounds for the [GitHub search-degradation incident at 16:31–22:46 UTC](https://stspg.io/x5cnngb211t7); both were closed by the maintainer ("close it, any variants of it") once the incident link surfaced.
+
+</bad>
+<good reason="Checked status.github.com first, treated the symptom as transient">
+
+Good: Same flake → `curl /api/v2/incidents/unresolved.json` returns an active "GitHub search is degraded" incident touching Issues + Pull Requests → record the symptom in the evidence log, skip the PR, let the incident resolve.
+
+</good>
+</example>
+
 ### Verifying external-tool behavior
 
 When a claim turns on how an external CLI, API, or system behaves, verify by running the code.
