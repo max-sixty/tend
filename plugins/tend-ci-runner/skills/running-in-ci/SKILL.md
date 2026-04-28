@@ -208,8 +208,9 @@ gh run rerun <run-id> --failed --repo "$REPO"
 # the next query can see only the prior `failure` rows and exit immediately.
 sleep 10
 
-# `?filter=latest` returns each job's most recent attempt. Avoid `!=` in
-# --jq filters: the Bash tool rewrites `!` to `\!`, which jq rejects. Use
+# `?filter=latest` returns each job's most recent attempt. Avoid the
+# `!=` operator in --jq filters — the Bash tool rewrites the exclamation
+# mark to a backslash-escape, which jq rejects. Use
 # `== "completed" | not` instead.
 JOB_IDS=$(gh api "repos/$REPO/actions/runs/<run-id>/jobs?filter=latest" \
   --jq '.jobs[] | select((.status == "completed") | not) | .id')
