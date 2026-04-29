@@ -17,12 +17,12 @@ REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 
 ## Browser sessions
 
-Step 6 requires a browser session for the user to sign up the bot account.
-Step 8's default path (`gh auth login --web`) works in any browser —
-Chrome is no longer required, though `mcp__claude-in-chrome__*` automation
-can drive either step if available. Otherwise, give the user URLs and wait
-for confirmation. Before acting as the bot in any browser, verify the
-logged-in user by clicking the avatar menu and checking the username.
+Step 6 needs a browser session where the user signs up the bot account.
+Step 8's default path (`gh auth login --web`) works in any browser the
+bot is logged into. `mcp__claude-in-chrome__*` automation can drive
+either step when available; otherwise, give the user URLs and wait for
+confirmation. Before acting as the bot, verify the logged-in user by
+clicking the avatar menu and checking the username.
 
 ## 1. Create config
 
