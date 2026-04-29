@@ -1,6 +1,6 @@
 ---
 name: install-tend
-description: Sets up tend (Claude-powered CI) on a GitHub repo. Creates config, generates workflows, configures secrets and branch protection via API, creates bot account and PAT via Chrome. Use when setting up tend on a new repo or when asked to install/configure tend.
+description: Sets up tend (Claude-powered CI) on a GitHub repo. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the bot's auth token. Use when setting up tend on a new repo or when asked to install/configure tend.
 ---
 
 # Install Tend
@@ -15,11 +15,14 @@ gh auth status
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 ```
 
-## Chrome automation
+## Browser sessions
 
-Steps 6 and 8 require Chrome. If Chrome is unavailable, give the user URLs
-and wait for confirmation. Before acting as the bot in the browser, verify
-the logged-in user by clicking the avatar menu and checking the username.
+Step 6 requires a browser session for the user to sign up the bot account.
+Step 8's default path (`gh auth login --web`) works in any browser —
+Chrome is no longer required, though `mcp__claude-in-chrome__*` automation
+can drive either step if available. Otherwise, give the user URLs and wait
+for confirmation. Before acting as the bot in any browser, verify the
+logged-in user by clicking the avatar menu and checking the username.
 
 ## 1. Create config
 
@@ -30,14 +33,14 @@ available config sections (`[secrets]`, `[setup]`, `[workflows.*]`).
 bot_name = "<bot-name>"
 ```
 
-Check whether the repo already has a bot PAT secret under a non-default name:
+Check whether the repo already has a bot token secret under a non-default name:
 
 ```bash
 gh secret list --repo "$REPO" --json name --jq '.[].name'
 ```
 
-If a PAT-like secret exists (e.g., `GH_BOT_TOKEN`, `ROBOT_PAT`), suggest
-overriding the default name rather than creating a duplicate:
+If a bot-token-like secret exists (e.g., `GH_BOT_TOKEN`, `ROBOT_PAT`),
+suggest overriding the default name rather than creating a duplicate:
 
 ```toml
 [secrets]
@@ -227,42 +230,73 @@ TOKEN=$("${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh")
 echo "$TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO"
 ```
 
-## 8. Bot PAT and secret
+## 8. Bot token and secret
 
-The bot needs a classic PAT with `repo`, `workflow`, `notifications`,
-`write:discussion`, `gist`, and `user` scopes. `workflow` is required to push
-commits that modify `.github/workflows/` files. `notifications` lets the bot
-read/dismiss its own notifications. `write:discussion` allows commenting on
-GitHub Discussions. `gist` allows skills like `review-reviewers` to store
-structured evidence in secret gists owned by the bot. `user` lets step 10
-set the bot's profile bio via `PATCH /user`.
+The bot's token needs scopes `repo`, `workflow`, `notifications`,
+`write:discussion`, `gist`, and `user`. `workflow` pushes commits that
+modify `.github/workflows/` files; `notifications` reads/dismisses the
+bot's own threads; `write:discussion` posts on GitHub Discussions; `gist`
+lets skills like `review-reviewers` store evidence in the bot's secret
+gists; `user` lets step 10 set the bio via `PATCH /user`.
 
-Fine-grained PATs also work (`contents:write`, `pull-requests:write`,
-`issues:write`, `actions:write`, `workflows:write`, `discussions:write`,
-`notifications:write`, `gists:write`, plus the account-level `Profile: read
-and write` permission for the bio) — create one manually and skip to step 9.
-`notifications:write` is required so the action can mark threads read after
-handling an event (the classic `notifications` scope already includes write).
-Use Chrome for classic PATs:
+### Default: gh OAuth token
 
-1. Verify the browser is logged in as `<bot-name>` (click avatar, check
-   username). If not, tell the user to log in as the bot first.
-2. Navigate to
-   `https://github.com/settings/tokens/new?scopes=repo,workflow,notifications,write:discussion,gist,user&description=tend-ci`
-3. The URL pre-fills the note and scopes. Set expiration to
-   "No expiration" via the dropdown.
-4. Click "Generate token" (scroll to bottom of page).
-5. Read the token from the resulting page using `get_page_text`.
-6. Set as repo secret (use the configured secret name from config, default
-   `BOT_TOKEN`):
+Have the user run, in any terminal:
 
 ```bash
-echo "<pat-value>" | gh secret set BOT_TOKEN --repo "$REPO"
+gh auth login --hostname github.com --git-protocol https --web \
+  --scopes repo,workflow,notifications,write:discussion,gist,user
 ```
 
-Keep the PAT value — steps 9 and 10 use it to act as the bot.
+`gh` prints a one-time code and the URL `https://github.com/login/device`.
+The user opens that URL in any browser logged in as the bot (Chrome,
+Firefox, anything), pastes the code, and authorizes. gh stores the
+resulting token in keyring as the active account.
 
-Verify both secrets exist:
+If gh already has the bot in keyring (e.g. expanding scopes on an
+existing setup), substitute `gh auth refresh -s ...` — same effect,
+preserves the existing token entry.
+
+Switch gh back to the maintainer (whose token has admin on the repo) and
+copy the bot's token to the secret:
+
+```bash
+gh auth switch --user <maintainer>
+gh auth token --user <bot-name> | gh secret set BOT_TOKEN --repo "$REPO"
+```
+
+The bot's token stays in keyring — steps 9 and 10 retrieve it via
+`GH_TOKEN=$(gh auth token --user <bot-name>)` rather than carrying the
+literal value forward.
+
+### Alternative: classic PAT with no expiration
+
+OAuth tokens follow gh's auth lifecycle. For a long-lived token that
+never rotates, mint a classic PAT manually in any browser logged in as
+the bot:
+
+1. Open `https://github.com/settings/tokens/new?scopes=repo,workflow,notifications,write:discussion,gist,user&description=tend-ci`
+2. Set expiration to "No expiration", click "Generate token".
+3. Copy the token, store it in gh's keyring under the bot's account so
+   later steps can retrieve it the same way as the OAuth path, then
+   switch back and set the repo secret:
+
+```bash
+echo "<pat-value>" | gh auth login --hostname github.com --with-token
+gh auth switch --user <maintainer>
+gh auth token --user <bot-name> | gh secret set BOT_TOKEN --repo "$REPO"
+```
+
+### Alternative: fine-grained PAT
+
+Fine-grained PATs work but are more cumbersome — no URL pre-fill, the
+repo must be selected manually, each scope is a separate permission:
+`contents:write`, `pull-requests:write`, `issues:write`, `actions:write`,
+`workflows:write`, `discussions:write`, `notifications:write`,
+`gists:write`, plus the account-level `Profile: read and write`
+permission for the bio.
+
+### Verify
 
 ```bash
 gh secret list --repo "$REPO"
@@ -270,18 +304,19 @@ gh secret list --repo "$REPO"
 
 ## 9. Grant bot access
 
-All invitation acceptance in this step uses the bot's PAT from step 8 via
-`GH_TOKEN=<bot-pat>` to authenticate as the bot.
+All invitation acceptance in this step uses the bot's token from step 8 via
+`GH_TOKEN=$(gh auth token --user <bot-name>)` to authenticate as the bot.
 
 Add the bot as a repo collaborator with write access. GitHub may grant
 access directly (204) without creating an invitation — only accept if
 one exists:
 
 ```bash
+BOT_GH_TOKEN=$(gh auth token --user <bot-name>)
 gh api "repos/$REPO/collaborators/<bot-name>" -X PUT -f permission=push
-INVITE_ID=$(GH_TOKEN=<bot-pat> gh api "user/repository_invitations" --jq ".[] | select(.repository.full_name == \"$REPO\") | .id")
+INVITE_ID=$(GH_TOKEN=$BOT_GH_TOKEN gh api "user/repository_invitations" --jq ".[] | select(.repository.full_name == \"$REPO\") | .id")
 if [ -n "$INVITE_ID" ]; then
-  GH_TOKEN=<bot-pat> gh api "user/repository_invitations/$INVITE_ID" -X PATCH
+  GH_TOKEN=$BOT_GH_TOKEN gh api "user/repository_invitations/$INVITE_ID" -X PATCH
 fi
 gh api "repos/$REPO/collaborators" --jq '.[].login'
 ```
@@ -303,13 +338,13 @@ the middle one is the recommended default.
 Check the current bio as the bot — skip if already set to the chosen value:
 
 ```bash
-GH_TOKEN=<bot-pat> gh api user --jq '.bio'
+GH_TOKEN=$(gh auth token --user <bot-name>) gh api user --jq '.bio'
 ```
 
-Otherwise write it (requires `user` scope on the PAT from step 8):
+Otherwise write it (requires `user` scope on the bot's token from step 8):
 
 ```bash
-GH_TOKEN=<bot-pat> gh api user -X PATCH -f bio="<drafted bio>"
+GH_TOKEN=$(gh auth token --user <bot-name>) gh api user -X PATCH -f bio="<drafted bio>"
 ```
 
 ## 11. Commit and push
@@ -333,7 +368,7 @@ After completing all steps, present this checklist:
 - [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Claude token: `CLAUDE_CODE_OAUTH_TOKEN` secret set
-- [ ] Bot PAT: `BOT_TOKEN` secret set (classic `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` or fine-grained)
+- [ ] Bot token: `BOT_TOKEN` secret set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes (gh OAuth, classic PAT, or fine-grained)
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot bio: profile bio reflects the authorization stance
 - [ ] Committed (push requires explicit permission)
