@@ -451,7 +451,7 @@ If the response is non-empty and the components/timing match the symptom (e.g. I
 <example>
 <bad reason="Reproduced an API flake during an active incident, opened code workarounds without checking upstream status">
 
-Bad: 2026-04-27 — `gh issue list` returned `[]` for queries whose matching issues clearly existed (3 of 5 attempts). Bot opened [PR #345](https://github.com/max-sixty/tend/pull/345) adding a 3-attempt retry. An hour later, a sibling matrix leg saw the same shape on `gh run list --workflow X --created Y` and opened [PR #348](https://github.com/max-sixty/tend/pull/348) swapping to client-side filtering. Both were workarounds for the [GitHub search-degradation incident at 16:31–22:46 UTC](https://stspg.io/x5cnngb211t7); both were closed by the maintainer ("close it, any variants of it") once the incident link surfaced.
+Bad: `gh issue list` returns `[]` intermittently for queries whose matching issues clearly exist. Bot opens a PR adding a retry loop. A sibling matrix leg sees the same shape on `gh run list` and opens its own workaround PR swapping to client-side filtering. Both are workarounds for an active upstream search-degradation incident; both get closed once the incident link surfaces.
 
 </bad>
 <good reason="Checked status.github.com first, treated the symptom as transient">
