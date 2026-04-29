@@ -504,6 +504,13 @@ concurrency:
 
 jobs:
   triage:
+    # Skip the auto-created "Bot temporarily unavailable" tracker issue:
+    # action.yaml's "Report failure" step creates it with label tend-outage,
+    # and without this guard every creation event invokes Claude for a
+    # guaranteed silent-exit (the prompt's self-conversation guard fires
+    # because the bot is the issue author). Mirrors #268's tend-mention
+    # guard for the new-issue side of the same loop.
+    if: ${{{{ !contains(github.event.issue.labels.*.name, 'tend-outage') }}}}
     runs-on: ubuntu-24.04
     permissions:
 {perms}
