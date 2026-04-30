@@ -29,6 +29,8 @@ REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 BOT_LOGIN=$(gh api user --jq '.login')
 HEAD_SHA=$(gh pr view <number> --json commits --jq '.commits[-1].oid')
 PR_AUTHOR=$(gh pr view <number> --json author --jq '.author.login')
+IS_DRAFT=$(gh pr view <number> --json isDraft --jq '.isDraft')
+EVENT_ACTION=$(jq -r '.action // ""' < "${GITHUB_EVENT_PATH:-/dev/null}" 2>/dev/null)
 
 # Find the bot's most recent review (any state counts — COMMENTED reviews carry
 # inline comments even when the body is empty).
@@ -38,7 +40,7 @@ LAST_REVIEW_SHA=$(gh pr view <number> --json reviews \
   --jq "[.reviews[] | select(.author.login == \"$BOT_LOGIN\")] | last | .commit.oid // empty")
 ```
 
-If `LAST_REVIEW_SHA == HEAD_SHA`, this commit has already been reviewed — exit silently. The only exception: an unanswered conversation question directed at the bot (check below).
+If `LAST_REVIEW_SHA == HEAD_SHA`, this commit has already been reviewed — exit silently. Two exceptions: an unanswered conversation question directed at the bot (check below), or `EVENT_ACTION == "ready_for_review"` (the PR just transitioned out of draft, so any prior review was a draft-mode review and the author is now asking for a full one — proceed).
 
 If the bot reviewed a previous commit (`LAST_REVIEW_SHA` exists but differs from `HEAD_SHA`), check the incremental changes:
 
@@ -69,6 +71,19 @@ gh api "repos/$REPO/issues/<number>/comments" --paginate \
 ```
 
 **Do not repeat any point from previous reviews** — cross-reference previous bot comments before posting inline comments. When concurrent runs race (a new push while the first run is still responding), both see the same unanswered question — check whether a bot reply exists after the question's timestamp before answering. Address unanswered questions in the review body (not via `gh pr comment`).
+
+#### Draft mode
+
+If `IS_DRAFT == "true"`, run a lighter review:
+
+- Skip step 2 (overlap with other PRs) — landing-readiness concern, premature for WIP.
+- Skip the duplication scan in step 4 — the author is still shaping the design.
+- Submit as **COMMENT only**, never APPROVE. GitHub blocks approving drafts, and the author hasn't asked for a verdict yet.
+- Open the review body with one line framing it: `Reviewing as a draft — flagging anything that looks worth a quick fix. Mark ready for a full review.`
+- Skip step 6 (CI monitoring) — drafts churn; CI failures are the author's to chase.
+- Skip step 8 (push fixes) — never push to a WIP branch.
+
+Steps 1, 3, 4 (without duplication scan), 5 (COMMENT path), and 7 still apply. Stay silent if there's nothing actionable; don't post a "looks fine" comment.
 
 ### 2. Check for overlapping PRs
 
