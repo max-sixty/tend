@@ -229,6 +229,21 @@ Use `Agent` with `model: "haiku"` and a prompt like:
 > - Human replied to bot with correction or complaint
 > - Bot comment contains corruption (literal `${`, unescaped bangs, broken heredoc markers)
 >
+> **Corruption-scan recipe.** Inline `jq` filters or `grep` regexes whose pattern is a literal backslash-bang are mangled by the Bash-tool preprocessor (every literal exclamation mark in the command string gets rewritten to backslash-bang, including inside the regex), so a `jq` filter aborts with `Invalid escape` and the scan silently passes zero matches. Save bot bodies to a file first, then scan the file with `grep -F` for fixed strings and `grep -P` for backslash-bang:
+>
+> ```bash
+> mkdir -p /tmp/bot-output && : > /tmp/bot-output/all.txt
+> for n in <pr-numbers>; do
+>   gh api "repos/$ARGUMENTS/issues/$n/comments?per_page=100" \
+>     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== #$n \(.id) ===\n\(.body)\n\"" \
+>     >> /tmp/bot-output/all.txt
+> done
+> grep -nF '${' /tmp/bot-output/all.txt        # literal ${...} interpolation failure
+> grep -nP '\\!' /tmp/bot-output/all.txt       # backslash-bang corruption
+> grep -nE 'blob/main/.*#L[0-9]' /tmp/bot-output/all.txt  # un-pinned line links
+> grep -nF 'anthropics/' /tmp/bot-output/all.txt         # wrong-owner URL
+> ```
+>
 > **Report format** — return a structured summary:
 > ```
 > ## Runs with no bot output (skipped)
