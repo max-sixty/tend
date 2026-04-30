@@ -165,23 +165,25 @@ gh issue view $ARGUMENTS --json author,authorAssociation --jq '.authorAssociatio
 
 Use the heredoc pattern from `/tend-ci-runner:running-in-ci` for `--body` arguments to avoid shell quoting issues.
 
+**Do not introduce exclamation marks into the comment body.** The Bash tool rewrites every exclamation mark to a literal backslash-bang before bash parses the command, so a greeting like "Thanks for reporting this!" lands in the posted comment as "Thanks for reporting this\!" — quoting and heredoc form do not save you. The templates below intentionally end greetings with periods. If you must include an exclamation mark (e.g. quoting a user), author the comment with the Write tool and pass it via `gh issue comment --body-file`.
+
 Choose the appropriate template:
 
 ### Fix PR created
 
-> Thanks for reporting this! I was able to reproduce the issue and identified the root cause: [one-sentence explanation].
+> Thanks for reporting this. I was able to reproduce the issue and identified the root cause: [one-sentence explanation].
 >
 > I've opened #PR_NUMBER with a fix. A maintainer will review it shortly.
 
 ### Reproduction test only (no fix attempted)
 
-> Thanks for reporting this! I was able to reproduce the issue — #PR_NUMBER adds a failing test that demonstrates the bug.
+> Thanks for reporting this. I was able to reproduce the issue — #PR_NUMBER adds a failing test that demonstrates the bug.
 >
 > Root cause appears to be [brief explanation if known, or "still under investigation"]. A maintainer will take a closer look.
 
 ### Could not reproduce
 
-> Thanks for reporting this! I tried to reproduce this but wasn't able to with the information provided.
+> Thanks for reporting this. I tried to reproduce this but wasn't able to with the information provided.
 >
 > Could you share [specific information needed — exact command, config file, OS, shell, etc.]? That would help narrow it down.
 >
@@ -189,25 +191,25 @@ Choose the appropriate template:
 
 ### Bug already fixed
 
-> Thanks for reporting this! I looked into this and it appears the behavior described may already be fixed on the default branch (the relevant test passes).
+> Thanks for reporting this. I looked into this and it appears the behavior described may already be fixed on the default branch (the relevant test passes).
 >
 > Could you confirm which version you're running? If you're on an older release, updating should resolve this. A maintainer will confirm.
 
 ### Feature may already exist
 
-> Thanks for the suggestion! It's possible that [existing feature — specific behavior, config/flag] already does what you're looking for: [brief description of how it works].
+> Thanks for the suggestion. It's possible that [existing feature — specific behavior, config/flag] already does what you're looking for: [brief description of how it works].
 >
 > If that's not quite what you had in mind, could you clarify what additional behavior you're looking for? A maintainer will take a look either way.
 
 ### Feature does not exist
 
-> Thanks for the suggestion! I searched the codebase and didn't find an existing implementation of this. [Optionally: the closest related functionality is X, which does Y.]
+> Thanks for the suggestion. I searched the codebase and didn't find an existing implementation of this. [Optionally: the closest related functionality is X, which does Y.]
 >
 > I'll leave it for a maintainer to evaluate and prioritize.
 
 ### Question
 
-> Thanks for reaching out! This looks like a usage question rather than a bug report.
+> Thanks for reaching out. This looks like a usage question rather than a bug report.
 >
 > [Brief answer if obvious from the codebase, or pointer to relevant docs/help text.]
 >
@@ -215,7 +217,7 @@ Choose the appropriate template:
 
 ### Duplicate
 
-> Thanks for reporting this! This appears to be related to #EXISTING_ISSUE [and/or PR #EXISTING_PR]. I'll leave it to a maintainer to confirm and link them.
+> Thanks for reporting this. This appears to be related to #EXISTING_ISSUE [and/or PR #EXISTING_PR]. I'll leave it to a maintainer to confirm and link them.
 
 ### Maintainer-filed request (feature example)
 
