@@ -235,8 +235,8 @@ Use `Agent` with `model: "haiku"` and a prompt like:
 > mkdir -p /tmp/bot-output && : > /tmp/bot-output/all.txt
 > for n in <pr-numbers>; do
 >   gh api "repos/$ARGUMENTS/issues/$n/comments?per_page=100" \
->     --jq '.[] | select(.user.login == $BOT and .created_at > $WIN) | "=== #'$n' \(.id) ===\n\(.body)\n"' \
->     --arg BOT "$BOT_LOGIN" --arg WIN "<window-start>" >> /tmp/bot-output/all.txt
+>     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== #$n \(.id) ===\n\(.body)\n\"" \
+>     >> /tmp/bot-output/all.txt
 > done
 > grep -nF '${' /tmp/bot-output/all.txt        # literal ${...} interpolation failure
 > grep -nP '\\!' /tmp/bot-output/all.txt       # backslash-bang corruption
