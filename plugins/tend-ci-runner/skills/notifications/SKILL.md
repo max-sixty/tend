@@ -97,7 +97,7 @@ gh api "repos/{owner}/{repo}/pulls/{number}/reviews" \
   --jq "[.[] | select(.user.login == \"$BOT_LOGIN\" and .submitted_at > \"$NOTIF_UPDATED_AT\")] | length"
 ```
 
-For issue notifications, also check the timeline for bot-authored PRs that cross-reference the issue. `tend-mention` typically handles an `@`-mention-asking-for-a-PR by opening a PR with `Refs #N` in its body — *without* commenting on the issue. The comments check above misses that path, so without this timeline check the same notification races to a duplicate PR from this skill (observed in run 24438413763 which opened PR #278 duplicating PR #277):
+For issue notifications, also check the timeline for bot-authored PRs that cross-reference the issue. `tend-mention` typically handles an `@`-mention-asking-for-a-PR by opening a PR with `Refs #N` in its body — *without* commenting on the issue. The comments check above misses that path, so without this timeline check the same notification races to a duplicate PR from this skill:
 
 ```bash
 gh api "repos/{owner}/{repo}/issues/{number}/timeline" \
