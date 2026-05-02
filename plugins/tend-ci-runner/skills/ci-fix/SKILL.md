@@ -40,7 +40,7 @@ If an existing open PR addresses the same failure, comment on it linking the new
 
 Two gotchas:
 
-- For closed-state, use the `head:fix/ci-` **search qualifier**, not `--head` — `--head` filters client-side and is ignored by the search API path. `in:head` is silently dropped and falls back to default-field text matching.
+- Use the `head:fix/ci-` **search qualifier** (or `--head fix/ci-` — gh translates it to the same query). Don't use `in:head` — that's silently dropped and falls back to default-field text matching.
 - Request `body` in `--json` for both queries — the failure diagnostic written by the prior ci-fix run lives there, and shape-matching needs it.
 
 ### 2. Diagnose and fix
