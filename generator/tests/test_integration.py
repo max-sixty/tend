@@ -248,32 +248,21 @@ def test_init_warns_when_canonical_owner_undetected(
     assert "could not detect the canonical repo owner" in result.output
 
 
-def test_init_renders_guard_with_detected_canonical_owner(
+def test_init_wires_detected_owner_into_workflows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """End-to-end: when detect_canonical_owner returns an owner, the guard
-    appears in every fork-exposed workflow file."""
-    _write_config(
-        tmp_path,
-        'bot_name = "test-bot"\n[workflows.ci-fix]\nwatched_workflows = ["ci"]\n',
-    )
+    """End-to-end: cli.init must inject `detect_canonical_owner`'s result
+    into the rendered workflows. The per-file rendered shape (all 6 guarded
+    workflows, with/without a setup step) is already snapshotted by
+    `test_fork_guard_rendered_shape_regtest`; here we only verify the wiring."""
+    _write_config(tmp_path, 'bot_name = "test-bot"')
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("tend.cli.detect_canonical_owner", lambda: "PRQL")
 
     result = CliRunner().invoke(main, ["init"])
     assert result.exit_code == 0
-    for filename in [
-        "tend-ci-fix.yaml",
-        "tend-nightly.yaml",
-        "tend-weekly.yaml",
-        "tend-review-runs.yaml",
-        "tend-notifications.yaml",
-        "tend-triage.yaml",
-    ]:
-        content = (_workflow_dir(tmp_path) / filename).read_text()
-        assert "github.repository_owner == 'PRQL'" in content, (
-            f"{filename} missing canonical-owner guard"
-        )
+    content = (_workflow_dir(tmp_path) / "tend-nightly.yaml").read_text()
+    assert "github.repository_owner == 'PRQL'" in content
 
 
 def test_check_passes_repo_flag(

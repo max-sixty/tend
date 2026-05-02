@@ -60,35 +60,26 @@ def detect_canonical_owner() -> str | None:
     repo, so the fork guard string must match the canonical owner — not
     whoever happens to be running `tend init` from a fork.
 
-    Two-step resolution:
+    `gh repo view` resolves the directory's default repo (already canonical
+    when `upstream` is configured or `gh repo set-default` set). Then a
+    single `gh api repos/<owner>/<name>` call returns `.fork`, `.owner.login`,
+    and `.source.owner.login` — `source` is the *root* canonical, so chained
+    forks (alice → bob → canonical) resolve correctly in one call.
 
-    1. `gh repo view` resolves the directory's default repo. With `upstream`
-       configured (or `gh repo set-default` set), this already returns the
-       canonical — e.g. for max-sixty/prql checked out with `upstream` =
-       `PRQL/prql`, gh returns `PRQL/prql`.
-    2. If `gh` returned a fork (origin is the only remote and points at a
-       personal fork), walk to `.source.owner.login` via the GitHub API.
-       `source` is the *root* canonical, even for chained forks
-       (alice/x → bob/x → canonical/x → returns canonical).
-
-    Returns None when `gh` is unavailable or every call fails.
+    Returns None when `gh` is unavailable or either call fails. Callers
+    treat that as "skip the guard"; we never silently ship a fork owner
+    in the guard string.
     """
     repo = detect_repo()
-    if not repo or "/" not in repo:
+    if repo is None:
         return None
-    # If this is itself a fork, prefer the root canonical owner.
-    fork_info = _gh(
-        "api",
-        f"repos/{repo}",
-        # Emit "<is_fork> <source_owner_or_empty>" on one line.
-        "--jq",
-        r'"\(.fork) \(.source.owner.login // "")"',
-    )
-    if fork_info and fork_info.returncode == 0:
-        parts = fork_info.stdout.strip().split(" ", 1)
-        if len(parts) == 2 and parts[0] == "true" and parts[1]:
-            return parts[1]
-    return repo.split("/", 1)[0]
+    result = _gh("api", f"repos/{repo}")
+    if not result or result.returncode != 0:
+        return None
+    data = json.loads(result.stdout)
+    if data["fork"]:
+        return data["source"]["owner"]["login"]
+    return data["owner"]["login"]
 
 
 def detect_default_branch(repo: str) -> str | None:
