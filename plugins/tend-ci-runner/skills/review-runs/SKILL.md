@@ -44,7 +44,7 @@ if [ -z "$TRACKING_NUMBER" ]; then
   cat > /tmp/tracking-body.md << 'EOF'
 Monthly tracking issue for below-threshold findings. Each run appends findings as a comment. Future runs read these to build cumulative evidence.
 
-**Do not close manually** — a new issue is created each month.
+**Do not close manually** — a new issue is created each month, and prior months are closed automatically.
 EOF
   TRACKING_URL=$(gh issue create \
     --title "$TRACKING_LABEL: $MONTH" \
@@ -56,6 +56,18 @@ EOF
   fi
   TRACKING_NUMBER=$(basename "$TRACKING_URL")
 fi
+```
+
+### Closing prior-month tracking issues
+
+Once a new month's issue exists, close any open tracking issues from earlier months. Run this unconditionally — it's a no-op when nothing's stale, and self-heals if a previous run failed to close.
+
+```bash
+gh issue list --state open --label "$TRACKING_LABEL" \
+  --json number,title --jq ".[] | select(.title | contains(\"$MONTH\") | not) | .number" \
+  | while read -r OLD; do
+      gh issue close "$OLD" --comment "Superseded by #$TRACKING_NUMBER ($MONTH)."
+    done
 ```
 
 ### Reading historical evidence
