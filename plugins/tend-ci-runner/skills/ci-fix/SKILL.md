@@ -20,11 +20,28 @@ Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, po
 
 ### 1. Check for existing fixes
 
+Check both open and recently closed bot-authored `fix/ci-*` PRs. A maintainer may have closed a prior workaround with a rejection rationale (e.g. "we'll fix upstream"); re-deriving the same fix forces them to close it twice.
+
 ```bash
-gh pr list --state open --head "fix/ci-" --json number,title,headRefName
+BOT_LOGIN=$(gh api user --jq '.login')
+
+# Open dedup:
+gh pr list --state open --head "fix/ci-" --json number,title,body,headRefName
+
+# Closed dedup — last ~14 days, bot-authored:
+gh pr list --state closed --author "$BOT_LOGIN" --search "head:fix/ci-" \
+  --json number,title,closedAt,body,headRefName \
+  --jq '[.[] | select((now - (.closedAt | fromdateiso8601)) < 1209600)] | .[]'
 ```
 
-If an existing PR addresses the same failure, comment on it linking the new run and stop.
+Match by **failure shape** (the diagnostic snippet in the PR body) rather than branch name — branch names encode run IDs and never repeat. If a closed PR with a maintainer rejection covers the same failure, exit silently; check the closure comment / review for the rationale before referencing it.
+
+If an existing open PR addresses the same failure, comment on it linking the new run and stop.
+
+Two gotchas:
+
+- Use the `head:fix/ci-` **search qualifier** (or `--head fix/ci-` — gh translates it to the same query). Don't use `in:head` — that's silently dropped and falls back to default-field text matching.
+- Request `body` in `--json` for both queries — the failure diagnostic written by the prior ci-fix run lives there, and shape-matching needs it.
 
 ### 2. Diagnose and fix
 
