@@ -63,6 +63,26 @@ Create the PR with `gh pr create`. PR body format:
 Automated fix for [failed run](run-url)
 ```
 
+### 3a. Diagnosis without a fix (transient causes)
+
+If the diagnosis identifies the failure as transient — runner-disk corruption, an isolated network blip, an upstream incident that has since resolved — there is no fix PR to create. Don't post the diagnosis as a commit comment (it surfaces on whatever commit triggered CI, including release commits where it's visibly off-topic).
+
+Instead, open an issue with the diagnosis and close it immediately. The closure records "diagnosed, no further action" while keeping the analysis discoverable and off the commit timeline:
+
+```bash
+gh issue create --title "ci-fix: transient failure on <run-id>" --body-file /tmp/diagnosis.md
+gh issue close <issue-number> --reason "not planned" --comment "Transient — closing as diagnosed."
+```
+
+Use this path when:
+- The same code path succeeded on a recent prior run with no relevant changes between runs
+- The failure shape is filesystem/network-level, not anything the project's code does
+- An upstream status incident matches the timing and components
+
+If you can't tell whether it's transient, treat it as durable and create a fix PR.
+
+Skip step 4 — there's no PR to monitor.
+
 ### 4. Monitor CI
 
 Poll CI using the approach from `running-in-ci` (loaded in step 0). If CI fails, diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and repeat.
