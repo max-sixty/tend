@@ -57,17 +57,33 @@ If the incremental changes are trivial, skip the full review — go directly to 
 Then read all previous bot feedback and conversation:
 
 ```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 BOT_LOGIN=$(gh api user --jq '.login')
-# Previous review bodies
-gh api "repos/$REPO/pulls/<number>/reviews" \
-  --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and (.body | length > 0)) | {state, body}"
-# Inline review comments
-gh api "repos/$REPO/pulls/<number>/comments" --paginate \
-  --jq ".[] | select(.user.login == \"$BOT_LOGIN\") | {path, line, body}"
-# Conversation (catch questions directed at the bot)
-gh api "repos/$REPO/issues/<number>/comments" --paginate \
-  --jq '.[] | {author: .user.login, body: .body}'
+# Conversation comments + previous review bodies (one fetch)
+gh pr view <number> --json comments,reviews \
+  --jq "{prev_reviews:  [.reviews[]  | select(.author.login == \"$BOT_LOGIN\"
+                                              and (.body | length > 0)) | {state, body}],
+         conversation:  [.comments[] | {author: .author.login, body}]}"
+
+# Inline review comments — separate path (gh pr view --json doesn't include them)
+cat > /tmp/inline-prev.graphql <<'GRAPHQL'
+query($owner:String!,$repo:String!,$number:Int!) {
+  repository(owner:$owner,name:$repo) {
+    pullRequest(number:$number) {
+      reviewThreads(first:100) {
+        nodes { comments(first:100) { nodes {
+          author { login } path line body
+        } } }
+      }
+    }
+  }
+}
+GRAPHQL
+REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+OWNER=${REPO%/*}; NAME=${REPO#*/}
+gh api graphql -F query=@/tmp/inline-prev.graphql -f owner="$OWNER" -f repo="$NAME" -F number=<number> \
+  --jq ".data.repository.pullRequest.reviewThreads.nodes[].comments.nodes[]
+        | select(.author.login == \"$BOT_LOGIN\")
+        | {path, line, body}"
 ```
 
 **Do not repeat any point from previous reviews** — cross-reference previous bot comments before posting inline comments. When concurrent runs race (a new push while the first run is still responding), both see the same unanswered question — check whether a bot reply exists after the question's timestamp before answering. Address unanswered questions in the review body (not via `gh pr comment`).
