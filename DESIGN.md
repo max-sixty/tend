@@ -416,9 +416,12 @@ secrets. This covers `tend-ci-fix`, `tend-triage`, `tend-nightly`,
 uses `pull_request_target` (base repo only) and `tend-mention`'s
 review-event paths already filter forks via `head.repo.full_name ==
 github.repository`, so neither needs the extra guard. Owner is detected at
-`init` time via `gh repo view` (so fork-based maintainer workflows pick the
-canonical upstream rather than the personal fork); if `gh` isn't available
-or no default repo is configured, `init` warns and the guard is omitted.
+`init` time by `checks.detect_canonical_owner` — `gh repo view` resolves
+the directory's default repo, then if it turns out to be a fork the API's
+`source.owner.login` walks to the root canonical (handles chained forks
+too). The workflows live in and ship to the canonical, so the guard string
+must always match the canonical owner regardless of where `init` runs from.
+If `gh` isn't available, `init` warns and the guard is omitted.
 
 ### Layer 2: Custom `should_run` logic (mention only)
 

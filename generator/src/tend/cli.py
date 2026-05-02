@@ -9,6 +9,7 @@ import click
 
 from tend.checks import (
     CheckResult,
+    detect_canonical_owner,
     detect_default_branch,
     detect_repo,
     fix_branch_protection,
@@ -35,24 +36,6 @@ def _detect_default_branch_local() -> str:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
     return "main"
-
-
-def _detect_repo_owner_local() -> str:
-    """Detect the repo owner via `gh repo view`.
-
-    Used to render the fork guard (`if: github.repository_owner == '<owner>'`)
-    on jobs that fail noisily on forks. We ask `gh` rather than scraping
-    `git remote get-url origin` because in fork-based workflows `origin` is
-    the user's personal fork — the guard would then never match on the
-    canonical repo. `gh repo view` resolves the *default* repo (typically the
-    upstream remote, configurable via `gh repo set-default`), which is the
-    answer we want. Returns "" when `gh` is unavailable or the call fails;
-    callers should treat that as "skip the guard" rather than an error.
-    """
-    repo = detect_repo()  # owner/name, via `gh repo view --json nameWithOwner`
-    if not repo or "/" not in repo:
-        return ""
-    return repo.split("/", 1)[0]
 
 
 def _print_check_results(results: list[CheckResult]) -> None:
@@ -85,10 +68,10 @@ def init(config_path: Path | None, dry_run: bool) -> None:
     """Generate workflow files from config. Idempotent — always overwrites."""
     cfg = Config.load(config_path)
     cfg.default_branch = _detect_default_branch_local()
-    cfg.repo_owner = _detect_repo_owner_local()
+    cfg.repo_owner = detect_canonical_owner() or ""
     if not cfg.repo_owner:
         click.echo(
-            "Warning: could not detect the repo owner via `gh repo view` "
+            "Warning: could not detect the canonical repo owner via `gh` "
             "(install gh and run `gh repo set-default` if multiple remotes "
             "are configured). Generated workflows will not include the fork "
             "guard, so jobs may fail noisily if a contributor runs them from "

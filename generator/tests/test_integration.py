@@ -234,48 +234,46 @@ def test_init_files_have_generation_header(
 # ---------------------------------------------------------------------------
 
 
-def test_detect_repo_owner_local_strips_owner_segment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`gh repo view` returns owner/name; we want only the owner."""
-    from tend import cli
-
-    monkeypatch.setattr(cli, "detect_repo", lambda: "max-sixty/tend")
-    assert cli._detect_repo_owner_local() == "max-sixty"
-
-
-def test_detect_repo_owner_local_returns_empty_when_gh_unavailable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When `gh` isn't installed or the call fails, detect_repo returns None
-    and we degrade silently — `init` warns and the guard is omitted."""
-    from tend import cli
-
-    monkeypatch.setattr(cli, "detect_repo", lambda: None)
-    assert cli._detect_repo_owner_local() == ""
-
-
-def test_detect_repo_owner_local_returns_empty_on_malformed_response(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Defensive: a slashless string from `gh` shouldn't crash or return junk."""
-    from tend import cli
-
-    monkeypatch.setattr(cli, "detect_repo", lambda: "no-slash-here")
-    assert cli._detect_repo_owner_local() == ""
-
-
-def test_init_warns_when_repo_owner_undetected(
+def test_init_warns_when_canonical_owner_undetected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Without a detectable owner, `init` emits a warning so users can fix it."""
+    """Without a detectable canonical owner, `init` emits a warning so the
+    user can fix their gh setup before shipping un-guarded workflows."""
     _write_config(tmp_path, 'bot_name = "test-bot"')
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("tend.cli.detect_repo", lambda: None)
+    monkeypatch.setattr("tend.cli.detect_canonical_owner", lambda: None)
 
     result = CliRunner().invoke(main, ["init"])
     assert result.exit_code == 0
-    assert "could not detect the repo owner" in result.output
+    assert "could not detect the canonical repo owner" in result.output
+
+
+def test_init_renders_guard_with_detected_canonical_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end: when detect_canonical_owner returns an owner, the guard
+    appears in every fork-exposed workflow file."""
+    _write_config(
+        tmp_path,
+        'bot_name = "test-bot"\n[workflows.ci-fix]\nwatched_workflows = ["ci"]\n',
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("tend.cli.detect_canonical_owner", lambda: "PRQL")
+
+    result = CliRunner().invoke(main, ["init"])
+    assert result.exit_code == 0
+    for filename in [
+        "tend-ci-fix.yaml",
+        "tend-nightly.yaml",
+        "tend-weekly.yaml",
+        "tend-review-runs.yaml",
+        "tend-notifications.yaml",
+        "tend-triage.yaml",
+    ]:
+        content = (_workflow_dir(tmp_path) / filename).read_text()
+        assert "github.repository_owner == 'PRQL'" in content, (
+            f"{filename} missing canonical-owner guard"
+        )
 
 
 def test_check_passes_repo_flag(
