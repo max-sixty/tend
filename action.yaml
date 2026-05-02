@@ -64,7 +64,7 @@ runs:
         fi
         echo "Security preflight passed: default branch '${DEFAULT_BRANCH}' is protected"
       env:
-        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
 
     - name: Rate limit preflight
       shell: bash
@@ -112,14 +112,14 @@ runs:
         fi
         echo "Rate limit check passed"
       env:
-        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
 
     - name: Resolve bot ID
       id: bot
       shell: bash
       run: echo "id=$(gh api users/${{ inputs.bot_name }} --jq '.id')" >> "$GITHUB_OUTPUT"
       env:
-        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
 
     # Ensure uv/uvx is on PATH for Claude sessions. The nightly skill runs
     # `uvx tend@latest init` to regenerate workflow files, and mention/review
@@ -235,7 +235,7 @@ runs:
               gh api "notifications/threads/$tid" -X PATCH || true
             done) || echo "::warning::Failed to mark notification as read (non-fatal)"
       env:
-        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
 
     - name: Append skill step summary
       if: always()
@@ -374,7 +374,7 @@ runs:
           gh issue create --title "$TITLE" --label "$LABEL" -F /tmp/body.md
         fi
       env:
-        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
 
     - name: Compute artifact name
       if: always()

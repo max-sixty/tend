@@ -213,7 +213,7 @@ jobs:
       - name: Resolve PR checkout ref
         id: pr_ref
         env:
-          GH_TOKEN: {bt}
+          GITHUB_TOKEN: {bt}
           PR: ${{{{ github.event.pull_request.number }}}}
         run: |
           if gh api "repos/${{{{ github.repository }}}}/git/ref/pull/$PR/merge" --silent 2>/dev/null; then
@@ -374,7 +374,7 @@ jobs:
 
           echo "should_run=false" >> "$GITHUB_OUTPUT"
         env:
-          GH_TOKEN: {bt}
+          GITHUB_TOKEN: {bt}
           EVENT_NAME: ${{{{ github.event_name }}}}
           COMMENT_BODY: ${{{{ github.event.comment.body || github.event.review.body }}}}
           ISSUE_BODY: ${{{{ github.event.issue.body }}}}
@@ -395,7 +395,7 @@ jobs:
         env:
           REPO: ${{{{ github.repository }}}}
           COMMENT_ID: ${{{{ github.event.comment.id }}}}
-          GH_TOKEN: {bt}
+          GITHUB_TOKEN: {bt}
 
   handle:
     needs: verify
@@ -426,7 +426,7 @@ jobs:
             echo "::warning::PR is $PR_STATE — staying on default branch"
           fi
         env:
-          GH_TOKEN: {bt}
+          GITHUB_TOKEN: {bt}
           PR_NUMBER: ${{{{ github.event_name == 'issue_comment' && github.event.issue.number || github.event.pull_request.number }}}}
 {setup}
       - name: Compute queue delay
@@ -750,7 +750,7 @@ jobs:
             echo "$COUNT processable notification(s) — proceeding"
           fi
         env:
-          GH_TOKEN: {bt}
+          GITHUB_TOKEN: {bt}
 
       - uses: actions/checkout@v6
         if: {skip_condition}

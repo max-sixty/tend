@@ -86,7 +86,7 @@ jobs:
             echo "$COUNT processable notification(s) ? proceeding"
           fi
         env:
-          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
 
       - uses: actions/checkout@v6
         if: steps.check.outputs.count != '0' || github.event_name == 'workflow_dispatch'
