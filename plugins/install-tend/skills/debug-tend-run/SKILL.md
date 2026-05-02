@@ -1,12 +1,12 @@
 ---
-name: debug-ci-session
-description: Debugs Claude CI runs by downloading and parsing session log artifacts from GitHub Actions. Use when asked to "debug a CI run", "check what the bot did", "look at session logs", "investigate a tend run", "why did the bot do X", "what happened in CI", or to trace bot behavior in a specific workflow run.
+name: debug-tend-run
+description: Investigates a specific tend GitHub Actions run by downloading its session-log artifacts and parsing the JSONL traces. Surfaces which skill tend loaded, what tools it called with what inputs, files it read or wrote, and where decisions went wrong. Use when asked to "debug a tend run", "investigate a tend run", "why did tend do X", "what did the bot do in CI", "look at the session logs", or to reconstruct tend's behavior step-by-step from a run ID, URL, or PR number.
 ---
 
-# Debug CI Session
+# Debug Tend Run
 
-Investigate what a Claude-powered CI bot did during a GitHub Actions run by
-downloading and parsing its session log artifacts.
+Investigate what tend did during a GitHub Actions run by downloading and
+parsing its session log artifacts.
 
 ## Identify the run
 
@@ -35,15 +35,16 @@ gh run list -R "$REPO" --branch "$HEAD" --limit 10 \
 
 ## Download session logs
 
-Session logs are uploaded as artifacts named `claude-session-logs*`. Each
-artifact contains one or more JSONL files — one per Claude session in that run.
+Session logs are uploaded as artifacts named `claude-session-logs*` (the name
+is set by `claude-code-action`, which tend wraps). Each artifact contains one
+or more JSONL files — one per agent session in that run.
 
 ```bash
 RUN_ID=<run-id>
 gh run download "$RUN_ID" -R "$REPO" --pattern 'claude-session-logs*' --dir /tmp/session-logs/"$RUN_ID"/
 ```
 
-If no artifacts exist, the run either had no Claude session or the session was
+If no artifacts exist, the run either had no agent session or the session was
 too short to produce logs. Check the run's console output as a fallback:
 
 ```bash

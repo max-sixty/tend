@@ -1,6 +1,6 @@
 ---
 name: review-reviewers
-description: Hourly outcome-based analysis of Claude CI behavior — checks whether bot outputs were accepted or rejected, escalating to session logs only when outcomes look wrong.
+description: Hourly outcome-based analysis of tend's CI behavior — checks whether tend's outputs were accepted or rejected, escalating to session logs only when outcomes look wrong.
 argument-hint: "<owner/repo>"
 metadata:
   internal: true
@@ -8,7 +8,7 @@ metadata:
 
 # Review Reviewers
 
-Analyze Claude-powered CI behavior on the target repo over the past hour. Focus on **outcomes** — what the bot produced publicly and whether it was accepted — rather than internal session mechanics. Create PRs or issues on tend when outcomes reveal behavioral problems.
+Analyze tend's CI behavior on the target repo over the past hour. Focus on **outcomes** — what the bot produced publicly and whether it was accepted — rather than internal session mechanics. Create PRs or issues on tend when outcomes reveal behavioral problems.
 
 ## First steps
 
@@ -188,7 +188,7 @@ gh api "repos/$ARGUMENTS/contents/.claude/skills/running-tend/SKILL.md" \
 
 If the file doesn't exist, try common alternatives (`.claude/skills/running-tend.md`, `.claude/CLAUDE.md`). Understanding the repo's guidance is essential context for evaluating outcomes — without it, you'll misjudge authorized behavior as a violation.
 
-Then list recently completed Claude CI runs on the target repo:
+Then list recently completed tend CI runs on the target repo:
 
 ```bash
 TARGET_REPO=$ARGUMENTS ${CLAUDE_PLUGIN_ROOT}/scripts/list-recent-runs.sh

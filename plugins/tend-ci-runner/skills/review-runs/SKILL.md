@@ -7,7 +7,7 @@ metadata:
 
 # Review Runs
 
-Analyze the previous night's Claude CI runs in this repository. Identify behavioral problems, skill gaps, and workflow issues — then propose improvements to the repo's local skills and workflows.
+Analyze the previous night's tend CI runs in this repository. Identify behavioral problems, skill gaps, and workflow issues — then propose improvements to the repo's local skills and workflows.
 
 This skill runs **in the adopter repo**, not in tend. Improvements target `.claude/skills/` and `.config/tend.toml` in this repository.
 
@@ -112,7 +112,7 @@ If `EXISTING_COMMENT` is empty, create a new comment. See the finding format in 
 
 ## Step 1: Find recent runs
 
-List Claude CI runs that completed in the past 24 hours (the cron runs daily):
+List tend CI runs that completed in the past 24 hours (the cron runs daily):
 
 ```bash
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
@@ -157,9 +157,9 @@ Include the totals and per-workflow breakdown in the summary (Step 7). Flag any 
 
 ## Step 3: Download and analyze session logs
 
-Load `/install-tend:debug-ci-session` for download commands and JSONL parsing queries.
+Load `/install-tend:debug-tend-run` for download commands and JSONL parsing queries.
 
-Skip runs without artifacts. Trace decision chains: what did Claude decide, what evidence did it use, what was the outcome?
+Skip runs without artifacts. Trace decision chains: what did tend decide, what evidence did it use, what was the outcome?
 
 ## Step 4: Cross-check outcomes
 

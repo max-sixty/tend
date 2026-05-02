@@ -3,8 +3,9 @@
 ## What this is
 
 Two Claude Code plugins, a GitHub composite action, and a generator that add
-Claude-powered CI to any repo. Handles PR review, issue triage, @bot mentions,
-CI fixes, nightly sweeps, and weekly maintenance.
+an autonomous junior maintainer (powered by Claude) to any repo. Handles PR
+review, issue triage, @bot mentions, CI fixes, nightly sweeps, and weekly
+maintenance.
 
 ## Architecture
 
@@ -490,7 +491,7 @@ tend/
 │   │   ├── .claude-plugin/
 │   │   │   └── plugin.json
 │   │   └── skills/
-│   │       ├── debug-ci-session/
+│   │       ├── debug-tend-run/
 │   │       └── install-tend/
 │   └── tend-ci-runner/         # CI plugin (all CI skills)
 │       ├── .claude-plugin/
