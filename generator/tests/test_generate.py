@@ -18,7 +18,7 @@ from tend.workflows import GENERATORS, _deep_merge, generate_all, generate_menti
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
     cfg = tmp_path / ".config" / "tend.toml"
     cfg.parent.mkdir(parents=True)
-    cfg.write_text(f'bot_name = "test-bot"\nrepo_owner = "test-owner"\n{extra}')
+    cfg.write_text(f'bot_name = "test-bot"\n{extra}')
     return cfg
 
 
@@ -547,12 +547,14 @@ _UNGUARDED_WORKFLOWS = ["tend-review.yaml", "tend-mention.yaml"]
 
 @pytest.mark.parametrize("filename", _GUARDED_WORKFLOWS)
 def test_fork_guard_present_when_repo_owner_set(tmp_path: Path, filename: str) -> None:
-    """Each fork-exposed workflow must skip on owner mismatch."""
-    cfg = Config.load(
-        _minimal_config(
-            tmp_path, _extra_for(filename.removeprefix("tend-").removesuffix(".yaml"))
-        )
-    )
+    """Each fork-exposed workflow must skip on owner mismatch.
+
+    `cli.init` injects `repo_owner` from the local git remote; here we set it
+    on the loaded Config to mirror that injection in a unit-test context.
+    """
+    name = filename.removeprefix("tend-").removesuffix(".yaml")
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for(name)))
+    cfg.repo_owner = "test-owner"
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows[filename].content)
     job_ifs = [j.get("if", "") for j in data["jobs"].values()]
@@ -567,6 +569,7 @@ def test_fork_guard_absent_for_unguarded(tmp_path: Path, filename: str) -> None:
     not get a job-level repo_owner guard — adding one would drop legitimate
     activity on those workflows if owner is misconfigured."""
     cfg = Config.load(_minimal_config(tmp_path))
+    cfg.repo_owner = "test-owner"
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows[filename].content)
     for job_name, job in data["jobs"].items():
@@ -577,14 +580,10 @@ def test_fork_guard_absent_for_unguarded(tmp_path: Path, filename: str) -> None:
 
 
 def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
-    """Without repo_owner (e.g. tests, repos using a non-github remote),
-    no guard is rendered — workflows behave as they did pre-change."""
-    cfg_path = tmp_path / ".config" / "tend.toml"
-    cfg_path.parent.mkdir(parents=True)
-    cfg_path.write_text(
-        'bot_name = "test-bot"\n[workflows.ci-fix]\nwatched_workflows = ["ci"]\n'
-    )
-    cfg = Config.load(cfg_path)
+    """When auto-detection fails (non-github remote, no remote, etc.), no
+    guard is rendered and workflows behave as they did pre-change."""
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-fix")))
+    # cfg.repo_owner is "" by default — Config.load does not auto-detect.
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     for filename in _GUARDED_WORKFLOWS:
         data = yaml.safe_load(workflows[filename].content)

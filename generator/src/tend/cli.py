@@ -96,16 +96,14 @@ def init(config_path: Path | None, dry_run: bool) -> None:
     """Generate workflow files from config. Idempotent — always overwrites."""
     cfg = Config.load(config_path)
     cfg.default_branch = _detect_default_branch_local()
+    cfg.repo_owner = _detect_repo_owner_local()
     if not cfg.repo_owner:
-        cfg.repo_owner = _detect_repo_owner_local()
-        if not cfg.repo_owner:
-            click.echo(
-                "Warning: could not detect repo_owner from `git remote get-url origin`. "
-                "Generated workflows will not include the fork guard, so jobs may "
-                "fail noisily if a contributor runs them from a fork. "
-                'Set `repo_owner = "<owner>"` in .config/tend.toml to silence this.',
-                err=True,
-            )
+        click.echo(
+            "Warning: could not detect the repo owner from `git remote get-url origin`. "
+            "Generated workflows will not include the fork guard, so jobs may "
+            "fail noisily if a contributor runs them from a fork.",
+            err=True,
+        )
     outdir = Path(".github/workflows")
 
     workflows = generate_all(cfg)

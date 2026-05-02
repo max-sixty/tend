@@ -23,7 +23,6 @@ KNOWN_TOP_LEVEL = {
     "bot_name",
     "model",
     "protected_branches",
-    "repo_owner",
     "secrets",
     "setup",
     "workflows",
@@ -87,8 +86,9 @@ class Config:
     setup: list[SetupStep]
     workflows: dict[str, WorkflowConfig]
     # Owner of the repo where workflows will run. Used to gate jobs that fail
-    # noisily on forks (no access to bot/Claude secrets). Empty means "skip the
-    # guard"; cli.init populates this from the local git remote when unset.
+    # noisily on forks (no access to bot/Claude secrets). Not user-configurable;
+    # cli.init populates this from the local git remote. Empty means "skip the
+    # guard" (auto-detection failed, e.g. non-github remote or no remote).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
 
@@ -217,15 +217,6 @@ class Config:
                 'e.g. allowed = ["CODECOV_TOKEN"]'
             )
 
-        repo_owner = raw.get("repo_owner", "")
-        if not isinstance(repo_owner, str):
-            raise click.ClickException("repo_owner must be a string")
-        if repo_owner and not _GITHUB_USERNAME.match(repo_owner):
-            raise click.ClickException(
-                f"repo_owner '{repo_owner}' is not a valid GitHub owner "
-                "(only letters, digits, and hyphens)"
-            )
-
         return cls(
             bot_name=bot_name,
             default_branch="main",
@@ -235,6 +226,5 @@ class Config:
             model=model,
             setup=setup,
             workflows=workflows,
-            repo_owner=repo_owner,
             allowed_repo_secrets=allowed,
         )

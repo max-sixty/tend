@@ -8,20 +8,6 @@
 
 bot_name = "my-project-bot"
 
-# ## Repo owner (optional)
-#
-# Owner of the GitHub repo where workflows will run. Renders as a job-level
-# `if: github.repository_owner == '<owner>'` guard on workflows whose triggers
-# can fire from a fork's own Actions (`schedule`, `workflow_dispatch`,
-# `workflow_run`, `issues`) — those jobs would otherwise fail noisily on a
-# fork because the bot/Claude secrets are empty there.
-#
-# `tend init` auto-detects this from `git remote get-url origin` for github.com
-# remotes; set it explicitly only if auto-detection picks the wrong owner or
-# the remote isn't a github.com URL.
-#
-# repo_owner = "my-org"
-
 # ## Model
 #
 # Claude model to use for all workflows. Valid values: opus, sonnet, haiku.

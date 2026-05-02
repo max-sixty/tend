@@ -415,9 +415,9 @@ secrets. This covers `tend-ci-fix`, `tend-triage`, `tend-nightly`,
 `tend-weekly`, `tend-review-runs`, and `tend-notifications`. `tend-review`
 uses `pull_request_target` (base repo only) and `tend-mention`'s
 review-event paths already filter forks via `head.repo.full_name ==
-github.repository`, so neither needs the extra guard. Owner is auto-detected
-from the `origin` remote; consumers can override via `repo_owner` in
-`.config/tend.toml`.
+github.repository`, so neither needs the extra guard. Owner is detected at
+`init` time from the `origin` remote; if the remote isn't a github.com URL,
+`init` warns and the guard is omitted.
 
 ### Layer 2: Custom `should_run` logic (mention only)
 
