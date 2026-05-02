@@ -87,8 +87,9 @@ class Config:
     workflows: dict[str, WorkflowConfig]
     # Owner of the repo where workflows will run. Used to gate jobs that fail
     # noisily on forks (no access to bot/Claude secrets). Not user-configurable;
-    # cli.init populates this from the local git remote. Empty means "skip the
-    # guard" (auto-detection failed, e.g. non-github remote or no remote).
+    # cli.init populates this via `gh repo view` so fork-based maintainer
+    # workflows still get the canonical owner. Empty means "skip the guard"
+    # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
 

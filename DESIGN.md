@@ -416,8 +416,9 @@ secrets. This covers `tend-ci-fix`, `tend-triage`, `tend-nightly`,
 uses `pull_request_target` (base repo only) and `tend-mention`'s
 review-event paths already filter forks via `head.repo.full_name ==
 github.repository`, so neither needs the extra guard. Owner is detected at
-`init` time from the `origin` remote; if the remote isn't a github.com URL,
-`init` warns and the guard is omitted.
+`init` time via `gh repo view` (so fork-based maintainer workflows pick the
+canonical upstream rather than the personal fork); if `gh` isn't available
+or no default repo is configured, `init` warns and the guard is omitted.
 
 ### Layer 2: Custom `should_run` logic (mention only)
 

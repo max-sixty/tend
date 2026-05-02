@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import subprocess
 from pathlib import Path
 
@@ -39,31 +38,21 @@ def _detect_default_branch_local() -> str:
 
 
 def _detect_repo_owner_local() -> str:
-    """Detect the repo owner from `origin`'s URL.
+    """Detect the repo owner via `gh repo view`.
 
     Used to render the fork guard (`if: github.repository_owner == '<owner>'`)
-    on jobs that fail noisily on forks. Returns "" when the remote isn't a
-    recognizable github.com URL — callers should treat that as "skip the guard"
-    rather than an error.
+    on jobs that fail noisily on forks. We ask `gh` rather than scraping
+    `git remote get-url origin` because in fork-based workflows `origin` is
+    the user's personal fork — the guard would then never match on the
+    canonical repo. `gh repo view` resolves the *default* repo (typically the
+    upstream remote, configurable via `gh repo set-default`), which is the
+    answer we want. Returns "" when `gh` is unavailable or the call fails;
+    callers should treat that as "skip the guard" rather than an error.
     """
-    try:
-        result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    repo = detect_repo()  # owner/name, via `gh repo view --json nameWithOwner`
+    if not repo or "/" not in repo:
         return ""
-    if result.returncode != 0:
-        return ""
-    url = result.stdout.strip()
-    # Match the owner segment in:
-    #   https://github.com/<owner>/<repo>(.git)?
-    #   git@github.com:<owner>/<repo>(.git)?
-    #   ssh://git@github.com/<owner>/<repo>(.git)?
-    match = re.search(r"github\.com[:/]([^/]+)/[^/]+?(?:\.git)?/?$", url)
-    return match.group(1) if match else ""
+    return repo.split("/", 1)[0]
 
 
 def _print_check_results(results: list[CheckResult]) -> None:
@@ -99,9 +88,11 @@ def init(config_path: Path | None, dry_run: bool) -> None:
     cfg.repo_owner = _detect_repo_owner_local()
     if not cfg.repo_owner:
         click.echo(
-            "Warning: could not detect the repo owner from `git remote get-url origin`. "
-            "Generated workflows will not include the fork guard, so jobs may "
-            "fail noisily if a contributor runs them from a fork.",
+            "Warning: could not detect the repo owner via `gh repo view` "
+            "(install gh and run `gh repo set-default` if multiple remotes "
+            "are configured). Generated workflows will not include the fork "
+            "guard, so jobs may fail noisily if a contributor runs them from "
+            "a fork.",
             err=True,
         )
     outdir = Path(".github/workflows")
