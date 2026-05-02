@@ -129,28 +129,17 @@ def _yaml_scalar(value: object) -> str:
 
 
 def _fork_guard(cfg: Config) -> str:
-    """Job-level `if:` expression that skips the job on forks.
+    """`if:` expression that skips a job when running outside the canonical owner.
 
-    Comparing `github.repository_owner` against the configured owner is the
-    only reliable check: `secrets` isn't available in `jobs.<job_id>.if`, and
-    `github.event.repository.fork` is null for `schedule` events. Returns "" if
-    the owner is unknown — callers should then omit the guard rather than fail.
-
-    Skip on forks: secrets (bot token, Claude OAuth) are unavailable on
-    `workflow_dispatch` / `workflow_run` / `issues` runs from a fork, so the
-    `tend@v1` step would error out with empty inputs and surface as a red
-    check on fork PRs. Apply this guard to every job whose trigger can fire
-    in a fork's own Actions; new templates that match that pattern should
-    compose this expression with their other `if:` conditions.
+    Compares `github.repository_owner` against the configured owner: `secrets`
+    isn't available in `jobs.<job_id>.if`, and `github.event.repository.fork`
+    is null for `schedule` events, so the owner string is the only check that
+    works across all the affected event types. Returns "" if the owner is
+    unknown — callers omit the guard rather than fail.
     """
     if not cfg.repo_owner:
         return ""
     return f"github.repository_owner == '{_escape(cfg.repo_owner)}'"
-
-
-def _combine_if(*conditions: str) -> str:
-    """Join non-empty `if:` expressions with `&&`."""
-    return " && ".join(c for c in conditions if c)
 
 
 def _permissions(issues: bool = True) -> str:
@@ -578,9 +567,9 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
     perms = _permissions(issues=False)
     watched_yaml = ", ".join(f'"{w}"' for w in watched)
     branches_yaml = ", ".join(f'"{b}"' for b in branches)
-    guard_if = _combine_if(
-        _fork_guard(cfg), "github.event.workflow_run.conclusion == 'failure'"
-    )
+    conclusion_check = "github.event.workflow_run.conclusion == 'failure'"
+    guard = _fork_guard(cfg)
+    guard_if = f"{guard} && {conclusion_check}" if guard else conclusion_check
 
     content = f"""\
 {HEADER}

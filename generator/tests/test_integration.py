@@ -234,6 +234,50 @@ def test_init_files_have_generation_header(
 # ---------------------------------------------------------------------------
 
 
+def test_detect_repo_owner_local_strips_owner_segment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`gh repo view` returns owner/name; we want only the owner."""
+    from tend import cli
+
+    monkeypatch.setattr(cli, "detect_repo", lambda: "max-sixty/tend")
+    assert cli._detect_repo_owner_local() == "max-sixty"
+
+
+def test_detect_repo_owner_local_returns_empty_when_gh_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When `gh` isn't installed or the call fails, detect_repo returns None
+    and we degrade silently — `init` warns and the guard is omitted."""
+    from tend import cli
+
+    monkeypatch.setattr(cli, "detect_repo", lambda: None)
+    assert cli._detect_repo_owner_local() == ""
+
+
+def test_detect_repo_owner_local_returns_empty_on_malformed_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defensive: a slashless string from `gh` shouldn't crash or return junk."""
+    from tend import cli
+
+    monkeypatch.setattr(cli, "detect_repo", lambda: "no-slash-here")
+    assert cli._detect_repo_owner_local() == ""
+
+
+def test_init_warns_when_repo_owner_undetected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a detectable owner, `init` emits a warning so users can fix it."""
+    _write_config(tmp_path, 'bot_name = "test-bot"')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("tend.cli.detect_repo", lambda: None)
+
+    result = CliRunner().invoke(main, ["init"])
+    assert result.exit_code == 0
+    assert "could not detect the repo owner" in result.output
+
+
 def test_check_passes_repo_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

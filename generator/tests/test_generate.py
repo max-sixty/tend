@@ -600,6 +600,75 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "workflow_name,job_name,user_if,extra_setup",
+    [
+        # Triage: the guard is the *only* job-level if; clobbering loses just it.
+        (
+            "triage",
+            "triage",
+            "github.event.issue.author_association != 'NONE'",
+            "",
+        ),
+        # ci-fix: the rendered if is `<guard> && <conclusion-check>`. Clobbering
+        # removes BOTH — so the workflow would also lose its "only run on
+        # failure" gate. More interesting than triage because runtime semantics
+        # change beyond just the fork guard.
+        (
+            "ci-fix",
+            "fix-ci",
+            "github.actor == 'tend-agent'",
+            '[workflows.ci-fix]\nwatched_workflows = ["ci"]\n',
+        ),
+    ],
+)
+def test_user_job_if_extra_replaces_fork_guard(
+    tmp_path: Path,
+    workflow_name: str,
+    job_name: str,
+    user_if: str,
+    extra_setup: str,
+) -> None:
+    """A user-supplied `[workflows.X.jobs.X] if = "..."` replaces the rendered
+    job-level if via RFC 7396 scalar replacement — this includes the fork
+    guard *and* any other conditions tend composed with it (ci-fix's
+    conclusion check, future combined ifs).
+
+    Pins current behavior so a future merge-strategy change is a deliberate
+    choice, not an accident. If we ever decide to compose user extras with
+    the rendered conditions instead of letting them clobber, this test fails
+    loudly and docs/example.toml should be updated alongside.
+    """
+    extra = dedent(f"""\
+        {extra_setup}
+        [workflows.{workflow_name}.jobs.{job_name}]
+        if = "{user_if}"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    cfg.repo_owner = "test-owner"
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(workflows[f"tend-{workflow_name}.yaml"].content)
+    rendered_if = data["jobs"][job_name]["if"]
+    # User condition wins outright — no `&&`, no guard, no other conditions.
+    assert rendered_if == user_if
+    assert "github.repository_owner" not in rendered_if
+
+
+@pytest.mark.parametrize("filename", _GUARDED_WORKFLOWS)
+def test_fork_guard_rendered_shape_regtest(
+    regtest: object, tmp_path: Path, filename: str
+) -> None:
+    """Snapshot the production rendered shape (with the guard line) for every
+    fork-exposed workflow, so indentation or structural drift in the rendered
+    `if:` line is caught — the `_minimal_config`-based regtests above only
+    cover the no-guard fallback."""
+    name = filename.removeprefix("tend-").removesuffix(".yaml")
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for(name)))
+    cfg.repo_owner = "test-owner"
+    wf = next(w for w in generate_all(cfg) if w.filename == filename)
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
 # ---------------------------------------------------------------------------
 # Pass-through extras (workflow_extra / jobs)
 # ---------------------------------------------------------------------------
