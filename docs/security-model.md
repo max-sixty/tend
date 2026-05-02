@@ -161,7 +161,7 @@ infrastructure overhead for self-hosted setups.
 `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, which strips sensitive environment
 variables before spawning subprocesses. Currently only activated when
 `allowed_non_write_users` is set. Could be enabled for all fork PRs to make
-naive `echo $GH_TOKEN` attacks fail — though a subprocess can read the
+naive `echo $GITHUB_TOKEN` attacks fail — though a subprocess can read the
 parent's unscrubbed environment via `/proc/$PPID/environ` (same-user, no
 privilege barrier on GitHub-hosted runners).
 
@@ -234,6 +234,12 @@ independent authentication paths exist in every workflow:
    the `GITHUB_TOKEN` env var with its `github_token` input.
 
 All workflows should pass the bot token to both paths.
+
+**Env var binding in shell steps.** Bind the bot token to `GITHUB_TOKEN`, not
+`GH_TOKEN`. `GITHUB_TOKEN` is auto-injected by GitHub Actions and read by most
+third-party tools — overriding it gives one bot identity everywhere in the
+job. `GH_TOKEN` only overrides the `gh` CLI; anything else still sees the
+auto-injected `github-actions[bot]` token.
 
 ### GitHub API: event types for PR comments
 
