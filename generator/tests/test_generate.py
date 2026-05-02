@@ -18,7 +18,7 @@ from tend.workflows import GENERATORS, _deep_merge, generate_all, generate_menti
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
     cfg = tmp_path / ".config" / "tend.toml"
     cfg.parent.mkdir(parents=True)
-    cfg.write_text(f'bot_name = "test-bot"\n{extra}')
+    cfg.write_text(f'bot_name = "test-bot"\nrepo_owner = "test-owner"\n{extra}')
     return cfg
 
 
@@ -519,6 +519,86 @@ def test_mention_prompt_omits_delay_when_empty(tmp_path: Path) -> None:
     assert "format(" in prompt, "delay preamble must use conditional format()"
     # "Before acting" must always appear (it's the unconditional part)
     assert "Before acting" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Fork guard
+# ---------------------------------------------------------------------------
+
+
+# Filenames whose only triggers are `schedule`, `workflow_dispatch`,
+# `workflow_run`, or `issues` — events that can fire from a fork's own Actions
+# once Actions is enabled there. Without the guard, the `tend@v1` step fails
+# noisily because the bot/Claude secrets are empty in the fork's secret store.
+_GUARDED_WORKFLOWS = [
+    "tend-ci-fix.yaml",
+    "tend-nightly.yaml",
+    "tend-weekly.yaml",
+    "tend-review-runs.yaml",
+    "tend-notifications.yaml",
+    "tend-triage.yaml",
+]
+# tend-review uses pull_request_target (base repo only); tend-mention's
+# review-event paths already filter forks, and `issues`/`issue_comment` events
+# are unguarded by design (forks rarely enable Issues, and gating here would
+# silently drop legitimate same-repo activity if the owner is misconfigured).
+_UNGUARDED_WORKFLOWS = ["tend-review.yaml", "tend-mention.yaml"]
+
+
+@pytest.mark.parametrize("filename", _GUARDED_WORKFLOWS)
+def test_fork_guard_present_when_repo_owner_set(tmp_path: Path, filename: str) -> None:
+    """Each fork-exposed workflow must skip on owner mismatch."""
+    cfg = Config.load(
+        _minimal_config(
+            tmp_path, _extra_for(filename.removeprefix("tend-").removesuffix(".yaml"))
+        )
+    )
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(workflows[filename].content)
+    job_ifs = [j.get("if", "") for j in data["jobs"].values()]
+    assert any("github.repository_owner == 'test-owner'" in cond for cond in job_ifs), (
+        f"{filename} job must include the fork guard (job ifs: {job_ifs})"
+    )
+
+
+@pytest.mark.parametrize("filename", _UNGUARDED_WORKFLOWS)
+def test_fork_guard_absent_for_unguarded(tmp_path: Path, filename: str) -> None:
+    """tend-review (pull_request_target) and tend-mention (own filtering) must
+    not get a job-level repo_owner guard — adding one would drop legitimate
+    activity on those workflows if owner is misconfigured."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(workflows[filename].content)
+    for job_name, job in data["jobs"].items():
+        cond = job.get("if", "")
+        assert "github.repository_owner" not in cond, (
+            f"{filename} job '{job_name}' must not contain a repository_owner guard"
+        )
+
+
+def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
+    """Without repo_owner (e.g. tests, repos using a non-github remote),
+    no guard is rendered — workflows behave as they did pre-change."""
+    cfg_path = tmp_path / ".config" / "tend.toml"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text(
+        'bot_name = "test-bot"\n[workflows.ci-fix]\nwatched_workflows = ["ci"]\n'
+    )
+    cfg = Config.load(cfg_path)
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    for filename in _GUARDED_WORKFLOWS:
+        data = yaml.safe_load(workflows[filename].content)
+        for job_name, job in data["jobs"].items():
+            assert "github.repository_owner" not in job.get("if", ""), (
+                f"{filename} job '{job_name}' must not contain the guard "
+                "when repo_owner is unset"
+            )
+    # ci-fix's pre-existing conclusion check must survive even without the guard
+    ci_fix = yaml.safe_load(workflows["tend-ci-fix.yaml"].content)
+    assert (
+        ci_fix["jobs"]["fix-ci"]["if"]
+        == "github.event.workflow_run.conclusion == 'failure'"
+    )
 
 
 # ---------------------------------------------------------------------------

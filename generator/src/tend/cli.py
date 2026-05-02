@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -37,6 +38,34 @@ def _detect_default_branch_local() -> str:
     return "main"
 
 
+def _detect_repo_owner_local() -> str:
+    """Detect the repo owner from `origin`'s URL.
+
+    Used to render the fork guard (`if: github.repository_owner == '<owner>'`)
+    on jobs that fail noisily on forks. Returns "" when the remote isn't a
+    recognizable github.com URL — callers should treat that as "skip the guard"
+    rather than an error.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return ""
+    if result.returncode != 0:
+        return ""
+    url = result.stdout.strip()
+    # Match the owner segment in:
+    #   https://github.com/<owner>/<repo>(.git)?
+    #   git@github.com:<owner>/<repo>(.git)?
+    #   ssh://git@github.com/<owner>/<repo>(.git)?
+    match = re.search(r"github\.com[:/]([^/]+)/[^/]+?(?:\.git)?/?$", url)
+    return match.group(1) if match else ""
+
+
 def _print_check_results(results: list[CheckResult]) -> None:
     """Print check results with pass/fail/skip indicators."""
     for r in results:
@@ -67,6 +96,16 @@ def init(config_path: Path | None, dry_run: bool) -> None:
     """Generate workflow files from config. Idempotent — always overwrites."""
     cfg = Config.load(config_path)
     cfg.default_branch = _detect_default_branch_local()
+    if not cfg.repo_owner:
+        cfg.repo_owner = _detect_repo_owner_local()
+        if not cfg.repo_owner:
+            click.echo(
+                "Warning: could not detect repo_owner from `git remote get-url origin`. "
+                "Generated workflows will not include the fork guard, so jobs may "
+                "fail noisily if a contributor runs them from a fork. "
+                'Set `repo_owner = "<owner>"` in .config/tend.toml to silence this.',
+                err=True,
+            )
     outdir = Path(".github/workflows")
 
     workflows = generate_all(cfg)

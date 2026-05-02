@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   triage:
+    if: github.repository_owner == 'test-owner'
     runs-on: ubuntu-24.04
     permissions:
       contents: write

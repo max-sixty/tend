@@ -128,6 +128,31 @@ def _yaml_scalar(value: object) -> str:
     return dumped
 
 
+def _fork_guard(cfg: Config) -> str:
+    """Job-level `if:` expression that skips the job on forks.
+
+    Comparing `github.repository_owner` against the configured owner is the
+    only reliable check: `secrets` isn't available in `jobs.<job_id>.if`, and
+    `github.event.repository.fork` is null for `schedule` events. Returns "" if
+    the owner is unknown — callers should then omit the guard rather than fail.
+
+    Skip on forks: secrets (bot token, Claude OAuth) are unavailable on
+    `workflow_dispatch` / `workflow_run` / `issues` runs from a fork, so the
+    `tend@v1` step would error out with empty inputs and surface as a red
+    check on fork PRs. Apply this guard to every job whose trigger can fire
+    in a fork's own Actions; new templates that match that pattern should
+    compose this expression with their other `if:` conditions.
+    """
+    if not cfg.repo_owner:
+        return ""
+    return f"github.repository_owner == '{_escape(cfg.repo_owner)}'"
+
+
+def _combine_if(*conditions: str) -> str:
+    """Join non-empty `if:` expressions with `&&`."""
+    return " && ".join(c for c in conditions if c)
+
+
 def _permissions(issues: bool = True) -> str:
     lines = [
         "      contents: write",
@@ -488,6 +513,8 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
 
     setup = _setup_yaml(cfg)
     perms = _permissions()
+    guard = _fork_guard(cfg)
+    if_line = f"    if: {guard}\n" if guard else ""
 
     content = f"""\
 {HEADER}
@@ -502,7 +529,7 @@ concurrency:
 
 jobs:
   triage:
-    runs-on: ubuntu-24.04
+{if_line}    runs-on: ubuntu-24.04
     permissions:
 {perms}
     steps:
@@ -551,6 +578,9 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
     perms = _permissions(issues=False)
     watched_yaml = ", ".join(f'"{w}"' for w in watched)
     branches_yaml = ", ".join(f'"{b}"' for b in branches)
+    guard_if = _combine_if(
+        _fork_guard(cfg), "github.event.workflow_run.conclusion == 'failure'"
+    )
 
     content = f"""\
 {HEADER}
@@ -563,7 +593,7 @@ on:
 
 jobs:
   fix-ci:
-    if: github.event.workflow_run.conclusion == 'failure'
+    if: {guard_if}
     runs-on: ubuntu-24.04
     permissions:
 {perms}
@@ -607,6 +637,8 @@ def _generate_scheduled(
 
     setup = _setup_yaml(cfg)
     perms = _permissions()
+    guard = _fork_guard(cfg)
+    if_line = f"    if: {guard}\n" if guard else ""
 
     prompt_lines = "\n".join(f"            {line}" for line in prompt.split("\n"))
     prompt_yaml = f"prompt: |\n{prompt_lines}"
@@ -621,7 +653,7 @@ on:
 
 jobs:
   {name}:
-    runs-on: ubuntu-24.04
+{if_line}    runs-on: ubuntu-24.04
     permissions:
 {perms}
     steps:
@@ -668,6 +700,8 @@ def generate_notifications(cfg: Config) -> GeneratedWorkflow:
     )
     setup = _setup_yaml(cfg, condition=skip_condition)
     perms = _permissions()
+    guard = _fork_guard(cfg)
+    if_line = f"    if: {guard}\n" if guard else ""
 
     prompt_lines = "\n".join(f"            {line}" for line in prompt.split("\n"))
     prompt_yaml = f"prompt: |\n{prompt_lines}"
@@ -682,7 +716,7 @@ on:
 
 jobs:
   notifications:
-    runs-on: ubuntu-24.04
+{if_line}    runs-on: ubuntu-24.04
     permissions:
 {perms}
     steps:
