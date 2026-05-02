@@ -85,16 +85,17 @@ If `IN_PROGRESS > 0`, **skip without marking read** — the next poll will see t
 BOT_LOGIN=$(gh api user --jq '.login')
 NOTIF_UPDATED_AT=<updated_at from the notification>
 
-# Conversation comments (covers issues and PR conversation, not PR reviews)
-gh api "repos/{owner}/{repo}/issues/{number}/comments" \
-  --jq "[.[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"$NOTIF_UPDATED_AT\")] | length"
-```
+# Conversation comments — issues and PR conversation
+gh issue view {number} -R {owner}/{repo} --json comments \
+  --jq "[.comments[] | select(.author.login == \"$BOT_LOGIN\"
+                              and .createdAt > \"$NOTIF_UPDATED_AT\")] | length"
 
-For PR notifications, also check reviews (a separate endpoint):
-
-```bash
-gh api "repos/{owner}/{repo}/pulls/{number}/reviews" \
-  --jq "[.[] | select(.user.login == \"$BOT_LOGIN\" and .submitted_at > \"$NOTIF_UPDATED_AT\")] | length"
+# For PR notifications, fold reviews into one gh pr view --json call
+gh pr view {number} -R {owner}/{repo} --json comments,reviews \
+  --jq "{comments: [.comments[] | select(.author.login == \"$BOT_LOGIN\"
+                                         and .createdAt > \"$NOTIF_UPDATED_AT\")] | length,
+         reviews:  [.reviews[]  | select(.author.login == \"$BOT_LOGIN\"
+                                         and .submittedAt > \"$NOTIF_UPDATED_AT\")] | length}"
 ```
 
 For issue notifications, also check the timeline for bot-authored PRs that cross-reference the issue. `tend-mention` typically handles an `@`-mention-asking-for-a-PR by opening a PR with `Refs #N` in its body — *without* commenting on the issue. The comments check above misses that path, so without this timeline check the same notification races to a duplicate PR from this skill:
