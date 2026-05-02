@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "tend"
 version = "0.0.16"
-description = "Claude-powered CI for GitHub repos"
+description = "An autonomous junior maintainer for GitHub repos, powered by Claude — reviews PRs, triages issues, fixes CI"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [{ name = "Maximilian Roos", email = "m@maxroos.com" }]

@@ -5,13 +5,12 @@
     "email": "m@maxroos.com"
   },
   "metadata": {
-    "description": "Claude-powered CI skills for GitHub repos",
-    "version": "0.1.0"
+    "description": "An autonomous junior maintainer for GitHub repos, powered by Claude — reviews PRs, triages issues, fixes CI"
   },
   "plugins": [
     {
       "name": "install-tend",
-      "description": "Set up tend (Claude-powered CI) on a GitHub repo.",
+      "description": "Set up tend — an autonomous junior maintainer for your GitHub repo, powered by Claude.",
       "source": "./plugins/install-tend"
     },
     {

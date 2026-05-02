@@ -1,6 +1,5 @@
 {
   "name": "tend-ci-runner",
-  "version": "0.1.0",
   "description": "Internal CI skills loaded by tend's GitHub Action. Not for manual installation.",
   "author": {
     "name": "Maximilian Roos",

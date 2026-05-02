@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lists recently completed Claude CI runs.
+# Lists recently completed tend CI runs.
 #
 # Fetches runs started in the past 3 hours, then filters to only those that
 # are completed and whose updatedAt is within the past hour. This two-step

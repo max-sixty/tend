@@ -1,6 +1,7 @@
 name: Tend
 description: >-
-  Claude-powered CI for GitHub repos. Loads CI skills via plugin,
+  An autonomous junior maintainer for GitHub repos, powered by Claude —
+  reviews PRs, triages issues, fixes CI. Loads CI skills via plugin,
   resolves bot identity, runs Claude Code, and uploads session logs.
 
 inputs:

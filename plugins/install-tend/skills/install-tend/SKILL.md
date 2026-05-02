@@ -1,6 +1,6 @@
 ---
 name: install-tend
-description: Sets up tend (Claude-powered CI) on a GitHub repo. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the bot's auth token. Use when setting up tend on a new repo or when asked to install/configure tend.
+description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the bot's auth token. Use when setting up tend on a new repo or when asked to install/configure tend.
 ---
 
 # Install Tend

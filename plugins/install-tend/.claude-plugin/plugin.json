@@ -1,7 +1,6 @@
 {
   "name": "install-tend",
-  "version": "0.1.0",
-  "description": "Set up tend (Claude-powered CI) on a GitHub repo.",
+  "description": "Set up tend — an autonomous junior maintainer for your GitHub repo, powered by Claude.",
   "author": {
     "name": "Maximilian Roos",
     "url": "https://github.com/max-sixty"

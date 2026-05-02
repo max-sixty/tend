@@ -383,7 +383,7 @@ Split unrelated changes into separate PRs — one concern per PR. If one change 
 
 ## Investigating Other CI Runs
 
-Load `/install-tend:debug-ci-session` for session log download, JSONL parsing queries, and diagnostic workflow. The primary evidence for diagnosing bot behavior is the session log artifact — not console output.
+Load `/install-tend:debug-tend-run` for session log download, JSONL parsing queries, and diagnostic workflow. The primary evidence for diagnosing bot behavior is the session log artifact — not console output.
 
 Review-response runs triggered by `pull_request_review` or `pull_request_review_comment` events sometimes produce no artifact when the session is very short.
 
