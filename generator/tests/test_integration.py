@@ -234,6 +234,37 @@ def test_init_files_have_generation_header(
 # ---------------------------------------------------------------------------
 
 
+def test_init_warns_when_canonical_owner_undetected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a detectable canonical owner, `init` emits a warning so the
+    user can fix their gh setup before shipping un-guarded workflows."""
+    _write_config(tmp_path, 'bot_name = "test-bot"')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("tend.cli.detect_canonical_owner", lambda: None)
+
+    result = CliRunner().invoke(main, ["init"])
+    assert result.exit_code == 0
+    assert "could not detect the canonical repo owner" in result.output
+
+
+def test_init_wires_detected_owner_into_workflows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end: cli.init must inject `detect_canonical_owner`'s result
+    into the rendered workflows. The per-file rendered shape (all 6 guarded
+    workflows, with/without a setup step) is already snapshotted by
+    `test_fork_guard_rendered_shape_regtest`; here we only verify the wiring."""
+    _write_config(tmp_path, 'bot_name = "test-bot"')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("tend.cli.detect_canonical_owner", lambda: "PRQL")
+
+    result = CliRunner().invoke(main, ["init"])
+    assert result.exit_code == 0
+    content = (_workflow_dir(tmp_path) / "tend-nightly.yaml").read_text()
+    assert "github.repository_owner == 'PRQL'" in content
+
+
 def test_check_passes_repo_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -128,6 +128,20 @@ def _yaml_scalar(value: object) -> str:
     return dumped
 
 
+def _fork_guard(cfg: Config) -> str:
+    """`if:` expression that skips a job when running outside the canonical owner.
+
+    Compares `github.repository_owner` against the configured owner: `secrets`
+    isn't available in `jobs.<job_id>.if`, and `github.event.repository.fork`
+    is null for `schedule` events, so the owner string is the only check that
+    works across all the affected event types. Returns "" if the owner is
+    unknown — callers omit the guard rather than fail.
+    """
+    if not cfg.repo_owner:
+        return ""
+    return f"github.repository_owner == '{_escape(cfg.repo_owner)}'"
+
+
 def _permissions(issues: bool = True) -> str:
     lines = [
         "      contents: write",
@@ -488,6 +502,8 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
 
     setup = _setup_yaml(cfg)
     perms = _permissions()
+    guard = _fork_guard(cfg)
+    if_block = f"\n    if: {guard}" if guard else ""
 
     content = f"""\
 {HEADER}
@@ -501,7 +517,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  triage:
+  triage:{if_block}
     runs-on: ubuntu-24.04
     permissions:
 {perms}
@@ -551,6 +567,9 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
     perms = _permissions(issues=False)
     watched_yaml = ", ".join(f'"{w}"' for w in watched)
     branches_yaml = ", ".join(f'"{b}"' for b in branches)
+    conclusion_check = "github.event.workflow_run.conclusion == 'failure'"
+    guard = _fork_guard(cfg)
+    guard_if = f"{guard} && {conclusion_check}" if guard else conclusion_check
 
     content = f"""\
 {HEADER}
@@ -563,7 +582,7 @@ on:
 
 jobs:
   fix-ci:
-    if: github.event.workflow_run.conclusion == 'failure'
+    if: {guard_if}
     runs-on: ubuntu-24.04
     permissions:
 {perms}
@@ -607,6 +626,8 @@ def _generate_scheduled(
 
     setup = _setup_yaml(cfg)
     perms = _permissions()
+    guard = _fork_guard(cfg)
+    if_block = f"\n    if: {guard}" if guard else ""
 
     prompt_lines = "\n".join(f"            {line}" for line in prompt.split("\n"))
     prompt_yaml = f"prompt: |\n{prompt_lines}"
@@ -620,7 +641,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  {name}:
+  {name}:{if_block}
     runs-on: ubuntu-24.04
     permissions:
 {perms}
@@ -668,6 +689,8 @@ def generate_notifications(cfg: Config) -> GeneratedWorkflow:
     )
     setup = _setup_yaml(cfg, condition=skip_condition)
     perms = _permissions()
+    guard = _fork_guard(cfg)
+    if_block = f"\n    if: {guard}" if guard else ""
 
     prompt_lines = "\n".join(f"            {line}" for line in prompt.split("\n"))
     prompt_yaml = f"prompt: |\n{prompt_lines}"
@@ -681,7 +704,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  notifications:
+  notifications:{if_block}
     runs-on: ubuntu-24.04
     permissions:
 {perms}

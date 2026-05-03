@@ -18,6 +18,7 @@ from tend.checks import (
     check_branch_protection,
     check_repo_secret_allowlist,
     check_secrets,
+    detect_canonical_owner,
     detect_repo,
     run_all_checks,
 )
@@ -63,6 +64,74 @@ def test_detect_repo_failure() -> None:
 def test_detect_repo_no_gh() -> None:
     with patch("tend.checks._gh", return_value=None):
         assert detect_repo() is None
+
+
+# ---------------------------------------------------------------------------
+# detect_canonical_owner
+# ---------------------------------------------------------------------------
+
+
+def _gh_for(repo: str, api_body: dict | None) -> object:
+    """Build a `_gh` fake: `gh repo view` returns `repo`; `gh api repos/<repo>`
+    returns `api_body` as JSON (or returncode=1 if None)."""
+
+    def fake(*args: str, **kwargs: object) -> subprocess.CompletedProcess[str] | None:
+        if args[0] == "repo" and args[1] == "view":
+            return _make_completed(f"{repo}\n")
+        if args[0] == "api" and args[1].startswith("repos/"):
+            if api_body is None:
+                return _make_completed(returncode=1)
+            return _make_completed(json.dumps(api_body) + "\n")
+        return _make_completed(returncode=1)
+
+    return fake
+
+
+def test_detect_canonical_owner_non_fork() -> None:
+    """Non-fork repo: API returns fork=false; use .owner.login."""
+    body = {"fork": False, "owner": {"login": "PRQL"}, "source": None}
+    with patch("tend.checks._gh", side_effect=_gh_for("PRQL/prql", body)):
+        assert detect_canonical_owner() == "PRQL"
+
+
+def test_detect_canonical_owner_walks_to_source_for_fork() -> None:
+    """Fork-of-canonical (cloned-fork-only setup): use .source.owner.login
+    so the guard matches the canonical, not whoever is running `tend init`."""
+    body = {
+        "fork": True,
+        "owner": {"login": "max-sixty"},
+        "source": {"owner": {"login": "PRQL"}},
+    }
+    with patch("tend.checks._gh", side_effect=_gh_for("max-sixty/prql", body)):
+        assert detect_canonical_owner() == "PRQL"
+
+
+def test_detect_canonical_owner_chained_fork_uses_source_not_parent() -> None:
+    """Chained forks (alice → bob → canonical): .source is the root, so
+    one API call resolves correctly without walking parent links."""
+    body = {
+        "fork": True,
+        "owner": {"login": "alice"},
+        "source": {"owner": {"login": "canonical-org"}},
+    }
+    with patch("tend.checks._gh", side_effect=_gh_for("alice/repo", body)):
+        assert detect_canonical_owner() == "canonical-org"
+
+
+def test_detect_canonical_owner_no_gh() -> None:
+    """When `gh` isn't installed, both calls return None — degrade to None
+    so cli.init warns rather than shipping an empty/wrong owner string."""
+    with patch("tend.checks._gh", return_value=None):
+        assert detect_canonical_owner() is None
+
+
+def test_detect_canonical_owner_api_failure_returns_none() -> None:
+    """If `gh repo view` works but the API call fails (rate limit, auth,
+    network), return None rather than the view's possibly-fork answer.
+    Shipping the fork owner in the guard would silently no-op on canonical —
+    worse than no guard at all."""
+    with patch("tend.checks._gh", side_effect=_gh_for("max-sixty/prql", None)):
+        assert detect_canonical_owner() is None
 
 
 # ---------------------------------------------------------------------------

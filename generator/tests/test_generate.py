@@ -522,6 +522,154 @@ def test_mention_prompt_omits_delay_when_empty(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Fork guard
+# ---------------------------------------------------------------------------
+
+
+# Filenames whose only triggers are `schedule`, `workflow_dispatch`,
+# `workflow_run`, or `issues` — events that can fire from a fork's own Actions
+# once Actions is enabled there. Without the guard, the `tend@v1` step fails
+# noisily because the bot/Claude secrets are empty in the fork's secret store.
+_GUARDED_WORKFLOWS = [
+    "tend-ci-fix.yaml",
+    "tend-nightly.yaml",
+    "tend-weekly.yaml",
+    "tend-review-runs.yaml",
+    "tend-notifications.yaml",
+    "tend-triage.yaml",
+]
+# tend-review uses pull_request_target (base repo only); tend-mention's
+# review-event paths already filter forks, and `issues`/`issue_comment` events
+# are unguarded by design (forks rarely enable Issues, and gating here would
+# silently drop legitimate same-repo activity if the owner is misconfigured).
+_UNGUARDED_WORKFLOWS = ["tend-review.yaml", "tend-mention.yaml"]
+
+
+@pytest.mark.parametrize("filename", _GUARDED_WORKFLOWS)
+def test_fork_guard_present_when_repo_owner_set(tmp_path: Path, filename: str) -> None:
+    """Each fork-exposed workflow must skip on owner mismatch.
+
+    `cli.init` injects `repo_owner` from the local git remote; here we set it
+    on the loaded Config to mirror that injection in a unit-test context.
+    """
+    name = filename.removeprefix("tend-").removesuffix(".yaml")
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for(name)))
+    cfg.repo_owner = "test-owner"
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(workflows[filename].content)
+    job_ifs = [j.get("if", "") for j in data["jobs"].values()]
+    assert any("github.repository_owner == 'test-owner'" in cond for cond in job_ifs), (
+        f"{filename} job must include the fork guard (job ifs: {job_ifs})"
+    )
+
+
+@pytest.mark.parametrize("filename", _UNGUARDED_WORKFLOWS)
+def test_fork_guard_absent_for_unguarded(tmp_path: Path, filename: str) -> None:
+    """tend-review (pull_request_target) and tend-mention (own filtering) must
+    not get a job-level repo_owner guard — adding one would drop legitimate
+    activity on those workflows if owner is misconfigured."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    cfg.repo_owner = "test-owner"
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(workflows[filename].content)
+    for job_name, job in data["jobs"].items():
+        cond = job.get("if", "")
+        assert "github.repository_owner" not in cond, (
+            f"{filename} job '{job_name}' must not contain a repository_owner guard"
+        )
+
+
+def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
+    """When auto-detection fails (non-github remote, no remote, etc.), no
+    guard is rendered and workflows behave as they did pre-change."""
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-fix")))
+    # cfg.repo_owner is "" by default — Config.load does not auto-detect.
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    for filename in _GUARDED_WORKFLOWS:
+        data = yaml.safe_load(workflows[filename].content)
+        for job_name, job in data["jobs"].items():
+            assert "github.repository_owner" not in job.get("if", ""), (
+                f"{filename} job '{job_name}' must not contain the guard "
+                "when repo_owner is unset"
+            )
+    # ci-fix's pre-existing conclusion check must survive even without the guard
+    ci_fix = yaml.safe_load(workflows["tend-ci-fix.yaml"].content)
+    assert (
+        ci_fix["jobs"]["fix-ci"]["if"]
+        == "github.event.workflow_run.conclusion == 'failure'"
+    )
+
+
+@pytest.mark.parametrize(
+    "workflow_name,job_name,user_if,extra_setup",
+    [
+        # Triage: the guard is the *only* job-level if; clobbering loses just it.
+        (
+            "triage",
+            "triage",
+            "github.event.issue.author_association != 'NONE'",
+            "",
+        ),
+        # ci-fix: the rendered if is `<guard> && <conclusion-check>`. Clobbering
+        # removes BOTH — so the workflow would also lose its "only run on
+        # failure" gate. More interesting than triage because runtime semantics
+        # change beyond just the fork guard.
+        (
+            "ci-fix",
+            "fix-ci",
+            "github.actor == 'tend-agent'",
+            '[workflows.ci-fix]\nwatched_workflows = ["ci"]\n',
+        ),
+    ],
+)
+def test_user_job_if_extra_replaces_fork_guard(
+    tmp_path: Path,
+    workflow_name: str,
+    job_name: str,
+    user_if: str,
+    extra_setup: str,
+) -> None:
+    """A user-supplied `[workflows.X.jobs.X] if = "..."` replaces the rendered
+    job-level if via RFC 7396 scalar replacement — this includes the fork
+    guard *and* any other conditions tend composed with it (ci-fix's
+    conclusion check, future combined ifs).
+
+    Pins current behavior so a future merge-strategy change is a deliberate
+    choice, not an accident. If we ever decide to compose user extras with
+    the rendered conditions instead of letting them clobber, this test fails
+    loudly and docs/example.toml should be updated alongside.
+    """
+    extra = dedent(f"""\
+        {extra_setup}
+        [workflows.{workflow_name}.jobs.{job_name}]
+        if = "{user_if}"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    cfg.repo_owner = "test-owner"
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(workflows[f"tend-{workflow_name}.yaml"].content)
+    rendered_if = data["jobs"][job_name]["if"]
+    # User condition wins outright — no `&&`, no guard, no other conditions.
+    assert rendered_if == user_if
+    assert "github.repository_owner" not in rendered_if
+
+
+@pytest.mark.parametrize("filename", _GUARDED_WORKFLOWS)
+def test_fork_guard_rendered_shape_regtest(
+    regtest: object, tmp_path: Path, filename: str
+) -> None:
+    """Snapshot the production rendered shape (with the guard line) for every
+    fork-exposed workflow, so indentation or structural drift in the rendered
+    `if:` line is caught — the `_minimal_config`-based regtests above only
+    cover the no-guard fallback."""
+    name = filename.removeprefix("tend-").removesuffix(".yaml")
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for(name)))
+    cfg.repo_owner = "test-owner"
+    wf = next(w for w in generate_all(cfg) if w.filename == filename)
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
 # Pass-through extras (workflow_extra / jobs)
 # ---------------------------------------------------------------------------
 

@@ -9,6 +9,7 @@ import click
 
 from tend.checks import (
     CheckResult,
+    detect_canonical_owner,
     detect_default_branch,
     detect_repo,
     fix_branch_protection,
@@ -67,6 +68,16 @@ def init(config_path: Path | None, dry_run: bool) -> None:
     """Generate workflow files from config. Idempotent — always overwrites."""
     cfg = Config.load(config_path)
     cfg.default_branch = _detect_default_branch_local()
+    cfg.repo_owner = detect_canonical_owner() or ""
+    if not cfg.repo_owner:
+        click.echo(
+            "Warning: could not detect the canonical repo owner via `gh` "
+            "(install gh and run `gh repo set-default` if multiple remotes "
+            "are configured). Generated workflows will not include the fork "
+            "guard, so jobs may fail noisily if a contributor runs them from "
+            "a fork.",
+            err=True,
+        )
     outdir = Path(".github/workflows")
 
     workflows = generate_all(cfg)

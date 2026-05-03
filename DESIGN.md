@@ -407,6 +407,22 @@ consumes no resources.
 | **triage** | `issues` (opened) | Issue author is not bot | Bot-opened issues (prevents self-triage loop) |
 | **ci-fix** | `workflow_run` | Triggering workflow concluded with failure | Successful CI runs |
 
+**Fork guard.** Workflows whose triggers can fire from a fork's own Actions
+(`schedule`, `workflow_dispatch`, `workflow_run`, `issues`) carry an extra
+`if: github.repository_owner == '<owner>'` so they no-op rather than fail
+noisily on a fork that's enabled Actions but doesn't have the bot/Claude
+secrets. This covers `tend-ci-fix`, `tend-triage`, `tend-nightly`,
+`tend-weekly`, `tend-review-runs`, and `tend-notifications`. `tend-review`
+uses `pull_request_target` (base repo only) and `tend-mention`'s
+review-event paths already filter forks via `head.repo.full_name ==
+github.repository`, so neither needs the extra guard. Owner is detected at
+`init` time by `checks.detect_canonical_owner` — `gh repo view` resolves
+the directory's default repo, then if it turns out to be a fork the API's
+`source.owner.login` walks to the root canonical (handles chained forks
+too). The workflows live in and ship to the canonical, so the guard string
+must always match the canonical owner regardless of where `init` runs from.
+If `gh` isn't available, `init` warns and the guard is omitted.
+
 ### Layer 2: Custom `should_run` logic (mention only)
 
 The mention workflow has a lightweight **verify** job that checks whether the

@@ -53,6 +53,35 @@ def detect_repo() -> str | None:
     return None
 
 
+def detect_canonical_owner() -> str | None:
+    """Detect the *canonical* owner of the repo this directory is associated with.
+
+    Tend's generated workflows are committed and shipped to the canonical
+    repo, so the fork guard string must match the canonical owner — not
+    whoever happens to be running `tend init` from a fork.
+
+    `gh repo view` resolves the directory's default repo (already canonical
+    when `upstream` is configured or `gh repo set-default` set). Then a
+    single `gh api repos/<owner>/<name>` call returns `.fork`, `.owner.login`,
+    and `.source.owner.login` — `source` is the *root* canonical, so chained
+    forks (alice → bob → canonical) resolve correctly in one call.
+
+    Returns None when `gh` is unavailable or either call fails. Callers
+    treat that as "skip the guard"; we never silently ship a fork owner
+    in the guard string.
+    """
+    repo = detect_repo()
+    if repo is None:
+        return None
+    result = _gh("api", f"repos/{repo}")
+    if not result or result.returncode != 0:
+        return None
+    data = json.loads(result.stdout)
+    if data["fork"]:
+        return data["source"]["owner"]["login"]
+    return data["owner"]["login"]
+
+
 def detect_default_branch(repo: str) -> str | None:
     """Detect the default branch for a repo via the GitHub API."""
     result = _gh("api", f"repos/{repo}", "--jq", ".default_branch")
