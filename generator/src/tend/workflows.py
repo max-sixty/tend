@@ -503,7 +503,7 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
     setup = _setup_yaml(cfg)
     perms = _permissions()
     guard = _fork_guard(cfg)
-    if_line = f"    if: {guard}\n" if guard else ""
+    if_block = f"\n    if: {guard}" if guard else ""
 
     content = f"""\
 {HEADER}
@@ -517,8 +517,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  triage:
-{if_line}    runs-on: ubuntu-24.04
+  triage:{if_block}
+    runs-on: ubuntu-24.04
     permissions:
 {perms}
     steps:
@@ -627,7 +627,7 @@ def _generate_scheduled(
     setup = _setup_yaml(cfg)
     perms = _permissions()
     guard = _fork_guard(cfg)
-    if_line = f"    if: {guard}\n" if guard else ""
+    if_block = f"\n    if: {guard}" if guard else ""
 
     prompt_lines = "\n".join(f"            {line}" for line in prompt.split("\n"))
     prompt_yaml = f"prompt: |\n{prompt_lines}"
@@ -641,8 +641,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  {name}:
-{if_line}    runs-on: ubuntu-24.04
+  {name}:{if_block}
+    runs-on: ubuntu-24.04
     permissions:
 {perms}
     steps:
@@ -690,7 +690,7 @@ def generate_notifications(cfg: Config) -> GeneratedWorkflow:
     setup = _setup_yaml(cfg, condition=skip_condition)
     perms = _permissions()
     guard = _fork_guard(cfg)
-    if_line = f"    if: {guard}\n" if guard else ""
+    if_block = f"\n    if: {guard}" if guard else ""
 
     prompt_lines = "\n".join(f"            {line}" for line in prompt.split("\n"))
     prompt_yaml = f"prompt: |\n{prompt_lines}"
@@ -704,8 +704,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  notifications:
-{if_line}    runs-on: ubuntu-24.04
+  notifications:{if_block}
+    runs-on: ubuntu-24.04
     permissions:
 {perms}
     steps:
