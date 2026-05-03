@@ -76,6 +76,14 @@ For each open issue, check whether recent commits or the current codebase state 
 
 Otherwise, leave it open for a maintainer to close.
 
+### Enrich tend-outage issues
+
+The action's "Report failure" step records only a workflow run link in `tend-outage` issues — annotations and job logs aren't reliably available while the job is in_progress. Run the enrichment script to fetch failure details for each newly referenced run and post them as a comment. The script is idempotent: it skips runs already marked with `<!-- enriched-run:RUN_ID -->`.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/enrich-tend-outage-issues.sh"
+```
+
 ## Step 5: Rolling survey
 
 Run the survey script to get today's file list (rotating through the full repo over 28 days):
