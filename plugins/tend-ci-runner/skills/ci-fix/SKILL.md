@@ -20,36 +20,16 @@ Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, po
 
 ### 1. Check for existing fixes
 
-Check open and recently closed bot-authored `fix/ci-*` PRs, plus any open PR touching the failing workflow file (catches maintainer-authored fixes that don't follow the bot's branch convention). A maintainer may have closed a prior workaround with a rejection rationale (e.g. "we'll fix upstream"); re-deriving the same fix forces them to close it twice.
+List recent PRs (open and closed) and check whether any already address the same failure — a prior bot attempt, a prior bot fix a maintainer rejected, or a maintainer's in-flight fix under any branch name.
 
 ```bash
-BOT_LOGIN=$(gh api user --jq '.login')
-
-# Open dedup by branch prefix (bot-authored fixes):
-gh pr list --state open --head "fix/ci-" --json number,title,body,headRefName
-
-# Closed dedup — last ~14 days, bot-authored:
-gh pr list --state closed --author "$BOT_LOGIN" --search "head:fix/ci-" \
-  --json number,title,closedAt,body,headRefName \
-  --jq '[.[] | select((now - (.closedAt | fromdateiso8601)) < 1209600)] | .[]'
-
-# Open dedup by failing workflow file — catches maintainer-authored fixes
-# under any branch name. Resolve WORKFLOW_FILE from the failed run:
-#   WORKFLOW_FILE=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/<run-id>" --jq '.path')
-gh pr list --state open --limit 100 --json number,title,author,headRefName,files \
-  | jq --arg wf "$WORKFLOW_FILE" \
-       '[.[] | select([.files[].path] | index($wf))
-              | {number, title, author: .author.login, headRefName}]'
+gh pr list --state all --limit 30 --json number,title,state,author,headRefName,body,closedAt
 ```
 
-Match by **failure shape** rather than branch name — branch names encode run IDs and never repeat. For bot-authored hits, compare the diagnostic snippet in the PR body. For workflow-file hits from non-bot authors, read the PR diff and check whether it targets the same root cause.
+Match by **failure shape** — the diagnostic snippet in the bot's PR body, or the diff for a maintainer-authored PR — not branch name; branch names encode run IDs and never repeat.
 
-If an existing open PR — bot or maintainer — addresses the same failure, comment on it linking the new run and stop. If a closed PR with a maintainer rejection covers the same failure, exit silently; check the closure comment / review for the rationale before referencing it.
-
-Two gotchas:
-
-- Use the `head:fix/ci-` **search qualifier** (or `--head fix/ci-` — gh translates it to the same query). Don't use `in:head` — that's silently dropped and falls back to default-field text matching.
-- Request `body` in `--json` for the branch-prefix queries — the failure diagnostic written by the prior ci-fix run lives there, and shape-matching needs it.
+- If an existing **open** PR addresses the same failure, comment on it linking the new run and stop.
+- If a **closed** PR with a maintainer rejection covers the same failure, exit silently; check the closure comment for the rationale before referencing it. Re-deriving the same fix forces a maintainer to close it twice.
 
 ### 2. Diagnose and fix
 
