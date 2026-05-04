@@ -431,7 +431,7 @@ When a project has user-facing documentation (a docs site, `--help` pages, a wik
 
 If you can't find source evidence for a specific detail, say so ("I'm not sure of the exact syntax") rather than guessing. An honest gap is fixable; a confident hallucination gets copy-pasted.
 
-### Two specific failure modes
+### Specific failure modes
 
 **Links must be fetched, not guessed.** Before pasting any URL in a comment, run `curl -sI <url> | head -1` and confirm `200`. Docs-site slugs are particularly treacherous — `escaping.html` and `quoting.html` and `quote-strings.html` are all plausible nushell page names; only one (or none) actually exists. The canonical source for that project's docs sidebar will tell you which.
 
