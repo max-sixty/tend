@@ -5,7 +5,7 @@
 # are completed and whose updatedAt is within the past hour. This two-step
 # approach is needed because `gh run list --created` filters by *start* time,
 # not *end* time — a run started 2h ago may have just finished, and a run
-# started 50min ago may still be running. See #1301 for details.
+# started 50min ago may still be running.
 #
 # Environment variables:
 #   TARGET_REPO - Query a different repo (default: current repo)
