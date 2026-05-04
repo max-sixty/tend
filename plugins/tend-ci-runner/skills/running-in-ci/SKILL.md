@@ -431,9 +431,11 @@ When a project has user-facing documentation (a docs site, `--help` pages, a wik
 
 If you can't find source evidence for a specific detail, say so ("I'm not sure of the exact syntax") rather than guessing. An honest gap is fixable; a confident hallucination gets copy-pasted.
 
-### Two specific failure modes
+### Specific failure modes
 
 **Links must be fetched, not guessed.** Before pasting any URL in a comment, run `curl -sI <url> | head -1` and confirm `200`. Docs-site slugs are particularly treacherous — `escaping.html` and `quoting.html` and `quote-strings.html` are all plausible nushell page names; only one (or none) actually exists. The canonical source for that project's docs sidebar will tell you which.
+
+**`--jq` projections must include the ID when downstream URLs cite individual items.** Composing `actions/runs/<id>`, `#issuecomment-<id>`, or `pull/<n>` URLs from `gh run list` / `gh api .../comments` / `gh pr list` results requires the ID field in the projection (`databaseId` for runs, `id` for comments, `number` for PRs/issues). If the projection kept only timestamps, titles, or bodies, the bot composes the URL from what it has and fabricates the missing ID — the link 404s. Re-query with the ID field rather than guessing.
 
 **"Likely" is a stop-sign.** If a draft contains "likely works", "probably parses as", "should behave like", or "I think" in a user-facing claim, you have two options: verify and replace the hedge with the answer, or hedge explicitly ("I haven't tested this — would appreciate if you can confirm") and don't dress up the guess as analysis. Posting an unverified guess as confident-sounding analysis is the hallucination shape that erodes trust the fastest.
 
