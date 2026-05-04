@@ -24,9 +24,18 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
 
 1. Check CI status: `gh pr checks <number>`
 2. If CI is passing, review the diff for breaking changes (major version bumps, API changes, deprecation warnings)
-3. If the update is safe (patch/minor with green CI), approve:
+3. If the update is safe (patch/minor with green CI), check whether the bot has already approved this commit before approving — a dependabot PR open across multiple weekly runs (or already approved by `tend-review` on creation) would otherwise accumulate redundant approvals on the same `commit_id`:
    ```bash
-   gh pr review <number> --approve --body "Automated dependency update — CI passing, no breaking changes."
+   HEAD_SHA=$(gh pr view <number> --json commits --jq '.commits[-1].oid')
+   BOT_LOGIN=$(gh api user --jq '.login')
+   LAST_APPROVAL_SHA=$(gh pr view <number> --json reviews \
+     --jq "[.reviews[] | select(.author.login == \"$BOT_LOGIN\" and .state == \"APPROVED\")] | last | .commit.oid // empty")
+
+   if [ "$LAST_APPROVAL_SHA" = "$HEAD_SHA" ]; then
+     echo "Already approved on this commit; skipping."
+   else
+     gh pr review <number> --approve --body "Automated dependency update — CI passing, no breaking changes."
+   fi
    ```
 4. If CI is failing, comment with the failure summary and skip
 5. If a major version bump, comment noting it needs manual review and skip
