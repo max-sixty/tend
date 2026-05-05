@@ -5,7 +5,11 @@ description: Sets up tend — an autonomous junior maintainer for a GitHub repo,
 
 # Install Tend
 
-Set up tend on the current repo. Ask the user for the bot name if not provided.
+Set up tend on the current repo. If the user hasn't supplied a bot name,
+get one via `AskUserQuestion` before step 1 using the candidate-generation
+pattern from step 6 (`<repo>-bot`, `<repo>-tend`, `tend-<repo>`, parallel
+availability check, present available ones). The user can pick "Other"
+to supply a custom name.
 
 When asking the user questions during these steps, use the `AskUserQuestion`
 tool — present concrete options when there are clear choices (e.g. bio
@@ -135,7 +139,18 @@ watched_workflows = ["ci", "lint"]  # names of workflows to watch
 If no CI workflows exist, either skip ci-fix (`enabled = false`) or help the
 user create one first.
 
-Ask the user about other overrides (setup steps, workflow overrides).
+Ask via `AskUserQuestion` (`multiSelect: true`) which other overrides
+they want to set. Skip-all is fine — defaults are sensible:
+
+- Setup steps (system deps, language version, pre-build hooks)
+- Workflow conditions (e.g., skip review on `tend:dismissed` PRs — see below)
+- Schedule overrides (cron timing for nightly/weekly)
+- Permissions / timeouts on specific jobs
+- Top-level env vars
+
+For each selected category, follow up with a free-text ask, then write
+the override into `.config/tend.toml`. See the next subsection for
+override syntax.
 
 ### Customizing generated workflow YAML
 
