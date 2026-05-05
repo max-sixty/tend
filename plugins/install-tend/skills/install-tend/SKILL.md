@@ -307,15 +307,15 @@ gists; `user` lets step 10 set the bio via `PATCH /user`.)
 Have the user run, in any terminal:
 
 ```bash
-env -u GITHUB_TOKEN gh auth login --hostname github.com --git-protocol https --web \
+env -u GH_TOKEN -u GITHUB_TOKEN gh auth login --hostname github.com --git-protocol https --web \
   --scopes repo,workflow,notifications,write:discussion,gist,user
 ```
 
-`env -u GITHUB_TOKEN` is required: if `GITHUB_TOKEN` is set in the
-environment, `gh auth login` short-circuits with "The value of the
-GITHUB_TOKEN environment variable is being used for authentication"
-and never runs the keyring flow. Unsetting it for this one command
-keeps the user's normal env intact.
+Unsetting both `GH_TOKEN` and `GITHUB_TOKEN` is required: `gh` checks
+them in that precedence, and either being set makes `gh auth login`
+short-circuit with "The value of the … environment variable is being
+used for authentication" and skip the keyring/device-code flow.
+Unsetting them for this one command keeps the user's normal env intact.
 
 `gh` prints a one-time code and the URL `https://github.com/login/device`.
 The user opens that URL in any browser logged in as the bot, pastes the
