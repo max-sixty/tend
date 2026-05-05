@@ -7,6 +7,30 @@ description: Sets up tend — an autonomous junior maintainer for a GitHub repo,
 
 Set up tend on the current repo. Ask the user for the bot name if not provided.
 
+When asking the user questions during these steps, use the `AskUserQuestion`
+tool — present concrete options when there are clear choices (e.g. bio
+stance, badge style, secret-migration confirmation).
+
+When a question requires the user to do something off-screen (visit a URL,
+run a command, paste a value back), spell the next step out in the question
+or option description: the exact web link, the exact command. "Generate a
+token on the registry's site" is not enough — give the URL. The user should
+not have to ask "where do I do that?".
+
+## Kickoff
+
+Before running step 1, lay out the plan and confirm:
+
+- List the steps you'll be running (the section headings below: Create
+  config → Generate workflows → Branch protection → Skill overlay →
+  Badge → Bot account → Claude OAuth token → Bot token → Grant access →
+  Bot bio → Commit) so the user knows what's coming.
+- Tell them it typically takes 5–10 minutes of their hands-on time
+  (browser logins, OAuth approvals, occasional copy-paste); the agent
+  drives the rest.
+- Confirm via `AskUserQuestion` ("Ready to start?") before beginning
+  step 1. Don't proceed until they say yes.
+
 Follow each step in order. Skip steps that are already done — check each
 prerequisite before acting. Derive `REPO` once at the start:
 
@@ -45,15 +69,52 @@ suggest overriding the default name rather than creating a duplicate:
 bot_token = "GH_BOT_TOKEN"
 ```
 
-If the secret list shows non-bot repo-level secrets (e.g., `CODECOV_TOKEN`,
-`SENTRY_DSN`), add them to `secrets.allowed` so `tend check` doesn't flag them.
-Any secret not in the allowlist triggers a warning — release secrets (registry
-tokens, signing keys) should be in a protected environment, not listed here:
+Any repo-level secret not in `secrets.allowed` triggers a `tend check`
+warning. Classify each non-bot secret and act now — don't defer:
 
-```toml
-[secrets]
-allowed = ["CODECOV_TOKEN"]
-```
+- Build/observability tokens (e.g., `CODECOV_TOKEN`, `SENTRY_DSN`) are
+  fine at the repo level. Add them to the allowlist:
+
+  ```toml
+  [secrets]
+  allowed = ["CODECOV_TOKEN"]
+  ```
+
+- Release secrets (registry tokens like `PYPI_TOKEN`/`NPM_TOKEN`, signing
+  keys, deploy credentials) at the repo level are reachable from any
+  workflow run. Don't allowlist them. Propose moving them to a protected
+  environment and do the migration in this session: create the environment
+  (gated on the default branch with required reviewers), recreate the
+  secret there, delete the repo-level secret, and set `environment: <name>`
+  on the publishing job. Confirm with `AskUserQuestion` before deleting
+  the original.
+
+  The original repo-level secret value isn't readable (GitHub secrets are
+  write-only), so a fresh token is needed. Ask the user via `AskUserQuestion`
+  how to obtain it; recommend whichever fits the registry:
+
+  - **CLI** — if the registry has a token-issuing CLI (e.g., `npm token create`),
+    run it and capture the token.
+  - **Chrome** — drive the registry's token page via `mcp__claude-in-chrome`
+    (most registries — PyPI, crates.io, Docker Hub — only issue tokens via
+    the web UI).
+  - **Manual** — user generates the token themselves on the registry's
+    site and pastes it back.
+
+  Whichever route is chosen, include the exact token-creation URL in
+  the question or option description (and in the follow-up message if
+  manual). Common registries:
+
+  - PyPI: `https://pypi.org/manage/account/token/`
+  - npm: `https://www.npmjs.com/settings/<user>/tokens/new` (or `npm token create`)
+  - crates.io: `https://crates.io/settings/tokens`
+  - Docker Hub: `https://app.docker.com/settings/personal-access-tokens`
+  - GitHub Packages / deploy: `https://github.com/settings/tokens`
+
+  For other registries, look up the token page before asking. Accept any
+  other route the user suggests. Never ask the user to dig the old token
+  out of their password manager and re-paste it — issuing a fresh token
+  and revoking the old one is part of the migration's point.
 
 Discover existing CI workflows so tend-ci-fix can watch them:
 
@@ -188,10 +249,16 @@ example, if the repo uses `style=for-the-badge`, append
 `&style=for-the-badge` to the URL. If no existing badges or no style
 parameter, use the default (no style parameter needed).
 
-Show the user the rendered badge and ask before inserting. Place it near
-the top of the README — after the title/heading but before the first
-paragraph. If there are already badges on that line, append to the same
-line.
+Use `AskUserQuestion` to confirm. Describe the badge briefly in the
+question ("an olive-green 'maintained with tend' badge with the tend
+wordmark") — do NOT paste the raw `img.shields.io` URL or its base64
+logo blob into the chat; the blob is hundreds of characters of noise.
+The user only needs to decide yes/no, not eyeball the URL. Insert the
+markdown directly into the README on confirmation.
+
+Place it near the top of the README — after the title/heading but
+before the first paragraph. If there are already badges on that line,
+append to the same line.
 
 If no README exists, skip this step.
 
@@ -240,14 +307,32 @@ gists; `user` lets step 10 set the bio via `PATCH /user`.)
 Have the user run, in any terminal:
 
 ```bash
-gh auth login --hostname github.com --git-protocol https --web \
+env -u GH_TOKEN -u GITHUB_TOKEN gh auth login --hostname github.com --git-protocol https --web \
   --scopes repo,workflow,notifications,write:discussion,gist,user
 ```
+
+Unsetting both `GH_TOKEN` and `GITHUB_TOKEN` is required: `gh` checks
+them in that precedence, and either being set makes `gh auth login`
+short-circuit with "The value of the … environment variable is being
+used for authentication" and skip the keyring/device-code flow.
+Unsetting them for this one command keeps the user's normal env intact.
 
 `gh` prints a one-time code and the URL `https://github.com/login/device`.
 The user opens that URL in any browser logged in as the bot, pastes the
 code, and authorizes. gh stores the token in keyring and makes the bot
 the active account.
+
+`gh auth login` has no `--user` flag — the GitHub user it binds to is
+whoever was logged into github.com in the approving browser session.
+Verify before continuing:
+
+```bash
+gh api user --jq '.login'
+```
+
+This must print the bot name. Anything else means the wrong account
+approved the device code — run `gh auth logout --user <wrong-name>`
+and retry. Don't proceed to the secret-set step until this matches.
 
 Switch gh back to the maintainer (whose token has admin on the repo),
 copy the bot's token to the repo secret, and verify:
