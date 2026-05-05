@@ -97,7 +97,9 @@ warning. Classify each non-bot secret and act now — don't defer:
     run it and capture the token.
   - **Chrome** — drive the registry's token page via `mcp__claude-in-chrome`
     (most registries — PyPI, crates.io, Docker Hub — only issue tokens via
-    the web UI).
+    the web UI). Some registries (PyPI in particular) force a 2FA reauth
+    at token-creation time; Chrome MCP can't drive that second factor.
+    If the reauth prompt appears, fall back to Manual.
   - **Manual** — user generates the token themselves on the registry's
     site and pastes it back.
 
@@ -214,8 +216,9 @@ guidance. This skill is loaded by tend workflows alongside the generic
 
 **Do NOT duplicate CLAUDE.md** and **do NOT invent project conventions.**
 
-Ask the user whether they have tend-specific preferences that differ
-from defaults. Examples of things that vary between projects:
+Ask via `AskUserQuestion` (`multiSelect: true`) which tend-specific
+preferences they want to capture. Skipping all is fine — the placeholder
+below covers that case.
 
 - PR title format (e.g., conventional commits, Jira ticket prefix)
 - Labels the bot should apply to its PRs
@@ -223,7 +226,9 @@ from defaults. Examples of things that vary between projects:
 - Target branch if not the default branch
 - Optional nightly actions (e.g., changelog maintenance — specify file and branch)
 
-If the user has preferences, add them. Otherwise create a placeholder:
+For each selected item, follow up with a free-text ask to capture the
+specifics, then write them into the overlay. If nothing is selected,
+create a placeholder:
 
 ```markdown
 No project-specific tend preferences yet. Add guidance here as
@@ -270,12 +275,19 @@ gh api users/<bot-name> --jq '.login,.id' 2>/dev/null && echo "EXISTS" || echo "
 
 If the account doesn't exist:
 
-1. If the user hasn't chosen a name yet, check availability of candidates
-   using `gh api users/<name>` (404 = available). Suggest options.
-2. Navigate Chrome to `https://github.com/signup`. The user must create the
-   account themselves (account creation is a prohibited action for Claude).
-3. If a verification code is needed, use the `/jean-claude` skill to
-   search Gmail: `/jean-claude gmail search "from:github subject:code" -n 1`
+1. If the user hasn't chosen a name yet, generate three candidates
+   (e.g. `<repo>-bot`, `<repo>-tend`, `tend-<repo>`), check availability
+   in parallel, and present the available ones via `AskUserQuestion`:
+
+   ```bash
+   for name in cand1 cand2 cand3; do
+     gh api "users/$name" >/dev/null 2>&1 && echo "$name: TAKEN" || echo "$name: available"
+   done
+   ```
+2. Navigate Chrome to `https://github.com/signup`.
+3. If a verification code is needed and an email-reading skill or MCP is
+   available, use it to fetch the latest GitHub verification email
+   (`from:github subject:code`); otherwise have the user paste the code.
 4. After confirmation, re-verify via API.
 
 ## 7. Claude OAuth token
@@ -287,11 +299,27 @@ subscription (Max/Team) for billing. Not an API key from console.anthropic.com.
 gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q CLAUDE_CODE_OAUTH_TOKEN && echo "SET" || echo "NOT SET"
 ```
 
-If not set, obtain the token via `${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh`
-(OAuth 2.0 PKCE flow, opens browser, token valid for 1 year):
+If not set, ask the user via `AskUserQuestion` how to obtain it. Token is
+valid for 1 year. Detect `command -v claude` first — if missing,
+recommend Manual outright (point them at `https://claude.com/claude-code`
+to install).
+
+- **CLI (recommended when `claude` is on PATH)** — run the bundled
+  wrapper, which invokes `claude setup-token` (OAuth 2.0 PKCE, opens
+  browser):
+
+  ```bash
+  TOKEN=$("${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh")
+  ```
+
+- **Manual** — have the user run `claude setup-token` in any terminal
+  themselves and paste the `sk-ant-oat01-…` token back. Use this if the
+  wrapper fails (its PTY trick can break in some shells) or `claude`
+  isn't installed locally.
+
+Then store the secret:
 
 ```bash
-TOKEN=$("${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh")
 echo "$TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO"
 ```
 
@@ -369,12 +397,13 @@ bot to do, then reflect that stance in the bot's profile bio (≤160 chars)
 so it's discoverable on the bot's user page. This is advisory — the bot
 doesn't gate behavior on it.
 
-Ask the creator which stance applies. Each option is a drop-in bio suffix;
-the middle one is the recommended default.
+Ask the creator via `AskUserQuestion` which stance applies. Substitute
+`<owner>/<repo>` at ask time. Order options recommended-first and mark
+the recommended one explicitly:
 
-- `tend agent for <owner>/<repo>. Feel free to ask me questions about <repo>.`
-- `tend agent for <owner>/<repo>. I triage issues and help maintain <repo>.` (recommended)
-- `tend agent for <owner>/<repo>. I respond to maintainers of <repo>.`
+- `tend agent for <owner>/<repo>. I triage issues and help maintain <repo>.` (Recommended — invites issue/PR engagement without inviting open-ended Q&A)
+- `tend agent for <owner>/<repo>. Feel free to ask me questions about <repo>.` (Most permissive — invites contributor questions)
+- `tend agent for <owner>/<repo>. I respond to maintainers of <repo>.` (Most restrictive — limits engagement to maintainers)
 
 Check the current bio as the bot — skip if already set to the chosen value:
 
