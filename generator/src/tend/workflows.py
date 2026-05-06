@@ -426,7 +426,13 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
-
+{setup}
+      # Setup runs against the default branch above; switching to the PR
+      # branch *after* setup means a stale PR (whose tree predates a local
+      # composite action like ./.github/actions/<name> referenced by setup)
+      # still resolves the action from the default branch. Reversing the
+      # order would 404 with "Can't find 'action.yml'" on every long-lived
+      # external PR opened before the action was added.
       - name: Check out PR branch
         if: |
           (github.event_name == 'issue_comment' && github.event.issue.pull_request.url != '') ||
@@ -442,7 +448,7 @@ jobs:
         env:
           GITHUB_TOKEN: {bt}
           PR_NUMBER: ${{{{ github.event_name == 'issue_comment' && github.event.issue.number || github.event.pull_request.number }}}}
-{setup}
+
       - name: Compute queue delay
         id: delay
         run: |
