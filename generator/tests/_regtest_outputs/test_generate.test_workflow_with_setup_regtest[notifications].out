@@ -50,7 +50,20 @@ jobs:
             done
           fi
 
-          # --- Layer C: drop notifications on bot-authored closed PRs ---
+          # --- Layer C: drop cross-repo CheckSuite notifications ---
+          # `ci_activity` notifications from other repos (typically forks
+          # whose own tend-* workflows fire and notify the canonical bot)
+          # are categorically unactionable per the notifications skill ?
+          # cross-repo non-mention non-fork-PR-comment items get marked read
+          # without response. Filtering at the pre-check avoids invoking
+          # Claude just to silently mark them read.
+          NOTIFS=$(gh api notifications)
+          echo "$NOTIFS" | jq -r --arg repo "$GITHUB_REPOSITORY" '.[] | select(.repository.full_name != $repo and .subject.type == "CheckSuite") | .id' | while read -r tid; do
+            [ -n "$tid" ] || continue
+            gh api "notifications/threads/$tid" -X PATCH || true
+          done
+
+          # --- Layer D: drop notifications on bot-authored closed PRs ---
           # The bot auto-subscribes to its own PRs. After merge/close, leftover
           # subscription notifications are pure noise ? no action needed.
           NOTIFS=$(gh api notifications)
@@ -65,7 +78,7 @@ jobs:
             fi
           done
 
-          # --- Layer D: count processable notifications ---
+          # --- Layer E: count processable notifications ---
           # Same-repo notifications younger than 10 minutes are deferred: a
           # dedicated workflow (tend-review/mention/triage/ci-fix) is likely
           # still starting up or mid-flight and hasn't posted its response yet.
