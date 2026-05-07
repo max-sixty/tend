@@ -154,8 +154,10 @@ Flag duplicates — reuse is almost always better than a parallel implementation
 **If there are no issues, approve with an empty body — silence means correct.**
 
 ```bash
-gh pr review <number> --approve -b ""
+gh pr review <number> --approve -b "" && echo "✓ approved"
 ```
+
+The trailing `&& echo` is intentional: `gh pr review --approve` produces no stdout on success, and prior runs that omitted the echo have re-issued the verb on seeing a silent tool-result and posted a duplicate APPROVED on the same commit. The visible success signal prevents the retry. Apply the same pattern to any other silent-success verb on the posting path (e.g. dismissal `PUT`s).
 
 If there are actionable findings, submit as a review with inline suggestions for concrete fixes. Every comment must give the author something to act on:
 
