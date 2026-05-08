@@ -154,7 +154,7 @@ Flag duplicates — reuse is almost always better than a parallel implementation
 **If there are no issues, approve with an empty body — silence means correct.**
 
 ```bash
-gh pr review <number> --approve -b ""
+gh pr review <number> --approve -b "" && echo "✓ approved"
 ```
 
 If there are actionable findings, submit as a review with inline suggestions for concrete fixes. Every comment must give the author something to act on:
