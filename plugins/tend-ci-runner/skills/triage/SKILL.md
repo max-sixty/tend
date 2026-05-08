@@ -94,6 +94,14 @@ When the bug is about bot behavior (e.g., "bot didn't use links", "bot posted wr
 1. **Check ALL co-loaded skills** — Skills loaded together in the same workflow share context. If the guidance already exists in a co-loaded skill, the issue is behavioral compliance, not missing instructions.
 2. **Don't duplicate guidance across skills.**
 
+### Don't "fix" tests by adding skip guards
+
+If the proposed change removes coverage for the failing scenario instead of restoring the assertion, stop. Smell patterns: a newly-added early-return at the top of the test (`let Ok(_) = X else { return };`, `if !path.exists() { return; }`), a fresh `#[ignore]`, a newly-inserted `skipIf` / `pytest.skip` keyed on the failing condition. The fix belongs in production code or test setup, not in a guard that makes the test bail when the bug fires.
+
+### Defer to in-flight same-root-cause PRs
+
+Step 3's duplicate check catches identical fixes. It misses the *same root cause class, different surface* pattern: several failing tests share one underlying cause, and an outstanding PR fixes some of them but not the one being triaged. When the triage analysis itself names an existing PR as same-root-cause, that's the signal to wait for it to merge and re-run, or to mirror its approach for the remaining sites — not to open a parallel narrow workaround.
+
 ### If fixing
 
 1. Fix the root cause (not just the symptom)
