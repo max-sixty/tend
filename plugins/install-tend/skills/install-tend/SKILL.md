@@ -315,22 +315,26 @@ gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q CLAUDE_CODE_
 ```
 
 If not set, ask the user via `AskUserQuestion` how to obtain it. Token is
-valid for 1 year. Detect `command -v claude` first — if missing,
-recommend Manual outright (point them at `https://claude.com/claude-code`
-to install).
+valid for 1 year. Before offering the CLI option, check:
 
-- **CLI (recommended when `claude` is on PATH)** — run the bundled
-  wrapper, which invokes `claude setup-token` (OAuth 2.0 PKCE, opens
-  browser):
+- `command -v claude` — if missing, only offer Manual (point them at
+  `https://claude.com/claude-code` to install).
+- `uname` — the bundled wrapper depends on `bash` + `script(1)` and
+  has only been validated on macOS and Linux. On anything else
+  (`MINGW*`, `CYGWIN*`, `MSYS*`, `Windows_NT`, etc.), only offer Manual.
+
+- **CLI (recommended on macOS/Linux when `claude` is on PATH)** — run
+  the bundled wrapper, which invokes `claude setup-token` (OAuth 2.0
+  PKCE, opens browser):
 
   ```bash
   TOKEN=$("${CLAUDE_SKILL_DIR}/scripts/oauth-token.sh")
   ```
 
-- **Manual** — have the user run `claude setup-token` in any terminal
-  themselves and paste the `sk-ant-oat01-…` token back. Use this if the
-  wrapper fails (its PTY trick can break in some shells) or `claude`
-  isn't installed locally.
+- **Manual** — have the user run `claude setup-token` in their own
+  terminal (any machine with Claude Code installed) and paste the
+  `sk-ant-oat01-…` token back. Use this on Windows or when the
+  wrapper errors out.
 
 Then store the secret:
 
