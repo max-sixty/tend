@@ -456,16 +456,24 @@ def test_mention_handle_job_queues_not_cancels(tmp_path: Path) -> None:
     )
 
 
-def test_setup_after_pr_checkout_in_mention(tmp_path: Path) -> None:
-    """Setup steps must run after PR checkout, not before."""
+def test_setup_before_pr_checkout_in_mention(tmp_path: Path) -> None:
+    """Setup runs against the default branch, before switching to the PR branch.
+
+    A PR opened before a referenced local composite action existed (and never
+    rebased) carries a tree without that action; running setup after
+    `gh pr checkout` would 404 with `Can't find 'action.yml'` and drop the
+    maintainer's mention silently.
+    """
     extra = 'setup = [{uses = "./.github/actions/my-setup"}]'
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     mention = workflows["tend-mention.yaml"]
-    # Setup should come after "Check out PR branch"
-    checkout_idx = mention.content.index("Check out PR branch")
+    initial_checkout_idx = mention.content.index("actions/checkout@v6")
     setup_idx = mention.content.index("./.github/actions/my-setup")
-    assert setup_idx > checkout_idx, "Setup must come after PR checkout"
+    pr_checkout_idx = mention.content.index("Check out PR branch")
+    assert initial_checkout_idx < setup_idx < pr_checkout_idx, (
+        "Setup must run after the initial checkout and before PR-branch switch"
+    )
 
 
 def test_mention_handle_has_queue_delay(tmp_path: Path) -> None:

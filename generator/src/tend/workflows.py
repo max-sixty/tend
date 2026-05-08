@@ -426,7 +426,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           token: {bt}
-
+{setup}
       - name: Check out PR branch
         if: |
           (github.event_name == 'issue_comment' && github.event.issue.pull_request.url != '') ||
@@ -442,7 +442,7 @@ jobs:
         env:
           GITHUB_TOKEN: {bt}
           PR_NUMBER: ${{{{ github.event_name == 'issue_comment' && github.event.issue.number || github.event.pull_request.number }}}}
-{setup}
+
       - name: Compute queue delay
         id: delay
         run: |
