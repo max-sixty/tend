@@ -157,8 +157,6 @@ Flag duplicates — reuse is almost always better than a parallel implementation
 gh pr review <number> --approve -b "" && echo "✓ approved"
 ```
 
-The trailing `&& echo` is intentional: `gh pr review --approve` produces no stdout on success, and prior runs that omitted the echo have re-issued the verb on seeing a silent tool-result and posted a duplicate APPROVED on the same commit. The visible success signal prevents the retry.
-
 If there are actionable findings, submit as a review with inline suggestions for concrete fixes. Every comment must give the author something to act on:
 
 | Don't post (internal analysis) | Post (actionable) |
