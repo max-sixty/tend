@@ -563,12 +563,17 @@ Include in the permission request (and reuse verbatim in the tend issue once app
    <!-- TODO(anthropics/claude-code#37157): once the harness exempts .claude/skills/ as
         documented, replace the /tmp-then-mv dance below with direct `Write` to the worktree path. -->
 
+   Base the skill branch on the repo's default branch, **not `HEAD`**. When this skill runs from `tend-mention` on a PR, the workflow has already done `gh pr checkout` so `HEAD` is the PR branch — basing on it carries that PR's WIP commits into the skill PR and ships a multi-concern PR that mixes the skill change with unrelated code. Fetch and base off `origin/<default>` instead:
+
    ```bash
-   git worktree add "$TMPDIR/skill-fix" -b skills/<topic>-$GITHUB_RUN_ID HEAD
+   DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
+   git fetch origin "$DEFAULT_BRANCH"
+   git worktree add "$TMPDIR/skill-fix" -b "skills/<topic>-$GITHUB_RUN_ID" "origin/$DEFAULT_BRANCH"
 
    # Use the Write tool to author the new skill file to /tmp/running-tend-new.md.
    # Then move it into place from inside the worktree. mkdir -p covers the
-   # new-skill case where .claude/skills/<name>/ doesn't yet exist in HEAD:
+   # new-skill case where .claude/skills/<name>/ doesn't yet exist in the
+   # default branch:
    mkdir -p "$TMPDIR/skill-fix/.claude/skills/running-tend"
    cd "$TMPDIR/skill-fix/.claude/skills/running-tend" && mv /tmp/running-tend-new.md SKILL.md
 
