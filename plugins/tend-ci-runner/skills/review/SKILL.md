@@ -86,7 +86,7 @@ gh api graphql -F query=@/tmp/inline-prev.graphql -f owner="$OWNER" -f repo="$NA
         | {path, line, body}"
 ```
 
-**Do not repeat any point from previous reviews** — cross-reference previous bot comments before posting inline comments. When concurrent runs race (a new push while the first run is still responding), both see the same unanswered question — check whether a bot reply exists after the question's timestamp before answering. Address unanswered questions in the review body (not via `gh pr comment`).
+**Apply the sibling-workflow dedup rule from `running-in-ci`** to both the review body and inline comments. If a prior bot comment in the conversation already covers a point — a previous review on this or an earlier commit, a `tend-mention` reply, a `tend-triage` post, anything from a tend workflow — omit it from this review and stick to diff-grounded findings. When concurrent runs race (a new push while the first run is still responding), both see the same unanswered question — check whether a bot reply exists after the question's timestamp before answering. Address remaining unanswered questions in the review body (not via `gh pr comment`).
 
 #### Draft mode
 
