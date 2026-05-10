@@ -235,9 +235,28 @@ Use `Agent` with `model: "haiku"` and a prompt like:
 >
 > ```bash
 > mkdir -p /tmp/bot-output && : > /tmp/bot-output/all.txt
-> for n in <pr-numbers>; do
+> # Issue/PR comments (issue_comment endpoint)
+> for n in <pr-or-issue-numbers>; do
 >   gh api "repos/$ARGUMENTS/issues/$n/comments?per_page=100" \
->     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== #$n \(.id) ===\n\(.body)\n\"" \
+>     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== #$n issue-comment \(.id) ===\n\(.body)\n\"" \
+>     >> /tmp/bot-output/all.txt
+> done
+> # Issue bodies (when bot opened the issue this window)
+> for n in <bot-opened-issues>; do
+>   gh api "repos/$ARGUMENTS/issues/$n" \
+>     --jq "select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== ISSUE #$n body ===\n\(.body)\n\"" \
+>     >> /tmp/bot-output/all.txt
+> done
+> # PR bodies (when bot opened the PR this window) + reviews + inline review comments
+> for n in <bot-opened-prs>; do
+>   gh api "repos/$ARGUMENTS/pulls/$n" \
+>     --jq "select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== PR #$n body ===\n\(.body)\n\"" \
+>     >> /tmp/bot-output/all.txt
+>   gh api "repos/$ARGUMENTS/pulls/$n/reviews" \
+>     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .submitted_at > \"<window-start>\") | \"=== PR #$n review \(.id) state=\(.state) ===\n\(.body)\n\"" \
+>     >> /tmp/bot-output/all.txt
+>   gh api "repos/$ARGUMENTS/pulls/$n/comments?per_page=100" \
+>     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== PR #$n inline-comment \(.id) ===\n\(.body)\n\"" \
 >     >> /tmp/bot-output/all.txt
 > done
 > grep -nF '${' /tmp/bot-output/all.txt        # literal ${...} interpolation failure
@@ -245,6 +264,8 @@ Use `Agent` with `model: "haiku"` and a prompt like:
 > grep -nE 'blob/main/.*#L[0-9]' /tmp/bot-output/all.txt  # un-pinned line links
 > grep -nF 'anthropics/' /tmp/bot-output/all.txt         # wrong-owner URL
 > ```
+>
+> Cover all four bot-output surfaces: issue comments, issue bodies, PR bodies, and reviews/inline review comments. Comments-only scans miss corruption that ships in a survey-issue or PR body — those are composed via `gh issue create --body` / `gh pr create --body`, exactly the surface the Bash-tool preprocessor hits.
 >
 > **Report format** — return a structured summary:
 > ```
