@@ -288,6 +288,16 @@ runs:
         echo "$USAGE" > "$LOGS_DIR/token-usage.json"
         echo "usage=$(jq -c . <<< "$USAGE")" >> "$GITHUB_OUTPUT"
 
+        # Preserve the raw SDK message stream alongside the session JSONL so
+        # the under-reporting in #302 can be diagnosed against an actual
+        # execution-output.json. Without this, $RUNNER_TEMP is wiped at job
+        # end and the only retained artifact is the session JSONL — which
+        # has no `type:"result"` entries (those live only here). Drop this
+        # copy once #302 is resolved.
+        if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
+          cp "$EXECUTION_FILE" "$LOGS_DIR/claude-execution-output.json" || true
+        fi
+
         jq -r '
           def usd: tostring | if test("\\.") then split(".") | "\(.[0]).\((.[1] + "00")[:2])" else . + ".00" end | "$" + .;
           "## Token Usage",
