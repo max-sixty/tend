@@ -247,11 +247,16 @@ Use `Agent` with `model: "haiku"` and a prompt like:
 >     --jq "select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== ISSUE #$n body ===\n\(.body)\n\"" \
 >     >> /tmp/bot-output/all.txt
 > done
-> # PR bodies (when bot opened the PR this window) + reviews + inline review comments
+> # PR bodies (only when bot opened the PR this window)
 > for n in <bot-opened-prs>; do
 >   gh api "repos/$ARGUMENTS/pulls/$n" \
 >     --jq "select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== PR #$n body ===\n\(.body)\n\"" \
 >     >> /tmp/bot-output/all.txt
+> done
+> # Reviews + inline review comments — scan ALL PRs in the window, not just bot-opened.
+> # tend-review's output ships in reviews/inline comments on human-authored PRs, which
+> # are the most common bot-review surface and would never appear in <bot-opened-prs>.
+> for n in <pr-numbers>; do
 >   gh api "repos/$ARGUMENTS/pulls/$n/reviews" \
 >     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .submitted_at > \"<window-start>\") | \"=== PR #$n review \(.id) state=\(.state) ===\n\(.body)\n\"" \
 >     >> /tmp/bot-output/all.txt
