@@ -133,14 +133,13 @@ After pushing, wait for CI before reporting completion.
 # contexts (e.g. `pre-commit.ci - pr`), exit green, and miss the matrix
 # entirely. The rollup shows matrix jobs as IN_PROGRESS while they run, so
 # we correctly wait for them, then for the omnibus once it registers.
-# See https://github.com/max-sixty/tend/issues/305.
 #
 # The 30s grace re-check handles actual registration lag: when the matrix's
 # last `needs:` job finishes, the omnibus check-run registers within a
 # second or two. A poll in that narrow window might see PENDING=0; the
-# grace re-check catches the newly-IN_PROGRESS omnibus. The 23-min gap
-# described in #305 is NOT registration lag — that was the matrix running,
-# during which matrix jobs are visibly IN_PROGRESS in the rollup.
+# grace re-check catches the newly-IN_PROGRESS omnibus. Long observed gaps
+# between PENDING=0 and the omnibus registering are NOT registration lag —
+# matrix jobs are visibly IN_PROGRESS in the rollup while they run.
 #
 # Filter out the current run ($GITHUB_RUN_ID) — its own CheckRun is
 # IN_PROGRESS for the whole loop. Match on the run URL, not the check name:
@@ -319,7 +318,7 @@ If `EXISTING` is greater than 0, **do not post** — another run already handled
 ```bash
 gh pr create --body "$(cat <<'EOF'
 Extend the bang-escape workaround in `running-in-ci` to cover PR and issue
-titles. PR #318 restored the warning for comment bodies (via `--body-file`);
+titles. The existing guidance covers comment bodies via `--body-file`;
 titles are still uncovered because `gh pr create` has no `--title-file` flag.
 EOF
 )"
@@ -330,7 +329,7 @@ EOF
 
 ```bash
 gh pr create --body "$(cat <<'EOF'
-Extend the bang-escape workaround in `running-in-ci` to cover PR and issue titles. PR #318 restored the warning for comment bodies (via `--body-file`); titles are still uncovered because `gh pr create` has no `--title-file` flag.
+Extend the bang-escape workaround in `running-in-ci` to cover PR and issue titles. The existing guidance covers comment bodies via `--body-file`; titles are still uncovered because `gh pr create` has no `--title-file` flag.
 EOF
 )"
 ```

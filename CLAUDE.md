@@ -81,6 +81,12 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
   session IDs, or quote durations from individual incidents. They age into
   trivia and aren't useful when the skill is reused. State the structural
   rule without the run links.
+- **No specific past-case references.** Don't cite individual past PRs,
+  issues, or commits as supporting precedent for a rule (e.g. "[#123] tried
+  X and was closed"). They age into trivia, accumulate as the rule is
+  re-tested, and create read-time work. State the structural rule (what
+  shape is accepted, what shape is not) without naming the cases that
+  produced it.
 - **Date-stamp only when the value depends on time.** A baseline number
   expected to drift can be dated; a one-shot incident citation should not be.
 - **Prefer recipe over narrative.** A code block plus a one-sentence framing
