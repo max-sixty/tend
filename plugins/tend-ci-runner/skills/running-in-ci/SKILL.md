@@ -279,7 +279,10 @@ If you are responding to your own prior comment or review (not a human's reply t
 
 ## Recheck Before Posting
 
-**Before posting any comment or review**, re-fetch the current conversation state. Other participants may comment while you work — even in short sessions, context can change between when you read a thread and when you reply:
+**Before posting any comment, review, or inline reply**, re-fetch the conversation and check whether the response would duplicate something already there. Two duplication paths:
+
+- **New entries arrived during the session.** Other participants may comment while the bot works. Compare counts against what was read at session start.
+- **A sibling tend workflow already responded.** `tend-mention`, `tend-triage`, and `tend-review` all post as the same bot account; a comment from one can pre-empt another (a `tend-mention` reply followed by a `synchronize`-triggered `tend-review` is the common pattern). The earlier comment may already be in the conversation at session start, so a stale-count check alone is not enough — scan for prior bot comments newer than the maintainer message being responded to.
 
 ```bash
 # For issues
@@ -290,11 +293,9 @@ gh pr view <number> --json comments,reviews \
   --jq '{comments: (.comments | length), reviews: (.reviews | length)}'
 ```
 
-Compare with the count you saw when you first read the context. If new comments or reviews appeared:
+If any prior entry — from a human or another tend workflow — already addresses a point the response would make, omit that point. The dedup applies equally to comment bodies, review bodies, and inline replies. If the response is now entirely redundant, don't post it.
 
-1. **Read the new comments** to understand what changed.
-2. **Adjust or skip your response.** If someone already answered, don't repeat them. If the author resolved the issue, acknowledge that instead of posting a stale analysis. If new information contradicts your findings, update your response before posting.
-3. **If your response is now entirely redundant, don't post it.**
+If the author resolved the issue, acknowledge it rather than post stale analysis. If new information contradicts the findings, update before posting.
 
 ### Dedup check for inline review comment replies
 
