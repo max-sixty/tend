@@ -148,7 +148,7 @@ dependencies on each other and can run concurrently.
 
 6. **"See it work" placeholder.** Adds a section with three captioned image
    slots and writes the captions. Images themselves can be sourced later;
-   for now use placeholder PNGs (1200×800 grey rects) so layout is locked.
+   for now use grey placeholders (1200×800) so layout is locked.
    Capture target: a tend-agent review comment, a tend-opened CI-fix PR, a
    triage response. Prefer screenshots from tend's own repo to avoid asking
    third-party repo owners for permission.
