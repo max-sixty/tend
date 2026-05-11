@@ -1,0 +1,88 @@
+---
+// Variant A — "outline draws, then inks": a fine pen-stroke traces the logo's
+// silhouette, then the warm fill floods in behind it and the guide-stroke
+// fades away. Uses the real traced geometry directly.
+interface Props {
+  size?: number;
+  static?: boolean;
+}
+const { size = 220, static: isStatic = false } = Astro.props;
+const width = Math.round((size * 438) / 564);
+
+const fullD =
+  "M 210.3 11.2 c -41.2 52.7 -51.8 93 -33.9 129.3 6.8 13.6 23 32.7 25.5 29.9 1.6 -1.8 6.1 -14.6 8.5 -24.1 4.8 -18.9 8.1 -45.9 8.9 -72.3 l 0.2 -7.5 2.4 14 c 1.6 9.4 2.5 19.8 2.8 31.5 1.1 38.8 -6.5 66.4 -24.1 87.5 l -4.1 4.9 -0.5 35.1 -0.5 35 -3.4 -4.9 c -1.9 -2.7 -6 -8 -9.3 -11.7 -4.9 -5.7 -6.3 -8.3 -8.9 -16.1 -16.2 -49.8 -61.1 -71.1 -126.2 -59.8 -19.5 3.3 -46.7 11 -46.7 13.2 0 0.5 3.2 5.8 7.1 11.7 30.7 45.7 57.5 70.1 86.4 78.6 12 3.5 28.3 4.4 41.2 2.1 11.6 -2 24.7 -6.7 25.1 -8.9 0.2 -1.1 -4.5 -6.6 -13 -15 -21.6 -21.7 -43.8 -34.9 -80.3 -47.8 l -11 -3.9 6 0.6 c 37.7 3.8 76.8 22.4 102 48.5 15 15.5 22.7 29.1 28.3 49.8 l 2.6 9.6 0.7 73.5 c 0.7 79.4 0.7 78.9 6.5 99.5 9 31.5 29.7 54.2 58.5 64 25.8 8.8 63 7.4 88 -3.3 l 4.7 -2 -6.2 -19.6 c -3.5 -10.8 -6.5 -19.8 -6.7 -20.1 -0.3 -0.2 -3.4 0.7 -7 2 -15.1 5.4 -34.6 7.1 -47.7 4 -25.4 -6 -39.6 -25.9 -43.2 -60.6 -1.4 -13.8 -1.3 -122.7 0.1 -134.4 4.4 -35.8 25.5 -65.4 62.3 -87.5 19.8 -11.9 47.8 -21.3 70.1 -23.5 6 -0.5 5.9 -0.5 -6 3.8 -28.3 10.3 -47 20.1 -65 34.2 -9.9 7.7 -27.7 26.2 -27.3 28.3 0.4 2.1 14 6.9 25.1 8.8 11 1.9 28.8 1.4 38.7 -1.1 9.1 -2.3 25.4 -10.4 33.9 -16.8 18 -13.6 39.6 -38.6 58.3 -67.6 l 4.8 -7.6 -2.8 -1.2 c -1.6 -0.6 -9.6 -3 -17.8 -5.3 -71.8 -19.7 -123.5 -6.3 -147 38.3 -3.6 6.9 -8.4 19.8 -8.4 22.6 0 0.9 -3 5 -6.6 9.1 -3.6 4.1 -8 9.5 -9.8 12 l -3.1 4.5 -0.3 -53.3 -0.2 -53.4 5.8 -6.6 c 7.5 -8.6 9.2 -11.1 14.2 -21.1 15.4 -30.9 9.2 -65.8 -19.4 -108.5 -8.7 -13 -22.3 -30.6 -23.5 -30.6 -0.5 0 -4.4 4.6 -8.8 10.2 z";
+---
+
+<svg
+  class:list={["ld", { "is-static": isStatic }]}
+  width={width}
+  height={size}
+  viewBox="0 0 438 564"
+  xmlns="http://www.w3.org/2000/svg"
+  aria-label="Tend"
+  role="img"
+>
+  <g class="ld-root">
+    <path class="ld-fill" d={fullD}></path>
+    <path
+      class="ld-stroke"
+      d={fullD}
+      fill="none"
+      stroke="currentColor"
+      stroke-width="3.5"
+      stroke-linejoin="round"
+      pathLength="1"
+    ></path>
+  </g>
+</svg>
+
+<style>
+  .ld {
+    display: block;
+    overflow: visible;
+    color: var(--oak, #b5a48a);
+  }
+  .ld-fill { fill: currentColor; fill-rule: evenodd; }
+  .ld-stroke { fill: none; }
+
+  .ld:not(.is-static) .ld-fill {
+    opacity: 0;
+    animation: ld-ink 0.8s ease-in 1.1s forwards;
+  }
+  @keyframes ld-ink {
+    to { opacity: 1; }
+  }
+
+  .ld:not(.is-static) .ld-stroke {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation:
+      ld-trace 1.5s cubic-bezier(0.66, 0, 0.34, 1) 0.1s forwards,
+      ld-strokefade 0.5s ease 1.65s forwards;
+  }
+  @keyframes ld-trace {
+    to { stroke-dashoffset: 0; }
+  }
+  @keyframes ld-strokefade {
+    to { opacity: 0; }
+  }
+
+  /* settle */
+  .ld:not(.is-static) .ld-root {
+    transform-box: view-box;
+    transform-origin: 215px 540px;
+    animation: ld-breathe 7s ease-in-out 2.2s infinite;
+  }
+  @keyframes ld-breathe {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.012); }
+  }
+
+  .ld.is-static .ld-stroke { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ld .ld-fill, .ld .ld-stroke, .ld .ld-root { animation: none; }
+    .ld .ld-fill { opacity: 1; }
+    .ld .ld-stroke { display: none; }
+  }
+</style>

@@ -1,0 +1,109 @@
+---
+import LogoDraw from "../components/LogoDraw.astro";
+import LogoGrow from "../components/LogoGrow.astro";
+import LogoBoth from "../components/LogoBoth.astro";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tend logo — animation drafts</title>
+    <style>
+      :root {
+        --oak: #b5a48a;
+        --oak-deep: #8e7d63;
+        --paper: #f8f6f0;
+        --ink: #2b2a26;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        padding: 3rem 2rem 6rem;
+      }
+      h1 { font-weight: 600; font-size: 1.4rem; margin: 0 0 0.25rem; }
+      p.lede { margin: 0 0 2.5rem; color: #6b6a64; max-width: 50ch; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 2rem;
+      }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+      .card {
+        background: #fff;
+        border: 1px solid #e7e3d9;
+        border-radius: 14px;
+        padding: 1.5rem 1.5rem 1.25rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+      }
+      .card h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+      .card .desc { font-size: 0.8rem; color: #7b7a73; text-align: center; min-height: 2.8em; }
+      .stage {
+        width: 240px; height: 240px;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .lockup {
+        display: inline-flex; align-items: center; gap: 0.5rem;
+        font-size: 1.25rem; color: var(--oak-deep); font-weight: 600;
+        border-top: 1px solid #efece3; padding-top: 0.9rem; width: 100%; justify-content: center;
+      }
+      button {
+        font: inherit; font-size: 0.8rem;
+        border: 1px solid #d9d4c7; background: var(--paper);
+        border-radius: 999px; padding: 0.35rem 0.9rem; cursor: pointer; color: #5b5a54;
+      }
+      button:hover { background: #efece3; }
+      .controls { display: flex; gap: 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <h1>tend logo — animation drafts</h1>
+    <p class="lede">
+      Three ways the mark could build itself. The final frame is the real logo
+      in every case. Hit replay to watch the entrance again.
+    </p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>A · Outline draws, then inks</h2>
+        <div class="desc">A pen-stroke traces the silhouette, the warm fill floods in, the guide-stroke fades.</div>
+        <div class="stage" data-variant><LogoDraw size={220} /></div>
+        <div class="controls"><button data-replay>↻ replay</button></div>
+        <div class="lockup"><LogoDraw size={26} static /><span>tend</span></div>
+      </div>
+
+      <div class="card">
+        <h2>B · Piece-by-piece growth</h2>
+        <div class="desc">Stem rises from the ground, side leaves unfurl outward, central leaf opens upward.</div>
+        <div class="stage" data-variant><LogoGrow size={220} /></div>
+        <div class="controls"><button data-replay>↻ replay</button></div>
+        <div class="lockup"><LogoGrow size={26} static /><span>tend</span></div>
+      </div>
+
+      <div class="card">
+        <h2>C · Layered (grow + draw)</h2>
+        <div class="desc">Each piece scales open while its outline traces and the fill trails behind.</div>
+        <div class="stage" data-variant><LogoBoth size={220} /></div>
+        <div class="controls"><button data-replay>↻ replay</button></div>
+        <div class="lockup"><LogoBoth size={26} static /><span>tend</span></div>
+      </div>
+    </div>
+
+    <script>
+      document.querySelectorAll("[data-replay]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const stage = btn.closest(".card").querySelector("[data-variant]");
+          const fresh = stage.firstElementChild.cloneNode(true);
+          stage.replaceChildren(fresh);
+        });
+      });
+    </script>
+  </body>
+</html>
