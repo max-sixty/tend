@@ -141,8 +141,8 @@ the rest of the site is unaffected.
 GitHub Pages serves static only; static + a separate Worker origin is the
 combination that keeps the rest of `WEBSITE.md` (Zola → Pages from
 `website` branch) intact. The static Pages site calls the Worker via CORS;
-the Worker is on a `tend.workers.dev` subdomain (or attached to a custom
-sub-subdomain like `api.tend.dev` if we own the apex).
+the Worker is on `currently.tend-src.com` (the apex `tend-src.com` was
+registered for the project; `tend.dev` was taken).
 
 If we end up wanting **more** dynamic features later (search, write
 operations, per-viewer state), it would be worth re-evaluating moving the
@@ -159,11 +159,9 @@ deploy. Not necessary for MVP.
   already provisioned per consumer. (c) keeps blast radius separate from
   the bot's write-capable PAT — worth doing if the website's PAT will sit
   in Cloudflare and tend's bot PAT sits in Actions. **Recommended: (c).**
-- **Hosting target.** Static stays on GitHub Pages. The Worker means signing
-  up for Cloudflare (free) and registering the apex (`tend.dev` already
-  open in `WEBSITE.md`). Confirm you're OK adding Cloudflare to the stack
-  for just the "currently tending" feature; the alternative is dropping
-  that feature to a 15-minute static refresh and going Cloudflare-free.
+- **Hosting target.** Static on GitHub Pages, served from the apex
+  `tend-src.com` (with `currently.tend-src.com` for the Worker) on the
+  existing Cloudflare account.
 - **Opt-in from consumer repos.** The "currently tending" Worker needs to
   read `actions/runs` on each consumer repo. For public repos this is
   free-read; no opt-in needed. If we ever want to include **private** repos

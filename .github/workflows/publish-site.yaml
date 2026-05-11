@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'site/**'
+      - 'data/**'
   workflow_dispatch:
 
 concurrency:
@@ -32,8 +33,6 @@ jobs:
         working-directory: site
 
       - name: 🪴 Build site
-        env:
-          SITE_BASE: /tend/
         run: npm run build
         working-directory: site
 

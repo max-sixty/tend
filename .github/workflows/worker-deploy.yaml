@@ -2,17 +2,9 @@ name: worker-deploy
 
 # Deploys the tend-currently Cloudflare Worker on push to main that touches
 # worker/** or this workflow. The Worker serves the "currently tending"
-# data stream — see worker/README.md.
-#
-# Prerequisites (one-time, manual):
-#   1. Sign up at cloudflare.com (free)
-#   2. cd worker && npx wrangler login
-#   3. npx wrangler kv:namespace create CACHE (paste id into wrangler.toml)
-#   4. npx wrangler secret put GITHUB_TOKEN (paste a read-only PAT)
-#   5. npx wrangler deploy (first deploy)
-#   6. Add CLOUDFLARE_API_TOKEN to repo secrets — generate at
-#      https://dash.cloudflare.com/profile/api-tokens using the
-#      "Edit Cloudflare Workers" template.
+# data stream. One-time account setup (KV namespace, GITHUB_TOKEN Worker
+# secret, CLOUDFLARE_API_TOKEN repo secret, custom domain) is documented
+# in worker/README.md and is already done for max-sixty/tend.
 
 on:
   push:

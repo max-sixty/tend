@@ -185,9 +185,8 @@ dependencies on each other and can run concurrently.
 
 ## Open questions (decide before phase 1)
 
-- **Domain.** `tend.dev` is the natural sibling to `worktrunk.dev` — check
-  availability. Fallbacks: `tend.bot`, `tend.maintainer.dev`. Affects copy
-  and OG metadata.
+- **Domain.** Settled: `tend-src.com` (apex), `currently.tend-src.com` for
+  the live-data Worker. `tend.dev` was taken.
 - **Sibling closeness.** Same worktrunk theme retinted (fast, reads as a
   visual family) vs. distinct visual identity (longer, more memorable).
   Recommend: start retinted, decide whether to diverge after phase 2.

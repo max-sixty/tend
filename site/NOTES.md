@@ -70,7 +70,7 @@ For the current scope (one page, five sections, one logo animation):
    generate dependency-update churn.
 3. **Tend's content surface is small.** The advantages Astro gives —
    components, MDX, JSX-shaped data — are most valuable when you have
-   many content shapes. tend.dev does not.
+   many content shapes. tend-src.com does not.
 
 **Astro becomes the better answer if either:**
 
