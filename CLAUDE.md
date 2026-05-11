@@ -30,8 +30,13 @@ tend/
 │   │   ├── checks.py     # Security checks (branch protection, secrets)
 │   │   └── cli.py        # Click CLI (init, check)
 │   └── tests/
+├── site/                 # Astro marketing site (tend-src.com)
+├── worker/               # Cloudflare Worker (currently.tend-src.com)
+├── scripts/              # fetch_website_data.py — nightly activity/stats refresh
+├── data/                 # consumers.json, activity.json, stats.json — site inputs
 └── docs/
-    └── security-model.md
+    ├── security-model.md
+    └── website-data.md
 ```
 
 ## Key details
