@@ -87,21 +87,21 @@ The README's 8-workflow table is too implementation-level for the site
 - Secondary touch (free with the theme): hand-drawn ink-stroke underlines
   on section headings on scroll-in. Already established in worktrunk's CSS.
 
-## Live data (post-MVP, layered in order)
+## Live data
 
-GitHub's REST API needs no auth for read-only public data. Fetch at build
-time via a nightly Action, write JSON to `static/data/`, render client-side.
+Built. See [`docs/website-data.md`](docs/website-data.md) for full schemas
+and dataflow. Summary:
 
-1. **Stat strip** — total reviews authored, fix-PRs merged, triage comments,
-   "this week" and "all time" counts. Source: `gh api search/issues
-   commenter:tend-agent type:pr-review` and similar queries. Falls back to
-   hidden if data is missing — never show "0".
-2. **Recent activity feed** — last 5–10 public PR comments authored by
-   `tend-agent`, with repo, PR title, one-line excerpt, link to source.
-3. **Currently tending** indicator — small dot/badge that polls the GitHub
-   Actions API for in-progress `tend-*` workflows across an opt-in repo list.
-   ~30s client-side polling. Graceful fallback ("last action 4m ago") when
-   nothing is running. Defer until #1 and #2 land.
+1. **Stat strip** — counts aggregated across all tend bots in
+   `data/consumers.json`. Daily GitHub Action writes `data/stats.json`.
+   Falls back to hidden if values are zero.
+2. **Recent activity feed** — top 10 recent issues/PRs touched by any tend
+   bot, grouped by kind (ci-fix / review / triage). Daily Action writes
+   `data/activity.json`.
+3. **Currently tending** indicator — Cloudflare Worker at
+   `https://currently.tend-src.com` fans out to in-progress
+   `actions/runs` per consumer repo, 30 s KV cache. Graceful fallback to
+   the latest event in `activity.json` when nothing is running.
 
 ## Segmentation — parallel work
 
@@ -160,29 +160,28 @@ dependencies on each other and can run concurrently.
 
 ### Phase 3 — live data (can start once #1 lands; renders depend on #2)
 
-8. **GitHub data fetcher.** New script under `scripts/fetch-stats.{sh,py}`
-   plus a GitHub Action that runs nightly on the `website` branch, commits
-   updated `static/data/stats.json` and `static/data/activity.json`. Uses
-   `gh api search/issues` queries scoped to `commenter:tend-agent` and
-   `author:tend-agent`. Output schemas defined in the session, kept narrow
-   (don't dump raw API responses). No site rendering in this session.
+8. **GitHub data fetcher.** ✅ Built. `scripts/fetch_website_data.py` is
+   invoked by the tend bot each night via `running-tend`'s skill; the bot
+   commits `data/activity.json` and `data/stats.json` to `main` if they
+   changed. Iterates each entry in `data/consumers.json` for per-bot
+   Search queries; aggregates results.
 
-9. **Stat strip rendering.** Adds a small client-side JS module that fetches
-   `/data/stats.json`, renders a strip of 4–5 stats below the hero. Hidden
-   entirely if fetch fails or values are zero. Visual: small numerals, thin
-   labels, no card chrome.
+9. **Stat strip rendering.** Reads `data/stats.json` at build time (Astro)
+   or via fetch (Zola). Renders a strip of 4–5 stats below the hero. Hidden
+   entirely if values are zero. Visual: small numerals, thin labels, no
+   card chrome.
 
-10. **Activity feed rendering.** Reads `/data/activity.json`, renders 5–10
-    compact rows (repo · PR title · excerpt · timestamp). Each row is a
-    link to the source comment. No avatars, no thumbnails.
+10. **Activity feed rendering.** Reads `data/activity.json`, renders up to
+    10 compact rows (repo · title · timestamp). Each row links to the
+    source. No avatars, no thumbnails.
 
 ### Phase 4 — optional polish
 
-11. **"Currently tending" live indicator.** Client-side polls (~30s) of
-    `gh api repos/{repo}/actions/runs?status=in_progress` across the opt-in
-    repo list (defined in a JSON file in the repo, PRs welcome to add).
-    Small dot + most-recent-action timestamp. Falls back to last completed
-    run timestamp when nothing is in progress.
+11. **"Currently tending" live indicator.** ✅ Worker built. Client-side
+    polls `https://currently.tend-src.com` (~30 s). Small dot
+    + most-recent-action timestamp. UI session falls back to the most
+    recent event in `activity.json` when the Worker response is empty or
+    unreachable.
 
 ## Open questions (decide before phase 1)
 
