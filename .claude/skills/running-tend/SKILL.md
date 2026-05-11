@@ -47,9 +47,10 @@ Artifact paths: `-home-runner-work-tend-tend/<session-id>.jsonl`
 
 ## Weekly: refresh `data/consumers.json`
 
-Public repos that have installed tend. Read by the website build (see
-`WEBSITE.md`) for the stat strip and activity feed; needs no opt-in because
-the workflow files are public.
+Public repos that have installed tend. Read by the website's data Worker
+(see [`docs/website-data.md`](../../../docs/website-data.md)) to power the
+currently-tending dot, activity feed, and stat strip. Needs no opt-in
+because the workflow files are public.
 
 ```bash
 # 1. Discover consumer repos via code search. `max-sixty/tend@v1` only
