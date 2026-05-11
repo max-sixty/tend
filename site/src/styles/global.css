@@ -254,7 +254,7 @@ hr::after {
   gap: 0.55rem;
   line-height: 1;
 }
-.site-header .wordmark .logo-mark {
+.site-header .wordmark .logo {
   color: var(--oak);
 }
 .site-header nav {
@@ -335,7 +335,7 @@ hr::after {
   display: flex;
   justify-content: center;
 }
-.logo-frame .logo-mark {
+.logo-frame .logo {
   width: 100%;
   height: auto;
 }
