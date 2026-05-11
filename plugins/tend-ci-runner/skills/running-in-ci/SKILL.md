@@ -363,6 +363,14 @@ Always use markdown links for files, issues, PRs, and docs. **Any link containin
 gh pr create --title "$(cat /tmp/pr-title.txt)" --body-file /tmp/pr-body.md ...
 ```
 
+`git commit -m "..."` is the same trap: the message is a literal string argument, so any `!` in it (Rust's `assert!`/`format!`/`panic!`, a conventional-commits breaking-change marker like `feat(api)!:`) ships into permanent git history as backslash-bang. Write the message with the Write tool and pass it via `-F` — `git commit` reads the file directly, so the Bash-tool preprocessor never sees the bang:
+
+```bash
+git commit -F /tmp/commit-msg.txt
+```
+
+This applies to every git commit path the bot uses (fix PRs, skill PRs, conflict-resolution merges). A title without `!` may still ship a corrupted *body* if the body quotes any `!` token, so prefer `-F` whenever the message contains code references.
+
 - **File-level link (no `#L` anchor)**: `blob/main/src/foo.rs` is fine
 - **Line reference**: `blob/<sha>/src/foo.rs#L42` — commit SHA required, never `blob/main/...#L42`
 - **Issues/PRs**: `#123` shorthand
