@@ -1,0 +1,27 @@
+# Dev server per worktree — each branch gets a deterministic port from
+# `branch | hash_port` (range 10000-19999).
+# https://worktrunk.dev/tips-patterns/#dev-server-per-worktree
+
+# Share node_modules and other untracked files from the primary worktree
+# so cold starts don't pay for a full `npm install`.
+[[post-start]]
+copy = "wt step copy-ignored"
+
+# Restore anything copy-ignored didn't bring over. --prefer-offline keeps it
+# off the network once the shared npm cache is warm; --no-audit/--no-fund
+# skip the slow, noisy bits of an otherwise-empty run.
+[[post-start]]
+install = "cd site && npm install --prefer-offline --no-audit --no-fund"
+
+# Astro dev server in the background. Output lands in `.git/wt/logs/`
+# (find via `wt config state logs`).
+[[post-start]]
+server = "cd site && npm run dev -- --port {{ branch | hash_port }}"
+
+# Surface the URL in `wt list` — the column dims when nothing is listening.
+[list]
+url = "http://localhost:{{ branch | hash_port }}"
+
+# Stop the dev server when the worktree is removed.
+[[pre-remove]]
+server = "lsof -ti :{{ branch | hash_port }} -sTCP:LISTEN | xargs kill 2>/dev/null || true"

@@ -1,0 +1,24 @@
+name = "tend-currently"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+# Bound at runtime via `wrangler secret put GITHUB_TOKEN` — never commit.
+# Read scope only: actions:read + metadata:read on opt-in repos.
+
+[vars]
+# Public read-only endpoint — `*` keeps CORS simple across dev/preview/prod.
+ALLOWED_ORIGIN = "*"
+REPOS_URL = "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "cba4d4d307974f64a6c4a4a1390c5153"
+
+[observability]
+enabled = true
+
+# Public URL. workers.dev backend is disabled (set workers_dev = true
+# to re-enable a wildcard fallback).
+[[routes]]
+pattern = "currently.tend-src.com"
+custom_domain = true

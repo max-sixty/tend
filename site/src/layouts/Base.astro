@@ -1,0 +1,56 @@
+---
+import "../styles/global.css";
+import Logo from "../components/Logo.astro";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "Tend — a dutiful junior maintainer for your repo",
+  description = "Tend gives an open-source project a quiet, conscientious agent that reviews PRs, triages issues, fixes CI, and tends the corners no human has time to.",
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/png" href={`${import.meta.env.BASE_URL}favicon.png`} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400;1,6..72,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+  </head>
+  <body>
+    <header class="site-header">
+      <a href={import.meta.env.BASE_URL} class="wordmark">
+        <Logo size={28} static />
+        <span>tend</span>
+      </a>
+      <nav>
+        <a href="#what-tend-tends">What it tends</a>
+        <a href="#quick-start">Quick start</a>
+        <a href="#security">Security</a>
+        <a href="https://github.com/max-sixty/tend">GitHub</a>
+      </nav>
+    </header>
+    <main class="page">
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <span class="credit">tended by hand · <a href="https://github.com/max-sixty/tend/blob/main/LICENSE">MIT</a></span>
+      <nav>
+        <a href="https://github.com/max-sixty/tend">GitHub</a>
+        <a href="https://pypi.org/project/tend/">PyPI</a>
+        <a href="https://github.com/max-sixty/tend/blob/main/docs/security-model.md">Security model</a>
+      </nav>
+    </footer>
+  </body>
+</html>

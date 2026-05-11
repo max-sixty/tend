@@ -1,0 +1,22 @@
+[
+  {
+    "repo": "PRQL/prql",
+    "bot_name": "prql-bot"
+  },
+  {
+    "repo": "max-sixty/cargo-affected",
+    "bot_name": "cargo-affected-bot"
+  },
+  {
+    "repo": "max-sixty/tend",
+    "bot_name": "tend-agent"
+  },
+  {
+    "repo": "max-sixty/worktrunk",
+    "bot_name": "worktrunk-bot"
+  },
+  {
+    "repo": "numbagg/numbagg",
+    "bot_name": "numbagg-bot"
+  }
+]

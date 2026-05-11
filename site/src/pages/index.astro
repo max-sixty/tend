@@ -1,0 +1,157 @@
+---
+import Base from "../layouts/Base.astro";
+import Logo from "../components/Logo.astro";
+
+const areas = [
+  {
+    eyebrow: "i.",
+    title: "PR reviews",
+    body: [
+      "Reads each pull request as it opens or updates. Traces error paths, names duplication, and flags places the change doesn't quite line up with what's already in the tree.",
+      "For PRs the bot itself authored, it goes further: it pushes the small mechanical fixes back to the branch so the human reviewer doesn't have to.",
+    ],
+  },
+  {
+    eyebrow: "ii.",
+    title: "Issue triage",
+    body: [
+      "When an issue opens, tend classifies it, checks against the existing backlog for duplicates, and attempts to reproduce any reported bug.",
+      "If the fix is small and conservative, it'll draft one. Otherwise it leaves a clean, specific note for whoever picks the issue up.",
+    ],
+  },
+  {
+    eyebrow: "iii.",
+    title: "Work delegation",
+    body: [
+      "Mention the bot in a PR or issue thread and it'll take a pass at what you asked — read the diff, run a check, draft a change, answer the question.",
+      "The human stays in the loop. Tend does the grunt work.",
+    ],
+  },
+  {
+    eyebrow: "iv.",
+    title: "Nightly & weekly maintenance",
+    body: [
+      "Overnight it resolves merge conflicts on open PRs, reviews recent commits, sweeps a handful of files for stale docs and small bugs, and closes issues that have quietly been resolved.",
+      "On a weekly cadence it works through dependency PRs, auto-merging the safe patch and minor bumps it can verify.",
+    ],
+  },
+  {
+    eyebrow: "v.",
+    title: "Docs & code-quality audits",
+    body: [
+      "Each day tend reads the previous day's CI runs of its own workflows, looks for behaviour that didn't sit right, and proposes adjustments to its skills and config.",
+      "An agent that watches its own work, and edits its own instructions when it should.",
+    ],
+  },
+];
+---
+
+<Base>
+  <!-- ===== HERO ===== -->
+  <section class="hero">
+    <div>
+      <p class="section-eyebrow">an agent · maintained by you</p>
+      <h1>Tend</h1>
+      <p class="tagline">A dutiful junior maintainer for your repo — quietly reviewing PRs, triaging issues, and looking after the corners no one else has time for.</p>
+
+      <pre class="install"><code>claude plugin marketplace add max-sixty/tend
+claude plugin install install-tend@tend
+claude /install-tend</code></pre>
+
+      <div class="badges">
+        <a class="meta-link" href="https://github.com/max-sixty/tend">
+          <svg class="inline-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path fill="currentColor" d="M8 .2a8 8 0 0 0-2.5 15.6c.4.1.5-.2.5-.4v-1.4c-2.2.5-2.7-1-2.7-1-.4-1-.9-1.3-.9-1.3-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.9.9 2.4.7 0-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-3.9 0-.9.3-1.6.8-2.2 0-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8a7.7 7.7 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.4 1.1.1 1.9.1 2.1.5.6.8 1.3.8 2.2 0 3.1-1.9 3.7-3.7 3.9.3.3.6.8.6 1.5v2.2c0 .2.1.5.5.4A8 8 0 0 0 8 .2z"/>
+          </svg>
+          github
+        </a>
+        <a class="meta-link" href="https://pypi.org/project/tend/">
+          <span class="meta-glyph">π</span> pypi
+        </a>
+        <a class="meta-link" href="https://github.com/max-sixty/tend/blob/main/LICENSE">
+          MIT
+        </a>
+        <span class="note">already in production, albeit early days</span>
+      </div>
+    </div>
+    <div class="logo-frame">
+      <Logo size={260} />
+    </div>
+  </section>
+
+  <hr />
+
+  <!-- ===== WHAT TEND TENDS ===== -->
+  <section id="what-tend-tends">
+    <p class="section-eyebrow">a small field guide</p>
+    <p class="section-lead">A few of the things tend does, day to day.</p>
+
+    {areas.map((area) => (
+      <div class="marginalia">
+        <div class="margin-note">{area.eyebrow}</div>
+        <div class="body">
+          <h2>{area.title}</h2>
+          {area.body.map((p) => <p>{p}</p>)}
+        </div>
+      </div>
+    ))}
+  </section>
+
+  <hr />
+
+  <!-- ===== QUICK START ===== -->
+  <section id="quick-start">
+    <p class="section-eyebrow">getting started</p>
+    <p class="section-lead">Three commands and ten to fifteen minutes.</p>
+
+    <div class="marginalia">
+      <div class="margin-note">install</div>
+      <div class="body">
+        <pre><code>claude plugin marketplace add max-sixty/tend
+claude plugin install install-tend@tend
+claude /install-tend</code></pre>
+
+        <p>
+          The <code>/install-tend</code> skill walks the rest of the way:
+          config file, workflow generation, bot account, secrets, branch
+          protection. It'll ask before each step that touches your repo.
+        </p>
+        <p class="note">
+          You'll need a GitHub account for the bot (something like
+          <code>@your-project-bot</code>) and a Claude Max subscription.
+          Maintainers of sizeable OSS projects can{" "}
+          <a href="https://claude.com/contact-sales/claude-for-oss">
+            get a Max subscription free from Anthropic
+          </a>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr />
+
+  <!-- ===== SECURITY ===== -->
+  <section id="security">
+    <p class="section-eyebrow">a question every adopter asks</p>
+    <p class="section-lead">Where the bot can and can't go.</p>
+
+    <div class="marginalia">
+      <div class="margin-note">model</div>
+      <div class="body">
+        <p>
+          Tend gives Claude write access to a repository. The primary boundary
+          is a GitHub ruleset that prevents the bot from merging to protected
+          branches — bot-authored PRs require human approval, and tend's setup
+          script verifies and (if you ask) creates that ruleset for you. On top
+          of that sit config-pinning, burst-and-spike rate limiting, and fixed
+          workflow prompts that never read attacker-controlled input.
+        </p>
+        <p>
+          <a href="https://github.com/max-sixty/tend/blob/main/docs/security-model.md">
+            Read the full threat model →
+          </a>
+        </p>
+      </div>
+    </div>
+  </section>
+</Base>

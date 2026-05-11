@@ -1,0 +1,45 @@
+name: worker-deploy
+
+# Deploys the tend-currently Cloudflare Worker on push to main that touches
+# worker/** or this workflow. The Worker serves the "currently tending"
+# data stream. One-time account setup (KV namespace, GITHUB_TOKEN Worker
+# secret, CLOUDFLARE_API_TOKEN repo secret, custom domain) is documented
+# in worker/README.md and is already done for max-sixty/tend.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - ".github/workflows/worker-deploy.yaml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: github.repository_owner == 'max-sixty'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - run: npm ci
+        working-directory: worker
+
+      - run: npm run typecheck
+        working-directory: worker
+
+      - run: npm test
+        working-directory: worker
+
+      - name: Deploy
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy

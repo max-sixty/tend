@@ -26,18 +26,21 @@ TMPFILE=$(mktemp)
 trap 'rm -f "$TMPFILE"' EXIT
 
 >&2 echo "Running claude setup-token (approve in browser)..."
+>&2 echo "If the browser doesn't open, tail $TMPFILE for the OAuth URL."
+
 # Widen the PTY (default 80 cols) so Ink doesn't wrap the ~108-char token
 # across lines. With the token on its own logical line, end-of-line is a
 # natural right boundary for extraction.
 #
-# Redirect script(1)'s stdout passthrough to stderr (>&2): script writes
-# the captured session to both the file AND its stdout, and we don't want
-# that gunk leaking into our caller's `TOKEN=$(...)` capture. The user
-# still sees the TUI on their terminal via stderr.
+# Drop script(1)'s tee'd stdout (> /dev/null). The typescript contains
+# the freshly-minted long-lived token, and when this wrapper is invoked
+# from Claude Code's Bash tool anything we send to stderr gets captured
+# into the conversation transcript. The full typescript still lands in
+# $TMPFILE for the extraction below; that's the only copy.
 if [[ "$(uname)" == "Darwin" ]]; then
-  script -q "$TMPFILE" /bin/sh -c 'stty cols 250 rows 50; exec claude setup-token' < /dev/null >&2
+  script -q "$TMPFILE" /bin/sh -c 'stty cols 250 rows 50; exec claude setup-token' < /dev/null > /dev/null
 else
-  script -qec 'stty cols 250 rows 50; exec claude setup-token' "$TMPFILE" < /dev/null >&2
+  script -qec 'stty cols 250 rows 50; exec claude setup-token' "$TMPFILE" < /dev/null > /dev/null
 fi
 
 # Strip ANSI CSI sequences and CR. Then grep for the token: with the wide
@@ -50,7 +53,10 @@ TOKEN=$(sed $'s/\033\\[[^a-zA-Z]*[a-zA-Z]//g' "$TMPFILE" | tr -d '\r' \
 
 if [ -z "$TOKEN" ]; then
   >&2 echo "Error: no sk-ant-oat01-… token found in TUI output"
-  >&2 cat "$TMPFILE"
+  # Don't dump the typescript to stderr — it may contain a token the
+  # regex didn't match. Preserve it on disk so the user can inspect.
+  >&2 echo "Typescript preserved at: $TMPFILE"
+  trap - EXIT
   exit 1
 fi
 
