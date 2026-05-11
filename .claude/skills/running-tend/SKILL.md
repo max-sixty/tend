@@ -44,3 +44,37 @@ Artifact paths: `-home-runner-work-tend-tend/<session-id>.jsonl`
 
 `review-reviewers` runs produce 3 session logs per run (one per matrix repo:
 `max-sixty/worktrunk`, `max-sixty/tend`, `PRQL/prql`).
+
+## Weekly: refresh `data/consumers.json`
+
+Public repos that have installed tend. Read by the website build (see
+`WEBSITE.md`) for the stat strip and activity feed; needs no opt-in because
+the workflow files are public.
+
+```bash
+# 1. Discover consumer repos via code search. `max-sixty/tend@v1` only
+#    appears in generated tend-*.yaml workflow files.
+mapfile -t REPOS < <(
+  gh search code 'max-sixty/tend@v1' --limit 100 --json repository,path \
+    | jq -r '.[] | select(.path | startswith(".github/workflows/tend-")) | .repository.nameWithOwner' \
+    | sort -u
+)
+
+# 2. Resolve bot_name from each repo's .config/tend.toml.
+mkdir -p data
+{
+  for repo in "${REPOS[@]}"; do
+    bot=$(gh api "repos/$repo/contents/.config/tend.toml" --jq '.content' 2>/dev/null \
+      | base64 -d 2>/dev/null \
+      | sed -n 's/^bot_name *= *"\([^"]*\)".*/\1/p' | head -1)
+    [ -n "$bot" ] || continue
+    jq -nc --arg repo "$repo" --arg bot "$bot" '{repo: $repo, bot_name: $bot}'
+  done
+} | jq -s . > data/consumers.json
+```
+
+Open a PR titled `chore: refresh consumers.json` if the file changed. Skip
+the PR (no diff to land) when `git status --porcelain data/consumers.json`
+is empty — `git diff --quiet` returns 0 for untracked paths, so the
+first-run case would no-op. Code search is 10 req/min — one call covers
+the whole list.
