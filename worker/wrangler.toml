@@ -17,9 +17,8 @@ id = "cba4d4d307974f64a6c4a4a1390c5153"
 [observability]
 enabled = true
 
-# TODO: attach a custom domain once we own one (tend.dev preferred). The
-# Worker URL stays maxsixty.workers.dev until then. Once a zone is on this
-# Cloudflare account, add:
-#   [[routes]]
-#   pattern = "currently.tend.dev"
-#   custom_domain = true
+# Public URL. workers.dev backend is disabled (set workers_dev = true
+# to re-enable a wildcard fallback).
+[[routes]]
+pattern = "currently.tend-src.com"
+custom_domain = true

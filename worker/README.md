@@ -9,7 +9,7 @@ reasoning.
 ## Endpoint
 
 ```
-GET https://tend-currently.maxsixty.workers.dev/
+GET https://currently.tend-src.com/
 ```
 
 Returns:

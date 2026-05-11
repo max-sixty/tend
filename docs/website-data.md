@@ -7,7 +7,7 @@ mechanism that meets its freshness budget.
 | --- | --- | --- | --- |
 | Stats | Nightly bot task → static JSON | 24 h | `data/stats.json` on `main` |
 | Activity | Nightly bot task → static JSON | 24 h | `data/activity.json` on `main` |
-| Currently tending | Cloudflare Worker, 30 s edge cache | 30 s | `tend-currently.maxsixty.workers.dev` |
+| Currently tending | Cloudflare Worker, 30 s edge cache | 30 s | `currently.tend-src.com` |
 
 The rationale (rate-limit math, why one Worker rather than all-static or
 all-dynamic) is in [`../WEBSITE-live-data.md`](../WEBSITE-live-data.md).
@@ -145,7 +145,7 @@ fallback lives in the rendering layer, not in the data layer.
 Cloudflare Worker (tend-currently)
   ├─ reads data/consumers.json via raw URL (KV-cached 1 h)
   ├─ fans out to actions/runs per repo
-  └─ serves CORS-enabled JSON at https://tend-currently.maxsixty.workers.dev
+  └─ serves CORS-enabled JSON at https://currently.tend-src.com
      (rendered response edge-cached 30 s; 5 s on fallback)
 ```
 
