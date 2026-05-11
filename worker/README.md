@@ -35,7 +35,7 @@ Cloudflare edge cache both honor `Cache-Control: public, max-age=30`.
 
 The Worker reads `data/consumers.json` from `main` via
 `raw.githubusercontent.com` (KV-cached for 1 h), fans out parallel
-`GET /repos/{r}/actions/runs?status=in_progress&per_page=5` calls
+`GET /repos/{r}/actions/runs?status=in_progress&per_page=30` calls
 authenticated with a read-only PAT, filters to `tend-*` workflows, and
 returns the compact JSON above. The rendered response is edge-cached
 (`caches.default`) for 30 s, which both bounds GitHub fanout and dedupes
@@ -58,10 +58,12 @@ npx wrangler deploy                                 # first deploy
 
 The PAT needs `actions:read` + `metadata:read` on public repos. After first
 deploy, CI handles subsequent deploys via
-[`../.github/workflows/worker-deploy.yaml`](../.github/workflows/worker-deploy.yaml).
-That workflow needs `CLOUDFLARE_API_TOKEN` set as a repo secret — generate one
-at <https://dash.cloudflare.com/profile/api-tokens> with the "Edit Workers"
-template.
+[`../.github/workflows/worker-deploy.yaml`](../.github/workflows/worker-deploy.yaml),
+which authenticates with the `CLOUDFLARE_API_TOKEN` repo secret. That secret
+is a scoped token named `tend-ci-worker-deploy` (Workers Scripts + KV + Routes
+edit), generated to keep the account's Global API Key out of CI; regenerate at
+<https://dash.cloudflare.com/profile/api-tokens> with the "Edit Cloudflare
+Workers" template if it's ever lost.
 
 ## Local development
 
