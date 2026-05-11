@@ -84,7 +84,7 @@ Use this path when:
 - The failure shape is filesystem/network-level, not anything the project's code does
 - An upstream status incident matches the timing and components
 
-**Overlay overrides.** If the consuming repo's `running-tend` overlay prefers a different disposition for transient failures — e.g., "comment on the failing run" or "exit silently" — follow the overlay. The open-and-close pattern above is the bundled default; some maintainers treat the resulting self-closed issues as tracker noise and prefer no issue at all. Overlay-wins applies here as everywhere.
+**Overlay overrides.** If the consuming repo's `running-tend` overlay prescribes a different disposition for transient failures (e.g. comment on the run, exit silently), follow the overlay.
 
 If you can't tell whether it's transient, treat it as durable and create a fix PR.
 
