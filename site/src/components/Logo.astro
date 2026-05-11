@@ -1,0 +1,94 @@
+---
+interface Props {
+  size?: number;
+  /** When true, render the static filled mark (no entrance animation, no breath). Use for header etc. */
+  static?: boolean;
+}
+const { size = 220, static: isStatic = false } = Astro.props;
+// viewBox is 437 × 562; width scales off the height.
+const width = Math.round((size * 437) / 562);
+// Unique id per instance so multiple <Logo /> on a page don't collide.
+const maskId = `logo-grow-${Math.random().toString(36).slice(2, 9)}`;
+---
+
+<svg
+  class:list={["logo-mark", { "is-static": isStatic }]}
+  width={width}
+  height={size}
+  viewBox="0 0 437 562"
+  xmlns="http://www.w3.org/2000/svg"
+  aria-label="Tend"
+  role="img"
+>
+  <defs>
+    <clipPath id={maskId} clipPathUnits="userSpaceOnUse">
+      <rect class="grow-rect" x="0" y="0" width="437" height="600"></rect>
+    </clipPath>
+  </defs>
+  <g class="logo-breathe">
+    <!-- Filled body, revealed bottom-to-top by the clip-path on the wrapper rect below. -->
+    <g clip-path={`url(#${maskId})`}>
+      <path
+        class="logo-fill"
+        d="M 209.3 10.2 c -41.2 52.7 -51.8 93 -33.9 129.3 6.8 13.6 23 32.7 25.5 29.9 7.5 -8.5 16.2 -56.8 17.4 -96.4 l 0.2 -7.5 2.4 14 c 8.3 49.2 0.5 92.9 -21.3 119 l -4.1 4.9 -0.5 35.1 -0.5 35 -3.4 -4.9 c -1.9 -2.7 -6 -8 -9.3 -11.7 -4.9 -5.7 -6.3 -8.3 -8.9 -16.1 -16.2 -49.8 -61.1 -71.1 -126.2 -59.8 -19.5 3.3 -46.7 11 -46.7 13.2 0 0.5 3.2 5.8 7.1 11.7 43.5 64.8 81.4 88.8 127.6 80.7 11.6 -2 24.7 -6.7 25.1 -8.9 0.2 -1.1 -4.5 -6.6 -13 -15 -21.6 -21.7 -43.8 -34.9 -80.3 -47.8 l -11 -3.9 6 0.6 c 37.7 3.8 76.8 22.4 102 48.5 15 15.5 22.7 29.1 28.3 49.8 l 2.6 9.6 0.7 73.5 c 0.7 79.4 0.7 78.9 6.5 99.5 9 31.5 29.7 54.2 58.5 64 25.8 8.8 63 7.4 88 -3.3 l 4.7 -2 -6.2 -19.6 c -3.5 -10.8 -6.5 -19.8 -6.7 -20.1 -0.3 -0.2 -3.4 0.7 -7 2 -35.7 12.9 -68.9 3.6 -81.9 -22.9 -9 -18.3 -10 -28.2 -10 -101.5 0 -72.1 0.9 -79.7 11.2 -101 19.1 -39 70.9 -71.5 122.3 -76.6 6 -0.5 5.9 -0.5 -6 3.8 -28.3 10.3 -47 20.1 -65 34.2 -9.9 7.7 -27.7 26.2 -27.3 28.3 0.4 2.1 14 6.9 25.1 8.8 47.2 8.3 87.6 -18.1 130.9 -85.5 l 4.8 -7.6 -2.8 -1.2 c -1.6 -0.6 -9.6 -3 -17.8 -5.3 -71.8 -19.7 -123.5 -6.3 -147 38.3 -3.6 6.9 -8.4 19.8 -8.4 22.6 0 0.9 -3 5 -6.6 9.1 -3.6 4.1 -8 9.5 -9.8 12 l -3.1 4.5 -0.3 -53.3 -0.2 -53.4 5.8 -6.6 c 31.5 -36 29.8 -77.2 -5.2 -129.6 -8.7 -13 -22.3 -30.6 -23.5 -30.6 -0.5 -0 -4.4 4.6 -8.8 10.2 z"
+      ></path>
+    </g>
+  </g>
+</svg>
+
+<style>
+  .logo-mark {
+    display: block;
+    overflow: visible;
+    color: var(--oak, #b5a48a);
+  }
+
+  .logo-fill {
+    fill: currentColor;
+  }
+
+  /* ---- Animated entrance: bottom-to-top growth reveal ---- */
+  .logo-mark:not(.is-static) .grow-rect {
+    /* SVG transforms use user-space units (viewBox units). 580 > viewBox height, so the rect
+       starts fully below the viewBox — nothing is clipped in, the logo is hidden. */
+    transform: translateY(580px);
+    animation: logo-grow 1.55s cubic-bezier(0.22, 0.61, 0.36, 1) 0.2s forwards;
+  }
+
+  @keyframes logo-grow {
+    from { transform: translateY(580px); }
+    to   { transform: translateY(0); }
+  }
+
+  /* ---- Settle + continuous gentle breath ---- */
+  .logo-mark:not(.is-static) .logo-breathe {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation:
+      logo-settle 0.65s cubic-bezier(0.34, 1.45, 0.64, 1) 1.55s backwards,
+      logo-breathe 7s ease-in-out 2.4s infinite;
+  }
+
+  @keyframes logo-settle {
+    0%   { transform: scale(0.985) translateY(0.4%); }
+    100% { transform: scale(1) translateY(0); }
+  }
+
+  @keyframes logo-breathe {
+    0%, 100% { transform: scale(1) translateY(0); }
+    50%      { transform: scale(1.012) translateY(-0.4%); }
+  }
+
+  /* ---- Static variant: no animation, no clipping ---- */
+  .logo-mark.is-static .grow-rect {
+    transform: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .logo-mark .grow-rect,
+    .logo-mark .logo-breathe {
+      animation: none;
+      transform: none;
+    }
+  }
+</style>

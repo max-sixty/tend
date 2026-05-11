@@ -249,6 +249,13 @@ hr::after {
   font-style: italic;
   font-size: 1.2rem;
   color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  line-height: 1;
+}
+.site-header .wordmark .logo-mark {
+  color: var(--oak);
 }
 .site-header nav {
   display: flex;
@@ -270,7 +277,7 @@ hr::after {
     text-align: left;
     padding: 2rem 0 2.5rem;
   }
-  .hero .seedling-frame { order: -1; max-width: 140px; }
+  .hero .logo-frame { order: -1; max-width: 140px; }
 }
 
 .hero .tagline {
@@ -323,8 +330,14 @@ hr::after {
   line-height: 0;
 }
 
-.seedling-frame {
-  width: clamp(160px, 22vw, 220px);
+.logo-frame {
+  width: clamp(160px, 22vw, 240px);
+  display: flex;
+  justify-content: center;
+}
+.logo-frame .logo-mark {
+  width: 100%;
+  height: auto;
 }
 
 /* ---------- "What tend tends" ---------- */
