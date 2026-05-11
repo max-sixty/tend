@@ -2,6 +2,7 @@
 import LogoDraw from "../components/LogoDraw.astro";
 import LogoGrow from "../components/LogoGrow.astro";
 import LogoBoth from "../components/LogoBoth.astro";
+import LogoSpine from "../components/LogoSpine.astro";
 ---
 
 <!doctype html>
@@ -29,10 +30,11 @@ import LogoBoth from "../components/LogoBoth.astro";
       p.lede { margin: 0 0 2.5rem; color: #6b6a64; max-width: 50ch; }
       .grid {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, 1fr);
         gap: 2rem;
       }
-      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+      @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+      .featured { grid-column: 1 / -1; border-color: #cdbf9f; }
       .card {
         background: #fff;
         border: 1px solid #e7e3d9;
@@ -71,6 +73,14 @@ import LogoBoth from "../components/LogoBoth.astro";
     </p>
 
     <div class="grid">
+      <div class="card featured">
+        <h2>D · One spine (new direction)</h2>
+        <div class="desc">Not assembled from the old logo's parts — one continuous spine that rises, curls at the foot, and widens into the leaf at its tip; side leaves branch off it. First pass.</div>
+        <div class="stage" data-variant><LogoSpine size={240} /></div>
+        <div class="controls"><button data-replay>↻ replay</button></div>
+        <div class="lockup"><LogoSpine size={28} static /><span>tend</span></div>
+      </div>
+
       <div class="card">
         <h2>A · Outline draws, then inks</h2>
         <div class="desc">A pen-stroke traces the silhouette, the warm fill floods in, the guide-stroke fades.</div>
