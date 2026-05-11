@@ -45,38 +45,6 @@ Artifact paths: `-home-runner-work-tend-tend/<session-id>.jsonl`
 `review-reviewers` runs produce 3 session logs per run (one per matrix repo:
 `max-sixty/worktrunk`, `max-sixty/tend`, `PRQL/prql`).
 
-## Nightly: refresh `data/{activity,stats}.json`
-
-Aggregates the daily activity feed and stat counts the website renders.
-Reads `data/consumers.json` for the bot list, queries the Search API per
-bot, writes JSON narrow enough that no raw API response leaks in. See
-[`docs/website-data.md`](../../../docs/website-data.md) for schemas.
-
-```bash
-set -euo pipefail
-
-python3 scripts/fetch_website_data.py
-# Throttles to ~2 s/Search-call (30/min limit). Run takes ~90 s for N=5 bots.
-# Exits non-zero on a persistent GitHub API failure — `set -e` above makes
-# that abort this block (and surface in the bot's run summary) rather than
-# silently leave the JSON files stale.
-
-git add data/activity.json data/stats.json
-if ! git diff --cached --quiet; then
-  git commit -m "data: nightly refresh"
-  git push || (git pull --rebase origin main && git push)
-fi
-```
-
-`fetch_website_data.py` does a structural diff against the existing JSON
-(ignoring `generated_at`), so commits only land when counts or events
-actually moved. Direct-push rather than PR — pure data churn that would
-swamp the review queue. If push still fails after the rebase retry (e.g.
-branch protection rejecting the bot), open a PR instead.
-
-The "currently tending" stream is served by a Cloudflare Worker
-(`worker/`), not from a committed file — don't add a path for it here.
-
 ## Weekly: refresh `data/consumers.json`
 
 Public repos that have installed tend. Read by the website build (see
