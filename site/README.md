@@ -22,7 +22,7 @@ npm run preview    # serve the built site
 ## What's here
 
 - `src/pages/index.astro` — the single-page site (hero + 5 areas + quick start + security + footer)
-- `src/components/Seedling.astro` — hand-built SVG seedling logo with the unfurl animation
+- `src/components/Logo.astro` — animated SVG of the tend mark: a pen traces the outline, the colour floods in behind it, then it settles with a faint breath; pass `static` for the header lockup
 - `src/layouts/Base.astro` — page shell, header, footer, font preconnect
 - `src/styles/global.css` — palette, typography, marginalia grid, all layout
 - `public/logo.png`, `public/favicon.png` — copied from `../assets/`

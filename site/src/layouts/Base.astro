@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import Logo from "../components/Logo.astro";
 
 interface Props {
   title?: string;
@@ -29,7 +30,10 @@ const {
   </head>
   <body>
     <header class="site-header">
-      <a href={import.meta.env.BASE_URL} class="wordmark">tend</a>
+      <a href={import.meta.env.BASE_URL} class="wordmark">
+        <Logo size={28} static />
+        <span>tend</span>
+      </a>
       <nav>
         <a href="#what-tend-tends">What it tends</a>
         <a href="#quick-start">Quick start</a>
