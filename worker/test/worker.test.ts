@@ -32,7 +32,7 @@ describe("fetchRepoRuns", () => {
     const { __test } = await import("../src/index");
     const responses = new Map<string, unknown>([
       [
-        "https://api.github.com/repos/o/r/actions/runs?status=in_progress&per_page=5",
+        "https://api.github.com/repos/o/r/actions/runs?status=in_progress&per_page=30",
         {
           workflow_runs: [
             {
@@ -107,7 +107,7 @@ describe("refresh", () => {
         ],
       ],
       [
-        "https://api.github.com/repos/max-sixty/tend/actions/runs?status=in_progress&per_page=5",
+        "https://api.github.com/repos/max-sixty/tend/actions/runs?status=in_progress&per_page=30",
         {
           workflow_runs: [
             {
@@ -119,7 +119,7 @@ describe("refresh", () => {
         },
       ],
       [
-        "https://api.github.com/repos/PRQL/prql/actions/runs?status=in_progress&per_page=5",
+        "https://api.github.com/repos/PRQL/prql/actions/runs?status=in_progress&per_page=30",
         {
           workflow_runs: [
             {

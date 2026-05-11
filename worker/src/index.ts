@@ -47,7 +47,11 @@ const FALLBACK_TTL_SECONDS = 5; // shorter so a transient outage clears fast
 const REPOS_TTL_SECONDS = 3600;
 const FETCH_TIMEOUT_MS = 10_000;
 const WORKFLOW_PREFIX = "tend-";
-const PER_PAGE = 5;
+// GitHub's `actions/runs` endpoint sorts by created_at desc across ALL
+// workflows in the repo, then we filter to tend-* client-side. A small
+// page size risks the tend runs being pushed off by a flurry of non-tend
+// runs in busy repos; 30 (GitHub's default) is cheap and removes the risk.
+const PER_PAGE = 30;
 const GITHUB_API = "https://api.github.com";
 // owner/name — alphanumerics + `_-.`, no leading `.`/`-`, no `..` anywhere,
 // exactly one slash. Stricter than GitHub itself; the cost of false rejection
