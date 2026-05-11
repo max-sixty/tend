@@ -74,5 +74,7 @@ mkdir -p data
 ```
 
 Open a PR titled `chore: refresh consumers.json` if the file changed. Skip
-the PR (no diff to land) if `git diff --quiet data/consumers.json`. Code
-search is 10 req/min — one call covers the whole list.
+the PR (no diff to land) when `git status --porcelain data/consumers.json`
+is empty — `git diff --quiet` returns 0 for untracked paths, so the
+first-run case would no-op. Code search is 10 req/min — one call covers
+the whole list.
