@@ -1,0 +1,53 @@
+name: worker-deploy
+
+# Deploys the tend-currently Cloudflare Worker on push to main that touches
+# worker/** or this workflow. The Worker serves the "currently tending"
+# data stream — see worker/README.md.
+#
+# Prerequisites (one-time, manual):
+#   1. Sign up at cloudflare.com (free)
+#   2. cd worker && npx wrangler login
+#   3. npx wrangler kv:namespace create CACHE (paste id into wrangler.toml)
+#   4. npx wrangler secret put GITHUB_TOKEN (paste a read-only PAT)
+#   5. npx wrangler deploy (first deploy)
+#   6. Add CLOUDFLARE_API_TOKEN to repo secrets — generate at
+#      https://dash.cloudflare.com/profile/api-tokens using the
+#      "Edit Cloudflare Workers" template.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - ".github/workflows/worker-deploy.yaml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: github.repository_owner == 'max-sixty'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - run: npm ci
+        working-directory: worker
+
+      - run: npm run typecheck
+        working-directory: worker
+
+      - run: npm test
+        working-directory: worker
+
+      - name: Deploy
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy

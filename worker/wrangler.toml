@@ -1,0 +1,29 @@
+name = "tend-currently"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+# Bound at runtime via `wrangler secret put GITHUB_TOKEN` — never commit.
+# Read scope only: actions:read + metadata:read on opt-in repos.
+
+[vars]
+ALLOWED_ORIGIN = "https://max-sixty.github.io"
+# TEMPORARY: gist placeholder until the `website` branch is bootstrapped
+# (phase 1) and the discovery script populates static/data/repos.json. At
+# that point switch to:
+#   https://raw.githubusercontent.com/max-sixty/tend/website/static/data/repos.json
+REPOS_URL = "https://gist.githubusercontent.com/max-sixty/bcdc991d3b9024c9b38cf5cc023c96ea/raw/repos.json"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "cba4d4d307974f64a6c4a4a1390c5153"
+
+[observability]
+enabled = true
+
+# TODO: attach a custom domain once we own one (tend.dev preferred). The
+# Worker URL stays maxsixty.workers.dev until then. Once a zone is on this
+# Cloudflare account, add:
+#   [[routes]]
+#   pattern = "currently.tend.dev"
+#   custom_domain = true
+# Then update ALLOWED_ORIGIN above to the site's production origin.

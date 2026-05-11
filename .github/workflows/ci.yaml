@@ -15,6 +15,29 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv run pytest
 
+  test-scripts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - run: uvx --with pytest pytest scripts/tests/
+
+  test-worker:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
   lint:
     runs-on: ubuntu-24.04
     steps:
