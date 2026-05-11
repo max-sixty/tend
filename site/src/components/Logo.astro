@@ -1,102 +1,53 @@
 ---
 interface Props {
   size?: number;
-  /** When true, render the static filled mark (no entrance animation, no breath). Use for header etc. */
+  /** Render the static assembled mark — no entrance animation, no breath. For the header lockup etc. */
   static?: boolean;
 }
 const { size = 220, static: isStatic = false } = Astro.props;
-const width = Math.round((size * 437) / 562);
-// Unique ids per instance so multiple <Logo /> on a page don't collide.
-const uid = Math.random().toString(36).slice(2, 9);
-const pathId = `logo-path-${uid}`;
-const stemMask = `logo-mask-stem-${uid}`;
-const leftMask = `logo-mask-left-${uid}`;
-const rightMask = `logo-mask-right-${uid}`;
-const topMask = `logo-mask-top-${uid}`;
-// Traced logo path — final frame of the animation.
-const logoD =
-  "M 209.3 10.2 c -41.2 52.7 -51.8 93 -33.9 129.3 6.8 13.6 23 32.7 25.5 29.9 7.5 -8.5 16.2 -56.8 17.4 -96.4 l 0.2 -7.5 2.4 14 c 8.3 49.2 0.5 92.9 -21.3 119 l -4.1 4.9 -0.5 35.1 -0.5 35 -3.4 -4.9 c -1.9 -2.7 -6 -8 -9.3 -11.7 -4.9 -5.7 -6.3 -8.3 -8.9 -16.1 -16.2 -49.8 -61.1 -71.1 -126.2 -59.8 -19.5 3.3 -46.7 11 -46.7 13.2 0 0.5 3.2 5.8 7.1 11.7 43.5 64.8 81.4 88.8 127.6 80.7 11.6 -2 24.7 -6.7 25.1 -8.9 0.2 -1.1 -4.5 -6.6 -13 -15 -21.6 -21.7 -43.8 -34.9 -80.3 -47.8 l -11 -3.9 6 0.6 c 37.7 3.8 76.8 22.4 102 48.5 15 15.5 22.7 29.1 28.3 49.8 l 2.6 9.6 0.7 73.5 c 0.7 79.4 0.7 78.9 6.5 99.5 9 31.5 29.7 54.2 58.5 64 25.8 8.8 63 7.4 88 -3.3 l 4.7 -2 -6.2 -19.6 c -3.5 -10.8 -6.5 -19.8 -6.7 -20.1 -0.3 -0.2 -3.4 0.7 -7 2 -35.7 12.9 -68.9 3.6 -81.9 -22.9 -9 -18.3 -10 -28.2 -10 -101.5 0 -72.1 0.9 -79.7 11.2 -101 19.1 -39 70.9 -71.5 122.3 -76.6 6 -0.5 5.9 -0.5 -6 3.8 -28.3 10.3 -47 20.1 -65 34.2 -9.9 7.7 -27.7 26.2 -27.3 28.3 0.4 2.1 14 6.9 25.1 8.8 47.2 8.3 87.6 -18.1 130.9 -85.5 l 4.8 -7.6 -2.8 -1.2 c -1.6 -0.6 -9.6 -3 -17.8 -5.3 -71.8 -19.7 -123.5 -6.3 -147 38.3 -3.6 6.9 -8.4 19.8 -8.4 22.6 0 0.9 -3 5 -6.6 9.1 -3.6 4.1 -8 9.5 -9.8 12 l -3.1 4.5 -0.3 -53.3 -0.2 -53.4 5.8 -6.6 c 31.5 -36 29.8 -77.2 -5.2 -129.6 -8.7 -13 -22.3 -30.6 -23.5 -30.6 -0.5 -0 -4.4 4.6 -8.8 10.2 z";
-
-// Spine paths — each traces its piece's natural growth direction.
-// Stroke width on each spine in <mask> covers the piece's full thickness, so
-// drawing the stroke via stroke-dashoffset reveals the underlying logo path
-// along the spine's length.
-const stemSpine =
-  "M 345 545 C 320 565, 240 565, 215 510 C 210 480, 215 470, 215 460 L 218 170";
-const leftLeafSpine = "M 215 215 Q 130 235 35 275";
-const rightLeafSpine = "M 222 215 Q 305 230 400 275";
-const topLeafSpine = "M 218 175 L 218 10";
+const width = Math.round((size * 200) / 256);
 ---
 
 <svg
   class:list={["logo-mark", { "is-static": isStatic }]}
   width={width}
   height={size}
-  viewBox="0 0 437 562"
+  viewBox="0 0 200 256"
   xmlns="http://www.w3.org/2000/svg"
   aria-label="Tend"
   role="img"
 >
-  <defs>
-    <path id={pathId} d={logoD}></path>
+  <g class="logo-grow">
+    <!-- Stem: a thick round-capped stroke whose centreline runs from the
+         base of the hook up to the neck. Drawn via stroke-dashoffset, so it
+         reads as a shoot pushing up out of the ground and curling at the base.
+         pathLength="1" normalises the dash maths to be length-independent. -->
+    <path
+      class="stem"
+      d="M 137 217 C 116 218, 101 211, 100 187 L 100 92"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="17"
+      stroke-linecap="round"
+      pathLength="1"
+    ></path>
 
-    <!-- Each mask: a wide white stroke that "draws" along its spine via stroke-dashoffset.
-         The stroke is wide enough to cover its anatomical piece in full. -->
-    <mask id={stemMask} maskUnits="userSpaceOnUse">
-      <path
-        class="spine stem"
-        d={stemSpine}
-        stroke="white"
-        stroke-width="62"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        fill="none"
-        pathLength="1"
-      ></path>
-    </mask>
+    <!-- Side leaves: unfurl outward from the neck — thin crescents that
+         lift a touch then droop to their tip. -->
+    <path
+      class="leaf-left"
+      d="M 97 93 C 74 90, 47 96, 26 114 C 47 105, 73 100, 97 100 Z"
+    ></path>
+    <path
+      class="leaf-right"
+      d="M 103 93 C 126 90, 153 96, 174 114 C 153 105, 127 100, 103 100 Z"
+    ></path>
 
-    <mask id={leftMask} maskUnits="userSpaceOnUse">
-      <path
-        class="spine left"
-        d={leftLeafSpine}
-        stroke="white"
-        stroke-width="115"
-        stroke-linecap="round"
-        fill="none"
-        pathLength="1"
-      ></path>
-    </mask>
-
-    <mask id={rightMask} maskUnits="userSpaceOnUse">
-      <path
-        class="spine right"
-        d={rightLeafSpine}
-        stroke="white"
-        stroke-width="115"
-        stroke-linecap="round"
-        fill="none"
-        pathLength="1"
-      ></path>
-    </mask>
-
-    <mask id={topMask} maskUnits="userSpaceOnUse">
-      <path
-        class="spine top"
-        d={topLeafSpine}
-        stroke="white"
-        stroke-width="135"
-        stroke-linecap="round"
-        fill="none"
-        pathLength="1"
-      ></path>
-    </mask>
-  </defs>
-
-  <g class="logo-breathe">
-    <use href={`#${pathId}`} mask={`url(#${stemMask})`}></use>
-    <use href={`#${pathId}`} mask={`url(#${leftMask})`}></use>
-    <use href={`#${pathId}`} mask={`url(#${rightMask})`}></use>
-    <use href={`#${pathId}`} mask={`url(#${topMask})`}></use>
+    <!-- Central leaf: opens upward from the neck to its point. -->
+    <path
+      class="leaf-top"
+      d="M 100 92 C 80 78, 74 42, 100 10 C 126 42, 120 78, 100 92 Z"
+    ></path>
   </g>
 </svg>
 
@@ -106,64 +57,89 @@ const topLeafSpine = "M 218 175 L 218 10";
     overflow: visible;
     color: var(--oak, #b5a48a);
   }
-
-  .logo-mark use {
+  .logo-mark .leaf-top,
+  .logo-mark .leaf-left,
+  .logo-mark .leaf-right {
     fill: currentColor;
   }
 
-  /* ----------------------------------------------------------------
-   * Each spine's stroke "draws" along the piece's natural growth axis
-   * by animating stroke-dashoffset from 1 (hidden) to 0 (fully drawn).
-   * pathLength="1" normalises so values are independent of spine length.
-   * ---------------------------------------------------------------- */
+  /* Each piece's growth anchor, in viewBox coordinates. */
+  .logo-mark .leaf-top {
+    transform-box: view-box;
+    transform-origin: 100px 92px;
+  }
+  .logo-mark .leaf-left {
+    transform-box: view-box;
+    transform-origin: 97px 96px;
+  }
+  .logo-mark .leaf-right {
+    transform-box: view-box;
+    transform-origin: 103px 96px;
+  }
 
-  .logo-mark .spine {
+  /* ---------------------------------------------------------------
+   * Entrance: the plant builds itself from nothing.
+   *   1. the stem pushes up out of the ground, curling at the base
+   *   2. the two side leaves unfurl outward from the neck (a touch of
+   *      back-ease overshoot so they "spring" open)
+   *   3. the central leaf opens upward to its point
+   * The phases overlap so it reads as one continuous growth, and the
+   * settled state is exactly what the static mark renders.
+   * --------------------------------------------------------------- */
+
+  .logo-mark:not(.is-static) .stem {
     stroke-dasharray: 1;
-    stroke-dashoffset: 1;
+    animation: stem-grow 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+  }
+  @keyframes stem-grow {
+    from { stroke-dashoffset: 1; }
+    to   { stroke-dashoffset: 0; }
   }
 
-  /* "Expo out" easing — quick extension that decelerates into the final shape,
-     the way a shoot or leaf snaps open. Phases overlap at the handoffs so the
-     plant reads as one continuous growth, not three discrete reveals. */
-  .logo-mark:not(.is-static) .spine.stem {
-    animation: draw-spine 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.15s forwards;
+  .logo-mark:not(.is-static) .leaf-left {
+    animation: leaf-left-unfurl 0.7s cubic-bezier(0.34, 1.4, 0.64, 1) 0.8s both;
   }
-  .logo-mark:not(.is-static) .spine.left,
-  .logo-mark:not(.is-static) .spine.right {
-    animation: draw-spine 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.85s forwards;
+  @keyframes leaf-left-unfurl {
+    from { transform: scale(0) rotate(26deg); }
+    to   { transform: none; }
   }
-  .logo-mark:not(.is-static) .spine.top {
-    animation: draw-spine 0.65s cubic-bezier(0.16, 1, 0.3, 1) 1.3s forwards;
+  .logo-mark:not(.is-static) .leaf-right {
+    animation: leaf-right-unfurl 0.7s cubic-bezier(0.34, 1.4, 0.64, 1) 0.87s both;
   }
-
-  @keyframes draw-spine {
-    to { stroke-dashoffset: 0; }
+  @keyframes leaf-right-unfurl {
+    from { transform: scale(0) rotate(-26deg); }
+    to   { transform: none; }
   }
 
-  /* Static variant: show the full logo immediately, no draw. */
-  .logo-mark.is-static .spine {
-    stroke-dasharray: none;
-    stroke-dashoffset: 0;
+  .logo-mark:not(.is-static) .leaf-top {
+    animation: leaf-top-grow 0.8s cubic-bezier(0.18, 1, 0.32, 1) 1.05s both;
+  }
+  @keyframes leaf-top-grow {
+    from { transform: scaleX(0.38) scaleY(0); }
+    to   { transform: none; }
   }
 
-  /* Gentle continuous breath once the draw completes. */
-  .logo-mark:not(.is-static) .logo-breathe {
-    transform-origin: 218px 560px;
-    animation: logo-breathe 7s ease-in-out 2.0s infinite;
+  /* Gentle continuous breath once assembled. */
+  .logo-mark:not(.is-static) .logo-grow {
+    transform-box: view-box;
+    transform-origin: 100px 220px;
+    animation: logo-breathe 7s ease-in-out 2.05s infinite;
   }
   @keyframes logo-breathe {
     0%, 100% { transform: scale(1); }
-    50%      { transform: scale(1.015); }
+    50%      { transform: scale(1.014); }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .logo-mark .spine,
-    .logo-mark .logo-breathe {
+    .logo-mark .stem,
+    .logo-mark .leaf-left,
+    .logo-mark .leaf-right,
+    .logo-mark .leaf-top,
+    .logo-mark .logo-grow {
       animation: none;
     }
-    .logo-mark .spine {
+    .logo-mark .stem {
       stroke-dasharray: none;
-      stroke-dashoffset: 0;
     }
   }
 </style>
