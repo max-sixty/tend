@@ -5,19 +5,54 @@ mechanism that meets its freshness budget.
 
 | Stream | Mechanism | Freshness | Where data lives |
 | --- | --- | --- | --- |
-| Stats | Daily Action → static JSON | 24 h | `static/data/stats.json` on `website` |
-| Activity | Daily Action → static JSON | 24 h | `static/data/activity.json` on `website` |
-| Currently tending | Cloudflare Worker, 30 s KV cache | 30 s | `tend-currently.<sub>.workers.dev` |
+| Stats | Nightly bot task → static JSON | 24 h | `data/stats.json` on `main` |
+| Activity | Nightly bot task → static JSON | 24 h | `data/activity.json` on `main` |
+| Currently tending | Cloudflare Worker, 30 s edge cache | 30 s | `tend-currently.maxsixty.workers.dev` |
 
 The rationale (rate-limit math, why one Worker rather than all-static or
 all-dynamic) is in [`../WEBSITE-live-data.md`](../WEBSITE-live-data.md).
 
+## Input: `data/consumers.json`
+
+Each tend-using repo is one entry — produced by `running-tend`'s weekly
+refresh.
+
+```json
+[
+  {"repo": "owner/name", "bot_name": "tend-agent"},
+  ...
+]
+```
+
+Both the daily fetcher and the Worker read `data/consumers.json` (the fetcher
+from disk during the Action run; the Worker via
+`raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json`, cached
+in KV for 1 h).
+
 ## Daily static JSON
 
 [`../scripts/fetch_website_data.py`](../scripts/fetch_website_data.py) is a
-stdlib-only Python script invoked by the `website-data` workflow once a day.
-It checks out the `website` branch, regenerates the two JSON files under
-`static/data/`, and commits if anything changed.
+stdlib-only Python script the tend bot runs each night as part of
+`running-tend`'s nightly task list (see
+[`../.claude/skills/running-tend/SKILL.md`](../.claude/skills/running-tend/SKILL.md)).
+It reads `data/consumers.json`, iterates each entry's `bot_name`, and writes
+two narrow JSON files into `data/`. The bot direct-pushes the changes to
+`main` — pure data churn that would swamp the review queue if it went
+through PRs.
+
+### Multi-bot semantics
+
+Counts are **summed** across bots: `reviews_total` is the union of reviews
+authored by *any* tend bot. Activity events from different bots are merged
+and deduped by URL, with the first kind seen winning when the same PR
+appears in multiple queries (queries run in order: ci-fix → review →
+triage).
+
+### Throttling
+
+Search API allows 30 req/min/token. The fetcher self-throttles to ≥2.1 s
+between Search calls, so a daily run can scale to ~70 bots without tripping
+the limit. With current N=5 it takes ~90 s.
 
 ### `activity.json`
 
@@ -42,19 +77,16 @@ It checks out the `website` branch, regenerates the two JSON files under
 | `review` | `commenter:<bot> is:pr -author:<bot>`                 |
 | `triage` | `commenter:<bot> is:issue`                            |
 
-Items appearing in multiple queries are deduped by URL; the first kind seen
-wins (queries run in the order above).
-
 ### `stats.json`
 
 ```jsonc
 {
   "generated_at": "2026-05-10T05:30:00Z",
-  "reviews_total": 412,
-  "reviews_this_week": 18,
-  "ci_fixes_total": 89,
-  "ci_fixes_this_week": 3,
-  "triage_comments_total": 67
+  "reviews_total": 1199,
+  "reviews_this_week": 111,
+  "ci_fixes_total": 944,
+  "ci_fixes_this_week": 55,
+  "triage_comments_total": 331
 }
 ```
 
@@ -86,40 +118,35 @@ Served by a Cloudflare Worker — see
 }
 ```
 
-The Worker reads `repos.json` (the discovery script's output) from the
-`website` branch via `raw.githubusercontent.com`, cached for 1 h in KV. So
-updates to the repo list take effect within an hour without redeploying the
-Worker.
+Updates to `consumers.json` propagate to the Worker within ~1 h (the KV
+cache TTL on the repos lookup).
 
 ### UI fallback contract
 
 When `currently_tending` is empty, or the Worker request fails, the UI
 should fall back to showing the most recent event from `activity.json` as
 "last action N min ago" — the indicator never breaks the page. This
-fallback lives in the rendering layer (phase 3 §11), not in the data
-layer.
+fallback lives in the rendering layer, not in the data layer.
 
 ## Inputs and outputs
 
 ```
-.github/workflows/website-data.yaml         daily cron
-  ├─ reads scripts/fetch_website_data.py    (from main)
-  ├─ checks out website branch
-  └─ commits website:static/data/{activity,stats}.json
+.github/workflows/tend-nightly.yaml         (the bot's nightly run)
+  └─ running-tend skill instructs the bot to run:
+     scripts/fetch_website_data.py
+     and commit data/{activity,stats}.json to main
+
+.github/workflows/publish-site.yaml         on push to main site/**
+  └─ builds + deploys site/ (Astro) to GitHub Pages
 
 .github/workflows/worker-deploy.yaml        on push to main worker/**
   └─ deploys worker/ to Cloudflare
 
-repos.json                                  produced by discovery script
-  ├─ lives at website:static/data/repos.json
-  ├─ read by Worker via raw.githubusercontent.com
-  └─ not consumed by fetch_website_data.py — activity/stats are bot-scoped
-     by Search API, not repo-scoped
-
 Cloudflare Worker (tend-currently)
-  ├─ reads repos.json (raw URL, KV-cached 1 h)
-  ├─ fans out to actions/runs per repo (KV-cached 30 s)
-  └─ serves CORS-enabled JSON
+  ├─ reads data/consumers.json via raw URL (KV-cached 1 h)
+  ├─ fans out to actions/runs per repo
+  └─ serves CORS-enabled JSON at https://tend-currently.maxsixty.workers.dev
+     (rendered response edge-cached 30 s; 5 s on fallback)
 ```
 
 ## Local development
@@ -127,7 +154,8 @@ Cloudflare Worker (tend-currently)
 Fetcher:
 
 ```sh
-GITHUB_TOKEN=$(gh auth token) python3 scripts/fetch_website_data.py --out-dir ./out
+GITHUB_TOKEN=$(gh auth token) python3 scripts/fetch_website_data.py \
+  --consumers-file data/consumers.json --out-dir /tmp/out
 ```
 
 Worker (see `../worker/README.md` for full setup):

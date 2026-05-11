@@ -6,12 +6,9 @@ compatibility_date = "2026-05-01"
 # Read scope only: actions:read + metadata:read on opt-in repos.
 
 [vars]
-ALLOWED_ORIGIN = "https://max-sixty.github.io"
-# TEMPORARY: gist placeholder until the `website` branch is bootstrapped
-# (phase 1) and the discovery script populates static/data/repos.json. At
-# that point switch to:
-#   https://raw.githubusercontent.com/max-sixty/tend/website/static/data/repos.json
-REPOS_URL = "https://gist.githubusercontent.com/max-sixty/bcdc991d3b9024c9b38cf5cc023c96ea/raw/repos.json"
+# Public read-only endpoint — `*` keeps CORS simple across dev/preview/prod.
+ALLOWED_ORIGIN = "*"
+REPOS_URL = "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json"
 
 [[kv_namespaces]]
 binding = "CACHE"
@@ -26,4 +23,3 @@ enabled = true
 #   [[routes]]
 #   pattern = "currently.tend.dev"
 #   custom_domain = true
-# Then update ALLOWED_ORIGIN above to the site's production origin.

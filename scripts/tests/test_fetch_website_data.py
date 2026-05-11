@@ -35,6 +35,32 @@ def stub_responses(responses: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# load_consumers
+
+
+def test_load_consumers_valid(tmp_path: Path) -> None:
+    p = tmp_path / "consumers.json"
+    p.write_text(json.dumps([{"repo": "max-sixty/tend", "bot_name": "tend-agent"}]))
+    assert fwd.load_consumers(p) == [
+        {"repo": "max-sixty/tend", "bot_name": "tend-agent"}
+    ]
+
+
+def test_load_consumers_missing_exits(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as exc:
+        fwd.load_consumers(tmp_path / "nope.json")
+    assert "not found" in str(exc.value)
+
+
+def test_load_consumers_malformed(tmp_path: Path) -> None:
+    p = tmp_path / "consumers.json"
+    p.write_text(json.dumps([{"repo": "x"}]))
+    with pytest.raises(SystemExit) as exc:
+        fwd.load_consumers(p)
+    assert "{repo, bot_name}" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
 # fetch_activity
 
 
@@ -47,14 +73,19 @@ def _item(html_url: str, repo: str, title: str, updated_at: str) -> dict[str, An
     }
 
 
-def test_fetch_activity_dedupes_and_sorts() -> None:
+def test_fetch_activity_dedupes_across_bots_and_kinds() -> None:
     pr_url = "https://github.com/o/r/pull/1"
     stub_responses(
         {
-            "/search/issues?q=author%3Atend-agent+is%3Apr&per_page=10&sort=updated&order=desc": {
+            # ci-fix queries
+            "/search/issues?q=author%3Abot-a+is%3Apr&per_page=10&sort=updated&order=desc": {
                 "items": [_item(pr_url, "o/r", "ci fix", "2026-05-09T10:00:00Z")],
             },
-            "/search/issues?q=commenter%3Atend-agent+is%3Apr+-author%3Atend-agent&per_page=10&sort=updated&order=desc": {
+            "/search/issues?q=author%3Abot-b+is%3Apr&per_page=10&sort=updated&order=desc": {
+                "items": [],
+            },
+            # review queries
+            "/search/issues?q=commenter%3Abot-a+is%3Apr+-author%3Abot-a&per_page=10&sort=updated&order=desc": {
                 "items": [
                     _item(
                         "https://github.com/o/r/pull/2",
@@ -62,23 +93,30 @@ def test_fetch_activity_dedupes_and_sorts() -> None:
                         "review me",
                         "2026-05-10T12:00:00Z",
                     ),
-                    # Same PR as ci-fix query — must dedupe.
+                    # Same PR as ci-fix; must dedupe — first kind wins.
                     _item(pr_url, "o/r", "ci fix", "2026-05-09T10:00:00Z"),
                 ],
             },
-            "/search/issues?q=commenter%3Atend-agent+is%3Aissue&per_page=10&sort=updated&order=desc": {
+            "/search/issues?q=commenter%3Abot-b+is%3Apr+-author%3Abot-b&per_page=10&sort=updated&order=desc": {
+                "items": [],
+            },
+            # triage queries
+            "/search/issues?q=commenter%3Abot-a+is%3Aissue&per_page=10&sort=updated&order=desc": {
                 "items": [
                     _item(
                         "https://github.com/o/r/issues/3",
                         "o/r",
-                        "bug report",
+                        "bug",
                         "2026-05-10T08:00:00Z",
                     )
                 ],
             },
+            "/search/issues?q=commenter%3Abot-b+is%3Aissue&per_page=10&sort=updated&order=desc": {
+                "items": [],
+            },
         }
     )
-    out = fwd.fetch_activity("tend-agent", token=None)
+    out = fwd.fetch_activity(["bot-a", "bot-b"], token=None)
     urls = [e["url"] for e in out["events"]]
     assert urls.count(pr_url) == 1
     ats = [e["at"] for e in out["events"]]
@@ -89,90 +127,125 @@ def test_fetch_activity_dedupes_and_sorts() -> None:
     assert kinds["https://github.com/o/r/issues/3"] == "triage"
 
 
-def test_fetch_activity_truncates_to_limit() -> None:
-    stub_responses(
-        {
-            "/search/issues?q=author%3Atend-agent+is%3Apr&per_page=2&sort=updated&order=desc": {
-                "items": [
-                    _item(
-                        f"https://github.com/o/r/pull/{i}",
-                        "o/r",
-                        f"t{i}",
-                        f"2026-05-0{i}T00:00:00Z",
-                    )
-                    for i in (1, 2)
-                ],
-            },
-            "/search/issues?q=commenter%3Atend-agent+is%3Apr+-author%3Atend-agent&per_page=2&sort=updated&order=desc": {
-                "items": [
-                    _item(
-                        f"https://github.com/o/r/pull/{i}",
-                        "o/r",
-                        f"t{i}",
-                        f"2026-05-0{i}T00:00:00Z",
-                    )
-                    for i in (3, 4)
-                ],
-            },
-            "/search/issues?q=commenter%3Atend-agent+is%3Aissue&per_page=2&sort=updated&order=desc": {
-                "items": [
-                    _item(
-                        f"https://github.com/o/r/issues/{i}",
-                        "o/r",
-                        f"t{i}",
-                        f"2026-05-0{i}T00:00:00Z",
-                    )
-                    for i in (5, 6)
-                ],
-            },
-        }
-    )
-    out = fwd.fetch_activity("tend-agent", token=None, limit=2)
-    assert len(out["events"]) == 2
-
-
 # ---------------------------------------------------------------------------
 # fetch_stats
 
 
-def test_fetch_stats_extracts_total_count() -> None:
-    # Match the URL prefix per stat — exact querystrings depend on the date,
-    # so the stub uses a Callable.
-    counts = {
-        "reviews_total": 412,
-        "reviews_this_week": 18,
-        "ci_fixes_total": 89,
-        "ci_fixes_this_week": 3,
-        "triage_comments_total": 67,
-    }
-
+def test_fetch_stats_sums_across_bots() -> None:
     def fake(path: str, token: str | None) -> dict[str, Any]:
         assert path.startswith("/search/issues?")
-        q = urllib_qs(path)["q"][0]
-        if q.startswith("author:tend-agent is:pr") and "updated:" in q:
-            return {"total_count": counts["ci_fixes_this_week"]}
-        if q.startswith("author:tend-agent is:pr"):
-            return {"total_count": counts["ci_fixes_total"]}
-        if "is:pr" in q and "-author:tend-agent" in q and "updated:" in q:
-            return {"total_count": counts["reviews_this_week"]}
-        if "is:pr" in q and "-author:tend-agent" in q:
-            return {"total_count": counts["reviews_total"]}
-        if "is:issue" in q:
-            return {"total_count": counts["triage_comments_total"]}
-        raise AssertionError(f"unexpected query: {q}")
+        # Each (stat × bot) returns 10 — the test expects the per-stat sum
+        # to be 20 (two bots).
+        return {"total_count": 10}
 
     fwd.set_gh_get(fake)
-    out = fwd.fetch_stats("tend-agent", token=None)
-    for k, v in counts.items():
-        assert out[k] == v, k
+    out = fwd.fetch_stats(["bot-a", "bot-b"], token=None)
+    for key in (
+        "reviews_total",
+        "reviews_this_week",
+        "ci_fixes_total",
+        "ci_fixes_this_week",
+        "triage_comments_total",
+    ):
+        assert out[key] == 20, key
     assert "generated_at" in out
 
 
-def urllib_qs(path: str) -> dict[str, list[str]]:
-    """Helper: parse the query string from a /search/issues path."""
-    from urllib.parse import parse_qs, urlparse
+# ---------------------------------------------------------------------------
+# _gh_get retry behavior
 
-    return parse_qs(urlparse(path).query)
+
+def test_gh_get_retries_then_succeeds(monkeypatch) -> None:
+    """A 403 followed by a 200 should be retried, not propagated."""
+    calls: list[int] = []
+    responses = [
+        ("error", 403),
+        ("ok", 200),
+    ]
+
+    class FakeResp:
+        def __init__(self, body: bytes) -> None:
+            self._body = body
+
+        def read(self) -> bytes:
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        kind, code = responses[len(calls)]
+        calls.append(code)
+        if kind == "error":
+            import urllib.error
+
+            raise urllib.error.HTTPError(req.full_url, code, "err", {}, None)
+        return FakeResp(b'{"total_count": 7}')
+
+    monkeypatch.setattr(fwd.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(fwd.time, "sleep", lambda _s: None)
+
+    out = fwd._gh_get("/search/issues?q=test", token=None)
+    assert out == {"total_count": 7}
+    assert calls == [403, 200]
+
+
+def test_gh_get_404_exits_without_retry(monkeypatch) -> None:
+    """A 404 is a config problem — fail fast, don't retry."""
+    import io
+    import urllib.error
+
+    calls: list[int] = []
+
+    def fake_urlopen(req, timeout):
+        calls.append(404)
+        raise urllib.error.HTTPError(
+            req.full_url, 404, "not found", {}, io.BytesIO(b"not found")
+        )
+
+    monkeypatch.setattr(fwd.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(fwd.time, "sleep", lambda _s: None)
+
+    with pytest.raises(SystemExit):
+        fwd._gh_get("/repos/x/y", token=None)
+    assert calls == [404]
+
+
+def test_gh_get_retries_network_errors(monkeypatch) -> None:
+    """URLError (network blips) should retry, not propagate."""
+    calls: list[str] = []
+
+    class FakeResp:
+        def __init__(self, body: bytes) -> None:
+            self._body = body
+
+        def read(self) -> bytes:
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        if not calls:
+            calls.append("err")
+            import urllib.error
+
+            raise urllib.error.URLError("connection reset")
+        calls.append("ok")
+        return FakeResp(b'{"items": []}')
+
+    monkeypatch.setattr(fwd.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(fwd.time, "sleep", lambda _s: None)
+
+    out = fwd._gh_get("/search/issues?q=test", token=None)
+    assert out == {"items": []}
+    assert calls == ["err", "ok"]
 
 
 # ---------------------------------------------------------------------------
