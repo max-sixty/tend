@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-05-11T07:38:35Z",
+  "events": [
+    {
+      "repo": "max-sixty/tend",
+      "kind": "ci-fix",
+      "title": "docs(claude.md): list site/, worker/, scripts/, data/ in Structure tree",
+      "url": "https://github.com/max-sixty/tend/pull/418",
+      "at": "2026-05-11T07:37:47Z"
+    },
+    {
+      "repo": "max-sixty/tend",
+      "kind": "triage",
+      "title": "Bot temporarily unavailable",
+      "url": "https://github.com/max-sixty/tend/issues/406",
+      "at": "2026-05-11T07:36:12Z"
+    },
+    {
+      "repo": "max-sixty/worktrunk",
+      "kind": "review",
+      "title": "fix(help): drop the stray trailing space from the --help aliases list",
+      "url": "https://github.com/max-sixty/worktrunk/pull/2689",
+      "at": "2026-05-11T07:35:35Z"
+    },
+    {
+      "repo": "max-sixty/worktrunk",
+      "kind": "review",
+      "title": "fix(hooks): resolve project config from the worktree the hook acts on",
+      "url": "https://github.com/max-sixty/worktrunk/pull/2690",
+      "at": "2026-05-11T07:30:50Z"
+    },
+    {
+      "repo": "max-sixty/worktrunk",
+      "kind": "review",
+      "title": "refactor(ci): move `CiPlatform` to the lib crate, cache on `RepoCache`, drop the \"override\" framing",
+      "url": "https://github.com/max-sixty/worktrunk/pull/2692",
+      "at": "2026-05-11T07:26:15Z"
+    },
+    {
+      "repo": "max-sixty/worktrunk",
+      "kind": "review",
+      "title": "feat(config): bare `wt config alias show` lists full definitions",
+      "url": "https://github.com/max-sixty/worktrunk/pull/2691",
+      "at": "2026-05-11T07:16:15Z"
+    },
+    {
+      "repo": "numbagg/numbagg",
+      "kind": "review",
+      "title": "chore: bump ty from 0.0.32 to 0.0.35",
+      "url": "https://github.com/numbagg/numbagg/pull/606",
+      "at": "2026-05-11T07:05:46Z"
+    },
+    {
+      "repo": "numbagg/numbagg",
+      "kind": "review",
+      "title": "chore: bump hypothesis from 6.152.3 to 6.152.5",
+      "url": "https://github.com/numbagg/numbagg/pull/605",
+      "at": "2026-05-11T07:04:54Z"
+    },
+    {
+      "repo": "numbagg/numbagg",
+      "kind": "review",
+      "title": "chore: bump mypy from 1.20.2 to 2.0.0",
+      "url": "https://github.com/numbagg/numbagg/pull/604",
+      "at": "2026-05-11T07:04:39Z"
+    },
+    {
+      "repo": "numbagg/numbagg",
+      "kind": "review",
+      "title": "chore: bump ty from 0.0.32 to 0.0.34",
+      "url": "https://github.com/numbagg/numbagg/pull/601",
+      "at": "2026-05-11T07:03:34Z"
+    }
+  ]
+}
