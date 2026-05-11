@@ -1,0 +1,406 @@
+/*
+ * Tend — sibling of worktrunk, pulled toward garden / herbarium / field-notes.
+ * One accent (moss), one animation (logo unfurl), restraint over polish.
+ */
+
+:root {
+  /* Palette */
+  --paper:        #f8f6f0;   /* warm off-white, slightly cooler than worktrunk's */
+  --paper-soft:   #f1eee5;   /* subtle warm wash for blocks */
+  --paper-deep:   #e9e5d8;   /* code blocks, dividers */
+  --moss:         #3f6b46;   /* primary accent, links */
+  --moss-deep:    #2f5436;
+  --oak:          #b5a48a;   /* brand mark color */
+  --oak-deep:     #8e7d63;
+  --loam:         #4a3a2a;   /* heading underlines, dividers */
+  --ink:          #2a2620;   /* body text */
+  --ink-soft:     #6b635a;   /* muted text */
+  --ink-fade:     #8a8276;   /* marginalia */
+
+  /* Type */
+  --font-serif:   "Newsreader", "Source Serif Pro", "Iowan Old Style", "Charter", Georgia, serif;
+  --font-sans:    "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono:    "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  /* Layout */
+  --measure:      62ch;
+  --gutter:       3rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:      #1c1b18;
+    --paper-soft: #232220;
+    --paper-deep: #2a2825;
+    --moss:       #7fb389;
+    --moss-deep:  #9bc7a4;
+    --oak:        #c8b89a;
+    --oak-deep:   #b5a48a;
+    --loam:       #b8a78e;
+    --ink:        #e8e4dc;
+    --ink-soft:   #a8a094;
+    --ink-fade:   #80786c;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html {
+  scrollbar-gutter: stable;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------- Type ---------- */
+
+h1, h2, h3, h4 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+h1 {
+  font-size: clamp(2.2rem, 4.2vw, 2.9rem);
+  line-height: 1.05;
+  margin: 0 0 1rem;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  font-size: 1.5rem;
+  line-height: 1.2;
+  margin: 0 0 0.4rem;
+  font-style: italic;
+  font-weight: 400;
+}
+
+h3 {
+  font-size: 1.05rem;
+  font-family: var(--font-sans);
+  font-weight: 550;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 0 0 0.4rem;
+}
+
+p { margin: 0 0 0.9rem; max-width: var(--measure); }
+
+a {
+  color: var(--moss);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in oklab, var(--moss) 35%, transparent);
+  transition: border-color 150ms ease, color 150ms ease;
+}
+a:hover {
+  color: var(--moss-deep);
+  border-bottom-color: var(--moss);
+}
+
+code, pre {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+
+code {
+  background: var(--paper-soft);
+  border: 1px solid var(--paper-deep);
+  border-radius: 3px;
+  padding: 0.05em 0.35em;
+  color: var(--loam);
+}
+
+pre {
+  background: var(--paper-soft);
+  border: 1px solid var(--paper-deep);
+  border-left: 2px solid var(--oak);
+  border-radius: 3px;
+  padding: 1rem 1.2rem;
+  overflow-x: auto;
+  line-height: 1.55;
+}
+pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ink);
+}
+
+hr {
+  border: none;
+  height: 1.5rem;
+  margin: 4rem 0 3rem;
+  text-align: center;
+  position: relative;
+}
+hr::before {
+  content: "❦";
+  font-family: var(--font-serif);
+  font-size: 1.2rem;
+  color: var(--oak);
+  background: var(--paper);
+  padding: 0 0.8rem;
+  position: relative;
+  top: -0.1rem;
+}
+hr::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 25%;
+  right: 25%;
+  height: 1px;
+  background: var(--paper-deep);
+  z-index: -1;
+}
+
+/* ---------- Page shell ---------- */
+
+.page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0.5rem var(--gutter) 6rem;
+}
+
+@media (max-width: 720px) {
+  :root { --gutter: 1.5rem; }
+  h1 { font-size: 2.2rem; }
+}
+
+/* Marginalia layout — small numeral marker in left column, body in right */
+.marginalia {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) minmax(0, 3.6fr);
+  gap: 2.5rem;
+  margin: 2.5rem 0;
+}
+.marginalia > .margin-note {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--oak-deep);
+  padding-top: 0.55rem;
+  position: relative;
+  text-align: right;
+}
+.marginalia > .margin-note::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 1.6rem;
+  height: 1px;
+  background: var(--oak);
+  opacity: 0.7;
+}
+.marginalia > .body p { color: var(--ink); }
+.marginalia > .body p:last-child { margin-bottom: 0; }
+.marginalia > .body h2:first-child { margin-top: 0; }
+
+@media (max-width: 760px) {
+  .marginalia {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  .marginalia > .margin-note {
+    text-align: left;
+    padding-top: 0;
+  }
+  .marginalia > .margin-note::before {
+    left: 0;
+    right: auto;
+  }
+}
+
+/* ---------- Header ---------- */
+
+.site-header {
+  padding: 1.6rem var(--gutter);
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+.site-header a {
+  color: var(--ink-soft);
+  border: none;
+}
+.site-header a:hover { color: var(--moss); }
+.site-header .wordmark {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.2rem;
+  color: var(--ink);
+}
+.site-header nav {
+  display: flex;
+  gap: 1.8rem;
+}
+
+/* ---------- Hero ---------- */
+
+.hero {
+  padding: 2rem 0 3rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3rem;
+  align-items: center;
+}
+@media (max-width: 760px) {
+  .hero {
+    grid-template-columns: 1fr;
+    text-align: left;
+    padding: 2rem 0 2.5rem;
+  }
+  .hero .seedling-frame { order: -1; max-width: 140px; }
+}
+
+.hero .tagline {
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  max-width: 32ch;
+  margin: 0.5rem 0 1.8rem;
+  font-style: italic;
+}
+
+.hero .install {
+  display: inline-block;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--oak);
+  padding: 0.2rem 0 0.2rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--loam);
+  margin-bottom: 1.5rem;
+  line-height: 1.7;
+}
+
+.hero .badges {
+  display: flex;
+  gap: 1.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  line-height: 1;
+}
+.meta-link {
+  color: var(--ink-soft);
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-variant-numeric: tabular-nums;
+}
+.meta-link:hover { color: var(--moss); }
+.meta-glyph {
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--oak-deep);
+  font-size: 1em;
+  line-height: 0;
+}
+
+.seedling-frame {
+  width: clamp(160px, 22vw, 220px);
+}
+
+/* ---------- "What tend tends" ---------- */
+
+.section-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--oak-deep);
+  margin: 0 0 0.6rem;
+  position: relative;
+  padding-left: 1.6rem;
+}
+.section-eyebrow::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1rem;
+  height: 1px;
+  background: var(--oak);
+  opacity: 0.6;
+}
+
+.section-lead {
+  font-family: var(--font-serif);
+  font-size: 1.6rem;
+  font-style: italic;
+  line-height: 1.3;
+  color: var(--ink);
+  margin: 0 0 1rem;
+  max-width: 32ch;
+}
+
+/* ---------- Footer ---------- */
+
+.site-footer {
+  border-top: 1px solid var(--paper-deep);
+  margin-top: 5rem;
+  padding: 2rem var(--gutter);
+  max-width: 1080px;
+  margin-left: auto;
+  margin-right: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  color: var(--ink-fade);
+}
+.site-footer a {
+  color: var(--ink-soft);
+  border: none;
+}
+.site-footer a:hover { color: var(--moss); }
+.site-footer nav { display: flex; gap: 1.4rem; flex-wrap: wrap; }
+.site-footer .credit {
+  font-family: var(--font-serif);
+  font-style: italic;
+}
+
+/* ---------- Misc ---------- */
+
+.note {
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--ink-fade);
+  font-size: 0.95rem;
+}
+
+.inline-icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.1em;
+  fill: currentColor;
+}
