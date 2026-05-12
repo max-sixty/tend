@@ -259,23 +259,27 @@ runs:
 
         # claude-code-action writes the full SDK message stream to
         # $RUNNER_TEMP/claude-execution-output.json and exposes the path as
-        # its `execution_file` output. The array ends with a
-        # `type: "result"` entry that carries total_cost_usd, num_turns,
-        # and the per-session usage totals across all models — so cost
-        # stays accurate regardless of which model the session used.
+        # its `execution_file` output. The stream contains one or more
+        # `type: "result"` entries. Sessions that use `run_in_background:
+        # true` Bash emit a second `result` (origin.kind ==
+        # "task-notification") on wakeup; `usage.*` and `num_turns` are
+        # per-event in each `result`, while `total_cost_usd` is cumulative.
+        # Sum the per-event fields across all entries and take cost from
+        # the last.
         if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
           USAGE=$(jq -c --arg model "$MODEL" '
-            (map(select(.type == "result")) | last) as $r |
-            if $r == null then
+            (map(select(.type == "result"))) as $rs |
+            if ($rs | length) == 0 then
               {input_tokens:0, output_tokens:0, cache_creation_input_tokens:0,
                cache_read_input_tokens:0, turns:0, model:$model, cost_usd:0}
             else
+              ($rs | last) as $r |
               {
-                input_tokens: ($r.usage.input_tokens // 0),
-                output_tokens: ($r.usage.output_tokens // 0),
-                cache_creation_input_tokens: ($r.usage.cache_creation_input_tokens // 0),
-                cache_read_input_tokens: ($r.usage.cache_read_input_tokens // 0),
-                turns: ($r.num_turns // 0),
+                input_tokens: ([$rs[].usage.input_tokens // 0] | add),
+                output_tokens: ([$rs[].usage.output_tokens // 0] | add),
+                cache_creation_input_tokens: ([$rs[].usage.cache_creation_input_tokens // 0] | add),
+                cache_read_input_tokens: ([$rs[].usage.cache_read_input_tokens // 0] | add),
+                turns: ([$rs[].num_turns // 0] | add),
                 model: $model,
                 cost_usd: (($r.total_cost_usd // 0) * 100 | round / 100)
               }
