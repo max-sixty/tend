@@ -268,7 +268,7 @@ Use `Agent` with `model: "haiku"` and a prompt like:
 > done
 > grep -nF '${' /tmp/bot-output/all.txt        # literal ${...} interpolation failure
 > grep -nP '\\!' /tmp/bot-output/all.txt       # backslash-bang corruption
-> grep -nP '\\`' /tmp/bot-output/all.txt       # backslash-backtick corruption (see tend#422)
+> grep -nP '\\`' /tmp/bot-output/all.txt       # backslash-backtick corruption
 > grep -nE 'blob/main/.*#L[0-9]' /tmp/bot-output/all.txt  # un-pinned line links
 > grep -nF 'anthropics/' /tmp/bot-output/all.txt         # wrong-owner URL
 > ```

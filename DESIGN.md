@@ -519,6 +519,7 @@ tend/
 │           ├── notifications/
 │           ├── review/
 │           ├── review-reviewers/
+│           ├── review-runs/
 │           ├── running-in-ci/
 │           ├── triage/
 │           └── weekly/
@@ -526,8 +527,12 @@ tend/
 ├── generator/                  # Python package (uvx tend@latest init)
 │   ├── pyproject.toml
 │   └── src/tend/
+├── site/                       # Astro marketing site (tend-src.com)
+├── worker/                     # Cloudflare Worker (api.tend-src.com)
+├── data/                       # consumers.json — Worker's input
 ├── docs/
-│   └── security-model.md
+│   ├── security-model.md
+│   └── website-data.md
 └── README.md
 ```
 
