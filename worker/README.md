@@ -3,8 +3,7 @@
 Cloudflare Worker that serves all three data streams the tend marketing site
 renders — currently-tending, activity, and stats — each at its own route with
 its own edge TTL. See [`../docs/website-data.md`](../docs/website-data.md) for
-the route table and shapes, and [`../WEBSITE-live-data.md`](../WEBSITE-live-data.md)
-for the rate-limit reasoning.
+the route table, shapes, and the rate-limit reasoning.
 
 ## Endpoint
 
