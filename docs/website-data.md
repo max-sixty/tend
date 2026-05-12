@@ -82,9 +82,10 @@ Source: `GET /repos/{owner}/{repo}/actions/runs?status=in_progress` per
 consumer, filtered to workflows whose `name` starts with `tend-`.
 
 **UI fallback:** when `currently_tending` is empty or the Worker request
-fails, the UI should fall back to showing the most recent event from
-`/activity` as "last action N min ago" — the indicator never breaks the
-page. The fallback lives in the rendering layer, not the data layer.
+fails, the UI falls back to showing the most recent event from `/activity`
+as "last tended N min ago" — the indicator never breaks the page. This
+fallback lives in the rendering layer (`site/src/components/CurrentlyTending.astro`),
+not the data layer.
 
 ### `/activity`
 

@@ -1,0 +1,64 @@
+---
+// "Currently tending" pulse — runtime-fetched from api.tend-src.com/currently-tending.
+// When nothing is in progress it falls back to /activity's most recent event
+// ("last tended N min ago"), per docs/website-data.md, so the indicator stays
+// live between runs. Hidden only when both requests fail.
+---
+
+<p id="now-tending" class="now-tending" hidden></p>
+
+<script>
+  import { WORKER_URL } from "../lib/api";
+  import { relativeTime } from "../lib/time";
+
+  interface Run {
+    repo: string;
+    workflow: string;
+  }
+  interface Event {
+    at: string;
+  }
+
+  async function getJson<T>(path: string): Promise<T | null> {
+    try {
+      const resp = await fetch(`${WORKER_URL}${path}`, {
+        headers: { Accept: "application/json" },
+      });
+      return resp.ok ? ((await resp.json()) as T) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function render(el: HTMLElement, state: "live" | "idle", text: string): void {
+    const dot = document.createElement("span");
+    dot.className = `now-dot now-dot-${state}`;
+    const label = document.createElement("span");
+    label.textContent = text;
+    el.replaceChildren(dot, label);
+    el.hidden = false;
+  }
+
+  async function load(): Promise<void> {
+    const el = document.getElementById("now-tending");
+    if (!el) return;
+
+    const current = await getJson<{ currently_tending?: Run[] }>("/currently-tending");
+    const runs = current?.currently_tending ?? [];
+    if (runs.length > 0) {
+      const r = runs[0];
+      const workflow = r.workflow.replace(/^tend-/, "");
+      const more = runs.length > 1 ? ` (+${runs.length - 1} more)` : "";
+      render(el, "live", `tending ${r.repo} · ${workflow}${more}`);
+      return;
+    }
+
+    const activity = await getJson<{ events?: Event[] }>("/activity");
+    const last = activity?.events?.[0];
+    if (!last) return;
+    const ago = relativeTime(last.at);
+    if (ago) render(el, "idle", `last tended ${ago}`);
+  }
+
+  load();
+</script>
