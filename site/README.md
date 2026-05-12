@@ -1,6 +1,7 @@
-# tend site — Astro prototype
+# tend site
 
-Stage-1 prototype of the tend website, built with Astro.
+The tend marketing site (<https://tend-src.com>), built with Astro and
+deployed to GitHub Pages via `.github/workflows/publish-site.yaml`.
 
 ## Run locally
 
@@ -10,7 +11,9 @@ npm install
 npm run dev
 ```
 
-Then open <http://localhost:4321/>.
+Then open <http://localhost:4321/>. Live-data sections (stats, activity)
+fetch the Worker at `api.tend-src.com`; set `PUBLIC_WORKER_URL` in
+`.env.local` to point elsewhere (see `.env.example`).
 
 ## Build
 
@@ -25,6 +28,6 @@ npm run preview    # serve the built site
 - `src/components/Logo.astro` — animated SVG of the tend mark: a pen traces the outline, the colour floods in behind it, then it settles with a faint breath; pass `static` for the header lockup
 - `src/layouts/Base.astro` — page shell, header, footer, font preconnect
 - `src/styles/global.css` — palette, typography, marginalia grid, all layout
+- `src/components/Stats.astro`, `src/components/Activity.astro` — runtime-fetch the live-data Worker; hidden when empty or the fetch fails
+- `src/lib/api.ts` — Worker base URL (overridable via `PUBLIC_WORKER_URL`)
 - `public/logo.png`, `public/favicon.png` — copied from `../assets/`
-
-See `NOTES.md` for an honest assessment of Astro vs. Zola / pure HTML at this scale.

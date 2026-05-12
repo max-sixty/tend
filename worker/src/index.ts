@@ -11,8 +11,8 @@
 // cached for an hour, and fan out to GitHub. The edge cache coalesces
 // concurrent misses — origin load is bounded by TTL, not viewer count.
 //
-// See docs/website-data.md for architecture; WEBSITE-live-data.md for
-// the rate-limit reasoning behind the TTLs.
+// See docs/website-data.md for architecture and the rate-limit reasoning
+// behind the TTLs.
 
 interface Env {
   GITHUB_TOKEN: string;

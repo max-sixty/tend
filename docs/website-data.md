@@ -12,7 +12,18 @@ this repo, fans out to GitHub, and serves CORS-enabled JSON to the site.
 
 Base URL: `https://api.tend-src.com`.
 
-The rate-limit reasoning is in [`../WEBSITE-live-data.md`](../WEBSITE-live-data.md).
+## Why a Worker, not browser-direct
+
+Unauthenticated GitHub REST is 60 req/hour/IP. A single currently-tending
+poll fans out one `actions/runs` call per consumer repo every 30 s, so one
+browser tab would exhaust the IP quota in under a minute — and the Search
+API used by `/activity` and `/stats` is capped at 10 req/min/IP
+unauthenticated, shared across everyone behind a NAT. The Worker holds an
+authenticated token (5,000 req/hour, 30 Search req/min) and edge-caches each
+route, so origin load is bounded by the TTL, not by viewer count. Static
+nightly JSON would cover `/stats` and `/activity` but can't meet
+currently-tending's sub-minute freshness budget, so all three live on the
+one Worker for consistency.
 
 ## Input: `data/consumers.json`
 
