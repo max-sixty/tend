@@ -1,6 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import Logo from "../components/Logo.astro";
+import CurrentlyTending from "../components/CurrentlyTending.astro";
 import Stats from "../components/Stats.astro";
 import Activity from "../components/Activity.astro";
 
@@ -75,6 +76,8 @@ claude /install-tend</code></pre>
         </a>
         <span class="note">already in production, albeit early days</span>
       </div>
+
+      <CurrentlyTending />
     </div>
     <div class="logo-frame">
       <Logo size={260} />

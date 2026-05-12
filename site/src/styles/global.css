@@ -340,6 +340,41 @@ hr::after {
   height: auto;
 }
 
+/* ---------- "Currently tending" indicator ---------- */
+
+/* Scoped to :not([hidden]) so the layout rules don't defeat the UA
+   [hidden] { display: none } default before the fetch resolves. */
+.now-tending:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.4rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  color: var(--ink-soft);
+}
+
+.now-dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+.now-dot-live { background: var(--moss); }
+.now-dot-idle {
+  background: transparent;
+  border: 1px solid var(--oak-deep);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .now-dot-live { animation: now-pulse 2.6s ease-in-out infinite; }
+}
+@keyframes now-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
 /* ---------- "What tend tends" ---------- */
 
 .section-eyebrow {

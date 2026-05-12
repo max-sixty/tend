@@ -11,9 +11,9 @@ npm install
 npm run dev
 ```
 
-Then open <http://localhost:4321/>. Live-data sections (stats, activity)
-fetch the Worker at `api.tend-src.com`; set `PUBLIC_WORKER_URL` in
-`.env.local` to point elsewhere (see `.env.example`).
+Then open <http://localhost:4321/>. The live-data elements (currently-tending
+indicator, stats strip, activity feed) fetch the Worker at `api.tend-src.com`;
+set `PUBLIC_WORKER_URL` in `.env.local` to point elsewhere (see `.env.example`).
 
 ## Build
 
@@ -28,6 +28,7 @@ npm run preview    # serve the built site
 - `src/components/Logo.astro` — animated SVG of the tend mark: a pen traces the outline, the colour floods in behind it, then it settles with a faint breath; pass `static` for the header lockup
 - `src/layouts/Base.astro` — page shell, header, footer, font preconnect
 - `src/styles/global.css` — palette, typography, marginalia grid, all layout
-- `src/components/Stats.astro`, `src/components/Activity.astro` — runtime-fetch the live-data Worker; hidden when empty or the fetch fails
+- `src/components/CurrentlyTending.astro`, `src/components/Stats.astro`, `src/components/Activity.astro` — runtime-fetch the live-data Worker; hidden when empty or the fetch fails
 - `src/lib/api.ts` — Worker base URL (overridable via `PUBLIC_WORKER_URL`)
+- `src/lib/time.ts` — compact relative-time formatter shared by the live-data components
 - `public/logo.png`, `public/favicon.png` — copied from `../assets/`
