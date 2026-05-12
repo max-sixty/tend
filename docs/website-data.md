@@ -10,10 +10,7 @@ this repo, fans out to GitHub, and serves CORS-enabled JSON to the site.
 | Activity | `/activity` | 5 min | 30 s |
 | Stats | `/stats` | 1 h | 60 s |
 
-Base URL: `https://currently.tend-src.com`. The Worker exists at the
-`currently.*` subdomain for historical reasons (it started as a single-
-purpose currently-tending endpoint); renaming to `api.*` is a deploy-time
-decision, not a code change.
+Base URL: `https://api.tend-src.com`.
 
 The rate-limit reasoning is in [`../WEBSITE-live-data.md`](../WEBSITE-live-data.md).
 
@@ -131,12 +128,12 @@ data/consumers.json on main
 .github/workflows/worker-deploy.yaml        on push to main worker/**
   └─ deploys worker/ to Cloudflare
 
-Cloudflare Worker (tend-currently)
+Cloudflare Worker (tend-website)
   ├─ reads data/consumers.json via raw URL (KV-cached 1 h)
   ├─ /currently-tending: fans out to actions/runs per repo
   ├─ /activity:          fans out 3 Search queries per bot, dedupes
   ├─ /stats:             5 Search queries per bot, sums total_count
-  └─ each route edge-cached at its own TTL
+  └─ each route edge-cached at its own TTL, served at api.tend-src.com
 ```
 
 ## Local development

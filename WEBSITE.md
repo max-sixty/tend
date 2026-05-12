@@ -99,7 +99,7 @@ and dataflow. Summary:
    bot, grouped by kind (ci-fix / review / triage). Daily Action writes
    `data/activity.json`.
 3. **Currently tending** indicator — Cloudflare Worker at
-   `https://currently.tend-src.com` fans out to in-progress
+   `https://api.tend-src.com` fans out to in-progress
    `actions/runs` per consumer repo, 30 s KV cache. Graceful fallback to
    the latest event in `activity.json` when nothing is running.
 
@@ -178,14 +178,14 @@ dependencies on each other and can run concurrently.
 ### Phase 4 — optional polish
 
 11. **"Currently tending" live indicator.** ✅ Worker built. Client-side
-    polls `https://currently.tend-src.com` (~30 s). Small dot
+    polls `https://api.tend-src.com` (~30 s). Small dot
     + most-recent-action timestamp. UI session falls back to the most
     recent event in `activity.json` when the Worker response is empty or
     unreachable.
 
 ## Open questions (decide before phase 1)
 
-- **Domain.** Settled: `tend-src.com` (apex), `currently.tend-src.com` for
+- **Domain.** Settled: `tend-src.com` (apex), `api.tend-src.com` for
   the live-data Worker. `tend.dev` was taken.
 - **Sibling closeness.** Same worktrunk theme retinted (fast, reads as a
   visual family) vs. distinct visual identity (longer, more memorable).
