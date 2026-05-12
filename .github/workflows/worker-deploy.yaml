@@ -1,10 +1,10 @@
 name: worker-deploy
 
-# Deploys the tend-currently Cloudflare Worker on push to main that touches
-# worker/** or this workflow. The Worker serves the "currently tending"
-# data stream. One-time account setup (KV namespace, GITHUB_TOKEN Worker
-# secret, CLOUDFLARE_API_TOKEN repo secret, custom domain) is documented
-# in worker/README.md and is already done for max-sixty/tend.
+# Deploys the tend-website Cloudflare Worker on push to main that touches
+# worker/** or this workflow. The Worker serves all three live data streams
+# the site renders. One-time account setup (KV namespace, GITHUB_TOKEN
+# Worker secret, CLOUDFLARE_API_TOKEN repo secret, custom domain) is
+# documented in worker/README.md and is already done for max-sixty/tend.
 
 on:
   push:

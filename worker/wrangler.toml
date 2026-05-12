@@ -1,4 +1,4 @@
-name = "tend-currently"
+name = "tend-website"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
 
@@ -20,5 +20,5 @@ enabled = true
 # Public URL. workers.dev backend is disabled (set workers_dev = true
 # to re-enable a wildcard fallback).
 [[routes]]
-pattern = "currently.tend-src.com"
+pattern = "api.tend-src.com"
 custom_domain = true

@@ -141,7 +141,7 @@ the rest of the site is unaffected.
 GitHub Pages serves static only; static + a separate Worker origin is the
 combination that keeps the rest of `WEBSITE.md` (Zola → Pages from
 `website` branch) intact. The static Pages site calls the Worker via CORS;
-the Worker is on `currently.tend-src.com` (the apex `tend-src.com` was
+the Worker is on `api.tend-src.com` (the apex `tend-src.com` was
 registered for the project; `tend.dev` was taken).
 
 If we end up wanting **more** dynamic features later (search, write
@@ -160,7 +160,7 @@ deploy. Not necessary for MVP.
   the bot's write-capable PAT — worth doing if the website's PAT will sit
   in Cloudflare and tend's bot PAT sits in Actions. **Recommended: (c).**
 - **Hosting target.** Static on GitHub Pages, served from the apex
-  `tend-src.com` (with `currently.tend-src.com` for the Worker) on the
+  `tend-src.com` (with `api.tend-src.com` for the Worker) on the
   existing Cloudflare account.
 - **Opt-in from consumer repos.** The "currently tending" Worker needs to
   read `actions/runs` on each consumer repo. For public repos this is

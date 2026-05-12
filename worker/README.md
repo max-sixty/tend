@@ -1,18 +1,18 @@
-# tend-currently Worker
+# tend-website Worker
 
-Cloudflare Worker that serves the "currently tending" data stream — a 30s-fresh
-view of in-progress tend-* workflow runs across opt-in repos. See
-[`../docs/website-data.md`](../docs/website-data.md) for the broader architecture
-and [`../WEBSITE-live-data.md`](../WEBSITE-live-data.md) for the rate-limit
-reasoning.
+Cloudflare Worker that serves all three data streams the tend marketing site
+renders — currently-tending, activity, and stats — each at its own route with
+its own edge TTL. See [`../docs/website-data.md`](../docs/website-data.md) for
+the route table and shapes, and [`../WEBSITE-live-data.md`](../WEBSITE-live-data.md)
+for the rate-limit reasoning.
 
 ## Endpoint
 
 ```
-GET https://currently.tend-src.com/
+GET https://api.tend-src.com/{currently-tending|activity|stats}
 ```
 
-Returns:
+Example (`/currently-tending`) returns:
 
 ```jsonc
 {
