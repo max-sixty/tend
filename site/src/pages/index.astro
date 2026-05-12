@@ -1,6 +1,8 @@
 ---
 import Base from "../layouts/Base.astro";
 import Logo from "../components/Logo.astro";
+import Stats from "../components/Stats.astro";
+import Activity from "../components/Activity.astro";
 
 const areas = [
   {
@@ -79,6 +81,8 @@ claude /install-tend</code></pre>
     </div>
   </section>
 
+  <Stats />
+
   <hr />
 
   <!-- ===== WHAT TEND TENDS ===== -->
@@ -96,6 +100,10 @@ claude /install-tend</code></pre>
       </div>
     ))}
   </section>
+
+  <hr />
+
+  <Activity />
 
   <hr />
 
