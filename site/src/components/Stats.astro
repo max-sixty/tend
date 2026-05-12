@@ -9,9 +9,7 @@
 </section>
 
 <script>
-  import { WORKER_URL } from "../lib/api";
-
-  const ENDPOINT = `${WORKER_URL}/stats`;
+  import { liveData } from "../lib/api";
 
   interface Stats {
     reviews_total: number;
@@ -25,27 +23,17 @@
     return n.toLocaleString();
   }
 
-  async function load(): Promise<void> {
-    let data: Stats;
-    try {
-      const resp = await fetch(ENDPOINT, { headers: { Accept: "application/json" } });
-      if (!resp.ok) return;
-      data = (await resp.json()) as Stats;
-    } catch {
-      return;
-    }
-
+  liveData<Stats>("/stats", "stats", (data) => {
+    if (!data) return false;
     const cells = [
       { n: data.reviews_total, week: data.reviews_this_week, label: "reviews" },
       { n: data.ci_fixes_total, week: data.ci_fixes_this_week, label: "ci fixes" },
       { n: data.triage_comments_total, week: null, label: "triage notes" },
     ];
-    if (cells.every((c) => !c.n)) return; // all zero — hide entirely
+    if (cells.every((c) => !c.n)) return false; // all zero — hide entirely
 
     const strip = document.querySelector("[data-stat-strip]");
-    const section = document.getElementById("stats");
-    if (!strip || !section) return;
-
+    if (!strip) return false;
     for (const cell of cells) {
       const div = document.createElement("div");
       div.className = "stat-cell";
@@ -69,8 +57,6 @@
 
       strip.appendChild(div);
     }
-    section.hidden = false;
-  }
-
-  load();
+    return true;
+  });
 </script>

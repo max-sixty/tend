@@ -29,6 +29,6 @@ npm run preview    # serve the built site
 - `src/layouts/Base.astro` — page shell, header, footer, font preconnect
 - `src/styles/global.css` — palette, typography, marginalia grid, all layout
 - `src/components/CurrentlyTending.astro`, `src/components/Stats.astro`, `src/components/Activity.astro` — runtime-fetch the live-data Worker; hidden when empty or the fetch fails
-- `src/lib/api.ts` — Worker base URL (overridable via `PUBLIC_WORKER_URL`)
+- `src/lib/api.ts` — live-data Worker client: `fetchJson` + `liveData` (the fetch/render/reveal cycle the three components share); base URL overridable via `PUBLIC_WORKER_URL`
 - `src/lib/time.ts` — compact relative-time formatter shared by the live-data components
 - `public/logo.png`, `public/favicon.png` — copied from `../assets/`
