@@ -342,7 +342,9 @@ hr::after {
 
 /* ---------- "Currently tending" indicator ---------- */
 
-.now-tending {
+/* Scoped to :not([hidden]) so the layout rules don't defeat the UA
+   [hidden] { display: none } default before the fetch resolves. */
+.now-tending:not([hidden]) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
