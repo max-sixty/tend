@@ -4,12 +4,19 @@
 // matched to the freshness budget:
 //
 //   /currently-tending   30 s   in-progress tend-* workflow runs
-//   /activity            5 min  recent PR reviews / triage / CI-fix events
+//   /activity            5 min  recent things tend has done (PRs, reviews,
+//                               comments, pushes, issue closes, dep approvals)
 //   /stats               1 h    lifetime + this-week counters
 //
 // All three read the consumer list (`consumers.json`) from the repo, KV-
 // cached for an hour, and fan out to GitHub. The edge cache coalesces
 // concurrent misses — origin load is bounded by TTL, not viewer count.
+//
+// `/activity` is built from each bot's public event timeline
+// (`GET /users/<bot>/events/public`) — one cheap REST call per bot, already
+// discriminated by event type — plus one Search query per bot for merged
+// PRs (the one "tend did this" milestone the bot's own event stream can't
+// see, since the merge is usually performed by a human).
 //
 // See docs/website-data.md for architecture and the rate-limit reasoning
 // behind the TTLs.
@@ -48,19 +55,61 @@ interface CurrentlyTendingResponse {
   currently_tending: CurrentlyTendingEntry[];
 }
 
-type ActivityKind = "review" | "triage" | "ci-fix";
+type ActivityKind =
+  | "pr-opened" // tend opened a PR (CI fix, maintenance, workflow self-edit, …)
+  | "pr-merged" // a tend-authored PR shipped
+  | "pr-reviewed" // tend approved / requested changes on a PR
+  | "pr-commented" // tend left comments on a PR (review bodies, inline, conversation)
+  | "pr-commits" // tend pushed commits to a PR branch (review fixes, conflict resolution)
+  | "issue-commented" // tend commented on an issue (triage, mention answer)
+  | "issue-closed" // tend closed a resolved issue
+  | "dep-approved"; // tend cleared a dependency bump (dependabot/renovate PR)
+
+type ReviewVerdict = "approved" | "changes_requested";
+type PrCategory = "ci-fix" | "issue-fix" | "workflow" | "maintenance" | "other";
+
+interface ActivityDetail {
+  count?: number; // pr-commented / issue-commented / pr-commits — how many
+  verdict?: ReviewVerdict; // pr-reviewed
+  category?: PrCategory; // pr-opened — inferred from the head-branch name
+}
 
 interface ActivityEvent {
   repo: string;
   kind: ActivityKind;
   title: string;
   url: string;
-  at: string;
+  at: string; // ISO; for collapsed kinds, the most recent constituent event
+  detail?: ActivityDetail;
 }
 
 interface ActivityResponse {
   generated_at: string;
   events: ActivityEvent[];
+}
+
+// Slim view of a `GET /users/<bot>/events` item — every field optional
+// because the payload shape varies by `type` and the events API serves
+// trimmed-down webhook payloads.
+interface GitHubEvent {
+  type?: string;
+  created_at?: string;
+  repo?: { name?: string }; // "owner/name"
+  payload?: {
+    action?: string;
+    pull_request?: {
+      html_url?: string;
+      title?: string;
+      user?: { login?: string };
+      head?: { ref?: string };
+    };
+    issue?: { html_url?: string; title?: string; pull_request?: unknown };
+    review?: { state?: string };
+    ref?: string;
+    head?: string;
+    size?: number;
+    commits?: Array<{ sha?: string; message?: string }>;
+  };
 }
 
 interface StatsResponse {
@@ -76,6 +125,7 @@ interface SearchItem {
   html_url: string;
   title: string;
   updated_at: string;
+  closed_at?: string | null; // present (≈ merge time) for merged PRs
   repository_url: string;
 }
 
@@ -92,7 +142,14 @@ const WORKFLOW_PREFIX = "tend-";
 // repo, then we filter to tend-* client-side. 30 (GitHub's default) is
 // cheap and avoids tend runs being pushed off by busier non-tend traffic.
 const PER_PAGE_RUNS = 30;
-const ACTIVITY_LIMIT = 10;
+// /activity: cap the merged feed, pull one page (~100) of each bot's event
+// timeline, and the ~10 most-recent merged PRs per bot. Together that covers
+// roughly a week at current volume; the events API only serves the last 30
+// days regardless, so the feed is inherently bounded.
+const ACTIVITY_LIMIT = 40;
+const EVENTS_PER_PAGE = 100;
+const MERGED_PR_LIMIT = 10;
+const DEPENDENCY_BOTS = new Set(["dependabot[bot]", "renovate[bot]"]);
 const GITHUB_API = "https://api.github.com";
 const USER_AGENT = "tend-website-worker";
 
@@ -269,47 +326,267 @@ async function fetchRepoRuns(
 // /activity
 
 async function refreshActivity(env: Env): Promise<ActivityResponse> {
-  const bots = botNames(await getConsumers(env));
+  const consumers = await getConsumers(env);
+  const bots = botNames(consumers);
   if (bots.length === 0) {
     return { generated_at: nowIso(), events: [] };
   }
-  // 3 queries × N bots, deduped by URL. First kind seen wins (matches the
-  // pre-Worker Python fetcher's behavior so the UI doesn't shift on
-  // cutover.) Order of kinds: ci-fix → review → triage.
-  const kinds: Array<{ kind: ActivityKind; q: (bot: string) => string }> = [
-    { kind: "ci-fix", q: (b) => `author:${b} is:pr` },
-    { kind: "review", q: (b) => `commenter:${b} is:pr -author:${b}` },
-    { kind: "triage", q: (b) => `commenter:${b} is:issue` },
-  ];
+  const consumerRepos = new Set(consumers.map((c) => c.repo));
 
-  type Batch = { kind: ActivityKind; items: SearchItem[] };
-  const batches: Batch[] = await Promise.all(
-    kinds.flatMap(({ kind, q }) =>
-      bots.map(async (bot) => ({
-        kind,
-        items: await searchIssues(q(bot), env.GITHUB_TOKEN, ACTIVITY_LIMIT),
-      })),
-    ),
+  // Per bot: one page of its public event timeline (cheap REST), plus one
+  // Search for its recently-merged PRs (the merge event's actor is usually a
+  // human, so it isn't in the bot's own stream).
+  const perBot = await Promise.all(
+    bots.map(async (bot) => {
+      const [events, merged] = await Promise.all([
+        fetchBotEvents(bot, env.GITHUB_TOKEN),
+        searchIssues(
+          `author:${bot} is:pr is:merged`,
+          env.GITHUB_TOKEN,
+          MERGED_PR_LIMIT,
+        ),
+      ]);
+      return { events, merged };
+    }),
   );
 
-  // Walk batches in declared order to preserve "first kind seen wins".
-  const seen = new Set<string>();
-  const events: ActivityEvent[] = [];
-  for (const { kind, items } of batches) {
-    for (const item of items) {
-      if (seen.has(item.html_url)) continue;
-      seen.add(item.html_url);
-      events.push({
-        repo: repoFromApiUrl(item.repository_url),
-        kind,
-        title: item.title,
-        url: item.html_url,
-        at: item.updated_at,
-      });
+  const fromEvents = eventsToActivity(
+    perBot.flatMap((b) => b.events),
+    consumerRepos,
+  );
+  const fromMerges: ActivityEvent[] = perBot
+    .flatMap((b) => b.merged)
+    .map((item) => ({
+      repo: repoFromApiUrl(item.repository_url),
+      kind: "pr-merged" as const,
+      title: item.title,
+      url: item.html_url,
+      at: item.closed_at ?? item.updated_at, // closed_at ≈ merge time
+    }))
+    .filter((e) => consumerRepos.has(e.repo));
+
+  // Dedup by kind+url (a PR legitimately recurs across kinds — opened, then
+  // commented, then merged — those stay; only same-kind dups collapse).
+  const byKey = new Map<string, ActivityEvent>();
+  for (const e of [...fromEvents, ...fromMerges]) {
+    const key = `${e.kind}|${e.url}`;
+    const prev = byKey.get(key);
+    if (!prev || e.at > prev.at) byKey.set(key, e);
+  }
+  const events = [...byKey.values()]
+    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+    .slice(0, ACTIVITY_LIMIT);
+  return { generated_at: nowIso(), events };
+}
+
+async function fetchBotEvents(
+  bot: string,
+  token: string,
+): Promise<GitHubEvent[]> {
+  if (!isValidBotName(bot)) {
+    console.error(`skipping malformed bot: ${bot}`);
+    return [];
+  }
+  const url = `${GITHUB_API}/users/${bot}/events/public?per_page=${EVENTS_PER_PAGE}`;
+  const resp = await fetchWithTimeout(url, { headers: githubHeaders(token) });
+  if (!resp.ok) {
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error(`events auth failure for ${bot}: ${resp.status}`);
+    }
+    console.error(`events fetch skipped for ${bot}: ${resp.status}`);
+    return [];
+  }
+  const data = await resp.json();
+  return Array.isArray(data) ? (data as GitHubEvent[]) : [];
+}
+
+// Map a flat list of GitHub events (any bots, any repos) to activity rows,
+// keeping only events in consumer repos. Comments and pushes to the same
+// PR/branch collapse into one row with a count.
+function eventsToActivity(
+  events: GitHubEvent[],
+  consumerRepos: Set<string>,
+): ActivityEvent[] {
+  const out: ActivityEvent[] = [];
+  // Collapse keys: PR url for comments, repo@branch for pushes.
+  const prComments = new Map<string, ActivityEvent>();
+  const issueComments = new Map<string, ActivityEvent>();
+  const branchPushes = new Map<string, ActivityEvent>();
+
+  const bump = (
+    bucket: Map<string, ActivityEvent>,
+    key: string,
+    seed: ActivityEvent,
+    add = 1,
+  ) => {
+    const existing = bucket.get(key);
+    if (!existing) {
+      seed.detail = { ...seed.detail, count: add };
+      bucket.set(key, seed);
+      return;
+    }
+    existing.detail = { ...existing.detail, count: (existing.detail?.count ?? 0) + add };
+    if (seed.at > existing.at) {
+      existing.at = seed.at;
+      existing.url = seed.url;
+      existing.title = seed.title;
+    }
+  };
+
+  for (const e of events) {
+    const repo = e.repo?.name;
+    const at = e.created_at;
+    const p = e.payload;
+    if (!repo || !at || !p || !consumerRepos.has(repo)) continue;
+
+    switch (e.type) {
+      case "PullRequestEvent": {
+        const pr = p.pull_request;
+        if (p.action !== "opened" || !pr?.html_url) break;
+        out.push({
+          repo,
+          kind: "pr-opened",
+          title: pr.title ?? "",
+          url: pr.html_url,
+          at,
+          detail: { category: prCategory(pr.head?.ref) },
+        });
+        break;
+      }
+      case "PullRequestReviewEvent": {
+        const pr = p.pull_request;
+        if (p.action !== "created" || !pr?.html_url) break;
+        const state = p.review?.state;
+        if (
+          state === "approved" &&
+          pr.user?.login &&
+          DEPENDENCY_BOTS.has(pr.user.login)
+        ) {
+          out.push({
+            repo,
+            kind: "dep-approved",
+            title: pr.title ?? "",
+            url: pr.html_url,
+            at,
+          });
+          break;
+        }
+        if (state === "approved" || state === "changes_requested") {
+          out.push({
+            repo,
+            kind: "pr-reviewed",
+            title: pr.title ?? "",
+            url: pr.html_url,
+            at,
+            detail: { verdict: state },
+          });
+        } else {
+          bump(prComments, pr.html_url, {
+            repo,
+            kind: "pr-commented",
+            title: pr.title ?? "",
+            url: pr.html_url,
+            at,
+          });
+        }
+        break;
+      }
+      case "PullRequestReviewCommentEvent": {
+        const pr = p.pull_request;
+        if (p.action !== "created" || !pr?.html_url) break;
+        bump(prComments, pr.html_url, {
+          repo,
+          kind: "pr-commented",
+          title: pr.title ?? "",
+          url: pr.html_url,
+          at,
+        });
+        break;
+      }
+      case "IssueCommentEvent": {
+        const issue = p.issue;
+        if (p.action !== "created" || !issue?.html_url) break;
+        if (issue.pull_request) {
+          bump(prComments, issue.html_url, {
+            repo,
+            kind: "pr-commented",
+            title: issue.title ?? "",
+            url: issue.html_url,
+            at,
+          });
+        } else {
+          bump(issueComments, issue.html_url, {
+            repo,
+            kind: "issue-commented",
+            title: issue.title ?? "",
+            url: issue.html_url,
+            at,
+          });
+        }
+        break;
+      }
+      case "IssuesEvent": {
+        const issue = p.issue;
+        if (p.action !== "closed" || !issue?.html_url) break;
+        out.push({
+          repo,
+          kind: "issue-closed",
+          title: issue.title ?? "",
+          url: issue.html_url,
+          at,
+        });
+        break;
+      }
+      case "PushEvent": {
+        const branch = branchFromRef(p.ref);
+        const size = p.size ?? 1;
+        if (!branch || size < 1) break; // default branch, tag, or no-op push
+        const head = p.head;
+        const url = head
+          ? `https://github.com/${repo}/commit/${head}`
+          : `https://github.com/${repo}/commits/${branch}`;
+        const headCommit =
+          (p.commits ?? []).find((c) => c.sha === head) ??
+          (p.commits ?? []).at(-1);
+        const title = firstLine(headCommit?.message) || `pushed to ${branch}`;
+        bump(
+          branchPushes,
+          `${repo}|${branch}`,
+          { repo, kind: "pr-commits", title, url, at },
+          size,
+        );
+        break;
+      }
     }
   }
-  events.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
-  return { generated_at: nowIso(), events: events.slice(0, ACTIVITY_LIMIT) };
+
+  for (const m of [prComments, issueComments, branchPushes]) {
+    out.push(...m.values());
+  }
+  return out;
+}
+
+// Best-effort: tend's branch conventions are fix/ci-<run> (ci-fix),
+// fix/issue-<n> and repro/issue-<n> (issue-fix), tend/update-workflows
+// (workflow self-edit), and tend/<task> (other maintenance).
+function prCategory(ref?: string): PrCategory {
+  if (!ref) return "other";
+  if (ref.startsWith("fix/ci")) return "ci-fix";
+  if (ref.startsWith("fix/") || ref.startsWith("repro/")) return "issue-fix";
+  if (ref.includes("update-workflows") || ref.includes("workflow")) return "workflow";
+  if (ref.startsWith("tend/")) return "maintenance";
+  return "other";
+}
+
+function branchFromRef(ref?: string): string | null {
+  if (!ref?.startsWith("refs/heads/")) return null;
+  const branch = ref.slice("refs/heads/".length);
+  if (!branch || branch === "main" || branch === "master") return null;
+  return branch;
+}
+
+function firstLine(s?: string): string {
+  return (s?.split("\n", 1)[0] ?? "").trim();
 }
 
 function repoFromApiUrl(repositoryUrl: string): string {
@@ -516,6 +793,9 @@ export const __test = {
   refreshActivity,
   refreshStats,
   fetchRepoRuns,
+  fetchBotEvents,
+  eventsToActivity,
+  prCategory,
   getConsumers,
   isConsumerArray,
   isValidRepo,

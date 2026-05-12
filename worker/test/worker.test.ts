@@ -159,17 +159,298 @@ describe("refreshCurrentlyTending", () => {
   });
 });
 
-describe("refreshActivity", () => {
-  it("merges across kinds + bots, dedupes by URL (first kind wins), caps and sorts", async () => {
+function byAtDesc(a: { at: string }, b: { at: string }) {
+  return a.at < b.at ? 1 : a.at > b.at ? -1 : 0;
+}
+
+describe("eventsToActivity", () => {
+  it("maps each event type, filters foreign repos, collapses comments and pushes", async () => {
     const { __test } = await import("../src/index");
-    // ci-fix for bot-a returns a PR; review for bot-b returns the SAME PR
-    // (bot-b commented on bot-a's CI-fix). Dedup must keep the ci-fix entry.
-    const dup = {
-      html_url: "https://github.com/o/r/pull/100",
-      title: "fix: x",
-      updated_at: "2026-05-09T12:00:00Z",
-      repository_url: "https://api.github.com/repos/o/r",
+    const repos = new Set(["o/r"]);
+    const ev = <P>(type: string, created_at: string, payload: P) => ({
+      type,
+      created_at,
+      repo: { name: "o/r" },
+      payload,
+    });
+    const out = __test
+      .eventsToActivity(
+        [
+          // foreign repo — dropped entirely
+          {
+            type: "PullRequestEvent",
+            created_at: "2026-05-10T00:00:00Z",
+            repo: { name: "someone/else" },
+            payload: {
+              action: "opened",
+              pull_request: { html_url: "https://github.com/someone/else/pull/1", title: "nope" },
+            },
+          },
+          ev("PullRequestEvent", "2026-05-10T09:00:00Z", {
+            action: "opened",
+            pull_request: {
+              html_url: "https://github.com/o/r/pull/10",
+              title: "fix: flaky test",
+              head: { ref: "fix/ci-12345" },
+            },
+          }),
+          ev("PullRequestReviewEvent", "2026-05-10T08:00:00Z", {
+            action: "created",
+            review: { state: "approved" },
+            pull_request: { html_url: "https://github.com/o/r/pull/11", title: "feat: x" },
+          }),
+          // dependabot PR review → dep-approved, not pr-reviewed
+          ev("PullRequestReviewEvent", "2026-05-10T07:30:00Z", {
+            action: "created",
+            review: { state: "approved" },
+            pull_request: {
+              html_url: "https://github.com/o/r/pull/12",
+              title: "Bump serde 1.0.1 to 1.0.2",
+              user: { login: "dependabot[bot]" },
+            },
+          }),
+          // a "commented" review + an inline comment + a conversation comment, all on #11 → collapse to count 3
+          ev("PullRequestReviewEvent", "2026-05-10T08:05:00Z", {
+            action: "created",
+            review: { state: "commented" },
+            pull_request: { html_url: "https://github.com/o/r/pull/11", title: "feat: x" },
+          }),
+          ev("PullRequestReviewCommentEvent", "2026-05-10T08:10:00Z", {
+            action: "created",
+            pull_request: { html_url: "https://github.com/o/r/pull/11", title: "feat: x" },
+          }),
+          ev("IssueCommentEvent", "2026-05-10T08:20:00Z", {
+            action: "created",
+            issue: {
+              html_url: "https://github.com/o/r/pull/11",
+              title: "feat: x",
+              pull_request: { url: "..." },
+            },
+          }),
+          // triage comment on a real issue
+          ev("IssueCommentEvent", "2026-05-10T06:00:00Z", {
+            action: "created",
+            issue: { html_url: "https://github.com/o/r/issues/20", title: "bug report" },
+          }),
+          ev("IssuesEvent", "2026-05-10T05:00:00Z", {
+            action: "closed",
+            issue: { html_url: "https://github.com/o/r/issues/21", title: "resolved bug" },
+          }),
+          // two pushes to the same PR branch → collapse, count 1+2=3, newest at/url wins
+          ev("PushEvent", "2026-05-10T04:00:00Z", {
+            ref: "refs/heads/fix/ci-12345",
+            head: "aaa",
+            size: 1,
+            commits: [{ sha: "aaa", message: "first\n\nbody" }],
+          }),
+          ev("PushEvent", "2026-05-10T04:30:00Z", {
+            ref: "refs/heads/fix/ci-12345",
+            head: "bbb",
+            size: 2,
+            commits: [{ sha: "ccc", message: "mid" }, { sha: "bbb", message: "second commit" }],
+          }),
+          // push to the default branch → ignored
+          ev("PushEvent", "2026-05-10T03:00:00Z", {
+            ref: "refs/heads/main",
+            head: "ddd",
+            size: 1,
+            commits: [{ sha: "ddd", message: "direct to main" }],
+          }),
+        ],
+        repos,
+      )
+      .sort(byAtDesc);
+
+    expect(out).toEqual([
+      {
+        repo: "o/r",
+        kind: "pr-opened",
+        title: "fix: flaky test",
+        url: "https://github.com/o/r/pull/10",
+        at: "2026-05-10T09:00:00Z",
+        detail: { category: "ci-fix" },
+      },
+      {
+        repo: "o/r",
+        kind: "pr-commented",
+        title: "feat: x",
+        url: "https://github.com/o/r/pull/11",
+        at: "2026-05-10T08:20:00Z",
+        detail: { count: 3 },
+      },
+      {
+        repo: "o/r",
+        kind: "pr-reviewed",
+        title: "feat: x",
+        url: "https://github.com/o/r/pull/11",
+        at: "2026-05-10T08:00:00Z",
+        detail: { verdict: "approved" },
+      },
+      {
+        repo: "o/r",
+        kind: "dep-approved",
+        title: "Bump serde 1.0.1 to 1.0.2",
+        url: "https://github.com/o/r/pull/12",
+        at: "2026-05-10T07:30:00Z",
+      },
+      {
+        repo: "o/r",
+        kind: "issue-commented",
+        title: "bug report",
+        url: "https://github.com/o/r/issues/20",
+        at: "2026-05-10T06:00:00Z",
+        detail: { count: 1 },
+      },
+      {
+        repo: "o/r",
+        kind: "issue-closed",
+        title: "resolved bug",
+        url: "https://github.com/o/r/issues/21",
+        at: "2026-05-10T05:00:00Z",
+      },
+      {
+        repo: "o/r",
+        kind: "pr-commits",
+        title: "second commit",
+        url: "https://github.com/o/r/commit/bbb",
+        at: "2026-05-10T04:30:00Z",
+        detail: { count: 3 },
+      },
+    ]);
+  });
+});
+
+describe("prCategory", () => {
+  it("infers PR category from the head-branch name", async () => {
+    const { __test } = await import("../src/index");
+    expect(__test.prCategory("fix/ci-99887")).toBe("ci-fix");
+    expect(__test.prCategory("tend/update-workflows")).toBe("workflow");
+    expect(__test.prCategory("tend/msrv-bump")).toBe("maintenance");
+    expect(__test.prCategory("dependabot/cargo/serde-1.2")).toBe("other");
+    expect(__test.prCategory(undefined)).toBe("other");
+  });
+});
+
+describe("fetchBotEvents", () => {
+  it("returns the event array on success", async () => {
+    const { __test } = await import("../src/index");
+    globalThis.fetch = makeFetch(
+      new Map<string, unknown>([
+        [
+          "https://api.github.com/users/bot-a/events/public?per_page=100",
+          [{ type: "PushEvent", created_at: "2026-05-10T00:00:00Z" }],
+        ],
+      ]),
+    ) as unknown as typeof fetch;
+    expect(await __test.fetchBotEvents("bot-a", "tok")).toEqual([
+      { type: "PushEvent", created_at: "2026-05-10T00:00:00Z" },
+    ]);
+  });
+
+  it("returns empty on 404; throws on 401/403", async () => {
+    const { __test } = await import("../src/index");
+    globalThis.fetch = vi.fn(
+      async () => new Response("not found", { status: 404 }),
+    ) as unknown as typeof fetch;
+    expect(await __test.fetchBotEvents("bot-a", "tok")).toEqual([]);
+
+    globalThis.fetch = vi.fn(
+      async () => new Response("bad credentials", { status: 401 }),
+    ) as unknown as typeof fetch;
+    await expect(__test.fetchBotEvents("bot-a", "tok")).rejects.toThrow(
+      /auth failure/,
+    );
+  });
+});
+
+describe("refreshActivity", () => {
+  it("fans out events + merged-PR search per bot, sorts newest first, keeps a PR that both opened and merged", async () => {
+    const { __test } = await import("../src/index");
+    const responses = new Map<string, unknown>([
+      [
+        "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
+        [{ repo: "o/r", bot_name: "bot-a" }],
+      ],
+      [
+        "https://api.github.com/users/bot-a/events/public?per_page=100",
+        [
+          {
+            type: "PullRequestEvent",
+            created_at: "2026-05-09T10:00:00Z",
+            repo: { name: "o/r" },
+            payload: {
+              action: "opened",
+              pull_request: {
+                html_url: "https://github.com/o/r/pull/30",
+                title: "fix: thing",
+                head: { ref: "fix/ci-7" },
+              },
+            },
+          },
+          {
+            type: "IssuesEvent",
+            created_at: "2026-05-11T10:00:00Z",
+            repo: { name: "o/r" },
+            payload: {
+              action: "closed",
+              issue: { html_url: "https://github.com/o/r/issues/31", title: "stale issue" },
+            },
+          },
+        ],
+      ],
+      [
+        "https://api.github.com/search/issues?q=author%3Abot-a+is%3Apr+is%3Amerged&per_page=10&sort=updated&order=desc",
+        {
+          items: [
+            {
+              html_url: "https://github.com/o/r/pull/30",
+              title: "fix: thing",
+              updated_at: "2026-05-10T12:00:00Z",
+              repository_url: "https://api.github.com/repos/o/r",
+            },
+          ],
+        },
+      ],
+    ]);
+    globalThis.fetch = makeFetch(responses) as unknown as typeof fetch;
+
+    const env = {
+      GITHUB_TOKEN: "tok",
+      CACHE: makeFakeKv(),
+      ALLOWED_ORIGIN: "*",
+      REPOS_URL:
+        "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
     };
+    const out = await __test.refreshActivity(env);
+    expect(out.events).toEqual([
+      {
+        repo: "o/r",
+        kind: "issue-closed",
+        title: "stale issue",
+        url: "https://github.com/o/r/issues/31",
+        at: "2026-05-11T10:00:00Z",
+      },
+      {
+        repo: "o/r",
+        kind: "pr-merged",
+        title: "fix: thing",
+        url: "https://github.com/o/r/pull/30",
+        at: "2026-05-10T12:00:00Z",
+      },
+      {
+        repo: "o/r",
+        kind: "pr-opened",
+        title: "fix: thing",
+        url: "https://github.com/o/r/pull/30",
+        at: "2026-05-09T10:00:00Z",
+        detail: { category: "ci-fix" },
+      },
+    ]);
+    expect(out.generated_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  });
+
+  it("merges two bots' streams, dedups same-kind/url rows (newest wins), drops foreign repos", async () => {
+    const { __test } = await import("../src/index");
     const responses = new Map<string, unknown>([
       [
         "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
@@ -178,39 +459,75 @@ describe("refreshActivity", () => {
           { repo: "o/r", bot_name: "bot-b" },
         ],
       ],
-      // bots are sorted alphabetically internally → bot-a, bot-b
-      // kinds iterate in declared order: ci-fix → review → triage
       [
-        "https://api.github.com/search/issues?q=author%3Abot-a+is%3Apr&per_page=10&sort=updated&order=desc",
-        { items: [dup] },
-      ],
-      [
-        "https://api.github.com/search/issues?q=author%3Abot-b+is%3Apr&per_page=10&sort=updated&order=desc",
-        { items: [] },
-      ],
-      [
-        "https://api.github.com/search/issues?q=commenter%3Abot-a+is%3Apr+-author%3Abot-a&per_page=10&sort=updated&order=desc",
-        { items: [] },
-      ],
-      [
-        "https://api.github.com/search/issues?q=commenter%3Abot-b+is%3Apr+-author%3Abot-b&per_page=10&sort=updated&order=desc",
-        { items: [dup] },
-      ],
-      [
-        "https://api.github.com/search/issues?q=commenter%3Abot-a+is%3Aissue&per_page=10&sort=updated&order=desc",
-        {
-          items: [
-            {
-              html_url: "https://github.com/o/r/issues/5",
-              title: "bug report",
-              updated_at: "2026-05-10T01:00:00Z",
-              repository_url: "https://api.github.com/repos/o/r",
+        "https://api.github.com/users/bot-a/events/public?per_page=100",
+        [
+          {
+            type: "PullRequestReviewEvent",
+            created_at: "2026-05-10T01:00:00Z",
+            repo: { name: "o/r" },
+            payload: {
+              action: "created",
+              review: { state: "approved" },
+              pull_request: { html_url: "https://github.com/o/r/pull/5", title: "feat: shared" },
             },
-          ],
-        },
+          },
+          {
+            type: "IssuesEvent",
+            created_at: "2026-05-10T03:00:00Z",
+            repo: { name: "o/r" },
+            payload: {
+              action: "closed",
+              issue: { html_url: "https://github.com/o/r/issues/9", title: "old bug" },
+            },
+          },
+          // foreign repo — dropped
+          {
+            type: "IssuesEvent",
+            created_at: "2026-05-10T05:00:00Z",
+            repo: { name: "o/other" },
+            payload: {
+              action: "closed",
+              issue: { html_url: "https://github.com/o/other/issues/1", title: "nope" },
+            },
+          },
+        ],
       ],
       [
-        "https://api.github.com/search/issues?q=commenter%3Abot-b+is%3Aissue&per_page=10&sort=updated&order=desc",
+        "https://api.github.com/users/bot-b/events/public?per_page=100",
+        [
+          // same PR as bot-a's review, newer timestamp → dedup keeps this one
+          {
+            type: "PullRequestReviewEvent",
+            created_at: "2026-05-10T02:00:00Z",
+            repo: { name: "o/r" },
+            payload: {
+              action: "created",
+              review: { state: "approved" },
+              pull_request: { html_url: "https://github.com/o/r/pull/5", title: "feat: shared" },
+            },
+          },
+          {
+            type: "PullRequestEvent",
+            created_at: "2026-05-10T00:00:00Z",
+            repo: { name: "o/r" },
+            payload: {
+              action: "opened",
+              pull_request: {
+                html_url: "https://github.com/o/r/pull/6",
+                title: "chore: cache audit",
+                head: { ref: "tend/cache-audit" },
+              },
+            },
+          },
+        ],
+      ],
+      [
+        "https://api.github.com/search/issues?q=author%3Abot-a+is%3Apr+is%3Amerged&per_page=10&sort=updated&order=desc",
+        { items: [] },
+      ],
+      [
+        "https://api.github.com/search/issues?q=author%3Abot-b+is%3Apr+is%3Amerged&per_page=10&sort=updated&order=desc",
         { items: [] },
       ],
     ]);
@@ -227,20 +544,28 @@ describe("refreshActivity", () => {
     expect(out.events).toEqual([
       {
         repo: "o/r",
-        kind: "triage",
-        title: "bug report",
-        url: "https://github.com/o/r/issues/5",
-        at: "2026-05-10T01:00:00Z",
+        kind: "issue-closed",
+        title: "old bug",
+        url: "https://github.com/o/r/issues/9",
+        at: "2026-05-10T03:00:00Z",
       },
       {
         repo: "o/r",
-        kind: "ci-fix",
-        title: "fix: x",
-        url: "https://github.com/o/r/pull/100",
-        at: "2026-05-09T12:00:00Z",
+        kind: "pr-reviewed",
+        title: "feat: shared",
+        url: "https://github.com/o/r/pull/5",
+        at: "2026-05-10T02:00:00Z",
+        detail: { verdict: "approved" },
+      },
+      {
+        repo: "o/r",
+        kind: "pr-opened",
+        title: "chore: cache audit",
+        url: "https://github.com/o/r/pull/6",
+        at: "2026-05-10T00:00:00Z",
+        detail: { category: "maintenance" },
       },
     ]);
-    expect(out.generated_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   });
 
   it("returns empty when no consumers", async () => {

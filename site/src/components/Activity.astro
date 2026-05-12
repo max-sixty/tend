@@ -21,21 +21,53 @@
   import { relativeTime } from "../lib/time";
 
   const ENDPOINT = `${WORKER_URL}/activity`;
+  const MAX_ROWS = 12; // the Worker returns up to 40; this section shows a slice
 
-  type Kind = "review" | "triage" | "ci-fix";
+  type Kind =
+    | "pr-opened"
+    | "pr-merged"
+    | "pr-reviewed"
+    | "pr-commented"
+    | "pr-commits"
+    | "issue-commented"
+    | "issue-closed"
+    | "dep-approved";
+
   interface Event {
     repo: string;
     kind: Kind;
     title: string;
     url: string;
     at: string;
+    detail?: {
+      count?: number;
+      verdict?: "approved" | "changes_requested";
+      category?: string;
+    };
   }
 
   const KIND_LABELS: Record<Kind, string> = {
-    "ci-fix": "ci fix",
-    review: "review",
-    triage: "triage",
+    "pr-opened": "pr opened",
+    "pr-merged": "merged",
+    "pr-reviewed": "reviewed",
+    "pr-commented": "commented",
+    "pr-commits": "pushed",
+    "issue-commented": "triage",
+    "issue-closed": "closed",
+    "dep-approved": "deps",
   };
+
+  function kindLabel(e: Event): string {
+    if (e.kind === "pr-reviewed" && e.detail?.verdict) {
+      return e.detail.verdict === "approved" ? "approved" : "changes";
+    }
+    return KIND_LABELS[e.kind] ?? e.kind;
+  }
+
+  function titleText(e: Event): string {
+    const count = e.detail?.count ?? 0;
+    return count > 1 ? e.title + " ×" + count : e.title;
+  }
 
   async function load(): Promise<void> {
     let data: { events?: Event[] };
@@ -46,7 +78,7 @@
     } catch {
       return;
     }
-    const events = data.events ?? [];
+    const events = (data.events ?? []).slice(0, MAX_ROWS);
     if (events.length === 0) return;
 
     const ul = document.querySelector("[data-activity-rows]");
@@ -59,7 +91,7 @@
 
       const kind = document.createElement("span");
       kind.className = `kind kind-${e.kind}`;
-      kind.textContent = KIND_LABELS[e.kind] ?? e.kind;
+      kind.textContent = kindLabel(e);
 
       const repo = document.createElement("span");
       repo.className = "repo";
@@ -68,7 +100,7 @@
       const link = document.createElement("a");
       link.className = "title";
       link.href = e.url;
-      link.textContent = e.title;
+      link.textContent = titleText(e);
       link.rel = "noopener";
 
       const time = document.createElement("time");

@@ -17,13 +17,13 @@ Base URL: `https://api.tend-src.com`.
 Unauthenticated GitHub REST is 60 req/hour/IP. A single currently-tending
 poll fans out one `actions/runs` call per consumer repo every 30 s, so one
 browser tab would exhaust the IP quota in under a minute — and the Search
-API used by `/activity` and `/stats` is capped at 10 req/min/IP
-unauthenticated, shared across everyone behind a NAT. The Worker holds an
-authenticated token (5,000 req/hour, 30 Search req/min) and edge-caches each
-route, so origin load is bounded by the TTL, not by viewer count. Static
-nightly JSON would cover `/stats` and `/activity` but can't meet
-currently-tending's sub-minute freshness budget, so all three live on the
-one Worker for consistency.
+API used by `/stats` (and `/activity`'s merged-PR lookups) is capped at 10
+req/min/IP unauthenticated, shared across everyone behind a NAT. The Worker
+holds an authenticated token (5,000 req/hour, 30 Search req/min) and edge-
+caches each route, so origin load is bounded by the TTL, not by viewer
+count. Static nightly JSON would cover `/stats` and `/activity` but can't
+meet currently-tending's sub-minute freshness budget, so all three live on
+the one Worker for consistency.
 
 ## Input: `data/consumers.json`
 
@@ -45,9 +45,12 @@ the hour.
 ## Multi-bot semantics
 
 Counts are **summed** across bots: `reviews_total` is the union of reviews
-authored by *any* tend bot. Activity events are merged and deduped by URL,
-with the first kind seen winning when the same PR appears in multiple
-queries (declared order: ci-fix → review → triage).
+authored by *any* tend bot. Activity events are merged across bots: each
+bot's event timeline and merged-PR search contribute rows, comments and
+pushes to the same PR/branch collapse into one row with a `count`, and
+same-kind rows for the same URL dedup (newest wins). A single PR
+legitimately appears under several kinds — `pr-opened`, then `pr-commented`,
+then `pr-merged` — those are distinct rows, not duplicates.
 
 ## Caching
 
@@ -89,28 +92,39 @@ not the data layer.
 
 ### `/activity`
 
+Recent things tend has *done* — built from each bot's public event timeline
+(`GET /users/<bot>/events/public`, one cheap REST call per bot, already
+discriminated by event type) plus one Search query per bot for merged PRs
+(`author:<bot> is:pr is:merged` — the merge is usually performed by a human,
+so it isn't in the bot's own event stream). Merged across bots, collapsed,
+sorted newest-first, capped at 40.
+
 ```jsonc
 {
   "generated_at": "2026-05-10T17:30:00Z",
-  "events": [                                       // sorted newest first; capped at 10
+  "events": [                                       // sorted newest first; capped at 40
     {
       "repo": "max-sixty/tend",
-      "kind": "review",                             // "review" | "triage" | "ci-fix"
-      "title": "feat: add foo support",
-      "url": "https://github.com/max-sixty/tend/pull/123",
-      "at": "2026-05-09T14:22:00Z"                  // issue/PR updated_at
+      "kind": "pr-commented",
+      "title": "fix: race in cache TTL",
+      "url": "https://github.com/max-sixty/tend/pull/441",
+      "at": "2026-05-10T16:02:00Z",
+      "detail": { "count": 6 }                      // kind-specific (see below); absent for kinds that carry none
     }
   ]
 }
 ```
 
-Source — 3 queries × N bots, deduped by URL:
-
-| `kind`   | Source query                                          |
-| -------- | ----------------------------------------------------- |
-| `ci-fix` | `author:<bot> is:pr`                                  |
-| `review` | `commenter:<bot> is:pr -author:<bot>`                 |
-| `triage` | `commenter:<bot> is:issue`                            |
+| `kind`            | Meaning                                                      | Source / `detail`                                                                 |
+| ----------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `pr-opened`       | tend opened a PR (CI fix, issue fix, maintenance, workflow self-edit, …) | `PullRequestEvent` action=opened · `detail.category`: `ci-fix`\|`issue-fix`\|`workflow`\|`maintenance`\|`other`, inferred from the head-branch name |
+| `pr-merged`       | a tend-authored PR shipped                                    | Search `author:<bot> is:pr is:merged` (`at` = PR `closed_at` ≈ merge time)         |
+| `pr-reviewed`     | tend approved or requested changes on a PR                    | `PullRequestReviewEvent` · `detail.verdict`: `approved`\|`changes_requested`       |
+| `pr-commented`    | tend left comments on a PR (review bodies, inline, conversation) | `PullRequestReviewEvent`(commented) / `PullRequestReviewCommentEvent` / `IssueCommentEvent` on a PR, collapsed per PR · `detail.count` |
+| `pr-commits`      | tend pushed commits to a PR branch (review fixes, conflict resolution) | `PushEvent` to a non-default branch, collapsed per branch · `detail.count`; `url` = head commit |
+| `issue-commented` | tend commented on an issue (triage, mention answer)           | `IssueCommentEvent` on an issue, collapsed per issue · `detail.count`             |
+| `issue-closed`    | tend closed a resolved issue                                  | `IssuesEvent` action=closed                                                       |
+| `dep-approved`    | tend cleared a dependency bump                                | `PullRequestReviewEvent` on a `dependabot[bot]`/`renovate[bot]` PR                 |
 
 ### `/stats`
 
@@ -143,7 +157,7 @@ data/consumers.json on main
 Cloudflare Worker (tend-website)
   ├─ reads data/consumers.json via raw URL (KV-cached 1 h)
   ├─ /currently-tending: fans out to actions/runs per repo
-  ├─ /activity:          fans out 3 Search queries per bot, dedupes
+  ├─ /activity:          fans out events-timeline + merged-PR search per bot
   ├─ /stats:             5 Search queries per bot, sums total_count
   └─ each route edge-cached at its own TTL, served at api.tend-src.com
 ```
