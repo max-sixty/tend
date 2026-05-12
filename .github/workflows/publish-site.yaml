@@ -6,7 +6,6 @@ on:
       - main
     paths:
       - 'site/**'
-      - 'data/**'
   workflow_dispatch:
 
 concurrency:
