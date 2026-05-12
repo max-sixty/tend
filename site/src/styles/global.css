@@ -373,6 +373,123 @@ hr::after {
   max-width: 32ch;
 }
 
+/* ---------- Stat strip ---------- */
+
+.stats { margin: 2rem 0 1rem; }
+
+.stat-strip {
+  display: flex;
+  gap: 2.5rem;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.stat-num {
+  font-family: var(--font-serif);
+  font-size: 2.2rem;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums oldstyle-nums;
+}
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--oak-deep);
+}
+
+.stat-week {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 0.88rem;
+  color: var(--ink-fade);
+  margin-top: 0.15rem;
+}
+
+/* ---------- Activity feed ---------- */
+
+.activity-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.activity-row {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 11rem) minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: baseline;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--paper-deep);
+  font-size: 0.95rem;
+}
+.activity-row:last-child { border-bottom: none; }
+
+.activity-row .kind {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--moss-deep);
+  padding: 0.15rem 0.45rem;
+  border: 1px solid color-mix(in oklab, var(--moss) 35%, transparent);
+  border-radius: 2px;
+  white-space: nowrap;
+  justify-self: start;
+}
+
+.activity-row .repo {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-row .title {
+  color: var(--ink);
+  border-bottom-color: transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-row .title:hover {
+  color: var(--moss-deep);
+  border-bottom-color: var(--moss);
+}
+
+.activity-row .at {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-fade);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .activity-row {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "kind repo"
+      "title title"
+      "at at";
+    gap: 0.3rem 0.7rem;
+  }
+  .activity-row .kind { grid-area: kind; }
+  .activity-row .repo { grid-area: repo; }
+  .activity-row .title { grid-area: title; white-space: normal; }
+  .activity-row .at { grid-area: at; }
+}
+
 /* ---------- Footer ---------- */
 
 .site-footer {

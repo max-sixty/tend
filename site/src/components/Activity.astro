@@ -1,0 +1,98 @@
+---
+// Recent activity feed — runtime-fetched from api.tend-src.com/activity.
+// Stays hidden until the fetch returns a non-empty list, so a Worker outage
+// or empty data degrades to no section at all rather than a broken state.
+---
+
+<section id="recent-activity" class="recent-activity" hidden>
+  <p class="section-eyebrow">recent ground</p>
+  <p class="section-lead">A few of the last things the bots have touched.</p>
+
+  <div class="marginalia">
+    <div class="margin-note">activity</div>
+    <div class="body">
+      <ul class="activity-rows" data-activity-rows></ul>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { WORKER_URL } from "../lib/api";
+
+  const ENDPOINT = `${WORKER_URL}/activity`;
+
+  type Kind = "review" | "triage" | "ci-fix";
+  interface Event {
+    repo: string;
+    kind: Kind;
+    title: string;
+    url: string;
+    at: string;
+  }
+
+  const KIND_LABELS: Record<Kind, string> = {
+    "ci-fix": "ci fix",
+    review: "review",
+    triage: "triage",
+  };
+
+  function relative(iso: string): string {
+    const then = new Date(iso).getTime();
+    if (!Number.isFinite(then)) return "";
+    const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+    const minutes = Math.round(seconds / 60);
+    const hours = Math.round(minutes / 60);
+    const days = Math.round(hours / 24);
+    if (seconds < 90) return "just now";
+    if (minutes < 90) return `${minutes} min ago`;
+    if (hours < 36) return `${hours} h ago`;
+    return `${days} d ago`;
+  }
+
+  async function load(): Promise<void> {
+    let data: { events?: Event[] };
+    try {
+      const resp = await fetch(ENDPOINT, { headers: { Accept: "application/json" } });
+      if (!resp.ok) return;
+      data = (await resp.json()) as { events?: Event[] };
+    } catch {
+      return;
+    }
+    const events = data.events ?? [];
+    if (events.length === 0) return;
+
+    const ul = document.querySelector("[data-activity-rows]");
+    const section = document.getElementById("recent-activity");
+    if (!ul || !section) return;
+
+    for (const e of events) {
+      const li = document.createElement("li");
+      li.className = "activity-row";
+
+      const kind = document.createElement("span");
+      kind.className = `kind kind-${e.kind}`;
+      kind.textContent = KIND_LABELS[e.kind] ?? e.kind;
+
+      const repo = document.createElement("span");
+      repo.className = "repo";
+      repo.textContent = e.repo;
+
+      const link = document.createElement("a");
+      link.className = "title";
+      link.href = e.url;
+      link.textContent = e.title;
+      link.rel = "noopener";
+
+      const time = document.createElement("time");
+      time.className = "at";
+      time.dateTime = e.at;
+      time.textContent = relative(e.at);
+
+      li.append(kind, repo, link, time);
+      ul.appendChild(li);
+    }
+    section.hidden = false;
+  }
+
+  load();
+</script>
