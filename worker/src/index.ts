@@ -79,11 +79,25 @@ interface SearchItem {
   title: string;
   updated_at: string;
   repository_url: string;
+  number: number;
 }
 
 interface SearchResponse {
   total_count?: number;
   items?: SearchItem[];
+}
+
+// GitHub review / issue-comment objects — fields we actually use.
+interface ReviewObject {
+  user?: { login?: string } | null;
+  html_url?: string;
+  submitted_at?: string;
+}
+
+interface IssueCommentObject {
+  user?: { login?: string } | null;
+  html_url?: string;
+  created_at?: string;
 }
 
 const REPOS_KEY = "repos:v1";
@@ -297,34 +311,139 @@ async function refreshActivity(env: Env): Promise<ActivityResponse> {
   await Promise.all(
     (Object.keys(BUCKET_QUERIES) as ActivityBucketName[]).map(async (name) => {
       const pages = await Promise.all(
-        bots.map((b) => searchIssues(BUCKET_QUERIES[name](b), env.GITHUB_TOKEN)),
+        bots.map(async (b) => ({
+          bot: b,
+          page: await searchIssues(BUCKET_QUERIES[name](b), env.GITHUB_TOKEN),
+        })),
       );
-      const items: SearchItem[] = [];
+      const items: Array<SearchItem & { bot: string }> = [];
       let count = 0;
       let countThisWeek = 0;
-      for (const page of pages) {
+      for (const { bot, page } of pages) {
         count += page.total_count ?? 0;
         for (const it of page.items ?? []) {
-          items.push(it);
+          items.push({ ...it, bot });
           if (Date.parse(it.updated_at) >= weekAgoMs) countThisWeek++;
         }
       }
       items.sort((a, b) =>
         a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0,
       );
-      out[name] = {
-        count,
-        count_this_week: countThisWeek,
-        recent: items.slice(0, RECENT_PER_BUCKET).map((it) => ({
-          repo: repoFromApiUrl(it.repository_url),
-          title: it.title,
-          url: it.html_url,
-          at: it.updated_at,
-        })),
-      };
+      const top = items.slice(0, RECENT_PER_BUCKET);
+      const recent = await Promise.all(
+        top.map((it) => toRecentItem(name, it, env.GITHUB_TOKEN)),
+      );
+      out[name] = { count, count_this_week: countThisWeek, recent };
     }),
   );
   return out;
+}
+
+// `prs`/`issues` rows link to the parent — that IS what the bot created.
+// `reviews`/`comments` rows link to the bot's specific review/comment so
+// clicking lands on tend's actual action, not the top of the thread.
+// Follow-up failure (404, transient error, race where Search saw the action
+// but the comment isn't queryable yet) falls back to the parent URL — better
+// than dropping the row.
+async function toRecentItem(
+  bucket: ActivityBucketName,
+  it: SearchItem & { bot: string },
+  token: string,
+): Promise<RecentItem> {
+  const repo = repoFromApiUrl(it.repository_url);
+  const base = {
+    repo,
+    title: it.title,
+    at: it.updated_at,
+  };
+  if (bucket === "reviews") {
+    const deep = await findBotReviewUrl(repo, it.number, it.bot, token);
+    return { ...base, url: deep ?? it.html_url };
+  }
+  if (bucket === "comments") {
+    const deep = await findBotCommentUrl(repo, it.number, it.bot, token);
+    return { ...base, url: deep ?? it.html_url };
+  }
+  return { ...base, url: it.html_url };
+}
+
+// Latest review on a PR authored by `bot` — `submitted_at` desc. Returns null
+// if the fetch fails or no review by the bot is present (caller falls back).
+async function findBotReviewUrl(
+  repo: string,
+  n: number,
+  bot: string,
+  token: string,
+): Promise<string | null> {
+  const url = `${GITHUB_API}/repos/${repo}/pulls/${n}/reviews?per_page=100`;
+  try {
+    const resp = await fetchWithTimeout(url, { headers: githubHeaders(token) });
+    if (!resp.ok) {
+      console.error(`review lookup failed (${resp.status}): ${repo}#${n}`);
+      return null;
+    }
+    const reviews = (await resp.json()) as ReviewObject[];
+    return latestByBot(
+      reviews,
+      bot,
+      (r) => r.submitted_at,
+      (r) => r.html_url,
+    );
+  } catch (e) {
+    console.error(`review lookup error: ${repo}#${n}`, e);
+    return null;
+  }
+}
+
+// Latest issue/PR-conversation comment authored by `bot` — `created_at` desc.
+// (Inline PR review comments live at a different endpoint; the comments
+// bucket excludes `reviewed-by:<bot>`, so the bot's contribution is an
+// issue-style comment.) Returns null on failure (caller falls back).
+async function findBotCommentUrl(
+  repo: string,
+  n: number,
+  bot: string,
+  token: string,
+): Promise<string | null> {
+  const url = `${GITHUB_API}/repos/${repo}/issues/${n}/comments?per_page=100`;
+  try {
+    const resp = await fetchWithTimeout(url, { headers: githubHeaders(token) });
+    if (!resp.ok) {
+      console.error(`comment lookup failed (${resp.status}): ${repo}#${n}`);
+      return null;
+    }
+    const comments = (await resp.json()) as IssueCommentObject[];
+    return latestByBot(
+      comments,
+      bot,
+      (c) => c.created_at,
+      (c) => c.html_url,
+    );
+  } catch (e) {
+    console.error(`comment lookup error: ${repo}#${n}`, e);
+    return null;
+  }
+}
+
+function latestByBot<T extends { user?: { login?: string } | null }>(
+  entries: T[],
+  bot: string,
+  ts: (e: T) => string | undefined,
+  href: (e: T) => string | undefined,
+): string | null {
+  let bestTs = "";
+  let bestUrl: string | null = null;
+  for (const e of entries) {
+    if (e.user?.login !== bot) continue;
+    const t = ts(e);
+    const h = href(e);
+    if (typeof t !== "string" || typeof h !== "string") continue;
+    if (t > bestTs) {
+      bestTs = t;
+      bestUrl = h;
+    }
+  }
+  return bestUrl;
 }
 
 function emptyActivity(): ActivityResponse {
@@ -473,4 +592,6 @@ export const __test = {
   isConsumerArray,
   isValidRepo,
   isValidBotName,
+  findBotReviewUrl,
+  findBotCommentUrl,
 };
