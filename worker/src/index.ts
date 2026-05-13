@@ -134,6 +134,16 @@ const BOOKKEEPING_LABELS = [
 ];
 const ISSUE_LABEL_FILTER = BOOKKEEPING_LABELS.map((l) => `-label:${l}`).join(" ");
 
+// Why primitive buckets, not a job taxonomy: GitHub records mechanical facts
+// (PR opened, review submitted, comment created), but tend's jobs (review /
+// triage / ci-fix / nightly / weekly) don't map onto them cleanly — a PR on
+// `fix/ci-*` vs `fix/issue-*` vs `tend/update-workflows` is the same event
+// type, and a nightly survey that finds nothing leaves no trace. An earlier
+// cut reverse-engineered a `kind` enum from branch names and still
+// mislabelled things. The site renders the mechanical buckets directly; the
+// "what's tend been up to" narrative is deferred to a Phase 2 LLM summary
+// (see TODO.md).
+//
 // `q` for each /activity bucket — "the bot …":
 const BUCKET_QUERIES: Record<ActivityBucketName, (bot: string) => string> = {
   prs: (b) => `author:${b} is:pr`, // …opened these PRs
