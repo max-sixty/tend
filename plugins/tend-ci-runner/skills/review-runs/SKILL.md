@@ -97,8 +97,7 @@ If `EXISTING_COMMENT` is non-empty, check its size before appending. GitHub reje
 ```bash
 # Verify the run heading references this run's $GITHUB_RUN_ID literally —
 # fabricated round numbers produce dead Workflow links, see @review-gates.md.
-# `|| { …; exit 1; }` rather than `if ! grep …`: the Bash-tool preprocessor
-# rewrites `!` to backslash-bang and silently inverts the if-condition.
+# Use `||` not `if ! cmd` — the Bash-tool preprocessor rewrites bangs.
 grep -qF "$GITHUB_RUN_ID" /tmp/findings.md || {
   echo "ERROR: /tmp/findings.md does not contain \$GITHUB_RUN_ID=$GITHUB_RUN_ID — refusing to post" >&2
   exit 1
