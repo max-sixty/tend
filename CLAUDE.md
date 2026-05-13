@@ -35,8 +35,7 @@ tend/
 ├── data/                 # consumers.json — Worker's input (refreshed weekly)
 └── docs/
     ├── activity-stream-design.md
-    ├── security-model.md
-    └── website-data.md
+    └── security-model.md
 ```
 
 ## Key details
