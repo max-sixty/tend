@@ -160,13 +160,18 @@ describe("refreshCurrentlyTending", () => {
 });
 
 describe("refreshActivity", () => {
-  // Build a Search URL the way searchRaw does: q + per_page, then sort/order
-  // appended (perPage > 1).
+  // Build a Search URL the way searchIssues does: q + per_page + sort + order.
   const searchUrl = (q: string) =>
     `https://api.github.com/search/issues?${new URLSearchParams({
       q,
       per_page: "100",
     })}&sort=updated&order=desc`;
+
+  // The label filter the worker appends to the `issues` bucket query —
+  // mirrors BOOKKEEPING_LABELS in src/index.ts. Coupling is deliberate: a
+  // change to that list is a behaviour change and should break this test.
+  const ISSUE_FILTER =
+    "-label:tend-outage -label:review-runs-tracking -label:review-reviewers-tracking -label:nightly-cleanup";
 
   it("fans out one Search query per bucket per bot — sums counts, merges + sorts recent, counts this week", async () => {
     const { __test } = await import("../src/index");
@@ -197,13 +202,15 @@ describe("refreshActivity", () => {
           { repo: "o/b", bot_name: "bot-b" },
         ],
       ],
-      // bots sorted → bot-a, bot-b. Buckets in declared order: prs, issues, comments.
+      // bots sorted → bot-a, bot-b. Buckets in declared order: prs, issues, reviews, comments.
       [searchUrl("author:bot-a is:pr"), { total_count: 7, items: [item("o/a", 1, "pull", recentA), item("o/a", 2, "pull", oldA)] }],
       [searchUrl("author:bot-b is:pr"), { total_count: 3, items: [item("o/b", 9, "pull", oldB)] }],
-      [searchUrl("author:bot-a is:issue"), { total_count: 2, items: [item("o/a", 5, "issues", recentB)] }],
-      [searchUrl("author:bot-b is:issue"), { total_count: 0, items: [] }],
-      [searchUrl("commenter:bot-a -author:bot-a"), { total_count: 12, items: [item("o/a", 3, "pull", recentA)] }],
-      [searchUrl("commenter:bot-b -author:bot-b"), { total_count: 4, items: [item("o/b", 8, "issues", recentB)] }],
+      [searchUrl(`author:bot-a is:issue ${ISSUE_FILTER}`), { total_count: 2, items: [item("o/a", 5, "issues", recentB)] }],
+      [searchUrl(`author:bot-b is:issue ${ISSUE_FILTER}`), { total_count: 0, items: [] }],
+      [searchUrl("reviewed-by:bot-a"), { total_count: 9, items: [item("o/a", 4, "pull", recentA)] }],
+      [searchUrl("reviewed-by:bot-b"), { total_count: 5, items: [item("o/b", 7, "pull", oldB)] }],
+      [searchUrl("commenter:bot-a -author:bot-a -reviewed-by:bot-a"), { total_count: 12, items: [item("o/a", 3, "pull", recentA)] }],
+      [searchUrl("commenter:bot-b -author:bot-b -reviewed-by:bot-b"), { total_count: 4, items: [item("o/b", 8, "issues", recentB)] }],
     ]);
     globalThis.fetch = makeFetch(responses) as unknown as typeof fetch;
 
@@ -230,6 +237,14 @@ describe("refreshActivity", () => {
       count_this_week: 1,
       recent: [
         { repo: "o/a", title: "o/a#5", url: "https://github.com/o/a/issues/5", at: recentB },
+      ],
+    });
+    expect(out.reviews).toEqual({
+      count: 14, // 9 + 5
+      count_this_week: 1, // o/a#4 recent; o/b#7 old
+      recent: [
+        { repo: "o/a", title: "o/a#4", url: "https://github.com/o/a/pull/4", at: recentA },
+        { repo: "o/b", title: "o/b#7", url: "https://github.com/o/b/pull/7", at: oldB },
       ],
     });
     expect(out.comments).toEqual({
@@ -272,6 +287,7 @@ describe("refreshActivity", () => {
     expect(out.comments).toEqual({ count: 0, count_this_week: 0, recent: [] });
     expect(out.prs.count).toBe(1);
     expect(out.issues.count).toBe(1);
+    expect(out.reviews.count).toBe(1);
   });
 
   it("returns empty buckets when there are no consumers", async () => {
@@ -293,6 +309,7 @@ describe("refreshActivity", () => {
     const out = await __test.refreshActivity(env);
     expect(out.prs).toEqual({ count: 0, count_this_week: 0, recent: [] });
     expect(out.issues).toEqual({ count: 0, count_this_week: 0, recent: [] });
+    expect(out.reviews).toEqual({ count: 0, count_this_week: 0, recent: [] });
     expect(out.comments).toEqual({ count: 0, count_this_week: 0, recent: [] });
   });
 

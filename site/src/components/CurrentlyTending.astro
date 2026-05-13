@@ -21,6 +21,7 @@
   interface Activity {
     prs?: Bucket;
     issues?: Bucket;
+    reviews?: Bucket;
     comments?: Bucket;
   }
 
@@ -46,7 +47,7 @@
       }
 
       const activity = await fetchJson<Activity>("/activity");
-      const newest = [activity?.prs, activity?.issues, activity?.comments]
+      const newest = [activity?.prs, activity?.issues, activity?.reviews, activity?.comments]
         .map((b) => b?.recent?.[0]?.at)
         .filter((at): at is string => !!at)
         .sort()

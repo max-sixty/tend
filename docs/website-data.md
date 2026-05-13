@@ -94,27 +94,30 @@ Recent things tend has done, in primitive buckets — one Search query per bucke
 per bot (`sort=updated`): the page yields both the `recent` items and the
 lifetime `count` (`total_count`); `count_this_week` is counted off the page, so
 it saturates around one page (~100) per bot per bucket — fine for a headline
-number. The fanout is 3·N concurrent Search requests, which stays under the
-30 req/min cap up to ~10 bots; past that, the per-bot calls would need
+number. The fanout is 4·N concurrent Search requests, which stays under the
+30 req/min cap up to ~7 bots; past that, the per-bot calls would need
 staggering or a scheduled refresh (see the Phase-2 note).
 
 ```jsonc
 {
   "generated_at": "2026-05-10T17:30:00Z",
-  "prs":      { "count": 980,  "count_this_week": 12, "recent": [ /* RecentItem */ ] },
-  "issues":   { "count": 41,   "count_this_week": 1,  "recent": [ ... ] },
-  "comments": { "count": 1530, "count_this_week": 36, "recent": [ ... ] }
+  "prs":      { "count": 485,  "count_this_week": 6,  "recent": [ /* RecentItem */ ] },
+  "issues":   { "count": 82,   "count_this_week": 2,  "recent": [ ... ] },
+  "reviews":  { "count": 1102, "count_this_week": 28, "recent": [ ... ] },
+  "comments": { "count": 206,  "count_this_week": 4,  "recent": [ ... ] }
 }
 ```
 
-`RecentItem` = `{ repo, title, url, at }` (`at` is the issue/PR `updated_at`),
-newest-first, ≤10 per bucket.
+`RecentItem` = `{ repo, title, url, at }`. `at` is the parent issue/PR's
+`updated_at`, and `title` is the parent's title — Search returns the item, not
+the comment or review body. Newest-first, ≤10 per bucket.
 
 | bucket | Search query | "the bot …" |
 | --- | --- | --- |
 | `prs` | `author:<bot> is:pr` | opened these PRs (any state) |
-| `issues` | `author:<bot> is:issue` | opened these issues — mostly tend's own trackers (missing PAT scopes, "nightly tests failed", `tend-outage`), so this bucket leans "tend flagged a problem" |
-| `comments` | `commenter:<bot> -author:<bot>` | chimed in on these PRs/issues (not its own) |
+| `issues` | `author:<bot> is:issue` minus four bookkeeping labels (`tend-outage`, `review-runs-tracking`, `review-reviewers-tracking`, `nightly-cleanup`) | opened these issues, filed against the repo — tend's own outage and tracking issues are excluded |
+| `reviews` | `reviewed-by:<bot>` | reviewed these PRs (approve / request-changes / review comment) — by volume, tend's main action |
+| `comments` | `commenter:<bot> -author:<bot> -reviewed-by:<bot>` | commented on these PRs/issues — excludes its own threads and items already in `reviews` |
 
 > **TODO — Phase 2:** a consumer (a scheduled job, or the Worker calling Claude)
 > reads `/activity` and writes a short prose summary of what tend's been up to;
