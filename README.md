@@ -48,7 +48,7 @@ claude /install-tend
 
 It'll take 5-15 minutes to set up the config, workflow generation, bot account,
 secrets, and branch protection. Tend is configured through a [config
-file](docs/tend.example.toml) and a repo-local `/running-tend` skill.
+file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 
 ## Reasons _not_ to use Tend
 
