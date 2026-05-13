@@ -420,7 +420,7 @@ hr::after {
   line-height: 1.3;
   color: var(--ink);
   margin: 0 0 1rem;
-  max-width: 32ch;
+  max-width: 48ch;
 }
 
 /* ---------- Stat strip ---------- */
