@@ -160,6 +160,12 @@ LAST_GIST_ID=$(gh api /gists --paginate \
 After applying the gates, write each run's new findings (format in `@review-gates.md`) to `/tmp/findings.md`, then append them to the gist's `findings.md`. Reuse the current content already fetched into `/tmp/current.md` in "Reading historical evidence", concatenate, and PATCH via the API (`--rawfile` preserves trailing newlines that command substitution would strip):
 
 ```bash
+# Verify the run heading references this run's $GITHUB_RUN_ID literally —
+# fabricated round numbers produce dead Workflow links, see @review-gates.md.
+if ! grep -qF "$GITHUB_RUN_ID" /tmp/findings.md; then
+  echo "ERROR: /tmp/findings.md does not contain \$GITHUB_RUN_ID=$GITHUB_RUN_ID — refusing to PATCH gist" >&2
+  exit 1
+fi
 cat /tmp/current.md /tmp/findings.md > /tmp/combined.md
 jq -n --rawfile content /tmp/combined.md \
   '{files: {"findings.md": {content: $content}}}' \
