@@ -31,4 +31,5 @@ npm run preview    # serve the built site
 - `src/components/CurrentlyTending.astro`, `src/components/Stats.astro`, `src/components/Activity.astro` — runtime-fetch the live-data Worker; hidden when empty or the fetch fails
 - `src/lib/api.ts` — live-data Worker client: `fetchJson` + `liveData` (the fetch/render/reveal cycle the three components share); base URL overridable via `PUBLIC_WORKER_URL`
 - `src/lib/time.ts` — compact relative-time formatter shared by the live-data components
-- `public/logo.png`, `public/favicon.png` — copied from `../assets/`
+- `public/logo.png` — copied from `../assets/`
+- `public/favicon.svg` — transparent SVG favicon, mark path mirrored from `Logo.astro`; `prefers-color-scheme: dark` switches the oak fill to the lighter dark-mode shade
