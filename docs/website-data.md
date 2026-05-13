@@ -4,7 +4,7 @@ Both data streams the tend site renders are served by one Cloudflare Worker.
 The Worker reads a small input file (`data/consumers.json`) from this repo, fans
 out to GitHub, and serves CORS-enabled JSON to the site.
 
-| Stream | Endpoint | Edge TTL | Fallback TTL |
+| Stream | Endpoint | Freshness budget | Fallback budget |
 | --- | --- | --- | --- |
 | Currently tending | `/currently-tending` (also `/`) | 30 s | 5 s |
 | Activity | `/activity` | 5 min | 30 s |
@@ -18,8 +18,9 @@ req/min/IP — both shared across everyone behind a NAT. A single
 currently-tending poll fans out one `actions/runs` call per consumer repo every
 30 s; `/activity` fans out one Search query per bucket per bot. One browser tab
 would exhaust those quotas in minutes. The Worker holds an authenticated token
-(5,000 req/hour, 30 Search req/min) and edge-caches each route, so origin load
-is bounded by the TTL, not by viewer count. Static nightly JSON would cover
+(5,000 req/hour, 30 Search req/min) and caches each route at the colo, so
+origin load is bounded by the freshness budget, not by viewer count. Static
+nightly JSON would cover
 `/activity` but can't meet currently-tending's sub-minute freshness budget, so
 both live on the one Worker.
 
@@ -52,14 +53,26 @@ practice.
 
 ## Caching
 
-Each Worker route has two TTLs: the normal cache window, and a short
-fallback window applied when the refresh throws. The fallback window
-ensures a transient GitHub outage clears within seconds rather than locking
-in an empty response for the full normal TTL.
+Stale-while-revalidate, in the Worker's colo cache. Every request is
+answered from cache — no waiting on the GitHub fanout. Each route has a
+**freshness budget** (`/currently-tending` 30 s, `/activity` 5 min); once a
+cached entry is older than that, the next request still gets the cached
+copy *and* triggers a background refresh, so the entry following it is
+fresh. An entry stays serveable for 10 freshness budgets — 5 min on
+`/currently-tending`, 50 min on `/activity` — before the cache drops it, so
+a viewer never sees data older than that and an ordinarily-trafficked site
+never goes cold.
 
-Cache is demand-driven — nothing runs on a schedule. The first request in
-a TTL window pays the full origin cost; subsequent requests inside that
-window hit the edge cache. A no-traffic day costs zero GitHub calls.
+When a refresh throws (GitHub outage), the empty payload is cached with a
+short **fallback budget** (5 s / 30 s) so the next request retries soon
+rather than locking in an empty response.
+
+Still demand-driven: a background refresh only fires when a request comes
+in, so a no-traffic day costs zero GitHub calls. The cost is one cold
+start — a fresh deploy, or a gap longer than 10 freshness budgets, makes
+that one request wait on the fanout. A cron-triggered prewarm would close
+even that gap but would trade away the zero-when-idle property; not worth
+it at this scale.
 
 ## Endpoint shapes
 
@@ -151,7 +164,7 @@ Cloudflare Worker (tend-website)
   ├─ reads data/consumers.json via raw URL (KV-cached 1 h)
   ├─ /currently-tending: fans out actions/runs per repo (in-progress, tend-*)
   ├─ /activity:          fans out one Search query per bucket per bot
-  └─ each route edge-cached at its own TTL, served at api.tend-src.com
+  └─ each route stale-while-revalidate from the colo cache, served at api.tend-src.com
 ```
 
 ## Local development

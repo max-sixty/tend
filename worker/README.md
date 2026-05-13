@@ -2,9 +2,9 @@
 
 Cloudflare Worker that serves the data the tend marketing site renders —
 `/currently-tending` (in-progress tend-* runs) and `/activity` (recent PRs /
-issues / reviews / comments + lifetime counts) — each at its own route with its
-own edge TTL. See [`../docs/website-data.md`](../docs/website-data.md) for the
-route table, shapes, and the rate-limit reasoning.
+issues / reviews / comments + lifetime counts) — each at its own route with
+its own freshness budget. See [`../docs/website-data.md`](../docs/website-data.md)
+for the route table, shapes, and the rate-limit reasoning.
 
 ## Endpoint
 
@@ -28,22 +28,32 @@ Example (`/currently-tending`) returns:
 }
 ```
 
-`Access-Control-Allow-Origin: *` (public read-only data). Browser and
-Cloudflare edge cache both honor `Cache-Control: public, max-age=30`.
+`Access-Control-Allow-Origin: *` (public read-only data).
 
 ## How it works
 
 The Worker reads `data/consumers.json` from `main` via
-`raw.githubusercontent.com` (KV-cached for 1 h), fans out parallel
-`GET /repos/{r}/actions/runs?status=in_progress&per_page=30` calls
-authenticated with a read-only PAT, filters to `tend-*` workflows, and
-returns the compact JSON above. The rendered response is edge-cached
-(`caches.default`) for 30 s, which both bounds GitHub fanout and dedupes
-concurrent cache misses at the edge. Fallback responses (when refresh
-fails) are cached for 5 s so a transient outage clears fast.
+`raw.githubusercontent.com` (KV-cached for 1 h) and fans out parallel
+authenticated calls to GitHub:
 
-With N=5 consumers and a 30 s TTL, that's at most ~10 GitHub API calls/min
-regardless of viewer count — well below the 5,000/hour limit on the PAT.
+- `/currently-tending` — one `GET /repos/{r}/actions/runs?status=in_progress`
+  per consumer, filtered to `tend-*` workflows.
+- `/activity` — one Search query per primitive bucket (`prs` / `issues` /
+  `reviews` / `comments`) per bot.
+
+Responses are served **stale-while-revalidate** from the colo cache
+(`caches.default`). A request is always answered from cache — no waiting on
+the GitHub fanout. When the cached entry is past its freshness budget
+(`/currently-tending` 30 s, `/activity` 5 min), the hit also kicks off a
+background refresh via `ctx.waitUntil` so the next viewer sees fresher data.
+Only a cold cache — a fresh deploy, or a quiet stretch longer than ten
+freshness budgets — makes one request synchronously refresh. Fallback
+responses (when refresh throws) are cached with a short fallback budget so a
+transient outage clears fast.
+
+Origin load is bounded by the freshness budget, not viewer count. The
+authenticated PAT's 5,000 req/hour and 30 Search req/min ceilings leave
+plenty of headroom for the documented fanout shapes.
 
 ## One-time setup (already done)
 
@@ -85,15 +95,20 @@ GITHUB_TOKEN=ghp_...
 
 ## Cache strategy
 
-- `caches.default` (Cloudflare HTTP edge cache), keyed by the normalized
-  request URL, TTL = `Cache-Control: max-age` — the rendered response.
-  Edge dedupes concurrent misses, so a viral spike fans out at most once
-  per 30 s per edge node.
+- `caches.default` (Cloudflare's colo cache), keyed by the normalized request
+  URL — stores the rendered response. The browser revalidates after the
+  freshness budget (`Cache-Control: max-age`); the colo cache, a shared
+  cache, retains the entry for ten freshness budgets (`s-maxage`) so SWR
+  keeps working between viewers. A `x-tend-stale-at` header on the cached
+  response tells `serveCached` when to background-refresh a hit. A missing
+  or garbled stamp counts as stale, so the first hit self-heals an entry
+  written by code predating this scheme.
 - `CACHE` KV namespace, key `repos:v1`, TTL 1 h — the `consumers.json`
-  content. Decouples `running-tend`'s weekly refresh from Worker deploys.
-  KV is appropriate here because the 1 h TTL is above KV's 60 s minimum
-  and we want cross-isolate sharing.
+  content. Decouples `running-tend`'s weekly refresh from Worker deploys. KV
+  is appropriate here because the 1 h TTL is above KV's 60 s minimum and we
+  want cross-isolate sharing.
 
-A cold cache miss costs N parallel GitHub API calls (one per consumer repo).
-The 30 s TTL keeps the worst case to ~2 GitHub calls/sec for any traffic
-level.
+A cold cache miss costs the route's full fanout (N actions/runs calls for
+`/currently-tending`, 4·N Search calls for `/activity`). The freshness
+budget bounds how often that happens: at most one cold refresh per budget
+per colo, under any traffic level.

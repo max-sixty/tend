@@ -1,15 +1,19 @@
 // Cloudflare Worker that serves the tend website's live data streams.
 //
-// Two routes, both CORS-enabled JSON, each with its own edge-cache TTL
-// matched to the freshness budget:
+// Two routes, both CORS-enabled JSON, each with its own freshness budget:
 //
 //   /currently-tending   30 s   in-progress tend-* workflow runs
 //   /activity            5 min  recent PRs / issues / reviews / comments +
 //                               lifetime counts, per primitive bucket
 //
 // Both read the consumer list (`consumers.json`) from the repo, KV-cached
-// for an hour, and fan out to GitHub. The edge cache coalesces concurrent
-// misses — origin load is bounded by TTL, not viewer count.
+// for an hour, and fan out to GitHub. Responses are stale-while-revalidate:
+// a request is always answered from the colo cache (no waiting on the
+// fanout) and, when the cached entry is past its budget, also kicks off a
+// background refresh so the next request sees fresher data. Only a cold
+// cache — a fresh deploy, or a quiet stretch long enough for the entry to
+// be evicted — makes a viewer wait. A background refresh only fires on a
+// request, so idle days still cost zero GitHub calls.
 //
 // `/activity` is one Search query per bucket per bot (`sort=updated`): the
 // page yields both the recent items and the lifetime `total_count`; "this
@@ -18,7 +22,7 @@
 // Search requests, under the 30/min cap up to ~7 bots.
 //
 // See docs/website-data.md for architecture and the rate-limit reasoning
-// behind the TTLs.
+// behind the budgets.
 
 interface Env {
   GITHUB_TOKEN: string;
@@ -138,12 +142,24 @@ const BUCKET_QUERIES: Record<ActivityBucketName, (bot: string) => string> = {
   comments: (b) => `commenter:${b} -author:${b} -reviewed-by:${b}`, // …commented on these PRs/issues (not its own, not folded in from a review)
 };
 
-// Per-route TTLs. The fallback TTL (used when refresh throws) is shorter
-// so a transient outage clears quickly.
+// Per-route freshness budgets, in seconds. `ok` applies to a good refresh;
+// `fallback` (used when the refresh throws) is shorter so a transient
+// outage clears quickly. Past its budget a cached entry is still served —
+// see serveCached's stale-while-revalidate — until it's STALE_SERVE_FACTOR
+// budgets old, at which point the colo cache drops it.
 const TTL = {
   "currently-tending": { ok: 30, fallback: 5 },
   activity: { ok: 300, fallback: 30 },
 } as const;
+
+// Multiple of the freshness budget that a cached entry stays serveable
+// before the colo cache evicts it. Bounds how stale a viewer can see; the
+// larger it is, the longer a quiet site stays warm between refreshes.
+const STALE_SERVE_FACTOR = 10;
+
+// serveCached stamps each cached response with the instant (epoch ms) past
+// which a hit should trigger a background refresh.
+const STALE_AT_HEADER = "x-tend-stale-at";
 
 // owner/name — alphanumerics + `_-.`, no leading `.`/`-`, no `..` anywhere,
 // exactly one slash.
@@ -210,33 +226,70 @@ async function serveCached<T>(
   ctx: ExecutionContext,
   opts: CacheOpts<T>,
 ): Promise<Response> {
-  // Normalize the cache key so query strings don't fork the cache. The
-  // HTTP edge cache coalesces concurrent misses, which bounds origin
-  // fanout AND dodges KV's 60s minimum expirationTtl.
+  // Normalize the cache key so query strings don't fork the cache. Using
+  // the colo cache (not KV) for the response also dodges KV's 60s minimum
+  // expirationTtl — currently-tending's budget is shorter than that.
   const cacheKey = new Request(`${url.origin}${opts.cacheKeyPath}`, {
     method: "GET",
   });
   const cached = await caches.default.match(cacheKey).catch(() => undefined);
+
   if (cached) {
+    // Stale-while-revalidate: answer from cache immediately — never make a
+    // viewer wait on the GitHub fanout. Past its freshness budget, refresh
+    // in the background so the next request gets fresher data. A burst of
+    // concurrent stale-hits can fan out several refreshes at once; the
+    // short fallback budget caps the fallout if that trips a rate limit.
+    if (isStale(cached.headers.get(STALE_AT_HEADER), Date.now())) {
+      ctx.waitUntil(
+        refreshAndCache(cacheKey, env, ctx, opts).catch((e) =>
+          console.error(
+            `background refresh failed for ${opts.cacheKeyPath}:`,
+            e,
+          ),
+        ),
+      );
+    }
     return cached;
   }
 
-  // On any unexpected failure return the empty payload (with a short TTL)
-  // so a transient outage doesn't break the page or wedge the cache.
+  // Cold cache — a fresh deploy, or no traffic for STALE_SERVE_FACTOR
+  // budgets. This request pays the fanout; everyone after it is served
+  // from cache until the next cold start.
+  return refreshAndCache(cacheKey, env, ctx, opts);
+}
+
+// Run the refresh, store the result in the colo cache stamped with its
+// freshness budget, and return the response. On any unexpected failure,
+// cache the empty payload with the shorter fallback budget so a transient
+// outage doesn't break the page or wedge the cache.
+async function refreshAndCache<T>(
+  cacheKey: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  opts: CacheOpts<T>,
+): Promise<Response> {
   let fresh: T;
-  let isFallback = false;
+  let ttlSeconds = opts.ttl.ok;
   try {
     fresh = await opts.refresh();
   } catch (e) {
     console.error(`refresh failed for ${opts.cacheKeyPath}:`, e);
     fresh = opts.empty();
-    isFallback = true;
+    ttlSeconds = opts.ttl.fallback;
   }
-
-  const ttl = isFallback ? opts.ttl.fallback : opts.ttl.ok;
-  const response = jsonResponse(fresh, env, ttl);
+  const response = jsonResponse(fresh, env, ttlSeconds);
   ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
   return response;
+}
+
+// A cached entry past this instant (epoch ms, from STALE_AT_HEADER) is
+// still served but triggers a background refresh. A missing or garbled
+// stamp counts as stale, so an entry written before this scheme — or any
+// the cache mangles — gets refreshed promptly.
+function isStale(staleAtHeader: string | null, nowMs: number): boolean {
+  const staleAt = Number(staleAtHeader);
+  return !Number.isFinite(staleAt) || nowMs >= staleAt;
 }
 
 // ---------------------------------------------------------------------------
@@ -562,10 +615,20 @@ function withCors(resp: Response, env: Env): Response {
 }
 
 function jsonResponse(data: unknown, env: Env, ttlSeconds: number): Response {
+  const staleAtMs = Date.now() + ttlSeconds * 1000;
   return new Response(JSON.stringify(data), {
     headers: {
       "Content-Type": "application/json",
-      "Cache-Control": `public, max-age=${ttlSeconds}`,
+      // Browsers revalidate after the freshness budget (`max-age`); the
+      // colo cache, a shared cache, keeps the entry for STALE_SERVE_FACTOR
+      // budgets (`s-maxage`) so it stays warm for stale-while-revalidate.
+      // Assumes Cloudflare's zone cache isn't also storing this route — it
+      // isn't on a vanilla Workers custom domain, but adding a Cache Rule
+      // here would honor `s-maxage` and break SWR by shadowing the Worker.
+      "Cache-Control":
+        `public, max-age=${ttlSeconds}, ` +
+        `s-maxage=${ttlSeconds * STALE_SERVE_FACTOR}`,
+      [STALE_AT_HEADER]: String(staleAtMs),
       "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN,
     },
   });
@@ -594,4 +657,5 @@ export const __test = {
   isValidBotName,
   findBotReviewUrl,
   findBotCommentUrl,
+  isStale,
 };

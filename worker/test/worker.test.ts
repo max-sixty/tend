@@ -591,6 +591,24 @@ describe("getConsumers", () => {
   });
 });
 
+describe("isStale (stale-while-revalidate decision)", () => {
+  const now = 1_700_000_000_000;
+
+  it("treats a future stamp as fresh and past/at as stale", async () => {
+    const { __test } = await import("../src/index");
+    expect(__test.isStale(String(now + 1000), now)).toBe(false);
+    expect(__test.isStale(String(now - 1000), now)).toBe(true);
+    expect(__test.isStale(String(now), now)).toBe(true); // boundary refreshes
+  });
+
+  it("treats a missing or garbled stamp as stale", async () => {
+    const { __test } = await import("../src/index");
+    expect(__test.isStale(null, now)).toBe(true);
+    expect(__test.isStale("", now)).toBe(true);
+    expect(__test.isStale("not-a-number", now)).toBe(true);
+  });
+});
+
 function makeFakeKv(): KVNamespace {
   const store = new Map<string, string>();
   return {
