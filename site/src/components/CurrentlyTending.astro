@@ -1,8 +1,8 @@
 ---
 // "Currently tending" pulse — runtime-fetched from api.tend-src.com/currently-tending.
-// When nothing is in progress it falls back to /activity's most recent event
-// ("last tended N min ago"), per docs/website-data.md, so the indicator stays
-// live between runs. Hidden only when both requests fail.
+// When nothing is in progress it falls back to the most recent item in
+// /activity ("last tended N min ago"), per docs/website-data.md, so the
+// indicator stays live between runs. Hidden only when both requests fail.
 ---
 
 <p id="now-tending" class="now-tending" hidden></p>
@@ -15,8 +15,13 @@
     repo: string;
     workflow: string;
   }
-  interface Event {
-    at: string;
+  interface Bucket {
+    recent?: Array<{ at: string }>;
+  }
+  interface Activity {
+    prs?: Bucket;
+    issues?: Bucket;
+    comments?: Bucket;
   }
 
   function paint(el: HTMLElement, state: "live" | "idle", text: string): void {
@@ -40,10 +45,14 @@
         return true;
       }
 
-      const activity = await fetchJson<{ events?: Event[] }>("/activity");
-      const last = activity?.events?.[0];
-      if (!last) return false;
-      const ago = relativeTime(last.at);
+      const activity = await fetchJson<Activity>("/activity");
+      const newest = [activity?.prs, activity?.issues, activity?.comments]
+        .map((b) => b?.recent?.[0]?.at)
+        .filter((at): at is string => !!at)
+        .sort()
+        .at(-1);
+      if (!newest) return false;
+      const ago = relativeTime(newest);
       if (!ago) return false;
       paint(el, "idle", `last tended ${ago}`);
       return true;

@@ -20,67 +20,45 @@
   import { liveData } from "../lib/api";
   import { relativeTime } from "../lib/time";
 
-  const MAX_ROWS = 12; // the Worker returns up to 40; this section shows a slice
+  const MAX_ROWS = 12; // the buckets hold up to ~10 each; this section shows a merged slice
 
-  type Kind =
-    | "pr-opened"
-    | "pr-merged"
-    | "pr-reviewed"
-    | "pr-commented"
-    | "pr-commits"
-    | "issue-commented"
-    | "issue-closed"
-    | "dep-approved";
-
-  interface Event {
+  interface RecentItem {
     repo: string;
-    kind: Kind;
     title: string;
     url: string;
     at: string;
-    detail?: {
-      count?: number;
-      verdict?: "approved" | "changes_requested";
-      category?: string;
-    };
+  }
+  interface Bucket {
+    recent?: RecentItem[];
+  }
+  interface Activity {
+    prs?: Bucket;
+    issues?: Bucket;
+    comments?: Bucket;
   }
 
-  const KIND_LABELS: Record<Kind, string> = {
-    "pr-opened": "pr opened",
-    "pr-merged": "merged",
-    "pr-reviewed": "reviewed",
-    "pr-commented": "commented",
-    "pr-commits": "pushed",
-    "issue-commented": "triage",
-    "issue-closed": "closed",
-    "dep-approved": "deps",
-  };
+  type Kind = "pr" | "issue" | "comment";
+  const KIND_LABELS: Record<Kind, string> = { pr: "PR", issue: "issue", comment: "comment" };
 
-  function kindLabel(e: Event): string {
-    if (e.kind === "pr-reviewed" && e.detail?.verdict) {
-      return e.detail.verdict === "approved" ? "approved" : "changes";
-    }
-    return KIND_LABELS[e.kind] ?? e.kind;
-  }
-
-  function titleText(e: Event): string {
-    const count = e.detail?.count ?? 0;
-    return count > 1 ? e.title + " ×" + count : e.title;
-  }
-
-  liveData<{ events?: Event[] }>("/activity", "recent-activity", (data) => {
-    const events = (data?.events ?? []).slice(0, MAX_ROWS);
-    if (events.length === 0) return false;
+  liveData<Activity>("/activity", "recent-activity", (data) => {
+    const rows: Array<RecentItem & { kind: Kind }> = [
+      ...(data?.prs?.recent ?? []).map((r) => ({ ...r, kind: "pr" as const })),
+      ...(data?.issues?.recent ?? []).map((r) => ({ ...r, kind: "issue" as const })),
+      ...(data?.comments?.recent ?? []).map((r) => ({ ...r, kind: "comment" as const })),
+    ];
+    rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    const top = rows.slice(0, MAX_ROWS);
+    if (top.length === 0) return false;
 
     const ul = document.querySelector("[data-activity-rows]");
     if (!ul) return false;
-    for (const e of events) {
+    for (const e of top) {
       const li = document.createElement("li");
       li.className = "activity-row";
 
       const kind = document.createElement("span");
       kind.className = `kind kind-${e.kind}`;
-      kind.textContent = kindLabel(e);
+      kind.textContent = KIND_LABELS[e.kind];
 
       const repo = document.createElement("span");
       repo.className = "repo";
@@ -89,7 +67,7 @@
       const link = document.createElement("a");
       link.className = "title";
       link.href = e.url;
-      link.textContent = titleText(e);
+      link.textContent = e.title;
       link.rel = "noopener";
 
       const time = document.createElement("time");

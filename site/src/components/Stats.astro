@@ -1,7 +1,7 @@
 ---
-// Stat strip — runtime-fetched from api.tend-src.com/stats.
-// Hidden until the fetch returns non-zero values, so a cold deploy with
-// empty data doesn't render a row of zeros.
+// Stat strip — runtime-fetched from api.tend-src.com/activity (the bucket
+// counts). Hidden until the fetch returns non-zero values, so a cold deploy
+// with empty data doesn't render a row of zeros.
 ---
 
 <section id="stats" class="stats" hidden>
@@ -11,24 +11,26 @@
 <script>
   import { liveData } from "../lib/api";
 
-  interface Stats {
-    reviews_total: number;
-    reviews_this_week: number;
-    ci_fixes_total: number;
-    ci_fixes_this_week: number;
-    triage_comments_total: number;
+  interface Bucket {
+    count: number;
+    count_this_week: number;
+  }
+  interface Activity {
+    prs: Bucket;
+    issues: Bucket;
+    comments: Bucket;
   }
 
   function format(n: number): string {
     return n.toLocaleString();
   }
 
-  liveData<Stats>("/stats", "stats", (data) => {
+  liveData<Activity>("/activity", "stats", (data) => {
     if (!data) return false;
     const cells = [
-      { n: data.reviews_total, week: data.reviews_this_week, label: "reviews" },
-      { n: data.ci_fixes_total, week: data.ci_fixes_this_week, label: "ci fixes" },
-      { n: data.triage_comments_total, week: null, label: "triage notes" },
+      { n: data.prs?.count ?? 0, week: data.prs?.count_this_week ?? 0, label: "PRs" },
+      { n: data.comments?.count ?? 0, week: data.comments?.count_this_week ?? 0, label: "comments" },
+      { n: data.issues?.count ?? 0, week: data.issues?.count_this_week ?? 0, label: "issues" },
     ];
     if (cells.every((c) => !c.n)) return false; // all zero — hide entirely
 
@@ -48,7 +50,7 @@
 
       div.append(num, label);
 
-      if (cell.week !== null && cell.week > 0) {
+      if (cell.week > 0) {
         const week = document.createElement("div");
         week.className = "stat-week";
         week.textContent = `+${format(cell.week)} this week`;

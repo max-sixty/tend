@@ -1,22 +1,21 @@
 // Cloudflare Worker that serves the tend website's live data streams.
 //
-// Three routes, all CORS-enabled JSON, each with its own edge-cache TTL
+// Two routes, both CORS-enabled JSON, each with its own edge-cache TTL
 // matched to the freshness budget:
 //
 //   /currently-tending   30 s   in-progress tend-* workflow runs
-//   /activity            5 min  recent things tend has done (PRs, reviews,
-//                               comments, pushes, issue closes, dep approvals)
-//   /stats               1 h    lifetime + this-week counters
+//   /activity            5 min  recent PRs / issues / comments + lifetime
+//                               counts, per primitive bucket
 //
-// All three read the consumer list (`consumers.json`) from the repo, KV-
-// cached for an hour, and fan out to GitHub. The edge cache coalesces
-// concurrent misses — origin load is bounded by TTL, not viewer count.
+// Both read the consumer list (`consumers.json`) from the repo, KV-cached
+// for an hour, and fan out to GitHub. The edge cache coalesces concurrent
+// misses — origin load is bounded by TTL, not viewer count.
 //
-// `/activity` is built from each bot's public event timeline
-// (`GET /users/<bot>/events/public`) — one cheap REST call per bot, already
-// discriminated by event type — plus one Search query per bot for merged
-// PRs (the one "tend did this" milestone the bot's own event stream can't
-// see, since the merge is usually performed by a human).
+// `/activity` is one Search query per bucket per bot (`sort=updated`): the
+// page yields both the recent items and the lifetime `total_count`; "this
+// week" is counted off the page, so it saturates around one page (~100) per
+// bot per bucket — fine for a headline number. The fanout is 3·N concurrent
+// Search requests, under the 30/min cap up to ~10 bots.
 //
 // See docs/website-data.md for architecture and the rate-limit reasoning
 // behind the TTLs.
@@ -55,77 +54,30 @@ interface CurrentlyTendingResponse {
   currently_tending: CurrentlyTendingEntry[];
 }
 
-type ActivityKind =
-  | "pr-opened" // tend opened a PR (CI fix, maintenance, workflow self-edit, …)
-  | "pr-merged" // a tend-authored PR shipped
-  | "pr-reviewed" // tend approved / requested changes on a PR
-  | "pr-commented" // tend left comments on a PR (review bodies, inline, conversation)
-  | "pr-commits" // tend pushed commits to a PR branch (review fixes, conflict resolution)
-  | "issue-commented" // tend commented on an issue (triage, mention answer)
-  | "issue-closed" // tend closed a resolved issue
-  | "dep-approved"; // tend cleared a dependency bump (dependabot/renovate PR)
+// /activity: one bucket per primitive Search query, named off the query.
+type ActivityBucketName = "prs" | "issues" | "comments";
 
-type ReviewVerdict = "approved" | "changes_requested";
-type PrCategory = "ci-fix" | "issue-fix" | "workflow" | "maintenance" | "other";
-
-interface ActivityDetail {
-  count?: number; // pr-commented / issue-commented / pr-commits — how many
-  verdict?: ReviewVerdict; // pr-reviewed
-  category?: PrCategory; // pr-opened — inferred from the head-branch name
-}
-
-interface ActivityEvent {
-  repo: string;
-  kind: ActivityKind;
+interface RecentItem {
+  repo: string; // "owner/name"
   title: string;
   url: string;
-  at: string; // ISO; for collapsed kinds, the most recent constituent event
-  detail?: ActivityDetail;
+  at: string; // issue/PR updated_at, ISO
 }
 
-interface ActivityResponse {
+interface ActivityBucket {
+  count: number; // lifetime — Search total_count, summed across bots
+  count_this_week: number; // last 7 days; saturates ~one page per bot per bucket
+  recent: RecentItem[]; // newest-first, merged across bots
+}
+
+type ActivityResponse = {
   generated_at: string;
-  events: ActivityEvent[];
-}
-
-// Slim view of a `GET /users/<bot>/events` item — every field optional
-// because the payload shape varies by `type` and the events API serves
-// trimmed-down webhook payloads.
-interface GitHubEvent {
-  type?: string;
-  created_at?: string;
-  repo?: { name?: string }; // "owner/name"
-  payload?: {
-    action?: string;
-    pull_request?: {
-      html_url?: string;
-      title?: string;
-      user?: { login?: string };
-      head?: { ref?: string };
-    };
-    issue?: { html_url?: string; title?: string; pull_request?: unknown };
-    review?: { state?: string };
-    ref?: string;
-    head?: string;
-    size?: number;
-    commits?: Array<{ sha?: string; message?: string }>;
-  };
-}
-
-interface StatsResponse {
-  generated_at: string;
-  reviews_total: number;
-  reviews_this_week: number;
-  ci_fixes_total: number;
-  ci_fixes_this_week: number;
-  triage_comments_total: number;
-}
+} & Record<ActivityBucketName, ActivityBucket>;
 
 interface SearchItem {
   html_url: string;
   title: string;
   updated_at: string;
-  closed_at?: string | null; // present (≈ merge time) for merged PRs
   repository_url: string;
 }
 
@@ -142,23 +94,27 @@ const WORKFLOW_PREFIX = "tend-";
 // repo, then we filter to tend-* client-side. 30 (GitHub's default) is
 // cheap and avoids tend runs being pushed off by busier non-tend traffic.
 const PER_PAGE_RUNS = 30;
-// /activity: cap the merged feed, pull one page (~100) of each bot's event
-// timeline, and the ~10 most-recent merged PRs per bot. Together that covers
-// roughly a week at current volume; the events API only serves the last 30
-// days regardless, so the feed is inherently bounded.
-const ACTIVITY_LIMIT = 40;
-const EVENTS_PER_PAGE = 100;
-const MERGED_PR_LIMIT = 10;
-const DEPENDENCY_BOTS = new Set(["dependabot[bot]", "renovate[bot]"]);
+// /activity: one Search page per bucket per bot. 100 is Search's max page
+// and one request; we keep the newest RECENT_PER_BUCKET for the feed and
+// count the rest of the page towards "this week".
+const SEARCH_PAGE = 100;
+const RECENT_PER_BUCKET = 10;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const GITHUB_API = "https://api.github.com";
 const USER_AGENT = "tend-website-worker";
+
+// `q` for each /activity bucket — "the bot …":
+const BUCKET_QUERIES: Record<ActivityBucketName, (bot: string) => string> = {
+  prs: (b) => `author:${b} is:pr`, // …opened these PRs
+  issues: (b) => `author:${b} is:issue`, // …opened these issues
+  comments: (b) => `commenter:${b} -author:${b}`, // …chimed in on these PRs/issues
+};
 
 // Per-route TTLs. The fallback TTL (used when refresh throws) is shorter
 // so a transient outage clears quickly.
 const TTL = {
   "currently-tending": { ok: 30, fallback: 5 },
   activity: { ok: 300, fallback: 30 },
-  stats: { ok: 3600, fallback: 60 },
 } as const;
 
 // owner/name — alphanumerics + `_-.`, no leading `.`/`-`, no `..` anywhere,
@@ -202,14 +158,7 @@ export default {
           cacheKeyPath: "/activity",
           ttl: TTL.activity,
           refresh: () => refreshActivity(env),
-          empty: () => ({ generated_at: nowIso(), events: [] }),
-        });
-      case "/stats":
-        return serveCached(url, env, ctx, {
-          cacheKeyPath: "/stats",
-          ttl: TTL.stats,
-          refresh: () => refreshStats(env),
-          empty: () => emptyStats(),
+          empty: emptyActivity,
         });
       default:
         return withCors(new Response("Not Found", { status: 404 }), env);
@@ -326,267 +275,51 @@ async function fetchRepoRuns(
 // /activity
 
 async function refreshActivity(env: Env): Promise<ActivityResponse> {
-  const consumers = await getConsumers(env);
-  const bots = botNames(consumers);
-  if (bots.length === 0) {
-    return { generated_at: nowIso(), events: [] };
-  }
-  const consumerRepos = new Set(consumers.map((c) => c.repo));
+  const out = emptyActivity();
+  const bots = botNames(await getConsumers(env));
+  if (bots.length === 0) return out;
+  const weekAgoMs = Date.now() - WEEK_MS;
 
-  // Per bot: one page of its public event timeline (cheap REST), plus one
-  // Search for its recently-merged PRs (the merge event's actor is usually a
-  // human, so it isn't in the bot's own stream).
-  const perBot = await Promise.all(
-    bots.map(async (bot) => {
-      const [events, merged] = await Promise.all([
-        fetchBotEvents(bot, env.GITHUB_TOKEN),
-        searchIssues(
-          `author:${bot} is:pr is:merged`,
-          env.GITHUB_TOKEN,
-          MERGED_PR_LIMIT,
-        ),
-      ]);
-      return { events, merged };
+  await Promise.all(
+    (Object.keys(BUCKET_QUERIES) as ActivityBucketName[]).map(async (name) => {
+      const pages = await Promise.all(
+        bots.map((b) => searchIssues(BUCKET_QUERIES[name](b), env.GITHUB_TOKEN)),
+      );
+      const items: SearchItem[] = [];
+      let count = 0;
+      let countThisWeek = 0;
+      for (const page of pages) {
+        count += page.total_count ?? 0;
+        for (const it of page.items ?? []) {
+          items.push(it);
+          if (Date.parse(it.updated_at) >= weekAgoMs) countThisWeek++;
+        }
+      }
+      items.sort((a, b) =>
+        a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0,
+      );
+      out[name] = {
+        count,
+        count_this_week: countThisWeek,
+        recent: items.slice(0, RECENT_PER_BUCKET).map((it) => ({
+          repo: repoFromApiUrl(it.repository_url),
+          title: it.title,
+          url: it.html_url,
+          at: it.updated_at,
+        })),
+      };
     }),
   );
-
-  const fromEvents = eventsToActivity(
-    perBot.flatMap((b) => b.events),
-    consumerRepos,
-  );
-  const fromMerges: ActivityEvent[] = perBot
-    .flatMap((b) => b.merged)
-    .map((item) => ({
-      repo: repoFromApiUrl(item.repository_url),
-      kind: "pr-merged" as const,
-      title: item.title,
-      url: item.html_url,
-      at: item.closed_at ?? item.updated_at, // closed_at ≈ merge time
-    }))
-    .filter((e) => consumerRepos.has(e.repo));
-
-  // Dedup by kind+url (a PR legitimately recurs across kinds — opened, then
-  // commented, then merged — those stay; only same-kind dups collapse).
-  const byKey = new Map<string, ActivityEvent>();
-  for (const e of [...fromEvents, ...fromMerges]) {
-    const key = `${e.kind}|${e.url}`;
-    const prev = byKey.get(key);
-    if (!prev || e.at > prev.at) byKey.set(key, e);
-  }
-  const events = [...byKey.values()]
-    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
-    .slice(0, ACTIVITY_LIMIT);
-  return { generated_at: nowIso(), events };
-}
-
-async function fetchBotEvents(
-  bot: string,
-  token: string,
-): Promise<GitHubEvent[]> {
-  if (!isValidBotName(bot)) {
-    console.error(`skipping malformed bot: ${bot}`);
-    return [];
-  }
-  const url = `${GITHUB_API}/users/${bot}/events/public?per_page=${EVENTS_PER_PAGE}`;
-  const resp = await fetchWithTimeout(url, { headers: githubHeaders(token) });
-  if (!resp.ok) {
-    if (resp.status === 401 || resp.status === 403) {
-      throw new Error(`events auth failure for ${bot}: ${resp.status}`);
-    }
-    console.error(`events fetch skipped for ${bot}: ${resp.status}`);
-    return [];
-  }
-  const data = await resp.json();
-  return Array.isArray(data) ? (data as GitHubEvent[]) : [];
-}
-
-// Map a flat list of GitHub events (any bots, any repos) to activity rows,
-// keeping only events in consumer repos. Comments and pushes to the same
-// PR/branch collapse into one row with a count.
-function eventsToActivity(
-  events: GitHubEvent[],
-  consumerRepos: Set<string>,
-): ActivityEvent[] {
-  const out: ActivityEvent[] = [];
-  // Collapse keys: PR url for comments, repo@branch for pushes.
-  const prComments = new Map<string, ActivityEvent>();
-  const issueComments = new Map<string, ActivityEvent>();
-  const branchPushes = new Map<string, ActivityEvent>();
-
-  const bump = (
-    bucket: Map<string, ActivityEvent>,
-    key: string,
-    seed: ActivityEvent,
-    add = 1,
-  ) => {
-    const existing = bucket.get(key);
-    if (!existing) {
-      seed.detail = { ...seed.detail, count: add };
-      bucket.set(key, seed);
-      return;
-    }
-    existing.detail = { ...existing.detail, count: (existing.detail?.count ?? 0) + add };
-    if (seed.at > existing.at) {
-      existing.at = seed.at;
-      existing.url = seed.url;
-      existing.title = seed.title;
-    }
-  };
-
-  for (const e of events) {
-    const repo = e.repo?.name;
-    const at = e.created_at;
-    const p = e.payload;
-    if (!repo || !at || !p || !consumerRepos.has(repo)) continue;
-
-    switch (e.type) {
-      case "PullRequestEvent": {
-        const pr = p.pull_request;
-        if (p.action !== "opened" || !pr?.html_url) break;
-        out.push({
-          repo,
-          kind: "pr-opened",
-          title: pr.title ?? "",
-          url: pr.html_url,
-          at,
-          detail: { category: prCategory(pr.head?.ref) },
-        });
-        break;
-      }
-      case "PullRequestReviewEvent": {
-        const pr = p.pull_request;
-        if (p.action !== "created" || !pr?.html_url) break;
-        const state = p.review?.state;
-        if (
-          state === "approved" &&
-          pr.user?.login &&
-          DEPENDENCY_BOTS.has(pr.user.login)
-        ) {
-          out.push({
-            repo,
-            kind: "dep-approved",
-            title: pr.title ?? "",
-            url: pr.html_url,
-            at,
-          });
-          break;
-        }
-        if (state === "approved" || state === "changes_requested") {
-          out.push({
-            repo,
-            kind: "pr-reviewed",
-            title: pr.title ?? "",
-            url: pr.html_url,
-            at,
-            detail: { verdict: state },
-          });
-        } else {
-          bump(prComments, pr.html_url, {
-            repo,
-            kind: "pr-commented",
-            title: pr.title ?? "",
-            url: pr.html_url,
-            at,
-          });
-        }
-        break;
-      }
-      case "PullRequestReviewCommentEvent": {
-        const pr = p.pull_request;
-        if (p.action !== "created" || !pr?.html_url) break;
-        bump(prComments, pr.html_url, {
-          repo,
-          kind: "pr-commented",
-          title: pr.title ?? "",
-          url: pr.html_url,
-          at,
-        });
-        break;
-      }
-      case "IssueCommentEvent": {
-        const issue = p.issue;
-        if (p.action !== "created" || !issue?.html_url) break;
-        if (issue.pull_request) {
-          bump(prComments, issue.html_url, {
-            repo,
-            kind: "pr-commented",
-            title: issue.title ?? "",
-            url: issue.html_url,
-            at,
-          });
-        } else {
-          bump(issueComments, issue.html_url, {
-            repo,
-            kind: "issue-commented",
-            title: issue.title ?? "",
-            url: issue.html_url,
-            at,
-          });
-        }
-        break;
-      }
-      case "IssuesEvent": {
-        const issue = p.issue;
-        if (p.action !== "closed" || !issue?.html_url) break;
-        out.push({
-          repo,
-          kind: "issue-closed",
-          title: issue.title ?? "",
-          url: issue.html_url,
-          at,
-        });
-        break;
-      }
-      case "PushEvent": {
-        const branch = branchFromRef(p.ref);
-        const size = p.size ?? 1;
-        if (!branch || size < 1) break; // default branch, tag, or no-op push
-        const head = p.head;
-        const url = head
-          ? `https://github.com/${repo}/commit/${head}`
-          : `https://github.com/${repo}/commits/${branch}`;
-        const headCommit =
-          (p.commits ?? []).find((c) => c.sha === head) ??
-          (p.commits ?? []).at(-1);
-        const title = firstLine(headCommit?.message) || `pushed to ${branch}`;
-        bump(
-          branchPushes,
-          `${repo}|${branch}`,
-          { repo, kind: "pr-commits", title, url, at },
-          size,
-        );
-        break;
-      }
-    }
-  }
-
-  for (const m of [prComments, issueComments, branchPushes]) {
-    out.push(...m.values());
-  }
   return out;
 }
 
-// Best-effort: tend's branch conventions are fix/ci-<run> (ci-fix),
-// fix/issue-<n> and repro/issue-<n> (issue-fix), tend/update-workflows
-// (workflow self-edit), and tend/<task> (other maintenance).
-function prCategory(ref?: string): PrCategory {
-  if (!ref) return "other";
-  if (ref.startsWith("fix/ci")) return "ci-fix";
-  if (ref.startsWith("fix/") || ref.startsWith("repro/")) return "issue-fix";
-  if (ref.includes("update-workflows") || ref.includes("workflow")) return "workflow";
-  if (ref.startsWith("tend/")) return "maintenance";
-  return "other";
-}
-
-function branchFromRef(ref?: string): string | null {
-  if (!ref?.startsWith("refs/heads/")) return null;
-  const branch = ref.slice("refs/heads/".length);
-  if (!branch || branch === "main" || branch === "master") return null;
-  return branch;
-}
-
-function firstLine(s?: string): string {
-  return (s?.split("\n", 1)[0] ?? "").trim();
+function emptyActivity(): ActivityResponse {
+  return {
+    generated_at: nowIso(),
+    prs: { count: 0, count_this_week: 0, recent: [] },
+    issues: { count: 0, count_this_week: 0, recent: [] },
+    comments: { count: 0, count_this_week: 0, recent: [] },
+  };
 }
 
 function repoFromApiUrl(repositoryUrl: string): string {
@@ -596,86 +329,18 @@ function repoFromApiUrl(repositoryUrl: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// /stats
-
-async function refreshStats(env: Env): Promise<StatsResponse> {
-  const bots = botNames(await getConsumers(env));
-  if (bots.length === 0) {
-    return emptyStats();
-  }
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
-
-  // Each stat is summed across bots via Search's `total_count` (no
-  // pagination needed). Five stats × N bots queries per refresh — cheap
-  // because the TTL is an hour.
-  const counters: Record<keyof Omit<StatsResponse, "generated_at">, (b: string) => string> = {
-    reviews_total: (b) => `commenter:${b} is:pr -author:${b}`,
-    reviews_this_week: (b) => `commenter:${b} is:pr -author:${b} updated:>=${weekAgo}`,
-    ci_fixes_total: (b) => `author:${b} is:pr`,
-    ci_fixes_this_week: (b) => `author:${b} is:pr updated:>=${weekAgo}`,
-    triage_comments_total: (b) => `commenter:${b} is:issue`,
-  };
-
-  const keys = Object.keys(counters) as Array<keyof typeof counters>;
-  const totals = await Promise.all(
-    keys.map(async (key) => {
-      const perBot = await Promise.all(
-        bots.map((b) => searchCount(counters[key](b), env.GITHUB_TOKEN)),
-      );
-      return [key, perBot.reduce((a, b) => a + b, 0)] as const;
-    }),
-  );
-
-  const out: StatsResponse = { generated_at: nowIso(), ...emptyCounts() };
-  for (const [k, v] of totals) {
-    out[k] = v;
-  }
-  return out;
-}
-
-function emptyStats(): StatsResponse {
-  return { generated_at: nowIso(), ...emptyCounts() };
-}
-
-function emptyCounts() {
-  return {
-    reviews_total: 0,
-    reviews_this_week: 0,
-    ci_fixes_total: 0,
-    ci_fixes_this_week: 0,
-    triage_comments_total: 0,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Search API
 
-async function searchIssues(
-  query: string,
-  token: string,
-  perPage: number,
-): Promise<SearchItem[]> {
-  const data = await searchRaw(query, token, perPage);
-  return data.items ?? [];
-}
-
-async function searchCount(query: string, token: string): Promise<number> {
-  const data = await searchRaw(query, token, 1);
-  return data.total_count ?? 0;
-}
-
-async function searchRaw(
-  query: string,
-  token: string,
-  perPage: number,
-): Promise<SearchResponse> {
-  const params = new URLSearchParams({ q: query, per_page: String(perPage) });
-  if (perPage > 1) {
-    params.set("sort", "updated");
-    params.set("order", "desc");
-  }
+// One Search page, newest-first — the page yields both `items` (recent) and
+// `total_count` (lifetime). 401/403 throws (sinks the refresh → short fallback
+// TTL); 422/429/other degrade to `{}` so one bad bucket doesn't sink the rest.
+async function searchIssues(query: string, token: string): Promise<SearchResponse> {
+  const params = new URLSearchParams({
+    q: query,
+    per_page: String(SEARCH_PAGE),
+    sort: "updated",
+    order: "desc",
+  });
   const resp = await fetchWithTimeout(`${GITHUB_API}/search/issues?${params}`, {
     headers: githubHeaders(token),
   });
@@ -683,9 +348,6 @@ async function searchRaw(
     if (resp.status === 401 || resp.status === 403) {
       throw new Error(`search auth failure: ${resp.status}`);
     }
-    // Other failures (incl. 422 — malformed query, 429 — rate-limited)
-    // degrade to an empty result for this query so a single bad bot name
-    // doesn't sink the whole refresh.
     console.error(`search failed (${resp.status}): ${query}`);
     return {};
   }
@@ -791,11 +453,7 @@ function corsPreflight(env: Env): Response {
 export const __test = {
   refreshCurrentlyTending,
   refreshActivity,
-  refreshStats,
   fetchRepoRuns,
-  fetchBotEvents,
-  eventsToActivity,
-  prCategory,
   getConsumers,
   isConsumerArray,
   isValidRepo,
