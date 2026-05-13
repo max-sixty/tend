@@ -805,6 +805,24 @@ def generate_review_runs(cfg: Config) -> GeneratedWorkflow:
 # Extras (workflow_extra / jobs pass-through)
 # ---------------------------------------------------------------------------
 
+# TOML has no `null` literal, so the RFC 7396 delete branch in `_deep_merge`
+# (None pops the key) is unreachable from `.config/tend.toml`. This sentinel
+# string stands in for null: a pre-pass converts it to None before merging.
+DELETE_SENTINEL = "__TEND_DELETE__"
+
+
+def _resolve_sentinels(value: object) -> object:
+    """Recursively replace DELETE_SENTINEL strings with None in mappings.
+
+    JSON Merge Patch doesn't support array element deletion, so lists are
+    passed through unchanged.
+    """
+    if value == DELETE_SENTINEL:
+        return None
+    if isinstance(value, dict):
+        return {k: _resolve_sentinels(v) for k, v in value.items()}
+    return value
+
 
 def _deep_merge(base: dict, override: dict) -> dict:
     """RFC 7396 JSON Merge Patch: mappings deep-merge, scalars/lists replace."""
@@ -831,13 +849,15 @@ def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWor
         data["on"] = data.pop(True)
 
     if wf_cfg.workflow_extra:
-        data = _deep_merge(data, wf_cfg.workflow_extra)
+        data = _deep_merge(data, _resolve_sentinels(wf_cfg.workflow_extra))
 
     if wf_cfg.jobs:
         jobs = data.get("jobs", {})
         for job_name, job_extra in wf_cfg.jobs.items():
             if job_name in jobs:
-                jobs[job_name] = _deep_merge(jobs[job_name], job_extra)
+                jobs[job_name] = _deep_merge(
+                    jobs[job_name], _resolve_sentinels(job_extra)
+                )
             else:
                 click.echo(
                     f"Warning: job '{job_name}' not found in {wf.filename} "
