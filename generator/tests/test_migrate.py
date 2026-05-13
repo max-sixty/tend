@@ -132,36 +132,10 @@ def test_migrate_refuses_to_overwrite_existing_yaml(tmp_path: Path) -> None:
     assert yaml_path.read_text() == "bot_name: existing\n"
 
 
-def test_cli_migrate_command_end_to_end(
+def test_init_auto_migrates_legacy_toml(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`tend migrate` from the CLI converts in the current working directory."""
-    _write_toml(tmp_path, 'bot_name = "test-bot"\n')
-    monkeypatch.chdir(tmp_path)
-
-    result = CliRunner().invoke(main, ["migrate"])
-    assert result.exit_code == 0, result.output
-    assert "Migrated" in result.output
-    assert not (tmp_path / ".config" / "tend.toml").exists()
-    assert (tmp_path / ".config" / "tend.yaml").exists()
-
-
-def test_init_errors_clearly_when_only_toml_present(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """`tend init` against a stale .toml-only repo points users at migrate."""
-    _write_toml(tmp_path, 'bot_name = "test-bot"\n')
-    monkeypatch.chdir(tmp_path)
-
-    result = CliRunner().invoke(main, ["init"])
-    assert result.exit_code != 0
-    assert "tend@latest migrate" in result.output
-
-
-def test_migrate_then_init_produces_workflows(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Full upgrade flow: migrate, then init, gets the workflows on disk."""
+    """`tend init` against a stale .toml-only repo migrates then generates."""
     _write_toml(
         tmp_path,
         dedent("""\
@@ -171,17 +145,53 @@ def test_migrate_then_init_produces_workflows(
     """),
     )
     monkeypatch.chdir(tmp_path)
-    runner = CliRunner()
 
-    migrate_result = runner.invoke(main, ["migrate"])
-    assert migrate_result.exit_code == 0
-
-    init_result = runner.invoke(main, ["init"])
-    assert init_result.exit_code == 0
+    result = CliRunner().invoke(main, ["init"])
+    assert result.exit_code == 0, result.output
+    assert "Migrated" in result.output
+    assert not (tmp_path / ".config" / "tend.toml").exists()
+    assert (tmp_path / ".config" / "tend.yaml").exists()
 
     wf_dir = tmp_path / ".github" / "workflows"
     assert (wf_dir / "tend-ci-fix.yaml").exists()
     assert (wf_dir / "tend-review.yaml").exists()
+
+
+def test_init_does_not_touch_yaml_when_both_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If both .toml and .yaml are present, `init` ignores the TOML — the
+    YAML is canonical. Surfaces would-be data drift via the migration
+    rather than silently picking one."""
+    _write_toml(tmp_path, 'bot_name = "stale-bot"\n')
+    yaml_path = tmp_path / ".config" / "tend.yaml"
+    yaml_path.write_text("bot_name: real-bot\n")
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(main, ["init"])
+    assert result.exit_code == 0, result.output
+    assert "Migrated" not in result.output
+    # TOML left in place (operator can review and delete manually)
+    assert (tmp_path / ".config" / "tend.toml").exists()
+    assert yaml_path.read_text() == "bot_name: real-bot\n"
+    # YAML's bot_name is the one that flowed into the workflows
+    assert (
+        "real-bot"
+        in (tmp_path / ".github" / "workflows" / "tend-review.yaml").read_text()
+    )
+
+
+def test_check_errors_clearly_when_only_toml_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`tend check` is read-only — it doesn't auto-migrate. The error
+    points the user at `tend init`, which does."""
+    _write_toml(tmp_path, 'bot_name = "test-bot"\n')
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(main, ["check"])
+    assert result.exit_code != 0
+    assert "tend@latest init" in result.output
 
 
 def test_workflows_from_migrated_config_match_workflows_built_from_toml_dict(
