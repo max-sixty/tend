@@ -160,59 +160,50 @@ describe("refreshCurrentlyTending", () => {
 });
 
 describe("refreshActivity", () => {
-  it("merges across kinds + bots, dedupes by URL (first kind wins), caps and sorts", async () => {
+  // Build a Search URL the way searchRaw does: q + per_page, then sort/order
+  // appended (perPage > 1).
+  const searchUrl = (q: string) =>
+    `https://api.github.com/search/issues?${new URLSearchParams({
+      q,
+      per_page: "100",
+    })}&sort=updated&order=desc`;
+
+  it("fans out one Search query per bucket per bot — sums counts, merges + sorts recent, counts this week", async () => {
     const { __test } = await import("../src/index");
-    // ci-fix for bot-a returns a PR; review for bot-b returns the SAME PR
-    // (bot-b commented on bot-a's CI-fix). Dedup must keep the ci-fix entry.
-    const dup = {
-      html_url: "https://github.com/o/r/pull/100",
-      title: "fix: x",
-      updated_at: "2026-05-09T12:00:00Z",
-      repository_url: "https://api.github.com/repos/o/r",
-    };
+    const nowMs = Date.now();
+    const daysAgo = (n: number) => new Date(nowMs - n * 86_400_000).toISOString();
+    const recentA = daysAgo(1); // within the last 7 days
+    const recentB = daysAgo(2);
+    const oldA = daysAgo(30); // not
+    const oldB = daysAgo(60);
+
+    const item = (
+      repo: string,
+      n: number,
+      kind: "pull" | "issues",
+      at: string,
+    ) => ({
+      html_url: `https://github.com/${repo}/${kind}/${n}`,
+      title: `${repo}#${n}`,
+      updated_at: at,
+      repository_url: `https://api.github.com/repos/${repo}`,
+    });
+
     const responses = new Map<string, unknown>([
       [
         "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
         [
-          { repo: "o/r", bot_name: "bot-a" },
-          { repo: "o/r", bot_name: "bot-b" },
+          { repo: "o/a", bot_name: "bot-a" },
+          { repo: "o/b", bot_name: "bot-b" },
         ],
       ],
-      // bots are sorted alphabetically internally → bot-a, bot-b
-      // kinds iterate in declared order: ci-fix → review → triage
-      [
-        "https://api.github.com/search/issues?q=author%3Abot-a+is%3Apr&per_page=10&sort=updated&order=desc",
-        { items: [dup] },
-      ],
-      [
-        "https://api.github.com/search/issues?q=author%3Abot-b+is%3Apr&per_page=10&sort=updated&order=desc",
-        { items: [] },
-      ],
-      [
-        "https://api.github.com/search/issues?q=commenter%3Abot-a+is%3Apr+-author%3Abot-a&per_page=10&sort=updated&order=desc",
-        { items: [] },
-      ],
-      [
-        "https://api.github.com/search/issues?q=commenter%3Abot-b+is%3Apr+-author%3Abot-b&per_page=10&sort=updated&order=desc",
-        { items: [dup] },
-      ],
-      [
-        "https://api.github.com/search/issues?q=commenter%3Abot-a+is%3Aissue&per_page=10&sort=updated&order=desc",
-        {
-          items: [
-            {
-              html_url: "https://github.com/o/r/issues/5",
-              title: "bug report",
-              updated_at: "2026-05-10T01:00:00Z",
-              repository_url: "https://api.github.com/repos/o/r",
-            },
-          ],
-        },
-      ],
-      [
-        "https://api.github.com/search/issues?q=commenter%3Abot-b+is%3Aissue&per_page=10&sort=updated&order=desc",
-        { items: [] },
-      ],
+      // bots sorted → bot-a, bot-b. Buckets in declared order: prs, issues, comments.
+      [searchUrl("author:bot-a is:pr"), { total_count: 7, items: [item("o/a", 1, "pull", recentA), item("o/a", 2, "pull", oldA)] }],
+      [searchUrl("author:bot-b is:pr"), { total_count: 3, items: [item("o/b", 9, "pull", oldB)] }],
+      [searchUrl("author:bot-a is:issue"), { total_count: 2, items: [item("o/a", 5, "issues", recentB)] }],
+      [searchUrl("author:bot-b is:issue"), { total_count: 0, items: [] }],
+      [searchUrl("commenter:bot-a -author:bot-a"), { total_count: 12, items: [item("o/a", 3, "pull", recentA)] }],
+      [searchUrl("commenter:bot-b -author:bot-b"), { total_count: 4, items: [item("o/b", 8, "issues", recentB)] }],
     ]);
     globalThis.fetch = makeFetch(responses) as unknown as typeof fetch;
 
@@ -224,26 +215,66 @@ describe("refreshActivity", () => {
         "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
     };
     const out = await __test.refreshActivity(env);
-    expect(out.events).toEqual([
-      {
-        repo: "o/r",
-        kind: "triage",
-        title: "bug report",
-        url: "https://github.com/o/r/issues/5",
-        at: "2026-05-10T01:00:00Z",
-      },
-      {
-        repo: "o/r",
-        kind: "ci-fix",
-        title: "fix: x",
-        url: "https://github.com/o/r/pull/100",
-        at: "2026-05-09T12:00:00Z",
-      },
-    ]);
+
+    expect(out.prs).toEqual({
+      count: 10, // 7 + 3
+      count_this_week: 1, // o/a#1 recent; o/a#2 and o/b#9 old
+      recent: [
+        { repo: "o/a", title: "o/a#1", url: "https://github.com/o/a/pull/1", at: recentA },
+        { repo: "o/a", title: "o/a#2", url: "https://github.com/o/a/pull/2", at: oldA },
+        { repo: "o/b", title: "o/b#9", url: "https://github.com/o/b/pull/9", at: oldB },
+      ],
+    });
+    expect(out.issues).toEqual({
+      count: 2,
+      count_this_week: 1,
+      recent: [
+        { repo: "o/a", title: "o/a#5", url: "https://github.com/o/a/issues/5", at: recentB },
+      ],
+    });
+    expect(out.comments).toEqual({
+      count: 16, // 12 + 4
+      count_this_week: 2,
+      recent: [
+        { repo: "o/a", title: "o/a#3", url: "https://github.com/o/a/pull/3", at: recentA },
+        { repo: "o/b", title: "o/b#8", url: "https://github.com/o/b/issues/8", at: recentB },
+      ],
+    });
     expect(out.generated_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   });
 
-  it("returns empty when no consumers", async () => {
+  it("degrades a failed bucket query to an empty bucket without sinking the refresh", async () => {
+    const { __test } = await import("../src/index");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/data/consumers.json")) {
+        return new Response(
+          JSON.stringify([{ repo: "o/r", bot_name: "bot-a" }]),
+          { status: 200 },
+        );
+      }
+      if (url.includes("commenter")) {
+        return new Response("Validation Failed", { status: 422 });
+      }
+      return new Response(JSON.stringify({ total_count: 1, items: [] }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+
+    const env = {
+      GITHUB_TOKEN: "tok",
+      CACHE: makeFakeKv(),
+      ALLOWED_ORIGIN: "*",
+      REPOS_URL:
+        "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
+    };
+    const out = await __test.refreshActivity(env);
+    expect(out.comments).toEqual({ count: 0, count_this_week: 0, recent: [] });
+    expect(out.prs.count).toBe(1);
+    expect(out.issues.count).toBe(1);
+  });
+
+  it("returns empty buckets when there are no consumers", async () => {
     const { __test } = await import("../src/index");
     globalThis.fetch = makeFetch(
       new Map([[
@@ -260,46 +291,22 @@ describe("refreshActivity", () => {
         "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
     };
     const out = await __test.refreshActivity(env);
-    expect(out.events).toEqual([]);
+    expect(out.prs).toEqual({ count: 0, count_this_week: 0, recent: [] });
+    expect(out.issues).toEqual({ count: 0, count_this_week: 0, recent: [] });
+    expect(out.comments).toEqual({ count: 0, count_this_week: 0, recent: [] });
   });
-});
 
-describe("refreshStats", () => {
-  it("sums total_count across bots for each counter", async () => {
+  it("throws on a 401 from Search — surfaces so the refresh falls back", async () => {
     const { __test } = await import("../src/index");
-    // Match by URL prefix — week-windowed queries embed today's date.
-    const fixedTotals: Record<string, number> = {
-      "author%3Abot-a+is%3Apr": 10,
-      "author%3Abot-b+is%3Apr": 4,
-      "commenter%3Abot-a+is%3Apr+-author%3Abot-a": 7,
-      "commenter%3Abot-b+is%3Apr+-author%3Abot-b": 3,
-      "commenter%3Abot-a+is%3Aissue": 2,
-      "commenter%3Abot-b+is%3Aissue": 1,
-    };
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.endsWith("/data/consumers.json")) {
         return new Response(
-          JSON.stringify([
-            { repo: "o/r", bot_name: "bot-a" },
-            { repo: "o/r", bot_name: "bot-b" },
-          ]),
+          JSON.stringify([{ repo: "o/r", bot_name: "bot-a" }]),
           { status: 200 },
         );
       }
-      // Pull total_count by matching the substring of the query body.
-      for (const [needle, total] of Object.entries(fixedTotals)) {
-        if (url.includes(needle)) {
-          // "this_week" queries also contain the needle but additionally
-          // include `updated:>=`. Treat them as 0 to make the assertion
-          // distinguishable.
-          if (url.includes("updated%3A%3E%3D")) {
-            return new Response(JSON.stringify({ total_count: 0 }), { status: 200 });
-          }
-          return new Response(JSON.stringify({ total_count: total }), { status: 200 });
-        }
-      }
-      throw new Error(`unexpected fetch ${url}`);
+      return new Response("bad credentials", { status: 401 });
     }) as unknown as typeof fetch;
 
     const env = {
@@ -309,13 +316,43 @@ describe("refreshStats", () => {
       REPOS_URL:
         "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
     };
-    const out = await __test.refreshStats(env);
-    expect(out.ci_fixes_total).toBe(14); // 10 + 4
-    expect(out.ci_fixes_this_week).toBe(0);
-    expect(out.reviews_total).toBe(10); // 7 + 3
-    expect(out.reviews_this_week).toBe(0);
-    expect(out.triage_comments_total).toBe(3); // 2 + 1
-    expect(out.generated_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    await expect(__test.refreshActivity(env)).rejects.toThrow(/auth failure/);
+  });
+
+  it("keeps only the newest RECENT_PER_BUCKET items per bucket", async () => {
+    const { __test } = await import("../src/index");
+    const items = Array.from({ length: 15 }, (_, i) => ({
+      html_url: `https://github.com/o/r/pull/${i}`,
+      title: `#${i}`,
+      // i=0 is newest (largest timestamp), i=14 is oldest
+      updated_at: new Date(2026, 0, 1, 0, 15 - i).toISOString(),
+      repository_url: "https://api.github.com/repos/o/r",
+    }));
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/data/consumers.json")) {
+        return new Response(
+          JSON.stringify([{ repo: "o/r", bot_name: "bot-a" }]),
+          { status: 200 },
+        );
+      }
+      const body = url.includes("is%3Apr") ? { total_count: 15, items } : { total_count: 0, items: [] };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const env = {
+      GITHUB_TOKEN: "tok",
+      CACHE: makeFakeKv(),
+      ALLOWED_ORIGIN: "*",
+      REPOS_URL:
+        "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
+    };
+    const out = await __test.refreshActivity(env);
+    expect(out.prs.count).toBe(15);
+    expect(out.prs.recent).toHaveLength(10);
+    expect(out.prs.recent.map((r) => r.title)).toEqual(
+      ["#0", "#1", "#2", "#3", "#4", "#5", "#6", "#7", "#8", "#9"], // newest first
+    );
   });
 });
 

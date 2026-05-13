@@ -1,29 +1,27 @@
 # Website data
 
-All three data streams the tend site renders are served by one Cloudflare
-Worker. The Worker reads a small input file (`data/consumers.json`) from
-this repo, fans out to GitHub, and serves CORS-enabled JSON to the site.
+Both data streams the tend site renders are served by one Cloudflare Worker.
+The Worker reads a small input file (`data/consumers.json`) from this repo, fans
+out to GitHub, and serves CORS-enabled JSON to the site.
 
 | Stream | Endpoint | Edge TTL | Fallback TTL |
 | --- | --- | --- | --- |
 | Currently tending | `/currently-tending` (also `/`) | 30 s | 5 s |
 | Activity | `/activity` | 5 min | 30 s |
-| Stats | `/stats` | 1 h | 60 s |
 
 Base URL: `https://api.tend-src.com`.
 
 ## Why a Worker, not browser-direct
 
-Unauthenticated GitHub REST is 60 req/hour/IP. A single currently-tending
-poll fans out one `actions/runs` call per consumer repo every 30 s, so one
-browser tab would exhaust the IP quota in under a minute — and the Search
-API used by `/activity` and `/stats` is capped at 10 req/min/IP
-unauthenticated, shared across everyone behind a NAT. The Worker holds an
-authenticated token (5,000 req/hour, 30 Search req/min) and edge-caches each
-route, so origin load is bounded by the TTL, not by viewer count. Static
-nightly JSON would cover `/stats` and `/activity` but can't meet
-currently-tending's sub-minute freshness budget, so all three live on the
-one Worker for consistency.
+Unauthenticated GitHub REST is 60 req/hour/IP and the Search API is 10
+req/min/IP — both shared across everyone behind a NAT. A single
+currently-tending poll fans out one `actions/runs` call per consumer repo every
+30 s; `/activity` fans out one Search query per bucket per bot. One browser tab
+would exhaust those quotas in minutes. The Worker holds an authenticated token
+(5,000 req/hour, 30 Search req/min) and edge-caches each route, so origin load
+is bounded by the TTL, not by viewer count. Static nightly JSON would cover
+`/activity` but can't meet currently-tending's sub-minute freshness budget, so
+both live on the one Worker.
 
 ## Input: `data/consumers.json`
 
@@ -44,10 +42,13 @@ the hour.
 
 ## Multi-bot semantics
 
-Counts are **summed** across bots: `reviews_total` is the union of reviews
-authored by *any* tend bot. Activity events are merged and deduped by URL,
-with the first kind seen winning when the same PR appears in multiple
-queries (declared order: ci-fix → review → triage).
+Everything is **merged across bots**: each `/activity` bucket sums `count` and
+`count_this_week` over all tend bots, and its `recent` list is the union of all
+bots' recent items, sorted newest-first; `currently_tending` is the union of all
+bots' in-progress runs. Activity is *not* scoped to consumer repos — `count`
+comes from Search's `total_count`, which can't be filtered post-hoc — but a tend
+bot only acts in its own repo, so this is a distinction without a difference in
+practice.
 
 ## Caching
 
@@ -82,51 +83,45 @@ Source: `GET /repos/{owner}/{repo}/actions/runs?status=in_progress` per
 consumer, filtered to workflows whose `name` starts with `tend-`.
 
 **UI fallback:** when `currently_tending` is empty or the Worker request
-fails, the UI falls back to showing the most recent event from `/activity`
-as "last tended N min ago" — the indicator never breaks the page. This
+fails, the UI falls back to showing "last tended N min ago" from the most
+recent item in `/activity` — the indicator never breaks the page. This
 fallback lives in the rendering layer (`site/src/components/CurrentlyTending.astro`),
 not the data layer.
 
 ### `/activity`
 
-```jsonc
-{
-  "generated_at": "2026-05-10T17:30:00Z",
-  "events": [                                       // sorted newest first; capped at 10
-    {
-      "repo": "max-sixty/tend",
-      "kind": "review",                             // "review" | "triage" | "ci-fix"
-      "title": "feat: add foo support",
-      "url": "https://github.com/max-sixty/tend/pull/123",
-      "at": "2026-05-09T14:22:00Z"                  // issue/PR updated_at
-    }
-  ]
-}
-```
-
-Source — 3 queries × N bots, deduped by URL:
-
-| `kind`   | Source query                                          |
-| -------- | ----------------------------------------------------- |
-| `ci-fix` | `author:<bot> is:pr`                                  |
-| `review` | `commenter:<bot> is:pr -author:<bot>`                 |
-| `triage` | `commenter:<bot> is:issue`                            |
-
-### `/stats`
+Recent things tend has done, in primitive buckets — one Search query per bucket
+per bot (`sort=updated`): the page yields both the `recent` items and the
+lifetime `count` (`total_count`); `count_this_week` is counted off the page, so
+it saturates around one page (~100) per bot per bucket — fine for a headline
+number. The fanout is 3·N concurrent Search requests, which stays under the
+30 req/min cap up to ~10 bots; past that, the per-bot calls would need
+staggering or a scheduled refresh (see the Phase-2 note).
 
 ```jsonc
 {
   "generated_at": "2026-05-10T17:30:00Z",
-  "reviews_total": 1199,
-  "reviews_this_week": 111,
-  "ci_fixes_total": 944,
-  "ci_fixes_this_week": 55,
-  "triage_comments_total": 331
+  "prs":      { "count": 980,  "count_this_week": 12, "recent": [ /* RecentItem */ ] },
+  "issues":   { "count": 41,   "count_this_week": 1,  "recent": [ ... ] },
+  "comments": { "count": 1530, "count_this_week": 36, "recent": [ ... ] }
 }
 ```
 
-All counts come from the Search API's `total_count`. "This week" means the
-last 7 days by issue/PR `updated`.
+`RecentItem` = `{ repo, title, url, at }` (`at` is the issue/PR `updated_at`),
+newest-first, ≤10 per bucket.
+
+| bucket | Search query | "the bot …" |
+| --- | --- | --- |
+| `prs` | `author:<bot> is:pr` | opened these PRs (any state) |
+| `issues` | `author:<bot> is:issue` | opened these issues — mostly tend's own trackers (missing PAT scopes, "nightly tests failed", `tend-outage`), so this bucket leans "tend flagged a problem" |
+| `comments` | `commenter:<bot> -author:<bot>` | chimed in on these PRs/issues (not its own) |
+
+> **TODO — Phase 2:** a consumer (a scheduled job, or the Worker calling Claude)
+> reads `/activity` and writes a short prose summary of what tend's been up to;
+> the summary lives in KV and is what the site renders. If that summary wants a
+> longer span than the last week (beyond GitHub's ~90-day events window or one
+> Search page), that's when a KV/D1 accumulator that appends activity as it
+> arrives earns its keep — until then, demand-fetch is cheap enough.
 
 ## Topology
 
@@ -142,9 +137,8 @@ data/consumers.json on main
 
 Cloudflare Worker (tend-website)
   ├─ reads data/consumers.json via raw URL (KV-cached 1 h)
-  ├─ /currently-tending: fans out to actions/runs per repo
-  ├─ /activity:          fans out 3 Search queries per bot, dedupes
-  ├─ /stats:             5 Search queries per bot, sums total_count
+  ├─ /currently-tending: fans out actions/runs per repo (in-progress, tend-*)
+  ├─ /activity:          fans out one Search query per bucket per bot
   └─ each route edge-cached at its own TTL, served at api.tend-src.com
 ```
 

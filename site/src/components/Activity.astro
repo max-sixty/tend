@@ -20,34 +20,45 @@
   import { liveData } from "../lib/api";
   import { relativeTime } from "../lib/time";
 
-  type Kind = "review" | "triage" | "ci-fix";
-  interface Event {
+  const MAX_ROWS = 12; // the buckets hold up to ~10 each; this section shows a merged slice
+
+  interface RecentItem {
     repo: string;
-    kind: Kind;
     title: string;
     url: string;
     at: string;
   }
+  interface Bucket {
+    recent?: RecentItem[];
+  }
+  interface Activity {
+    prs?: Bucket;
+    issues?: Bucket;
+    comments?: Bucket;
+  }
 
-  const KIND_LABELS: Record<Kind, string> = {
-    "ci-fix": "ci fix",
-    review: "review",
-    triage: "triage",
-  };
+  type Kind = "pr" | "issue" | "comment";
+  const KIND_LABELS: Record<Kind, string> = { pr: "PR", issue: "issue", comment: "comment" };
 
-  liveData<{ events?: Event[] }>("/activity", "recent-activity", (data) => {
-    const events = data?.events ?? [];
-    if (events.length === 0) return false;
+  liveData<Activity>("/activity", "recent-activity", (data) => {
+    const rows: Array<RecentItem & { kind: Kind }> = [
+      ...(data?.prs?.recent ?? []).map((r) => ({ ...r, kind: "pr" as const })),
+      ...(data?.issues?.recent ?? []).map((r) => ({ ...r, kind: "issue" as const })),
+      ...(data?.comments?.recent ?? []).map((r) => ({ ...r, kind: "comment" as const })),
+    ];
+    rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    const top = rows.slice(0, MAX_ROWS);
+    if (top.length === 0) return false;
 
     const ul = document.querySelector("[data-activity-rows]");
     if (!ul) return false;
-    for (const e of events) {
+    for (const e of top) {
       const li = document.createElement("li");
       li.className = "activity-row";
 
       const kind = document.createElement("span");
       kind.className = `kind kind-${e.kind}`;
-      kind.textContent = KIND_LABELS[e.kind] ?? e.kind;
+      kind.textContent = KIND_LABELS[e.kind];
 
       const repo = document.createElement("span");
       repo.className = "repo";

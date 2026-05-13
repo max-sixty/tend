@@ -1,14 +1,15 @@
 # tend-website Worker
 
-Cloudflare Worker that serves all three data streams the tend marketing site
-renders — currently-tending, activity, and stats — each at its own route with
-its own edge TTL. See [`../docs/website-data.md`](../docs/website-data.md) for
-the route table, shapes, and the rate-limit reasoning.
+Cloudflare Worker that serves the data the tend marketing site renders —
+`/currently-tending` (in-progress tend-* runs) and `/activity` (recent PRs /
+issues / comments + lifetime counts) — each at its own route with its own edge
+TTL. See [`../docs/website-data.md`](../docs/website-data.md) for the route
+table, shapes, and the rate-limit reasoning.
 
 ## Endpoint
 
 ```
-GET https://api.tend-src.com/{currently-tending|activity|stats}
+GET https://api.tend-src.com/{currently-tending|activity}
 ```
 
 Example (`/currently-tending`) returns:

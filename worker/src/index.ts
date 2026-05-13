@@ -1,15 +1,21 @@
 // Cloudflare Worker that serves the tend website's live data streams.
 //
-// Three routes, all CORS-enabled JSON, each with its own edge-cache TTL
+// Two routes, both CORS-enabled JSON, each with its own edge-cache TTL
 // matched to the freshness budget:
 //
 //   /currently-tending   30 s   in-progress tend-* workflow runs
-//   /activity            5 min  recent PR reviews / triage / CI-fix events
-//   /stats               1 h    lifetime + this-week counters
+//   /activity            5 min  recent PRs / issues / comments + lifetime
+//                               counts, per primitive bucket
 //
-// All three read the consumer list (`consumers.json`) from the repo, KV-
-// cached for an hour, and fan out to GitHub. The edge cache coalesces
-// concurrent misses — origin load is bounded by TTL, not viewer count.
+// Both read the consumer list (`consumers.json`) from the repo, KV-cached
+// for an hour, and fan out to GitHub. The edge cache coalesces concurrent
+// misses — origin load is bounded by TTL, not viewer count.
+//
+// `/activity` is one Search query per bucket per bot (`sort=updated`): the
+// page yields both the recent items and the lifetime `total_count`; "this
+// week" is counted off the page, so it saturates around one page (~100) per
+// bot per bucket — fine for a headline number. The fanout is 3·N concurrent
+// Search requests, under the 30/min cap up to ~10 bots.
 //
 // See docs/website-data.md for architecture and the rate-limit reasoning
 // behind the TTLs.
@@ -48,29 +54,25 @@ interface CurrentlyTendingResponse {
   currently_tending: CurrentlyTendingEntry[];
 }
 
-type ActivityKind = "review" | "triage" | "ci-fix";
+// /activity: one bucket per primitive Search query, named off the query.
+type ActivityBucketName = "prs" | "issues" | "comments";
 
-interface ActivityEvent {
-  repo: string;
-  kind: ActivityKind;
+interface RecentItem {
+  repo: string; // "owner/name"
   title: string;
   url: string;
-  at: string;
+  at: string; // issue/PR updated_at, ISO
 }
 
-interface ActivityResponse {
-  generated_at: string;
-  events: ActivityEvent[];
+interface ActivityBucket {
+  count: number; // lifetime — Search total_count, summed across bots
+  count_this_week: number; // last 7 days; saturates ~one page per bot per bucket
+  recent: RecentItem[]; // newest-first, merged across bots
 }
 
-interface StatsResponse {
+type ActivityResponse = {
   generated_at: string;
-  reviews_total: number;
-  reviews_this_week: number;
-  ci_fixes_total: number;
-  ci_fixes_this_week: number;
-  triage_comments_total: number;
-}
+} & Record<ActivityBucketName, ActivityBucket>;
 
 interface SearchItem {
   html_url: string;
@@ -92,16 +94,27 @@ const WORKFLOW_PREFIX = "tend-";
 // repo, then we filter to tend-* client-side. 30 (GitHub's default) is
 // cheap and avoids tend runs being pushed off by busier non-tend traffic.
 const PER_PAGE_RUNS = 30;
-const ACTIVITY_LIMIT = 10;
+// /activity: one Search page per bucket per bot. 100 is Search's max page
+// and one request; we keep the newest RECENT_PER_BUCKET for the feed and
+// count the rest of the page towards "this week".
+const SEARCH_PAGE = 100;
+const RECENT_PER_BUCKET = 10;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const GITHUB_API = "https://api.github.com";
 const USER_AGENT = "tend-website-worker";
+
+// `q` for each /activity bucket — "the bot …":
+const BUCKET_QUERIES: Record<ActivityBucketName, (bot: string) => string> = {
+  prs: (b) => `author:${b} is:pr`, // …opened these PRs
+  issues: (b) => `author:${b} is:issue`, // …opened these issues
+  comments: (b) => `commenter:${b} -author:${b}`, // …chimed in on these PRs/issues
+};
 
 // Per-route TTLs. The fallback TTL (used when refresh throws) is shorter
 // so a transient outage clears quickly.
 const TTL = {
   "currently-tending": { ok: 30, fallback: 5 },
   activity: { ok: 300, fallback: 30 },
-  stats: { ok: 3600, fallback: 60 },
 } as const;
 
 // owner/name — alphanumerics + `_-.`, no leading `.`/`-`, no `..` anywhere,
@@ -145,14 +158,7 @@ export default {
           cacheKeyPath: "/activity",
           ttl: TTL.activity,
           refresh: () => refreshActivity(env),
-          empty: () => ({ generated_at: nowIso(), events: [] }),
-        });
-      case "/stats":
-        return serveCached(url, env, ctx, {
-          cacheKeyPath: "/stats",
-          ttl: TTL.stats,
-          refresh: () => refreshStats(env),
-          empty: () => emptyStats(),
+          empty: emptyActivity,
         });
       default:
         return withCors(new Response("Not Found", { status: 404 }), env);
@@ -269,47 +275,51 @@ async function fetchRepoRuns(
 // /activity
 
 async function refreshActivity(env: Env): Promise<ActivityResponse> {
+  const out = emptyActivity();
   const bots = botNames(await getConsumers(env));
-  if (bots.length === 0) {
-    return { generated_at: nowIso(), events: [] };
-  }
-  // 3 queries × N bots, deduped by URL. First kind seen wins (matches the
-  // pre-Worker Python fetcher's behavior so the UI doesn't shift on
-  // cutover.) Order of kinds: ci-fix → review → triage.
-  const kinds: Array<{ kind: ActivityKind; q: (bot: string) => string }> = [
-    { kind: "ci-fix", q: (b) => `author:${b} is:pr` },
-    { kind: "review", q: (b) => `commenter:${b} is:pr -author:${b}` },
-    { kind: "triage", q: (b) => `commenter:${b} is:issue` },
-  ];
+  if (bots.length === 0) return out;
+  const weekAgoMs = Date.now() - WEEK_MS;
 
-  type Batch = { kind: ActivityKind; items: SearchItem[] };
-  const batches: Batch[] = await Promise.all(
-    kinds.flatMap(({ kind, q }) =>
-      bots.map(async (bot) => ({
-        kind,
-        items: await searchIssues(q(bot), env.GITHUB_TOKEN, ACTIVITY_LIMIT),
-      })),
-    ),
+  await Promise.all(
+    (Object.keys(BUCKET_QUERIES) as ActivityBucketName[]).map(async (name) => {
+      const pages = await Promise.all(
+        bots.map((b) => searchIssues(BUCKET_QUERIES[name](b), env.GITHUB_TOKEN)),
+      );
+      const items: SearchItem[] = [];
+      let count = 0;
+      let countThisWeek = 0;
+      for (const page of pages) {
+        count += page.total_count ?? 0;
+        for (const it of page.items ?? []) {
+          items.push(it);
+          if (Date.parse(it.updated_at) >= weekAgoMs) countThisWeek++;
+        }
+      }
+      items.sort((a, b) =>
+        a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0,
+      );
+      out[name] = {
+        count,
+        count_this_week: countThisWeek,
+        recent: items.slice(0, RECENT_PER_BUCKET).map((it) => ({
+          repo: repoFromApiUrl(it.repository_url),
+          title: it.title,
+          url: it.html_url,
+          at: it.updated_at,
+        })),
+      };
+    }),
   );
+  return out;
+}
 
-  // Walk batches in declared order to preserve "first kind seen wins".
-  const seen = new Set<string>();
-  const events: ActivityEvent[] = [];
-  for (const { kind, items } of batches) {
-    for (const item of items) {
-      if (seen.has(item.html_url)) continue;
-      seen.add(item.html_url);
-      events.push({
-        repo: repoFromApiUrl(item.repository_url),
-        kind,
-        title: item.title,
-        url: item.html_url,
-        at: item.updated_at,
-      });
-    }
-  }
-  events.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
-  return { generated_at: nowIso(), events: events.slice(0, ACTIVITY_LIMIT) };
+function emptyActivity(): ActivityResponse {
+  return {
+    generated_at: nowIso(),
+    prs: { count: 0, count_this_week: 0, recent: [] },
+    issues: { count: 0, count_this_week: 0, recent: [] },
+    comments: { count: 0, count_this_week: 0, recent: [] },
+  };
 }
 
 function repoFromApiUrl(repositoryUrl: string): string {
@@ -319,86 +329,18 @@ function repoFromApiUrl(repositoryUrl: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// /stats
-
-async function refreshStats(env: Env): Promise<StatsResponse> {
-  const bots = botNames(await getConsumers(env));
-  if (bots.length === 0) {
-    return emptyStats();
-  }
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
-
-  // Each stat is summed across bots via Search's `total_count` (no
-  // pagination needed). Five stats × N bots queries per refresh — cheap
-  // because the TTL is an hour.
-  const counters: Record<keyof Omit<StatsResponse, "generated_at">, (b: string) => string> = {
-    reviews_total: (b) => `commenter:${b} is:pr -author:${b}`,
-    reviews_this_week: (b) => `commenter:${b} is:pr -author:${b} updated:>=${weekAgo}`,
-    ci_fixes_total: (b) => `author:${b} is:pr`,
-    ci_fixes_this_week: (b) => `author:${b} is:pr updated:>=${weekAgo}`,
-    triage_comments_total: (b) => `commenter:${b} is:issue`,
-  };
-
-  const keys = Object.keys(counters) as Array<keyof typeof counters>;
-  const totals = await Promise.all(
-    keys.map(async (key) => {
-      const perBot = await Promise.all(
-        bots.map((b) => searchCount(counters[key](b), env.GITHUB_TOKEN)),
-      );
-      return [key, perBot.reduce((a, b) => a + b, 0)] as const;
-    }),
-  );
-
-  const out: StatsResponse = { generated_at: nowIso(), ...emptyCounts() };
-  for (const [k, v] of totals) {
-    out[k] = v;
-  }
-  return out;
-}
-
-function emptyStats(): StatsResponse {
-  return { generated_at: nowIso(), ...emptyCounts() };
-}
-
-function emptyCounts() {
-  return {
-    reviews_total: 0,
-    reviews_this_week: 0,
-    ci_fixes_total: 0,
-    ci_fixes_this_week: 0,
-    triage_comments_total: 0,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Search API
 
-async function searchIssues(
-  query: string,
-  token: string,
-  perPage: number,
-): Promise<SearchItem[]> {
-  const data = await searchRaw(query, token, perPage);
-  return data.items ?? [];
-}
-
-async function searchCount(query: string, token: string): Promise<number> {
-  const data = await searchRaw(query, token, 1);
-  return data.total_count ?? 0;
-}
-
-async function searchRaw(
-  query: string,
-  token: string,
-  perPage: number,
-): Promise<SearchResponse> {
-  const params = new URLSearchParams({ q: query, per_page: String(perPage) });
-  if (perPage > 1) {
-    params.set("sort", "updated");
-    params.set("order", "desc");
-  }
+// One Search page, newest-first — the page yields both `items` (recent) and
+// `total_count` (lifetime). 401/403 throws (sinks the refresh → short fallback
+// TTL); 422/429/other degrade to `{}` so one bad bucket doesn't sink the rest.
+async function searchIssues(query: string, token: string): Promise<SearchResponse> {
+  const params = new URLSearchParams({
+    q: query,
+    per_page: String(SEARCH_PAGE),
+    sort: "updated",
+    order: "desc",
+  });
   const resp = await fetchWithTimeout(`${GITHUB_API}/search/issues?${params}`, {
     headers: githubHeaders(token),
   });
@@ -406,9 +348,6 @@ async function searchRaw(
     if (resp.status === 401 || resp.status === 403) {
       throw new Error(`search auth failure: ${resp.status}`);
     }
-    // Other failures (incl. 422 — malformed query, 429 — rate-limited)
-    // degrade to an empty result for this query so a single bad bot name
-    // doesn't sink the whole refresh.
     console.error(`search failed (${resp.status}): ${query}`);
     return {};
   }
@@ -514,7 +453,6 @@ function corsPreflight(env: Env): Response {
 export const __test = {
   refreshCurrentlyTending,
   refreshActivity,
-  refreshStats,
   fetchRepoRuns,
   getConsumers,
   isConsumerArray,
