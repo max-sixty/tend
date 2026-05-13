@@ -131,6 +131,8 @@ pre {
   padding: 1rem 1.2rem;
   overflow-x: auto;
   line-height: 1.55;
+  width: fit-content;
+  max-width: 100%;
 }
 pre code {
   background: none;
@@ -183,8 +185,8 @@ hr::after {
 /* Marginalia layout — small numeral marker in left column, body in right */
 .marginalia {
   display: grid;
-  grid-template-columns: minmax(80px, 1fr) minmax(0, 3.6fr);
-  gap: 2.5rem;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 1.5rem;
   margin: 2.5rem 0;
 }
 .marginalia > .margin-note {
@@ -262,13 +264,25 @@ hr::after {
   gap: 1.8rem;
 }
 
+@media (max-width: 620px) {
+  .site-header {
+    flex-wrap: wrap;
+    gap: 0.5rem 1.2rem;
+  }
+  .site-header nav {
+    flex-wrap: wrap;
+    gap: 0.4rem 1.2rem;
+    font-size: 0.82rem;
+  }
+}
+
 /* ---------- Hero ---------- */
 
 .hero {
   padding: 2rem 0 3rem;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: clamp(1.5rem, 3vw, 2.5rem);
   align-items: center;
 }
 @media (max-width: 760px) {
@@ -277,7 +291,7 @@ hr::after {
     text-align: left;
     padding: 2rem 0 2.5rem;
   }
-  .hero .logo-frame { order: -1; max-width: 140px; }
+  .hero .logo-frame { order: -1; max-width: 150px; justify-self: start; }
 }
 
 .hero .tagline {
@@ -331,9 +345,10 @@ hr::after {
 }
 
 .logo-frame {
-  width: clamp(160px, 22vw, 240px);
+  width: clamp(210px, 26vw, 330px);
   display: flex;
   justify-content: center;
+  justify-self: center;
 }
 .logo-frame .logo {
   width: 100%;
@@ -460,7 +475,7 @@ hr::after {
 
 .activity-row {
   display: grid;
-  grid-template-columns: 4.5rem minmax(0, 11rem) minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 11rem) minmax(0, 1fr) auto;
   gap: 1rem;
   align-items: baseline;
   padding: 0.6rem 0;
