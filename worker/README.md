@@ -75,6 +75,15 @@ need staggering or a scheduled refresh (see the Phase-2 note).
 `updated_at`, and `title` is the parent's title — Search returns the item, not
 the comment or review body. Newest-first, ≤10 per bucket.
 
+For `reviews` and `comments`, `url` deep-links to the bot's specific
+review (`…#pullrequestreview-<id>`) or comment (`…#issuecomment-<id>`), so
+clicking lands on tend's actual action rather than the top of the thread.
+The Worker does one extra GitHub REST call per recent item to resolve the
+anchor (`/repos/{repo}/pulls/{n}/reviews` for reviews,
+`/repos/{repo}/issues/{n}/comments` for comments) and falls back to the
+parent URL if the follow-up fails. For `prs` and `issues`, `url` is the
+parent issue/PR — that is what the bot created.
+
 | bucket | Search query | "the bot …" |
 | --- | --- | --- |
 | `prs` | `author:<bot> is:pr` | opened these PRs (any state) |
