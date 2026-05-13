@@ -3,8 +3,8 @@
 // Two routes, both CORS-enabled JSON, each with its own freshness budget:
 //
 //   /currently-tending   30 s   in-progress tend-* workflow runs
-//   /activity            5 min  recent PRs / issues / comments + lifetime
-//                               counts, per primitive bucket
+//   /activity            5 min  recent PRs / issues / reviews / comments +
+//                               lifetime counts, per primitive bucket
 //
 // Both read the consumer list (`consumers.json`) from the repo, KV-cached
 // for an hour, and fan out to GitHub. Responses are stale-while-revalidate:
@@ -18,8 +18,8 @@
 // `/activity` is one Search query per bucket per bot (`sort=updated`): the
 // page yields both the recent items and the lifetime `total_count`; "this
 // week" is counted off the page, so it saturates around one page (~100) per
-// bot per bucket — fine for a headline number. The fanout is 3·N concurrent
-// Search requests, under the 30/min cap up to ~10 bots.
+// bot per bucket — fine for a headline number. The fanout is 4·N concurrent
+// Search requests, under the 30/min cap up to ~7 bots.
 //
 // See docs/website-data.md for architecture and the rate-limit reasoning
 // behind the budgets.
@@ -59,7 +59,7 @@ interface CurrentlyTendingResponse {
 }
 
 // /activity: one bucket per primitive Search query, named off the query.
-type ActivityBucketName = "prs" | "issues" | "comments";
+type ActivityBucketName = "prs" | "issues" | "reviews" | "comments";
 
 interface RecentItem {
   repo: string; // "owner/name"
@@ -107,11 +107,25 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const GITHUB_API = "https://api.github.com";
 const USER_AGENT = "tend-website-worker";
 
+// tend's own bookkeeping issues — "Bot temporarily unavailable" outage
+// trackers, the monthly review-runs / review-reviewers trackers, nightly
+// drift-cleanup notes — carry these labels. The `issues` bucket excludes
+// them so its count reflects issues filed about the repo, not tend's
+// internal record-keeping. A repo without a label just matches nothing.
+const BOOKKEEPING_LABELS = [
+  "tend-outage",
+  "review-runs-tracking",
+  "review-reviewers-tracking",
+  "nightly-cleanup",
+];
+const ISSUE_LABEL_FILTER = BOOKKEEPING_LABELS.map((l) => `-label:${l}`).join(" ");
+
 // `q` for each /activity bucket — "the bot …":
 const BUCKET_QUERIES: Record<ActivityBucketName, (bot: string) => string> = {
   prs: (b) => `author:${b} is:pr`, // …opened these PRs
-  issues: (b) => `author:${b} is:issue`, // …opened these issues
-  comments: (b) => `commenter:${b} -author:${b}`, // …chimed in on these PRs/issues
+  issues: (b) => `author:${b} is:issue ${ISSUE_LABEL_FILTER}`, // …opened these issues (minus its own bookkeeping)
+  reviews: (b) => `reviewed-by:${b}`, // …reviewed these PRs (approve / request-changes / review comment)
+  comments: (b) => `commenter:${b} -author:${b} -reviewed-by:${b}`, // …commented on these PRs/issues (not its own, not folded in from a review)
 };
 
 // Per-route freshness budgets, in seconds. `ok` applies to a good refresh;
@@ -371,6 +385,7 @@ function emptyActivity(): ActivityResponse {
     generated_at: nowIso(),
     prs: { count: 0, count_this_week: 0, recent: [] },
     issues: { count: 0, count_this_week: 0, recent: [] },
+    reviews: { count: 0, count_this_week: 0, recent: [] },
     comments: { count: 0, count_this_week: 0, recent: [] },
   };
 }

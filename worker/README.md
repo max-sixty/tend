@@ -2,8 +2,8 @@
 
 Cloudflare Worker that serves the data the tend marketing site renders —
 `/currently-tending` (in-progress tend-* runs) and `/activity` (recent PRs /
-issues / comments + lifetime counts) — each at its own route with its own
-freshness budget. See [`../docs/website-data.md`](../docs/website-data.md)
+issues / reviews / comments + lifetime counts) — each at its own route with
+its own freshness budget. See [`../docs/website-data.md`](../docs/website-data.md)
 for the route table, shapes, and the rate-limit reasoning.
 
 ## Endpoint
@@ -39,7 +39,7 @@ authenticated calls to GitHub:
 - `/currently-tending` — one `GET /repos/{r}/actions/runs?status=in_progress`
   per consumer, filtered to `tend-*` workflows.
 - `/activity` — one Search query per primitive bucket (`prs` / `issues` /
-  `comments`) per bot.
+  `reviews` / `comments`) per bot.
 
 Responses are served **stale-while-revalidate** from the colo cache
 (`caches.default`). A request is always answered from cache — no waiting on
@@ -109,6 +109,6 @@ GITHUB_TOKEN=ghp_...
   want cross-isolate sharing.
 
 A cold cache miss costs the route's full fanout (N actions/runs calls for
-`/currently-tending`, 3·N Search calls for `/activity`). The freshness
+`/currently-tending`, 4·N Search calls for `/activity`). The freshness
 budget bounds how often that happens: at most one cold refresh per budget
 per colo, under any traffic level.

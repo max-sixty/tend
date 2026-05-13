@@ -34,16 +34,18 @@
   interface Activity {
     prs?: Bucket;
     issues?: Bucket;
+    reviews?: Bucket;
     comments?: Bucket;
   }
 
-  type Kind = "pr" | "issue" | "comment";
-  const KIND_LABELS: Record<Kind, string> = { pr: "PR", issue: "issue", comment: "comment" };
+  type Kind = "pr" | "issue" | "review" | "comment";
+  const KIND_LABELS: Record<Kind, string> = { pr: "PR", issue: "issue", review: "review", comment: "comment" };
 
   liveData<Activity>("/activity", "recent-activity", (data) => {
     const rows: Array<RecentItem & { kind: Kind }> = [
       ...(data?.prs?.recent ?? []).map((r) => ({ ...r, kind: "pr" as const })),
       ...(data?.issues?.recent ?? []).map((r) => ({ ...r, kind: "issue" as const })),
+      ...(data?.reviews?.recent ?? []).map((r) => ({ ...r, kind: "review" as const })),
       ...(data?.comments?.recent ?? []).map((r) => ({ ...r, kind: "comment" as const })),
     ];
     rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
