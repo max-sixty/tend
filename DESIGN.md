@@ -531,8 +531,7 @@ tend/
 ├── worker/                     # Cloudflare Worker (api.tend-src.com)
 ├── data/                       # consumers.json — Worker's input
 ├── docs/
-│   ├── security-model.md
-│   └── website-data.md
+│   └── security-model.md
 └── README.md
 ```
 

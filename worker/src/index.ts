@@ -21,8 +21,8 @@
 // bot per bucket — fine for a headline number. The fanout is 3·N concurrent
 // Search requests, under the 30/min cap up to ~10 bots.
 //
-// See docs/website-data.md for architecture and the rate-limit reasoning
-// behind the budgets.
+// See ../README.md for architecture and the rate-limit reasoning behind
+// the budgets.
 
 interface Env {
   GITHUB_TOKEN: string;
