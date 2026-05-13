@@ -368,7 +368,10 @@ hr::after {
   font-size: 0.78rem;
   letter-spacing: 0.03em;
   color: var(--ink-soft);
+  text-decoration: none;
+  border-bottom: none;
 }
+.now-tending:hover { color: var(--moss-deep); }
 
 .now-dot {
   flex: none;
@@ -420,7 +423,7 @@ hr::after {
   line-height: 1.3;
   color: var(--ink);
   margin: 0 0 1rem;
-  max-width: 32ch;
+  max-width: 48ch;
 }
 
 /* ---------- Stat strip ---------- */
@@ -521,12 +524,32 @@ hr::after {
   border-bottom-color: var(--moss);
 }
 
+.activity-row .kind-tending {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--paper);
+  background: var(--moss-deep);
+  border-color: var(--moss-deep);
+}
+.activity-row .kind-tending::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--paper);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .activity-row .kind-tending::before { animation: now-pulse 2.6s ease-in-out infinite; }
+}
+
 .activity-row .at {
   font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--ink-fade);
   white-space: nowrap;
 }
+.activity-row .at[data-started-at] { color: var(--moss-deep); }
 
 @media (max-width: 720px) {
   .activity-rows {
