@@ -21,8 +21,8 @@
 // bot per bucket — fine for a headline number. The fanout is 4·N concurrent
 // Search requests, under the 30/min cap up to ~7 bots.
 //
-// See docs/website-data.md for architecture and the rate-limit reasoning
-// behind the budgets.
+// See ../README.md for architecture and the rate-limit reasoning behind
+// the budgets.
 
 interface Env {
   GITHUB_TOKEN: string;
@@ -83,11 +83,25 @@ interface SearchItem {
   title: string;
   updated_at: string;
   repository_url: string;
+  number: number;
 }
 
 interface SearchResponse {
   total_count?: number;
   items?: SearchItem[];
+}
+
+// GitHub review / issue-comment objects — fields we actually use.
+interface ReviewObject {
+  user?: { login?: string } | null;
+  html_url?: string;
+  submitted_at?: string;
+}
+
+interface IssueCommentObject {
+  user?: { login?: string } | null;
+  html_url?: string;
+  created_at?: string;
 }
 
 const REPOS_KEY = "repos:v1";
@@ -120,6 +134,16 @@ const BOOKKEEPING_LABELS = [
 ];
 const ISSUE_LABEL_FILTER = BOOKKEEPING_LABELS.map((l) => `-label:${l}`).join(" ");
 
+// Why primitive buckets, not a job taxonomy: GitHub records mechanical facts
+// (PR opened, review submitted, comment created), but tend's jobs (review /
+// triage / ci-fix / nightly / weekly) don't map onto them cleanly — a PR on
+// `fix/ci-*` vs `fix/issue-*` vs `tend/update-workflows` is the same event
+// type, and a nightly survey that finds nothing leaves no trace. An earlier
+// cut reverse-engineered a `kind` enum from branch names and still
+// mislabelled things. The site renders the mechanical buckets directly; the
+// "what's tend been up to" narrative is deferred to a Phase 2 LLM summary
+// (see TODO.md).
+//
 // `q` for each /activity bucket — "the bot …":
 const BUCKET_QUERIES: Record<ActivityBucketName, (bot: string) => string> = {
   prs: (b) => `author:${b} is:pr`, // …opened these PRs
@@ -386,34 +410,139 @@ async function refreshActivity(env: Env): Promise<ActivityResponse> {
   await Promise.all(
     (Object.keys(BUCKET_QUERIES) as ActivityBucketName[]).map(async (name) => {
       const pages = await Promise.all(
-        bots.map((b) => searchIssues(BUCKET_QUERIES[name](b), env.GITHUB_TOKEN)),
+        bots.map(async (b) => ({
+          bot: b,
+          page: await searchIssues(BUCKET_QUERIES[name](b), env.GITHUB_TOKEN),
+        })),
       );
-      const items: SearchItem[] = [];
+      const items: Array<SearchItem & { bot: string }> = [];
       let count = 0;
       let countThisWeek = 0;
-      for (const page of pages) {
+      for (const { bot, page } of pages) {
         count += page.total_count ?? 0;
         for (const it of page.items ?? []) {
-          items.push(it);
+          items.push({ ...it, bot });
           if (Date.parse(it.updated_at) >= weekAgoMs) countThisWeek++;
         }
       }
       items.sort((a, b) =>
         a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0,
       );
-      out[name] = {
-        count,
-        count_this_week: countThisWeek,
-        recent: items.slice(0, RECENT_PER_BUCKET).map((it) => ({
-          repo: repoFromApiUrl(it.repository_url),
-          title: it.title,
-          url: it.html_url,
-          at: it.updated_at,
-        })),
-      };
+      const top = items.slice(0, RECENT_PER_BUCKET);
+      const recent = await Promise.all(
+        top.map((it) => toRecentItem(name, it, env.GITHUB_TOKEN)),
+      );
+      out[name] = { count, count_this_week: countThisWeek, recent };
     }),
   );
   return out;
+}
+
+// `prs`/`issues` rows link to the parent — that IS what the bot created.
+// `reviews`/`comments` rows link to the bot's specific review/comment so
+// clicking lands on tend's actual action, not the top of the thread.
+// Follow-up failure (404, transient error, race where Search saw the action
+// but the comment isn't queryable yet) falls back to the parent URL — better
+// than dropping the row.
+async function toRecentItem(
+  bucket: ActivityBucketName,
+  it: SearchItem & { bot: string },
+  token: string,
+): Promise<RecentItem> {
+  const repo = repoFromApiUrl(it.repository_url);
+  const base = {
+    repo,
+    title: it.title,
+    at: it.updated_at,
+  };
+  if (bucket === "reviews") {
+    const deep = await findBotReviewUrl(repo, it.number, it.bot, token);
+    return { ...base, url: deep ?? it.html_url };
+  }
+  if (bucket === "comments") {
+    const deep = await findBotCommentUrl(repo, it.number, it.bot, token);
+    return { ...base, url: deep ?? it.html_url };
+  }
+  return { ...base, url: it.html_url };
+}
+
+// Latest review on a PR authored by `bot` — `submitted_at` desc. Returns null
+// if the fetch fails or no review by the bot is present (caller falls back).
+async function findBotReviewUrl(
+  repo: string,
+  n: number,
+  bot: string,
+  token: string,
+): Promise<string | null> {
+  const url = `${GITHUB_API}/repos/${repo}/pulls/${n}/reviews?per_page=100`;
+  try {
+    const resp = await fetchWithTimeout(url, { headers: githubHeaders(token) });
+    if (!resp.ok) {
+      console.error(`review lookup failed (${resp.status}): ${repo}#${n}`);
+      return null;
+    }
+    const reviews = (await resp.json()) as ReviewObject[];
+    return latestByBot(
+      reviews,
+      bot,
+      (r) => r.submitted_at,
+      (r) => r.html_url,
+    );
+  } catch (e) {
+    console.error(`review lookup error: ${repo}#${n}`, e);
+    return null;
+  }
+}
+
+// Latest issue/PR-conversation comment authored by `bot` — `created_at` desc.
+// (Inline PR review comments live at a different endpoint; the comments
+// bucket excludes `reviewed-by:<bot>`, so the bot's contribution is an
+// issue-style comment.) Returns null on failure (caller falls back).
+async function findBotCommentUrl(
+  repo: string,
+  n: number,
+  bot: string,
+  token: string,
+): Promise<string | null> {
+  const url = `${GITHUB_API}/repos/${repo}/issues/${n}/comments?per_page=100`;
+  try {
+    const resp = await fetchWithTimeout(url, { headers: githubHeaders(token) });
+    if (!resp.ok) {
+      console.error(`comment lookup failed (${resp.status}): ${repo}#${n}`);
+      return null;
+    }
+    const comments = (await resp.json()) as IssueCommentObject[];
+    return latestByBot(
+      comments,
+      bot,
+      (c) => c.created_at,
+      (c) => c.html_url,
+    );
+  } catch (e) {
+    console.error(`comment lookup error: ${repo}#${n}`, e);
+    return null;
+  }
+}
+
+function latestByBot<T extends { user?: { login?: string } | null }>(
+  entries: T[],
+  bot: string,
+  ts: (e: T) => string | undefined,
+  href: (e: T) => string | undefined,
+): string | null {
+  let bestTs = "";
+  let bestUrl: string | null = null;
+  for (const e of entries) {
+    if (e.user?.login !== bot) continue;
+    const t = ts(e);
+    const h = href(e);
+    if (typeof t !== "string" || typeof h !== "string") continue;
+    if (t > bestTs) {
+      bestTs = t;
+      bestUrl = h;
+    }
+  }
+  return bestUrl;
 }
 
 function emptyActivity(): ActivityResponse {
@@ -533,34 +662,38 @@ function withCors(resp: Response, env: Env): Response {
 
 function jsonResponse(data: unknown, env: Env, ttlSeconds: number): Response {
   const staleAtMs = Date.now() + ttlSeconds * 1000;
-  return new Response(JSON.stringify(data), {
-    headers: {
-      "Content-Type": "application/json",
-      // Browsers revalidate after the freshness budget (`max-age`); the
-      // colo cache, a shared cache, keeps the entry for STALE_SERVE_FACTOR
-      // budgets (`s-maxage`) so it stays warm for stale-while-revalidate.
-      // Assumes Cloudflare's zone cache isn't also storing this route — it
-      // isn't on a vanilla Workers custom domain, but adding a Cache Rule
-      // here would honor `s-maxage` and break SWR by shadowing the Worker.
-      "Cache-Control":
-        `public, max-age=${ttlSeconds}, ` +
-        `s-maxage=${ttlSeconds * STALE_SERVE_FACTOR}`,
-      [STALE_AT_HEADER]: String(staleAtMs),
-      "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN,
-    },
-  });
+  return withCors(
+    new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+        // Browsers revalidate after the freshness budget (`max-age`); the
+        // colo cache, a shared cache, keeps the entry for STALE_SERVE_FACTOR
+        // budgets (`s-maxage`) so it stays warm for stale-while-revalidate.
+        // Assumes Cloudflare's zone cache isn't also storing this route — it
+        // isn't on a vanilla Workers custom domain, but adding a Cache Rule
+        // here would honor `s-maxage` and break SWR by shadowing the Worker.
+        "Cache-Control":
+          `public, max-age=${ttlSeconds}, ` +
+          `s-maxage=${ttlSeconds * STALE_SERVE_FACTOR}`,
+        [STALE_AT_HEADER]: String(staleAtMs),
+      },
+    }),
+    env,
+  );
 }
 
 function corsPreflight(env: Env): Response {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN,
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "*",
-      "Access-Control-Max-Age": "86400",
-    },
-  });
+  return withCors(
+    new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Max-Age": "86400",
+      },
+    }),
+    env,
+  );
 }
 
 // Exported for unit tests.
@@ -572,5 +705,7 @@ export const __test = {
   isConsumerArray,
   isValidRepo,
   isValidBotName,
+  findBotReviewUrl,
+  findBotCommentUrl,
   isStale,
 };

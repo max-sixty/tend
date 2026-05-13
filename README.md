@@ -77,9 +77,10 @@ Scheduled workflows also support manual dispatch for testing. All are
 enabled by default except **ci-fix**, which requires `watched_workflows`
 to be configured. Any can be disabled:
 
-```toml
-[workflows.weekly]
-enabled = false
+```yaml
+workflows:
+  weekly:
+    enabled: false
 ```
 
 ## How it works
