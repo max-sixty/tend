@@ -202,6 +202,13 @@ Then `curl http://localhost:8787/activity` etc. `wrangler dev` reads the same
   is appropriate here because the 1 h TTL is above KV's 60 s minimum and we
   want cross-isolate sharing.
 
+Concurrent stale-hits are coalesced: the first request pushes the
+cached entry's `x-tend-stale-at` forward by a short grace window
+(`REFRESH_GRACE_MS`, currently 30 s) and starts the background refresh;
+viewers arriving within that window read the bumped entry as fresh and
+skip starting their own refresh. One refresh per stale window per colo,
+not one per viewer — keeps the Search-API fanout bounded under bursts.
+
 A cold cache miss costs the route's full fanout (N actions/runs calls for
 `/currently-tending`, 4·N Search calls for `/activity`). The freshness
 budget bounds how often that happens: at most one cold refresh per budget
