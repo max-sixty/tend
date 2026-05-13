@@ -6,7 +6,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
-import yaml
+from tests import _yaml as yaml
 from click import ClickException
 
 from tend.config import Config
@@ -722,14 +722,14 @@ def test_legacy_toml_file_errors_clearly(
 
 
 # ---------------------------------------------------------------------------
-# YAML-specific: `on:` → True trap in user-supplied workflow_extra
+# YAML 1.2 semantics: `on` and other reserved-in-1.1 words round-trip as strings
 # ---------------------------------------------------------------------------
 
 
-def test_workflow_extra_on_key_normalized(tmp_path: Path) -> None:
-    """Unquoted `on:` in a user override is the same YAML 1.1 boolean trap
-    that hits the generated workflows. Verify normalization so the override
-    merges into the workflow's existing `on` key."""
+def test_unquoted_on_key_round_trips_as_string(tmp_path: Path) -> None:
+    """Unquoted `on:` in a user override stays a string under YAML 1.2.
+    Under YAML 1.1 (PyYAML), it would parse as boolean True and collide with
+    the workflow's own `on:` trigger key — ruamel.yaml/1.2 avoids that."""
     path = _write_config(
         tmp_path,
         dedent("""\
@@ -744,14 +744,34 @@ def test_workflow_extra_on_key_normalized(tmp_path: Path) -> None:
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     nightly = yaml.safe_load(workflows["tend-nightly.yaml"].content)
-    # _apply_extras re-emits the document via yaml.dump, which quotes the
-    # `on` key to avoid YAML 1.1's boolean trap — so it parses back as a
-    # string here rather than True (as the un-extra'd workflows do).
     triggers = nightly["on"]
     # schedule was deleted via JSON Merge Patch `null`
     assert "schedule" not in triggers
     # workflow_dispatch survives
     assert "workflow_dispatch" in triggers
+
+
+def test_norway_problem_string_not_coerced(tmp_path: Path) -> None:
+    """Under YAML 1.1 (PyYAML), unquoted `NO`/`yes`/`on`/`off` are booleans.
+    Under YAML 1.2 they're strings — a prompt or env value containing one
+    of those tokens survives unscathed."""
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        workflows:
+          review:
+            workflow_extra:
+              env:
+                COUNTRY_CODE: NO
+                FEATURE_FLAG: off
+    """),
+    )
+    cfg = Config.load(path)
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    env = yaml.safe_load(workflows["tend-review.yaml"].content)["env"]
+    assert env["COUNTRY_CODE"] == "NO"
+    assert env["FEATURE_FLAG"] == "off"
 
 
 def test_workflow_extra_delete_with_null(tmp_path: Path) -> None:

@@ -7,7 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
-import yaml
+from ruamel.yaml import YAML
+
+# ruamel.yaml parses YAML 1.2 by default, which fixes PyYAML's `on:` → True
+# trap and the Norway problem (yes/no/on/off coerced to bool).
+_YAML = YAML(typ="safe", pure=True)
 
 KNOWN_WORKFLOWS = {
     "review",
@@ -108,7 +112,7 @@ class Config:
                 )
             raise click.ClickException(f"Config not found: {path}")
         with path.open() as f:
-            raw = yaml.safe_load(f) or {}
+            raw = _YAML.load(f) or {}
 
         if not isinstance(raw, dict):
             raise click.ClickException(

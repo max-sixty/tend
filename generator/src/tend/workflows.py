@@ -2,14 +2,29 @@
 
 from __future__ import annotations
 
+import io
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.metadata import version
 
 import click
-import yaml
+from ruamel.yaml import YAML
 
 from tend.config import Config, WorkflowConfig
+
+# ruamel.yaml defaults to YAML 1.2, where `on`/`yes`/`no`/`off` are strings,
+# not booleans — sidesteps PyYAML's `on:` → True trap and the Norway problem.
+# typ="rt" preserves insertion order (matters for diff stability on regen);
+# typ="safe" would sort keys alphabetically.
+_YAML_BLOCK = YAML(typ="rt", pure=True)
+_YAML_BLOCK.default_flow_style = False
+_YAML_BLOCK.width = 200
+_YAML_BLOCK.allow_unicode = True
+
+_YAML_FLOW = YAML(typ="safe", pure=True)
+_YAML_FLOW.default_flow_style = True
+_YAML_FLOW.allow_unicode = True
+_YAML_FLOW.width = 10**9  # one-line scalars; never wrap
 
 # Stamping the generator's own version into the header gives downstream
 # nightly regen a stable anchor for detecting tend version bumps (see
@@ -117,12 +132,11 @@ def _render_step(fields: dict, indent: int) -> str:
 
 
 def _yaml_scalar(value: object) -> str:
-    """Render a Python scalar as a YAML scalar using safe_dump semantics."""
-    # yaml.safe_dump emits a trailing newline and may add `...\n` document
-    # terminators; strip both. default_flow_style=True keeps scalars on one line.
-    dumped = yaml.safe_dump(
-        value, default_flow_style=True, allow_unicode=True, width=float("inf")
-    ).strip()
+    """Render a Python scalar as a single-line YAML scalar."""
+    buf = io.StringIO()
+    _YAML_FLOW.dump(value, buf)
+    # ruamel emits a trailing newline; strip and drop any `...` document marker.
+    dumped = buf.getvalue().rstrip()
     if dumped.endswith("\n..."):
         dumped = dumped[: -len("\n...")]
     return dumped
@@ -825,21 +839,10 @@ def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWor
     if not wf_cfg.workflow_extra and not wf_cfg.jobs:
         return wf
 
-    data = yaml.safe_load(wf.content)
-
-    # YAML parses bare `on:` as boolean True — restore the string key
-    if True in data:
-        data["on"] = data.pop(True)
+    data = _YAML_BLOCK.load(wf.content)
 
     if wf_cfg.workflow_extra:
-        # Users writing `on:` (unquoted) in their workflow_extra hit the same
-        # YAML 1.1 trap that bites the generated workflows above. Normalize here
-        # so the override merges into the `on` key rather than coexisting as a
-        # stray True key in the rendered output.
-        extra = dict(wf_cfg.workflow_extra)
-        if True in extra:
-            extra["on"] = extra.pop(True)
-        data = _deep_merge(data, extra)
+        data = _deep_merge(data, wf_cfg.workflow_extra)
 
     if wf_cfg.jobs:
         jobs = data.get("jobs", {})
@@ -853,14 +856,11 @@ def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWor
                     err=True,
                 )
 
-    rendered = yaml.dump(
-        data,
-        default_flow_style=False,
-        sort_keys=False,
-        width=200,
-        allow_unicode=True,
+    buf = io.StringIO()
+    _YAML_BLOCK.dump(data, buf)
+    return GeneratedWorkflow(
+        filename=wf.filename, content=HEADER + "\n" + buf.getvalue()
     )
-    return GeneratedWorkflow(filename=wf.filename, content=HEADER + "\n" + rendered)
 
 
 # ---------------------------------------------------------------------------

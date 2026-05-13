@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import click.testing
 import pytest
-import yaml
+from tests import _yaml as yaml
 from click.testing import CliRunner
 
 from tend.checks import CheckResult
@@ -105,7 +105,7 @@ def test_init_workflows_have_correct_triggers(
 
     for filename, trigger in expected_triggers.items():
         data = yaml.safe_load((wf_dir / filename).read_text())
-        assert trigger in data[True], f"{filename} missing trigger '{trigger}'"
+        assert trigger in data["on"], f"{filename} missing trigger '{trigger}'"
 
 
 def test_init_workflows_have_required_permissions(
@@ -160,7 +160,7 @@ def test_init_ci_fix_with_watched_workflows(
     ci_fix_path = _workflow_dir(tmp_path) / "tend-ci-fix.yaml"
     assert ci_fix_path.exists()
     data = yaml.safe_load(ci_fix_path.read_text())
-    workflows_trigger = data[True]["workflow_run"]["workflows"]
+    workflows_trigger = data["on"]["workflow_run"]["workflows"]
     assert "build" in workflows_trigger
     assert "test" in workflows_trigger
 

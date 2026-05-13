@@ -6,7 +6,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
-import yaml
+from tests import _yaml as yaml
 import click
 from click.testing import CliRunner
 
@@ -331,10 +331,10 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     data = yaml.safe_load(mention.content)
 
     # Event trigger present
-    assert "pull_request_review" in data[True], (
+    assert "pull_request_review" in data["on"], (
         "tend-mention must listen for pull_request_review events"
     )
-    assert data[True]["pull_request_review"] == {"types": ["submitted"]}
+    assert data["on"]["pull_request_review"] == {"types": ["submitted"]}
 
     # Verify job filters out fork PRs for review events — secrets are
     # unavailable there. The notifications workflow polls for these.
@@ -379,7 +379,7 @@ def test_mention_review_comment_listens_only_for_edits(tmp_path: Path) -> None:
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     mention = workflows["tend-mention.yaml"]
     data = yaml.safe_load(mention.content)
-    assert data[True]["pull_request_review_comment"] == {"types": ["edited"]}, (
+    assert data["on"]["pull_request_review_comment"] == {"types": ["edited"]}, (
         "pull_request_review_comment must subscribe to ['edited'] only — see "
         "the trigger comment in generate_mention for the dedup rationale"
     )
@@ -856,8 +856,6 @@ def test_null_drops_top_level_key(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-nightly.yaml"].content)
-    # _apply_extras quotes `on:` on the way out, so it round-trips as a
-    # string here (the un-extra'd workflows still emit it unquoted).
     triggers = data["on"]
     assert "schedule" not in triggers
     assert "workflow_dispatch" in triggers

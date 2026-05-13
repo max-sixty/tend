@@ -6,12 +6,8 @@
 #
 # Only `bot_name` is required. Everything else has sensible defaults.
 #
-# ## YAML quoting tip
-#
-# YAML 1.1 (which PyYAML implements) treats unquoted `yes`, `no`, `on`,
-# `off`, `true`, `false` as booleans — the "Norway problem". Quote any
-# string value that might collide ("ON", "off", country code "NO", etc.).
-# Cron expressions need quoting because `*` is reserved.
+# Parsed under YAML 1.2 (ruamel.yaml), so `on`, `yes`, `no`, `off` stay
+# strings — only `true`/`false` are booleans.
 
 bot_name: my-project-bot
 
