@@ -7,6 +7,12 @@
 [[post-start]]
 copy = "wt step copy-ignored"
 
+# Virtual envs contain absolute paths in their entry-point shebangs; copying
+# them across worktrees leaves `uv run pytest` (etc.) launching the source
+# worktree's interpreter. `uv sync` recreates the venv with correct shebangs.
+[step.copy-ignored]
+exclude = [".venv/"]
+
 # Restore anything copy-ignored didn't bring over. --prefer-offline keeps it
 # off the network once the shared npm cache is warm; --no-audit/--no-fund
 # skip the slow, noisy bits of an otherwise-empty run.
