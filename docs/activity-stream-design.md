@@ -3,7 +3,7 @@
 `/activity` reports recent activity in **primitive buckets** — `prs` (PRs the
 bot opened), `issues` (issues the bot opened), `comments` (PRs/issues the bot
 chimed in on) — each with a lifetime `count`, a `count_this_week`, and a short
-`recent` list. `docs/website-data.md` has the live shape and the queries; this
+`recent` list. `worker/README.md` has the live shape and the queries; this
 note records why it's shaped that way.
 
 ## Why primitive buckets, not a job taxonomy
@@ -26,7 +26,7 @@ count), and leave the "what's tend been up to" narrative to a later layer.
 The buckets are the *data*; the *narrative* — a short prose "here's what tend's
 been doing" — is deferred to a consumer that reads `/activity` and writes a
 summary into KV (a scheduled job, or the Worker calling Claude). That's tracked
-as the TODO in `docs/website-data.md`. Until it exists, the site renders the
+as the TODO in `worker/README.md`. Until it exists, the site renders the
 buckets directly (a stat strip from the counts, a recent feed from the `recent`
 lists).
 

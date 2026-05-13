@@ -243,3 +243,21 @@ bot_name = "my-project-bot"
 #
 # [workflows.review.workflow_extra.env]
 # MY_VAR = "hello"
+#
+# ### Example: delete a generated key
+#
+# TOML has no `null` literal, so the RFC 7396 delete semantic (set a key to
+# null to remove it) is reached via the string sentinel `"__TEND_DELETE__"`.
+# The generator swaps the sentinel for None before merging. Use this to drop
+# a generator-injected key entirely — useful when list-replace or `if:`
+# filters can't express what you want.
+#
+# Drop the cron from a scheduled workflow (keep `workflow_dispatch`):
+#
+# [workflows.nightly.workflow_extra.on]
+# schedule = "__TEND_DELETE__"
+#
+# Drop one trigger from `tend-mention` (keep the rest of `on:`):
+#
+# [workflows.mention.workflow_extra.on]
+# issues = "__TEND_DELETE__"

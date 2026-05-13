@@ -19,7 +19,7 @@ const areas = [
     title: "Issue triage",
     body: [
       "When an issue opens, tend classifies it, checks the backlog for duplicates, and tries to reproduce any reported bug.",
-      "If the fix is small and conservative, it'll draft one. Otherwise it leaves a clear note for whoever picks it up.",
+      "If the fix is small and conservative, it'll open a PR. Otherwise it leaves a clear note for whoever picks it up.",
     ],
   },
   {
@@ -33,15 +33,14 @@ const areas = [
     eyebrow: "iv.",
     title: "Work delegation",
     body: [
-      "Mention the bot in a PR or issue and it takes a pass at what you asked — read the diff, run a check, draft a change, answer the question.",
-      "You stay in the loop. Tend does the grunt work.",
+      "Mention the bot in a PR or issue and it takes a pass at what you asked — resolve a merge conflict, read the diff, run a check, draft a change, answer the question.",
     ],
   },
   {
     eyebrow: "v.",
     title: "Nightly & weekly maintenance",
     body: [
-      "Overnight it resolves merge conflicts on its own open PRs, reviews the day's commits, sweeps a few files for stale docs and small bugs, and closes issues that quietly got fixed.",
+      "Overnight it sweeps a rotating sample of files for stale docs and small bugs, reviews the day's commits, resolves merge conflicts on its own open PRs, and closes issues that got fixed.",
       "Each week it works through dependency PRs — approving the patch and minor bumps with green CI, flagging the rest.",
     ],
   },
@@ -108,6 +107,25 @@ claude /install-tend</code></pre>
         </div>
       </div>
     ))}
+  </section>
+
+  <hr />
+
+  <!-- ===== CUSTOMIZE ===== -->
+  <section id="customize">
+    <p class="section-eyebrow">yours to shape</p>
+    <p class="section-lead">Defaults you can override from your repo.</p>
+
+    <div class="marginalia">
+      <div class="margin-note">overlay</div>
+      <div class="body">
+        <p>
+          Tend's bundled skills supply the defaults; skills and docs in your
+          repo override them. Set what it auto-approves, have it close some
+          category of PR on sight, or give it a new chore to run each night.
+        </p>
+      </div>
+    </div>
   </section>
 
   <hr />

@@ -157,6 +157,16 @@ packages = "read"
 # Result: packages added, contents/pull-requests/id-token/actions/issues preserved
 ```
 
+RFC 7396 also uses `null` to delete a key, but TOML has no `null` literal.
+The string sentinel `"__TEND_DELETE__"` substitutes — a pre-pass converts
+it to `None` before merging. Example: drop the cron from a scheduled
+workflow while keeping `workflow_dispatch`:
+
+```toml
+[workflows.nightly.workflow_extra.on]
+schedule = "__TEND_DELETE__"
+```
+
 When overrides are present, the generator renders the base template, parses it,
 merges the overrides, and re-serializes. The output YAML formatting differs
 slightly from the base template (block-style lists, quoted `'on':` key) but is
@@ -531,8 +541,7 @@ tend/
 ├── worker/                     # Cloudflare Worker (api.tend-src.com)
 ├── data/                       # consumers.json — Worker's input
 ├── docs/
-│   ├── security-model.md
-│   └── website-data.md
+│   └── security-model.md
 └── README.md
 ```
 
