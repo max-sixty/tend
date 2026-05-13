@@ -48,31 +48,32 @@ Four pieces:
    generated files. Generation is idempotent — running `init` again overwrites
    all files from the current config.
 
-4. **Config** (`.config/tend.toml`) — stores the inputs to the generator.
+4. **Config** (`.config/tend.yaml`) — stores the inputs to the generator.
    Only overrides from defaults need to be specified. All six workflows are
    enabled by default.
 
    Minimal example (worktrunk):
 
-   ```toml
-   bot_name = "worktrunk-bot"
+   ```yaml
+   bot_name: worktrunk-bot
 
-   [secrets]
-   bot_token = "WORKTRUNK_BOT_TOKEN"
-   claude_token = "CLAUDE_CODE_OAUTH_TOKEN"
+   secrets:
+     bot_token: WORKTRUNK_BOT_TOKEN
+     claude_token: CLAUDE_CODE_OAUTH_TOKEN
 
-   [setup]
-   uses = ["./.github/actions/claude-setup"]
+   setup:
+     - uses: ./.github/actions/claude-setup
 
-   [workflows.ci-fix]
-   watched_workflows = ["ci", "publish-docs"]
+   workflows:
+     ci-fix:
+       watched_workflows: ["ci", "publish-docs"]
    ```
 
 ## What the adopter's workflow looks like
 
 Generated workflows are standalone — full `steps:` jobs, not `workflow_call`.
 The generator owns the entire file. Project setup (build tools, caches, env
-vars) is defined in the `[setup]` section of the config and rendered into each
+vars) is defined in the `setup:` section of the config and rendered into each
 workflow.
 
 ```yaml
@@ -121,50 +122,60 @@ jobs:
 | Concurrency groups | Generator | generated workflow |
 | Permissions | Generator | generated workflow |
 | Checkout | Generator | generated workflow |
-| Project setup (build tools, cache) | Adopter | `[setup]` in `.config/tend.toml` |
+| Project setup (build tools, cache) | Adopter | `setup:` in `.config/tend.yaml` |
 | Composite action call | Generator | generated workflow |
-| Bot identity, auth config | Adopter | `.config/tend.toml` |
+| Bot identity, auth config | Adopter | `.config/tend.yaml` |
 | Skills (generic) | Tend | `tend` plugin (marketplace) |
 | Skills (project-specific) | Adopter | `.claude/skills/` in their repo |
 
 ## Extending generated workflows
 
 The generator owns the workflow file, but adopters can override individual
-keys at the workflow level or job level via `.config/tend.toml`:
+keys at the workflow level or job level via `.config/tend.yaml`:
 
-```toml
-# Add top-level env vars to the review workflow
-[workflows.review.workflow_extra.env]
-MY_VAR = "hello"
-
-# Override job-level keys (addressed by job name)
-[workflows.review.jobs.review]
-timeout-minutes = 240
-runs-on = "ubuntu-22.04-large"
-
-# Multi-job workflows: target a specific job
-[workflows.mention.jobs.handle]
-timeout-minutes = 180
+```yaml
+workflows:
+  review:
+    # Add top-level env vars to the review workflow
+    workflow_extra:
+      env:
+        MY_VAR: hello
+    # Override job-level keys (addressed by job name)
+    jobs:
+      review:
+        timeout-minutes: 240
+        runs-on: ubuntu-22.04-large
+  # Multi-job workflows: target a specific job
+  mention:
+    jobs:
+      handle:
+        timeout-minutes: 180
 ```
 
 Overrides use RFC 7396 (JSON Merge Patch) semantics: mappings deep-merge,
 scalars and lists replace. This means an adopter can add a permission without
 losing existing ones:
 
-```toml
-[workflows.review.jobs.review.permissions]
-packages = "read"
+```yaml
+workflows:
+  review:
+    jobs:
+      review:
+        permissions:
+          packages: read
 # Result: packages added, contents/pull-requests/id-token/actions/issues preserved
 ```
 
-RFC 7396 also uses `null` to delete a key, but TOML has no `null` literal.
-The string sentinel `"__TEND_DELETE__"` substitutes — a pre-pass converts
-it to `None` before merging. Example: drop the cron from a scheduled
-workflow while keeping `workflow_dispatch`:
+RFC 7396 also uses `null` to delete a key, which YAML expresses natively.
+Example: drop the cron from a scheduled workflow while keeping
+`workflow_dispatch`:
 
-```toml
-[workflows.nightly.workflow_extra.on]
-schedule = "__TEND_DELETE__"
+```yaml
+workflows:
+  nightly:
+    workflow_extra:
+      on:
+        schedule: null
 ```
 
 When overrides are present, the generator renders the base template, parses it,
@@ -173,7 +184,7 @@ slightly from the base template (block-style lists, quoted `'on':` key) but is
 functionally identical.
 
 **Scope:** Workflow-level (`workflow_extra`) and job-level (`jobs.<name>`)
-overrides are supported. Step-level overrides are not — the existing `[[setup]]`
+overrides are supported. Step-level overrides are not — the existing `setup:`
 mechanism handles step injection, and step modification is deferred until there's
 concrete demand.
 
@@ -209,7 +220,7 @@ enforces this server-side regardless of the PAT's scope.
 
 ### Privilege models
 
-The `mode` field in `.config/tend.toml` selects between two privilege
+The `mode` field in `.config/tend.yaml` selects between two privilege
 models (not yet implemented — currently only write + branch protection
 exists):
 
@@ -351,7 +362,7 @@ requires a webhook handler to detect config changes.
 The adopter's experience:
 
 1. Install our GitHub App
-2. Add `.config/tend.toml` to their repo
+2. Add `.config/tend.yaml` to their repo
 3. Done. No workflow files.
 
 *Where workflows live:* Nowhere in the adopter's repo. The logic lives

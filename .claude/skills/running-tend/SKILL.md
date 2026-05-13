@@ -61,13 +61,13 @@ mapfile -t REPOS < <(
     | sort -u
 )
 
-# 2. Resolve bot_name from each repo's .config/tend.toml.
+# 2. Resolve bot_name from each repo's .config/tend.yaml.
 mkdir -p data
 {
   for repo in "${REPOS[@]}"; do
-    bot=$(gh api "repos/$repo/contents/.config/tend.toml" --jq '.content' 2>/dev/null \
+    bot=$(gh api "repos/$repo/contents/.config/tend.yaml" --jq '.content' 2>/dev/null \
       | base64 -d 2>/dev/null \
-      | sed -n 's/^bot_name *= *"\([^"]*\)".*/\1/p' | head -1)
+      | sed -nE 's/^bot_name *: *"?([A-Za-z0-9-]+)"?.*/\1/p' | head -1)
     [ -n "$bot" ] || continue
     jq -nc --arg repo "$repo" --arg bot "$bot" '{repo: $repo, bot_name: $bot}'
   done

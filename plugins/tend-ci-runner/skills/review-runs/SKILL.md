@@ -9,7 +9,7 @@ metadata:
 
 Analyze the previous night's tend CI runs in this repository. Identify behavioral problems, skill gaps, and workflow issues — then propose improvements to the repo's local skills and workflows.
 
-This skill runs **in the adopter repo**, not in tend. Improvements target `.claude/skills/` and `.config/tend.toml` in this repository.
+This skill runs **in the adopter repo**, not in tend. Improvements target `.claude/skills/` and `.config/tend.yaml` in this repository.
 
 ## First steps
 
@@ -137,7 +137,7 @@ Then, for each run ID from above, pull its jobs and classify them:
 - **Long-running** (>30 min): Tend runs typically finish in single-digit minutes. Anything over 30 is worth a look — download session logs in Step 3 and diagnose where the time went (long background waits, push-wait-fix cycles, a stuck tool call).
 - **Near-timeout** (within 90% of the cap): A job that consumed most of its timeout budget is one slow external check away from being killed. These are **structural** failures: one occurrence is enough to act on.
 
-To determine the timeout cap for a workflow, read `timeout-minutes` from the workflow YAML file (`.github/workflows/tend-*.yaml`). Tend's generated workflows do not set `timeout-minutes`, so GitHub's 360-minute default applies unless the adopter has overridden it via `[workflows.<name>.jobs.<job>.timeout-minutes]` in `.config/tend.toml`.
+To determine the timeout cap for a workflow, read `timeout-minutes` from the workflow YAML file (`.github/workflows/tend-*.yaml`). Tend's generated workflows do not set `timeout-minutes`, so GitHub's 360-minute default applies unless the adopter has overridden it via `workflows.<name>.jobs.<job>.timeout-minutes` in `.config/tend.yaml`.
 
 ```bash
 # Flag long-running and near-timeout jobs
@@ -200,7 +200,7 @@ Search titles AND bodies for related keywords.
 Improvements target **repo-local** files by default:
 
 - **`.claude/skills/`** — update or create skill overlays with guidance that prevents the identified problem. Prefer updating existing skill files over creating new ones.
-- **`.config/tend.toml`** — adjust workflow configuration if the problem is structural (e.g., wrong cron schedule, missing setup step).
+- **`.config/tend.yaml`** — adjust workflow configuration if the problem is structural (e.g., wrong cron schedule, missing setup step).
 - **`CLAUDE.md`** — add project-specific guidance if the problem is about code conventions or patterns the bot keeps getting wrong.
 
 **Bundled-skill defects — ask permission before filing in tend.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — open an issue in this repo requesting permission to file the same issue in tend. Include problem statement, run links, and proposed fix with code snippets (reused verbatim once approved). Signal: the fix reads as generic guidance that would apply to any consumer. On maintainer approval, open the tend issue.
@@ -232,7 +232,7 @@ cd -
 git worktree remove "$TMPDIR/review-runs-fix" --force
 ```
 
-`.config/tend.toml` and `CLAUDE.md` are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.
+`.config/tend.yaml` and `CLAUDE.md` are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.
 
 - **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID`, fix, commit, push, create with label `review-runs`. Put full analysis in PR description (run IDs, log excerpts, root cause, gate assessment).
 - **Issue** (fallback): Only for problems too large or ambiguous to fix directly.

@@ -177,14 +177,14 @@ Never replace wholesale — prior entries contain per-run evidence needed for ga
 
 ## Step 1: Setup
 
-Resolve the **target repo's** bot login and load repo-specific guidance upfront — both are needed throughout. `gh api user` returns the *analysis* bot (e.g., `tend-agent` when review-reviewers runs on tend), which is typically **not** the target repo's bot — filtering reviews/comments by the wrong login produces false "no bot output" negatives. Read `bot_name` from the target repo's `.config/tend.toml`:
+Resolve the **target repo's** bot login and load repo-specific guidance upfront — both are needed throughout. `gh api user` returns the *analysis* bot (e.g., `tend-agent` when review-reviewers runs on tend), which is typically **not** the target repo's bot — filtering reviews/comments by the wrong login produces false "no bot output" negatives. Read `bot_name` from the target repo's `.config/tend.yaml`:
 
 ```bash
-BOT_LOGIN=$(gh api "repos/$ARGUMENTS/contents/.config/tend.toml" --jq '.content' 2>/dev/null \
+BOT_LOGIN=$(gh api "repos/$ARGUMENTS/contents/.config/tend.yaml" --jq '.content' 2>/dev/null \
   | base64 -d 2>/dev/null \
-  | grep -E '^bot_name\s*=' | head -1 | sed -E 's/.*=\s*"?([^"]+)"?.*/\1/')
+  | grep -E '^bot_name\s*:' | head -1 | sed -E 's/.*:\s*"?([A-Za-z0-9-]+)"?.*/\1/')
 if [ -z "$BOT_LOGIN" ]; then
-  echo "ERROR: could not resolve bot_name from $ARGUMENTS/.config/tend.toml" >&2
+  echo "ERROR: could not resolve bot_name from $ARGUMENTS/.config/tend.yaml" >&2
   exit 1
 fi
 echo "BOT_LOGIN=$BOT_LOGIN (target: $ARGUMENTS)"

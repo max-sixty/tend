@@ -551,8 +551,9 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
     if wf.watched_workflows is None:
         raise click.ClickException(
             "ci-fix requires watched_workflows — specify the CI workflow(s) to monitor.\n\n"
-            "  [workflows.ci-fix]\n"
-            '  watched_workflows = ["ci"]'
+            "  workflows:\n"
+            "    ci-fix:\n"
+            '      watched_workflows: ["ci"]'
         )
     watched = wf.watched_workflows
     branches = wf.branches if wf.branches is not None else [cfg.default_branch]
@@ -805,24 +806,6 @@ def generate_review_runs(cfg: Config) -> GeneratedWorkflow:
 # Extras (workflow_extra / jobs pass-through)
 # ---------------------------------------------------------------------------
 
-# TOML has no `null` literal, so the RFC 7396 delete branch in `_deep_merge`
-# (None pops the key) is unreachable from `.config/tend.toml`. This sentinel
-# string stands in for null: a pre-pass converts it to None before merging.
-DELETE_SENTINEL = "__TEND_DELETE__"
-
-
-def _resolve_sentinels(value: object) -> object:
-    """Recursively replace DELETE_SENTINEL strings with None in mappings.
-
-    JSON Merge Patch doesn't support array element deletion, so lists are
-    passed through unchanged.
-    """
-    if value == DELETE_SENTINEL:
-        return None
-    if isinstance(value, dict):
-        return {k: _resolve_sentinels(v) for k, v in value.items()}
-    return value
-
 
 def _deep_merge(base: dict, override: dict) -> dict:
     """RFC 7396 JSON Merge Patch: mappings deep-merge, scalars/lists replace."""
@@ -849,15 +832,20 @@ def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWor
         data["on"] = data.pop(True)
 
     if wf_cfg.workflow_extra:
-        data = _deep_merge(data, _resolve_sentinels(wf_cfg.workflow_extra))
+        # Users writing `on:` (unquoted) in their workflow_extra hit the same
+        # YAML 1.1 trap that bites the generated workflows above. Normalize here
+        # so the override merges into the `on` key rather than coexisting as a
+        # stray True key in the rendered output.
+        extra = dict(wf_cfg.workflow_extra)
+        if True in extra:
+            extra["on"] = extra.pop(True)
+        data = _deep_merge(data, extra)
 
     if wf_cfg.jobs:
         jobs = data.get("jobs", {})
         for job_name, job_extra in wf_cfg.jobs.items():
             if job_name in jobs:
-                jobs[job_name] = _deep_merge(
-                    jobs[job_name], _resolve_sentinels(job_extra)
-                )
+                jobs[job_name] = _deep_merge(jobs[job_name], job_extra)
             else:
                 click.echo(
                     f"Warning: job '{job_name}' not found in {wf.filename} "
@@ -901,9 +889,10 @@ def generate_all(cfg: Config) -> list[GeneratedWorkflow]:
         if name == "ci-fix" and wf_cfg.watched_workflows is None:
             click.echo(
                 "Skipping ci-fix: watched_workflows not configured. "
-                "To enable, add to .config/tend.toml:\n\n"
-                "  [workflows.ci-fix]\n"
-                '  watched_workflows = ["ci"]',
+                "To enable, add to .config/tend.yaml:\n\n"
+                "  workflows:\n"
+                "    ci-fix:\n"
+                '      watched_workflows: ["ci"]',
                 err=True,
             )
             continue

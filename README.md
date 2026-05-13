@@ -84,7 +84,7 @@ enabled = false
 
 ## How it works
 
-`uvx tend@latest init` reads `.config/tend.toml` and writes `tend-*.yaml` workflow
+`uvx tend@latest init` reads `.config/tend.yaml` and writes `tend-*.yaml` workflow
 files into `.github/workflows/`. Each workflow handles triggers, skip
 conditions, concurrency, and permissions — then calls the composite action
 (`max-sixty/tend@v1`).
@@ -123,22 +123,22 @@ Full threat model: [docs/security-model.md](docs/security-model.md).
 
 ## Configuration
 
-`.config/tend.toml` — only `bot_name` is required:
+`.config/tend.yaml` — only `bot_name` is required:
 
-```toml
-bot_name = "my-project-bot"
+```yaml
+bot_name: my-project-bot
 ```
 
 Two repo secrets are required:
 
-| Secret                    | Value                                                                                               |
-| ------------------------- | --------------------------------------------------------------------------------------------------- |
-| `BOT_TOKEN`               | Bot account PAT — classic or fine-grained (see [example config](docs/tend.example.toml) for scopes) |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token (via PKCE flow, not an API key)                                             |
+| Secret                    | Value                                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `BOT_TOKEN`               | Bot account PAT — classic or fine-grained (see [example config](docs/tend.example.yaml) for scopes)  |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token (via PKCE flow, not an API key)                                              |
 
 All other options — secret name overrides, setup steps, protected branches,
 workflow overrides, schedules — are documented in
-[`docs/tend.example.toml`](docs/tend.example.toml).
+[`docs/tend.example.yaml`](docs/tend.example.yaml).
 
 ## Project context
 
