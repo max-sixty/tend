@@ -192,6 +192,31 @@ describe("refreshActivity", () => {
       title: `${repo}#${n}`,
       updated_at: at,
       repository_url: `https://api.github.com/repos/${repo}`,
+      number: n,
+    });
+
+    // For reviews/comments rows, the worker issues one follow-up per recent
+    // item to resolve the bot's specific review/comment anchor. Mock those.
+    const reviewUrl = (repo: string, n: number) =>
+      `https://api.github.com/repos/${repo}/pulls/${n}/reviews?per_page=100`;
+    const commentUrl = (repo: string, n: number) =>
+      `https://api.github.com/repos/${repo}/issues/${n}/comments?per_page=100`;
+    const review = (repo: string, n: number, bot: string, id: number, at: string) => ({
+      user: { login: bot },
+      html_url: `https://github.com/${repo}/pull/${n}#pullrequestreview-${id}`,
+      submitted_at: at,
+    });
+    const comment = (
+      repo: string,
+      n: number,
+      kind: "pull" | "issues",
+      bot: string,
+      id: number,
+      at: string,
+    ) => ({
+      user: { login: bot },
+      html_url: `https://github.com/${repo}/${kind}/${n}#issuecomment-${id}`,
+      created_at: at,
     });
 
     const responses = new Map<string, unknown>([
@@ -211,6 +236,17 @@ describe("refreshActivity", () => {
       [searchUrl("reviewed-by:bot-b"), { total_count: 5, items: [item("o/b", 7, "pull", oldB)] }],
       [searchUrl("commenter:bot-a -author:bot-a -reviewed-by:bot-a"), { total_count: 12, items: [item("o/a", 3, "pull", recentA)] }],
       [searchUrl("commenter:bot-b -author:bot-b -reviewed-by:bot-b"), { total_count: 4, items: [item("o/b", 8, "issues", recentB)] }],
+      // Follow-ups: pick the latest entry by the bot; the worker should land on the deepest URL.
+      [reviewUrl("o/a", 4), [
+        review("o/a", 4, "someone-else", 100, recentB),
+        review("o/a", 4, "bot-a", 101, recentA),
+      ]],
+      [reviewUrl("o/b", 7), [review("o/b", 7, "bot-b", 202, oldB)]],
+      [commentUrl("o/a", 3), [
+        comment("o/a", 3, "pull", "bot-a", 301, recentB),
+        comment("o/a", 3, "pull", "bot-a", 302, recentA), // newest by created_at
+      ]],
+      [commentUrl("o/b", 8), [comment("o/b", 8, "issues", "bot-b", 401, recentB)]],
     ]);
     globalThis.fetch = makeFetch(responses) as unknown as typeof fetch;
 
@@ -243,19 +279,102 @@ describe("refreshActivity", () => {
       count: 14, // 9 + 5
       count_this_week: 1, // o/a#4 recent; o/b#7 old
       recent: [
-        { repo: "o/a", title: "o/a#4", url: "https://github.com/o/a/pull/4", at: recentA },
-        { repo: "o/b", title: "o/b#7", url: "https://github.com/o/b/pull/7", at: oldB },
+        // url resolved to the bot's actual review anchor, not the PR top.
+        { repo: "o/a", title: "o/a#4", url: "https://github.com/o/a/pull/4#pullrequestreview-101", at: recentA },
+        { repo: "o/b", title: "o/b#7", url: "https://github.com/o/b/pull/7#pullrequestreview-202", at: oldB },
       ],
     });
     expect(out.comments).toEqual({
       count: 16, // 12 + 4
       count_this_week: 2,
       recent: [
-        { repo: "o/a", title: "o/a#3", url: "https://github.com/o/a/pull/3", at: recentA },
-        { repo: "o/b", title: "o/b#8", url: "https://github.com/o/b/issues/8", at: recentB },
+        // newest comment by the bot wins (302 vs 301).
+        { repo: "o/a", title: "o/a#3", url: "https://github.com/o/a/pull/3#issuecomment-302", at: recentA },
+        { repo: "o/b", title: "o/b#8", url: "https://github.com/o/b/issues/8#issuecomment-401", at: recentB },
       ],
     });
     expect(out.generated_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  });
+
+  it("falls back to the parent URL when the follow-up fetch fails", async () => {
+    const { __test } = await import("../src/index");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/data/consumers.json")) {
+        return new Response(
+          JSON.stringify([{ repo: "o/r", bot_name: "bot-a" }]),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/search/issues")) {
+        // `commenter:...-reviewed-by:...` contains both keywords; match
+        // `commenter` first so it doesn't fall through to the reviews case.
+        if (url.includes("commenter")) {
+          return new Response(
+            JSON.stringify({
+              total_count: 1,
+              items: [
+                {
+                  html_url: "https://github.com/o/r/issues/6",
+                  title: "Issue 6",
+                  updated_at: "2026-05-10T00:00:00Z",
+                  repository_url: "https://api.github.com/repos/o/r",
+                  number: 6,
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes("reviewed-by")) {
+          return new Response(
+            JSON.stringify({
+              total_count: 1,
+              items: [
+                {
+                  html_url: "https://github.com/o/r/pull/5",
+                  title: "PR 5",
+                  updated_at: "2026-05-10T00:00:00Z",
+                  repository_url: "https://api.github.com/repos/o/r",
+                  number: 5,
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ total_count: 0, items: [] }), { status: 200 });
+      }
+      // Follow-up review lookup 404s; follow-up comment lookup returns no bot match.
+      if (url.includes("/pulls/5/reviews")) {
+        return new Response("not found", { status: 404 });
+      }
+      if (url.includes("/issues/6/comments")) {
+        return new Response(
+          JSON.stringify([
+            { user: { login: "someone-else" }, html_url: "x", created_at: "2026-05-10T00:00:00Z" },
+          ]),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }) as unknown as typeof fetch;
+
+    const env = {
+      GITHUB_TOKEN: "tok",
+      CACHE: makeFakeKv(),
+      ALLOWED_ORIGIN: "*",
+      REPOS_URL:
+        "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
+    };
+    const out = await __test.refreshActivity(env);
+    // Both buckets fall back to the parent URL rather than dropping the row.
+    expect(out.reviews.recent).toEqual([
+      { repo: "o/r", title: "PR 5", url: "https://github.com/o/r/pull/5", at: "2026-05-10T00:00:00Z" },
+    ]);
+    expect(out.comments.recent).toEqual([
+      { repo: "o/r", title: "Issue 6", url: "https://github.com/o/r/issues/6", at: "2026-05-10T00:00:00Z" },
+    ]);
   });
 
   it("degrades a failed bucket query to an empty bucket without sinking the refresh", async () => {
