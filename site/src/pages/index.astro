@@ -10,40 +10,46 @@ const areas = [
     eyebrow: "i.",
     title: "PR reviews",
     body: [
-      "Reads each pull request as it opens or updates. Traces error paths, names duplication, and flags places the change doesn't quite line up with what's already in the tree.",
-      "For PRs the bot itself authored, it goes further: it pushes the small mechanical fixes back to the branch so the human reviewer doesn't have to.",
+      "Reads each pull request as it opens or updates. Traces error paths, names duplication, and flags where the change cuts against the existing code.",
+      "On its own PRs it goes further — pushes the small mechanical fixes straight to the branch.",
     ],
   },
   {
     eyebrow: "ii.",
     title: "Issue triage",
     body: [
-      "When an issue opens, tend classifies it, checks against the existing backlog for duplicates, and attempts to reproduce any reported bug.",
-      "If the fix is small and conservative, it'll draft one. Otherwise it leaves a clean, specific note for whoever picks the issue up.",
+      "When an issue opens, tend classifies it, checks the backlog for duplicates, and tries to reproduce any reported bug.",
+      "If the fix is small and conservative, it'll draft one. Otherwise it leaves a clear note for whoever picks it up.",
     ],
   },
   {
     eyebrow: "iii.",
-    title: "Work delegation",
+    title: "CI fixes",
     body: [
-      "Mention the bot in a PR or issue thread and it'll take a pass at what you asked — read the diff, run a check, draft a change, answer the question.",
-      "The human stays in the loop. Tend does the grunt work.",
+      "When the default branch goes red, tend reads the failed run, finds the underlying cause, and opens a PR with the fix.",
     ],
   },
   {
     eyebrow: "iv.",
-    title: "Nightly & weekly maintenance",
+    title: "Work delegation",
     body: [
-      "Overnight it resolves merge conflicts on open PRs, reviews recent commits, sweeps a handful of files for stale docs and small bugs, and closes issues that have quietly been resolved.",
-      "On a weekly cadence it works through dependency PRs, auto-merging the safe patch and minor bumps it can verify.",
+      "Mention the bot in a PR or issue and it takes a pass at what you asked — read the diff, run a check, draft a change, answer the question.",
+      "You stay in the loop. Tend does the grunt work.",
     ],
   },
   {
     eyebrow: "v.",
-    title: "Docs & code-quality audits",
+    title: "Nightly & weekly maintenance",
     body: [
-      "Each day tend reads the previous day's CI runs of its own workflows, looks for behaviour that didn't sit right, and proposes adjustments to its skills and config.",
-      "An agent that watches its own work, and edits its own instructions when it should.",
+      "Overnight it resolves merge conflicts on open PRs, reviews the day's commits, sweeps a few files for stale docs and small bugs, and closes issues that quietly got fixed.",
+      "Each week it works through dependency PRs — approving the patch and minor bumps with green CI, flagging the rest.",
+    ],
+  },
+  {
+    eyebrow: "vi.",
+    title: "Self-review",
+    body: [
+      "Each day tend reads the previous day's runs of its own workflows, looks for behaviour that didn't sit right, and proposes adjustments to its skills and config.",
     ],
   },
 ];
@@ -53,9 +59,9 @@ const areas = [
   <!-- ===== HERO ===== -->
   <section class="hero">
     <div>
-      <p class="section-eyebrow">an agent · maintained by you</p>
+      <p class="section-eyebrow">an agent · tending your repo</p>
       <h1>Tend</h1>
-      <p class="tagline">A dutiful junior maintainer for your repo — quietly reviewing PRs, triaging issues, and looking after the corners no one else has time for.</p>
+      <p class="tagline">A dutiful junior maintainer for your repo — quietly reviewing PRs, triaging issues, fixing CI, and keeping up with the day-to-day so the queue is never waiting on you.</p>
 
       <pre class="install"><code>claude plugin marketplace add max-sixty/tend
 claude plugin install install-tend@tend
@@ -113,7 +119,7 @@ claude /install-tend</code></pre>
   <!-- ===== QUICK START ===== -->
   <section id="quick-start">
     <p class="section-eyebrow">getting started</p>
-    <p class="section-lead">Three commands and ten to fifteen minutes.</p>
+    <p class="section-lead">Three commands and five to ten minutes.</p>
 
     <div class="marginalia">
       <div class="margin-note">install</div>
@@ -151,11 +157,13 @@ claude /install-tend</code></pre>
       <div class="body">
         <p>
           Tend gives Claude write access to a repository. The primary boundary
-          is a GitHub ruleset that prevents the bot from merging to protected
-          branches — bot-authored PRs require human approval, and tend's setup
-          script verifies and (if you ask) creates that ruleset for you. On top
-          of that sit config-pinning, burst-and-spike rate limiting, and fixed
-          workflow prompts that never read attacker-controlled input.
+          is a GitHub ruleset that blocks the bot from merging to protected
+          branches — whoever opened the PR, however it's been reviewed — so
+          every change lands through a human merge; tend's setup script verifies
+          and (if you ask) creates that ruleset for you. On top of that sit
+          config-pinning, burst-and-spike rate limiting, and a fixed prompt and
+          skill set: an attacker who controls a PR diff or an issue body can
+          shape what Claude reads, never the instructions it follows.
         </p>
         <p>
           <a href="https://github.com/max-sixty/tend/blob/main/docs/security-model.md">
