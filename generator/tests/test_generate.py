@@ -815,6 +815,50 @@ def test_job_extras_replace_if_for_skip_review_label(tmp_path: Path) -> None:
     assert "steps" in data["jobs"]["review"]
 
 
+def test_delete_sentinel_drops_top_level_key(tmp_path: Path) -> None:
+    """`"__TEND_DELETE__"` in workflow_extra removes the targeted key.
+
+    TOML has no `null` literal, so this sentinel string substitutes for None
+    to reach RFC 7396's delete branch.
+    """
+    extra = dedent("""\
+        [workflows.nightly.workflow_extra.on]
+        schedule = "__TEND_DELETE__"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(workflows["tend-nightly.yaml"].content)
+    assert "schedule" not in data["on"]
+    assert "workflow_dispatch" in data["on"]
+
+
+def test_delete_sentinel_drops_nested_key(tmp_path: Path) -> None:
+    """Sentinel works at any depth inside a job override."""
+    extra = dedent("""\
+        [workflows.review.jobs.review.permissions]
+        issues = "__TEND_DELETE__"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    perms = yaml.safe_load(workflows["tend-review.yaml"].content)["jobs"]["review"][
+        "permissions"
+    ]
+    assert "issues" not in perms
+    assert perms["contents"] == "write"
+
+
+def test_delete_sentinel_drops_missing_key_is_noop(tmp_path: Path) -> None:
+    """Deleting a key that doesn't exist is silently a no-op (RFC 7396)."""
+    extra = dedent("""\
+        [workflows.review.workflow_extra]
+        nonexistent = "__TEND_DELETE__"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(workflows["tend-review.yaml"].content)
+    assert "nonexistent" not in data
+
+
 def test_unknown_job_warns(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     extra = dedent("""\
         [workflows.review.jobs.nonexistent]
