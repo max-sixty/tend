@@ -67,7 +67,7 @@ mkdir -p data
   for repo in "${REPOS[@]}"; do
     bot=$(gh api "repos/$repo/contents/.config/tend.yaml" --jq '.content' 2>/dev/null \
       | base64 -d 2>/dev/null \
-      | sed -nE 's/^bot_name *: *"?([A-Za-z0-9-]+)"?.*/\1/p' | head -1)
+      | yq '.bot_name // ""' 2>/dev/null)
     [ -n "$bot" ] || continue
     jq -nc --arg repo "$repo" --arg bot "$bot" '{repo: $repo, bot_name: $bot}'
   done

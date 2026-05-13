@@ -107,8 +107,8 @@ class Config:
             if path == Path(".config/tend.yaml") and legacy.exists():
                 raise click.ClickException(
                     f"Found {legacy} but tend now reads {path}. "
-                    "Rename the file and translate its contents to YAML. "
-                    "See docs/tend.example.yaml for the new format."
+                    "Run `uvx tend@latest migrate` to convert "
+                    "(verifies the parsed config is equivalent, then deletes the TOML)."
                 )
             raise click.ClickException(f"Config not found: {path}")
         with path.open() as f:

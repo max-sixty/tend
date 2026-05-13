@@ -16,6 +16,7 @@ from tend.checks import (
     run_all_checks,
 )
 from tend.config import Config
+from tend.migrate import migrate_toml_to_yaml
 from tend.workflows import generate_all
 
 
@@ -165,3 +166,28 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
             raise SystemExit(1)
     else:
         raise SystemExit(1)
+
+
+@main.command()
+@click.option(
+    "--toml-path",
+    type=click.Path(exists=True, path_type=Path),
+    default=Path(".config/tend.toml"),
+    show_default=True,
+)
+@click.option(
+    "--yaml-path",
+    type=click.Path(path_type=Path),
+    default=Path(".config/tend.yaml"),
+    show_default=True,
+)
+def migrate(toml_path: Path, yaml_path: Path) -> None:
+    """Convert a legacy .config/tend.toml to .config/tend.yaml.
+
+    One-shot upgrade path for adopters bumping past the TOML→YAML cutover.
+    Verifies the parsed structures match before writing, then deletes the
+    TOML.
+    """
+    migrate_toml_to_yaml(toml_path, yaml_path)
+    click.echo(f"Migrated {toml_path} → {yaml_path}")
+    click.echo("Run `tend init` to regenerate workflows from the new config.")

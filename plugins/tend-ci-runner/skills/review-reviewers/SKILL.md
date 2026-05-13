@@ -182,7 +182,7 @@ Resolve the **target repo's** bot login and load repo-specific guidance upfront 
 ```bash
 BOT_LOGIN=$(gh api "repos/$ARGUMENTS/contents/.config/tend.yaml" --jq '.content' 2>/dev/null \
   | base64 -d 2>/dev/null \
-  | grep -E '^bot_name\s*:' | head -1 | sed -E 's/.*:\s*"?([A-Za-z0-9-]+)"?.*/\1/')
+  | yq '.bot_name // ""' 2>/dev/null)
 if [ -z "$BOT_LOGIN" ]; then
   echo "ERROR: could not resolve bot_name from $ARGUMENTS/.config/tend.yaml" >&2
   exit 1
