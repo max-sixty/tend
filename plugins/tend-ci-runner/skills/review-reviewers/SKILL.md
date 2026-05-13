@@ -162,10 +162,12 @@ After applying the gates, write each run's new findings (format in `@review-gate
 ```bash
 # Verify the run heading references this run's $GITHUB_RUN_ID literally —
 # fabricated round numbers produce dead Workflow links, see @review-gates.md.
-if ! grep -qF "$GITHUB_RUN_ID" /tmp/findings.md; then
+# `|| { …; exit 1; }` rather than `if ! grep …`: the Bash-tool preprocessor
+# rewrites `!` to backslash-bang and silently inverts the if-condition.
+grep -qF "$GITHUB_RUN_ID" /tmp/findings.md || {
   echo "ERROR: /tmp/findings.md does not contain \$GITHUB_RUN_ID=$GITHUB_RUN_ID — refusing to PATCH gist" >&2
   exit 1
-fi
+}
 cat /tmp/current.md /tmp/findings.md > /tmp/combined.md
 jq -n --rawfile content /tmp/combined.md \
   '{files: {"findings.md": {content: $content}}}' \
