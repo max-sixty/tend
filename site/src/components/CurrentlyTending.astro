@@ -5,15 +5,16 @@
 // runs. Hidden only when both requests fail.
 ---
 
-<p id="now-tending" class="now-tending" hidden></p>
+<a id="now-tending" class="now-tending" href="#recent-activity" hidden></a>
 
 <script>
   import { fetchJson, liveData } from "../lib/api";
-  import { relativeTime } from "../lib/time";
+  import { elapsedTime, relativeTime } from "../lib/time";
 
   interface Run {
     repo: string;
     workflow: string;
+    started_at: string;
   }
   interface Bucket {
     recent?: Array<{ at: string }>;
@@ -42,7 +43,17 @@
         const r = runs[0];
         const workflow = r.workflow.replace(/^tend-/, "");
         const more = runs.length > 1 ? ` (+${runs.length - 1} more)` : "";
-        paint(el, "live", `tending ${r.repo} · ${workflow}${more}`);
+        const startedMs = Date.parse(r.started_at);
+        const render = () => {
+          const elapsed = elapsedTime(r.started_at);
+          if (!elapsed) {
+            paint(el, "live", `tending ${r.repo} · ${workflow}${more}`);
+            return;
+          }
+          paint(el, "live", `tending ${r.repo} · ${workflow} · ${elapsed}${more}`);
+        };
+        render();
+        if (!Number.isNaN(startedMs)) setInterval(render, 1000);
         return true;
       }
 
