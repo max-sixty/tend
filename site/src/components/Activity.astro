@@ -1,7 +1,8 @@
 ---
-// Recent activity feed — runtime-fetched from api.tend-src.com/activity.
-// Stays hidden until the fetch returns a non-empty list, so a Worker outage
-// or empty data degrades to no section at all rather than a broken state.
+// Recent activity feed — runtime-fetched from api.tend-src.com/activity, merged
+// with in-flight runs from /currently-tending so an idle-but-actively-tending
+// state still shows the section. Stays hidden until the merged list is
+// non-empty, so a Worker outage or empty data degrades to no section at all.
 ---
 
 <section id="recent-activity" class="recent-activity" hidden>
@@ -17,8 +18,8 @@
 </section>
 
 <script>
-  import { liveData } from "../lib/api";
-  import { relativeTime } from "../lib/time";
+  import { fetchJson, liveData } from "../lib/api";
+  import { elapsedTime, relativeTime } from "../lib/time";
 
   const MAX_ROWS = 12; // the buckets hold up to ~10 each; this section shows a merged slice
 
@@ -37,12 +38,47 @@
     reviews?: Bucket;
     comments?: Bucket;
   }
+  interface Run {
+    repo: string;
+    workflow: string;
+    started_at: string;
+    run_url: string;
+  }
 
-  type Kind = "pr" | "issue" | "review" | "comment";
-  const KIND_LABELS: Record<Kind, string> = { pr: "PR", issue: "issue", review: "review", comment: "comment" };
+  type Kind = "pr" | "issue" | "review" | "comment" | "tending";
+  const KIND_LABELS: Record<Kind, string> = {
+    pr: "PR",
+    issue: "issue",
+    review: "review",
+    comment: "comment",
+    tending: "tending",
+  };
 
-  liveData<Activity>("/activity", "recent-activity", (data) => {
+  function updateTendingTimes(): void {
+    const cells = document.querySelectorAll<HTMLTimeElement>(
+      ".activity-row .at[data-started-at]",
+    );
+    for (const cell of cells) {
+      const startedAt = cell.dataset.startedAt;
+      if (!startedAt) continue;
+      cell.textContent = elapsedTime(startedAt);
+    }
+  }
+
+  liveData<Activity>("/activity", "recent-activity", async (data) => {
+    const tending = await fetchJson<{ currently_tending?: Run[] }>("/currently-tending");
+    const tendingRows: Array<RecentItem & { kind: Kind }> = (tending?.currently_tending ?? []).map(
+      (r) => ({
+        kind: "tending" as const,
+        repo: r.repo,
+        title: r.workflow.replace(/^tend-/, ""),
+        url: r.run_url,
+        at: r.started_at,
+      }),
+    );
+
     const rows: Array<RecentItem & { kind: Kind }> = [
+      ...tendingRows,
       ...(data?.prs?.recent ?? []).map((r) => ({ ...r, kind: "pr" as const })),
       ...(data?.issues?.recent ?? []).map((r) => ({ ...r, kind: "issue" as const })),
       ...(data?.reviews?.recent ?? []).map((r) => ({ ...r, kind: "review" as const })),
@@ -75,10 +111,19 @@
       const time = document.createElement("time");
       time.className = "at";
       time.dateTime = e.at;
-      time.textContent = relativeTime(e.at);
+      if (e.kind === "tending") {
+        time.dataset.startedAt = e.at;
+        time.textContent = elapsedTime(e.at);
+      } else {
+        time.textContent = relativeTime(e.at);
+      }
 
       li.append(kind, repo, link, time);
       ul.appendChild(li);
+    }
+
+    if (top.some((r) => r.kind === "tending")) {
+      setInterval(updateTendingTimes, 1000);
     }
     return true;
   });

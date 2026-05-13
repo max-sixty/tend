@@ -5,15 +5,16 @@
 // runs. Hidden only when both requests fail.
 ---
 
-<p id="now-tending" class="now-tending" hidden></p>
+<a id="now-tending" class="now-tending" href="#recent-activity" hidden></a>
 
 <script>
   import { fetchJson, liveData } from "../lib/api";
-  import { relativeTime } from "../lib/time";
+  import { elapsedTime, relativeTime } from "../lib/time";
 
   interface Run {
     repo: string;
     workflow: string;
+    started_at: string;
   }
   interface Bucket {
     recent?: Array<{ at: string }>;
@@ -25,12 +26,13 @@
     comments?: Bucket;
   }
 
-  function paint(el: HTMLElement, state: "live" | "idle", text: string): void {
+  function paint(el: HTMLElement, state: "live" | "idle", text: string): HTMLSpanElement {
     const dot = document.createElement("span");
     dot.className = `now-dot now-dot-${state}`;
     const label = document.createElement("span");
     label.textContent = text;
     el.replaceChildren(dot, label);
+    return label;
   }
 
   liveData<{ currently_tending?: Run[] }>(
@@ -42,7 +44,17 @@
         const r = runs[0];
         const workflow = r.workflow.replace(/^tend-/, "");
         const more = runs.length > 1 ? ` (+${runs.length - 1} more)` : "";
-        paint(el, "live", `tending ${r.repo} · ${workflow}${more}`);
+        const startedMs = Date.parse(r.started_at);
+        const buildText = () => {
+          const elapsed = elapsedTime(r.started_at);
+          return elapsed
+            ? `tending ${r.repo} · ${workflow} · ${elapsed}${more}`
+            : `tending ${r.repo} · ${workflow}${more}`;
+        };
+        const label = paint(el, "live", buildText());
+        if (!Number.isNaN(startedMs)) {
+          setInterval(() => { label.textContent = buildText(); }, 1000);
+        }
         return true;
       }
 
