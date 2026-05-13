@@ -26,12 +26,13 @@
     comments?: Bucket;
   }
 
-  function paint(el: HTMLElement, state: "live" | "idle", text: string): void {
+  function paint(el: HTMLElement, state: "live" | "idle", text: string): HTMLSpanElement {
     const dot = document.createElement("span");
     dot.className = `now-dot now-dot-${state}`;
     const label = document.createElement("span");
     label.textContent = text;
     el.replaceChildren(dot, label);
+    return label;
   }
 
   liveData<{ currently_tending?: Run[] }>(
@@ -44,16 +45,16 @@
         const workflow = r.workflow.replace(/^tend-/, "");
         const more = runs.length > 1 ? ` (+${runs.length - 1} more)` : "";
         const startedMs = Date.parse(r.started_at);
-        const render = () => {
+        const buildText = () => {
           const elapsed = elapsedTime(r.started_at);
-          if (!elapsed) {
-            paint(el, "live", `tending ${r.repo} · ${workflow}${more}`);
-            return;
-          }
-          paint(el, "live", `tending ${r.repo} · ${workflow} · ${elapsed}${more}`);
+          return elapsed
+            ? `tending ${r.repo} · ${workflow} · ${elapsed}${more}`
+            : `tending ${r.repo} · ${workflow}${more}`;
         };
-        render();
-        if (!Number.isNaN(startedMs)) setInterval(render, 1000);
+        const label = paint(el, "live", buildText());
+        if (!Number.isNaN(startedMs)) {
+          setInterval(() => { label.textContent = buildText(); }, 1000);
+        }
         return true;
       }
 
