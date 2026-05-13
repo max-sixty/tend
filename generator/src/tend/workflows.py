@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import io
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -14,12 +15,22 @@ from tend.config import Config, WorkflowConfig
 
 # ruamel.yaml defaults to YAML 1.2, where `on`/`yes`/`no`/`off` are strings,
 # not booleans — sidesteps PyYAML's `on:` → True trap and the Norway problem.
-# typ="rt" preserves insertion order (matters for diff stability on regen);
-# typ="safe" would sort keys alphabetically.
+# typ="rt" preserves insertion order and per-scalar style (matters for diff
+# stability on regen); typ="safe" would sort keys alphabetically.
 _YAML_BLOCK = YAML(typ="rt", pure=True)
 _YAML_BLOCK.default_flow_style = False
 _YAML_BLOCK.width = 200
 _YAML_BLOCK.allow_unicode = True
+# Round-trip explicit quoting on scalars (e.g. `cron: "17 6 * * *"` stays
+# quoted). Without this, ruamel drops quotes on any string that's safe to
+# unquote under YAML 1.2 — a meaningless style churn on regen.
+_YAML_BLOCK.preserve_quotes = True
+# Match the hand-rendered templates' 6-space `- uses:` under `steps:` (the
+# `-` lives at parent-column + offset, the content at parent-column +
+# sequence). Without this, `_apply_extras`-applied workflows reformat every
+# step block (4→6 column for `-`, 4→8 for content) on regen — a churn diff
+# for any consumer with `workflow_extra` or per-job overrides.
+_YAML_BLOCK.indent(mapping=2, sequence=4, offset=2)
 
 _YAML_FLOW = YAML(typ="safe", pure=True)
 _YAML_FLOW.default_flow_style = True
@@ -822,8 +833,14 @@ def generate_review_runs(cfg: Config) -> GeneratedWorkflow:
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    """RFC 7396 JSON Merge Patch: mappings deep-merge, scalars/lists replace."""
-    result = dict(base)
+    """RFC 7396 JSON Merge Patch: mappings deep-merge, scalars/lists replace.
+
+    `base` is deep-copied so ruamel.yaml `CommentedMap` style metadata
+    (key order, scalar quoting, sequence indentation) survives the merge —
+    without this, `_apply_extras`-applied workflows lose all rendering
+    style on every regen, even for keys the user didn't override.
+    """
+    result = copy.deepcopy(base)
     for key, value in override.items():
         if value is None:
             result.pop(key, None)
@@ -856,11 +873,12 @@ def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWor
                     err=True,
                 )
 
+    # `typ="rt"` preserves the leading HEADER comment block on load, so it
+    # round-trips into the dumped output. Don't prepend HEADER manually
+    # here or it appears twice.
     buf = io.StringIO()
     _YAML_BLOCK.dump(data, buf)
-    return GeneratedWorkflow(
-        filename=wf.filename, content=HEADER + "\n" + buf.getvalue()
-    )
+    return GeneratedWorkflow(filename=wf.filename, content=buf.getvalue())
 
 
 # ---------------------------------------------------------------------------

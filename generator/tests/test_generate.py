@@ -940,3 +940,26 @@ def test_workflow_with_setup_regtest(
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = GENERATORS[name](cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_extras_apply_path_regtest(regtest: object, tmp_path: Path) -> None:
+    """Snapshot the workflow with both `workflow_extra` and per-job overrides
+    applied — exercises the `_apply_extras` round-trip path that the other
+    regtests skip. Catches renderer drift (lost quoting, indent changes,
+    duplicated headers, key-order churn) on any change to the ruamel.yaml
+    dumper config or `_deep_merge` semantics."""
+    extra = dedent("""\
+        workflows:
+          review:
+            workflow_extra:
+              env:
+                FOO: bar
+            jobs:
+              review:
+                timeout-minutes: 240
+                permissions:
+                  packages: read
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    print(workflows["tend-review.yaml"].content, end="", file=regtest)  # type: ignore[arg-type]
