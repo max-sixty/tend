@@ -130,47 +130,9 @@ bad PR, post misleading comments, or dismiss legitimate review concerns. Fixed
 prompts and skill instructions reduce this risk but can't eliminate it —
 Claude ultimately reasons about attacker-controlled text.
 
-## What we could do but don't
-
-**GitHub App instead of PAT.** App installation tokens expire in ~1 hour
-and are scoped to specific repos. This is the single highest-impact
-improvement for token leak risk. Not yet implemented because it requires
-either per-adopter App registration (friction) or tend-hosted infrastructure
-(Model A in DESIGN.md's Auth section).
-
-**Haiku pre-screening of diffs.** Before the main Claude session starts, a
-cheap fast-model pass could scan the diff for suspicious patterns:
-modifications to build scripts, `curl | sh`, base64-encoded strings,
-environment variable reads targeting known secret names. Cost is ~$0.001 per
-PR. Rejected as a security *boundary* (trivial to evade) but potentially
-useful as a tripwire against unsophisticated attacks. Not yet implemented.
-
-**Read-only mode for fork PRs.** Restrict `allowed_tools` to `Glob`, `Grep`,
-`Read`, and comment-posting MCP tools — no `Bash`, `Edit`, or `Write`. Claude
-can review the diff and post comments but can't execute code or push commits.
-This would close the "attacker-controlled code execution" gap entirely for
-fork PRs. The tradeoff: the bot can't suggest fixes on fork PRs, only
-review them.
-
-**Network isolation.** Self-hosted runners with outbound traffic restricted
-to GitHub API and Anthropic API endpoints would prevent token exfiltration via
-HTTP/DNS. Not viable on GitHub-hosted runners and adds significant
-infrastructure overhead for self-hosted setups.
-
-**Subprocess environment scrubbing.** `claude-code-action` supports
-`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, which strips sensitive environment
-variables before spawning subprocesses. Currently only activated when
-`allowed_non_write_users` is set. Could be enabled for all fork PRs to make
-naive `echo $GITHUB_TOKEN` attacks fail — though a subprocess can read the
-parent's unscrubbed environment via `/proc/$PPID/environ` (same-user, no
-privilege barrier on GitHub-hosted runners).
-
-**Workflow dispatch isolation.** Split each workflow into an analysis job
-(runs with `GITHUB_TOKEN`, reads the diff, produces a plan) and a push job
-(separate workflow triggered by `workflow_run`, uses the bot token). The bot
-token never enters a job that touches attacker-controlled code. Significant
-complexity increase — every workflow becomes two workflows with artifact
-passing between them.
+Deferred hardening options (Haiku pre-screening, read-only fork PRs, network
+isolation, subprocess env scrubbing, workflow-dispatch isolation, GitHub App
+in place of PAT) live in `TODO.md`.
 
 ---
 

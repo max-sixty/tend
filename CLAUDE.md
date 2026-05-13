@@ -12,6 +12,28 @@ uvx tend@latest init --dry-run         # preview without writing
 uvx tend@latest check                  # verify branch protection, secrets, bot access
 ```
 
+## Architecture
+
+Four pieces:
+
+1. **Plugins** — `install-tend` (user-facing setup) and `tend-ci-runner` (CI
+   skills). Both ship from the same marketplace.
+2. **Composite action** (`max-sixty/tend@v1`) — the stable interface.
+   Resolves the bot's numeric ID at runtime, invokes `claude-code-action`,
+   uploads session logs. Inputs documented in `action.yaml`. The action
+   doesn't know or care about triggers, checkout, or project setup.
+3. **Generator** (`uvx tend@latest init`) — stamps workflow files into
+   the adopter's `.github/workflows/` from `.config/tend.toml`. Generation
+   is idempotent — running `init` again overwrites all files from the
+   current config.
+4. **Config** (`.config/tend.toml`) — inputs to the generator. Overrides
+   from defaults only. All six workflows are enabled by default.
+
+Generated workflows are standalone — full `steps:` jobs, not
+`workflow_call`. The generator owns the entire file. Project setup (build
+tools, caches, env vars) is defined in the `[setup]` section of the config
+and rendered into each workflow.
+
 ## Structure
 
 ```
@@ -34,7 +56,6 @@ tend/
 ├── worker/               # Cloudflare Worker — serves the 2 site data streams
 ├── data/                 # consumers.json — Worker's input (refreshed weekly)
 └── docs/
-    ├── activity-stream-design.md
     └── security-model.md
 ```
 
@@ -60,6 +81,119 @@ and the next release, the local workflows lag the in-tree generator, and
 that is expected; the gap closes at the next release.
 
 Linting: `pre-commit run --all-files` (ruff, typos, actionlint, uv-lock).
+
+## Generator vs adopter ownership
+
+| Aspect | Owner | Lives in |
+|---|---|---|
+| Trigger events (`on:`) | Generator | generated workflow |
+| Filter conditions (`if:`) | Generator | generated workflow |
+| Engagement verification (mention) | Generator | generated workflow |
+| Concurrency groups | Generator | generated workflow |
+| Permissions | Generator | generated workflow |
+| Checkout | Generator | generated workflow |
+| Composite action call | Generator | generated workflow |
+| Project setup (build tools, cache) | Adopter | `[setup]` in `.config/tend.toml` |
+| Bot identity, auth config | Adopter | `.config/tend.toml` |
+| Skills (generic) | Tend | `tend` plugin (marketplace) |
+| Skills (project-specific) | Adopter | `.claude/skills/` in their repo |
+
+## Workflow overrides
+
+Adopters extend generated workflows via TOML keys that the generator
+merges into the rendered YAML using RFC 7396 (JSON Merge Patch — mappings
+deep-merge, scalars and lists replace):
+
+```toml
+[workflows.review.workflow_extra.env]
+MY_VAR = "hello"
+
+[workflows.review.jobs.review]
+timeout-minutes = 240
+runs-on = "ubuntu-22.04-large"
+```
+
+TOML has no `null` literal, so the string sentinel `"__TEND_DELETE__"`
+substitutes for RFC 7396's null-deletes:
+
+```toml
+[workflows.nightly.workflow_extra.on]
+schedule = "__TEND_DELETE__"   # drop cron, keep workflow_dispatch
+```
+
+Workflow-level (`workflow_extra`) and job-level (`jobs.<name>`) overrides
+are supported; step-level is not — the `[[setup]]` mechanism handles step
+injection. No allowlist of override keys; unknown job names produce a
+warning.
+
+When overrides are present, the generator renders the base template,
+parses it, merges the overrides, and re-serializes. Output YAML formatting
+differs slightly from the base template (block-style lists, quoted `'on':`
+key) but is functionally identical.
+
+## Auth
+
+Each adopter creates a GitHub bot account and a classic PAT (`public_repo`
+for public repos, `repo` for private) plus `workflow`, `notifications`,
+`write:discussion`, `gist`, `user`. The PAT and a Claude OAuth token are
+stored as repo secrets. The `gist` scope supports bot-owned secret gists
+used by `review-reviewers` as a per-month structured evidence store
+(avoids the 65 KB comment-body limit). The `user` scope lets `install-tend`
+set the bot's profile bio (`PATCH /user`) so the account's authorization
+stance is discoverable on the bot's user page.
+
+Classic PATs are all-or-nothing — `public_repo` grants full write to every
+public repo the user can access. Fine-grained PATs allow per-category
+scoping but don't support outside collaborators ([GitHub roadmap
+#601](https://github.com/github/roadmap/issues/601), not shipped).
+
+**Current privilege model: write + branch protection.** The bot has write
+access; a merge restriction (ruleset or branch protection) is the primary
+security boundary — without it the bot can merge its own PRs. `tend check`
+verifies this is configured correctly. See `docs/security-model.md` for the
+full threat model. Alternative models (GitHub App, triage+fork) are in
+`TODO.md`.
+
+## Concurrency and filtering
+
+Events pass through three layers before the bot does work:
+
+1. **GHA `if:` conditions** — evaluated by Actions before the job starts.
+   A false condition skips the job entirely (never enters the concurrency
+   group, never queues).
+2. **Custom `should_run` logic** (mention only) — a lightweight verify job
+   checks engagement before the expensive handle job runs.
+3. **Concurrency groups** — at most one running job per group.
+
+Concurrency groups:
+
+| Workflow | Group key | Cancel-in-progress |
+|---|---|---|
+| review | `workflow-PR#` | yes — new push invalidates a review |
+| mention/verify | none | stateless |
+| mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
+| triage | `workflow-issue#` | yes — latest comment wins |
+| ci-fix / nightly / weekly | none | rare overlap or cron-serialized |
+
+**Fork guard.** Workflows whose triggers can fire from a fork's own
+Actions (`schedule`, `workflow_dispatch`, `workflow_run`, `issues`) carry
+`if: github.repository_owner == '<owner>'` so a fork that's enabled
+Actions but doesn't have the bot/Claude secrets no-ops cleanly. The
+canonical owner is detected at `init` time (via `gh repo view`, walking
+`source.owner.login` if the local repo is itself a fork) and pinned in
+the generated workflow. `tend-review` uses `pull_request_target` (base
+repo only) and `tend-mention`'s review-event paths already filter forks
+via `head.repo.full_name == github.repository`, so neither needs the
+guard.
+
+**GHA queue depth = 1.** With `cancel-in-progress: false` (mention/handle),
+when a third job arrives while one runs and one queues, the pending job is
+replaced. Mitigation lives in the skill prompts: dedup if the bot already
+responded to the triggering comment; self-heal earlier comments without a
+bot reply (oldest first). The workflow injects the queue-to-run time delta
+(seconds between event timestamp and job start) into the prompt — over
+~40 s indicates the job was queued behind another run, making conversation
+drift more likely.
 
 ## Skill design: bundled for everyone, overlay for one
 
