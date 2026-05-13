@@ -31,9 +31,10 @@ tend/
 │   │   └── cli.py        # Click CLI (init, check)
 │   └── tests/
 ├── site/                 # Astro marketing site (tend-src.com)
-├── worker/               # Cloudflare Worker — serves all 3 site data streams
+├── worker/               # Cloudflare Worker — serves the 2 site data streams
 ├── data/                 # consumers.json — Worker's input (refreshed weekly)
 └── docs/
+    ├── activity-stream-design.md
     ├── security-model.md
     └── website-data.md
 ```
