@@ -41,5 +41,8 @@ Resized with `sips -Z <size> logo.png --out logo-<size>.png`:
 | `logo-512.png` | 512px | GitHub avatar, social previews |
 | `logo-256.png` | 256px | README badges, docs |
 | `logo-128.png` | 128px | Small icons |
-| `logo-64.png` | 64px | Favicons |
-| `logo-32.png` | 32px | Favicons |
+
+The browser-tab favicon is `site/public/favicon.svg` (transparent SVG built
+from the `Logo.astro` path), with `site/public/safari-pinned-tab.svg` for
+Safari pinned tabs. The rasterised sizes above are kept for places that
+need PNG (GitHub avatar, social previews, README badges).

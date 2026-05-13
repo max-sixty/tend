@@ -652,34 +652,38 @@ function withCors(resp: Response, env: Env): Response {
 
 function jsonResponse(data: unknown, env: Env, ttlSeconds: number): Response {
   const staleAtMs = Date.now() + ttlSeconds * 1000;
-  return new Response(JSON.stringify(data), {
-    headers: {
-      "Content-Type": "application/json",
-      // Browsers revalidate after the freshness budget (`max-age`); the
-      // colo cache, a shared cache, keeps the entry for STALE_SERVE_FACTOR
-      // budgets (`s-maxage`) so it stays warm for stale-while-revalidate.
-      // Assumes Cloudflare's zone cache isn't also storing this route — it
-      // isn't on a vanilla Workers custom domain, but adding a Cache Rule
-      // here would honor `s-maxage` and break SWR by shadowing the Worker.
-      "Cache-Control":
-        `public, max-age=${ttlSeconds}, ` +
-        `s-maxage=${ttlSeconds * STALE_SERVE_FACTOR}`,
-      [STALE_AT_HEADER]: String(staleAtMs),
-      "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN,
-    },
-  });
+  return withCors(
+    new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+        // Browsers revalidate after the freshness budget (`max-age`); the
+        // colo cache, a shared cache, keeps the entry for STALE_SERVE_FACTOR
+        // budgets (`s-maxage`) so it stays warm for stale-while-revalidate.
+        // Assumes Cloudflare's zone cache isn't also storing this route — it
+        // isn't on a vanilla Workers custom domain, but adding a Cache Rule
+        // here would honor `s-maxage` and break SWR by shadowing the Worker.
+        "Cache-Control":
+          `public, max-age=${ttlSeconds}, ` +
+          `s-maxage=${ttlSeconds * STALE_SERVE_FACTOR}`,
+        [STALE_AT_HEADER]: String(staleAtMs),
+      },
+    }),
+    env,
+  );
 }
 
 function corsPreflight(env: Env): Response {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN,
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "*",
-      "Access-Control-Max-Age": "86400",
-    },
-  });
+  return withCors(
+    new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Max-Age": "86400",
+      },
+    }),
+    env,
+  );
 }
 
 // Exported for unit tests.
