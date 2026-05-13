@@ -63,6 +63,14 @@ fresh. An entry stays serveable for 10 freshness budgets — 5 min on
 a viewer never sees data older than that and an ordinarily-trafficked site
 never goes cold.
 
+Concurrent stale-hits are coalesced. The first stale-hit pushes the
+cached entry's stale-at forward by a short grace window (30 s) before
+starting its background refresh; viewers arriving within that window
+read the bumped entry as fresh and skip starting their own refresh. The
+real refresh's put overwrites the bumped entry with fresh data when it
+completes. One refresh per stale window per colo, not one per viewer —
+keeps the Search fanout under the 30 req/min cap during bursts.
+
 When a refresh throws (GitHub outage), the empty payload is cached with a
 short **fallback budget** (5 s / 30 s) so the next request retries soon
 rather than locking in an empty response.

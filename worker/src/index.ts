@@ -147,6 +147,14 @@ const STALE_SERVE_FACTOR = 10;
 // which a hit should trigger a background refresh.
 const STALE_AT_HEADER = "x-tend-stale-at";
 
+// How far forward a stale-hit pushes its cached entry's stale-at before
+// firing the background refresh. Concurrent stale-hits within this window
+// read the bumped entry as fresh and skip starting their own refresh, so
+// the colo runs one refresh per stale window instead of one per viewer.
+// Comfortably above the FETCH_TIMEOUT_MS=10s worst-case refresh time; the
+// real refresh's put overwrites the bumped entry as soon as it completes.
+const REFRESH_GRACE_MS = 30_000;
+
 // owner/name — alphanumerics + `_-.`, no leading `.`/`-`, no `..` anywhere,
 // exactly one slash.
 const REPO_PART = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
@@ -222,13 +230,15 @@ async function serveCached<T>(
 
   if (cached) {
     // Stale-while-revalidate: answer from cache immediately — never make a
-    // viewer wait on the GitHub fanout. Past its freshness budget, refresh
-    // in the background so the next request gets fresher data. A burst of
-    // concurrent stale-hits can fan out several refreshes at once; the
-    // short fallback budget caps the fallout if that trips a rate limit.
+    // viewer wait on the GitHub fanout. Past its freshness budget, kick
+    // off a background refresh so the next request gets fresher data.
+    // coalesceAndRefresh first pushes the entry's stale-at forward by
+    // REFRESH_GRACE_MS so concurrent stale-hits within that window read
+    // the entry as fresh and skip starting their own refresh — one refresh
+    // per stale window per colo instead of one per viewer.
     if (isStale(cached.headers.get(STALE_AT_HEADER), Date.now())) {
       ctx.waitUntil(
-        refreshAndCache(cacheKey, env, ctx, opts).catch((e) =>
+        coalesceAndRefresh(cacheKey, cached, env, opts).catch((e) =>
           console.error(
             `background refresh failed for ${opts.cacheKeyPath}:`,
             e,
@@ -245,16 +255,11 @@ async function serveCached<T>(
   return refreshAndCache(cacheKey, env, ctx, opts);
 }
 
-// Run the refresh, store the result in the colo cache stamped with its
-// freshness budget, and return the response. On any unexpected failure,
-// cache the empty payload with the shorter fallback budget so a transient
-// outage doesn't break the page or wedge the cache.
-async function refreshAndCache<T>(
-  cacheKey: Request,
-  env: Env,
-  ctx: ExecutionContext,
-  opts: CacheOpts<T>,
-): Promise<Response> {
+// Run the configured refresh and shape it into a Response stamped with
+// its freshness budget. On any unexpected failure return the empty
+// payload tagged with the shorter fallback budget so a transient outage
+// clears quickly instead of wedging the cache.
+async function freshResponse<T>(env: Env, opts: CacheOpts<T>): Promise<Response> {
   let fresh: T;
   let ttlSeconds = opts.ttl.ok;
   try {
@@ -264,9 +269,40 @@ async function refreshAndCache<T>(
     fresh = opts.empty();
     ttlSeconds = opts.ttl.fallback;
   }
-  const response = jsonResponse(fresh, env, ttlSeconds);
+  return jsonResponse(fresh, env, ttlSeconds);
+}
+
+// Cold-cache path: the caller is waiting on this, so we return the fresh
+// Response and let the cache put run via ctx.waitUntil.
+async function refreshAndCache<T>(
+  cacheKey: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  opts: CacheOpts<T>,
+): Promise<Response> {
+  const response = await freshResponse(env, opts);
   ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
   return response;
+}
+
+// Stale-hit path: coalesce concurrent refreshes by bumping the cached
+// entry's stale-at forward before running the refresh. Concurrent
+// stale-hits arriving within REFRESH_GRACE_MS read the bumped entry as
+// fresh and skip starting their own refresh. The puts are sequenced —
+// bumped first, then the fresh result — so the fresh result always wins.
+async function coalesceAndRefresh<T>(
+  cacheKey: Request,
+  cached: Response,
+  env: Env,
+  opts: CacheOpts<T>,
+): Promise<void> {
+  const bumped = new Response(cached.clone().body, {
+    status: cached.status,
+    headers: new Headers(cached.headers),
+  });
+  bumped.headers.set(STALE_AT_HEADER, String(Date.now() + REFRESH_GRACE_MS));
+  await caches.default.put(cacheKey, bumped);
+  await caches.default.put(cacheKey, await freshResponse(env, opts));
 }
 
 // A cached entry past this instant (epoch ms, from STALE_AT_HEADER) is
