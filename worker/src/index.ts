@@ -91,13 +91,9 @@ interface SearchResponse {
   items?: SearchItem[];
 }
 
-// GitHub review / issue-comment objects — fields we actually use.
-interface ReviewObject {
-  user?: { login?: string } | null;
-  html_url?: string;
-  submitted_at?: string;
-}
-
+// GitHub comment objects — fields we actually use. Same shape for inline
+// PR review comments (`/pulls/{n}/comments`) and conversation comments
+// (`/issues/{n}/comments`).
 interface IssueCommentObject {
   user?: { login?: string } | null;
   html_url?: string;
@@ -466,30 +462,35 @@ async function toRecentItem(
   return { ...base, url: it.html_url };
 }
 
-// Latest review on a PR authored by `bot` — `submitted_at` desc. Returns null
-// if the fetch fails or no review by the bot is present (caller falls back).
+// Latest inline review comment on a PR authored by `bot` — `created_at` desc.
+// We deliberately don't anchor on the review summary (`#pullrequestreview-…`):
+// tend's reviews are typically `COMMENTED` with an empty body wrapping inline
+// comments, so the review anchor scrolls nowhere on the conversation page.
+// `#discussion_r…` anchors land on the actual comment thread. Returns null if
+// the fetch fails or the bot left no inline comments (caller falls back to
+// the parent PR URL).
 async function findBotReviewUrl(
   repo: string,
   n: number,
   bot: string,
   token: string,
 ): Promise<string | null> {
-  const url = `${GITHUB_API}/repos/${repo}/pulls/${n}/reviews?per_page=100`;
+  const url = `${GITHUB_API}/repos/${repo}/pulls/${n}/comments?per_page=100`;
   try {
     const resp = await fetchWithTimeout(url, { headers: githubHeaders(token) });
     if (!resp.ok) {
-      console.error(`review lookup failed (${resp.status}): ${repo}#${n}`);
+      console.error(`review-comment lookup failed (${resp.status}): ${repo}#${n}`);
       return null;
     }
-    const reviews = (await resp.json()) as ReviewObject[];
+    const comments = (await resp.json()) as IssueCommentObject[];
     return latestByBot(
-      reviews,
+      comments,
       bot,
-      (r) => r.submitted_at,
-      (r) => r.html_url,
+      (c) => c.created_at,
+      (c) => c.html_url,
     );
   } catch (e) {
-    console.error(`review lookup error: ${repo}#${n}`, e);
+    console.error(`review-comment lookup error: ${repo}#${n}`, e);
     return null;
   }
 }
