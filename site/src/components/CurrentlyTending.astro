@@ -5,7 +5,10 @@
 // runs. Hidden only when both requests fail.
 ---
 
-<a id="now-tending" class="now-tending" href="#recent-activity" hidden></a>
+<a id="now-tending" class="now-tending" href="#recent-activity" data-state="loading">
+  <span class="now-dot now-dot-idle" aria-hidden="true"></span>
+  <span>&nbsp;</span>
+</a>
 
 <script>
   import { fetchJson, liveData } from "../lib/api";

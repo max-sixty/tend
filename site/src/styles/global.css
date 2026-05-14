@@ -283,7 +283,10 @@ hr::after {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: clamp(1.5rem, 3vw, 2.5rem);
-  align-items: center;
+  /* `start` instead of `center` so the left column growing (e.g. when the
+     runtime-fetched #now-tending indicator appears) doesn't re-center the
+     row and visibly shift the heading. */
+  align-items: start;
 }
 @media (max-width: 760px) {
   .hero {
@@ -357,9 +360,7 @@ hr::after {
 
 /* ---------- "Currently tending" indicator ---------- */
 
-/* Scoped to :not([hidden]) so the layout rules don't defeat the UA
-   [hidden] { display: none } default before the fetch resolves. */
-.now-tending:not([hidden]) {
+.now-tending {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -370,8 +371,14 @@ hr::after {
   color: var(--ink-soft);
   text-decoration: none;
   border-bottom: none;
+  /* Space is reserved by the skeleton dot + nbsp label in the markup; we
+     just fade in once the fetch resolves so the hero doesn't redraw. */
+  opacity: 0;
+  transition: opacity 250ms ease;
 }
 .now-tending:hover { color: var(--moss-deep); }
+.now-tending[data-state="loaded"] { opacity: 1; }
+.now-tending[data-state="hidden"] { display: none; }
 
 .now-dot {
   flex: none;
@@ -428,7 +435,15 @@ hr::after {
 
 /* ---------- Stat strip ---------- */
 
-.stats { margin: 2rem 0 1rem; }
+.stats {
+  margin: 2rem 0 1rem;
+  /* Space is reserved by the four skeleton cells in the markup; we just
+     fade in once the fetch resolves. */
+  opacity: 0;
+  transition: opacity 250ms ease;
+}
+.stats[data-state="loaded"] { opacity: 1; }
+.stats[data-state="hidden"] { display: none; }
 
 .stat-strip {
   display: flex;
@@ -470,6 +485,13 @@ hr::after {
 
 /* ---------- Activity feed ---------- */
 
+.recent-activity {
+  opacity: 0;
+  transition: opacity 250ms ease;
+}
+.recent-activity[data-state="loaded"] { opacity: 1; }
+.recent-activity[data-state="hidden"] { display: none; }
+
 .activity-rows {
   list-style: none;
   margin: 0;
@@ -477,6 +499,8 @@ hr::after {
   display: grid;
   grid-template-columns: auto minmax(0, 11rem) minmax(0, 1fr) auto;
   column-gap: 1rem;
+  /* Space is reserved by the 12 skeleton rows in the markup; the script
+     replaces them with real rows when the fetch resolves. */
 }
 
 .activity-row {
