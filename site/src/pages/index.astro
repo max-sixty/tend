@@ -48,7 +48,7 @@ const areas = [
     eyebrow: "vi.",
     title: "Self-review",
     body: [
-      "Each day tend reads the previous day's runs of its own workflows, looks for behaviour that didn't sit right, and proposes adjustments to its skills and config.",
+      "Each day tend reads the previous day's runs of its own workflows, looks for behaviour that didn't sit right, and proposes adjustments to its Skills and config.",
     ],
   },
 ];
@@ -110,15 +110,29 @@ claude /install-tend</code></pre>
 
   <hr />
 
-  <!-- ===== CUSTOMIZE ===== -->
-  <section id="customize">
-    <p class="section-eyebrow">yours to shape</p>
-    <p class="section-lead">Defaults you can override from your repo.</p>
+  <!-- ===== HOW IT WORKS ===== -->
+  <section id="how-it-works">
+    <p class="section-eyebrow">how it works</p>
+    <p class="section-lead">A subscription, some workflows, and Skills you can shape.</p>
+
+    <div class="marginalia">
+      <div class="margin-note">runtime</div>
+      <div class="body">
+        <p>Tend runs Claude Code in GitHub Actions, using your Claude Max subscription.</p>
+      </div>
+    </div>
+
+    <div class="marginalia">
+      <div class="margin-note">structure</div>
+      <div class="body">
+        <p>A handful of GitHub Actions workflows, each running a Skill. They're generated into your repo from a single config.</p>
+      </div>
+    </div>
 
     <div class="marginalia">
       <div class="margin-note">overlay</div>
       <div class="body">
-        <p>Tend's bundled skills supply the defaults; skills and docs in your repo override them. Set what it auto-approves, calibrate what it flags in reviews, have it close some category of PR on sight, or give it a new chore to run each night.</p>
+        <p>Skills and docs in your repo overlay Tend's defaults. Set what it auto-approves, calibrate what it flags in reviews, have it close some category of PR on sight, or give it a new chore to run each night.</p>
       </div>
     </div>
   </section>
@@ -141,7 +155,7 @@ claude /install-tend</code></pre>
 claude plugin install install-tend@tend
 claude /install-tend</code></pre>
 
-        <p>The <code>/install-tend</code> skill walks the rest of the way: config file, workflow generation, bot account, secrets, branch protection. It'll ask before each step that touches your repo.</p>
+        <p>The <code>/install-tend</code> Skill walks the rest of the way: config file, workflow generation, bot account, secrets, branch protection. It'll ask before each step that touches your repo.</p>
         <p class="note">You'll need a GitHub account for the bot (something like <code>@your-project-bot</code>) and a Claude Max subscription. Maintainers of sizeable OSS projects can <a href="https://claude.com/contact-sales/claude-for-oss">get a Max subscription free from Anthropic</a>.</p>
       </div>
     </div>
@@ -157,7 +171,7 @@ claude /install-tend</code></pre>
     <div class="marginalia">
       <div class="margin-note">model</div>
       <div class="body">
-        <p>Tend gives Claude write access to a repository. The primary boundary is a GitHub ruleset that blocks the bot from merging to protected branches — whoever opened the PR, however it's been reviewed — so every change lands through a human merge; tend's setup script verifies and (if you ask) creates that ruleset for you. On top of that sit config-pinning, burst-and-spike rate limiting, and a fixed prompt and skill set: an attacker who controls a PR diff or an issue body can shape what Claude reads, never the instructions it follows.</p>
+        <p>Tend gives Claude write access to a repository. The primary boundary is a GitHub ruleset that blocks the bot from merging to protected branches — whoever opened the PR, however it's been reviewed — so every change lands through a human merge; tend's setup script verifies and (if you ask) creates that ruleset for you. On top of that sit config-pinning, burst-and-spike rate limiting, and a fixed prompt and Skill set: an attacker who controls a PR diff or an issue body can shape what Claude reads, never the instructions it follows.</p>
         <p><a href="https://github.com/max-sixty/tend/blob/main/docs/security-model.md">Read the full threat model →</a></p>
       </div>
     </div>
