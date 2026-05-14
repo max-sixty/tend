@@ -1,0 +1,18 @@
+{
+  "name": "tend-ci-runner",
+  "version": "0.1.0",
+  "description": "Tend's internal CI skills — reviews PRs, triages issues, fixes CI, sweeps repos for improvements. Loaded by tend's GitHub Action; not for general manual use.",
+  "author": {
+    "name": "Maximilian Roos",
+    "url": "https://github.com/max-sixty"
+  },
+  "repository": "https://github.com/max-sixty/tend",
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Tend CI Runner",
+    "shortDescription": "Tend's CI skills (review, triage, ci-fix, etc.)",
+    "category": "Engineering",
+    "capabilities": ["Write"]
+  }
+}

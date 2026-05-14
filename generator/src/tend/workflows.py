@@ -68,6 +68,20 @@ def _codex_auth_json(cfg: Config) -> str:
     return f"${{{{ secrets.{cfg.codex_auth_json_secret} }}}}"
 
 
+def _default_prompt(cfg: Config, skill: str, args_template: str = "") -> str:
+    """Default prompt invoking a tend-ci-runner skill in engine-native syntax.
+
+    Claude resolves `/tend-ci-runner:NAME` as a slash command. Codex resolves
+    `$NAME` as a skill mention (or matches by description); the
+    `tend-ci-runner` namespace prefix isn't needed at the prompt site because
+    skill names within the plugin are unique. `args_template` is appended
+    raw so callers can splice their own placeholders (`{pr_number}`,
+    `{issue_number}`, etc.) and run the existing replace step.
+    """
+    invocation = f"/tend-ci-runner:{skill}" if cfg.engine == "claude" else f"${skill}"
+    return f"{invocation} {args_template}".rstrip()
+
+
 def _action_ref(cfg: Config) -> str:
     """Ref string for the engine-specific composite action.
 
@@ -277,7 +291,7 @@ def _escape_braces(prompt: str, placeholder: str) -> tuple[str, bool]:
 
 def generate_review(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("review", WorkflowConfig())
-    raw_prompt = wf.prompt or "/tend-ci-runner:review {pr_number}"
+    raw_prompt = wf.prompt or _default_prompt(cfg, "review", "{pr_number}")
     format_body, needs_format = _escape_braces(raw_prompt, "pr_number")
     escaped = _escape(format_body)
     if needs_format:
@@ -578,7 +592,7 @@ jobs:
 
 def generate_triage(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("triage", WorkflowConfig())
-    prompt = (wf.prompt or "/tend-ci-runner:triage {issue_number}").replace(
+    prompt = (wf.prompt or _default_prompt(cfg, "triage", "{issue_number}")).replace(
         "{issue_number}", "${{ github.event.issue.number }}"
     )
     bt = _bot_token(cfg)
@@ -634,7 +648,7 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
         )
     watched = wf.watched_workflows
     branches = wf.branches if wf.branches is not None else [cfg.default_branch]
-    prompt = (wf.prompt or "/tend-ci-runner:ci-fix {run_id}").replace(
+    prompt = (wf.prompt or _default_prompt(cfg, "ci-fix", "{run_id}")).replace(
         "{run_id}", "${{ github.event.workflow_run.id }}"
     )
     bt = _bot_token(cfg)
@@ -734,17 +748,21 @@ jobs:
 
 
 def generate_nightly(cfg: Config) -> GeneratedWorkflow:
-    return _generate_scheduled(cfg, "nightly", "17 6 * * *", "/tend-ci-runner:nightly")
+    return _generate_scheduled(
+        cfg, "nightly", "17 6 * * *", _default_prompt(cfg, "nightly")
+    )
 
 
 def generate_weekly(cfg: Config) -> GeneratedWorkflow:
-    return _generate_scheduled(cfg, "weekly", "17 9 * * 0", "/tend-ci-runner:weekly")
+    return _generate_scheduled(
+        cfg, "weekly", "17 9 * * 0", _default_prompt(cfg, "weekly")
+    )
 
 
 def generate_notifications(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("notifications", WorkflowConfig())
     cron = wf.cron or "*/15 * * * *"
-    prompt = wf.prompt or "/tend-ci-runner:notifications"
+    prompt = wf.prompt or _default_prompt(cfg, "notifications")
     bt = _bot_token(cfg)
     bn = cfg.bot_name
 
@@ -854,7 +872,7 @@ jobs:
 
 def generate_review_runs(cfg: Config) -> GeneratedWorkflow:
     return _generate_scheduled(
-        cfg, "review-runs", "47 7 * * *", "/tend-ci-runner:review-runs"
+        cfg, "review-runs", "47 7 * * *", _default_prompt(cfg, "review-runs")
     )
 
 

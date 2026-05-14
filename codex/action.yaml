@@ -29,11 +29,9 @@ inputs:
   prompt:
     required: true
     description: >-
-      The prompt to send to Codex. Slash-command shorthand
-      ("/tend-ci-runner:NAME ARGS") is resolved by the AGENTS.md staged
-      under $CODEX_HOME — the model reads
-      $TEND_SKILLS_DIR/plugins/tend-ci-runner/skills/NAME/SKILL.md and
-      follows it with the given arguments.
+      The prompt to send to Codex. The tend-ci-runner plugin is installed
+      before invocation, so `$skill-name` mentions resolve to the
+      corresponding SKILL.md (e.g. `$review`, `$triage`).
   model:
     default: gpt-5.1-codex
     description: Codex model to use (e.g. gpt-5.1-codex, gpt-5.1-codex-mini)
@@ -47,7 +45,10 @@ inputs:
     description: Codex sandbox mode (workspace-write, read-only, danger-full-access)
   codex_version:
     default: ""
-    description: Pin a specific @openai/codex npm version. Empty means latest.
+    description: >-
+      Codex CLI git tag to build (e.g. `rust-v0.131.0-alpha.17`). Empty
+      means the action's pinned default. Once a stable release with
+      `codex plugin add` ships to npm, this will become a version string.
   allowed_bots:
     default: "*"
     description: Bots allowed to trigger workflows (engagement gate, not used yet)
@@ -151,15 +152,45 @@ runs:
         curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-    - name: Install Codex CLI
+    # Build Codex from source at a known-good tag. The shipped npm releases
+    # (≤0.131.0-alpha.9) and the latest published GitHub release
+    # (alpha.16) both predate PR #21396, which is what gives us the
+    # `codex plugin add` subcommand we need to install tend-ci-runner
+    # non-interactively.
+    #
+    # When a stable release containing that PR lands on npm, swap the
+    # three steps below for the commented `Install Codex CLI` block — same
+    # interface, no Rust toolchain, ~10 min cold build → ~30 s npm install.
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo build
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: codex-${{ inputs.codex_version || 'rust-v0.131.0-alpha.17' }}
+
+    - name: Build Codex CLI from source
       shell: bash
       run: |
-        if [ -n "${{ inputs.codex_version }}" ]; then
-          npm install -g "@openai/codex@${{ inputs.codex_version }}"
-        else
-          npm install -g @openai/codex
-        fi
+        TAG="${{ inputs.codex_version || 'rust-v0.131.0-alpha.17' }}"
+        cargo install --locked --git https://github.com/openai/codex.git \
+          --tag "$TAG" --bin codex codex-cli
         codex --version
+
+    # --- Swap-in once npm has a release with `codex plugin add` ---
+    # Delete the three steps above (Set up Rust / Cache cargo / Build Codex)
+    # and uncomment this single step. Update the `codex_version` input
+    # description to refer to npm versions again.
+    #
+    # - name: Install Codex CLI
+    #   shell: bash
+    #   run: |
+    #     if [ -n "${{ inputs.codex_version }}" ]; then
+    #       npm install -g "@openai/codex@${{ inputs.codex_version }}"
+    #     else
+    #       npm install -g @openai/codex
+    #     fi
+    #     codex --version
 
     # Codex CLI prefers auth.json over $OPENAI_API_KEY when both are
     # present. We mirror that precedence here: write auth.json if supplied,
@@ -179,34 +210,28 @@ runs:
           echo "Codex auth: using OPENAI_API_KEY"
         fi
 
-    # Stage tend skills so AGENTS.md can resolve /tend-ci-runner:NAME
-    # references. The action itself was already checked out as part of
-    # `uses: max-sixty/tend/codex@v1` — its parent directory holds the
-    # plugins/ tree. Symlink rather than copy so disk usage stays small.
-    - name: Stage tend skills
-      id: skills
+    # Install the tend-ci-runner plugin from the action's own checkout.
+    # `github.action_path` is .../<runner-cache>/max-sixty/tend/<ref>/codex/;
+    # the marketplace manifest at .agents/plugins/marketplace.json (one level
+    # up) registers tend-ci-runner as a local-source plugin. We add that
+    # marketplace, then `codex plugin add` installs the plugin so its skills
+    # become discoverable by `codex exec`.
+    - name: Install tend-ci-runner plugin
       shell: bash
       run: |
-        # github.action_path points at .../codex; the plugins/ tree is its sibling.
-        SKILLS_SRC="$(realpath "${{ github.action_path }}/../plugins/tend-ci-runner")"
-        if [ ! -d "$SKILLS_SRC/skills" ]; then
-          echo "::error::Skill source not found at $SKILLS_SRC/skills — the codex action expects to ship from the same checkout as plugins/tend-ci-runner/"
-          exit 1
-        fi
-        TEND_SKILLS_DIR="$HOME/.tend/tend-ci-runner"
-        mkdir -p "$(dirname "$TEND_SKILLS_DIR")"
-        ln -sfn "$SKILLS_SRC" "$TEND_SKILLS_DIR"
-        echo "tend_skills_dir=$TEND_SKILLS_DIR" >> "$GITHUB_OUTPUT"
-        echo "TEND_SKILLS_DIR=$TEND_SKILLS_DIR"
-        ls "$TEND_SKILLS_DIR/skills"
+        MARKETPLACE_ROOT="$(realpath "${{ github.action_path }}/..")"
+        codex plugin marketplace add "$MARKETPLACE_ROOT"
+        codex plugin add tend-ci-runner@tend
+        codex plugin list 2>/dev/null || true
 
-    # Tend's CI guidance, mounted via $CODEX_HOME so it loads alongside any
-    # AGENTS.md the adopter already has in their repo. Adopters' files are
-    # not touched.
+    # Tend's CI-environment guidance, mounted via $CODEX_HOME so it loads
+    # alongside any AGENTS.md the adopter already has in their repo.
+    # Adopters' files are not touched. The skill router from earlier drafts
+    # is gone — `tend-ci-runner` is a real plugin now and Codex resolves
+    # `$skill-name` mentions natively.
     - name: Stage AGENTS.md
       shell: bash
       env:
-        TEND_SKILLS_DIR: ${{ steps.skills.outputs.tend_skills_dir }}
         BOT_NAME: ${{ inputs.bot_name }}
       run: |
         cat > "$HOME/.codex/AGENTS.md" <<EOF
@@ -216,16 +241,13 @@ runs:
         GitHub Actions CI environment. The repository checkout is your
         working directory.
 
-        ## Resolving \`/tend-ci-runner:NAME\` references
+        The \`tend-ci-runner\` plugin is installed; its skills (\`review\`,
+        \`triage\`, \`ci-fix\`, \`nightly\`, \`weekly\`, \`notifications\`,
+        \`review-runs\`, \`running-in-ci\`, \`review-reviewers\`) are
+        invocable via \`\$<skill-name>\` mentions in prompts.
 
-        When a prompt or skill says \`/tend-ci-runner:NAME\` (with or
-        without arguments), it means: read the file at
-        \`${TEND_SKILLS_DIR}/skills/NAME/SKILL.md\` and follow its
-        instructions, substituting the provided arguments for any
-        \`\$ARGUMENTS\` or \`{1}\`-style placeholders inside.
-
-        ALWAYS load \`${TEND_SKILLS_DIR}/skills/running-in-ci/SKILL.md\`
-        first — it covers CI security rules, polling conventions, and
+        ALWAYS load \`\$running-in-ci\` first when handling any workflow
+        — it covers CI security rules, polling conventions, and
         comment-formatting guidance. Other skills depend on it.
 
         Repo-local skills live under \`.claude/skills/<name>/SKILL.md\`
@@ -235,7 +257,7 @@ runs:
         ## Operating rules
 
         - Repo-specific guidance (\`running-tend\` skill, the adopter's
-          \`CLAUDE.md\`, \`.config/tend.toml\`) takes precedence over
+          \`CLAUDE.md\`, \`.config/tend.yaml\`) takes precedence over
           these defaults.
         - Follow the project's code of conduct. Help anyone with
           problems they raise (issues, PRs, answers).
@@ -287,7 +309,6 @@ runs:
         OPENAI_API_KEY: ${{ inputs.openai_api_key }}
         GH_TOKEN: ${{ inputs.github_token }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
-        TEND_SKILLS_DIR: ${{ steps.skills.outputs.tend_skills_dir }}
         BOT_NAME: ${{ inputs.bot_name }}
         BOT_ID: ${{ steps.bot.outputs.id }}
         PROMPT: ${{ inputs.prompt }}
@@ -300,7 +321,6 @@ runs:
           --model "$MODEL"
           --sandbox "$SANDBOX"
           --output-last-message "$OUTPUT_FILE"
-          --skip-git-repo-check
         )
         if [ -n "$EFFORT" ]; then
           ARGS+=(--config "model_reasoning_effort=\"$EFFORT\"")
