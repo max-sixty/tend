@@ -51,8 +51,8 @@
         const buildText = () => {
           const elapsed = elapsedTime(r.started_at);
           return elapsed
-            ? `tending ${r.repo} · ${workflow} · ${elapsed}${more}`
-            : `tending ${r.repo} · ${workflow}${more}`;
+            ? `currently tending ${r.repo} · ${workflow} · ${elapsed}${more}`
+            : `currently tending ${r.repo} · ${workflow}${more}`;
         };
         const label = paint(el, "live", buildText());
         if (!Number.isNaN(startedMs)) {
