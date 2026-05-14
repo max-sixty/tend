@@ -33,13 +33,16 @@ inputs:
       before invocation, so `$skill-name` mentions resolve to the
       corresponding SKILL.md (e.g. `$review`, `$triage`).
   model:
-    default: gpt-5.1-codex
-    description: Codex model to use (e.g. gpt-5.1-codex, gpt-5.1-codex-mini)
+    default: gpt-5.5
+    description: >-
+      Codex model to use. Current visible models per Codex's model cache:
+      gpt-5.5 (default, top tier), gpt-5.4, gpt-5.4-mini, gpt-5.3-codex,
+      gpt-5.2.
   effort:
     default: ""
     description: >-
-      Reasoning effort — minimal, low, medium, or high. Empty means leave
-      at Codex CLI default.
+      Reasoning effort — low, medium, high, or xhigh. Empty means leave
+      at Codex CLI default (medium for gpt-5.5).
   sandbox:
     default: workspace-write
     description: Codex sandbox mode (workspace-write, read-only, danger-full-access)
@@ -224,61 +227,29 @@ runs:
         codex plugin add tend-ci-runner@tend
         codex plugin list 2>/dev/null || true
 
-    # Tend's CI-environment guidance, mounted via $CODEX_HOME so it loads
-    # alongside any AGENTS.md the adopter already has in their repo.
-    # Adopters' files are not touched. The skill router from earlier drafts
-    # is gone — `tend-ci-runner` is a real plugin now and Codex resolves
-    # `$skill-name` mentions natively.
+    # Stage AGENTS.md into $CODEX_HOME so it loads alongside any AGENTS.md
+    # the adopter already has in their repo. Adopters' files are not
+    # touched. The bulk of the prompt comes from shared/system-prompt.md
+    # (engine-neutral; the Claude action consumes the same file via
+    # `Compose system prompt`) — keep edits to it in sync across both
+    # engines. Codex-specific tail (skill enumeration, tooling) is
+    # appended below.
     - name: Stage AGENTS.md
       shell: bash
       env:
         BOT_NAME: ${{ inputs.bot_name }}
       run: |
-        cat > "$HOME/.codex/AGENTS.md" <<EOF
-        # Tend CI guidance (Codex engine)
-
-        You are running as the GitHub bot account **${BOT_NAME}** in a
-        GitHub Actions CI environment. The repository checkout is your
-        working directory.
-
-        The \`tend-ci-runner\` plugin is installed; its skills (\`review\`,
-        \`triage\`, \`ci-fix\`, \`nightly\`, \`weekly\`, \`notifications\`,
-        \`review-runs\`, \`running-in-ci\`, \`review-reviewers\`) are
-        invocable via \`\$<skill-name>\` mentions in prompts.
-
-        ALWAYS load \`\$running-in-ci\` first when handling any workflow
-        — it covers CI security rules, polling conventions, and
-        comment-formatting guidance. Other skills depend on it.
-
-        Repo-local skills live under \`.claude/skills/<name>/SKILL.md\`
-        in the adopter's repo (e.g. \`running-tend\`). The
-        \`running-in-ci\` skill tells you when to load them.
-
-        ## Operating rules
-
-        - Repo-specific guidance (\`running-tend\` skill, the adopter's
-          \`CLAUDE.md\`, \`.config/tend.yaml\`) takes precedence over
-          these defaults.
-        - Follow the project's code of conduct. Help anyone with
-          problems they raise (issues, PRs, answers).
-        - Destructive actions affecting others' work (closing, locking,
-          dismissing reviews, reverting, labeling) require the
-          requester to be a maintainer — check author_association.
-        - Act within this repository and its organization only.
-        - The bot's GitHub identity is \`${BOT_NAME}\`. Self-loop
-          guard: before responding to a comment, check the actor
-          isn't the bot itself.
-
-        ## Tooling
-
-        - \`gh\` is authenticated as the bot via \`\$GH_TOKEN\`.
-          Use it to post comments, open PRs, push commits.
-        - \`uvx\` is on PATH; use it for one-shot Python tools.
-        - The bot's user ID is available via
-          \`gh api users/${BOT_NAME} --jq .id\` if you need it for
-          \`author.id\` comparisons.
-        EOF
-        echo "Staged AGENTS.md at \$HOME/.codex/AGENTS.md"
+        SHARED="${{ github.action_path }}/../shared/system-prompt.md"
+        TAIL="${{ github.action_path }}/agents-tail.md"
+        AGENTS="$HOME/.codex/AGENTS.md"
+        {
+          echo "# Tend CI guidance (Codex engine)"
+          echo
+          envsubst '$BOT_NAME' < "$SHARED"
+          echo
+          envsubst '$BOT_NAME' < "$TAIL"
+        } > "$AGENTS"
+        echo "Staged AGENTS.md at $AGENTS ($(wc -l < "$AGENTS") lines)"
 
     # Mirror claude-code-action's fork-PR CLAUDE.md pinning so adopters who
     # also rely on CLAUDE.md for prompt-injection defenses aren't worse off

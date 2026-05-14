@@ -1035,11 +1035,11 @@ def test_codex_review_omits_sticky_comment(tmp_path: Path) -> None:
 
 
 def test_codex_default_model(tmp_path: Path) -> None:
-    """Engine = codex without explicit model picks gpt-5.1-codex."""
+    """Engine = codex without explicit model picks gpt-5.5."""
     cfg = Config.load(_minimal_config(tmp_path, "engine: codex"))
-    assert cfg.model == "gpt-5.1-codex"
+    assert cfg.model == "gpt-5.5"
     wf = next(w for w in generate_all(cfg) if w.filename == "tend-triage.yaml")
-    assert "model: gpt-5.1-codex" in wf.content
+    assert "model: gpt-5.5" in wf.content
 
 
 def test_unknown_engine_rejected(tmp_path: Path) -> None:
@@ -1047,18 +1047,24 @@ def test_unknown_engine_rejected(tmp_path: Path) -> None:
         Config.load(_minimal_config(tmp_path, "engine: gpt"))
 
 
-def test_claude_model_rejected_for_codex(tmp_path: Path) -> None:
-    """A Claude model name under engine=codex is a configuration error."""
-    with pytest.raises(click.ClickException, match="model 'opus' is not recognized"):
-        Config.load(_minimal_config(tmp_path, "engine: codex\nmodel: opus"))
+def test_codex_model_unrestricted(tmp_path: Path) -> None:
+    """Codex model strings pass through unvalidated.
+
+    Codex's catalog churns (gpt-5.1-codex was current at engine bring-up;
+    deprecated by the next month). An allowlist would silently lock adopters
+    out of newer models. We accept any string and let `codex exec` error at
+    runtime if it's wrong.
+    """
+    cfg = Config.load(_minimal_config(tmp_path, "engine: codex\nmodel: gpt-99-future"))
+    assert cfg.model == "gpt-99-future"
 
 
-def test_codex_model_rejected_for_claude(tmp_path: Path) -> None:
-    """And vice versa — Codex model names don't apply under engine=claude."""
+def test_unknown_claude_model_rejected(tmp_path: Path) -> None:
+    """Claude's model set is small and stable; typos fail at config load."""
     with pytest.raises(
         click.ClickException, match="not recognized for engine 'claude'"
     ):
-        Config.load(_minimal_config(tmp_path, "model: gpt-5.1-codex"))
+        Config.load(_minimal_config(tmp_path, "model: opus-3"))
 
 
 def test_effort_rejected_for_claude(tmp_path: Path) -> None:

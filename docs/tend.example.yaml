@@ -23,15 +23,21 @@ bot_name: my-project-bot
 #
 # Model to use for all workflows. Valid values depend on the engine:
 #
-# - engine: claude — opus (default), sonnet, haiku
-# - engine: codex  — gpt-5.1-codex (default), gpt-5.1-codex-mini
+# - engine: claude — opus (default), sonnet, haiku (allowlisted; typos fail
+#   at config load).
+# - engine: codex  — any string Codex CLI accepts. Current visible models
+#   per Codex's catalog: gpt-5.5 (default), gpt-5.4, gpt-5.4-mini,
+#   gpt-5.3-codex, gpt-5.2. Pass-through, not allowlisted: Codex's catalog
+#   churns and a stale list would silently block adopters from picking newer
+#   models.
 #
 # model: opus
 
 # ## Effort (codex only)
 #
-# Reasoning effort for the Codex model. Valid values: minimal, low, medium,
-# high. Empty (default) leaves the choice to the Codex CLI default.
+# Reasoning effort for the Codex model. Valid values: low, medium, high,
+# xhigh. Empty (default) leaves the choice to the Codex CLI default
+# (medium for gpt-5.5).
 #
 # effort: medium
 

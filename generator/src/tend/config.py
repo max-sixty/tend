@@ -89,20 +89,24 @@ class WorkflowConfig:
     jobs: dict[str, dict] | None = None
 
 
-# Per-engine model allowlists. Codex CLI accepts whatever string we pass via
-# `--model`, but we restrict to the ones we test against; unknown strings fail
-# at config load with a clear message rather than at agent invocation time.
+# Claude model allowlist — the set is small and stable enough that a
+# typo-catching gate at config load is worth the maintenance.
+# Codex models are NOT enumerated here: Codex's catalog churns
+# (gpt-5.1-codex was current at engine bring-up; gone by the next month),
+# and a stale allowlist would silently block adopters from picking a newer
+# model. We pass any user-supplied string through and let `codex exec` error
+# at runtime if it's wrong.
 KNOWN_MODELS_BY_ENGINE = {
     "claude": {"opus", "sonnet", "haiku"},
-    "codex": {"gpt-5.1-codex", "gpt-5.1-codex-mini"},
 }
 DEFAULT_MODEL_BY_ENGINE = {
     "claude": "opus",
-    "codex": "gpt-5.1-codex",
+    "codex": "gpt-5.5",
 }
-# Codex `--config model_reasoning_effort=...` values. Claude does not use this
-# field. Empty string means "leave at Codex CLI default" (currently medium).
-KNOWN_EFFORTS = {"", "minimal", "low", "medium", "high"}
+# Codex `--config model_reasoning_effort=...` values, per the supported
+# levels Codex's models_cache advertises for every current model. Claude does
+# not use this field. Empty string means "leave at Codex CLI default".
+KNOWN_EFFORTS = {"", "low", "medium", "high", "xhigh"}
 
 
 @dataclass
@@ -169,8 +173,8 @@ class Config:
             )
 
         model = raw.get("model", DEFAULT_MODEL_BY_ENGINE[engine])
-        known_models = KNOWN_MODELS_BY_ENGINE[engine]
-        if model not in known_models:
+        known_models = KNOWN_MODELS_BY_ENGINE.get(engine)
+        if known_models is not None and model not in known_models:
             raise click.ClickException(
                 f"model '{model}' is not recognized for engine '{engine}' "
                 f"(known: {', '.join(sorted(known_models))})"
