@@ -279,20 +279,23 @@ hr::after {
 /* ---------- Hero ---------- */
 
 .hero {
-  padding: 2rem 0 3rem;
+  padding: 2rem 0 1.5rem 6rem;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: clamp(1.5rem, 3vw, 2.5rem);
-  /* `start` instead of `center` so the left column growing (e.g. when the
-     runtime-fetched #now-tending indicator appears) doesn't re-center the
-     row and visibly shift the heading. */
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: clamp(1.5rem, 3vw, 2.5rem);
   align-items: start;
+}
+.hero-body { min-width: 0; }
+.stats-rail .now-tending {
+  margin: 0.8rem 0 0;
 }
 @media (max-width: 760px) {
   .hero {
     grid-template-columns: 1fr;
     text-align: left;
-    padding: 2rem 0 2.5rem;
+    padding: 2rem 0 2rem;
+    column-gap: 0;
+    row-gap: 0.5rem;
   }
   .hero .logo-frame { order: -1; max-width: 150px; justify-self: start; }
 }
@@ -316,35 +319,8 @@ hr::after {
   font-family: var(--font-mono);
   font-size: 0.85rem;
   color: var(--loam);
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
   line-height: 1.7;
-}
-
-.hero .badges {
-  display: flex;
-  gap: 1.4rem;
-  align-items: center;
-  flex-wrap: wrap;
-  font-family: var(--font-sans);
-  font-size: 0.85rem;
-  color: var(--ink-soft);
-  line-height: 1;
-}
-.meta-link {
-  color: var(--ink-soft);
-  border: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-variant-numeric: tabular-nums;
-}
-.meta-link:hover { color: var(--moss); }
-.meta-glyph {
-  font-family: var(--font-serif);
-  font-style: italic;
-  color: var(--oak-deep);
-  font-size: 1em;
-  line-height: 0;
 }
 
 .logo-frame {
@@ -400,7 +376,10 @@ hr::after {
   50%      { opacity: 0.35; }
 }
 
-/* ---------- "What tend tends" ---------- */
+/* ---------- Section headers (eyebrow + lead) ----------
+   Indented to align with the marginalia body column (4.5rem rail + 1.5rem
+   gap = 6rem), so the page's left margin reads as a single rail running
+   through hero → stats → field guide → quick-start → security. */
 
 .section-eyebrow {
   font-family: var(--font-mono);
@@ -408,14 +387,13 @@ hr::after {
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--oak-deep);
-  margin: 0 0 0.6rem;
+  margin: 0 0 0.6rem 6rem;
   position: relative;
-  padding-left: 1.6rem;
 }
 .section-eyebrow::before {
   content: "";
   position: absolute;
-  left: 0;
+  left: -1.5rem;
   top: 50%;
   width: 1rem;
   height: 1px;
@@ -429,11 +407,20 @@ hr::after {
   font-style: italic;
   line-height: 1.3;
   color: var(--ink);
-  margin: 0 0 1rem;
+  margin: 0 0 1rem 6rem;
   max-width: 48ch;
 }
 
+@media (max-width: 760px) {
+  .section-eyebrow { margin-left: 0; }
+  .section-eyebrow::before { left: -1.5rem; }
+  .section-lead { margin-left: 0; }
+}
+
 /* ---------- Stat strip ---------- */
+
+.stats-rail { margin: 0.5rem 0 2rem; }
+.stats-rail .stats { margin: 0; }
 
 .stats {
   margin: 2rem 0 1rem;
@@ -630,11 +617,4 @@ hr::after {
   font-style: italic;
   color: var(--ink-fade);
   font-size: 0.95rem;
-}
-
-.inline-icon {
-  width: 1em;
-  height: 1em;
-  vertical-align: -0.1em;
-  fill: currentColor;
 }
