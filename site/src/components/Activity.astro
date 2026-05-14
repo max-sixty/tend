@@ -3,16 +3,31 @@
 // with in-flight runs from /currently-tending so an idle-but-actively-tending
 // state still shows the section. Stays hidden until the merged list is
 // non-empty, so a Worker outage or empty data degrades to no section at all.
+//
+// The list ships with placeholder rows of the same shape as the real data so
+// the section reserves its natural height before the fetch resolves (no
+// min-height hack in CSS). The script clears them before appending real rows.
+
+const MAX_ROWS = 12;
 ---
 
-<section id="recent-activity" class="recent-activity" hidden>
+<section id="recent-activity" class="recent-activity" data-state="loading">
   <p class="section-eyebrow">recent ground</p>
   <p class="section-lead">A few of the last things the bots have touched.</p>
 
   <div class="marginalia">
     <div class="margin-note">activity</div>
     <div class="body">
-      <ul class="activity-rows" data-activity-rows></ul>
+      <ul class="activity-rows" data-activity-rows>
+        {Array.from({ length: MAX_ROWS }).map(() => (
+          <li class="activity-row" aria-hidden="true">
+            <span class="kind">&nbsp;</span>
+            <span class="repo">&nbsp;</span>
+            <a class="title">&nbsp;</a>
+            <time class="at">&nbsp;</time>
+          </li>
+        ))}
+      </ul>
     </div>
   </div>
 </section>
@@ -21,7 +36,7 @@
   import { fetchJson, liveData } from "../lib/api";
   import { elapsedTime, relativeTime } from "../lib/time";
 
-  const MAX_ROWS = 12; // the buckets hold up to ~10 each; this section shows a merged slice
+  const MAX_ROWS = 12; // matches the placeholder count in the markup above
 
   interface RecentItem {
     repo: string;
@@ -84,12 +99,45 @@
       ...(data?.reviews?.recent ?? []).map((r) => ({ ...r, kind: "review" as const })),
       ...(data?.comments?.recent ?? []).map((r) => ({ ...r, kind: "comment" as const })),
     ];
-    rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
-    const top = rows.slice(0, MAX_ROWS);
+
+    // Drop stale items first — we'd rather show a shorter list than pad
+    // with week-old work as if it's recent. Then cap each repo to PER_REPO_CAP
+    // in a first pass (age-ordered), so a single-repo burst can't crowd out
+    // the list. If slots remain, fill from the over-cap surplus, still
+    // age-ordered. The cap is the only diversification mechanism; soft
+    // weighting (sqrt etc.) is too weak to dent a fresh burst against
+    // day-old alternatives.
+    const PER_REPO_CAP = 3;
+    const FRESH_MS = 7 * 24 * 3600 * 1000;
+    const now = Date.now();
+    const fresh = rows
+      .filter((r) => now - new Date(r.at).getTime() <= FRESH_MS)
+      .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+
+    const counts = new Map<string, number>();
+    const picked: Array<RecentItem & { kind: Kind }> = [];
+    const overflow: Array<RecentItem & { kind: Kind }> = [];
+    for (const r of fresh) {
+      if (picked.length >= MAX_ROWS) break;
+      const c = counts.get(r.repo) ?? 0;
+      if (c < PER_REPO_CAP) {
+        picked.push(r);
+        counts.set(r.repo, c + 1);
+      } else {
+        overflow.push(r);
+      }
+    }
+    for (const r of overflow) {
+      if (picked.length >= MAX_ROWS) break;
+      picked.push(r);
+    }
+    picked.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    const top = picked;
     if (top.length === 0) return false;
 
     const ul = document.querySelector("[data-activity-rows]");
     if (!ul) return false;
+    ul.replaceChildren(); // drop the skeleton rows
     for (const e of top) {
       const li = document.createElement("li");
       li.className = "activity-row";

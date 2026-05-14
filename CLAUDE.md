@@ -6,7 +6,7 @@ completely — old formats should fail with a clear error, not silently parse.
 ## Commands
 
 ```bash
-cd generator && uv run pytest          # run tests
+wt test                                # run pytest in generator/
 uvx tend@latest init                   # regenerate workflows from .config/tend.yaml
 uvx tend@latest init --dry-run         # preview without writing
 uvx tend@latest check                  # verify branch protection, secrets, bot access

@@ -19,9 +19,11 @@ export async function fetchJson<T>(path: string): Promise<T | null> {
 }
 
 // Drives a runtime-fetched section: fetch `path`, hand the parsed body (or
-// null on failure) to `render`, and reveal the element with id `sectionId`
-// only if `render` returns true. `render` owns the DOM and the "is this worth
-// showing" decision, and may issue further fetches (e.g. a fallback endpoint).
+// null on failure) to `render`, and transition the element with id `sectionId`
+// from its initial `data-state="loading"` to either `"loaded"` (render returned
+// true) or `"hidden"` (false). CSS uses these states to reserve layout space
+// during loading, fade content in on success, and collapse on failure — so
+// the page doesn't shift when the fetch resolves.
 export async function liveData<T>(
   path: string,
   sectionId: string,
@@ -30,5 +32,5 @@ export async function liveData<T>(
   const el = document.getElementById(sectionId);
   if (!el) return;
   const shown = await render(await fetchJson<T>(path), el);
-  if (shown) el.hidden = false;
+  el.dataset.state = shown ? "loaded" : "hidden";
 }

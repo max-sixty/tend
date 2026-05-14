@@ -196,15 +196,17 @@ describe("refreshActivity", () => {
     });
 
     // For reviews/comments rows, the worker issues one follow-up per recent
-    // item to resolve the bot's specific review/comment anchor. Mock those.
-    const reviewUrl = (repo: string, n: number) =>
-      `https://api.github.com/repos/${repo}/pulls/${n}/reviews?per_page=100`;
+    // item to resolve the bot's specific comment anchor. Mock those.
+    // Reviews → inline PR review comments (`#discussion_r…`); the review
+    // summary anchor is skipped because tend's reviews are typically body-empty.
+    const reviewCommentUrl = (repo: string, n: number) =>
+      `https://api.github.com/repos/${repo}/pulls/${n}/comments?per_page=100`;
     const commentUrl = (repo: string, n: number) =>
       `https://api.github.com/repos/${repo}/issues/${n}/comments?per_page=100`;
-    const review = (repo: string, n: number, bot: string, id: number, at: string) => ({
+    const reviewComment = (repo: string, n: number, bot: string, id: number, at: string) => ({
       user: { login: bot },
-      html_url: `https://github.com/${repo}/pull/${n}#pullrequestreview-${id}`,
-      submitted_at: at,
+      html_url: `https://github.com/${repo}/pull/${n}#discussion_r${id}`,
+      created_at: at,
     });
     const comment = (
       repo: string,
@@ -237,11 +239,11 @@ describe("refreshActivity", () => {
       [searchUrl("commenter:bot-a -author:bot-a -reviewed-by:bot-a"), { total_count: 12, items: [item("o/a", 3, "pull", recentA)] }],
       [searchUrl("commenter:bot-b -author:bot-b -reviewed-by:bot-b"), { total_count: 4, items: [item("o/b", 8, "issues", recentB)] }],
       // Follow-ups: pick the latest entry by the bot; the worker should land on the deepest URL.
-      [reviewUrl("o/a", 4), [
-        review("o/a", 4, "someone-else", 100, recentB),
-        review("o/a", 4, "bot-a", 101, recentA),
+      [reviewCommentUrl("o/a", 4), [
+        reviewComment("o/a", 4, "someone-else", 100, recentB),
+        reviewComment("o/a", 4, "bot-a", 101, recentA),
       ]],
-      [reviewUrl("o/b", 7), [review("o/b", 7, "bot-b", 202, oldB)]],
+      [reviewCommentUrl("o/b", 7), [reviewComment("o/b", 7, "bot-b", 202, oldB)]],
       [commentUrl("o/a", 3), [
         comment("o/a", 3, "pull", "bot-a", 301, recentB),
         comment("o/a", 3, "pull", "bot-a", 302, recentA), // newest by created_at
@@ -279,9 +281,9 @@ describe("refreshActivity", () => {
       count: 14, // 9 + 5
       count_this_week: 1, // o/a#4 recent; o/b#7 old
       recent: [
-        // url resolved to the bot's actual review anchor, not the PR top.
-        { repo: "o/a", title: "o/a#4", url: "https://github.com/o/a/pull/4#pullrequestreview-101", at: recentA },
-        { repo: "o/b", title: "o/b#7", url: "https://github.com/o/b/pull/7#pullrequestreview-202", at: oldB },
+        // url resolved to the bot's most recent inline comment, not the PR top.
+        { repo: "o/a", title: "o/a#4", url: "https://github.com/o/a/pull/4#discussion_r101", at: recentA },
+        { repo: "o/b", title: "o/b#7", url: "https://github.com/o/b/pull/7#discussion_r202", at: oldB },
       ],
     });
     expect(out.comments).toEqual({
@@ -345,8 +347,8 @@ describe("refreshActivity", () => {
         }
         return new Response(JSON.stringify({ total_count: 0, items: [] }), { status: 200 });
       }
-      // Follow-up review lookup 404s; follow-up comment lookup returns no bot match.
-      if (url.includes("/pulls/5/reviews")) {
+      // Follow-up review-comment lookup 404s; follow-up comment lookup returns no bot match.
+      if (url.includes("/pulls/5/comments")) {
         return new Response("not found", { status: 404 });
       }
       if (url.includes("/issues/6/comments")) {

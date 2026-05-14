@@ -48,7 +48,7 @@ const areas = [
     eyebrow: "vi.",
     title: "Self-review",
     body: [
-      "Each day tend reads the previous day's runs of its own workflows, looks for behaviour that didn't sit right, and proposes adjustments to its skills and config.",
+      "Each day tend reads the previous day's runs of its own workflows, looks for behaviour that didn't sit right, and proposes adjustments to its Skills and config.",
     ],
   },
 ];
@@ -57,39 +57,26 @@ const areas = [
 <Base>
   <!-- ===== HERO ===== -->
   <section class="hero">
-    <div>
-      <p class="section-eyebrow">an agent · tending your repo</p>
-      <h1>Tend</h1>
-      <p class="tagline">A dutiful junior maintainer for your repo — quietly reviewing PRs, triaging issues, fixing CI, and keeping up with the day-to-day so the queue is never waiting on you.</p>
+    <div class="hero-body">
+      <h1>tend</h1>
+      <p class="tagline">An agent that tends your repo — reviewing PRs, triaging issues, and responding to whatever comes up, so you can focus on building beautiful things.</p>
 
       <pre class="install"><code>claude plugin marketplace add max-sixty/tend
 claude plugin install install-tend@tend
 claude /install-tend</code></pre>
-
-      <div class="badges">
-        <a class="meta-link" href="https://github.com/max-sixty/tend">
-          <svg class="inline-icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path fill="currentColor" d="M8 .2a8 8 0 0 0-2.5 15.6c.4.1.5-.2.5-.4v-1.4c-2.2.5-2.7-1-2.7-1-.4-1-.9-1.3-.9-1.3-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.9.9 2.4.7 0-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-3.9 0-.9.3-1.6.8-2.2 0-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8a7.7 7.7 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.4 1.1.1 1.9.1 2.1.5.6.8 1.3.8 2.2 0 3.1-1.9 3.7-3.7 3.9.3.3.6.8.6 1.5v2.2c0 .2.1.5.5.4A8 8 0 0 0 8 .2z"/>
-          </svg>
-          github
-        </a>
-        <a class="meta-link" href="https://pypi.org/project/tend/">
-          <span class="meta-glyph">π</span> pypi
-        </a>
-        <a class="meta-link" href="https://github.com/max-sixty/tend/blob/main/LICENSE">
-          MIT
-        </a>
-        <span class="note">already in production, albeit early days</span>
-      </div>
-
-      <CurrentlyTending />
     </div>
     <div class="logo-frame">
-      <Logo size={260} />
+      <Logo size={220} />
     </div>
   </section>
 
-  <Stats />
+  <div class="marginalia stats-rail">
+    <div class="margin-note">to date</div>
+    <div class="body">
+      <Stats />
+      <CurrentlyTending />
+    </div>
+  </div>
 
   <hr />
 
@@ -111,15 +98,29 @@ claude /install-tend</code></pre>
 
   <hr />
 
-  <!-- ===== CUSTOMIZE ===== -->
-  <section id="customize">
-    <p class="section-eyebrow">yours to shape</p>
-    <p class="section-lead">Defaults you can override from your repo.</p>
+  <!-- ===== HOW IT WORKS ===== -->
+  <section id="how-it-works">
+    <p class="section-eyebrow">how it works</p>
+    <p class="section-lead">A subscription, some workflows, and Skills you can shape.</p>
+
+    <div class="marginalia">
+      <div class="margin-note">runtime</div>
+      <div class="body">
+        <p>Tend runs Claude Code in GitHub Actions, using your Claude Max subscription.</p>
+      </div>
+    </div>
+
+    <div class="marginalia">
+      <div class="margin-note">structure</div>
+      <div class="body">
+        <p>In your repo, Tend is a handful of GitHub Actions workflows, each running a Skill, generated from a single config.</p>
+      </div>
+    </div>
 
     <div class="marginalia">
       <div class="margin-note">overlay</div>
       <div class="body">
-        <p>Tend's bundled skills supply the defaults; skills and docs in your repo override them. Set what it auto-approves, calibrate what it flags in reviews, have it close some category of PR on sight, or give it a new chore to run each night.</p>
+        <p>Skills and docs in your repo overlay Tend's defaults. Set what it auto-approves, calibrate what it flags in reviews, have it close some category of PR on sight, or give it a new chore to run each night.</p>
       </div>
     </div>
   </section>
@@ -142,7 +143,7 @@ claude /install-tend</code></pre>
 claude plugin install install-tend@tend
 claude /install-tend</code></pre>
 
-        <p>The <code>/install-tend</code> skill walks the rest of the way: config file, workflow generation, bot account, secrets, branch protection. It'll ask before each step that touches your repo.</p>
+        <p>The <code>/install-tend</code> Skill walks the rest of the way: config file, workflow generation, bot account, secrets, branch protection. It'll ask before each step that touches your repo.</p>
         <p class="note">You'll need a GitHub account for the bot (something like <code>@your-project-bot</code>) and a Claude Max subscription. Maintainers of sizeable OSS projects can <a href="https://claude.com/contact-sales/claude-for-oss">get a Max subscription free from Anthropic</a>.</p>
       </div>
     </div>
@@ -158,7 +159,7 @@ claude /install-tend</code></pre>
     <div class="marginalia">
       <div class="margin-note">model</div>
       <div class="body">
-        <p>Tend gives Claude write access to a repository. The primary boundary is a GitHub ruleset that blocks the bot from merging to protected branches — whoever opened the PR, however it's been reviewed — so every change lands through a human merge; tend's setup script verifies and (if you ask) creates that ruleset for you. On top of that sit config-pinning, burst-and-spike rate limiting, and a fixed prompt and skill set: an attacker who controls a PR diff or an issue body can shape what Claude reads, never the instructions it follows.</p>
+        <p>Tend gives Claude write access to a repository. The primary boundary is a GitHub ruleset that blocks the bot from merging to protected branches — whoever opened the PR, however it's been reviewed — so every change lands through a human merge; tend's setup script verifies and (if you ask) creates that ruleset for you. On top of that sit config-pinning, burst-and-spike rate limiting, and a fixed prompt and Skill set: an attacker who controls a PR diff or an issue body can shape what Claude reads, never the instructions it follows.</p>
         <p><a href="https://github.com/max-sixty/tend/blob/main/docs/security-model.md">Read the full threat model →</a></p>
       </div>
     </div>
