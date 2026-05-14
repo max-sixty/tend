@@ -22,6 +22,11 @@ jobs:
           - max-sixty/tend
           - PRQL/prql
     runs-on: ubuntu-24.04
+    # Successful legs run 3–13 min (30-day p99 ≈ 10 min). Without a cap, an
+    # `apt-get`/`curl` hang in the upstream `claude-code-action` setup step
+    # burns the full 360-min GHA default — observed twice: 75 leg-min during
+    # the 2026-05-02 azure-mirror DNS outage and 360 leg-min on 2026-05-13.
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
