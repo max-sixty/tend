@@ -185,7 +185,7 @@ hr::after {
 /* Marginalia layout — small numeral marker in left column, body in right */
 .marginalia {
   display: grid;
-  grid-template-columns: 4.5rem minmax(0, 1fr);
+  grid-template-columns: 5.5rem minmax(0, 1fr);
   gap: 1.5rem;
   margin: 2.5rem 0;
 }
