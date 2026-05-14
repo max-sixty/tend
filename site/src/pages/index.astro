@@ -98,6 +98,10 @@ claude /install-tend</code></pre>
 
   <hr />
 
+  <Activity />
+
+  <hr />
+
   <!-- ===== HOW IT WORKS ===== -->
   <section id="how-it-works">
     <p class="section-eyebrow">how it works</p>
@@ -127,10 +131,6 @@ claude /install-tend</code></pre>
 
   <hr />
 
-  <Activity />
-
-  <hr />
-
   <!-- ===== QUICK START ===== -->
   <section id="quick-start">
     <p class="section-eyebrow">getting started</p>
@@ -154,12 +154,12 @@ claude /install-tend</code></pre>
   <!-- ===== SECURITY ===== -->
   <section id="security">
     <p class="section-eyebrow">security</p>
-    <p class="section-lead">Where the bot can and can't go.</p>
+    <p class="section-lead">You remain in control.</p>
 
     <div class="marginalia">
       <div class="margin-note">model</div>
       <div class="body">
-        <p>Tend gives Claude write access to a repository. The primary boundary is a GitHub ruleset that blocks the bot from merging to protected branches — whoever opened the PR, however it's been reviewed — so every change lands through a human merge; tend's setup script verifies and (if you ask) creates that ruleset for you. On top of that sit config-pinning, burst-and-spike rate limiting, and a fixed prompt and Skill set: an attacker who controls a PR diff or an issue body can shape what Claude reads, never the instructions it follows.</p>
+        <p>Tend gives Claude write access to your repo, but not the merge. A GitHub ruleset blocks the bot from merging to protected branches — whoever opened the PR, however it's been reviewed — so every change lands through a human; tend's setup verifies the ruleset and (if you ask) creates it for you. Around that sit config-pinning, rate limits, and a fixed prompt and Skill set.</p>
         <p><a href="https://github.com/max-sixty/tend/blob/main/docs/security-model.md">Read the full threat model →</a></p>
       </div>
     </div>
