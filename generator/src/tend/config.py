@@ -1,13 +1,17 @@
-"""Read and validate .config/tend.toml."""
+"""Read and validate .config/tend.yaml."""
 
 from __future__ import annotations
 
 import re
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
+from ruamel.yaml import YAML
+
+# ruamel.yaml parses YAML 1.2 by default, which fixes PyYAML's `on:` → True
+# trap and the Norway problem (yes/no/on/off coerced to bool).
+_YAML = YAML(typ="safe", pure=True)
 
 KNOWN_WORKFLOWS = {
     "review",
@@ -55,7 +59,8 @@ class SetupStep:
     `id`, `shell`, `working-directory`, `continue-on-error`,
     `timeout-minutes`, `if`. The renderer injects the notifications
     pre-check `if:` guard when absent. For multi-step setup, add multiple
-    `[[setup]]` entries — or reference a local composite action with `uses`.
+    entries to the `setup:` list — or reference a local composite action
+    with `uses`.
     """
 
     fields: dict
@@ -96,17 +101,30 @@ class Config:
     @classmethod
     def load(cls, path: Path | None = None) -> Config:
         if path is None:
-            path = Path(".config/tend.toml")
+            path = Path(".config/tend.yaml")
         if not path.exists():
+            legacy = Path(".config/tend.toml")
+            if path == Path(".config/tend.yaml") and legacy.exists():
+                raise click.ClickException(
+                    f"Found {legacy} but tend now reads {path}. "
+                    "Run `uvx tend@latest init` to migrate "
+                    "(verifies the parsed config is equivalent, swaps the file, "
+                    "and regenerates workflows in one step)."
+                )
             raise click.ClickException(f"Config not found: {path}")
-        with path.open("rb") as f:
-            raw = tomllib.load(f)
+        with path.open() as f:
+            raw = _YAML.load(f) or {}
+
+        if not isinstance(raw, dict):
+            raise click.ClickException(
+                f"{path} must contain a YAML mapping at the top level"
+            )
 
         if "bot_name" not in raw:
             raise click.ClickException("Missing required field: bot_name")
 
         bot_name = raw["bot_name"]
-        if not bot_name:
+        if not isinstance(bot_name, str) or not bot_name:
             raise click.ClickException("bot_name must not be empty")
         if not _GITHUB_USERNAME.match(bot_name):
             raise click.ClickException(
@@ -132,21 +150,21 @@ class Config:
                 "protected_branches must be a list of non-empty strings"
             )
 
-        secrets = raw.get("secrets", {})
+        secrets = raw.get("secrets", {}) or {}
         unknown_secrets = set(secrets.keys()) - KNOWN_SECRETS_KEYS
         for key in sorted(unknown_secrets):
             click.echo(f"Warning: unknown secrets key '{key}'", err=True)
 
         setup: list[SetupStep] = []
-        for i, entry in enumerate(raw.get("setup", [])):
+        for i, entry in enumerate(raw.get("setup", []) or []):
             if not isinstance(entry, dict):
                 raise click.ClickException(
-                    f"setup[{i}] must be a table with `uses` or `run`"
+                    f"setup[{i}] must be a mapping with `uses` or `run`"
                 )
             if "raw" in entry:
                 raise click.ClickException(
                     f"setup[{i}]: `raw` was removed. Split into multiple "
-                    "[[setup]] entries, or move the YAML into a local "
+                    "setup entries, or move the YAML into a local "
                     "composite action and reference it with `uses`."
                 )
             unknown = set(entry.keys()) - ALLOWED_STEP_FIELDS
@@ -162,11 +180,11 @@ class Config:
                 )
             for k in DICT_STEP_FIELDS:
                 if k in entry and not isinstance(entry[k], dict):
-                    raise click.ClickException(f"setup[{i}]: `{k}` must be a table")
+                    raise click.ClickException(f"setup[{i}]: `{k}` must be a mapping")
             setup.append(SetupStep(fields=dict(entry)))
 
         workflows: dict[str, WorkflowConfig] = {}
-        for name, wf_raw in raw.get("workflows", {}).items():
+        for name, wf_raw in (raw.get("workflows") or {}).items():
             if name == "renovate":
                 raise click.ClickException(
                     "workflows.renovate has been renamed to workflows.weekly"
@@ -180,14 +198,14 @@ class Config:
                 watched = wf_raw.get("watched_workflows")
                 if watched is not None and len(watched) == 0 and name == "ci-fix":
                     raise click.ClickException(
-                        "watched_workflows = [] is invalid for ci-fix — "
+                        "watched_workflows: [] is invalid for ci-fix — "
                         "workflow_run requires at least one workflow name. "
-                        "Disable ci-fix with enabled = false instead."
+                        "Disable ci-fix with enabled: false instead."
                     )
                 workflow_extra = wf_raw.get("workflow_extra")
                 if workflow_extra is not None and not isinstance(workflow_extra, dict):
                     raise click.ClickException(
-                        f"workflows.{name}.workflow_extra must be a table"
+                        f"workflows.{name}.workflow_extra must be a mapping"
                     )
                 jobs_raw = wf_raw.get("jobs")
                 if jobs_raw is not None and (
@@ -195,7 +213,7 @@ class Config:
                     or not all(isinstance(v, dict) for v in jobs_raw.values())
                 ):
                     raise click.ClickException(
-                        f"workflows.{name}.jobs must be a table of tables"
+                        f"workflows.{name}.jobs must be a mapping of mappings"
                     )
                 workflows[name] = WorkflowConfig(
                     enabled=wf_raw.get("enabled", True),
@@ -215,7 +233,7 @@ class Config:
         ):
             raise click.ClickException(
                 "secrets.allowed must be a list of strings, "
-                'e.g. allowed = ["CODECOV_TOKEN"]'
+                'e.g. allowed: ["CODECOV_TOKEN"]'
             )
 
         return cls(

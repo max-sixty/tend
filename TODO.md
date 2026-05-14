@@ -38,7 +38,7 @@ webhook handler to detect config changes.
 
 ### Model B: full webhook handler
 
-Adopter installs our GitHub App, adds `.config/tend.toml`, done — no
+Adopter installs our GitHub App, adds `.config/tend.yaml`, done — no
 workflow files. GitHub sends raw events to our service; we run the logic
 (engagement verification, concurrency, dispatch) and execute Claude on our
 infrastructure (or dispatch back to the adopter's runners).
@@ -59,7 +59,7 @@ adopter's repo *and* their code. Anthropic token has three options:
 ## Auth: triage + fork privilege model
 
 Currently only `write + branch protection` exists. The planned `mode` field
-in `.config/tend.toml` would select between two models:
+in `.config/tend.yaml` would select between two models:
 
 | | **Triage + fork** | **Write + branch protection** (current) |
 |---|---|---|

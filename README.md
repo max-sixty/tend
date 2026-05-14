@@ -48,7 +48,7 @@ claude /install-tend
 
 It'll take 5-15 minutes to set up the config, workflow generation, bot account,
 secrets, and branch protection. Tend is configured through a [config
-file](docs/tend.example.toml) and a repo-local `/running-tend` skill.
+file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 
 ## Reasons _not_ to use Tend
 
@@ -77,14 +77,15 @@ Scheduled workflows also support manual dispatch for testing. All are
 enabled by default except **ci-fix**, which requires `watched_workflows`
 to be configured. Any can be disabled:
 
-```toml
-[workflows.weekly]
-enabled = false
+```yaml
+workflows:
+  weekly:
+    enabled: false
 ```
 
 ## How it works
 
-`uvx tend@latest init` reads `.config/tend.toml` and writes `tend-*.yaml` workflow
+`uvx tend@latest init` reads `.config/tend.yaml` and writes `tend-*.yaml` workflow
 files into `.github/workflows/`. Each workflow handles triggers, skip
 conditions, concurrency, and permissions — then calls the composite action
 (`max-sixty/tend@v1`).
@@ -123,22 +124,22 @@ Full threat model: [docs/security-model.md](docs/security-model.md).
 
 ## Configuration
 
-`.config/tend.toml` — only `bot_name` is required:
+`.config/tend.yaml` — only `bot_name` is required:
 
-```toml
-bot_name = "my-project-bot"
+```yaml
+bot_name: my-project-bot
 ```
 
 Two repo secrets are required:
 
-| Secret                    | Value                                                                                               |
-| ------------------------- | --------------------------------------------------------------------------------------------------- |
-| `BOT_TOKEN`               | Bot account PAT — classic or fine-grained (see [example config](docs/tend.example.toml) for scopes) |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token (via PKCE flow, not an API key)                                             |
+| Secret                    | Value                                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `BOT_TOKEN`               | Bot account PAT — classic or fine-grained (see [example config](docs/tend.example.yaml) for scopes)  |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token (via PKCE flow, not an API key)                                              |
 
 All other options — secret name overrides, setup steps, protected branches,
 workflow overrides, schedules — are documented in
-[`docs/tend.example.toml`](docs/tend.example.toml).
+[`docs/tend.example.yaml`](docs/tend.example.yaml).
 
 ## Project context
 
