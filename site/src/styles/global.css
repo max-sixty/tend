@@ -25,6 +25,8 @@
   /* Layout */
   --measure:      62ch;
   --gutter:       3rem;
+  --rail:         7rem;                                  /* margin-note column + gap */
+  --page-width:   calc(var(--rail) + var(--measure) + 4rem);    /* one right edge for prose, tables, and rails — small headroom past measure so the activity table can breathe */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -152,7 +154,7 @@ hr {
 /* ---------- Page shell ---------- */
 
 .page {
-  max-width: 1080px;
+  max-width: calc(var(--page-width) + var(--gutter) * 2);
   margin: 0 auto;
   padding: 0.5rem var(--gutter) 6rem;
 }
@@ -212,7 +214,7 @@ hr {
 
 .site-header {
   padding: 1.6rem var(--gutter);
-  max-width: 1080px;
+  max-width: calc(var(--page-width) + var(--gutter) * 2);
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -259,7 +261,7 @@ hr {
 /* ---------- Hero ---------- */
 
 .hero {
-  padding: 2rem 0 1.5rem 7rem;
+  padding: 2rem 0 1.5rem var(--rail);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: clamp(1.5rem, 3vw, 2.5rem);
@@ -304,7 +306,7 @@ hr {
 }
 
 .logo-frame {
-  width: clamp(210px, 26vw, 330px);
+  width: clamp(170px, 18vw, 230px);
   display: flex;
   justify-content: center;
   justify-self: center;
@@ -367,7 +369,7 @@ hr {
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--oak-deep);
-  margin: 0 0 0.6rem 7rem;
+  margin: 0 0 0.6rem var(--rail);
   position: relative;
 }
 .section-eyebrow::before {
@@ -387,7 +389,7 @@ hr {
   font-style: italic;
   line-height: 1.3;
   color: var(--ink);
-  margin: 0 0 1rem 7rem;
+  margin: 0 0 1rem var(--rail);
   max-width: 48ch;
 }
 
@@ -567,7 +569,7 @@ hr {
   border-top: 1px solid var(--paper-deep);
   margin-top: 5rem;
   padding: 2rem var(--gutter);
-  max-width: 1080px;
+  max-width: calc(var(--page-width) + var(--gutter) * 2);
   margin-left: auto;
   margin-right: auto;
   display: flex;
