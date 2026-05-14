@@ -57,38 +57,26 @@ const areas = [
 <Base>
   <!-- ===== HERO ===== -->
   <section class="hero">
-    <div>
-      <h1>Tend</h1>
-      <p class="tagline">An agent that tends your repo — reviewing PRs, triaging issues, and responding to whatever comes up, so you can focus on building beautiful things.</p>
+    <div class="hero-body">
+      <h1>tend</h1>
+      <p class="tagline">An agent that tends your repo — reviewing PRs, triaging issues, and responding to whatever comes up so you can focus on building beautiful things.</p>
 
       <pre class="install"><code>claude plugin marketplace add max-sixty/tend
 claude plugin install install-tend@tend
 claude /install-tend</code></pre>
-
-      <div class="badges">
-        <a class="meta-link" href="https://github.com/max-sixty/tend">
-          <svg class="inline-icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path fill="currentColor" d="M8 .2a8 8 0 0 0-2.5 15.6c.4.1.5-.2.5-.4v-1.4c-2.2.5-2.7-1-2.7-1-.4-1-.9-1.3-.9-1.3-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.9.9 2.4.7 0-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-3.9 0-.9.3-1.6.8-2.2 0-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8a7.7 7.7 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.4 1.1.1 1.9.1 2.1.5.6.8 1.3.8 2.2 0 3.1-1.9 3.7-3.7 3.9.3.3.6.8.6 1.5v2.2c0 .2.1.5.5.4A8 8 0 0 0 8 .2z"/>
-          </svg>
-          github
-        </a>
-        <a class="meta-link" href="https://pypi.org/project/tend/">
-          <span class="meta-glyph">π</span> pypi
-        </a>
-        <a class="meta-link" href="https://github.com/max-sixty/tend/blob/main/LICENSE">
-          MIT
-        </a>
-        <span class="note">already in production, albeit early days</span>
-      </div>
-
-      <CurrentlyTending />
     </div>
     <div class="logo-frame">
-      <Logo size={260} />
+      <Logo size={220} />
     </div>
   </section>
 
-  <Stats />
+  <div class="marginalia stats-rail">
+    <div class="margin-note">to date</div>
+    <div class="body">
+      <Stats />
+      <CurrentlyTending />
+    </div>
+  </div>
 
   <hr />
 
