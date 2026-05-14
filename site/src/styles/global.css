@@ -365,6 +365,8 @@ pre code {
   .section-eyebrow { margin-left: 0; }
   .section-eyebrow::before { left: -1.5rem; }
   .section-lead { margin-left: 0; }
+  .site-header .wordmark,
+  .site-footer .credit { margin-left: 0; }
 }
 
 /* ---------- Stat strip ---------- */
