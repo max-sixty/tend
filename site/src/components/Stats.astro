@@ -2,10 +2,23 @@
 // Stat strip — runtime-fetched from api.tend-src.com/activity (the bucket
 // counts). Hidden until the fetch returns non-zero values, so a cold deploy
 // with empty data doesn't render a row of zeros.
+//
+// The strip ships with four placeholder cells of the same shape as the real
+// data so the section reserves its natural height before the fetch resolves
+// (no min-height hack in CSS). The script clears the placeholders before
+// appending real cells.
 ---
 
-<section id="stats" class="stats" hidden>
-  <div class="stat-strip" data-stat-strip></div>
+<section id="stats" class="stats" data-state="loading">
+  <div class="stat-strip" data-stat-strip>
+    {Array.from({ length: 4 }).map(() => (
+      <div class="stat-cell" aria-hidden="true">
+        <div class="stat-num">&nbsp;</div>
+        <div class="stat-label">&nbsp;</div>
+        <div class="stat-week">&nbsp;</div>
+      </div>
+    ))}
+  </div>
 </section>
 
 <script>
@@ -38,6 +51,7 @@
 
     const strip = document.querySelector("[data-stat-strip]");
     if (!strip) return false;
+    strip.replaceChildren(); // drop the skeleton cells
     for (const cell of cells) {
       const div = document.createElement("div");
       div.className = "stat-cell";
@@ -50,15 +64,13 @@
       label.className = "stat-label";
       label.textContent = cell.label;
 
-      div.append(num, label);
+      const week = document.createElement("div");
+      week.className = "stat-week";
+      // Render the week line unconditionally so every cell is the same height
+      // as the skeleton — a non-breaking space when there's nothing to report.
+      week.textContent = cell.week > 0 ? `+${format(cell.week)} this week` : " ";
 
-      if (cell.week > 0) {
-        const week = document.createElement("div");
-        week.className = "stat-week";
-        week.textContent = `+${format(cell.week)} this week`;
-        div.appendChild(week);
-      }
-
+      div.append(num, label, week);
       strip.appendChild(div);
     }
     return true;

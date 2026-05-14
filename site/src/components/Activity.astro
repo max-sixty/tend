@@ -3,16 +3,31 @@
 // with in-flight runs from /currently-tending so an idle-but-actively-tending
 // state still shows the section. Stays hidden until the merged list is
 // non-empty, so a Worker outage or empty data degrades to no section at all.
+//
+// The list ships with placeholder rows of the same shape as the real data so
+// the section reserves its natural height before the fetch resolves (no
+// min-height hack in CSS). The script clears them before appending real rows.
+
+const MAX_ROWS = 12;
 ---
 
-<section id="recent-activity" class="recent-activity" hidden>
+<section id="recent-activity" class="recent-activity" data-state="loading">
   <p class="section-eyebrow">recent ground</p>
   <p class="section-lead">A few of the last things the bots have touched.</p>
 
   <div class="marginalia">
     <div class="margin-note">activity</div>
     <div class="body">
-      <ul class="activity-rows" data-activity-rows></ul>
+      <ul class="activity-rows" data-activity-rows>
+        {Array.from({ length: MAX_ROWS }).map(() => (
+          <li class="activity-row" aria-hidden="true">
+            <span class="kind">&nbsp;</span>
+            <span class="repo">&nbsp;</span>
+            <a class="title">&nbsp;</a>
+            <time class="at">&nbsp;</time>
+          </li>
+        ))}
+      </ul>
     </div>
   </div>
 </section>
@@ -21,7 +36,7 @@
   import { fetchJson, liveData } from "../lib/api";
   import { elapsedTime, relativeTime } from "../lib/time";
 
-  const MAX_ROWS = 12; // the buckets hold up to ~10 each; this section shows a merged slice
+  const MAX_ROWS = 12; // matches the placeholder count in the markup above
 
   interface RecentItem {
     repo: string;
@@ -90,6 +105,7 @@
 
     const ul = document.querySelector("[data-activity-rows]");
     if (!ul) return false;
+    ul.replaceChildren(); // drop the skeleton rows
     for (const e of top) {
       const li = document.createElement("li");
       li.className = "activity-row";
