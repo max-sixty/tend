@@ -31,3 +31,7 @@ url = "http://localhost:{{ branch | hash_port }}"
 # Stop the dev server when the worktree is removed.
 [[pre-remove]]
 server = "lsof -ti :{{ branch | hash_port }} -sTCP:LISTEN | xargs kill 2>/dev/null || true"
+
+# The Python package lives under generator/; this alias runs pytest from the right cwd.
+[aliases]
+test = "cd generator && uv run pytest {{ args }}"
