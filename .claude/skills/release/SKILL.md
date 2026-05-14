@@ -9,7 +9,7 @@ metadata:
 
 ## Steps
 
-1. **Run tests and lints**: `cd generator && uv run pytest` and `pre-commit run --all-files`
+1. **Run tests and lints**: `wt test` and `pre-commit run --all-files`
 2. **Check current version**: Read `version` in `generator/pyproject.toml`
 3. **Review commits**: `git log <last-version>..HEAD --oneline` to understand scope
 4. **Confirm version with user**: Present changes summary and proposed version
