@@ -143,30 +143,10 @@ pre code {
 
 hr {
   border: none;
-  height: 1.5rem;
-  margin: 4rem 0 3rem;
-  text-align: center;
-  position: relative;
-}
-hr::before {
-  content: "❦";
-  font-family: var(--font-serif);
-  font-size: 1.2rem;
-  color: var(--oak);
-  background: var(--paper);
-  padding: 0 0.8rem;
-  position: relative;
-  top: -0.1rem;
-}
-hr::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 25%;
-  right: 25%;
   height: 1px;
+  margin: 4rem auto 3rem;
+  width: 50%;
   background: var(--paper-deep);
-  z-index: -1;
 }
 
 /* ---------- Page shell ---------- */
