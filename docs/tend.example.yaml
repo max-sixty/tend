@@ -11,25 +11,20 @@
 
 bot_name: my-project-bot
 
-# ## Engine
+# ## Harness
 #
 # Which agent runtime to use. Defaults to "claude" (wraps
 # anthropics/claude-code-action). Set to "codex" to use OpenAI Codex via
 # `codex exec` instead.
 #
-# engine: codex
+# harness: codex
 
 # ## Model
 #
-# Model to use for all workflows. Valid values depend on the engine:
+# Model to use for all workflows. Valid values depend on the harness:
 #
-# - engine: claude — opus (default), sonnet, haiku (allowlisted; typos fail
-#   at config load).
-# - engine: codex  — any string Codex CLI accepts. Current visible models
-#   per Codex's catalog: gpt-5.5 (default), gpt-5.4, gpt-5.4-mini,
-#   gpt-5.3-codex, gpt-5.2. Pass-through, not allowlisted: Codex's catalog
-#   churns and a stale list would silently block adopters from picking newer
-#   models.
+# - harness: claude — opus (default), sonnet, haiku
+# - harness: codex  — gpt-5.5 (default); any string Codex CLI accepts
 #
 # model: opus
 
@@ -51,9 +46,9 @@ bot_name: my-project-bot
 
 # ## Secrets
 #
-# Repo secrets, by engine:
+# Repo secrets, by harness:
 #
-# | Engine   | Required                                                              |
+# | Harness   | Required                                                              |
 # |----------|------------------------------------------------------------------------|
 # | `claude` | `BOT_TOKEN` + `CLAUDE_CODE_OAUTH_TOKEN`                                |
 # | `codex`  | `BOT_TOKEN` + one of `OPENAI_API_KEY` or `CODEX_AUTH_JSON`             |
@@ -87,9 +82,9 @@ bot_name: my-project-bot
 #
 # secrets:
 #   bot_token: MY_BOT_PAT
-#   claude_token: MY_CLAUDE_TOKEN      # engine: claude
-#   openai_key: MY_OPENAI_KEY          # engine: codex
-#   codex_auth_json: MY_CODEX_AUTH     # engine: codex
+#   claude_token: MY_CLAUDE_TOKEN      # harness: claude
+#   openai_key: MY_OPENAI_KEY          # harness: codex
+#   codex_auth_json: MY_CODEX_AUTH     # harness: codex
 #
 # `tend check` flags repo-level secrets not in an explicit allowlist. Repos with
 # additional legitimate secrets must list them:

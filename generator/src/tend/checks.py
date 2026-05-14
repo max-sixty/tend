@@ -449,11 +449,11 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
     # check below so the message can name both candidates.
     engine_auth_secrets = (
         [cfg.claude_token_secret]
-        if cfg.engine == "claude"
+        if cfg.harness == "claude"
         else [cfg.openai_key_secret, cfg.codex_auth_json_secret]
     )
     required_secrets = [cfg.bot_token_secret]
-    if cfg.engine == "claude":
+    if cfg.harness == "claude":
         required_secrets.append(cfg.claude_token_secret)
 
     allowed = {cfg.bot_token_secret, *engine_auth_secrets} | set(
@@ -466,7 +466,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
             results.append(check_branch_protection(repo, branch))
     results.append(check_bot_permission(repo, cfg.bot_name))
     results.append(check_secrets(repo, required_secrets))
-    if cfg.engine == "codex":
+    if cfg.harness == "codex":
         results.append(check_codex_auth(repo, cfg))
     results.append(check_repo_secret_allowlist(repo, allowed))
     return results
@@ -502,6 +502,6 @@ def check_codex_auth(repo: str, cfg: Config) -> CheckResult:
     return CheckResult(
         "codex-auth",
         False,
-        f"Codex engine selected but neither {cfg.openai_key_secret} nor "
+        f"Codex harness selected but neither {cfg.openai_key_secret} nor "
         f"{cfg.codex_auth_json_secret} is set as a repo secret.",
     )

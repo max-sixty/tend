@@ -3,14 +3,14 @@
 Deferred work and unimplemented options. Each entry should justify the cost
 of building it if revisited.
 
-## Cut tend over to engine = "codex" (post-release)
+## Cut tend over to harness = "codex" (post-release)
 
-The Codex engine landed but tend itself still runs on Claude. The cutover
+The Codex harness landed but tend itself still runs on Claude. The cutover
 needs the release sequence:
 
-1. Land the engine support PR on `main`.
+1. Land the harness support PR on `main`.
 2. Cut release `0.0.19` — bumping the `v1` tag to include `codex/action.yaml`.
-3. Edit `.config/tend.toml`: add `engine = "codex"` (and optionally
+3. Edit `.config/tend.toml`: add `harness = "codex"` (and optionally
    `effort = "medium"`). Set `model = "gpt-5.1-codex"` explicitly or let
    the default win.
 4. Set `OPENAI_API_KEY` secret on `max-sixty/tend` (or `CODEX_AUTH_JSON`).

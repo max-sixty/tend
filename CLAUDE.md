@@ -18,7 +18,7 @@ Four pieces:
 
 1. **Plugins** — `install-tend` (user-facing setup) and `tend-ci-runner` (CI
    skills). Both ship from the same marketplace.
-2. **Composite action(s)** — the stable interface. One per engine:
+2. **Composite action(s)** — the stable interface. One per harness:
    - `max-sixty/tend@v1` (Claude) — invokes `claude-code-action` with the
      tend plugin marketplace. Inputs documented in `action.yaml`.
    - `max-sixty/tend/codex@v1` (Codex) — installs `@openai/codex` and
@@ -31,11 +31,11 @@ Four pieces:
    or care about triggers, checkout, or project setup.
 3. **Generator** (`uvx tend@latest init`) — stamps workflow files into
    the adopter's `.github/workflows/` from `.config/tend.yaml`. Picks the
-   right action ref and secret names per `engine`. Generation is
+   right action ref and secret names per `harness`. Generation is
    idempotent — running `init` again overwrites all files from the
    current config.
 4. **Config** (`.config/tend.yaml`) — inputs to the generator. Overrides
-   from defaults only. `engine: claude | codex` selects the engine
+   from defaults only. `harness: claude | codex` selects the harness
    (default `claude`). All six workflows are enabled by default.
 
 Generated workflows are standalone — full `steps:` jobs, not

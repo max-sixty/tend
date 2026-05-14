@@ -27,7 +27,7 @@ inputs:
     default: ""
     description: >-
       Extra text appended to the computed system prompt. The base prompt
-      is composed at runtime from `shared/system-prompt.md` (engine-neutral
+      is composed at runtime from `shared/system-prompt.md` (harness-neutral
       conduct, scope, and precedence rules) plus a Claude-specific
       skill-loading directive. Empty (default) uses just the base; a
       non-empty value is appended on top.
@@ -169,7 +169,7 @@ runs:
           echo "No CLAUDE.md on ${DEFAULT_BRANCH} — removed fork version"
         fi
 
-    # Compose the system prompt from shared/system-prompt.md (engine-neutral
+    # Compose the system prompt from shared/system-prompt.md (harness-neutral
     # bulk: conduct, scope, precedence) plus a Claude-specific
     # skill-loading directive, then append the adopter's `system_prompt_append`
     # input if non-empty. Codex consumes the same shared file from

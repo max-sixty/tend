@@ -69,7 +69,7 @@ def _codex_auth_json(cfg: Config) -> str:
 
 
 def _default_prompt(cfg: Config, skill: str, args_template: str = "") -> str:
-    """Default prompt invoking a tend-ci-runner skill in engine-native syntax.
+    """Default prompt invoking a tend-ci-runner skill in harness-native syntax.
 
     Claude resolves `/tend-ci-runner:NAME` as a slash command. Codex resolves
     `$NAME` as a skill mention (or matches by description); the
@@ -78,17 +78,17 @@ def _default_prompt(cfg: Config, skill: str, args_template: str = "") -> str:
     raw so callers can splice their own placeholders (`{pr_number}`,
     `{issue_number}`, etc.) and run the existing replace step.
     """
-    invocation = f"/tend-ci-runner:{skill}" if cfg.engine == "claude" else f"${skill}"
+    invocation = f"/tend-ci-runner:{skill}" if cfg.harness == "claude" else f"${skill}"
     return f"{invocation} {args_template}".rstrip()
 
 
 def _action_ref(cfg: Config) -> str:
-    """Ref string for the engine-specific composite action.
+    """Ref string for the harness-specific composite action.
 
     Both actions ship from this repo; the Codex variant lives under /codex/.
     Pinned to v1; release tags promote both action paths together.
     """
-    return "max-sixty/tend@v1" if cfg.engine == "claude" else "max-sixty/tend/codex@v1"
+    return "max-sixty/tend@v1" if cfg.harness == "claude" else "max-sixty/tend/codex@v1"
 
 
 def _agent_step(
@@ -117,7 +117,7 @@ def _agent_step(
     lines.append(f"{pad}  with:")
     lines.append(f"{pad}    github_token: {bt}")
 
-    if cfg.engine == "claude":
+    if cfg.harness == "claude":
         ct = _claude_token(cfg)
         lines.append(f"{pad}    claude_code_oauth_token: {ct}")
     else:
@@ -131,7 +131,7 @@ def _agent_step(
 
     lines.append(f"{pad}    bot_name: {bn}")
     lines.append(f"{pad}    model: {cfg.model}")
-    if use_sticky_comment and cfg.engine == "claude":
+    if use_sticky_comment and cfg.harness == "claude":
         # Codex action posts via gh from inside skill prompts; no sticky.
         lines.append(f"{pad}    use_sticky_comment: true")
     lines.append(f"{pad}    {prompt_body}")
@@ -370,29 +370,28 @@ def generate_mention(cfg: Config) -> GeneratedWorkflow:
     # Continuation lines inside a folded `>-` scalar are indented one level
     # deeper than the `prompt:` key. The agent step renders fields at column
     # `indent + 4` (10 with indent=6); continuation goes at column 12.
-    prompt_body = (
-        f"prompt: >-\n"
-        f"            ${{{{ steps.delay.outputs.seconds\n"
-        f"            && format('This job started {{0}}s after the triggering event (over ~40s means it was queued). ',\n"
-        f"            steps.delay.outputs.seconds) || '' }}}}Before acting,\n"
-        f"            check recent comments: exit silently if the bot already responded\n"
-        f"            to the trigger; handle any other unaddressed comments too.\n"
-        f"\n"
-        f"            ${{{{ github.event_name == 'issues'\n"
-        f"              && format('An issue was updated with a mention of you ({{0}}). Read it and respond.', github.event.issue.html_url)\n"
-        f"              || (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@{bn}')\n"
-        f"                && format('You were mentioned in an inline review comment on PR #{{0}} ({{1}}, comment ID {{2}}). Read the full context, then respond. If changes are requested, make them, commit, and push.', {pr}, github.event.comment.html_url, github.event.comment.id))\n"
-        f"              || (github.event_name == 'pull_request_review_comment'\n"
-        f"                && format('An inline review comment was posted on a PR where you previously participated (PR #{{0}}, {{1}}, comment ID {{2}}). Read the full context. Only respond if the comment is directed at you or requests changes.', {pr}, github.event.comment.html_url, github.event.comment.id))\n"
-        f"              || (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@{bn}')\n"
-        f"                && format('A review was submitted on PR #{{0}} that mentions you ({{1}}, review ID {{2}}). Read the review and full context, then respond. If changes were requested, make them, commit, and push.', github.event.pull_request.number, github.event.review.html_url, github.event.review.id))\n"
-        f"              || (github.event_name == 'pull_request_review'\n"
-        f"                && format('A review was submitted on a PR where you previously participated (PR #{{0}}, {{1}}, review ID {{2}}). Read the review and full context. If the review requests changes or asks questions, respond appropriately. If the review approves or is between humans, exit silently.', github.event.pull_request.number, github.event.review.html_url, github.event.review.id))\n"
-        f"              || (contains(github.event.comment.body, '@{bn}')\n"
-        f"                && format('You were mentioned in a comment ({{0}}). Read the full context and respond. If changes are requested, make them, commit, and push.', github.event.comment.html_url))\n"
-        f"              || format('A user commented on an issue/PR where you previously participated ({{0}}). Read the full context. Only respond if the comment is directed at you, asks a question you can help with, or requests changes you can make. If the conversation is between other participants, exit silently.', github.event.comment.html_url)\n"
-        f"            }}}}"
-    )
+    prompt_body = f"""\
+prompt: >-
+            ${{{{ steps.delay.outputs.seconds
+            && format('This job started {{0}}s after the triggering event (over ~40s means it was queued). ',
+            steps.delay.outputs.seconds) || '' }}}}Before acting,
+            check recent comments: exit silently if the bot already responded
+            to the trigger; handle any other unaddressed comments too.
+
+            ${{{{ github.event_name == 'issues'
+              && format('An issue was updated with a mention of you ({{0}}). Read it and respond.', github.event.issue.html_url)
+              || (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@{bn}')
+                && format('You were mentioned in an inline review comment on PR #{{0}} ({{1}}, comment ID {{2}}). Read the full context, then respond. If changes are requested, make them, commit, and push.', {pr}, github.event.comment.html_url, github.event.comment.id))
+              || (github.event_name == 'pull_request_review_comment'
+                && format('An inline review comment was posted on a PR where you previously participated (PR #{{0}}, {{1}}, comment ID {{2}}). Read the full context. Only respond if the comment is directed at you or requests changes.', {pr}, github.event.comment.html_url, github.event.comment.id))
+              || (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@{bn}')
+                && format('A review was submitted on PR #{{0}} that mentions you ({{1}}, review ID {{2}}). Read the review and full context, then respond. If changes were requested, make them, commit, and push.', github.event.pull_request.number, github.event.review.html_url, github.event.review.id))
+              || (github.event_name == 'pull_request_review'
+                && format('A review was submitted on a PR where you previously participated (PR #{{0}}, {{1}}, review ID {{2}}). Read the review and full context. If the review requests changes or asks questions, respond appropriately. If the review approves or is between humans, exit silently.', github.event.pull_request.number, github.event.review.html_url, github.event.review.id))
+              || (contains(github.event.comment.body, '@{bn}')
+                && format('You were mentioned in a comment ({{0}}). Read the full context and respond. If changes are requested, make them, commit, and push.', github.event.comment.html_url))
+              || format('A user commented on an issue/PR where you previously participated ({{0}}). Read the full context. Only respond if the comment is directed at you, asks a question you can help with, or requests changes you can make. If the conversation is between other participants, exit silently.', github.event.comment.html_url)
+            }}}}"""
     agent = _agent_step(cfg, prompt_body)
 
     content = f"""\
@@ -662,10 +661,12 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
     guard_if = f"{guard} && {conclusion_check}" if guard else conclusion_check
     agent = _agent_step(
         cfg,
-        f"prompt: |\n            {prompt}\n"
-        f"            - Run URL: ${{{{ github.event.workflow_run.html_url }}}}\n"
-        f"            - Commit: ${{{{ github.event.workflow_run.head_sha }}}}\n"
-        f"            - Commit message: ${{{{ github.event.workflow_run.head_commit.message }}}}",
+        f"""\
+prompt: |
+            {prompt}
+            - Run URL: ${{{{ github.event.workflow_run.html_url }}}}
+            - Commit: ${{{{ github.event.workflow_run.head_sha }}}}
+            - Commit message: ${{{{ github.event.workflow_run.head_commit.message }}}}""",
     )
 
     content = f"""\

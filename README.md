@@ -22,8 +22,8 @@ To use Tend, a project needs:
 
 - A GitHub account for the agent (for example this project's is **[@tend-agent](https://www.github.com/tend-agent))**
 - One of:
-  - A Claude Max subscription (engine = "claude")
-  - An OpenAI API key, or a ChatGPT subscription via `~/.codex/auth.json` (engine = "codex")
+  - A Claude Max subscription (harness = "claude")
+  - An OpenAI API key, or a ChatGPT subscription via `~/.codex/auth.json` (harness = "codex")
 
 Tend offers the default code & guidance for the agent. Specifically that means:
 
@@ -61,10 +61,10 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
     Anthropic](https://claude.com/contact-sales/claude-for-oss).
   - Anthropic has restricted OAuth tokens from Free/Pro/Max plans to Claude
     Code and claude.ai only — using Claude Max with `claude-code-action`
-    in CI is in a grey zone and may be enforced against. The Codex engine
+    in CI is in a grey zone and may be enforced against. The Codex harness
     is an alternative.
 - While it's built to protect important secrets, a determined attacker can
-  get a) the bot's token and b) the engine auth credential (Claude OAuth
+  get a) the bot's token and b) the harness auth credential (Claude OAuth
   token, OpenAI API key, or ChatGPT auth.json). They can't do that much
   with these: burn some tokens and close some issues.
   - They specifically _cannot_ merge to the default branch, nor create releases.
@@ -97,17 +97,17 @@ workflows:
 `uvx tend@latest init` reads `.config/tend.yaml` and writes `tend-*.yaml` workflow
 files into `.github/workflows/`. Each workflow handles triggers, skip
 conditions, concurrency, and permissions — then calls the composite action
-for the configured engine (`max-sixty/tend@v1` for Claude,
+for the configured harness (`max-sixty/tend@v1` for Claude,
 `max-sixty/tend/codex@v1` for Codex).
 
 Both actions run the same security and rate-limit preflight checks and
 resolve bot identity; they differ only in which model runs the prompt:
 
-- **Claude engine** — invokes
+- **Claude harness** — invokes
   [claude-code-action](https://github.com/anthropics/claude-code-action)
   with the tend plugin. Each workflow's prompt is a slash command
   (`/tend-ci-runner:review`) that loads the matching skill.
-- **Codex engine** — installs the `@openai/codex` CLI on the runner and
+- **Codex harness** — installs the `@openai/codex` CLI on the runner and
   shells out to `codex exec`. An AGENTS.md staged into `$CODEX_HOME`
   teaches Codex to resolve `/tend-ci-runner:NAME` references to the
   bundled skill markdown.
@@ -140,20 +140,20 @@ Full threat model: [docs/security-model.md](docs/security-model.md).
 
 ## Configuration
 
-`.config/tend.yaml` — only `bot_name` is required. The default engine is
-Claude; set `engine: codex` to use OpenAI Codex instead.
+`.config/tend.yaml` — only `bot_name` is required. The default harness is
+Claude; set `harness: codex` to use OpenAI Codex instead.
 
 ```yaml
 bot_name: my-project-bot
 
 # Optional — defaults to "claude"
-# engine: codex
+# harness: codex
 # effort: medium   # codex only: minimal | low | medium | high
 ```
 
-Repo secrets depend on the engine:
+Repo secrets depend on the harness:
 
-| Engine   | Required secrets                                                                                                |
+| Harness   | Required secrets                                                                                                |
 | -------- | --------------------------------------------------------------------------------------------------------------- |
 | `claude` | `BOT_TOKEN` + `CLAUDE_CODE_OAUTH_TOKEN`                                                                          |
 | `codex`  | `BOT_TOKEN` + one of `OPENAI_API_KEY` (recommended) or `CODEX_AUTH_JSON` (subscription, discouraged on public repos) |
@@ -193,11 +193,15 @@ Anthropic's official GitHub Action for running Claude Code in CI. Your
 claude-code-action workflow — tend adds the framework (workflows, skills,
 prompts) around it but never sees the token itself.
 
-Caveat: as of 2026-02, Anthropic restricts Free/Pro/Max OAuth tokens to
-Claude Code and claude.ai only. `claude-code-action` is a third-party
-harness; check Anthropic's current
+Caveat: starting **2026-06-16**, Anthropic bills non-interactive Claude
+Code runs (CI, headless, batch) at API rates rather than against
+Max/Pro/Team plan allowances. `anthropics/claude-code-action` in
+GitHub Actions is non-interactive — a Max subscription will not fund
+runs after that date. Adopters needing subscription-funded CI should
+plan to move to the Codex harness, or accept API billing on the Claude
+harness. See Anthropic's
 [authentication policy](https://code.claude.com/docs/en/authentication)
-before relying on Max for CI billing.
+for the canonical statement.
 
 ### Codex (alternative)
 

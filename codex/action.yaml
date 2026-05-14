@@ -1,6 +1,6 @@
 name: Tend (Codex)
 description: >-
-  Tend's Codex engine: an autonomous junior maintainer for GitHub repos
+  Tend's Codex harness: an autonomous junior maintainer for GitHub repos
   powered by OpenAI Codex. Authenticates via OPENAI_API_KEY or a
   subscription-funded ~/.codex/auth.json (the latter is officially
   discouraged by OpenAI for public repos — see docs/security-model.md).
@@ -230,7 +230,7 @@ runs:
     # Stage AGENTS.md into $CODEX_HOME so it loads alongside any AGENTS.md
     # the adopter already has in their repo. Adopters' files are not
     # touched. The bulk of the prompt comes from shared/system-prompt.md
-    # (engine-neutral; the Claude action consumes the same file via
+    # (harness-neutral; the Claude action consumes the same file via
     # `Compose system prompt`) — keep edits to it in sync across both
     # engines. Codex-specific tail (skill enumeration, tooling) is
     # appended below.
@@ -243,7 +243,7 @@ runs:
         TAIL="${{ github.action_path }}/agents-tail.md"
         AGENTS="$HOME/.codex/AGENTS.md"
         {
-          echo "# Tend CI guidance (Codex engine)"
+          echo "# Tend CI guidance (Codex harness)"
           echo
           envsubst '$BOT_NAME' < "$SHARED"
           echo
@@ -253,7 +253,7 @@ runs:
 
     # Mirror claude-code-action's fork-PR CLAUDE.md pinning so adopters who
     # also rely on CLAUDE.md for prompt-injection defenses aren't worse off
-    # under the Codex engine. Codex reads `AGENTS.md` from the working
+    # under the Codex harness. Codex reads `AGENTS.md` from the working
     # directory (and any subdir the agent navigates into) — the same
     # prompt-injection vector — so we pin/remove that too.
     - name: Pin instruction files to base branch (fork PRs)

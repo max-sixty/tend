@@ -25,7 +25,7 @@ KNOWN_WORKFLOWS = {
 }
 KNOWN_TOP_LEVEL = {
     "bot_name",
-    "engine",
+    "harness",
     "model",
     "effort",
     "protected_branches",
@@ -33,7 +33,7 @@ KNOWN_TOP_LEVEL = {
     "setup",
     "workflows",
 }
-KNOWN_ENGINES = {"claude", "codex"}
+KNOWN_HARNESSES = {"claude", "codex"}
 # claude_token and openai_key are read; we accept either/both. codex_auth_json
 # is the subscription-funded path (~/.codex/auth.json contents stored as a
 # repo secret); officially discouraged for public repos but supported.
@@ -92,14 +92,14 @@ class WorkflowConfig:
 # Claude model allowlist — the set is small and stable enough that a
 # typo-catching gate at config load is worth the maintenance.
 # Codex models are NOT enumerated here: Codex's catalog churns
-# (gpt-5.1-codex was current at engine bring-up; gone by the next month),
+# (gpt-5.1-codex was current at harness bring-up; gone by the next month),
 # and a stale allowlist would silently block adopters from picking a newer
 # model. We pass any user-supplied string through and let `codex exec` error
 # at runtime if it's wrong.
-KNOWN_MODELS_BY_ENGINE = {
+KNOWN_MODELS_BY_HARNESS = {
     "claude": {"opus", "sonnet", "haiku"},
 }
-DEFAULT_MODEL_BY_ENGINE = {
+DEFAULT_MODEL_BY_HARNESS = {
     "claude": "opus",
     "codex": "gpt-5.5",
 }
@@ -118,7 +118,7 @@ class Config:
     claude_token_secret: str
     openai_key_secret: str
     codex_auth_json_secret: str
-    engine: str
+    harness: str
     model: str
     effort: str
     setup: list[SetupStep]
@@ -165,18 +165,18 @@ class Config:
                 "(only letters, digits, and hyphens)"
             )
 
-        engine = raw.get("engine", "claude")
-        if engine not in KNOWN_ENGINES:
+        harness = raw.get("harness", "claude")
+        if harness not in KNOWN_HARNESSES:
             raise click.ClickException(
-                f"engine '{engine}' is not recognized "
-                f"(known: {', '.join(sorted(KNOWN_ENGINES))})"
+                f"harness '{harness}' is not recognized "
+                f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
             )
 
-        model = raw.get("model", DEFAULT_MODEL_BY_ENGINE[engine])
-        known_models = KNOWN_MODELS_BY_ENGINE.get(engine)
+        model = raw.get("model", DEFAULT_MODEL_BY_HARNESS[harness])
+        known_models = KNOWN_MODELS_BY_HARNESS.get(harness)
         if known_models is not None and model not in known_models:
             raise click.ClickException(
-                f"model '{model}' is not recognized for engine '{engine}' "
+                f"model '{model}' is not recognized for harness '{harness}' "
                 f"(known: {', '.join(sorted(known_models))})"
             )
 
@@ -186,9 +186,9 @@ class Config:
                 f"effort '{effort}' is not recognized "
                 f"(known: {', '.join(sorted(e for e in KNOWN_EFFORTS if e))})"
             )
-        if effort and engine != "codex":
+        if effort and harness != "codex":
             raise click.ClickException(
-                f"effort is only valid for engine = 'codex' (got engine = '{engine}')"
+                f"effort is only valid for harness = 'codex' (got harness = '{harness}')"
             )
 
         unknown = set(raw.keys()) - KNOWN_TOP_LEVEL
@@ -297,7 +297,7 @@ class Config:
             claude_token_secret=secrets.get("claude_token", "CLAUDE_CODE_OAUTH_TOKEN"),
             openai_key_secret=secrets.get("openai_key", "OPENAI_API_KEY"),
             codex_auth_json_secret=secrets.get("codex_auth_json", "CODEX_AUTH_JSON"),
-            engine=engine,
+            harness=harness,
             model=model,
             effort=effort,
             setup=setup,

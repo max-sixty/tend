@@ -33,7 +33,7 @@ def _config(
     protected_branches: list[str] | None = None,
     bot_token_secret: str = "T1",
     claude_token_secret: str = "T2",
-    engine: str = "claude",
+    harness: str = "claude",
     model: str = "opus",
 ) -> Config:
     """Build a Config for tests without hand-listing every positional arg."""
@@ -45,7 +45,7 @@ def _config(
         claude_token_secret=claude_token_secret,
         openai_key_secret="OPENAI_API_KEY",
         codex_auth_json_secret="CODEX_AUTH_JSON",
-        engine=engine,
+        harness=harness,
         model=model,
         effort="",
         setup=[],
@@ -696,7 +696,7 @@ def test_codex_engine_passes_with_openai_key() -> None:
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks._gh", side_effect=fake_gh),
     ):
-        results = run_all_checks(_config(engine="codex"), repo="owner/repo")
+        results = run_all_checks(_config(harness="codex"), repo="owner/repo")
     codex_check = [r for r in results if r.name == "codex-auth"]
     assert len(codex_check) == 1
     assert codex_check[0].passed is True
@@ -726,7 +726,7 @@ def test_codex_engine_passes_with_auth_json() -> None:
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks._gh", side_effect=fake_gh),
     ):
-        results = run_all_checks(_config(engine="codex"), repo="owner/repo")
+        results = run_all_checks(_config(harness="codex"), repo="owner/repo")
     codex_check = [r for r in results if r.name == "codex-auth"]
     assert codex_check[0].passed is True
     assert "CODEX_AUTH_JSON" in codex_check[0].message
@@ -755,7 +755,7 @@ def test_codex_engine_fails_when_no_auth() -> None:
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks._gh", side_effect=fake_gh),
     ):
-        results = run_all_checks(_config(engine="codex"), repo="owner/repo")
+        results = run_all_checks(_config(harness="codex"), repo="owner/repo")
     codex_check = [r for r in results if r.name == "codex-auth"]
     assert codex_check[0].passed is False
     assert "OPENAI_API_KEY" in codex_check[0].message
@@ -763,7 +763,7 @@ def test_codex_engine_fails_when_no_auth() -> None:
 
 
 def test_claude_engine_omits_codex_auth_check() -> None:
-    """The codex-auth check only runs when engine=codex."""
+    """The codex-auth check only runs when harness=codex."""
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks._gh", side_effect=_fake_gh_all_pass),

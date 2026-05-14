@@ -162,16 +162,16 @@ Use a single bot token across all workflows for consistent identity.
 The merge restriction (ruleset) caps blast radius regardless of which token
 is used.
 
-Two tokens are needed: the bot's PAT/App credential, plus an engine auth
-credential whose exact form depends on `engine` in `.config/tend.toml`.
+Two tokens are needed: the bot's PAT/App credential, plus an harness auth
+credential whose exact form depends on `harness` in `.config/tend.toml`.
 
 | Token | Purpose |
 |-------|---------|
 | Bot token (PAT or App) | GitHub API and git operations. Consistent bot identity. |
-| Engine auth (one of, per engine) | Authenticates the agent runtime. |
-| ↳ Claude OAuth token | `engine = "claude"`: authenticates Claude Code to the Anthropic API. |
-| ↳ `OPENAI_API_KEY` | `engine = "codex"`, API-billed: standard OpenAI API key, billed per token. |
-| ↳ `CODEX_AUTH_JSON` | `engine = "codex"`, subscription-funded: the contents of `~/.codex/auth.json` after `codex login` — **discouraged for public repos** (see below). |
+| Harness auth (one of, per harness) | Authenticates the agent runtime. |
+| ↳ Claude OAuth token | `harness = "claude"`: authenticates Claude Code to the Anthropic API. |
+| ↳ `OPENAI_API_KEY` | `harness = "codex"`, API-billed: standard OpenAI API key, billed per token. |
+| ↳ `CODEX_AUTH_JSON` | `harness = "codex"`, subscription-funded: the contents of `~/.codex/auth.json` after `codex login` — **discouraged for public repos** (see below). |
 
 **Why one bot token.** The bot token is equally safe in any workflow because
 the merge restriction caps the blast radius. Using a single token gives

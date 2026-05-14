@@ -1,6 +1,6 @@
 ---
 name: install-tend
-description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the engine auth token (Claude OAuth or OpenAI API/Codex auth.json). Use when setting up tend on a new repo or when asked to install/configure tend.
+description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the harness auth token (Claude OAuth or OpenAI API/Codex auth.json). Use when setting up tend on a new repo or when asked to install/configure tend.
 ---
 
 # Install Tend
@@ -23,9 +23,9 @@ not have to ask "where do I do that?".
 
 ## Kickoff
 
-Before running step 1, choose the engine and lay out the plan:
+Before running step 1, choose the harness and lay out the plan:
 
-- Ask via `AskUserQuestion` which engine to use:
+- Ask via `AskUserQuestion` which harness to use:
   - **Claude (Anthropic)** — uses a Claude Code OAuth token (Max/Team
     subscription) or a console.anthropic.com API key. Note: as of
     2026-02, Anthropic restricts OAuth tokens from Free/Pro/Max plans
@@ -38,7 +38,7 @@ Before running step 1, choose the engine and lay out the plan:
     path for an open-source repo.
 - List the steps you'll be running (the section headings below: Create
   config → Generate workflows → Branch protection → Skill overlay →
-  Badge → Bot account → Engine auth → Bot token → Grant access →
+  Badge → Bot account → Harness auth → Bot token → Grant access →
   Bot bio → Commit) so the user knows what's coming.
 - Tell them it typically takes 5–10 minutes of their hands-on time
   (browser logins, OAuth approvals, occasional copy-paste); the agent
@@ -63,7 +63,7 @@ as the bot, verify the logged-in user via the avatar menu.
 
 ## 1. Create config
 
-Create `.config/tend.yaml` with at minimum `bot_name`, plus `engine` if
+Create `.config/tend.yaml` with at minimum `bot_name`, plus `harness` if
 the user chose Codex (Claude is the default and can be omitted). See
 README.md for all available config sections (`secrets:`, `setup:`,
 `workflows:`).
@@ -71,7 +71,7 @@ README.md for all available config sections (`secrets:`, `setup:`,
 ```yaml
 bot_name: <bot-name>
 # For Codex, also:
-# engine: codex
+# harness: codex
 # effort: medium   # optional: minimal | low | medium | high
 ```
 
@@ -325,11 +325,11 @@ If the account doesn't exist:
    (`from:github subject:code`); otherwise have the user paste the code.
 4. After confirmation, re-verify via API.
 
-## 7. Engine auth token
+## 7. Harness auth token
 
-Branch on the engine chosen in Kickoff.
+Branch on the harness chosen in Kickoff.
 
-### 7a. Engine = claude
+### 7a. Harness = claude
 
 An OAuth access token from Claude's auth service — uses the user's Claude
 subscription (Max/Team) for billing. Not an API key from console.anthropic.com.
@@ -366,7 +366,7 @@ Then store the secret:
 echo "$TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO"
 ```
 
-### 7b. Engine = codex
+### 7b. Harness = codex
 
 Codex supports two auth modes. The `tend/codex` action prefers
 `auth.json` when both are set.
@@ -521,17 +521,17 @@ Commit with co-author attribution. Do NOT push without explicit permission.
 
 ## Summary checklist
 
-After completing all steps, present this checklist (engine-specific
-line picks the row that matches the chosen engine):
+After completing all steps, present this checklist (harness-specific
+line picks the row that matches the chosen harness):
 
-- [ ] Config: `.config/tend.yaml` created (with `engine` set if Codex)
+- [ ] Config: `.config/tend.yaml` created (with `harness` set if Codex)
 - [ ] Workflows: generated in `.github/workflows/`
 - [ ] Ruleset: merge restriction on default branch, admin bypass
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
 - [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub
-- [ ] Engine auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` secret set
-- [ ] Engine auth (codex): `OPENAI_API_KEY` or `CODEX_AUTH_JSON` secret set
+- [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` secret set
+- [ ] Harness auth (codex): `OPENAI_API_KEY` or `CODEX_AUTH_JSON` secret set
 - [ ] Bot token: `BOT_TOKEN` secret set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot bio: profile bio reflects the authorization stance
