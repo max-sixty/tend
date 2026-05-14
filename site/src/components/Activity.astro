@@ -99,8 +99,40 @@ const MAX_ROWS = 12;
       ...(data?.reviews?.recent ?? []).map((r) => ({ ...r, kind: "review" as const })),
       ...(data?.comments?.recent ?? []).map((r) => ({ ...r, kind: "comment" as const })),
     ];
-    rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
-    const top = rows.slice(0, MAX_ROWS);
+
+    // Drop stale items first — we'd rather show a shorter list than pad
+    // with week-old work as if it's recent. Then cap each repo to PER_REPO_CAP
+    // in a first pass (age-ordered), so a single-repo burst can't crowd out
+    // the list. If slots remain, fill from the over-cap surplus, still
+    // age-ordered. The cap is the only diversification mechanism; soft
+    // weighting (sqrt etc.) is too weak to dent a fresh burst against
+    // day-old alternatives.
+    const PER_REPO_CAP = 3;
+    const FRESH_MS = 7 * 24 * 3600 * 1000;
+    const now = Date.now();
+    const fresh = rows
+      .filter((r) => now - new Date(r.at).getTime() <= FRESH_MS)
+      .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+
+    const counts = new Map<string, number>();
+    const picked: Array<RecentItem & { kind: Kind }> = [];
+    const overflow: Array<RecentItem & { kind: Kind }> = [];
+    for (const r of fresh) {
+      if (picked.length >= MAX_ROWS) break;
+      const c = counts.get(r.repo) ?? 0;
+      if (c < PER_REPO_CAP) {
+        picked.push(r);
+        counts.set(r.repo, c + 1);
+      } else {
+        overflow.push(r);
+      }
+    }
+    for (const r of overflow) {
+      if (picked.length >= MAX_ROWS) break;
+      picked.push(r);
+    }
+    picked.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    const top = picked;
     if (top.length === 0) return false;
 
     const ul = document.querySelector("[data-activity-rows]");

@@ -63,16 +63,16 @@ as the bot, verify the logged-in user via the avatar menu.
 
 ## 1. Create config
 
-Create `.config/tend.toml` with at minimum `bot_name`, plus `engine` if
+Create `.config/tend.yaml` with at minimum `bot_name`, plus `engine` if
 the user chose Codex (Claude is the default and can be omitted). See
-README.md for all available config sections (`[secrets]`, `[setup]`,
-`[workflows.*]`).
+README.md for all available config sections (`secrets:`, `setup:`,
+`workflows:`).
 
-```toml
-bot_name = "<bot-name>"
+```yaml
+bot_name: <bot-name>
 # For Codex, also:
-# engine = "codex"
-# effort = "medium"   # optional: minimal | low | medium | high
+# engine: codex
+# effort: medium   # optional: minimal | low | medium | high
 ```
 
 Check whether the repo already has a bot token secret under a non-default name:
@@ -84,9 +84,9 @@ gh secret list --repo "$REPO" --json name --jq '.[].name'
 If a bot-token-like secret exists (e.g., `GH_BOT_TOKEN`, `ROBOT_PAT`),
 suggest overriding the default name rather than creating a duplicate:
 
-```toml
-[secrets]
-bot_token = "GH_BOT_TOKEN"
+```yaml
+secrets:
+  bot_token: GH_BOT_TOKEN
 ```
 
 Any repo-level secret not in `secrets.allowed` triggers a `tend check`
@@ -95,9 +95,9 @@ warning. Classify each non-bot secret and act now — don't defer:
 - Build/observability tokens (e.g., `CODECOV_TOKEN`, `SENTRY_DSN`) are
   fine at the repo level. Add them to the allowlist:
 
-  ```toml
-  [secrets]
-  allowed = ["CODECOV_TOKEN"]
+  ```yaml
+  secrets:
+    allowed: ["CODECOV_TOKEN"]
   ```
 
 - Release secrets (registry tokens like `PYPI_TOKEN`/`NPM_TOKEN`, signing
@@ -147,12 +147,13 @@ grep -l 'push:\|pull_request' .github/workflows/*.yml .github/workflows/*.yaml 2
 For each match, extract the workflow `name:` field. These are the workflows
 that run tests, linting, or builds — tend-ci-fix should watch them. Configure:
 
-```toml
-[workflows.ci-fix]
-watched_workflows = ["ci", "lint"]  # names of workflows to watch
+```yaml
+workflows:
+  ci-fix:
+    watched_workflows: ["ci", "lint"]  # names of workflows to watch
 ```
 
-If no CI workflows exist, either skip ci-fix (`enabled = false`) or help the
+If no CI workflows exist, either skip ci-fix (`enabled: false`) or help the
 user create one first.
 
 Ask via `AskUserQuestion` (`multiSelect: true`) which other overrides
@@ -165,26 +166,29 @@ they want to set. Skip-all is fine — defaults are sensible:
 - Top-level env vars
 
 For each selected category, follow up with a free-text ask, then write
-the override into `.config/tend.toml`. See the next subsection for
+the override into `.config/tend.yaml`. See the next subsection for
 override syntax.
 
 ### Customizing generated workflow YAML
 
 The generator owns every `tend-*.yaml` file — direct edits are lost on the next
 `uvx tend@latest init`. Instead, set `workflow_extra` (top-level) or
-`jobs.<name>` (job-level) overrides in `.config/tend.toml`. Overrides follow
+`jobs.<name>` (job-level) overrides in `.config/tend.yaml`. Overrides follow
 RFC 7396 (JSON Merge Patch): mappings deep-merge, scalars and lists replace.
 
 Common example — skip review on PRs labeled `tend:dismissed` (so authors can
 opt out of re-reviews after the initial pass). Because scalars replace under
 Merge Patch, the override must duplicate the default draft check:
 
-```toml
-[workflows.review.jobs.review]
-if = "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+```yaml
+workflows:
+  review:
+    jobs:
+      review:
+        if: "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
 ```
 
-See `docs/tend.example.toml` in the tend repo for more override examples
+See `docs/tend.example.yaml` in the tend repo for more override examples
 (extending permissions, timeouts, top-level env vars).
 
 ## 2. Generate workflows
@@ -520,7 +524,7 @@ Commit with co-author attribution. Do NOT push without explicit permission.
 After completing all steps, present this checklist (engine-specific
 line picks the row that matches the chosen engine):
 
-- [ ] Config: `.config/tend.toml` created (with `engine` set if Codex)
+- [ ] Config: `.config/tend.yaml` created (with `engine` set if Codex)
 - [ ] Workflows: generated in `.github/workflows/`
 - [ ] Ruleset: merge restriction on default branch, admin bypass
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)

@@ -61,8 +61,8 @@ def _make_completed(
     )
 
 
-def _write_config(tmp_path: Path, content: str = 'bot_name = "test-bot"') -> Path:
-    cfg = tmp_path / ".config" / "tend.toml"
+def _write_config(tmp_path: Path, content: str = "bot_name: test-bot") -> Path:
+    cfg = tmp_path / ".config" / "tend.yaml"
     cfg.parent.mkdir(parents=True, exist_ok=True)
     cfg.write_text(content)
     return cfg

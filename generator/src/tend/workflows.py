@@ -2,14 +2,40 @@
 
 from __future__ import annotations
 
+import copy
+import io
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.metadata import version
 
 import click
-import yaml
+from ruamel.yaml import YAML
 
 from tend.config import Config, WorkflowConfig
+
+# ruamel.yaml defaults to YAML 1.2, where `on`/`yes`/`no`/`off` are strings,
+# not booleans — sidesteps PyYAML's `on:` → True trap and the Norway problem.
+# typ="rt" preserves insertion order and per-scalar style (matters for diff
+# stability on regen); typ="safe" would sort keys alphabetically.
+_YAML_BLOCK = YAML(typ="rt", pure=True)
+_YAML_BLOCK.default_flow_style = False
+_YAML_BLOCK.width = 200
+_YAML_BLOCK.allow_unicode = True
+# Round-trip explicit quoting on scalars (e.g. `cron: "17 6 * * *"` stays
+# quoted). Without this, ruamel drops quotes on any string that's safe to
+# unquote under YAML 1.2 — a meaningless style churn on regen.
+_YAML_BLOCK.preserve_quotes = True
+# Match the hand-rendered templates' 6-space `- uses:` under `steps:` (the
+# `-` lives at parent-column + offset, the content at parent-column +
+# sequence). Without this, `_apply_extras`-applied workflows reformat every
+# step block (4→6 column for `-`, 4→8 for content) on regen — a churn diff
+# for any consumer with `workflow_extra` or per-job overrides.
+_YAML_BLOCK.indent(mapping=2, sequence=4, offset=2)
+
+_YAML_FLOW = YAML(typ="safe", pure=True)
+_YAML_FLOW.default_flow_style = True
+_YAML_FLOW.allow_unicode = True
+_YAML_FLOW.width = 10**9  # one-line scalars; never wrap
 
 # Stamping the generator's own version into the header gives downstream
 # nightly regen a stable anchor for detecting tend version bumps (see
@@ -181,12 +207,11 @@ def _render_step(fields: dict, indent: int) -> str:
 
 
 def _yaml_scalar(value: object) -> str:
-    """Render a Python scalar as a YAML scalar using safe_dump semantics."""
-    # yaml.safe_dump emits a trailing newline and may add `...\n` document
-    # terminators; strip both. default_flow_style=True keeps scalars on one line.
-    dumped = yaml.safe_dump(
-        value, default_flow_style=True, allow_unicode=True, width=float("inf")
-    ).strip()
+    """Render a Python scalar as a single-line YAML scalar."""
+    buf = io.StringIO()
+    _YAML_FLOW.dump(value, buf)
+    # ruamel emits a trailing newline; strip and drop any `...` document marker.
+    dumped = buf.getvalue().rstrip()
     if dumped.endswith("\n..."):
         dumped = dumped[: -len("\n...")]
     return dumped
@@ -603,8 +628,9 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
     if wf.watched_workflows is None:
         raise click.ClickException(
             "ci-fix requires watched_workflows — specify the CI workflow(s) to monitor.\n\n"
-            "  [workflows.ci-fix]\n"
-            '  watched_workflows = ["ci"]'
+            "  workflows:\n"
+            "    ci-fix:\n"
+            '      watched_workflows: ["ci"]'
         )
     watched = wf.watched_workflows
     branches = wf.branches if wf.branches is not None else [cfg.default_branch]
@@ -836,28 +862,16 @@ def generate_review_runs(cfg: Config) -> GeneratedWorkflow:
 # Extras (workflow_extra / jobs pass-through)
 # ---------------------------------------------------------------------------
 
-# TOML has no `null` literal, so the RFC 7396 delete branch in `_deep_merge`
-# (None pops the key) is unreachable from `.config/tend.toml`. This sentinel
-# string stands in for null: a pre-pass converts it to None before merging.
-DELETE_SENTINEL = "__TEND_DELETE__"
-
-
-def _resolve_sentinels(value: object) -> object:
-    """Recursively replace DELETE_SENTINEL strings with None in mappings.
-
-    JSON Merge Patch doesn't support array element deletion, so lists are
-    passed through unchanged.
-    """
-    if value == DELETE_SENTINEL:
-        return None
-    if isinstance(value, dict):
-        return {k: _resolve_sentinels(v) for k, v in value.items()}
-    return value
-
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    """RFC 7396 JSON Merge Patch: mappings deep-merge, scalars/lists replace."""
-    result = dict(base)
+    """RFC 7396 JSON Merge Patch: mappings deep-merge, scalars/lists replace.
+
+    `base` is deep-copied so ruamel.yaml `CommentedMap` style metadata
+    (key order, scalar quoting, sequence indentation) survives the merge —
+    without this, `_apply_extras`-applied workflows lose all rendering
+    style on every regen, even for keys the user didn't override.
+    """
+    result = copy.deepcopy(base)
     for key, value in override.items():
         if value is None:
             result.pop(key, None)
@@ -873,22 +887,16 @@ def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWor
     if not wf_cfg.workflow_extra and not wf_cfg.jobs:
         return wf
 
-    data = yaml.safe_load(wf.content)
-
-    # YAML parses bare `on:` as boolean True — restore the string key
-    if True in data:
-        data["on"] = data.pop(True)
+    data = _YAML_BLOCK.load(wf.content)
 
     if wf_cfg.workflow_extra:
-        data = _deep_merge(data, _resolve_sentinels(wf_cfg.workflow_extra))
+        data = _deep_merge(data, wf_cfg.workflow_extra)
 
     if wf_cfg.jobs:
         jobs = data.get("jobs", {})
         for job_name, job_extra in wf_cfg.jobs.items():
             if job_name in jobs:
-                jobs[job_name] = _deep_merge(
-                    jobs[job_name], _resolve_sentinels(job_extra)
-                )
+                jobs[job_name] = _deep_merge(jobs[job_name], job_extra)
             else:
                 click.echo(
                     f"Warning: job '{job_name}' not found in {wf.filename} "
@@ -896,14 +904,12 @@ def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWor
                     err=True,
                 )
 
-    rendered = yaml.dump(
-        data,
-        default_flow_style=False,
-        sort_keys=False,
-        width=200,
-        allow_unicode=True,
-    )
-    return GeneratedWorkflow(filename=wf.filename, content=HEADER + "\n" + rendered)
+    # `typ="rt"` preserves the leading HEADER comment block on load, so it
+    # round-trips into the dumped output. Don't prepend HEADER manually
+    # here or it appears twice.
+    buf = io.StringIO()
+    _YAML_BLOCK.dump(data, buf)
+    return GeneratedWorkflow(filename=wf.filename, content=buf.getvalue())
 
 
 # ---------------------------------------------------------------------------
@@ -932,9 +938,10 @@ def generate_all(cfg: Config) -> list[GeneratedWorkflow]:
         if name == "ci-fix" and wf_cfg.watched_workflows is None:
             click.echo(
                 "Skipping ci-fix: watched_workflows not configured. "
-                "To enable, add to .config/tend.toml:\n\n"
-                "  [workflows.ci-fix]\n"
-                '  watched_workflows = ["ci"]',
+                "To enable, add to .config/tend.yaml:\n\n"
+                "  workflows:\n"
+                "    ci-fix:\n"
+                '      watched_workflows: ["ci"]',
                 err=True,
             )
             continue

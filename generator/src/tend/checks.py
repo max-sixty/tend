@@ -337,7 +337,7 @@ def check_repo_secret_allowlist(repo: str, allowed: set[str]) -> CheckResult:
             "These are available to all workflows, including those triggered "
             "by PRs. Move release secrets to a protected environment. "
             "If intentionally available, add to secrets.allowed "
-            "in .config/tend.toml. See docs/security-model.md.",
+            "in .config/tend.yaml. See docs/security-model.md.",
         )
 
     msg = "All secrets available to workflows are in allowlist"

@@ -6,7 +6,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
-import yaml
+from tests import _yaml as yaml
 import click
 from click.testing import CliRunner
 
@@ -16,9 +16,9 @@ from tend.workflows import GENERATORS, _deep_merge, generate_all, generate_menti
 
 
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
-    cfg = tmp_path / ".config" / "tend.toml"
+    cfg = tmp_path / ".config" / "tend.yaml"
     cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(f'bot_name = "test-bot"\n{extra}')
+    cfg.write_text(f"bot_name: test-bot\n{extra}")
     return cfg
 
 
@@ -49,7 +49,9 @@ def test_generated_yaml_is_valid(tmp_path: Path) -> None:
 
 
 def test_disabled_workflow_not_generated(tmp_path: Path) -> None:
-    cfg = Config.load(_minimal_config(tmp_path, "[workflows.weekly]\nenabled = false"))
+    cfg = Config.load(
+        _minimal_config(tmp_path, "workflows:\n  weekly:\n    enabled: false\n")
+    )
     workflows = generate_all(cfg)
     names = {wf.filename for wf in workflows}
     assert "tend-weekly.yaml" not in names
@@ -58,10 +60,9 @@ def test_disabled_workflow_not_generated(tmp_path: Path) -> None:
 
 def test_setup_steps_rendered(tmp_path: Path) -> None:
     extra = dedent("""\
-        setup = [
-          {uses = "./.github/actions/my-setup"},
-          {run = "echo FOO=bar >> $GITHUB_ENV"},
-        ]
+        setup:
+          - uses: ./.github/actions/my-setup
+          - run: echo FOO=bar >> $GITHUB_ENV
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     for wf in generate_all(cfg):
@@ -83,9 +84,10 @@ def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
     "The specified node version file does not exist" (issue #281).
     """
     extra = dedent("""\
-        setup = [
-          {uses = "actions/setup-node@v4", with = {node-version-file = ".node-version"}},
-        ]
+        setup:
+          - uses: actions/setup-node@v4
+            with:
+              node-version-file: .node-version
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -112,17 +114,18 @@ def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
     through on a structured step, so users don't need `raw` just to pass them.
     """
     extra = dedent("""\
-        [[setup]]
-        uses = "actions/setup-node@v4"
-        name = "Setup Node"
-        with = {node-version-file = ".node-version"}
-        env = {FORCE_COLOR = "1"}
-
-        [[setup]]
-        run = "cargo build --release"
-        shell = "bash"
-        working-directory = "./crates/core"
-        env = {RUSTFLAGS = "-D warnings"}
+        setup:
+          - uses: actions/setup-node@v4
+            name: Setup Node
+            with:
+              node-version-file: .node-version
+            env:
+              FORCE_COLOR: "1"
+          - run: cargo build --release
+            shell: bash
+            working-directory: ./crates/core
+            env:
+              RUSTFLAGS: -D warnings
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -149,9 +152,9 @@ def test_setup_step_user_if_preserved_in_notifications(
     add its own notifications guard on top. A warning is emitted so the user
     knows they've opted out of the pre-check gating."""
     extra = dedent("""\
-        setup = [
-          {run = "./flaky.sh", if = "runner.os == 'Linux'"},
-        ]
+        setup:
+          - run: ./flaky.sh
+            if: "runner.os == 'Linux'"
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -171,7 +174,9 @@ def test_setup_step_user_if_preserved_in_notifications(
 def test_setup_step_rejects_unknown_field(tmp_path: Path) -> None:
     """Typos in step field names fail at config load, not at workflow parse."""
     extra = dedent("""\
-        setup = [{uses = "actions/checkout@v4", continue-on-errors = true}]
+        setup:
+          - uses: actions/checkout@v4
+            continue-on-errors: true
     """)
     with pytest.raises(click.ClickException, match="unknown field.*continue-on-errors"):
         Config.load(_minimal_config(tmp_path, extra))
@@ -179,9 +184,11 @@ def test_setup_step_rejects_unknown_field(tmp_path: Path) -> None:
 
 def test_setup_step_env_must_be_table(tmp_path: Path) -> None:
     extra = dedent("""\
-        setup = [{run = "echo hi", env = "not a table"}]
+        setup:
+          - run: echo hi
+            env: "not a mapping"
     """)
-    with pytest.raises(click.ClickException, match="`env` must be a table"):
+    with pytest.raises(click.ClickException, match="`env` must be a mapping"):
         Config.load(_minimal_config(tmp_path, extra))
 
 
@@ -193,9 +200,9 @@ def test_empty_setup_no_blank_lines(tmp_path: Path) -> None:
 
 def test_custom_secrets(tmp_path: Path) -> None:
     extra = dedent("""\
-        [secrets]
-        bot_token = "MY_BOT_PAT"
-        claude_token = "MY_CLAUDE"
+        secrets:
+          bot_token: MY_BOT_PAT
+          claude_token: MY_CLAUDE
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     for wf in generate_all(cfg):
@@ -205,8 +212,9 @@ def test_custom_secrets(tmp_path: Path) -> None:
 
 def test_custom_prompt(tmp_path: Path) -> None:
     extra = dedent("""\
-        [workflows.triage]
-        prompt = "Custom triage: {issue_number}"
+        workflows:
+          triage:
+            prompt: "Custom triage: {issue_number}"
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -216,8 +224,9 @@ def test_custom_prompt(tmp_path: Path) -> None:
 
 def test_watched_workflows(tmp_path: Path) -> None:
     extra = dedent("""\
-        [workflows.ci-fix]
-        watched_workflows = ["build", "test", "lint"]
+        workflows:
+          ci-fix:
+            watched_workflows: ["build", "test", "lint"]
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -230,9 +239,10 @@ def test_watched_workflows(tmp_path: Path) -> None:
 
 def test_ci_fix_custom_branches(tmp_path: Path) -> None:
     extra = dedent("""\
-        [workflows.ci-fix]
-        watched_workflows = ["ci"]
-        branches = ["main", "release"]
+        workflows:
+          ci-fix:
+            watched_workflows: ["ci"]
+            branches: ["main", "release"]
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -289,7 +299,7 @@ def test_review_probes_merge_ref_and_falls_back_to_head(tmp_path: Path) -> None:
 
 def test_setup_after_checkout_in_review(tmp_path: Path) -> None:
     """Setup steps must run after checkout, not before."""
-    extra = 'setup = [{uses = "./.github/actions/my-setup"}]'
+    extra = "setup:\n  - uses: ./.github/actions/my-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     review = workflows["tend-review.yaml"]
@@ -301,15 +311,13 @@ def test_setup_after_checkout_in_review(tmp_path: Path) -> None:
 def test_setup_raw_rejected_with_migration_hint(tmp_path: Path) -> None:
     """`raw` was removed in favor of structured steps — the error message
     must point users at the two supported paths so they can migrate."""
-    extra = dedent('''\
-        setup = [
-          {raw = """
-        - uses: Swatinem/rust-cache@v2
-          with:
-            save-if: false
-        """},
-        ]
-    ''')
+    extra = dedent("""\
+        setup:
+          - raw: |
+              - uses: Swatinem/rust-cache@v2
+                with:
+                  save-if: false
+    """)
     with pytest.raises(click.ClickException, match="composite action"):
         Config.load(_minimal_config(tmp_path, extra))
 
@@ -323,10 +331,10 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     data = yaml.safe_load(mention.content)
 
     # Event trigger present
-    assert "pull_request_review" in data[True], (
+    assert "pull_request_review" in data["on"], (
         "tend-mention must listen for pull_request_review events"
     )
-    assert data[True]["pull_request_review"] == {"types": ["submitted"]}
+    assert data["on"]["pull_request_review"] == {"types": ["submitted"]}
 
     # Verify job filters out fork PRs for review events — secrets are
     # unavailable there. The notifications workflow polls for these.
@@ -371,7 +379,7 @@ def test_mention_review_comment_listens_only_for_edits(tmp_path: Path) -> None:
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     mention = workflows["tend-mention.yaml"]
     data = yaml.safe_load(mention.content)
-    assert data[True]["pull_request_review_comment"] == {"types": ["edited"]}, (
+    assert data["on"]["pull_request_review_comment"] == {"types": ["edited"]}, (
         "pull_request_review_comment must subscribe to ['edited'] only — see "
         "the trigger comment in generate_mention for the dedup rationale"
     )
@@ -464,7 +472,7 @@ def test_setup_before_pr_checkout_in_mention(tmp_path: Path) -> None:
     `gh pr checkout` would 404 with `Can't find 'action.yml'` and drop the
     maintainer's mention silently.
     """
-    extra = 'setup = [{uses = "./.github/actions/my-setup"}]'
+    extra = "setup:\n  - uses: ./.github/actions/my-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     mention = workflows["tend-mention.yaml"]
@@ -609,14 +617,14 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "workflow_name,job_name,user_if,extra_setup",
+    "workflow_name,job_name,user_if,extra_workflow_keys",
     [
         # Triage: the guard is the *only* job-level if; clobbering loses just it.
         (
             "triage",
             "triage",
             "github.event.issue.author_association != 'NONE'",
-            "",
+            {},
         ),
         # ci-fix: the rendered if is `<guard> && <conclusion-check>`. Clobbering
         # removes BOTH — so the workflow would also lose its "only run on
@@ -626,7 +634,7 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
             "ci-fix",
             "fix-ci",
             "github.actor == 'tend-agent'",
-            '[workflows.ci-fix]\nwatched_workflows = ["ci"]\n',
+            {"watched_workflows": ["ci"]},
         ),
     ],
 )
@@ -635,23 +643,23 @@ def test_user_job_if_extra_replaces_fork_guard(
     workflow_name: str,
     job_name: str,
     user_if: str,
-    extra_setup: str,
+    extra_workflow_keys: dict,
 ) -> None:
-    """A user-supplied `[workflows.X.jobs.X] if = "..."` replaces the rendered
-    job-level if via RFC 7396 scalar replacement — this includes the fork
-    guard *and* any other conditions tend composed with it (ci-fix's
-    conclusion check, future combined ifs).
+    """A user-supplied job-level `if:` replaces the rendered job-level if via
+    RFC 7396 scalar replacement — this includes the fork guard *and* any other
+    conditions tend composed with it (ci-fix's conclusion check, future
+    combined ifs).
 
     Pins current behavior so a future merge-strategy change is a deliberate
     choice, not an accident. If we ever decide to compose user extras with
     the rendered conditions instead of letting them clobber, this test fails
-    loudly and docs/example.toml should be updated alongside.
+    loudly and docs/tend.example.yaml should be updated alongside.
     """
-    extra = dedent(f"""\
-        {extra_setup}
-        [workflows.{workflow_name}.jobs.{job_name}]
-        if = "{user_if}"
-    """)
+    wf_block = {
+        **extra_workflow_keys,
+        "jobs": {job_name: {"if": user_if}},
+    }
+    extra = yaml.safe_dump({"workflows": {workflow_name: wf_block}})
     cfg = Config.load(_minimal_config(tmp_path, extra))
     cfg.repo_owner = "test-owner"
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -698,8 +706,11 @@ def test_deep_merge_rfc7396() -> None:
 
 def test_job_extras_add_key(tmp_path: Path) -> None:
     extra = dedent("""\
-        [workflows.review.jobs.review]
-        timeout-minutes = 240
+        workflows:
+          review:
+            jobs:
+              review:
+                timeout-minutes: 240
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -711,8 +722,12 @@ def test_job_extras_add_key(tmp_path: Path) -> None:
 
 def test_job_extras_deep_merge_permissions(tmp_path: Path) -> None:
     extra = dedent("""\
-        [workflows.review.jobs.review.permissions]
-        packages = "read"
+        workflows:
+          review:
+            jobs:
+              review:
+                permissions:
+                  packages: read
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -725,8 +740,11 @@ def test_job_extras_deep_merge_permissions(tmp_path: Path) -> None:
 
 def test_workflow_extras_add_env(tmp_path: Path) -> None:
     extra = dedent("""\
-        [workflows.review.workflow_extra.env]
-        MY_VAR = "hello"
+        workflows:
+          review:
+            workflow_extra:
+              env:
+                MY_VAR: hello
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -740,8 +758,11 @@ def test_workflow_extras_add_env(tmp_path: Path) -> None:
 def test_mention_job_extras_target_specific_job(tmp_path: Path) -> None:
     """Multi-job workflow: extras target only the named job."""
     extra = dedent("""\
-        [workflows.mention.jobs.handle]
-        timeout-minutes = 180
+        workflows:
+          mention:
+            jobs:
+              handle:
+                timeout-minutes: 180
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -752,8 +773,11 @@ def test_mention_job_extras_target_specific_job(tmp_path: Path) -> None:
 
 def test_extras_preserve_header(tmp_path: Path) -> None:
     extra = dedent("""\
-        [workflows.review.jobs.review]
-        timeout-minutes = 240
+        workflows:
+          review:
+            jobs:
+              review:
+                timeout-minutes: 240
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -763,10 +787,14 @@ def test_extras_preserve_header(tmp_path: Path) -> None:
 
 def test_extras_produce_valid_yaml(tmp_path: Path) -> None:
     extra = dedent("""\
-        [workflows.review.jobs.review]
-        timeout-minutes = 240
-        [workflows.review.workflow_extra.env]
-        FOO = "bar"
+        workflows:
+          review:
+            jobs:
+              review:
+                timeout-minutes: 240
+            workflow_extra:
+              env:
+                FOO: bar
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     for wf in generate_all(cfg):
@@ -793,7 +821,7 @@ def test_no_extras_output_unchanged(tmp_path: Path) -> None:
 def test_job_extras_replace_if_for_skip_review_label(tmp_path: Path) -> None:
     """Override `if:` on the review job to skip PRs with a dismissal label.
 
-    Documented in docs/tend.example.toml and the install-tend skill as the
+    Documented in docs/tend.example.yaml and the install-tend skill as the
     canonical way to opt out of re-reviews after the initial pass, replacing
     post-regeneration patching scripts.
     """
@@ -801,10 +829,9 @@ def test_job_extras_replace_if_for_skip_review_label(tmp_path: Path) -> None:
         "github.event.pull_request.draft == false && "
         "!contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
     )
-    extra = dedent(f"""\
-        [workflows.review.jobs.review]
-        if = "{skip_if}"
-    """)
+    extra = yaml.safe_dump(
+        {"workflows": {"review": {"jobs": {"review": {"if": skip_if}}}}}
+    )
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
@@ -815,28 +842,34 @@ def test_job_extras_replace_if_for_skip_review_label(tmp_path: Path) -> None:
     assert "steps" in data["jobs"]["review"]
 
 
-def test_delete_sentinel_drops_top_level_key(tmp_path: Path) -> None:
-    """`"__TEND_DELETE__"` in workflow_extra removes the targeted key.
-
-    TOML has no `null` literal, so this sentinel string substitutes for None
-    to reach RFC 7396's delete branch.
-    """
+def test_null_drops_top_level_key(tmp_path: Path) -> None:
+    """YAML-native `null` in workflow_extra removes the targeted key under
+    RFC 7396 Merge Patch semantics. The motivating case: keep nightly's
+    `workflow_dispatch` trigger but drop the cron schedule."""
     extra = dedent("""\
-        [workflows.nightly.workflow_extra.on]
-        schedule = "__TEND_DELETE__"
+        workflows:
+          nightly:
+            workflow_extra:
+              on:
+                schedule: null
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-nightly.yaml"].content)
-    assert "schedule" not in data["on"]
-    assert "workflow_dispatch" in data["on"]
+    triggers = data["on"]
+    assert "schedule" not in triggers
+    assert "workflow_dispatch" in triggers
 
 
-def test_delete_sentinel_drops_nested_key(tmp_path: Path) -> None:
-    """Sentinel works at any depth inside a job override."""
+def test_null_drops_nested_key(tmp_path: Path) -> None:
+    """`null` works at any depth inside a job override."""
     extra = dedent("""\
-        [workflows.review.jobs.review.permissions]
-        issues = "__TEND_DELETE__"
+        workflows:
+          review:
+            jobs:
+              review:
+                permissions:
+                  issues: null
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -847,11 +880,13 @@ def test_delete_sentinel_drops_nested_key(tmp_path: Path) -> None:
     assert perms["contents"] == "write"
 
 
-def test_delete_sentinel_drops_missing_key_is_noop(tmp_path: Path) -> None:
+def test_null_drops_missing_key_is_noop(tmp_path: Path) -> None:
     """Deleting a key that doesn't exist is silently a no-op (RFC 7396)."""
     extra = dedent("""\
-        [workflows.review.workflow_extra]
-        nonexistent = "__TEND_DELETE__"
+        workflows:
+          review:
+            workflow_extra:
+              nonexistent: null
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -861,8 +896,11 @@ def test_delete_sentinel_drops_missing_key_is_noop(tmp_path: Path) -> None:
 
 def test_unknown_job_warns(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     extra = dedent("""\
-        [workflows.review.jobs.nonexistent]
-        timeout-minutes = 240
+        workflows:
+          review:
+            jobs:
+              nonexistent:
+                timeout-minutes: 240
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     generate_all(cfg)
@@ -878,7 +916,7 @@ def test_unknown_job_warns(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
 def _extra_for(name: str) -> str:
     """Return extra config needed for a specific generator (e.g. ci-fix)."""
     if name == "ci-fix":
-        return '[workflows.ci-fix]\nwatched_workflows = ["ci"]'
+        return 'workflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n'
     return ""
 
 
@@ -895,13 +933,36 @@ def test_workflow_with_setup_regtest(
     regtest: object, tmp_path: Path, name: str
 ) -> None:
     """Snapshot each workflow's full YAML with a setup step."""
-    extra = 'setup = [{uses = "astral-sh/setup-uv@v6"}]'
+    extra = "setup:\n  - uses: astral-sh/setup-uv@v6\n"
     extra_cfg = _extra_for(name)
     if extra_cfg:
-        extra += "\n" + extra_cfg
+        extra += extra_cfg
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = GENERATORS[name](cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_extras_apply_path_regtest(regtest: object, tmp_path: Path) -> None:
+    """Snapshot the workflow with both `workflow_extra` and per-job overrides
+    applied — exercises the `_apply_extras` round-trip path that the other
+    regtests skip. Catches renderer drift (lost quoting, indent changes,
+    duplicated headers, key-order churn) on any change to the ruamel.yaml
+    dumper config or `_deep_merge` semantics."""
+    extra = dedent("""\
+        workflows:
+          review:
+            workflow_extra:
+              env:
+                FOO: bar
+            jobs:
+              review:
+                timeout-minutes: 240
+                permissions:
+                  packages: read
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    print(workflows["tend-review.yaml"].content, end="", file=regtest)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -914,7 +975,7 @@ def test_workflow_minimal_codex_regtest(
     regtest: object, tmp_path: Path, name: str
 ) -> None:
     """Snapshot the Codex-engine variant of every workflow."""
-    extra = 'engine = "codex"\n' + _extra_for(name)
+    extra = "engine: codex\n" + _extra_for(name)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = GENERATORS[name](cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
@@ -922,7 +983,7 @@ def test_workflow_minimal_codex_regtest(
 
 def test_codex_action_ref(tmp_path: Path) -> None:
     """Codex workflows reference max-sixty/tend/codex@v1."""
-    cfg = Config.load(_minimal_config(tmp_path, 'engine = "codex"'))
+    cfg = Config.load(_minimal_config(tmp_path, "engine: codex"))
     for wf in generate_all(cfg):
         assert "max-sixty/tend/codex@v1" in wf.content, (
             f"{wf.filename} missing codex action ref"
@@ -934,7 +995,7 @@ def test_codex_action_ref(tmp_path: Path) -> None:
 
 def test_codex_workflows_use_openai_secrets_not_claude(tmp_path: Path) -> None:
     """Codex agent step references OPENAI_API_KEY + CODEX_AUTH_JSON, not Claude."""
-    cfg = Config.load(_minimal_config(tmp_path, 'engine = "codex"'))
+    cfg = Config.load(_minimal_config(tmp_path, "engine: codex"))
     for wf in generate_all(cfg):
         assert "openai_api_key: ${{ secrets.OPENAI_API_KEY }}" in wf.content, (
             f"{wf.filename} missing openai_api_key input"
@@ -949,14 +1010,14 @@ def test_codex_workflows_use_openai_secrets_not_claude(tmp_path: Path) -> None:
 
 def test_codex_effort_only_when_set(tmp_path: Path) -> None:
     """effort: renders only when configured."""
-    cfg_default = Config.load(_minimal_config(tmp_path, 'engine = "codex"'))
+    cfg_default = Config.load(_minimal_config(tmp_path, "engine: codex"))
     for wf in generate_all(cfg_default):
         assert "effort:" not in wf.content, (
             f"{wf.filename} should omit effort when unset"
         )
 
     cfg_with_effort = Config.load(
-        _minimal_config(tmp_path, 'engine = "codex"\neffort = "high"')
+        _minimal_config(tmp_path, "engine: codex\neffort: high")
     )
     for wf in generate_all(cfg_with_effort):
         assert "effort: high" in wf.content, f"{wf.filename} missing effort: high"
@@ -964,7 +1025,7 @@ def test_codex_effort_only_when_set(tmp_path: Path) -> None:
 
 def test_codex_review_omits_sticky_comment(tmp_path: Path) -> None:
     """use_sticky_comment is a Claude-only feature; the Codex review step omits it."""
-    cfg = Config.load(_minimal_config(tmp_path, 'engine = "codex"'))
+    cfg = Config.load(_minimal_config(tmp_path, "engine: codex"))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     review = workflows["tend-review.yaml"]
     assert "use_sticky_comment" not in review.content, (
@@ -975,7 +1036,7 @@ def test_codex_review_omits_sticky_comment(tmp_path: Path) -> None:
 
 def test_codex_default_model(tmp_path: Path) -> None:
     """Engine = codex without explicit model picks gpt-5.1-codex."""
-    cfg = Config.load(_minimal_config(tmp_path, 'engine = "codex"'))
+    cfg = Config.load(_minimal_config(tmp_path, "engine: codex"))
     assert cfg.model == "gpt-5.1-codex"
     wf = next(w for w in generate_all(cfg) if w.filename == "tend-triage.yaml")
     assert "model: gpt-5.1-codex" in wf.content
@@ -983,13 +1044,13 @@ def test_codex_default_model(tmp_path: Path) -> None:
 
 def test_unknown_engine_rejected(tmp_path: Path) -> None:
     with pytest.raises(click.ClickException, match="engine 'gpt' is not recognized"):
-        Config.load(_minimal_config(tmp_path, 'engine = "gpt"'))
+        Config.load(_minimal_config(tmp_path, "engine: gpt"))
 
 
 def test_claude_model_rejected_for_codex(tmp_path: Path) -> None:
     """A Claude model name under engine=codex is a configuration error."""
     with pytest.raises(click.ClickException, match="model 'opus' is not recognized"):
-        Config.load(_minimal_config(tmp_path, 'engine = "codex"\nmodel = "opus"'))
+        Config.load(_minimal_config(tmp_path, "engine: codex\nmodel: opus"))
 
 
 def test_codex_model_rejected_for_claude(tmp_path: Path) -> None:
@@ -997,7 +1058,7 @@ def test_codex_model_rejected_for_claude(tmp_path: Path) -> None:
     with pytest.raises(
         click.ClickException, match="not recognized for engine 'claude'"
     ):
-        Config.load(_minimal_config(tmp_path, 'model = "gpt-5.1-codex"'))
+        Config.load(_minimal_config(tmp_path, "model: gpt-5.1-codex"))
 
 
 def test_effort_rejected_for_claude(tmp_path: Path) -> None:
@@ -1005,9 +1066,9 @@ def test_effort_rejected_for_claude(tmp_path: Path) -> None:
     with pytest.raises(
         click.ClickException, match="effort is only valid for engine = 'codex'"
     ):
-        Config.load(_minimal_config(tmp_path, 'effort = "high"'))
+        Config.load(_minimal_config(tmp_path, "effort: high"))
 
 
 def test_unknown_effort_rejected(tmp_path: Path) -> None:
     with pytest.raises(click.ClickException, match="effort 'turbo' is not recognized"):
-        Config.load(_minimal_config(tmp_path, 'engine = "codex"\neffort = "turbo"'))
+        Config.load(_minimal_config(tmp_path, "engine: codex\neffort: turbo"))

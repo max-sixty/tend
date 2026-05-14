@@ -50,7 +50,7 @@ claude /install-tend
 
 It'll take 5-15 minutes to set up the config, workflow generation, bot account,
 secrets, and branch protection. Tend is configured through a [config
-file](docs/tend.example.toml) and a repo-local `/running-tend` skill.
+file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 
 ## Reasons _not_ to use Tend
 
@@ -86,14 +86,15 @@ Scheduled workflows also support manual dispatch for testing. All are
 enabled by default except **ci-fix**, which requires `watched_workflows`
 to be configured. Any can be disabled:
 
-```toml
-[workflows.weekly]
-enabled = false
+```yaml
+workflows:
+  weekly:
+    enabled: false
 ```
 
 ## How it works
 
-`uvx tend@latest init` reads `.config/tend.toml` and writes `tend-*.yaml` workflow
+`uvx tend@latest init` reads `.config/tend.yaml` and writes `tend-*.yaml` workflow
 files into `.github/workflows/`. Each workflow handles triggers, skip
 conditions, concurrency, and permissions — then calls the composite action
 for the configured engine (`max-sixty/tend@v1` for Claude,
@@ -139,15 +140,15 @@ Full threat model: [docs/security-model.md](docs/security-model.md).
 
 ## Configuration
 
-`.config/tend.toml` — only `bot_name` is required. The default engine is
-Claude; set `engine = "codex"` to use OpenAI Codex instead.
+`.config/tend.yaml` — only `bot_name` is required. The default engine is
+Claude; set `engine: codex` to use OpenAI Codex instead.
 
-```toml
-bot_name = "my-project-bot"
+```yaml
+bot_name: my-project-bot
 
 # Optional — defaults to "claude"
-# engine = "codex"
-# effort = "medium"   # codex only: minimal | low | medium | high
+# engine: codex
+# effort: medium   # codex only: minimal | low | medium | high
 ```
 
 Repo secrets depend on the engine:
@@ -158,7 +159,7 @@ Repo secrets depend on the engine:
 | `codex`  | `BOT_TOKEN` + one of `OPENAI_API_KEY` (recommended) or `CODEX_AUTH_JSON` (subscription, discouraged on public repos) |
 
 `BOT_TOKEN` is the bot account's PAT — classic or fine-grained (see
-[example config](docs/tend.example.toml) for scopes). `CLAUDE_CODE_OAUTH_TOKEN`
+[example config](docs/tend.example.yaml) for scopes). `CLAUDE_CODE_OAUTH_TOKEN`
 is a Claude Code OAuth token via PKCE flow (not an API key from
 console.anthropic.com). `OPENAI_API_KEY` is a standard OpenAI API key.
 `CODEX_AUTH_JSON` is the literal contents of `~/.codex/auth.json` after
@@ -167,7 +168,7 @@ path for public repos.
 
 All other options — secret name overrides, setup steps, protected branches,
 workflow overrides, schedules — are documented in
-[`docs/tend.example.toml`](docs/tend.example.toml).
+[`docs/tend.example.yaml`](docs/tend.example.yaml).
 
 ## Project context
 

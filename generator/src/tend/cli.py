@@ -16,6 +16,7 @@ from tend.checks import (
     run_all_checks,
 )
 from tend.config import Config
+from tend.migrate import migrate_toml_to_yaml
 from tend.workflows import generate_all
 
 
@@ -52,7 +53,7 @@ def _print_check_results(results: list[CheckResult]) -> None:
 
 @click.group()
 def main() -> None:
-    """An autonomous junior maintainer for GitHub repos, powered by Claude. Generates and manages workflows from .config/tend.toml."""
+    """An autonomous junior maintainer for GitHub repos, powered by Claude. Generates and manages workflows from .config/tend.yaml."""
 
 
 @main.command()
@@ -66,6 +67,17 @@ def main() -> None:
 @click.option("--dry-run", is_flag=True, help="Print generated files without writing")
 def init(config_path: Path | None, dry_run: bool) -> None:
     """Generate workflow files from config. Idempotent — always overwrites."""
+    # Auto-migrate a legacy .config/tend.toml. One-shot upgrade path for
+    # adopters bumping past the TOML→YAML cutover; the migration verifies
+    # the parsed structures match before swapping, so the no-op case (no
+    # .toml on disk) is the steady state.
+    if config_path is None:
+        default_yaml = Path(".config/tend.yaml")
+        default_toml = Path(".config/tend.toml")
+        if not default_yaml.exists() and default_toml.exists():
+            migrate_toml_to_yaml(default_toml, default_yaml)
+            click.echo(f"Migrated {default_toml} → {default_yaml}")
+
     cfg = Config.load(config_path)
     cfg.default_branch = _detect_default_branch_local()
     cfg.repo_owner = detect_canonical_owner() or ""
