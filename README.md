@@ -21,7 +21,9 @@ documentation, etc.
 To use Tend, a project needs:
 
 - A GitHub account for the agent (for example this project's is **[@tend-agent](https://www.github.com/tend-agent))**
-- A Claude Max subscription
+- One of:
+  - A Claude Max subscription (engine = "claude")
+  - An OpenAI API key, or a ChatGPT subscription via `~/.codex/auth.json` (engine = "codex")
 
 Tend offers the default code & guidance for the agent. Specifically that means:
 
@@ -52,12 +54,19 @@ file](docs/tend.example.toml) and a repo-local `/running-tend` skill.
 
 ## Reasons _not_ to use Tend
 
-- Tend uses lots of tokens, requiring a Claude Max subscription.
-  - Maintainers of a sizeable OSS projects [get a 20x Claude Max subscription for free from
-    Anthropic](https://claude.com/contact-sales/claude-for-oss)
-- While it's built to protect important secrets, a determined attacker can get
-  a) the bot's token and b) a long-lived Claude Code OAuth token. They can't do
-  that much with these: burn some tokens and close some issues.
+- Tend uses lots of tokens. Either a Claude Max subscription, an OpenAI API
+  key, or a ChatGPT plan is needed to fund the runs.
+  - Maintainers of sizeable OSS projects [get a 20x Claude Max subscription
+    for free from
+    Anthropic](https://claude.com/contact-sales/claude-for-oss).
+  - Anthropic has restricted OAuth tokens from Free/Pro/Max plans to Claude
+    Code and claude.ai only — using Claude Max with `claude-code-action`
+    in CI is in a grey zone and may be enforced against. The Codex engine
+    is an alternative.
+- While it's built to protect important secrets, a determined attacker can
+  get a) the bot's token and b) the engine auth credential (Claude OAuth
+  token, OpenAI API key, or ChatGPT auth.json). They can't do that much
+  with these: burn some tokens and close some issues.
   - They specifically _cannot_ merge to the default branch, nor create releases.
 
 ## Workflows
@@ -87,13 +96,20 @@ enabled = false
 `uvx tend@latest init` reads `.config/tend.toml` and writes `tend-*.yaml` workflow
 files into `.github/workflows/`. Each workflow handles triggers, skip
 conditions, concurrency, and permissions — then calls the composite action
-(`max-sixty/tend@v1`).
+for the configured engine (`max-sixty/tend@v1` for Claude,
+`max-sixty/tend/codex@v1` for Codex).
 
-The action runs security and rate-limit preflight checks, resolves bot
-identity, and invokes
-[claude-code-action](https://github.com/anthropics/claude-code-action) with
-the tend plugin. Each workflow's prompt invokes a skill that defines what
-Claude does.
+Both actions run the same security and rate-limit preflight checks and
+resolve bot identity; they differ only in which model runs the prompt:
+
+- **Claude engine** — invokes
+  [claude-code-action](https://github.com/anthropics/claude-code-action)
+  with the tend plugin. Each workflow's prompt is a slash command
+  (`/tend-ci-runner:review`) that loads the matching skill.
+- **Codex engine** — installs the `@openai/codex` CLI on the runner and
+  shells out to `codex exec`. An AGENTS.md staged into `$CODEX_HOME`
+  teaches Codex to resolve `/tend-ci-runner:NAME` references to the
+  bundled skill markdown.
 
 Edit the config or the generator — not the workflow files. They're regenerated
 on every `tend@latest init`.
@@ -123,18 +139,31 @@ Full threat model: [docs/security-model.md](docs/security-model.md).
 
 ## Configuration
 
-`.config/tend.toml` — only `bot_name` is required:
+`.config/tend.toml` — only `bot_name` is required. The default engine is
+Claude; set `engine = "codex"` to use OpenAI Codex instead.
 
 ```toml
 bot_name = "my-project-bot"
+
+# Optional — defaults to "claude"
+# engine = "codex"
+# effort = "medium"   # codex only: minimal | low | medium | high
 ```
 
-Two repo secrets are required:
+Repo secrets depend on the engine:
 
-| Secret                    | Value                                                                                               |
-| ------------------------- | --------------------------------------------------------------------------------------------------- |
-| `BOT_TOKEN`               | Bot account PAT — classic or fine-grained (see [example config](docs/tend.example.toml) for scopes) |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token (via PKCE flow, not an API key)                                             |
+| Engine   | Required secrets                                                                                                |
+| -------- | --------------------------------------------------------------------------------------------------------------- |
+| `claude` | `BOT_TOKEN` + `CLAUDE_CODE_OAUTH_TOKEN`                                                                          |
+| `codex`  | `BOT_TOKEN` + one of `OPENAI_API_KEY` (recommended) or `CODEX_AUTH_JSON` (subscription, discouraged on public repos) |
+
+`BOT_TOKEN` is the bot account's PAT — classic or fine-grained (see
+[example config](docs/tend.example.toml) for scopes). `CLAUDE_CODE_OAUTH_TOKEN`
+is a Claude Code OAuth token via PKCE flow (not an API key from
+console.anthropic.com). `OPENAI_API_KEY` is a standard OpenAI API key.
+`CODEX_AUTH_JSON` is the literal contents of `~/.codex/auth.json` after
+running `codex login` locally — OpenAI's docs explicitly discourage this
+path for public repos.
 
 All other options — secret name overrides, setup steps, protected branches,
 workflow overrides, schedules — are documented in
@@ -149,18 +178,39 @@ For tend-specific guidance, add a skill overlay at
 `.claude/skills/running-tend/SKILL.md`. Common uses: recording which CI
 workflow names `tend-ci-fix` watches, PR title conventions, label policies.
 
-## Using your Claude subscription
+## Engines
 
-Tend wraps
+Tend supports two engines. Pick whichever fits the credentials you already
+have; both run with the same workflows and skills.
+
+### Claude (default)
+
+Wraps
 [`claude-code-action`](https://github.com/anthropics/claude-code-action),
 Anthropic's official GitHub Action for running Claude Code in CI. Your
 `CLAUDE_CODE_OAUTH_TOKEN` is used exactly as it would be in any
 claude-code-action workflow — tend adds the framework (workflows, skills,
 prompts) around it but never sees the token itself.
 
-Running Anthropic's own action against your own repo, with your own OAuth
-token and Max subscription, is a supported use of Claude Code. If you already
-have a Max subscription, tend is a safe way to put it to work on your project.
+Caveat: as of 2026-02, Anthropic restricts Free/Pro/Max OAuth tokens to
+Claude Code and claude.ai only. `claude-code-action` is a third-party
+harness; check Anthropic's current
+[authentication policy](https://code.claude.com/docs/en/authentication)
+before relying on Max for CI billing.
+
+### Codex (alternative)
+
+Installs `@openai/codex` on the runner and invokes `codex exec` against a
+bundled `AGENTS.md` that teaches it to resolve tend's slash commands to
+skill markdown. Two auth modes:
+
+- **`OPENAI_API_KEY`** — standard API billing; works for any repo.
+  Recommended.
+- **`CODEX_AUTH_JSON`** — `~/.codex/auth.json` shipped as a secret, billed
+  to a ChatGPT Plus/Pro/Business subscription. OpenAI explicitly
+  discourages this on public repos because the token has read+write access
+  to the entire ChatGPT account; only use on private repos and rotate
+  often (the refresh window closes around 8 days of inactivity).
 
 ## Badge
 

@@ -158,16 +158,20 @@ The last row matters: `GITHUB_TOKEN` pushes don't trigger downstream workflows
 
 ### Token assignment
 
-Use a single bot token across all Claude workflows for consistent identity.
+Use a single bot token across all workflows for consistent identity.
 The merge restriction (ruleset) caps blast radius regardless of which token
 is used.
 
-Two tokens are needed:
+Two tokens are needed: the bot's PAT/App credential, plus an engine auth
+credential whose exact form depends on `engine` in `.config/tend.toml`.
 
 | Token | Purpose |
 |-------|---------|
 | Bot token (PAT or App) | GitHub API and git operations. Consistent bot identity. |
-| Claude OAuth token | Authenticates Claude Code to the Anthropic API. |
+| Engine auth (one of, per engine) | Authenticates the agent runtime. |
+| ↳ Claude OAuth token | `engine = "claude"`: authenticates Claude Code to the Anthropic API. |
+| ↳ `OPENAI_API_KEY` | `engine = "codex"`, API-billed: standard OpenAI API key, billed per token. |
+| ↳ `CODEX_AUTH_JSON` | `engine = "codex"`, subscription-funded: the contents of `~/.codex/auth.json` after `codex login` — **discouraged for public repos** (see below). |
 
 **Why one bot token.** The bot token is equally safe in any workflow because
 the merge restriction caps the blast radius. Using a single token gives
@@ -181,6 +185,25 @@ consistent identity for reviews and comments and avoids the
 | Bot token (PAT) | Long-lived | Push to unprotected branches, create PRs, impersonate bot — **indefinitely** | Merge PRs (merge restriction), push to default branch, access release secrets (environment-protected) |
 | Bot token (App) | ~1 hour | Same as PAT, but only until token expires | Same + token auto-expires |
 | Claude OAuth | Long-lived | Run Claude sessions billed to the account | Access GitHub |
+| `OPENAI_API_KEY` | Until revoked | Run Codex/OpenAI API calls billed to the account | Access GitHub |
+| `CODEX_AUTH_JSON` | ~8-day refresh window | Run any ChatGPT API call as the user — including reading their entire chat history, accessing their custom GPTs, and exhausting their plan quota | Access GitHub |
+
+**The `CODEX_AUTH_JSON` caveat.** `~/.codex/auth.json` contains an OAuth
+refresh token bound to the whole ChatGPT account. Leaking it gives an
+attacker the user's chats, custom GPTs, and any usage-billed quota — not
+just the Codex API quota. OpenAI's own
+[CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth)
+says:
+
+> The right way to authenticate automation is with an API key. Use this
+> guide only if you specifically need to run the workflow as your Codex
+> account... Do not use this workflow for public or open-source repositories.
+
+Tend's Codex action accepts `CODEX_AUTH_JSON` so subscription-funded
+private-repo workflows are possible, but the install skill refuses to
+configure it on a public repo and the secrets allowlist warning fires
+if it's set without explicit allowlisting. Rotate every ~7 days; revoke
+via `https://chatgpt.com/#settings/Personalization` if leaked.
 
 `GITHUB_TOKEN` is ephemeral (single job) and automatically scoped by each
 workflow's `permissions:` block. Not a meaningful leak target.
@@ -239,9 +262,11 @@ Conversation-tab comments (`issue_comment`) are unaffected.
   phrases.
 - **Adding `allowed_non_write_users`** to a workflow with user-controlled
   prompts requires security review.
-- **All Claude workflows** must include
-  `--append-system-prompt "You are operating in a GitHub Actions CI environment. Use /tend-ci-runner:running-in-ci before starting work."`.
-- **Token choice**: All Claude workflows use the bot token for consistent
+- **System prompt**: Claude workflows append a CI-environment hint via
+  `--append-system-prompt`; Codex workflows stage equivalent guidance into
+  `$CODEX_HOME/AGENTS.md`. Both load `/tend-ci-runner:running-in-ci`
+  before any other skill.
+- **Token choice**: All workflows use the bot token for consistent
   identity.
 - **`permissions:` block**: Set `contents: read` for read-only workflows.
 - **Sensitive secrets** must be in protected environments, never repo-level.

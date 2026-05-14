@@ -8,12 +8,29 @@
 
 bot_name = "my-project-bot"
 
+# ## Engine
+#
+# Which agent runtime to use. Defaults to "claude" (wraps
+# anthropics/claude-code-action). Set to "codex" to use OpenAI Codex via
+# `codex exec` instead.
+#
+# engine = "codex"
+
 # ## Model
 #
-# Claude model to use for all workflows. Valid values: opus, sonnet, haiku.
-# Defaults to opus.
+# Model to use for all workflows. Valid values depend on the engine:
+#
+# - engine = "claude": opus (default), sonnet, haiku
+# - engine = "codex":  gpt-5.1-codex (default), gpt-5.1-codex-mini
 #
 # model = "opus"
+
+# ## Effort (codex only)
+#
+# Reasoning effort for the Codex model. Valid values: minimal, low, medium,
+# high. Empty (default) leaves the choice to the Codex CLI default.
+#
+# effort = "medium"
 
 # ## Protected branches
 #
@@ -25,12 +42,25 @@ bot_name = "my-project-bot"
 
 # ## Secrets
 #
-# Two repo secrets are required:
+# Repo secrets, by engine:
 #
-# | Secret                    | Value                                                       |
-# |---------------------------|-------------------------------------------------------------|
-# | `BOT_TOKEN`               | Bot account PAT (see scopes below)                          |
-# | `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token (PKCE flow, not an API key)         |
+# | Engine   | Required                                                              |
+# |----------|------------------------------------------------------------------------|
+# | `claude` | `BOT_TOKEN` + `CLAUDE_CODE_OAUTH_TOKEN`                                |
+# | `codex`  | `BOT_TOKEN` + one of `OPENAI_API_KEY` or `CODEX_AUTH_JSON`             |
+#
+# `BOT_TOKEN` is the bot account's PAT (see scopes below).
+#
+# `CLAUDE_CODE_OAUTH_TOKEN` is a Claude Code OAuth token via PKCE flow
+# (not an API key from console.anthropic.com).
+#
+# `OPENAI_API_KEY` is a standard OpenAI API key — billed per token.
+#
+# `CODEX_AUTH_JSON` is the literal contents of `~/.codex/auth.json` after
+# `codex login`. Bills a ChatGPT Plus/Pro/Business subscription. OpenAI
+# explicitly discourages this for public repos because the token has
+# read+write access to the entire ChatGPT account. The codex action prefers
+# `CODEX_AUTH_JSON` over `OPENAI_API_KEY` when both are set.
 #
 # Classic PAT scopes: `repo`, `workflow`, `notifications`, `write:discussion`,
 # `gist`, `user`. `workflow` is required to push commits that modify
@@ -48,7 +78,9 @@ bot_name = "my-project-bot"
 #
 # [secrets]
 # bot_token = "MY_BOT_PAT"
-# claude_token = "MY_CLAUDE_TOKEN"
+# claude_token = "MY_CLAUDE_TOKEN"      # engine = "claude"
+# openai_key = "MY_OPENAI_KEY"          # engine = "codex"
+# codex_auth_json = "MY_CODEX_AUTH"     # engine = "codex"
 #
 # `tend check` flags repo-level secrets not in an explicit allowlist. Repos with
 # additional legitimate secrets must list them:

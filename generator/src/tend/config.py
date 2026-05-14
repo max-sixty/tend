@@ -21,13 +21,25 @@ KNOWN_WORKFLOWS = {
 }
 KNOWN_TOP_LEVEL = {
     "bot_name",
+    "engine",
     "model",
+    "effort",
     "protected_branches",
     "secrets",
     "setup",
     "workflows",
 }
-KNOWN_SECRETS_KEYS = {"bot_token", "claude_token", "allowed"}
+KNOWN_ENGINES = {"claude", "codex"}
+# claude_token and openai_key are read; we accept either/both. codex_auth_json
+# is the subscription-funded path (~/.codex/auth.json contents stored as a
+# repo secret); officially discouraged for public repos but supported.
+KNOWN_SECRETS_KEYS = {
+    "bot_token",
+    "claude_token",
+    "openai_key",
+    "codex_auth_json",
+    "allowed",
+}
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
 
@@ -72,7 +84,20 @@ class WorkflowConfig:
     jobs: dict[str, dict] | None = None
 
 
-KNOWN_MODELS = {"opus", "sonnet", "haiku"}
+# Per-engine model allowlists. Codex CLI accepts whatever string we pass via
+# `--model`, but we restrict to the ones we test against; unknown strings fail
+# at config load with a clear message rather than at agent invocation time.
+KNOWN_MODELS_BY_ENGINE = {
+    "claude": {"opus", "sonnet", "haiku"},
+    "codex": {"gpt-5.1-codex", "gpt-5.1-codex-mini"},
+}
+DEFAULT_MODEL_BY_ENGINE = {
+    "claude": "opus",
+    "codex": "gpt-5.1-codex",
+}
+# Codex `--config model_reasoning_effort=...` values. Claude does not use this
+# field. Empty string means "leave at Codex CLI default" (currently medium).
+KNOWN_EFFORTS = {"", "minimal", "low", "medium", "high"}
 
 
 @dataclass
@@ -82,7 +107,11 @@ class Config:
     protected_branches: list[str]
     bot_token_secret: str
     claude_token_secret: str
+    openai_key_secret: str
+    codex_auth_json_secret: str
+    engine: str
     model: str
+    effort: str
     setup: list[SetupStep]
     workflows: dict[str, WorkflowConfig]
     # Owner of the repo where workflows will run. Used to gate jobs that fail
@@ -114,10 +143,30 @@ class Config:
                 "(only letters, digits, and hyphens)"
             )
 
-        model = raw.get("model", "opus")
-        if model not in KNOWN_MODELS:
+        engine = raw.get("engine", "claude")
+        if engine not in KNOWN_ENGINES:
             raise click.ClickException(
-                f"model '{model}' is not recognized (known: {', '.join(sorted(KNOWN_MODELS))})"
+                f"engine '{engine}' is not recognized "
+                f"(known: {', '.join(sorted(KNOWN_ENGINES))})"
+            )
+
+        model = raw.get("model", DEFAULT_MODEL_BY_ENGINE[engine])
+        known_models = KNOWN_MODELS_BY_ENGINE[engine]
+        if model not in known_models:
+            raise click.ClickException(
+                f"model '{model}' is not recognized for engine '{engine}' "
+                f"(known: {', '.join(sorted(known_models))})"
+            )
+
+        effort = raw.get("effort", "")
+        if effort not in KNOWN_EFFORTS:
+            raise click.ClickException(
+                f"effort '{effort}' is not recognized "
+                f"(known: {', '.join(sorted(e for e in KNOWN_EFFORTS if e))})"
+            )
+        if effort and engine != "codex":
+            raise click.ClickException(
+                f"effort is only valid for engine = 'codex' (got engine = '{engine}')"
             )
 
         unknown = set(raw.keys()) - KNOWN_TOP_LEVEL
@@ -224,7 +273,11 @@ class Config:
             protected_branches=protected_branches,
             bot_token_secret=secrets.get("bot_token", "BOT_TOKEN"),
             claude_token_secret=secrets.get("claude_token", "CLAUDE_CODE_OAUTH_TOKEN"),
+            openai_key_secret=secrets.get("openai_key", "OPENAI_API_KEY"),
+            codex_auth_json_secret=secrets.get("codex_auth_json", "CODEX_AUTH_JSON"),
+            engine=engine,
             model=model,
+            effort=effort,
             setup=setup,
             workflows=workflows,
             allowed_repo_secrets=allowed,
