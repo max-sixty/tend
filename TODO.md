@@ -10,9 +10,9 @@ needs the release sequence:
 
 1. Land the harness support PR on `main`.
 2. Cut release `0.0.19` — bumping the `v1` tag to include `codex/action.yaml`.
-3. Edit `.config/tend.toml`: add `harness = "codex"` (and optionally
-   `effort = "medium"`). Set `model = "gpt-5.1-codex"` explicitly or let
-   the default win.
+3. Edit `.config/tend.yaml`: add `harness: codex` (and optionally
+   `effort: medium`). Set `model: gpt-5.5` explicitly or let the
+   default win.
 4. Set `OPENAI_API_KEY` secret on `max-sixty/tend` (or `CODEX_AUTH_JSON`).
    Drop `CLAUDE_CODE_OAUTH_TOKEN` from `secrets.allowed` once unused.
 5. `uvx tend@latest init` to regenerate workflows. Commit both the config

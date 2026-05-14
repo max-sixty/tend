@@ -179,10 +179,10 @@ For tend-specific guidance, add a skill overlay at
 `.claude/skills/running-tend/SKILL.md`. Common uses: recording which CI
 workflow names `tend-ci-fix` watches, PR title conventions, label policies.
 
-## Engines
+## Harnesses
 
-Tend supports two engines. Pick whichever fits the credentials you already
-have; both run with the same workflows and skills.
+Tend supports two harnesses. Pick whichever fits the credentials you
+already have; both run with the same workflows and skills.
 
 ### Claude (default)
 
