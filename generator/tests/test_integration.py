@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 import click.testing
 import pytest
+from tests import ACTION_VERSION
 from tests import _yaml as yaml
 from click.testing import CliRunner
 
@@ -71,7 +72,7 @@ def test_init_creates_correct_files_with_valid_yaml(
         assert "name" in data, f"{path.name} missing 'name'"
         assert "jobs" in data, f"{path.name} missing 'jobs'"
         # Every workflow references the tend composite action
-        assert "max-sixty/tend@v1" in path.read_text(), (
+        assert f"max-sixty/tend@{ACTION_VERSION}" in path.read_text(), (
             f"{path.name} missing action reference"
         )
 

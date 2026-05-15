@@ -24,6 +24,13 @@ metadata:
 
 Tags are bare versions (`0.0.9`), not prefixed (`v0.0.9`).
 
+Generated workflows pin the action to the generator's own version
+(`max-sixty/tend@X.Y.Z`); there is no floating `v1`. Each `X.Y.Z` tag is the
+immutable ref consumers run, enforced by a tag ruleset on `max-sixty/tend`
+(`update`/`deletion` restricted). Never force-move or delete a published tag.
+Step 8 (tag) must precede step 10 (regenerate via `uvx tend@latest`) so the
+pinned ref resolves to an existing tag.
+
 ## Commit message pattern
 
 ```

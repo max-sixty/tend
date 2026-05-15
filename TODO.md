@@ -9,7 +9,8 @@ The Codex harness landed but tend itself still runs on Claude. The cutover
 needs the release sequence:
 
 1. Land the harness support PR on `main`.
-2. Cut release `0.0.19` — bumping the `v1` tag to include `codex/action.yaml`.
+2. Cut a release so the new tag (with `codex/action.yaml`) is what the
+   version-pinned action ref resolves to.
 3. Edit `.config/tend.yaml`: add `harness: codex` (and optionally
    `effort: medium`). Set `model: gpt-5.5` explicitly or let the
    default win.
@@ -38,12 +39,12 @@ scoped installation token per workflow run. Workflows still live and run
 in the adopter's repo.
 
 ```yaml
-- uses: max-sixty/tend/auth@v1   # OIDC → our service → scoped token
+- uses: max-sixty/tend/auth@X.Y.Z   # OIDC → our service → scoped token
   id: auth
 - uses: actions/checkout@v6
   with:
     token: ${{ steps.auth.outputs.token }}
-- uses: max-sixty/tend@v1
+- uses: max-sixty/tend@X.Y.Z
   with:
     github_token: ${{ steps.auth.outputs.token }}
     claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
