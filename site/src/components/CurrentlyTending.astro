@@ -31,6 +31,12 @@
     comments?: Bucket;
   }
 
+  // Drop the org — the pulse already has plenty to say. Mirrors Activity.astro.
+  function shortRepo(repo: string): string {
+    const i = repo.indexOf("/");
+    return i === -1 ? repo : repo.slice(i + 1);
+  }
+
   function paint(el: HTMLElement, state: "live" | "idle", text: string): HTMLSpanElement {
     const dot = document.createElement("span");
     dot.className = `now-dot now-dot-${state}`;
@@ -57,9 +63,10 @@
         const startedMs = Date.parse(r.started_at);
         const buildText = () => {
           const elapsed = elapsedTime(r.started_at);
+          const repo = shortRepo(r.repo);
           return elapsed
-            ? `currently tending ${r.repo} · ${detail} · ${elapsed}${more}`
-            : `currently tending ${r.repo} · ${detail}${more}`;
+            ? `currently tending ${repo} · ${detail} · ${elapsed}${more}`
+            : `currently tending ${repo} · ${detail}${more}`;
         };
         const label = paint(el, "live", buildText());
         if (!Number.isNaN(startedMs)) {
