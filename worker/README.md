@@ -179,9 +179,11 @@ npx wrangler deploy                                 # first deploy
 The PAT needs `actions:read` + `metadata:read` on public repos. After first
 deploy, CI handles subsequent deploys via
 [`../.github/workflows/worker-deploy.yaml`](../.github/workflows/worker-deploy.yaml),
-which authenticates with the `CLOUDFLARE_API_TOKEN` repo secret. That secret
-is a scoped token named `tend-ci-worker-deploy` (Workers Scripts + KV + Routes
-edit), generated to keep the account's Global API Key out of CI; regenerate at
+which authenticates with the `CLOUDFLARE_API_TOKEN` secret stored in the
+`cloudflare-deploy` GitHub environment (pinned to `main`, so PR-triggered
+workflow runs can't read it). That secret is a scoped token named
+`tend-ci-worker-deploy` (Workers Scripts + KV + Routes edit), generated to
+keep the account's Global API Key out of CI; regenerate at
 <https://dash.cloudflare.com/profile/api-tokens> with the "Edit Cloudflare
 Workers" template if it's ever lost.
 
