@@ -17,7 +17,7 @@ from tend.workflows import GENERATORS, _deep_merge, generate_all, generate_menti
 
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
     cfg = tmp_path / ".config" / "tend.yaml"
-    cfg.parent.mkdir(parents=True)
+    cfg.parent.mkdir(parents=True, exist_ok=True)
     cfg.write_text(f"bot_name: test-bot\n{extra}")
     return cfg
 
@@ -963,3 +963,118 @@ def test_extras_apply_path_regtest(regtest: object, tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     print(workflows["tend-review.yaml"].content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Codex harness
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", GENERATORS)
+def test_workflow_minimal_codex_regtest(
+    regtest: object, tmp_path: Path, name: str
+) -> None:
+    """Snapshot the Codex-harness variant of every workflow."""
+    extra = "harness: codex\n" + _extra_for(name)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    wf = GENERATORS[name](cfg)
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_codex_action_ref(tmp_path: Path) -> None:
+    """Codex workflows reference max-sixty/tend/codex@v1."""
+    cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
+    for wf in generate_all(cfg):
+        assert "max-sixty/tend/codex@v1" in wf.content, (
+            f"{wf.filename} missing codex action ref"
+        )
+        assert "max-sixty/tend@v1" not in wf.content, (
+            f"{wf.filename} should not reference the claude action ref"
+        )
+
+
+def test_codex_workflows_use_openai_secrets_not_claude(tmp_path: Path) -> None:
+    """Codex agent step references OPENAI_API_KEY + CODEX_AUTH_JSON, not Claude."""
+    cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
+    for wf in generate_all(cfg):
+        assert "openai_api_key: ${{ secrets.OPENAI_API_KEY }}" in wf.content, (
+            f"{wf.filename} missing openai_api_key input"
+        )
+        assert "codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}" in wf.content, (
+            f"{wf.filename} missing codex_auth_json input"
+        )
+        assert "claude_code_oauth_token" not in wf.content, (
+            f"{wf.filename} should not reference claude_code_oauth_token under codex"
+        )
+
+
+def test_codex_effort_only_when_set(tmp_path: Path) -> None:
+    """effort: renders only when configured."""
+    cfg_default = Config.load(_minimal_config(tmp_path, "harness: codex"))
+    for wf in generate_all(cfg_default):
+        assert "effort:" not in wf.content, (
+            f"{wf.filename} should omit effort when unset"
+        )
+
+    cfg_with_effort = Config.load(
+        _minimal_config(tmp_path, "harness: codex\neffort: high")
+    )
+    for wf in generate_all(cfg_with_effort):
+        assert "effort: high" in wf.content, f"{wf.filename} missing effort: high"
+
+
+def test_codex_review_omits_sticky_comment(tmp_path: Path) -> None:
+    """use_sticky_comment is a Claude-only feature; the Codex review step omits it."""
+    cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    review = workflows["tend-review.yaml"]
+    assert "use_sticky_comment" not in review.content, (
+        "use_sticky_comment is Claude-only; the codex action posts via gh "
+        "from skill prompts instead"
+    )
+
+
+def test_codex_default_model(tmp_path: Path) -> None:
+    """Engine = codex without explicit model picks gpt-5.5."""
+    cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
+    assert cfg.model == "gpt-5.5"
+    wf = next(w for w in generate_all(cfg) if w.filename == "tend-triage.yaml")
+    assert "model: gpt-5.5" in wf.content
+
+
+def test_unknown_engine_rejected(tmp_path: Path) -> None:
+    with pytest.raises(click.ClickException, match="harness 'gpt' is not recognized"):
+        Config.load(_minimal_config(tmp_path, "harness: gpt"))
+
+
+def test_codex_model_unrestricted(tmp_path: Path) -> None:
+    """Codex model strings pass through unvalidated.
+
+    Codex's catalog churns (gpt-5.1-codex was current at harness bring-up;
+    deprecated by the next month). An allowlist would silently lock adopters
+    out of newer models. We accept any string and let `codex exec` error at
+    runtime if it's wrong.
+    """
+    cfg = Config.load(_minimal_config(tmp_path, "harness: codex\nmodel: gpt-99-future"))
+    assert cfg.model == "gpt-99-future"
+
+
+def test_unknown_claude_model_rejected(tmp_path: Path) -> None:
+    """Claude's model set is small and stable; typos fail at config load."""
+    with pytest.raises(
+        click.ClickException, match="not recognized for harness 'claude'"
+    ):
+        Config.load(_minimal_config(tmp_path, "model: opus-3"))
+
+
+def test_effort_rejected_for_claude(tmp_path: Path) -> None:
+    """effort is Codex-only — Claude has no reasoning-effort knob."""
+    with pytest.raises(
+        click.ClickException, match="effort is only valid for harness = 'codex'"
+    ):
+        Config.load(_minimal_config(tmp_path, "effort: high"))
+
+
+def test_unknown_effort_rejected(tmp_path: Path) -> None:
+    with pytest.raises(click.ClickException, match="effort 'turbo' is not recognized"):
+        Config.load(_minimal_config(tmp_path, "harness: codex\neffort: turbo"))

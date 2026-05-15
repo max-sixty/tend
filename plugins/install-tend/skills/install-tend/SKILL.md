@@ -1,6 +1,6 @@
 ---
 name: install-tend
-description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the bot's auth token. Use when setting up tend on a new repo or when asked to install/configure tend.
+description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the harness auth token (Claude OAuth or OpenAI API/Codex auth.json). Use when setting up tend on a new repo or when asked to install/configure tend.
 ---
 
 # Install Tend
@@ -23,11 +23,22 @@ not have to ask "where do I do that?".
 
 ## Kickoff
 
-Before running step 1, lay out the plan and confirm:
+Before running step 1, choose the harness and lay out the plan:
 
+- Ask via `AskUserQuestion` which harness to use:
+  - **Claude (Anthropic)** — uses a Claude Code OAuth token (Max/Team
+    subscription) or a console.anthropic.com API key. Note: as of
+    2026-02, Anthropic restricts OAuth tokens from Free/Pro/Max plans
+    to Claude Code and claude.ai only — `claude-code-action` is a
+    third-party harness, so subscription auth may be blocked depending
+    on enforcement. Confirm the user understands this before picking.
+  - **Codex (OpenAI)** — uses an OpenAI API key (billed per token) or
+    a ChatGPT Plus/Pro `auth.json` (subscription-funded but officially
+    discouraged for public repos). Don't recommend the `auth.json`
+    path for an open-source repo.
 - List the steps you'll be running (the section headings below: Create
   config → Generate workflows → Branch protection → Skill overlay →
-  Badge → Bot account → Claude OAuth token → Bot token → Grant access →
+  Badge → Bot account → Harness auth → Bot token → Grant access →
   Bot bio → Commit) so the user knows what's coming.
 - Tell them it typically takes 5–10 minutes of their hands-on time
   (browser logins, OAuth approvals, occasional copy-paste); the agent
@@ -52,11 +63,16 @@ as the bot, verify the logged-in user via the avatar menu.
 
 ## 1. Create config
 
-Create `.config/tend.yaml` with at minimum `bot_name`. See README.md for all
-available config sections (`secrets:`, `setup:`, `workflows:`).
+Create `.config/tend.yaml` with at minimum `bot_name`, plus `harness` if
+the user chose Codex (Claude is the default and can be omitted). See
+README.md for all available config sections (`secrets:`, `setup:`,
+`workflows:`).
 
 ```yaml
 bot_name: <bot-name>
+# For Codex, also:
+# harness: codex
+# effort: medium   # optional: minimal | low | medium | high
 ```
 
 Check whether the repo already has a bot token secret under a non-default name:
@@ -309,7 +325,11 @@ If the account doesn't exist:
    (`from:github subject:code`); otherwise have the user paste the code.
 4. After confirmation, re-verify via API.
 
-## 7. Claude OAuth token
+## 7. Harness auth token
+
+Branch on the harness chosen in Kickoff.
+
+### 7a. Harness = claude
 
 An OAuth access token from Claude's auth service — uses the user's Claude
 subscription (Max/Team) for billing. Not an API key from console.anthropic.com.
@@ -345,6 +365,55 @@ Then store the secret:
 ```bash
 echo "$TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO"
 ```
+
+### 7b. Harness = codex
+
+Codex supports two auth modes. The `tend/codex` action prefers
+`auth.json` when both are set.
+
+Ask via `AskUserQuestion`:
+
+- **OpenAI API key (recommended)** — billed per token via the user's
+  OpenAI account. Works for any repo, public or private. The user
+  generates the key at `https://platform.openai.com/api-keys`.
+- **ChatGPT subscription (auth.json)** — funds the run from a
+  ChatGPT Plus/Pro/Business plan. OpenAI explicitly discourages this
+  for public repos (the token has read+write access to the user's
+  whole ChatGPT account, and CI runs print it in the proxy logs).
+  Only offer this option when the repo is private; refuse and
+  recommend API key for public repos.
+
+For **API key**:
+
+```bash
+gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q OPENAI_API_KEY && echo "SET" || echo "NOT SET"
+```
+
+If not set, have the user paste the `sk-…` key. Store it:
+
+```bash
+gh secret set OPENAI_API_KEY --repo "$REPO" --body "$KEY"
+```
+
+For **auth.json** (private repos only, after confirming the user
+understands the trade-off):
+
+1. On a trusted local machine, the user installs codex
+   (`npm i -g @openai/codex`) and runs `codex login`. Codex writes
+   `~/.codex/auth.json` with the refresh-tokened OAuth payload.
+2. Have the user run `cat ~/.codex/auth.json` and paste the
+   full JSON back. Then:
+
+   ```bash
+   gh secret set CODEX_AUTH_JSON --repo "$REPO" --body "$(cat <<'EOF'
+   <pasted-json>
+   EOF
+   )"
+   ```
+3. Add a TODO in the repo's tracking system: rotate auth.json every
+   ~7 days (the refresh window closes around 8 days). Codex refreshes
+   on use, but a long-idle bot can expire — re-run `codex login` and
+   re-set the secret if the bot starts failing 401.
 
 ## 8. Bot token and secret
 
@@ -452,15 +521,17 @@ Commit with co-author attribution. Do NOT push without explicit permission.
 
 ## Summary checklist
 
-After completing all steps, present this checklist:
+After completing all steps, present this checklist (harness-specific
+line picks the row that matches the chosen harness):
 
-- [ ] Config: `.config/tend.yaml` created
+- [ ] Config: `.config/tend.yaml` created (with `harness` set if Codex)
 - [ ] Workflows: generated in `.github/workflows/`
 - [ ] Ruleset: merge restriction on default branch, admin bypass
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
 - [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub
-- [ ] Claude token: `CLAUDE_CODE_OAUTH_TOKEN` secret set
+- [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` secret set
+- [ ] Harness auth (codex): `OPENAI_API_KEY` or `CODEX_AUTH_JSON` secret set
 - [ ] Bot token: `BOT_TOKEN` secret set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot bio: profile bio reflects the authorization stance

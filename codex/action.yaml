@@ -1,0 +1,499 @@
+name: Tend (Codex)
+description: >-
+  Tend's Codex harness: an autonomous junior maintainer for GitHub repos
+  powered by OpenAI Codex. Authenticates via OPENAI_API_KEY or a
+  subscription-funded ~/.codex/auth.json (the latter is officially
+  discouraged by OpenAI for public repos — see docs/security-model.md).
+
+inputs:
+  github_token:
+    required: true
+    description: GitHub token for API access and pushing commits
+  openai_api_key:
+    required: false
+    default: ""
+    description: >-
+      OpenAI API key for the Responses API. One of openai_api_key or
+      codex_auth_json must be set; codex_auth_json takes precedence when both
+      are present.
+  codex_auth_json:
+    required: false
+    default: ""
+    description: >-
+      Contents of ~/.codex/auth.json — funds the run from a ChatGPT
+      Plus/Pro/Business subscription. OpenAI's docs explicitly discourage
+      this for public repos. Takes precedence over openai_api_key when set.
+  bot_name:
+    required: true
+    description: GitHub username of the bot account
+  prompt:
+    required: true
+    description: >-
+      The prompt to send to Codex. The tend-ci-runner plugin is installed
+      before invocation, so `$skill-name` mentions resolve to the
+      corresponding SKILL.md (e.g. `$review`, `$triage`).
+  model:
+    default: gpt-5.5
+    description: >-
+      Codex model to use. Current visible models per Codex's model cache:
+      gpt-5.5 (default, top tier), gpt-5.4, gpt-5.4-mini, gpt-5.3-codex,
+      gpt-5.2.
+  effort:
+    default: ""
+    description: >-
+      Reasoning effort — low, medium, high, or xhigh. Empty means leave
+      at Codex CLI default (medium for gpt-5.5).
+  sandbox:
+    default: workspace-write
+    description: Codex sandbox mode (workspace-write, read-only, danger-full-access)
+  codex_version:
+    default: ""
+    description: >-
+      Codex CLI git tag to build (e.g. `rust-v0.131.0-alpha.17`). Empty
+      means the action's pinned default. Once a stable release with
+      `codex plugin add` ships to npm, this will become a version string.
+  allowed_bots:
+    default: "*"
+    description: Bots allowed to trigger workflows (engagement gate, not used yet)
+  allowed_non_write_users:
+    default: "*"
+    description: Non-write users allowed to trigger workflows (engagement gate, not used yet)
+
+outputs:
+  token_usage:
+    description: >-
+      JSON object with token usage parsed from the Codex rollout JSONL:
+      input_tokens, output_tokens, cached_input_tokens, model, cost_usd.
+      cost_usd is 0 — Codex CLI doesn't surface API list prices.
+    value: ${{ steps.tokens.outputs.usage }}
+  final_message:
+    description: The final assistant message Codex wrote (markdown)
+    value: ${{ steps.codex.outputs.final_message }}
+
+runs:
+  using: composite
+  steps:
+    - name: Security preflight
+      shell: bash
+      run: |
+        DEFAULT_BRANCH=$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.default_branch')
+        PROTECTED=$(gh api "repos/${GITHUB_REPOSITORY}/branches/${DEFAULT_BRANCH}" --jq '.protected')
+        if [ "$PROTECTED" != "true" ]; then
+          echo "::error::Default branch '${DEFAULT_BRANCH}' is NOT protected. Without branch protection, the bot can merge PRs without review. Add a branch protection rule or ruleset before using Tend. See docs/security-model.md in the Tend repo."
+          exit 1
+        fi
+        echo "Security preflight passed: default branch '${DEFAULT_BRANCH}' is protected"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: Rate limit preflight
+      shell: bash
+      run: |
+        REPO="${GITHUB_REPOSITORY}"
+        BOT="${{ inputs.bot_name }}"
+        TWENTY_MIN_AGO=$(date -u -d '20 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+        TODAY=$(date -u +%Y-%m-%d)
+        YESTERDAY=$(date -u -d 'yesterday' +%Y-%m-%d)
+        SIX_DAYS_AGO=$(date -u -d '6 days ago' +%Y-%m-%d)
+
+        RECENT_PRS=$(gh api "repos/$REPO/pulls?state=all&sort=created&direction=desc&per_page=30" \
+          --jq "[.[] | select(.user.login == \"$BOT\" and .created_at > \"$TWENTY_MIN_AGO\")] | length" || echo 0)
+        RECENT_ISSUES=$(gh api "repos/$REPO/issues?creator=$BOT&state=all&sort=created&direction=desc&per_page=30" \
+          --jq "[.[] | select(.pull_request == null and .created_at > \"$TWENTY_MIN_AGO\")] | length" || echo 0)
+
+        TODAY_POSTS=$(gh api "search/issues?q=author:${BOT}+repo:${REPO}+created:${TODAY}" \
+          --jq '.total_count' || echo 0)
+        PAST_POSTS=$(gh api "search/issues?q=author:${BOT}+repo:${REPO}+created:${SIX_DAYS_AGO}..${YESTERDAY}" \
+          --jq '.total_count' || echo 0)
+        SPIKE_LIMIT=$((10 + PAST_POSTS / 3))
+
+        echo "Rate limit: burst=${RECENT_PRS} PRs, ${RECENT_ISSUES} issues (20min); today=${TODAY_POSTS} (limit: ${SPIKE_LIMIT})"
+
+        ABORT=false
+        if [ "$RECENT_PRS" -gt 10 ]; then
+          echo "::error::Rate limit: bot created ${RECENT_PRS} PRs in the last 20 minutes (limit: 10)"
+          ABORT=true
+        fi
+        if [ "$RECENT_ISSUES" -gt 10 ]; then
+          echo "::error::Rate limit: bot created ${RECENT_ISSUES} issues in the last 20 minutes (limit: 10)"
+          ABORT=true
+        fi
+        if [ "$TODAY_POSTS" -gt "$SPIKE_LIMIT" ]; then
+          echo "::error::Rate limit: bot created ${TODAY_POSTS} items today, above spike limit of ${SPIKE_LIMIT} (baseline: ${PAST_POSTS} over past 6 days)"
+          ABORT=true
+        fi
+        if [ "$ABORT" = true ]; then
+          exit 1
+        fi
+        echo "Rate limit check passed"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: Resolve bot ID
+      id: bot
+      shell: bash
+      run: echo "id=$(gh api users/${{ inputs.bot_name }} --jq '.id')" >> "$GITHUB_OUTPUT"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: Validate auth configured
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.openai_api_key }}" ] && [ -z "${{ inputs.codex_auth_json }}" ]; then
+          echo "::error::No Codex auth configured. Set either the OPENAI_API_KEY secret (API-billed) or the CODEX_AUTH_JSON secret (subscription-funded, see docs/security-model.md for the caveat)."
+          exit 1
+        fi
+
+    - name: Ensure uv is available
+      shell: bash
+      run: |
+        if command -v uvx >/dev/null 2>&1; then
+          echo "uvx already available at $(command -v uvx)"
+          exit 0
+        fi
+        echo "uvx not found; installing uv"
+        curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    # Build Codex from source at a known-good tag. The shipped npm releases
+    # (≤0.131.0-alpha.9) and the latest published GitHub release
+    # (alpha.16) both predate PR #21396, which is what gives us the
+    # `codex plugin add` subcommand we need to install tend-ci-runner
+    # non-interactively.
+    #
+    # When a stable release containing that PR lands on npm, swap the
+    # three steps below for the commented `Install Codex CLI` block — same
+    # interface, no Rust toolchain, ~10 min cold build → ~30 s npm install.
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo build
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: codex-${{ inputs.codex_version || 'rust-v0.131.0-alpha.17' }}
+
+    - name: Build Codex CLI from source
+      shell: bash
+      run: |
+        TAG="${{ inputs.codex_version || 'rust-v0.131.0-alpha.17' }}"
+        cargo install --locked --git https://github.com/openai/codex.git \
+          --tag "$TAG" --bin codex codex-cli
+        codex --version
+
+    # --- Swap-in once npm has a release with `codex plugin add` ---
+    # Delete the three steps above (Set up Rust / Cache cargo / Build Codex)
+    # and uncomment this single step. Update the `codex_version` input
+    # description to refer to npm versions again.
+    #
+    # - name: Install Codex CLI
+    #   shell: bash
+    #   run: |
+    #     if [ -n "${{ inputs.codex_version }}" ]; then
+    #       npm install -g "@openai/codex@${{ inputs.codex_version }}"
+    #     else
+    #       npm install -g @openai/codex
+    #     fi
+    #     codex --version
+
+    # Codex CLI prefers auth.json over $OPENAI_API_KEY when both are
+    # present. We mirror that precedence here: write auth.json if supplied,
+    # otherwise rely on the env var. Mode 600 matches what `codex login`
+    # writes locally.
+    - name: Configure Codex auth
+      shell: bash
+      env:
+        CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
+      run: |
+        mkdir -p "$HOME/.codex"
+        if [ -n "$CODEX_AUTH_JSON" ]; then
+          printf '%s' "$CODEX_AUTH_JSON" > "$HOME/.codex/auth.json"
+          chmod 600 "$HOME/.codex/auth.json"
+          echo "Codex auth: using subscription-funded auth.json"
+        else
+          echo "Codex auth: using OPENAI_API_KEY"
+        fi
+
+    # Install the tend-ci-runner plugin from the action's own checkout.
+    # `github.action_path` is .../<runner-cache>/max-sixty/tend/<ref>/codex/;
+    # the marketplace manifest at .agents/plugins/marketplace.json (one level
+    # up) registers tend-ci-runner as a local-source plugin. We add that
+    # marketplace, then `codex plugin add` installs the plugin so its skills
+    # become discoverable by `codex exec`.
+    - name: Install tend-ci-runner plugin
+      shell: bash
+      run: |
+        MARKETPLACE_ROOT="$(realpath "${{ github.action_path }}/..")"
+        codex plugin marketplace add "$MARKETPLACE_ROOT"
+        codex plugin add tend-ci-runner@tend
+        codex plugin list 2>/dev/null || true
+
+    # Stage AGENTS.md into $CODEX_HOME so it loads alongside any AGENTS.md
+    # the adopter already has in their repo. Adopters' files are not
+    # touched. The bulk of the prompt comes from shared/system-prompt.md
+    # (harness-neutral; the Claude action consumes the same file via
+    # `Compose system prompt`) — keep edits to it in sync across both
+    # engines. Codex-specific tail (skill enumeration, tooling) is
+    # appended below.
+    - name: Stage AGENTS.md
+      shell: bash
+      env:
+        BOT_NAME: ${{ inputs.bot_name }}
+      run: |
+        SHARED="${{ github.action_path }}/../shared/system-prompt.md"
+        TAIL="${{ github.action_path }}/agents-tail.md"
+        AGENTS="$HOME/.codex/AGENTS.md"
+        {
+          echo "# Tend CI guidance (Codex harness)"
+          echo
+          envsubst '$BOT_NAME' < "$SHARED"
+          echo
+          envsubst '$BOT_NAME' < "$TAIL"
+        } > "$AGENTS"
+        echo "Staged AGENTS.md at $AGENTS ($(wc -l < "$AGENTS") lines)"
+
+    # Mirror claude-code-action's fork-PR CLAUDE.md pinning so adopters who
+    # also rely on CLAUDE.md for prompt-injection defenses aren't worse off
+    # under the Codex harness. Codex reads `AGENTS.md` from the working
+    # directory (and any subdir the agent navigates into) — the same
+    # prompt-injection vector — so we pin/remove that too.
+    - name: Pin instruction files to base branch (fork PRs)
+      shell: bash
+      run: |
+        if [ "$GITHUB_EVENT_NAME" != "pull_request_target" ]; then
+          exit 0
+        fi
+        IS_FORK=$(jq -r '.pull_request.head.repo.fork // false' "$GITHUB_EVENT_PATH")
+        if [ "$IS_FORK" != "true" ]; then
+          exit 0
+        fi
+        DEFAULT_BRANCH=$(jq -r '.repository.default_branch' "$GITHUB_EVENT_PATH")
+
+        # Root CLAUDE.md (Claude harness convention; tend ships a CLAUDE.md
+        # alongside its workflows on adopter repos).
+        if git show "origin/${DEFAULT_BRANCH}:CLAUDE.md" > /tmp/base-claude.md 2>/dev/null; then
+          cp /tmp/base-claude.md CLAUDE.md
+          echo "Pinned CLAUDE.md to ${DEFAULT_BRANCH}"
+        else
+          rm -f CLAUDE.md
+          echo "No CLAUDE.md on ${DEFAULT_BRANCH} — removed fork version"
+        fi
+
+        # All AGENTS.md files in the working tree (Codex's per-directory
+        # instruction file). Each one is fork-controlled on a fork PR.
+        # For each merged-tree AGENTS.md: replace with the base-branch
+        # version at the same path if one exists, else remove. We avoid
+        # `git ls-tree` on the merge ref because GitHub may not have
+        # materialized it; iterate the working tree instead.
+        find . -name AGENTS.md -not -path './.git/*' -print0 | while IFS= read -r -d '' f; do
+          rel="${f#./}"
+          if git show "origin/${DEFAULT_BRANCH}:${rel}" > "/tmp/base-agents.md" 2>/dev/null; then
+            cp "/tmp/base-agents.md" "$f"
+            echo "Pinned ${rel} to ${DEFAULT_BRANCH}"
+          else
+            rm -f "$f"
+            echo "No ${rel} on ${DEFAULT_BRANCH} — removed fork version"
+          fi
+        done
+
+        # Also restore any AGENTS.md from base that the fork deleted —
+        # otherwise a fork could silently strip a tend-shipped guidance
+        # file. ls-tree enumerates every AGENTS.md in the base tree,
+        # filtered by `git -c core.quotepath=off` so non-ASCII paths
+        # round-trip cleanly.
+        git -c core.quotepath=off ls-tree -r --name-only "origin/${DEFAULT_BRANCH}" \
+          | grep -E '(^|/)AGENTS\.md$' \
+          | while IFS= read -r rel; do
+              if [ ! -f "$rel" ]; then
+                mkdir -p "$(dirname "$rel")"
+                git show "origin/${DEFAULT_BRANCH}:${rel}" > "$rel"
+                echo "Restored ${rel} from ${DEFAULT_BRANCH} (fork deleted it)"
+              fi
+            done || true
+
+    - name: Run Codex
+      id: codex
+      shell: bash
+      env:
+        OPENAI_API_KEY: ${{ inputs.openai_api_key }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        BOT_NAME: ${{ inputs.bot_name }}
+        BOT_ID: ${{ steps.bot.outputs.id }}
+        PROMPT: ${{ inputs.prompt }}
+        MODEL: ${{ inputs.model }}
+        EFFORT: ${{ inputs.effort }}
+        SANDBOX: ${{ inputs.sandbox }}
+      run: |
+        OUTPUT_FILE="$RUNNER_TEMP/codex-final-message.md"
+        ARGS=(
+          --model "$MODEL"
+          --sandbox "$SANDBOX"
+          --output-last-message "$OUTPUT_FILE"
+        )
+        if [ -n "$EFFORT" ]; then
+          ARGS+=(--config "model_reasoning_effort=\"$EFFORT\"")
+        fi
+        set +e
+        codex exec "${ARGS[@]}" "$PROMPT"
+        EXIT=$?
+        set -e
+
+        # Surface the final message as a step output even if codex
+        # exited non-zero — downstream steps may still want to post it.
+        if [ -f "$OUTPUT_FILE" ]; then
+          {
+            echo 'final_message<<TEND_EOF'
+            cat "$OUTPUT_FILE"
+            echo 'TEND_EOF'
+          } >> "$GITHUB_OUTPUT"
+        fi
+        exit $EXIT
+
+    # Codex writes rollouts to $CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl.
+    # Each event includes a token_count field (input/output/cached). Sum
+    # them. Cost is left at 0 — Codex CLI doesn't surface API list prices
+    # and computing them ourselves would require maintaining a price table.
+    - name: Token usage
+      if: always()
+      id: tokens
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+      run: |
+        LOGS_DIR="$HOME/.codex/projects"
+        mkdir -p "$LOGS_DIR"
+
+        ROLLOUTS=$(find "$HOME/.codex/sessions" -name 'rollout-*.jsonl' 2>/dev/null | tr '\n' ' ')
+        if [ -n "$ROLLOUTS" ]; then
+          # Defensive jq — Codex's rollout schema isn't versioned; missing
+          # fields fall back to 0 rather than failing the workflow.
+          USAGE=$(jq -s -c --arg model "$MODEL" '
+            def n: . // 0;
+            {
+              input_tokens:       ([.[] | .token_count.input_tokens? | n] | add // 0),
+              output_tokens:      ([.[] | .token_count.output_tokens? | n] | add // 0),
+              cached_input_tokens:([.[] | .token_count.cached_input_tokens? | n] | add // 0),
+              turns:              ([.[] | select(.type? == "agent_message")] | length),
+              model:              $model,
+              cost_usd:           0
+            }
+          ' $ROLLOUTS 2>/dev/null || echo '{}')
+        fi
+        if [ -z "${USAGE:-}" ] || [ "$USAGE" = "{}" ]; then
+          USAGE='{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"turns":0,"model":"'"$MODEL"'","cost_usd":0}'
+        fi
+
+        echo "$USAGE" > "$LOGS_DIR/token-usage.json"
+        echo "usage=$(jq -c . <<< "$USAGE")" >> "$GITHUB_OUTPUT"
+
+        jq -r '
+          "## Token Usage (Codex)",
+          "| Metric | Value |",
+          "|--------|-------|",
+          "| Input | \(.input_tokens) |",
+          "| Output | \(.output_tokens) |",
+          "| Cached input | \(.cached_input_tokens) |",
+          "| Turns | \(.turns) |",
+          "| Model | \(.model) |",
+          "",
+          "*Cost is not reported — Codex CLI does not surface API list prices.*"
+        ' <<< "$USAGE" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Mark event notification read
+      if: success()
+      shell: bash
+      run: |
+        case "$GITHUB_EVENT_NAME" in
+          pull_request_target|pull_request_review|pull_request_review_comment)
+            NUM=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
+            SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${NUM}"
+            ;;
+          issue_comment)
+            NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
+            if [ "$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")" != "" ]; then
+              SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${NUM}"
+            else
+              SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${NUM}"
+            fi
+            ;;
+          issues)
+            NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
+            SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${NUM}"
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+
+        RUN_STARTED_AT=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+          --jq '.run_started_at')
+
+        (gh api notifications \
+          | jq -r --arg url "$SUBJECT_URL" --arg started "$RUN_STARTED_AT" \
+              '.[] | select(.subject.url == $url and .updated_at <= $started) | .id' \
+          | while read -r tid; do
+              [ -n "$tid" ] || continue
+              gh api "notifications/threads/$tid" -X PATCH || true
+            done) || echo "::warning::Failed to mark notification as read (non-fatal)"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: Report failure
+      if: failure() && steps.codex.outcome == 'failure'
+      shell: bash
+      run: |
+        LABEL="tend-outage"
+        TITLE="Bot temporarily unavailable"
+        RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+        REF=""
+        if [ "$GITHUB_EVENT_NAME" = "pull_request_target" ] || [ "$GITHUB_EVENT_NAME" = "pull_request_review" ] || [ "$GITHUB_EVENT_NAME" = "pull_request_review_comment" ]; then
+          PR_NUM=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
+          REF="#${PR_NUM}"
+        elif [ "$GITHUB_EVENT_NAME" = "issues" ] || [ "$GITHUB_EVENT_NAME" = "issue_comment" ]; then
+          ISSUE_NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
+          REF="#${ISSUE_NUM}"
+        elif [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+          REF="CI fix for workflow run"
+        fi
+
+        TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        gh label create "$LABEL" --description "Tracks bot outage incidents" --color "d93f0b" 2>/dev/null || true
+        printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
+          "The bot failed to process a request. This issue tracks failures until the underlying cause is resolved." \
+          "| When | Run | Trigger |" \
+          "|------|-----|---------|" \
+          "| ${TIMESTAMP} | [workflow run](${RUN_URL}) | ${REF:-N/A} |" \
+          "This issue was created automatically. Close it once the outage is resolved." > /tmp/body.md
+
+        EXISTING=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
+
+        if [ -n "$EXISTING" ]; then
+          printf 'Failed run at %s: [workflow run](%s)%s\n' \
+            "$TIMESTAMP" "$RUN_URL" "${REF:+ (triggered by ${REF})}" > /tmp/comment.md
+          gh issue comment "$EXISTING" -F /tmp/comment.md
+        else
+          gh issue create --title "$TITLE" --label "$LABEL" -F /tmp/body.md
+        fi
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: Compute artifact name
+      if: always()
+      id: artifact
+      shell: bash
+      run: |
+        suffix="${INVOCATION_ID:+"-${INVOCATION_ID:0:8}"}"
+        echo "name=codex-session-logs${suffix}" >> "$GITHUB_OUTPUT"
+
+    - name: Upload session logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.artifact.outputs.name }}
+        path: |
+          ~/.codex/sessions/
+          ~/.codex/projects/
+        retention-days: 30
+        if-no-files-found: warn

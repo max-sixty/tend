@@ -26,6 +26,33 @@ from tend.cli import main
 from tend.config import Config
 
 
+def _config(
+    *,
+    bot_name: str = "bot",
+    default_branch: str = "main",
+    protected_branches: list[str] | None = None,
+    bot_token_secret: str = "T1",
+    claude_token_secret: str = "T2",
+    harness: str = "claude",
+    model: str = "opus",
+) -> Config:
+    """Build a Config for tests without hand-listing every positional arg."""
+    return Config(
+        bot_name=bot_name,
+        default_branch=default_branch,
+        protected_branches=protected_branches or [],
+        bot_token_secret=bot_token_secret,
+        claude_token_secret=claude_token_secret,
+        openai_key_secret="OPENAI_API_KEY",
+        codex_auth_json_secret="CODEX_AUTH_JSON",
+        harness=harness,
+        model=model,
+        effort="",
+        setup=[],
+        workflows={},
+    )
+
+
 def _make_completed(
     stdout: str = "", stderr: str = "", returncode: int = 0
 ) -> subprocess.CompletedProcess[str]:
@@ -539,7 +566,7 @@ def test_repo_secret_allowlist_bad_json() -> None:
 
 def test_run_all_checks_no_gh() -> None:
     with patch("shutil.which", return_value=None):
-        results = run_all_checks(Config("bot", "main", [], "T1", "T2", "opus", [], {}))
+        results = run_all_checks(_config())
     assert len(results) == 1
     assert results[0].passed is None
     assert "gh CLI" in results[0].message
@@ -550,7 +577,7 @@ def test_run_all_checks_no_repo() -> None:
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks.detect_repo", return_value=None),
     ):
-        results = run_all_checks(Config("bot", "main", [], "T1", "T2", "opus", [], {}))
+        results = run_all_checks(_config())
     assert len(results) == 1
     assert "detect" in results[0].message
 
@@ -580,9 +607,7 @@ def test_run_all_checks_with_explicit_repo() -> None:
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks._gh", side_effect=_fake_gh_all_pass),
     ):
-        results = run_all_checks(
-            Config("bot", "main", [], "T1", "T2", "opus", [], {}), repo="owner/repo"
-        )
+        results = run_all_checks(_config(), repo="owner/repo")
     assert all(r.passed is True for r in results)
 
 
@@ -592,9 +617,7 @@ def test_run_all_checks_allowlist_includes_bot_secrets() -> None:
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks._gh", side_effect=_fake_gh_all_pass),
     ):
-        results = run_all_checks(
-            Config("bot", "main", [], "T1", "T2", "opus", [], {}), repo="owner/repo"
-        )
+        results = run_all_checks(_config(), repo="owner/repo")
     allowlist_check = [r for r in results if r.name == "repo-secret-allowlist"]
     assert len(allowlist_check) == 1
     assert allowlist_check[0].passed is True
@@ -621,9 +644,7 @@ def test_run_all_checks_allowlist_catches_unexpected() -> None:
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks._gh", side_effect=fake_gh_with_extra_secret),
     ):
-        results = run_all_checks(
-            Config("bot", "main", [], "T1", "T2", "opus", [], {}), repo="owner/repo"
-        )
+        results = run_all_checks(_config(), repo="owner/repo")
     allowlist_check = [r for r in results if r.name == "repo-secret-allowlist"]
     assert len(allowlist_check) == 1
     assert allowlist_check[0].passed is False
@@ -637,7 +658,7 @@ def test_run_all_checks_with_protected_branches() -> None:
         patch("tend.checks._gh", side_effect=_fake_gh_all_pass),
     ):
         results = run_all_checks(
-            Config("bot", "main", ["v1", "v2"], "T1", "T2", "opus", [], {}),
+            _config(protected_branches=["v1", "v2"]),
             repo="owner/repo",
         )
     # default + v1 + v2 + bot-permission + secrets + allowlist = 6
@@ -652,6 +673,105 @@ def test_run_all_checks_with_protected_branches() -> None:
     assert all(r.passed is True for r in results)
 
 
+def test_codex_engine_passes_with_openai_key() -> None:
+    """Engine=codex with OPENAI_API_KEY set passes the codex-auth check."""
+
+    def fake_gh(*args, **kwargs):
+        url = args[1]
+        if url == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
+            return _make_completed("main\n")
+        if "rules/branches" in url:
+            return _make_completed(_BRANCH_HAS_UPDATE_RULE)
+        if "branches" in url:
+            return _make_completed("true\n")
+        if "collaborators" in url:
+            return _make_completed("write\n")
+        if "secrets" in url:
+            if "--json" in args:
+                return _make_completed('[{"name":"T1"},{"name":"OPENAI_API_KEY"}]\n')
+            return _make_completed('["T1","OPENAI_API_KEY"]\n')
+        return _make_completed(returncode=1)
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("tend.checks._gh", side_effect=fake_gh),
+    ):
+        results = run_all_checks(_config(harness="codex"), repo="owner/repo")
+    codex_check = [r for r in results if r.name == "codex-auth"]
+    assert len(codex_check) == 1
+    assert codex_check[0].passed is True
+    assert "OPENAI_API_KEY" in codex_check[0].message
+
+
+def test_codex_engine_passes_with_auth_json() -> None:
+    """CODEX_AUTH_JSON alone is sufficient — auth.json takes precedence."""
+
+    def fake_gh(*args, **kwargs):
+        url = args[1]
+        if url == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
+            return _make_completed("main\n")
+        if "rules/branches" in url:
+            return _make_completed(_BRANCH_HAS_UPDATE_RULE)
+        if "branches" in url:
+            return _make_completed("true\n")
+        if "collaborators" in url:
+            return _make_completed("write\n")
+        if "secrets" in url:
+            if "--json" in args:
+                return _make_completed('[{"name":"T1"},{"name":"CODEX_AUTH_JSON"}]\n')
+            return _make_completed('["T1","CODEX_AUTH_JSON"]\n')
+        return _make_completed(returncode=1)
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("tend.checks._gh", side_effect=fake_gh),
+    ):
+        results = run_all_checks(_config(harness="codex"), repo="owner/repo")
+    codex_check = [r for r in results if r.name == "codex-auth"]
+    assert codex_check[0].passed is True
+    assert "CODEX_AUTH_JSON" in codex_check[0].message
+
+
+def test_codex_engine_fails_when_no_auth() -> None:
+    """Engine=codex with neither secret set is a hard failure."""
+
+    def fake_gh(*args, **kwargs):
+        url = args[1]
+        if url == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
+            return _make_completed("main\n")
+        if "rules/branches" in url:
+            return _make_completed(_BRANCH_HAS_UPDATE_RULE)
+        if "branches" in url:
+            return _make_completed("true\n")
+        if "collaborators" in url:
+            return _make_completed("write\n")
+        if "secrets" in url:
+            if "--json" in args:
+                return _make_completed('[{"name":"T1"}]\n')
+            return _make_completed('["T1"]\n')
+        return _make_completed(returncode=1)
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("tend.checks._gh", side_effect=fake_gh),
+    ):
+        results = run_all_checks(_config(harness="codex"), repo="owner/repo")
+    codex_check = [r for r in results if r.name == "codex-auth"]
+    assert codex_check[0].passed is False
+    assert "OPENAI_API_KEY" in codex_check[0].message
+    assert "CODEX_AUTH_JSON" in codex_check[0].message
+
+
+def test_claude_engine_omits_codex_auth_check() -> None:
+    """The codex-auth check only runs when harness=codex."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("tend.checks._gh", side_effect=_fake_gh_all_pass),
+    ):
+        results = run_all_checks(_config(), repo="owner/repo")
+    assert not any(r.name == "codex-auth" for r in results)
+
+
 def test_run_all_checks_deduplicates_default_branch() -> None:
     """If protected_branches includes the default branch, it's not checked twice."""
     with (
@@ -659,7 +779,7 @@ def test_run_all_checks_deduplicates_default_branch() -> None:
         patch("tend.checks._gh", side_effect=_fake_gh_all_pass),
     ):
         results = run_all_checks(
-            Config("bot", "main", ["main", "v1"], "T1", "T2", "opus", [], {}),
+            _config(protected_branches=["main", "v1"]),
             repo="owner/repo",
         )
     # main (deduped) + v1 + bot-permission + secrets + allowlist = 5

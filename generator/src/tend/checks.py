@@ -444,7 +444,19 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
             )
         ]
 
-    allowed = {cfg.bot_token_secret, cfg.claude_token_secret} | set(
+    # Engine-specific auth secret(s). Claude needs the OAuth token; Codex
+    # needs at least one of (api key, auth.json) — verified in a separate
+    # check below so the message can name both candidates.
+    engine_auth_secrets = (
+        [cfg.claude_token_secret]
+        if cfg.harness == "claude"
+        else [cfg.openai_key_secret, cfg.codex_auth_json_secret]
+    )
+    required_secrets = [cfg.bot_token_secret]
+    if cfg.harness == "claude":
+        required_secrets.append(cfg.claude_token_secret)
+
+    allowed = {cfg.bot_token_secret, *engine_auth_secrets} | set(
         cfg.allowed_repo_secrets
     )
 
@@ -453,6 +465,43 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
         if branch != default_branch:
             results.append(check_branch_protection(repo, branch))
     results.append(check_bot_permission(repo, cfg.bot_name))
-    results.append(check_secrets(repo, [cfg.bot_token_secret, cfg.claude_token_secret]))
+    results.append(check_secrets(repo, required_secrets))
+    if cfg.harness == "codex":
+        results.append(check_codex_auth(repo, cfg))
     results.append(check_repo_secret_allowlist(repo, allowed))
     return results
+
+
+def check_codex_auth(repo: str, cfg: Config) -> CheckResult:
+    """Codex needs either OPENAI_API_KEY or CODEX_AUTH_JSON — both being
+    absent is the failure mode. Both being set is fine; the action prefers
+    auth.json.
+    """
+    result = _gh("api", f"repos/{repo}/actions/secrets", "--jq", "[.secrets[].name]")
+    if result is None:
+        return CheckResult("codex-auth", None, "gh CLI not found")
+    if result.returncode != 0:
+        return CheckResult(
+            "codex-auth", None, "Could not list secrets (may require admin access)"
+        )
+    try:
+        names = set(json.loads(result.stdout))
+    except json.JSONDecodeError:
+        return CheckResult("codex-auth", None, "Could not parse secrets response")
+    has_key = cfg.openai_key_secret in names
+    has_auth = cfg.codex_auth_json_secret in names
+    if has_key or has_auth:
+        which = []
+        if has_auth:
+            which.append(cfg.codex_auth_json_secret)
+        if has_key:
+            which.append(cfg.openai_key_secret)
+        return CheckResult(
+            "codex-auth", True, f"Codex auth secret present: {', '.join(which)}"
+        )
+    return CheckResult(
+        "codex-auth",
+        False,
+        f"Codex harness selected but neither {cfg.openai_key_secret} nor "
+        f"{cfg.codex_auth_json_secret} is set as a repo secret.",
+    )

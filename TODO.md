@@ -3,6 +3,27 @@
 Deferred work and unimplemented options. Each entry should justify the cost
 of building it if revisited.
 
+## Cut tend over to harness = "codex" (post-release)
+
+The Codex harness landed but tend itself still runs on Claude. The cutover
+needs the release sequence:
+
+1. Land the harness support PR on `main`.
+2. Cut release `0.0.19` — bumping the `v1` tag to include `codex/action.yaml`.
+3. Edit `.config/tend.yaml`: add `harness: codex` (and optionally
+   `effort: medium`). Set `model: gpt-5.5` explicitly or let the
+   default win.
+4. Set `OPENAI_API_KEY` secret on `max-sixty/tend` (or `CODEX_AUTH_JSON`).
+   Drop `CLAUDE_CODE_OAUTH_TOKEN` from `secrets.allowed` once unused.
+5. `uvx tend@latest init` to regenerate workflows. Commit both the config
+   and the regenerated `tend-*.yaml` files in one commit.
+6. The first nightly run after merge dogfoods the new path; watch
+   `/activity` for the first review/triage and confirm token-usage parsing
+   reports non-zero values.
+
+Doing this in the same PR that ships the action would temporarily break
+tend's own CI between merge and the release tag bump.
+
 ## Auth: GitHub App alternatives to PAT
 
 Both alternatives replace the classic PAT (long-lived, leak-permanent) with

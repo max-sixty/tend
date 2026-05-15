@@ -24,8 +24,13 @@ inputs:
     default: "Bash,Edit,Read,Write,Glob,Grep,WebSearch,WebFetch,Task,Skill"
     description: Comma-separated list of allowed tools
   system_prompt_append:
-    default: "You are operating in a GitHub Actions CI environment. Use /tend-ci-runner:running-in-ci before starting work. Repo-specific guidance (running-tend skill, CLAUDE.md, .config/tend.yaml) takes precedence; tend defaults apply where the repo doesn't specify. Conduct: follow the code of conduct; help anyone with problems they raise (issues, PRs, answers); actions affecting others' work (closing, locking, dismissing reviews, reverting, labeling) require the requester to be a maintainer (check author_association). Act within this repository and its organization only."
-    description: Text appended to the system prompt
+    default: ""
+    description: >-
+      Extra text appended to the computed system prompt. The base prompt
+      is composed at runtime from `shared/system-prompt.md` (harness-neutral
+      conduct, scope, and precedence rules) plus a Claude-specific
+      skill-loading directive. Empty (default) uses just the base; a
+      non-empty value is appended on top.
   allowed_bots:
     default: "*"
     description: Bots allowed to trigger workflows
@@ -164,6 +169,31 @@ runs:
           echo "No CLAUDE.md on ${DEFAULT_BRANCH} — removed fork version"
         fi
 
+    # Compose the system prompt from shared/system-prompt.md (harness-neutral
+    # bulk: conduct, scope, precedence) plus a Claude-specific
+    # skill-loading directive, then append the adopter's `system_prompt_append`
+    # input if non-empty. Codex consumes the same shared file from
+    # codex/action.yaml — keep edits to it in sync across both engines.
+    - name: Compose system prompt
+      id: prompt
+      shell: bash
+      env:
+        BOT_NAME: ${{ inputs.bot_name }}
+        EXTRA: ${{ inputs.system_prompt_append }}
+      run: |
+        SHARED="${{ github.action_path }}/shared/system-prompt.md"
+        CLAUDE_DIRECTIVE="Use /tend-ci-runner:running-in-ci before starting work."
+        BASE=$(BOT_NAME="$BOT_NAME" envsubst '$BOT_NAME' < "$SHARED")
+        FULL="${CLAUDE_DIRECTIVE}"$'\n\n'"${BASE}"
+        if [ -n "$EXTRA" ]; then
+          FULL="${FULL}"$'\n\n'"${EXTRA}"
+        fi
+        {
+          echo 'value<<TEND_EOF'
+          printf '%s\n' "$FULL"
+          echo 'TEND_EOF'
+        } >> "$GITHUB_OUTPUT"
+
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@v1
@@ -186,7 +216,7 @@ runs:
         claude_args: |
           --model ${{ inputs.model }}
           --allowedTools ${{ inputs.allowed_tools }}
-          --append-system-prompt "${{ inputs.system_prompt_append }}"
+          --append-system-prompt "${{ steps.prompt.outputs.value }}"
 
     - name: Mark event notification read
       if: success()

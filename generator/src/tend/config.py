@@ -25,13 +25,25 @@ KNOWN_WORKFLOWS = {
 }
 KNOWN_TOP_LEVEL = {
     "bot_name",
+    "harness",
     "model",
+    "effort",
     "protected_branches",
     "secrets",
     "setup",
     "workflows",
 }
-KNOWN_SECRETS_KEYS = {"bot_token", "claude_token", "allowed"}
+KNOWN_HARNESSES = {"claude", "codex"}
+# claude_token and openai_key are read; we accept either/both. codex_auth_json
+# is the subscription-funded path (~/.codex/auth.json contents stored as a
+# repo secret); officially discouraged for public repos but supported.
+KNOWN_SECRETS_KEYS = {
+    "bot_token",
+    "claude_token",
+    "openai_key",
+    "codex_auth_json",
+    "allowed",
+}
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
 
@@ -77,7 +89,24 @@ class WorkflowConfig:
     jobs: dict[str, dict] | None = None
 
 
-KNOWN_MODELS = {"opus", "sonnet", "haiku"}
+# Claude model allowlist — the set is small and stable enough that a
+# typo-catching gate at config load is worth the maintenance.
+# Codex models are NOT enumerated here: Codex's catalog churns
+# (gpt-5.1-codex was current at harness bring-up; gone by the next month),
+# and a stale allowlist would silently block adopters from picking a newer
+# model. We pass any user-supplied string through and let `codex exec` error
+# at runtime if it's wrong.
+KNOWN_MODELS_BY_HARNESS = {
+    "claude": {"opus", "sonnet", "haiku"},
+}
+DEFAULT_MODEL_BY_HARNESS = {
+    "claude": "opus",
+    "codex": "gpt-5.5",
+}
+# Codex `--config model_reasoning_effort=...` values, per the supported
+# levels Codex's models_cache advertises for every current model. Claude does
+# not use this field. Empty string means "leave at Codex CLI default".
+KNOWN_EFFORTS = {"", "low", "medium", "high", "xhigh"}
 
 
 @dataclass
@@ -87,7 +116,11 @@ class Config:
     protected_branches: list[str]
     bot_token_secret: str
     claude_token_secret: str
+    openai_key_secret: str
+    codex_auth_json_secret: str
+    harness: str
     model: str
+    effort: str
     setup: list[SetupStep]
     workflows: dict[str, WorkflowConfig]
     # Owner of the repo where workflows will run. Used to gate jobs that fail
@@ -132,10 +165,30 @@ class Config:
                 "(only letters, digits, and hyphens)"
             )
 
-        model = raw.get("model", "opus")
-        if model not in KNOWN_MODELS:
+        harness = raw.get("harness", "claude")
+        if harness not in KNOWN_HARNESSES:
             raise click.ClickException(
-                f"model '{model}' is not recognized (known: {', '.join(sorted(KNOWN_MODELS))})"
+                f"harness '{harness}' is not recognized "
+                f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
+            )
+
+        model = raw.get("model", DEFAULT_MODEL_BY_HARNESS[harness])
+        known_models = KNOWN_MODELS_BY_HARNESS.get(harness)
+        if known_models is not None and model not in known_models:
+            raise click.ClickException(
+                f"model '{model}' is not recognized for harness '{harness}' "
+                f"(known: {', '.join(sorted(known_models))})"
+            )
+
+        effort = raw.get("effort", "")
+        if effort not in KNOWN_EFFORTS:
+            raise click.ClickException(
+                f"effort '{effort}' is not recognized "
+                f"(known: {', '.join(sorted(e for e in KNOWN_EFFORTS if e))})"
+            )
+        if effort and harness != "codex":
+            raise click.ClickException(
+                f"effort is only valid for harness = 'codex' (got harness = '{harness}')"
             )
 
         unknown = set(raw.keys()) - KNOWN_TOP_LEVEL
@@ -242,7 +295,11 @@ class Config:
             protected_branches=protected_branches,
             bot_token_secret=secrets.get("bot_token", "BOT_TOKEN"),
             claude_token_secret=secrets.get("claude_token", "CLAUDE_CODE_OAUTH_TOKEN"),
+            openai_key_secret=secrets.get("openai_key", "OPENAI_API_KEY"),
+            codex_auth_json_secret=secrets.get("codex_auth_json", "CODEX_AUTH_JSON"),
+            harness=harness,
             model=model,
+            effort=effort,
             setup=setup,
             workflows=workflows,
             allowed_repo_secrets=allowed,

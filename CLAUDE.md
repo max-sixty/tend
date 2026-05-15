@@ -26,16 +26,25 @@ Four pieces:
 
 1. **Plugins** — `install-tend` (user-facing setup) and `tend-ci-runner` (CI
    skills). Both ship from the same marketplace.
-2. **Composite action** (`max-sixty/tend@v1`) — the stable interface.
-   Resolves the bot's numeric ID at runtime, invokes `claude-code-action`,
-   uploads session logs. Inputs documented in `action.yaml`. The action
-   doesn't know or care about triggers, checkout, or project setup.
+2. **Composite action(s)** — the stable interface. One per harness:
+   - `max-sixty/tend@v1` (Claude) — invokes `claude-code-action` with the
+     tend plugin marketplace. Inputs documented in `action.yaml`.
+   - `max-sixty/tend/codex@v1` (Codex) — installs `@openai/codex` and
+     shells out to `codex exec`. Skills are staged on disk and an
+     `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve
+     `/tend-ci-runner:NAME` slash commands. Inputs in `codex/action.yaml`.
+
+   Both actions resolve the bot's numeric ID at runtime, run security and
+   rate-limit preflight, and upload session logs. The actions don't know
+   or care about triggers, checkout, or project setup.
 3. **Generator** (`uvx tend@latest init`) — stamps workflow files into
-   the adopter's `.github/workflows/` from `.config/tend.yaml`. Generation
-   is idempotent — running `init` again overwrites all files from the
+   the adopter's `.github/workflows/` from `.config/tend.yaml`. Picks the
+   right action ref and secret names per `harness`. Generation is
+   idempotent — running `init` again overwrites all files from the
    current config.
 4. **Config** (`.config/tend.yaml`) — inputs to the generator. Overrides
-   from defaults only. All six workflows are enabled by default.
+   from defaults only. `harness: claude | codex` selects the harness
+   (default `claude`). All six workflows are enabled by default.
 
 Generated workflows are standalone — full `steps:` jobs, not
 `workflow_call`. The generator owns the entire file. Project setup (build
