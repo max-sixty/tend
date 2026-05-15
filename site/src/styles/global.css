@@ -23,7 +23,7 @@
   --font-mono:    "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 
   /* Layout */
-  --measure:        62ch;                                  /* prose readability cap — resolves against the element's own font */
+  --measure:        68ch;                                  /* prose readability cap — resolves against the element's own font */
   --measure-narrow: 48ch;                                  /* taglines, section leads — one cap for short serif intros */
   --gutter:         3rem;
   --rail:           7rem;                                  /* margin-note column + gap */
@@ -440,7 +440,7 @@ pre code {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 11rem) minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 7.5rem) minmax(0, 1fr) auto;
   column-gap: 1rem;
   /* Space is reserved by the 12 skeleton rows in the markup; the script
      replaces them with real rows when the fetch resolves. */
