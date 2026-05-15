@@ -305,11 +305,11 @@ def test_ruleset_default_branch_only() -> None:
 
 def test_ruleset_with_extra_branches() -> None:
     """Extra branches are added as refs/heads/<name> patterns."""
-    body = json.loads(_restrict_updates_ruleset(["v1", "v2"]))
+    body = json.loads(_restrict_updates_ruleset(["release", "staging"]))
     assert body["conditions"]["ref_name"]["include"] == [
         "~DEFAULT_BRANCH",
-        "refs/heads/v1",
-        "refs/heads/v2",
+        "refs/heads/release",
+        "refs/heads/staging",
     ]
 
 

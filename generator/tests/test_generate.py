@@ -6,6 +6,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
+from tests import ACTION_VERSION
 from tests import _yaml as yaml
 import click
 from click.testing import CliRunner
@@ -518,7 +519,7 @@ def test_mention_handle_has_queue_delay(tmp_path: Path) -> None:
     )
     # Delay step must come before the tend action (output must be available)
     delay_idx = mention.content.index("Compute queue delay")
-    tend_idx = mention.content.index("max-sixty/tend@v1")
+    tend_idx = mention.content.index(f"max-sixty/tend@{ACTION_VERSION}")
     assert delay_idx < tend_idx, "delay step must precede tend action"
 
 
@@ -564,7 +565,7 @@ def test_mention_prompt_omits_delay_when_empty(tmp_path: Path) -> None:
 
 # Filenames whose only triggers are `schedule`, `workflow_dispatch`,
 # `workflow_run`, or `issues` — events that can fire from a fork's own Actions
-# once Actions is enabled there. Without the guard, the `tend@v1` step fails
+# once Actions is enabled there. Without the guard, the `tend` action step fails
 # noisily because the bot/Claude secrets are empty in the fork's secret store.
 _GUARDED_WORKFLOWS = [
     "tend-ci-fix.yaml",
@@ -1002,13 +1003,13 @@ def test_workflow_minimal_codex_regtest(
 
 
 def test_codex_action_ref(tmp_path: Path) -> None:
-    """Codex workflows reference max-sixty/tend/codex@v1."""
+    """Codex workflows reference max-sixty/tend/codex@<release tag>."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
     for wf in generate_all(cfg):
-        assert "max-sixty/tend/codex@v1" in wf.content, (
+        assert f"max-sixty/tend/codex@{ACTION_VERSION}" in wf.content, (
             f"{wf.filename} missing codex action ref"
         )
-        assert "max-sixty/tend@v1" not in wf.content, (
+        assert f"max-sixty/tend@{ACTION_VERSION}" not in wf.content, (
             f"{wf.filename} should not reference the claude action ref"
         )
 

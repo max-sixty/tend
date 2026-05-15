@@ -48,7 +48,7 @@ jobs:
           fetch-tags: true
           token: ${{ secrets.BOT_TOKEN }}
 
-      - uses: max-sixty/tend/codex@v1
+      - uses: max-sixty/tend/codex@X.Y.Z
         with:
           github_token: ${{ secrets.BOT_TOKEN }}
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}

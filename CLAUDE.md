@@ -26,10 +26,12 @@ Four pieces:
 
 1. **Plugins** — `install-tend` (user-facing setup) and `tend-ci-runner` (CI
    skills). Both ship from the same marketplace.
-2. **Composite action(s)** — the stable interface. One per harness:
-   - `max-sixty/tend@v1` (Claude) — invokes `claude-code-action` with the
+2. **Composite action(s)** — the stable interface, pinned to an immutable
+   release tag (`max-sixty/tend@X.Y.Z`, the generator's own version — no
+   floating `v1`). One per harness:
+   - `max-sixty/tend@X.Y.Z` (Claude) — invokes `claude-code-action` with the
      tend plugin marketplace. Inputs documented in `action.yaml`.
-   - `max-sixty/tend/codex@v1` (Codex) — installs `@openai/codex` and
+   - `max-sixty/tend/codex@X.Y.Z` (Codex) — installs `@openai/codex` and
      shells out to `codex exec`. Skills are staged on disk and an
      `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve
      `/tend-ci-runner:NAME` slash commands. Inputs in `codex/action.yaml`.
@@ -98,10 +100,13 @@ require manual regeneration in downstream repos.
 
 Tend's own `tend-*.yaml` workflows track the latest published release. They
 update each night via `uvx tend@latest init`. Updating earlier to the latest
-release (e.g., during a release commit) is fine. Do not update them beyond
-the latest release using the in-tree generator — between a generator commit
-and the next release, the local workflows lag the in-tree generator, and
-that is expected; the gap closes at the next release.
+release (e.g., during a release commit) is fine. Never regenerate them with
+the in-tree generator: the action ref is pinned to the generator's own
+version (`max-sixty/tend@X.Y.Z`), so an unreleased in-tree version stamps a
+tag that does not exist yet, and the workflow's `uses:` fails to resolve.
+Between a generator commit and the next release the committed workflows lag
+the in-tree generator; that is expected, and the gap closes at the next
+release (which tags `X.Y.Z` before regenerating, so the pin always resolves).
 
 Linting: `pre-commit run --all-files` (ruff, typos, actionlint, uv-lock).
 
@@ -263,7 +268,7 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 ## Agent-driven vs deterministic steps
 
 Tend's workflows invoke the agent through the harness-specific composite
-action (`max-sixty/tend@v1` for Claude, `max-sixty/tend/codex@v1` for
+action (`max-sixty/tend@X.Y.Z` for Claude, `max-sixty/tend/codex@X.Y.Z` for
 Codex). When adding new capability, split work along this line:
 
 - **The agent drives diagnostics and remediation.** Once the action is

@@ -96,7 +96,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           token: ${{ secrets.BOT_TOKEN }}
-      - uses: max-sixty/tend@v1
+      - uses: max-sixty/tend@X.Y.Z
         if: steps.check.outputs.count != '0' || github.event_name == 'workflow_dispatch'
         with:
           github_token: ${{ secrets.BOT_TOKEN }}
