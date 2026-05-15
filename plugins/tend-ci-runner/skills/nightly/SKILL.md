@@ -32,19 +32,26 @@ permission, secrets, secret allowlist):
 uvx tend@latest check 2>&1 | tee /tmp/tend-check.txt
 ```
 
-No `FAIL` lines → close any open drift issue:
+If **every** check line is `PASS` (no `FAIL` *and* no `SKIP`), close any
+open drift issue. A run with only `SKIP` lines (e.g. lost API permission, a
+transient `gh` error) is *not* a pass — leave the issue untouched, neither
+close nor file. Scope to bot-authored issues so a maintainer-filed issue
+that happens to contain "configuration drift" is never auto-closed:
 
 ```bash
-gh issue list --state open --search '"configuration drift" in:title' \
+gh issue list --state open --author '@me' \
+  --search '"configuration drift" in:title' \
   --json number --jq '.[].number' \
   | xargs -r -I {} gh issue close {} --comment 'tend check now passes.'
 ```
 
-Otherwise file or update **one** tracking issue with title
-`tend check: configuration drift on <owner>/<repo>`. Dedup by title:
+If any check is `FAIL`, file or update **one** tracking issue with title
+`tend check: configuration drift on <owner>/<repo>`. Dedup by title,
+scoped to bot-authored issues:
 
 ```bash
-gh issue list --state open --search '"configuration drift" in:title' \
+gh issue list --state open --author '@me' \
+  --search '"configuration drift" in:title' \
   --json number,title,body
 ```
 
