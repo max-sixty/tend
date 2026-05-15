@@ -23,7 +23,7 @@ To use Tend, a project needs:
 - A GitHub account for the agent (for example this project's is **[@tend-agent](https://www.github.com/tend-agent))**
 - One of:
   - A Claude Max subscription (harness = "claude")
-  - An OpenAI API key, or a ChatGPT subscription via `~/.codex/auth.json` (harness = "codex")
+  - An OpenAI API key, or a ChatGPT subscription via a Codex `auth.json` (harness = "codex")
 
 Tend offers the default code & guidance for the agent. Specifically that means:
 
@@ -155,16 +155,18 @@ Repo secrets depend on the harness:
 
 | Harness   | Required secrets                                                                                                |
 | -------- | --------------------------------------------------------------------------------------------------------------- |
-| `claude` | `BOT_TOKEN` + `CLAUDE_CODE_OAUTH_TOKEN`                                                                          |
-| `codex`  | `BOT_TOKEN` + one of `OPENAI_API_KEY` (recommended) or `CODEX_AUTH_JSON` (subscription, discouraged on public repos) |
+| `claude` | `BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription, see caveat below) or `ANTHROPIC_API_KEY` (API-billed) |
+| `codex`  | `BOT_TOKEN` + one of `CODEX_AUTH_JSON` (subscription, recommended) or `OPENAI_API_KEY` (pay-per-token) |
 
-`BOT_TOKEN` is the bot account's PAT — classic or fine-grained (see
-[example config](docs/tend.example.yaml) for scopes). `CLAUDE_CODE_OAUTH_TOKEN`
-is a Claude Code OAuth token via PKCE flow (not an API key from
-console.anthropic.com). `OPENAI_API_KEY` is a standard OpenAI API key.
-`CODEX_AUTH_JSON` is the literal contents of `~/.codex/auth.json` after
-running `codex login` locally — OpenAI's docs explicitly discourage this
-path for public repos.
+`BOT_TOKEN` is the bot account's PAT — see
+[example config](docs/tend.example.yaml) for scopes.
+`CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token`;
+`CODEX_AUTH_JSON` is the contents of the `auth.json` Codex writes after
+`codex login --device-auth`. The other two are standard API keys from
+console.anthropic.com and platform.openai.com. See
+[Codex (alternative)](#codex-alternative) for the Codex trade-off and
+public-repo gate; [docs/security-model.md](docs/security-model.md) has
+the full leak breakdown.
 
 All other options — secret name overrides, setup steps, protected branches,
 workflow overrides, schedules — are documented in
@@ -188,8 +190,17 @@ already have; both run with the same workflows and skills.
 
 Wraps
 [`claude-code-action`](https://github.com/anthropics/claude-code-action),
-Anthropic's official GitHub Action for running Claude Code in CI. Your
-`CLAUDE_CODE_OAUTH_TOKEN` is used exactly as it would be in any
+Anthropic's official GitHub Action for running Claude Code in CI. Two
+auth modes:
+
+- **`CLAUDE_CODE_OAUTH_TOKEN`** — Claude Code OAuth token from
+  `claude setup-token`. Funded by a Max/Team subscription before
+  2026-06-16; see caveat below.
+- **`ANTHROPIC_API_KEY`** — standard API key from console.anthropic.com,
+  billed per token. Works for any repo and is the recommended path for
+  open-source.
+
+Whichever you set is used exactly as it would be in any
 claude-code-action workflow — tend adds the framework (workflows, skills,
 prompts) around it but never sees the token itself.
 
@@ -198,8 +209,8 @@ Code runs (CI, headless, batch) at API rates rather than against
 Max/Pro/Team plan allowances. `anthropics/claude-code-action` in
 GitHub Actions is non-interactive — a Max subscription will not fund
 runs after that date. Adopters needing subscription-funded CI should
-plan to move to the Codex harness, or accept API billing on the Claude
-harness. See Anthropic's
+plan to move to the Codex harness, or switch to `ANTHROPIC_API_KEY`. See
+Anthropic's
 [authentication policy](https://code.claude.com/docs/en/authentication)
 for the canonical statement.
 
@@ -209,13 +220,14 @@ Installs `@openai/codex` on the runner and invokes `codex exec` against a
 bundled `AGENTS.md` that teaches it to resolve tend's slash commands to
 skill markdown. Two auth modes:
 
-- **`OPENAI_API_KEY`** — standard API billing; works for any repo.
-  Recommended.
-- **`CODEX_AUTH_JSON`** — `~/.codex/auth.json` shipped as a secret, billed
-  to a ChatGPT Plus/Pro/Business subscription. OpenAI explicitly
-  discourages this on public repos because the token has read+write access
-  to the entire ChatGPT account; only use on private repos and rotate
-  often (the refresh window closes around 8 days of inactivity).
+- **`CODEX_AUTH_JSON`** (recommended) — Codex `auth.json` shipped
+  as a secret, billed at the Plus/Pro/Business subscription's flat
+  rate. On public repos the token must come from a ChatGPT account
+  dedicated to the bot; recommended on private. See
+  [docs/security-model.md](docs/security-model.md) for the leak
+  breakdown and rotation cadence.
+- **`OPENAI_API_KEY`** — pay-per-token API billing. Works for any
+  repo; pick this to avoid a separate ChatGPT account.
 
 ## Badge
 

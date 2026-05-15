@@ -48,23 +48,21 @@ bot_name: my-project-bot
 #
 # Repo secrets, by harness:
 #
-# | Harness   | Required                                                              |
-# |----------|------------------------------------------------------------------------|
-# | `claude` | `BOT_TOKEN` + `CLAUDE_CODE_OAUTH_TOKEN`                                |
-# | `codex`  | `BOT_TOKEN` + one of `OPENAI_API_KEY` or `CODEX_AUTH_JSON`             |
+# | Harness   | Required                                                                |
+# |----------|--------------------------------------------------------------------------|
+# | `claude` | `BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`    |
+# | `codex`  | `BOT_TOKEN` + one of `CODEX_AUTH_JSON` or `OPENAI_API_KEY`               |
 #
-# `BOT_TOKEN` is the bot account's PAT (see scopes below).
+# `BOT_TOKEN` is the bot account's PAT (scopes below).
+# `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token` (PKCE).
+# `ANTHROPIC_API_KEY` is a console.anthropic.com API key.
+# `CODEX_AUTH_JSON` is the contents of the `auth.json` Codex writes
+# after `codex login --device-auth` — the install skill's default; see
+# docs/security-model.md for the trade-off and public-repo gate.
+# `OPENAI_API_KEY` is a standard OpenAI API key.
 #
-# `CLAUDE_CODE_OAUTH_TOKEN` is a Claude Code OAuth token via PKCE flow
-# (not an API key from console.anthropic.com).
-#
-# `OPENAI_API_KEY` is a standard OpenAI API key — billed per token.
-#
-# `CODEX_AUTH_JSON` is the literal contents of `~/.codex/auth.json` after
-# `codex login`. Bills a ChatGPT Plus/Pro/Business subscription. OpenAI
-# explicitly discourages this for public repos because the token has
-# read+write access to the entire ChatGPT account. The codex action prefers
-# `CODEX_AUTH_JSON` over `OPENAI_API_KEY` when both are set.
+# Both actions prefer the subscription token (`CLAUDE_CODE_OAUTH_TOKEN`,
+# `CODEX_AUTH_JSON`) over the API key when both are set.
 #
 # Classic PAT scopes: `repo`, `workflow`, `notifications`, `write:discussion`,
 # `gist`, `user`. `workflow` is required to push commits that modify
@@ -82,7 +80,8 @@ bot_name: my-project-bot
 #
 # secrets:
 #   bot_token: MY_BOT_PAT
-#   claude_token: MY_CLAUDE_TOKEN      # harness: claude
+#   claude_token: MY_CLAUDE_TOKEN      # harness: claude (OAuth)
+#   anthropic_api_key: MY_ANTHROPIC_KEY  # harness: claude (API key)
 #   openai_key: MY_OPENAI_KEY          # harness: codex
 #   codex_auth_json: MY_CODEX_AUTH     # harness: codex
 #

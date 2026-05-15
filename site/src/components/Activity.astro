@@ -106,7 +106,9 @@ const MAX_ROWS = 12;
     // the list. If slots remain, fill from the over-cap surplus, still
     // age-ordered. The cap is the only diversification mechanism; soft
     // weighting (sqrt etc.) is too weak to dent a fresh burst against
-    // day-old alternatives.
+    // day-old alternatives. Tending rows bypass the cap — they represent
+    // work happening *right now*, so a busy repo shouldn't displace its own
+    // live run from the list.
     const PER_REPO_CAP = 3;
     const FRESH_MS = 7 * 24 * 3600 * 1000;
     const now = Date.now();
@@ -119,6 +121,10 @@ const MAX_ROWS = 12;
     const overflow: Array<RecentItem & { kind: Kind }> = [];
     for (const r of fresh) {
       if (picked.length >= MAX_ROWS) break;
+      if (r.kind === "tending") {
+        picked.push(r);
+        continue;
+      }
       const c = counts.get(r.repo) ?? 0;
       if (c < PER_REPO_CAP) {
         picked.push(r);

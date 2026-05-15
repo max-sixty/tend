@@ -34,12 +34,15 @@ KNOWN_TOP_LEVEL = {
     "workflows",
 }
 KNOWN_HARNESSES = {"claude", "codex"}
-# claude_token and openai_key are read; we accept either/both. codex_auth_json
-# is the subscription-funded path (~/.codex/auth.json contents stored as a
-# repo secret); officially discouraged for public repos but supported.
+# Claude harness reads claude_token (OAuth) and anthropic_api_key (console.
+# anthropic.com) — adopters set one. Codex harness reads openai_key and
+# codex_auth_json; the latter is the subscription-funded path (the auth.json
+# Codex writes after `codex login --device-auth`, stored as a repo secret),
+# officially discouraged for public repos but supported.
 KNOWN_SECRETS_KEYS = {
     "bot_token",
     "claude_token",
+    "anthropic_api_key",
     "openai_key",
     "codex_auth_json",
     "allowed",
@@ -116,6 +119,7 @@ class Config:
     protected_branches: list[str]
     bot_token_secret: str
     claude_token_secret: str
+    anthropic_api_key_secret: str
     openai_key_secret: str
     codex_auth_json_secret: str
     harness: str
@@ -295,6 +299,9 @@ class Config:
             protected_branches=protected_branches,
             bot_token_secret=secrets.get("bot_token", "BOT_TOKEN"),
             claude_token_secret=secrets.get("claude_token", "CLAUDE_CODE_OAUTH_TOKEN"),
+            anthropic_api_key_secret=secrets.get(
+                "anthropic_api_key", "ANTHROPIC_API_KEY"
+            ),
             openai_key_secret=secrets.get("openai_key", "OPENAI_API_KEY"),
             codex_auth_json_secret=secrets.get("codex_auth_json", "CODEX_AUTH_JSON"),
             harness=harness,
