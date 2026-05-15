@@ -249,7 +249,7 @@ pre code {
   align-items: start;
 }
 .hero-body { min-width: 0; }
-.stats-rail .now-tending {
+.stats-rail .currently-tending {
   margin: 0.8rem 0 0;
 }
 @media (max-width: 760px) {
@@ -286,7 +286,7 @@ pre code {
 
 /* ---------- "Currently tending" indicator ---------- */
 
-.now-tending {
+.currently-tending {
   display: block;
   margin: 1.4rem 0 0;
   font-family: var(--font-mono);
@@ -304,7 +304,7 @@ pre code {
   opacity: 0;
   transition: opacity 250ms ease;
 }
-.now-tending::before {
+.currently-tending::before {
   content: "";
   display: inline-block;
   width: 0.5rem;
@@ -313,17 +313,17 @@ pre code {
   border-radius: 50%;
   vertical-align: 0.1em;
 }
-.now-tending[data-pulse="live"]::before { background: var(--moss); }
-.now-tending[data-pulse="idle"]::before {
+.currently-tending[data-pulse="live"]::before { background: var(--moss); }
+.currently-tending[data-pulse="idle"]::before {
   background: transparent;
   border: 1px solid var(--oak-deep);
 }
-.now-tending:hover { color: var(--moss-deep); }
-.now-tending[data-state="loaded"] { opacity: 1; }
-.now-tending[data-state="hidden"] { display: none; }
+.currently-tending:hover { color: var(--moss-deep); }
+.currently-tending[data-state="loaded"] { opacity: 1; }
+.currently-tending[data-state="hidden"] { display: none; }
 
 @media (prefers-reduced-motion: no-preference) {
-  .now-tending[data-pulse="live"]::before { animation: now-pulse 2.6s ease-in-out infinite; }
+  .currently-tending[data-pulse="live"]::before { animation: now-pulse 2.6s ease-in-out infinite; }
 }
 @keyframes now-pulse {
   0%, 100% { opacity: 1; }

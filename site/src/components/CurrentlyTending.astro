@@ -5,7 +5,7 @@
 // runs. Hidden only when both requests fail.
 ---
 
-<a id="now-tending" class="now-tending" href="#recent-activity" data-state="loading" data-pulse="idle">&nbsp;</a>
+<a id="currently-tending" class="currently-tending" href="#recent-activity" data-state="loading" data-pulse="idle">&nbsp;</a>
 
 <script>
   import { fetchJson, liveData } from "../lib/api";
@@ -42,7 +42,7 @@
 
   liveData<{ currently_tending?: Run[] }>(
     "/currently-tending",
-    "now-tending",
+    "currently-tending",
     async (data, el) => {
       const runs = data?.currently_tending ?? [];
       if (runs.length > 0) {
