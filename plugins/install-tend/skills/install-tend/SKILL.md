@@ -426,22 +426,25 @@ If not set:
 1. Install codex if missing (`npm i -g @openai/codex`) and create
    the mint dir: `mkdir -p /tmp/codex-tend`.
 
-2. Run the device-code login:
+2. Have the user run, in their own terminal:
 
    ```bash
    CODEX_HOME=/tmp/codex-tend codex login --device-auth
    ```
 
-   The dedicated `CODEX_HOME` isolates the bot's `auth.json` from
-   the user's personal `~/.codex/` — both coexist, no need to log
-   out of personal Codex. `--device-auth` prints a URL and a
-   one-time code; relay both to the user so they open the URL in
-   any browser and sign in as the dedicated bot ChatGPT account
-   chosen above (device-code is how they sign in as the bot without
-   juggling browser sessions). After they sign in, codex completes
-   and writes `/tmp/codex-tend/auth.json`.
+   (Don't drive this from Claude's `Bash` tool — codex blocks until
+   sign-in and only flushes stdout on exit, so Claude wouldn't be
+   able to surface the URL+code in time.) `--device-auth` prints a
+   URL and a one-time code; the user opens the URL in any browser
+   and signs in as the dedicated bot ChatGPT account chosen above
+   (device-code is how they sign in as the bot without juggling
+   browser sessions). The dedicated `CODEX_HOME` isolates the bot's
+   `auth.json` from the user's personal `~/.codex/` — both coexist,
+   no need to log out of personal Codex. Codex writes
+   `/tmp/codex-tend/auth.json` once they sign in.
 
-3. Set the secret and clean up:
+3. After the user confirms they've signed in, read the file and
+   set the secret:
 
    ```bash
    gh secret set CODEX_AUTH_JSON --repo "$REPO" < /tmp/codex-tend/auth.json
