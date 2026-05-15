@@ -444,17 +444,15 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
             )
         ]
 
-    # Engine-specific auth secret(s). Claude needs the OAuth token; Codex
-    # needs at least one of (api key, auth.json) — verified in a separate
-    # check below so the message can name both candidates.
+    # Engine-specific auth secret(s). Both harnesses accept one of two
+    # candidates (Claude: OAuth token or API key; Codex: API key or auth.json),
+    # verified in a separate check below so the message can name both.
     engine_auth_secrets = (
-        [cfg.claude_token_secret]
+        [cfg.claude_token_secret, cfg.anthropic_api_key_secret]
         if cfg.harness == "claude"
         else [cfg.openai_key_secret, cfg.codex_auth_json_secret]
     )
     required_secrets = [cfg.bot_token_secret]
-    if cfg.harness == "claude":
-        required_secrets.append(cfg.claude_token_secret)
 
     allowed = {cfg.bot_token_secret, *engine_auth_secrets} | set(
         cfg.allowed_repo_secrets
@@ -466,10 +464,47 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
             results.append(check_branch_protection(repo, branch))
     results.append(check_bot_permission(repo, cfg.bot_name))
     results.append(check_secrets(repo, required_secrets))
-    if cfg.harness == "codex":
+    if cfg.harness == "claude":
+        results.append(check_claude_auth(repo, cfg))
+    else:
         results.append(check_codex_auth(repo, cfg))
     results.append(check_repo_secret_allowlist(repo, allowed))
     return results
+
+
+def check_claude_auth(repo: str, cfg: Config) -> CheckResult:
+    """Claude needs either CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY —
+    both being absent is the failure mode. Both being set is fine; the
+    action prefers the OAuth token.
+    """
+    result = _gh("api", f"repos/{repo}/actions/secrets", "--jq", "[.secrets[].name]")
+    if result is None:
+        return CheckResult("claude-auth", None, "gh CLI not found")
+    if result.returncode != 0:
+        return CheckResult(
+            "claude-auth", None, "Could not list secrets (may require admin access)"
+        )
+    try:
+        names = set(json.loads(result.stdout))
+    except json.JSONDecodeError:
+        return CheckResult("claude-auth", None, "Could not parse secrets response")
+    has_oauth = cfg.claude_token_secret in names
+    has_key = cfg.anthropic_api_key_secret in names
+    if has_oauth or has_key:
+        which = []
+        if has_oauth:
+            which.append(cfg.claude_token_secret)
+        if has_key:
+            which.append(cfg.anthropic_api_key_secret)
+        return CheckResult(
+            "claude-auth", True, f"Claude auth secret present: {', '.join(which)}"
+        )
+    return CheckResult(
+        "claude-auth",
+        False,
+        f"Claude harness selected but neither {cfg.claude_token_secret} nor "
+        f"{cfg.anthropic_api_key_secret} is set as a repo secret.",
+    )
 
 
 def check_codex_auth(repo: str, cfg: Config) -> CheckResult:

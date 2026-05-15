@@ -9,8 +9,19 @@ inputs:
     required: true
     description: GitHub token for API access and pushing commits
   claude_code_oauth_token:
-    required: true
-    description: Claude Code OAuth token for Anthropic API
+    required: false
+    default: ""
+    description: >-
+      Claude Code OAuth token (Max/Team subscription, obtained via
+      `claude setup-token`). One of claude_code_oauth_token or
+      anthropic_api_key must be set.
+  anthropic_api_key:
+    required: false
+    default: ""
+    description: >-
+      Anthropic API key from console.anthropic.com (billed per token).
+      One of claude_code_oauth_token or anthropic_api_key must be set;
+      claude_code_oauth_token takes precedence when both are present.
   bot_name:
     required: true
     description: GitHub username of the bot account
@@ -126,6 +137,14 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
+    - name: Validate auth configured
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.claude_code_oauth_token }}" ] && [ -z "${{ inputs.anthropic_api_key }}" ]; then
+          echo "::error::No Claude auth configured. Set either the CLAUDE_CODE_OAUTH_TOKEN secret (subscription-funded, via \`claude setup-token\`) or the ANTHROPIC_API_KEY secret (billed per token via console.anthropic.com)."
+          exit 1
+        fi
+
     # Ensure uv/uvx is on PATH for Claude sessions. The nightly skill runs
     # `uvx tend@latest init` to regenerate workflow files, and mention/review
     # skills may invoke tend as well. Adopters can override the workflow
@@ -200,6 +219,7 @@ runs:
       with:
         show_full_output: ${{ inputs.show_full_output }}
         claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
+        anthropic_api_key: ${{ inputs.anthropic_api_key }}
         github_token: ${{ inputs.github_token }}
         bot_id: ${{ steps.bot.outputs.id }}
         bot_name: ${{ inputs.bot_name }}

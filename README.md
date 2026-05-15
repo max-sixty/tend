@@ -155,13 +155,14 @@ Repo secrets depend on the harness:
 
 | Harness   | Required secrets                                                                                                |
 | -------- | --------------------------------------------------------------------------------------------------------------- |
-| `claude` | `BOT_TOKEN` + `CLAUDE_CODE_OAUTH_TOKEN`                                                                          |
+| `claude` | `BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription, see caveat below) or `ANTHROPIC_API_KEY` (API-billed) |
 | `codex`  | `BOT_TOKEN` + one of `OPENAI_API_KEY` (recommended) or `CODEX_AUTH_JSON` (subscription, discouraged on public repos) |
 
 `BOT_TOKEN` is the bot account's PAT — classic or fine-grained (see
 [example config](docs/tend.example.yaml) for scopes). `CLAUDE_CODE_OAUTH_TOKEN`
-is a Claude Code OAuth token via PKCE flow (not an API key from
-console.anthropic.com). `OPENAI_API_KEY` is a standard OpenAI API key.
+is a Claude Code OAuth token via PKCE flow (`claude setup-token`).
+`ANTHROPIC_API_KEY` is a standard API key from console.anthropic.com.
+`OPENAI_API_KEY` is a standard OpenAI API key.
 `CODEX_AUTH_JSON` is the literal contents of `~/.codex/auth.json` after
 running `codex login` locally — OpenAI's docs explicitly discourage this
 path for public repos.
@@ -188,8 +189,17 @@ already have; both run with the same workflows and skills.
 
 Wraps
 [`claude-code-action`](https://github.com/anthropics/claude-code-action),
-Anthropic's official GitHub Action for running Claude Code in CI. Your
-`CLAUDE_CODE_OAUTH_TOKEN` is used exactly as it would be in any
+Anthropic's official GitHub Action for running Claude Code in CI. Two
+auth modes:
+
+- **`CLAUDE_CODE_OAUTH_TOKEN`** — Claude Code OAuth token from
+  `claude setup-token`. Funded by a Max/Team subscription before
+  2026-06-16; see caveat below.
+- **`ANTHROPIC_API_KEY`** — standard API key from console.anthropic.com,
+  billed per token. Works for any repo and is the recommended path for
+  open-source.
+
+Whichever you set is used exactly as it would be in any
 claude-code-action workflow — tend adds the framework (workflows, skills,
 prompts) around it but never sees the token itself.
 
@@ -198,8 +208,8 @@ Code runs (CI, headless, batch) at API rates rather than against
 Max/Pro/Team plan allowances. `anthropics/claude-code-action` in
 GitHub Actions is non-interactive — a Max subscription will not fund
 runs after that date. Adopters needing subscription-funded CI should
-plan to move to the Codex harness, or accept API billing on the Claude
-harness. See Anthropic's
+plan to move to the Codex harness, or switch to `ANTHROPIC_API_KEY`. See
+Anthropic's
 [authentication policy](https://code.claude.com/docs/en/authentication)
 for the canonical statement.
 
