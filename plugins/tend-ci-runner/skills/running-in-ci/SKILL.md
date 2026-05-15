@@ -70,7 +70,7 @@ Default: file an issue in the current repo asking for permission to file in the 
 
 The adopter's `running-tend` overlay may grant a standing exception for **agent-equipped** targets — repos that run their own coding agent. Signals:
 
-- `.github/workflows/tend-*.yml` present (the target uses tend).
+- `.github/workflows/tend-*.yaml` present (the target uses tend).
 - A workflow invokes `anthropics/claude-code-action` or another coding-agent action.
 - Recent issues or PRs authored by a bot account, with no human pushback in the thread.
 
