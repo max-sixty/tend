@@ -433,18 +433,19 @@ If not set:
    (`npm i -g @openai/codex`) and runs:
 
    ```bash
-   CODEX_HOME=~/.codex-tend codex login --device-auth
+   TEND_CODEX_HOME=$(mktemp -d)
+   CODEX_HOME=$TEND_CODEX_HOME codex login --device-auth
    ```
 
-   `CODEX_HOME=~/.codex-tend` isolates the bot's `auth.json` from the
-   user's personal `~/.codex/` — both coexist, no need to log out of
+   The tempdir isolates the bot's `auth.json` from the user's
+   personal `~/.codex/` — both coexist, no need to log out of
    personal Codex. `--device-auth` prints a URL and a one-time code;
    the user opens the URL in any browser and signs in as the
-   dedicated bot ChatGPT account chosen above (device-code is how the
-   user authenticates as the bot without juggling browser sessions).
-   Codex writes `~/.codex-tend/auth.json` with the refresh-tokened
-   OAuth payload.
-2. Have the user run `cat ~/.codex-tend/auth.json` and paste the
+   dedicated bot ChatGPT account chosen above (device-code is how
+   the user authenticates as the bot without juggling browser
+   sessions). Codex writes `$TEND_CODEX_HOME/auth.json` with the
+   refresh-tokened OAuth payload.
+2. Have the user run `cat $TEND_CODEX_HOME/auth.json` and paste the
    full JSON back. Then:
 
    ```bash
@@ -453,11 +454,13 @@ If not set:
    EOF
    )"
    ```
+
+   After the secret is set, `rm -rf $TEND_CODEX_HOME` to clear the
+   on-disk copy of the refresh token.
 3. Add a TODO in the repo's tracking system: rotate auth.json every
    ~7 days (the refresh window closes around 8 days). Codex refreshes
-   on use, but a long-idle bot can expire — re-run
-   `CODEX_HOME=~/.codex-tend codex login --device-auth` and re-set
-   the secret if the bot starts failing 401.
+   on use, but a long-idle bot can expire — re-run the device-code
+   mint and re-set the secret if the bot starts failing 401.
 
 For **API key**:
 
