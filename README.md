@@ -158,15 +158,15 @@ Repo secrets depend on the harness:
 | `claude` | `BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription, see caveat below) or `ANTHROPIC_API_KEY` (API-billed) |
 | `codex`  | `BOT_TOKEN` + one of `CODEX_AUTH_JSON` (subscription, recommended) or `OPENAI_API_KEY` (pay-per-token) |
 
-`BOT_TOKEN` is the bot account's PAT — classic or fine-grained (see
-[example config](docs/tend.example.yaml) for scopes). `CLAUDE_CODE_OAUTH_TOKEN`
-is a Claude Code OAuth token via PKCE flow (`claude setup-token`).
-`ANTHROPIC_API_KEY` is a standard API key from console.anthropic.com.
+`BOT_TOKEN` is the bot account's PAT — see
+[example config](docs/tend.example.yaml) for scopes.
+`CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token`;
 `CODEX_AUTH_JSON` is the contents of `~/.codex/auth.json` after
-`codex login` — funds the runs from a flat-rate ChatGPT subscription.
-`OPENAI_API_KEY` is a standard OpenAI API key — pay-per-token. See
-[Codex (alternative)](#codex-alternative) below for the trade-off and
-the public-repo gate.
+`codex login`. The other two are standard API keys from
+console.anthropic.com and platform.openai.com. See
+[Codex (alternative)](#codex-alternative) for the Codex trade-off and
+public-repo gate; [docs/security-model.md](docs/security-model.md) has
+the full leak breakdown.
 
 All other options — secret name overrides, setup steps, protected branches,
 workflow overrides, schedules — are documented in
@@ -222,11 +222,10 @@ skill markdown. Two auth modes:
 
 - **`CODEX_AUTH_JSON`** (recommended) — `~/.codex/auth.json` shipped
   as a secret, billed at the Plus/Pro/Business subscription's flat
-  rate (capped by the plan's limits). The token has read+write access
-  to the ChatGPT account that minted it; on public repos it must
-  come from a dedicated bot account, recommended on private. Rotate
-  by re-running `codex login` and re-setting the secret — the refresh
-  window closes around 8 days of inactivity.
+  rate. On public repos the token must come from a ChatGPT account
+  dedicated to the bot; recommended on private. See
+  [docs/security-model.md](docs/security-model.md) for the leak
+  breakdown and rotation cadence.
 - **`OPENAI_API_KEY`** — pay-per-token API billing. Works for any
   repo; pick this to avoid a separate ChatGPT account.
 
