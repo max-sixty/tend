@@ -36,9 +36,9 @@ KNOWN_TOP_LEVEL = {
 KNOWN_HARNESSES = {"claude", "codex"}
 # Claude harness reads claude_token (OAuth) and anthropic_api_key (console.
 # anthropic.com) — adopters set one. Codex harness reads openai_key and
-# codex_auth_json; the latter is the subscription-funded path
-# (~/.codex/auth.json contents stored as a repo secret), officially
-# discouraged for public repos but supported.
+# codex_auth_json; the latter is the subscription-funded path (the auth.json
+# Codex writes after `codex login --device-auth`, stored as a repo secret),
+# officially discouraged for public repos but supported.
 KNOWN_SECRETS_KEYS = {
     "bot_token",
     "claude_token",

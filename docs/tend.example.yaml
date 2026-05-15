@@ -56,8 +56,8 @@ bot_name: my-project-bot
 # `BOT_TOKEN` is the bot account's PAT (scopes below).
 # `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token` (PKCE).
 # `ANTHROPIC_API_KEY` is a console.anthropic.com API key.
-# `CODEX_AUTH_JSON` is the contents of `~/.codex/auth.json` after
-# `codex login` — the install skill's default; see
+# `CODEX_AUTH_JSON` is the contents of the `auth.json` Codex writes
+# after `codex login --device-auth` — the install skill's default; see
 # docs/security-model.md for the trade-off and public-repo gate.
 # `OPENAI_API_KEY` is a standard OpenAI API key.
 #
