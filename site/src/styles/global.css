@@ -287,9 +287,7 @@ pre code {
 /* ---------- "Currently tending" indicator ---------- */
 
 .now-tending {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  display: block;
   margin: 1.4rem 0 0;
   font-family: var(--font-mono);
   font-size: 0.78rem;
@@ -297,29 +295,35 @@ pre code {
   color: var(--ink-soft);
   text-decoration: none;
   border-bottom: none;
-  /* Space is reserved by the skeleton dot + nbsp label in the markup; we
-     just fade in once the fetch resolves so the hero doesn't redraw. */
+  /* Hanging indent: dot sits in a 1rem gutter on line 1; wrapped lines
+     align flush with the text, not under the dot. */
+  padding-left: 1rem;
+  text-indent: -1rem;
+  /* Space is reserved by the nbsp placeholder in the markup; we just
+     fade in once the fetch resolves so the hero doesn't redraw. */
   opacity: 0;
   transition: opacity 250ms ease;
+}
+.now-tending::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  vertical-align: 0.1em;
+}
+.now-tending[data-pulse="live"]::before { background: var(--moss); }
+.now-tending[data-pulse="idle"]::before {
+  background: transparent;
+  border: 1px solid var(--oak-deep);
 }
 .now-tending:hover { color: var(--moss-deep); }
 .now-tending[data-state="loaded"] { opacity: 1; }
 .now-tending[data-state="hidden"] { display: none; }
 
-.now-dot {
-  flex: none;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-}
-.now-dot-live { background: var(--moss); }
-.now-dot-idle {
-  background: transparent;
-  border: 1px solid var(--oak-deep);
-}
-
 @media (prefers-reduced-motion: no-preference) {
-  .now-dot-live { animation: now-pulse 2.6s ease-in-out infinite; }
+  .now-tending[data-pulse="live"]::before { animation: now-pulse 2.6s ease-in-out infinite; }
 }
 @keyframes now-pulse {
   0%, 100% { opacity: 1; }
