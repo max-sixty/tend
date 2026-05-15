@@ -499,7 +499,8 @@ If not set:
      this repo. No expiry because the env's `main`-only policy is
      the actual security boundary; calendar rotation adds little.
 
-     Store the token in the environment:
+     Have the user paste the PAT back, then store it in the
+     environment:
 
      ```bash
      gh secret set CODEX_REFRESH_PAT --env codex-auth-refresh \
