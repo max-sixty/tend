@@ -456,11 +456,8 @@ gh secret set OPENAI_API_KEY --repo "$REPO" --body "$KEY"
 ## 8. Bot token and secret
 
 The bot's token needs scopes `repo`, `workflow`, `notifications`,
-`write:discussion`, `gist`, and `user`. (`workflow` pushes commits that
-modify `.github/workflows/` files; `notifications` reads/dismisses the
-bot's own threads; `write:discussion` posts on GitHub Discussions; `gist`
-lets skills like `review-reviewers` store evidence in the bot's secret
-gists; `user` lets step 10 set the bio via `PATCH /user`.)
+`write:discussion`, `gist`, and `user` (per-scope justifications in
+`docs/tend.example.yaml`).
 
 Have the user run, in any terminal:
 
