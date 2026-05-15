@@ -216,6 +216,17 @@ runs:
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@v1
+      env:
+        # Disable the bubblewrap-backed subprocess sandbox. The Linux bwrap
+        # wrapping path inside Claude Code v2.1.142 still uses the legacy
+        # shell-quote `quote()` (`/(["\\$`!])/g`), which escapes `!` to `\!`
+        # in any command whose argv tokens contain both `'` and whitespace —
+        # corrupting jq `!=`, code references like `assert!()`, conventional-
+        # commits `feat!:` titles, and so on. macOS uses sandbox-exec on a
+        # different code path that's already fixed; the bug is Linux-only.
+        # Setting this to 0 routes bash through the fixed `'\''`-wrap path
+        # at the cost of subprocess env isolation. See anthropics/claude-code#35701.
+        CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
       with:
         show_full_output: ${{ inputs.show_full_output }}
         claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
