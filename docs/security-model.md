@@ -205,8 +205,36 @@ leak to subscription-quota burn until the next rotation, similar in
 scope to an `OPENAI_API_KEY` leak (agent-runtime access only, no
 GitHub). Flat-rate subscription billing also typically beats per-token
 API billing on a busy repo, so the dedicated-account `auth.json` is
-the install skill's default. Rotate every ~7 days; revoke via
+the install skill's default. Revoke via
 `https://chatgpt.com/#settings/Personalization` if leaked.
+
+**Static-secret CI requires active rotation, not just hygiene.** Codex
+rotates the refresh token on use with a ~1-hour grace window for the
+old token. In CI the rotated tokens land in an ephemeral runner and
+the GitHub secret holds the invalidated value. After ~8 days Codex's
+proactive refresh fires in the next consumer workflow to run, and
+within ~1 hour every subsequent run 401s permanently. The same OpenAI
+guide adds: "Use one `auth.json` per runner or per serialized workflow
+stream. Do not share the same file across concurrent jobs or multiple
+machines." — which rules out the naive single-secret pattern for any
+repo with overlapping workflows.
+
+Two paths to safe operation:
+
+- **Manual rotation.** Re-run `CODEX_HOME=/tmp/codex-tend codex login
+  --device-auth` every ~6 days and re-set the secret. Fails on a
+  missed week. Acceptable when consumer workflows are rare enough
+  that the day-8 rotation race is unlikely.
+- **Automated refresher workflow.** A scheduled workflow POSTs the
+  current refresh token to `https://auth.openai.com/oauth/token`,
+  reconstructs auth.json with the rotated tokens, and updates
+  `CODEX_AUTH_JSON` via a dedicated PAT (`CODEX_REFRESH_PAT`,
+  fine-grained, `secrets: read and write` on the repo). The refresher
+  updates the secret before any consumer workflow can trigger a
+  rotation, so `last_refresh` stays under 8 days from the consumer's
+  perspective and no refresh fires inside concurrent consumer runs.
+  See `.github/workflows/codex-auth-refresh.yaml` for the
+  implementation.
 
 `GITHUB_TOKEN` is ephemeral (single job) and automatically scoped by each
 workflow's `permissions:` block. Not a meaningful leak target.

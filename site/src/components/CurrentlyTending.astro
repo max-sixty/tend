@@ -17,6 +17,8 @@
   interface Run {
     repo: string;
     workflow: string;
+    display_title?: string;
+    pr_number?: number;
     started_at: string;
   }
   interface Bucket {
@@ -46,13 +48,18 @@
       if (runs.length > 0) {
         const r = runs[0];
         const workflow = r.workflow.replace(/^tend-/, "");
+        const detail = r.pr_number != null && r.display_title
+          ? `${workflow} · #${r.pr_number} ${r.display_title}`
+          : r.display_title
+            ? `${workflow} · ${r.display_title}`
+            : workflow;
         const more = runs.length > 1 ? ` (+${runs.length - 1} more)` : "";
         const startedMs = Date.parse(r.started_at);
         const buildText = () => {
           const elapsed = elapsedTime(r.started_at);
           return elapsed
-            ? `currently tending ${r.repo} · ${workflow} · ${elapsed}${more}`
-            : `currently tending ${r.repo} · ${workflow}${more}`;
+            ? `currently tending ${r.repo} · ${detail} · ${elapsed}${more}`
+            : `currently tending ${r.repo} · ${detail}${more}`;
         };
         const label = paint(el, "live", buildText());
         if (!Number.isNaN(startedMs)) {

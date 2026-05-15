@@ -1,0 +1,102 @@
+name: codex-auth-refresh
+
+# Refresh the CODEX_AUTH_JSON secret nightly by hitting OpenAI's OAuth
+# token endpoint directly with the current refresh_token. Decouples
+# refresh from consumer workflows so they never trigger a rotation —
+# they read a always-fresh secret and codex sees last_refresh < 8 days,
+# so no proactive refresh fires inside the consumer runs.
+#
+# Without this, the static secret breaks after ~8 days when the first
+# consumer workflow triggers a refresh, ephemeral runner discards the
+# new tokens, and the GitHub secret still holds the rotated-out value.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    if: github.repository_owner == 'max-sixty'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Refresh CODEX_AUTH_JSON
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          GH_TOKEN: ${{ secrets.CODEX_REFRESH_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$CODEX_AUTH_JSON" ]; then
+            echo "::error::CODEX_AUTH_JSON secret is unset"
+            exit 1
+          fi
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::CODEX_REFRESH_PAT secret is unset — needs a PAT with secrets:write"
+            exit 1
+          fi
+
+          REFRESH_TOKEN=$(printf '%s' "$CODEX_AUTH_JSON" | jq -r '.tokens.refresh_token')
+          ACCOUNT_ID=$(printf '%s' "$CODEX_AUTH_JSON" | jq -r '.tokens.account_id')
+          PRIOR_API_KEY=$(printf '%s' "$CODEX_AUTH_JSON" | jq -r '.OPENAI_API_KEY // empty')
+
+          if [ -z "$REFRESH_TOKEN" ] || [ "$REFRESH_TOKEN" = "null" ]; then
+            echo "::error::CODEX_AUTH_JSON is missing tokens.refresh_token"
+            exit 1
+          fi
+
+          # Hit OpenAI's OAuth token endpoint. client_id is fixed for codex:
+          # see https://github.com/openai/codex/blob/main/codex-rs/login/src/auth/manager.rs
+          RESPONSE=$(curl -fsS -X POST https://auth.openai.com/oauth/token \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "grant_type=refresh_token" \
+            --data-urlencode "refresh_token=$REFRESH_TOKEN" \
+            --data-urlencode "client_id=app_EMoamEEZ73f0CkXaXp7hrann")
+
+          if printf '%s' "$RESPONSE" | jq -e '.error' >/dev/null; then
+            ERR=$(printf '%s' "$RESPONSE" | jq -r '.error_description // .error')
+            echo "::error::OAuth refresh failed: $ERR"
+            exit 1
+          fi
+
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)
+
+          NEW_AUTH=$(printf '%s' "$RESPONSE" | jq \
+            --arg now "$NOW" \
+            --arg account_id "$ACCOUNT_ID" \
+            --arg api_key "$PRIOR_API_KEY" \
+            '{
+              OPENAI_API_KEY: (if $api_key == "" then null else $api_key end),
+              auth_mode: "chatgpt",
+              tokens: {
+                access_token: .access_token,
+                refresh_token: .refresh_token,
+                id_token: .id_token,
+                account_id: $account_id
+              },
+              last_refresh: $now
+            }')
+
+          # Sanity-check the new payload has the three rotated tokens
+          for field in access_token refresh_token id_token; do
+            VAL=$(printf '%s' "$NEW_AUTH" | jq -r ".tokens.$field")
+            if [ -z "$VAL" ] || [ "$VAL" = "null" ]; then
+              echo "::error::refreshed auth.json is missing tokens.$field"
+              exit 1
+            fi
+          done
+
+          printf '%s' "$NEW_AUTH" | gh secret set CODEX_AUTH_JSON --repo "$REPO"
+
+          EXP=$(printf '%s' "$NEW_AUTH" | jq -r '.tokens.access_token' \
+            | awk -F. '{print $2}' \
+            | { read -r t; pad=$(( (4 - ${#t} % 4) % 4 )); printf "%s%*s" "$t" "$pad" "" | tr ' ' '='; } \
+            | base64 -d 2>/dev/null \
+            | jq -r '.exp | todate' 2>/dev/null || echo "unknown")
+
+          echo "Refresh complete."
+          echo "  last_refresh: $NOW"
+          echo "  access_token.exp: $EXP"

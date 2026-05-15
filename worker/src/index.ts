@@ -38,8 +38,10 @@ interface Consumer {
 
 interface WorkflowRun {
   name?: string;
+  display_title?: string;
   run_started_at?: string;
   html_url?: string;
+  pull_requests?: Array<{ number?: number } | null> | null;
 }
 
 interface RunsResponse {
@@ -49,6 +51,14 @@ interface RunsResponse {
 interface CurrentlyTendingEntry {
   repo: string;
   workflow: string;
+  // PR/issue title for PR-/issue-triggered runs. Omitted when GitHub's
+  // `display_title` is just the workflow name (scheduled runs like
+  // nightly/weekly add nothing extra there).
+  display_title?: string;
+  // PR number when the trigger is a pull_request_* event. Issues events
+  // don't populate `pull_requests`, so triage rows carry display_title
+  // without a number.
+  pr_number?: number;
   started_at: string;
   run_url: string;
 }
@@ -386,12 +396,25 @@ async function fetchRepoRuns(
         typeof run.run_started_at === "string" &&
         typeof run.html_url === "string",
     )
-    .map((run) => ({
-      repo,
-      workflow: run.name,
-      started_at: run.run_started_at,
-      run_url: run.html_url,
-    }));
+    .map((run) => {
+      const entry: CurrentlyTendingEntry = {
+        repo,
+        workflow: run.name,
+        started_at: run.run_started_at,
+        run_url: run.html_url,
+      };
+      // GitHub falls `display_title` back to the workflow name for events
+      // with no event-specific title (schedule, workflow_dispatch). Drop
+      // those — they'd render as "nightly · nightly".
+      if (typeof run.display_title === "string" && run.display_title !== run.name) {
+        entry.display_title = run.display_title;
+      }
+      const prNumber = run.pull_requests?.[0]?.number;
+      if (typeof prNumber === "number") {
+        entry.pr_number = prNumber;
+      }
+      return entry;
+    });
 }
 
 // ---------------------------------------------------------------------------
