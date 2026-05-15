@@ -77,7 +77,7 @@ IN_PROGRESS=$(gh api \
 
 If `IN_PROGRESS > 0`, **skip without marking read** — the next poll will see the completed response via the dedup check below. Match on `display_title` because the `workflow_run` payload does not expose the triggering issue number for `issue_comment` / `pull_request_review` events.
 
-`gh api --jq` does not accept `--arg`/`--argjson` — pipe to standalone `jq`. Avoid jq's not-equal operator in filters authored via the Bash tool (a bare bang can get rewritten outside heredocs); use `(X) | not`.
+`gh api --jq` does not accept `--arg`/`--argjson` — pipe to standalone `jq`.
 
 **Dedup check:** For same-repo notifications older than 10 minutes with no in-flight dedicated run, check whether the bot already responded:
 

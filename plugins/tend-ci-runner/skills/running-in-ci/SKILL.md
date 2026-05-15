@@ -207,12 +207,9 @@ gh run rerun <run-id> --failed --repo "$REPO"
 # the next query can see only the prior `failure` rows and exit immediately.
 sleep 10
 
-# `?filter=latest` returns each job's most recent attempt. Avoid the
-# `!=` operator in --jq filters — the Bash tool rewrites the exclamation
-# mark to a backslash-escape, which jq rejects. Use
-# `== "completed" | not` instead.
+# `?filter=latest` returns each job's most recent attempt.
 JOB_IDS=$(gh api "repos/$REPO/actions/runs/<run-id>/jobs?filter=latest" \
-  --jq '.jobs[] | select((.status == "completed") | not) | .id')
+  --jq '.jobs[] | select(.status != "completed") | .id')
 
 # Rollup poll: one pass checks all reran jobs together and exits when the
 # last one is terminal.
@@ -310,28 +307,33 @@ If `EXISTING` is greater than 0, **do not post** — another run already handled
 
 ## Comment Formatting
 
-**Line wrapping:** GitHub renders newlines literally in issue bodies, PR descriptions, and comments — a line break in the source becomes a `<br>` in the output. Write each paragraph as a single long line and let the browser reflow. This applies to every delivery path — heredoc, `--body "…"`, `--body-file`, and what the Write tool puts in a file.
-
-<example>
-<bad reason="Paragraph hard-wrapped at ~72 chars inside the heredoc; GitHub renders each newline as `<br>`, producing mid-sentence breaks">
+**Compose bodies with the Write tool, then post with `--body-file`.** The composed file is reviewable before it ships, quoting and escaping are non-issues, and line wrapping is just file content. The bot writes to `/tmp/` constantly — one more file is cheap. For one-line bodies, `--body "…"` is fine.
 
 ```bash
-gh pr create --body "$(cat <<'EOF'
-Extend the bang-escape workaround in `running-in-ci` to cover PR and issue
-titles. The existing guidance covers comment bodies via `--body-file`;
-titles are still uncovered because `gh pr create` has no `--title-file` flag.
-EOF
-)"
+# After writing /tmp/comment-body.md with the Write tool:
+gh issue comment "$ISSUE" --body-file /tmp/comment-body.md
+```
+
+**Line wrapping:** GitHub renders newlines literally in issue bodies, PR descriptions, and comments — a line break in the source becomes a `<br>` in the output. Write each paragraph as a single long line and let the browser reflow.
+
+<example>
+<bad reason="Paragraph hard-wrapped at ~72 chars; GitHub renders each newline as `<br>`, producing mid-sentence breaks">
+
+Content of `/tmp/pr-body.md`:
+
+```
+This PR refactors the `poll_jobs` helper to take a list of job IDs and
+return only those still pending. The previous version queried the run
+endpoint, which lagged behind the per-job endpoint after a rerun.
 ```
 
 </bad>
-<good reason="Each paragraph is one long line inside the heredoc; GitHub reflows to the reader's window width">
+<good reason="Each paragraph is one long line; GitHub reflows to the reader's window width">
 
-```bash
-gh pr create --body "$(cat <<'EOF'
-Extend the bang-escape workaround in `running-in-ci` to cover PR and issue titles. The existing guidance covers comment bodies via `--body-file`; titles are still uncovered because `gh pr create` has no `--title-file` flag.
-EOF
-)"
+Content of `/tmp/pr-body.md`:
+
+```
+This PR refactors the `poll_jobs` helper to take a list of job IDs and return only those still pending. The previous version queried the run endpoint, which lagged behind the per-job endpoint after a rerun.
 ```
 
 </good>
@@ -351,25 +353,7 @@ Keep comments concise. Put supporting detail inside `<details>` tags — the rea
 
 Always use markdown links for files, issues, PRs, and docs. **Any link containing `#L` must use a commit SHA, never `blob/main/...#L42`** — line numbers shift silently, so the link stays valid but starts pointing at different code than the comment describes. Get the SHA with `git rev-parse HEAD` before composing the link.
 
-**GitHub URLs — always embed `$GITHUB_REPOSITORY`.** Construct links as `https://github.com/${GITHUB_REPOSITORY}/...`; never hand-type the owner. The model reliably guesses wrong — past comments have shipped with the wrong owner (e.g. `anthropics/<repo>` on a repo not owned by Anthropic). Before posting a comment, scan it for `github.com/` and confirm every owner matches `$GITHUB_REPOSITORY`. **Also check that the variable actually expanded** — if you see a literal `${GITHUB_REPOSITORY}` in the rendered comment, you used a single-quoted heredoc (`<< 'EOF'`) which disables expansion. Rewrite using an unquoted `<<EOF` (so `${GITHUB_REPOSITORY}` interpolates) or compose the body with the Write tool. **If the body also contains an exclamation mark (so the rule below makes Write mandatory), the Write tool does not interpolate either** — write an `OWNER_REPO` placeholder into the file and substitute before posting: `sed -i "s|OWNER_REPO|$GITHUB_REPOSITORY|g" /tmp/body.md && gh ... --body-file /tmp/body.md`. A single-quoted `<<'EOF'` body containing both an exclamation mark and `${GITHUB_REPOSITORY}` fails on both counts: the preprocessor rewrite still fires *and* the variable stays literal.
-
-**If a Bash-tool command string contains a literal exclamation mark — issue body, PR body, comment body, jq script, markdown heredoc, anything — use the Write tool. Heredocs and quoting do not save you.** The Bash tool rewrites every exclamation mark to a literal backslash-bang before bash parses the command, so a greeting like "Thanks for the suggestion!" renders as "Thanks for the suggestion\!" in the posted comment. Quoting and heredoc form don't matter: `<< 'EOF'`, `<<EOF`, plain single-quoted, and double-quoted arguments all lose the character. Use the Write tool for any issue body, PR body, or comment body containing an exclamation mark, then pass the file to `gh issue create` / `gh issue edit` / `gh pr create` / `gh pr edit` / `gh issue comment` / `gh pr comment` via `--body-file`. Code references in survey or triage bodies are a common trap — a body that quotes `eprintln!(...)`, `assert!(...)`, `<!-- ... -->`, or `!=` and is composed via `gh issue create --body "$(cat <<EOF ... EOF)"` ships visibly corrupted backslash-bang sequences. The same trap applies to `jq` and `--jq` filters with `!=` — either avoid the `!=` operator (rephrase as `== "x" | not`), filter client-side after fetching, or load the jq script from a file written with the Write tool via `jq -f`.
-
-**Inside `<<'EOF' ... EOF` heredocs, leave backticks bare — do not escape them.** Single-quoted heredocs disable command substitution, so `\`` is wrong: the backslash survives as data and renders as a literal backslash in front of every backtick in the posted body (`` \`foo\` `` instead of `` `foo` ``). This is a model habit, not a Bash-tool preprocessor rewrite — the corruption is authored, not injected. If a body contains many code spans, use the Write tool with `--body-file` rather than relying on careful unescaping.
-
-`gh pr create` / `gh pr edit` / `gh issue create` / `gh issue edit` have no `--title-file` flag, so a title containing an exclamation mark (e.g. the conventional-commits breaking-change marker in a title like "feat(hooks)!: rename …") hits the same rewrite and ships a visibly corrupted title. Write the title with the Write tool and pass it via command substitution — `$(cat …)` is evaluated by bash after the preprocessor's string scan, so the exclamation mark stays literal:
-
-```bash
-gh pr create --title "$(cat /tmp/pr-title.txt)" --body-file /tmp/pr-body.md ...
-```
-
-`git commit -m "..."` is the same trap: the message is a literal string argument, so any exclamation mark in it (Rust's `assert!(...)`, `format!(...)`, `panic!(...)`; a conventional-commits breaking-change marker like `feat(api)!:`) ships into permanent git history as backslash-bang. Write the message with the Write tool and pass it via `-F` — `git commit` reads the file directly, so the Bash-tool preprocessor never sees the bang:
-
-```bash
-git commit -F /tmp/commit-msg.txt
-```
-
-This applies to every git commit path the bot uses (fix PRs, skill PRs, conflict-resolution merges). A title without an exclamation mark may still ship a corrupted *body* if the body contains one, so prefer `-F` whenever the message contains code references.
+**GitHub URLs — read `$GITHUB_REPOSITORY` from the environment, don't hand-type the owner.** The model reliably guesses wrong — past comments have shipped with the wrong owner (e.g. `anthropics/<repo>` on a repo not owned by Anthropic). Before posting, scan the composed body for `github.com/` and confirm every owner matches `$GITHUB_REPOSITORY`.
 
 - **File-level link (no `#L` anchor)**: `blob/main/src/foo.rs` is fine
 - **Line reference**: `blob/<sha>/src/foo.rs#L42` — commit SHA required, never `blob/main/...#L42`

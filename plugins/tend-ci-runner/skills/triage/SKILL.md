@@ -171,10 +171,6 @@ gh issue view $ARGUMENTS --json author,authorAssociation --jq '.authorAssociatio
 
 **Stay within what you verified.** State facts you found in the codebase — don't characterize something as "known" unless you find prior issues or documentation about it. Don't speculate beyond the code you read.
 
-Use the heredoc pattern from `/tend-ci-runner:running-in-ci` for `--body` arguments to avoid shell quoting issues.
-
-**Do not introduce exclamation marks into the comment body.** The Bash tool rewrites every exclamation mark to a literal backslash-bang before bash parses the command, so a greeting like "Thanks for reporting this!" lands in the posted comment as "Thanks for reporting this\!" — quoting and heredoc form do not save you. The templates below intentionally end greetings with periods. If you must include an exclamation mark (e.g. quoting a user), author the comment with the Write tool and pass it via `gh issue comment --body-file`.
-
 Choose the appropriate template:
 
 ### Fix PR created
