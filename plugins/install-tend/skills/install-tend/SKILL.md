@@ -458,13 +458,56 @@ If not set:
 
    - **Manual** (low-volume bots): re-run the device-code mint every
      ~6 days and re-set the secret.
-   - **Automated refresher workflow** (concurrent CI): a scheduled
-     workflow updates the secret before any consumer can trigger a
-     rotation. Requires a `CODEX_REFRESH_PAT` secret (fine-grained
-     PAT, `secrets: read and write` on the repo). See
-     `docs/security-model.md` for the pattern and
-     `.github/workflows/codex-auth-refresh.yaml` for a reference
-     implementation.
+   - **Automated refresher** (recommended for concurrent CI): a
+     scheduled workflow updates the secret before any consumer can
+     trigger a rotation. See `docs/security-model.md` for the threat
+     model and `.github/workflows/codex-auth-refresh.yaml` in the
+     tend repo as the reference workflow to copy in.
+
+     The refresher needs a fine-grained PAT with `secrets: read and
+     write`. The bot has `workflow` scope and can push workflow
+     files to feature branches that read repo secrets, so a plain
+     repo secret would hand the bot a "rewrite any secret"
+     credential. Store the PAT in an **Environment** pinned to
+     `main` — GitHub rejects branch refs that fail the policy
+     *before* injecting secrets, so a bot-pushed feature-branch run
+     can't read it.
+
+     Create the environment and pin it to `main`:
+
+     ```bash
+     gh api -X PUT "repos/$REPO/environments/codex-auth-refresh" \
+       -F 'deployment_branch_policy[protected_branches]=false' \
+       -F 'deployment_branch_policy[custom_branch_policies]=true' \
+       > /dev/null
+     gh api -X POST \
+       "repos/$REPO/environments/codex-auth-refresh/deployment-branch-policies" \
+       -F 'name=main' -F 'type=branch' > /dev/null
+     ```
+
+     Have the user mint a fine-grained PAT on the repo owner's
+     account (the bot doesn't have admin) via a pre-filled URL —
+     substitute `$OWNER` with the repo owner:
+
+     ```
+     https://github.com/settings/personal-access-tokens/new?name=tend-codex-refresh&description=Refresher%20for%20CODEX_AUTH_JSON&target_name=$OWNER&expires_in=none&secrets=write
+     ```
+
+     The URL pre-fills name, description, owner, no expiry, and
+     `secrets: read+write`. One manual step remains: under
+     **Repository access** pick "Only select repositories" →
+     this repo. No expiry because the env's `main`-only policy is
+     the actual security boundary; calendar rotation adds little.
+
+     Store the token in the environment:
+
+     ```bash
+     gh secret set CODEX_REFRESH_PAT --env codex-auth-refresh \
+       --repo "$REPO" --body "$PAT"
+     ```
+
+     The reference workflow already includes
+     `environment: codex-auth-refresh`.
 
 For **API key**:
 
