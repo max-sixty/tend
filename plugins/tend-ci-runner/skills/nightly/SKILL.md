@@ -23,7 +23,41 @@ The script prints `key=value` lines. Act on `STATUS`:
 - `STATUS=fine-grained`: no `X-OAuth-Scopes` header. Fine-grained PATs have no documented self-introspection endpoint — skip.
 - `STATUS=missing`: open or update a tracking issue. Use a title containing "PAT" (e.g. `Bot PAT: missing scopes`) so future runs can dedup by title search. Before creating, run `gh issue list --state open --search "PAT in:title"` and update the existing issue with `gh issue edit` if one is already open. The body lists the values from `MISSING=` and links step 8 of the `install-tend` skill for remediation: https://github.com/max-sixty/tend/blob/main/plugins/install-tend/skills/install-tend/SKILL.md#8-bot-token-and-secret
 
-## Step 2: Resolve conflicts on bot PRs
+## Step 2: Check tend configuration drift
+
+Run `tend check` to verify this repo's tend setup (branch protection, bot
+permission, secrets, secret allowlist):
+
+```bash
+uvx tend@latest check 2>&1 | tee /tmp/tend-check.txt
+```
+
+No `FAIL` lines → close any open drift issue:
+
+```bash
+gh issue list --state open --search '"configuration drift" in:title' \
+  --json number --jq '.[].number' \
+  | xargs -r -I {} gh issue close {} --comment 'tend check now passes.'
+```
+
+Otherwise file or update **one** tracking issue with title
+`tend check: configuration drift on <owner>/<repo>`. Dedup by title:
+
+```bash
+gh issue list --state open --search '"configuration drift" in:title' \
+  --json number,title,body
+```
+
+No labels. Body lists the current `FAIL` lines (one bullet per check, with
+a one-line reason) plus a `_Last refreshed: <YYYY-MM-DD>_` footer. Updates:
+
+- **Failure set identical to the open issue** → edit body (refresh footer)
+  only, no comment.
+- **Failure set changed** → edit body to match current state and post a
+  comment describing the delta (added/removed/changed checks).
+- **No open issue** → create one.
+
+## Step 3: Resolve conflicts on bot PRs
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
@@ -44,7 +78,7 @@ Run subagents in parallel. Each must work in isolation (`git worktree add /tmp/p
 
 Skip if no PRs have conflicts.
 
-## Step 3: Review recent commits
+## Step 4: Review recent commits
 
 ```bash
 git log --since='24 hours ago' --oneline main
@@ -62,7 +96,7 @@ git log --since='24 hours ago' --format='%h %s' main
 
 Read the project's CLAUDE.md before reviewing. Apply the review checklist below to the diff, focusing on changes rather than unchanged code. Also check whether CLAUDE.md itself needs updating to reflect the new code (e.g., new file paths, changed commands, removed patterns).
 
-## Step 4: Check existing issues
+## Step 5: Check existing issues
 
 ```bash
 gh issue list --state open --json number,title
@@ -84,7 +118,7 @@ The action's "Report failure" step records only a workflow run link in `tend-out
 "${CLAUDE_PLUGIN_ROOT}/scripts/enrich-tend-outage-issues.sh"
 ```
 
-## Step 5: Rolling survey
+## Step 6: Rolling survey
 
 Run the survey script to get today's file list (rotating through the full repo over 28 days):
 
@@ -98,7 +132,7 @@ Before reviewing files, read the project's CLAUDE.md and any project-specific sk
 
 ## Review checklist
 
-Used by both Step 3 (applied to recent diffs) and Step 5 (applied to full files).
+Used by both Step 4 (applied to recent diffs) and Step 6 (applied to full files).
 
 **General quality:**
 - Bugs, logic errors, unhandled edge cases
@@ -112,7 +146,7 @@ Used by both Step 3 (applied to recent diffs) and Step 5 (applied to full files)
 - Stale CLAUDE.md entries — conventions that reference renamed files, deleted functions, or outdated patterns
 - Skills that have drifted from actual project behavior (instructions that no longer match how the code works)
 
-## Step 6: Update tend workflows
+## Step 7: Update tend workflows
 
 Regenerate the tend workflow files and open a PR if anything changed. The checkout's `.github/` directory may be mounted read-only under the sandbox (protecting bots from modifying their own workflows in place), so do the regeneration in a git worktree under `$TMPDIR`, which is writable:
 
@@ -193,7 +227,7 @@ git worktree remove "$TMPDIR/tend-update-workflows" --force
 
 The version line (and the versions in the title) are omitted when either side of the detection is empty or both sides match — e.g. a template tweak at the same pinned version, or the first regen after the header stamp was added, where the pre-regen workflows still carry the unstamped header.
 
-## Step 7: Fix findings
+## Step 8: Fix findings
 
 Before acting on findings, check for duplicates and existing work:
 
@@ -224,6 +258,6 @@ Keep the project's changelog up to date with recent changes. The `running-tend` 
 5. Draft entries matching the existing file's style and format.
 6. Commit and push directly to the changelog branch — no PR needed, the branch is kept ready to merge for the next release.
 
-## Step 8: Summary
+## Step 9: Summary
 
 Report: commits reviewed, files surveyed, findings, actions taken, assessment (clean / minor issues / needs attention).
