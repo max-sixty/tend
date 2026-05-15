@@ -34,11 +34,9 @@ Before running step 1, choose the harness and lay out the plan:
     runs; the API key path is the only Claude option. Confirm the user
     understands before picking.
   - **Codex (OpenAI)** — uses a ChatGPT Plus/Pro/Business `auth.json`
-    (flat subscription rate, capped by the plan's limits; recommended)
-    or an OpenAI API key (billed per token). On public repos the
-    `auth.json` must come from a ChatGPT account dedicated to the bot,
-    since the token has read+write access to the account that minted
-    it.
+    (subscription, recommended) or an OpenAI API key (pay-per-token).
+    Public repos require `auth.json` from a ChatGPT account dedicated
+    to the bot. Detail in `docs/security-model.md`.
 - List the steps you'll be running (the section headings below: Create
   config → Generate workflows → Branch protection → Skill overlay →
   Badge → Bot account → Harness auth → Bot token → Grant access →
@@ -397,15 +395,11 @@ Codex supports two auth modes. The `tend/codex` action prefers
 Ask via `AskUserQuestion`:
 
 - **ChatGPT subscription (auth.json, recommended)** — billed at the
-  Plus/Pro/Business subscription's flat rate, capped by the plan's
-  limits. API billing scales per token instead, which on a busy repo
-  adds up fast. The token carries read+write access to the ChatGPT
-  account that minted it, so **mint `auth.json` from a dedicated bot
-  account that has no personal chat history** — required for public
-  repos, recommended for private. With a clean account the worst-case
-  leak is subscription-quota burn until the next rotation, similar in
-  scope to an `OPENAI_API_KEY` leak (agent-runtime access only, no
-  GitHub).
+  Plus/Pro/Business subscription's flat rate. The token carries
+  read+write access to the ChatGPT account that minted it, so
+  **mint `auth.json` from a dedicated bot account** — required on
+  public repos, recommended on private. See
+  `docs/security-model.md` for the leak breakdown.
 - **OpenAI API key** — billed per token. Works for any repo. Pick
   this if the user doesn't want to mint a separate ChatGPT account.
   Key from `https://platform.openai.com/api-keys`.
@@ -414,10 +408,10 @@ For **auth.json** (recommended):
 
 Ask via `AskUserQuestion` which account the user will sign in as:
 
-- **Dedicated bot account (recommended)** — no personal data behind
-  the token; a leak narrows to subscription-quota burn.
-- **Personal account** — exposes the user's full ChatGPT account if
-  leaked.
+- **Dedicated bot account (recommended)** — no personal chat data
+  behind the token.
+- **Personal account** — token grants access to the user's full
+  ChatGPT account if leaked.
 
 Refuse the personal option on public repos; if the user won't mint a
 dedicated account, skip to **API key** below. On private repos

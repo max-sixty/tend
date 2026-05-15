@@ -53,24 +53,16 @@ bot_name: my-project-bot
 # | `claude` | `BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`    |
 # | `codex`  | `BOT_TOKEN` + one of `CODEX_AUTH_JSON` or `OPENAI_API_KEY`               |
 #
-# `BOT_TOKEN` is the bot account's PAT (see scopes below).
+# `BOT_TOKEN` is the bot account's PAT (scopes below).
+# `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token` (PKCE).
+# `ANTHROPIC_API_KEY` is a console.anthropic.com API key.
+# `CODEX_AUTH_JSON` is the contents of `~/.codex/auth.json` after
+# `codex login` — the install skill's default; see
+# docs/security-model.md for the trade-off and public-repo gate.
+# `OPENAI_API_KEY` is a standard OpenAI API key.
 #
-# `CLAUDE_CODE_OAUTH_TOKEN` is a Claude Code OAuth token via PKCE flow
-# (`claude setup-token`). The Claude action prefers this over
-# `ANTHROPIC_API_KEY` when both are set.
-#
-# `ANTHROPIC_API_KEY` is a standard API key from console.anthropic.com,
-# billed per token.
-#
-# `CODEX_AUTH_JSON` is the literal contents of `~/.codex/auth.json` after
-# `codex login`. Bills a Plus/Pro/Business subscription at its flat rate
-# — the install skill's default. On public repos it must come from a
-# ChatGPT account dedicated to the bot, since the token has read+write
-# access to that account; see docs/security-model.md for the trade-off.
-# The codex action prefers `CODEX_AUTH_JSON` over `OPENAI_API_KEY` when
-# both are set.
-#
-# `OPENAI_API_KEY` is a standard OpenAI API key, billed per token.
+# Both actions prefer the subscription token (`CLAUDE_CODE_OAUTH_TOKEN`,
+# `CODEX_AUTH_JSON`) over the API key when both are set.
 #
 # Classic PAT scopes: `repo`, `workflow`, `notifications`, `write:discussion`,
 # `gist`, `user`. `workflow` is required to push commits that modify
