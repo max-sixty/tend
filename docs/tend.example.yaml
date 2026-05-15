@@ -48,15 +48,19 @@ bot_name: my-project-bot
 #
 # Repo secrets, by harness:
 #
-# | Harness   | Required                                                              |
-# |----------|------------------------------------------------------------------------|
-# | `claude` | `BOT_TOKEN` + `CLAUDE_CODE_OAUTH_TOKEN`                                |
-# | `codex`  | `BOT_TOKEN` + one of `CODEX_AUTH_JSON` or `OPENAI_API_KEY`             |
+# | Harness   | Required                                                                |
+# |----------|--------------------------------------------------------------------------|
+# | `claude` | `BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`    |
+# | `codex`  | `BOT_TOKEN` + one of `CODEX_AUTH_JSON` or `OPENAI_API_KEY`               |
 #
 # `BOT_TOKEN` is the bot account's PAT (see scopes below).
 #
 # `CLAUDE_CODE_OAUTH_TOKEN` is a Claude Code OAuth token via PKCE flow
-# (not an API key from console.anthropic.com).
+# (`claude setup-token`). The Claude action prefers this over
+# `ANTHROPIC_API_KEY` when both are set.
+#
+# `ANTHROPIC_API_KEY` is a standard API key from console.anthropic.com,
+# billed per token.
 #
 # `CODEX_AUTH_JSON` is the literal contents of `~/.codex/auth.json` after
 # `codex login`. Bills a Plus/Pro/Business subscription at its flat rate
@@ -84,7 +88,8 @@ bot_name: my-project-bot
 #
 # secrets:
 #   bot_token: MY_BOT_PAT
-#   claude_token: MY_CLAUDE_TOKEN      # harness: claude
+#   claude_token: MY_CLAUDE_TOKEN      # harness: claude (OAuth)
+#   anthropic_api_key: MY_ANTHROPIC_KEY  # harness: claude (API key)
 #   openai_key: MY_OPENAI_KEY          # harness: codex
 #   codex_auth_json: MY_CODEX_AUTH     # harness: codex
 #

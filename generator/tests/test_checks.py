@@ -43,6 +43,7 @@ def _config(
         protected_branches=protected_branches or [],
         bot_token_secret=bot_token_secret,
         claude_token_secret=claude_token_secret,
+        anthropic_api_key_secret="ANTHROPIC_API_KEY",
         openai_key_secret="OPENAI_API_KEY",
         codex_auth_json_secret="CODEX_AUTH_JSON",
         harness=harness,
@@ -661,8 +662,8 @@ def test_run_all_checks_with_protected_branches() -> None:
             _config(protected_branches=["v1", "v2"]),
             repo="owner/repo",
         )
-    # default + v1 + v2 + bot-permission + secrets + allowlist = 6
-    assert len(results) == 6
+    # default + v1 + v2 + bot-permission + secrets + claude-auth + allowlist = 7
+    assert len(results) == 7
     bp_results = [r for r in results if r.name.startswith("branch-protection:")]
     assert len(bp_results) == 3
     assert {r.name for r in bp_results} == {
@@ -772,6 +773,79 @@ def test_claude_engine_omits_codex_auth_check() -> None:
     assert not any(r.name == "codex-auth" for r in results)
 
 
+def test_claude_engine_passes_with_oauth_token() -> None:
+    """Engine=claude with the OAuth token secret set passes claude-auth."""
+    # _fake_gh_all_pass returns ["T1","T2"] — T2 is claude_token_secret.
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("tend.checks._gh", side_effect=_fake_gh_all_pass),
+    ):
+        results = run_all_checks(_config(), repo="owner/repo")
+    claude_check = [r for r in results if r.name == "claude-auth"]
+    assert len(claude_check) == 1
+    assert claude_check[0].passed is True
+    assert "T2" in claude_check[0].message
+
+
+def test_claude_engine_passes_with_api_key() -> None:
+    """Engine=claude with only ANTHROPIC_API_KEY set passes claude-auth."""
+
+    def fake_gh(*args, **kwargs):
+        url = args[1]
+        if url == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
+            return _make_completed("main\n")
+        if "rules/branches" in url:
+            return _make_completed(_BRANCH_HAS_UPDATE_RULE)
+        if "branches" in url:
+            return _make_completed("true\n")
+        if "collaborators" in url:
+            return _make_completed("write\n")
+        if "secrets" in url:
+            if "--json" in args:
+                return _make_completed('[{"name":"T1"},{"name":"ANTHROPIC_API_KEY"}]\n')
+            return _make_completed('["T1","ANTHROPIC_API_KEY"]\n')
+        return _make_completed(returncode=1)
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("tend.checks._gh", side_effect=fake_gh),
+    ):
+        results = run_all_checks(_config(), repo="owner/repo")
+    claude_check = [r for r in results if r.name == "claude-auth"]
+    assert claude_check[0].passed is True
+    assert "ANTHROPIC_API_KEY" in claude_check[0].message
+
+
+def test_claude_engine_fails_when_no_auth() -> None:
+    """Engine=claude with neither secret set is a hard failure."""
+
+    def fake_gh(*args, **kwargs):
+        url = args[1]
+        if url == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
+            return _make_completed("main\n")
+        if "rules/branches" in url:
+            return _make_completed(_BRANCH_HAS_UPDATE_RULE)
+        if "branches" in url:
+            return _make_completed("true\n")
+        if "collaborators" in url:
+            return _make_completed("write\n")
+        if "secrets" in url:
+            if "--json" in args:
+                return _make_completed('[{"name":"T1"}]\n')
+            return _make_completed('["T1"]\n')
+        return _make_completed(returncode=1)
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("tend.checks._gh", side_effect=fake_gh),
+    ):
+        results = run_all_checks(_config(), repo="owner/repo")
+    claude_check = [r for r in results if r.name == "claude-auth"]
+    assert claude_check[0].passed is False
+    assert "T2" in claude_check[0].message
+    assert "ANTHROPIC_API_KEY" in claude_check[0].message
+
+
 def test_run_all_checks_deduplicates_default_branch() -> None:
     """If protected_branches includes the default branch, it's not checked twice."""
     with (
@@ -782,8 +856,8 @@ def test_run_all_checks_deduplicates_default_branch() -> None:
             _config(protected_branches=["main", "v1"]),
             repo="owner/repo",
         )
-    # main (deduped) + v1 + bot-permission + secrets + allowlist = 5
-    assert len(results) == 5
+    # main (deduped) + v1 + bot-permission + secrets + claude-auth + allowlist = 6
+    assert len(results) == 6
     bp_results = [r for r in results if r.name.startswith("branch-protection:")]
     assert len(bp_results) == 2
     assert {r.name for r in bp_results} == {

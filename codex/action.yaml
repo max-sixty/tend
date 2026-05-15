@@ -164,28 +164,40 @@ runs:
     # non-interactively.
     #
     # When a stable release containing that PR lands on npm, swap the
-    # three steps below for the commented `Install Codex CLI` block — same
+    # four steps below for the commented `Install Codex CLI` block — same
     # interface, no Rust toolchain, ~10 min cold build → ~30 s npm install.
+    #
+    # We cache the built binary directly (~/.cargo/bin/codex) keyed on
+    # the codex version + runner OS — cache hit skips the build entirely
+    # (~22 min → ~3 s). Same idea worktrunk uses via baptiste0928/cargo-install,
+    # but that action only supports crates.io, not git tags.
+    - name: Cache codex binary
+      id: codex-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/codex
+        key: codex-bin-${{ runner.os }}-${{ inputs.codex_version || 'rust-v0.131.0-alpha.17' }}
+
     - name: Set up Rust toolchain
+      if: steps.codex-cache.outputs.cache-hit != 'true'
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Cache cargo build
-      uses: Swatinem/rust-cache@v2
-      with:
-        key: codex-${{ inputs.codex_version || 'rust-v0.131.0-alpha.17' }}
-
     - name: Build Codex CLI from source
+      if: steps.codex-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         TAG="${{ inputs.codex_version || 'rust-v0.131.0-alpha.17' }}"
         cargo install --locked --git https://github.com/openai/codex.git \
           --tag "$TAG" --bin codex codex-cli
-        codex --version
+
+    - name: Verify codex binary
+      shell: bash
+      run: codex --version
 
     # --- Swap-in once npm has a release with `codex plugin add` ---
-    # Delete the three steps above (Set up Rust / Cache cargo / Build Codex)
-    # and uncomment this single step. Update the `codex_version` input
-    # description to refer to npm versions again.
+    # Delete the four steps above (Cache codex / Set up Rust / Build Codex /
+    # Verify) and uncomment this single step. Update the `codex_version`
+    # input description to refer to npm versions again.
     #
     # - name: Install Codex CLI
     #   shell: bash
