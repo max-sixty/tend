@@ -23,7 +23,7 @@ To use Tend, a project needs:
 - A GitHub account for the agent (for example this project's is **[@tend-agent](https://www.github.com/tend-agent))**
 - One of:
   - A Claude Max subscription (harness = "claude")
-  - An OpenAI API key, or a ChatGPT subscription via `~/.codex/auth.json` (harness = "codex")
+  - An OpenAI API key, or a ChatGPT subscription via a Codex `auth.json` (harness = "codex")
 
 Tend offers the default code & guidance for the agent. Specifically that means:
 
@@ -161,8 +161,8 @@ Repo secrets depend on the harness:
 `BOT_TOKEN` is the bot account's PAT — see
 [example config](docs/tend.example.yaml) for scopes.
 `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token`;
-`CODEX_AUTH_JSON` is the contents of `~/.codex/auth.json` after
-`codex login`. The other two are standard API keys from
+`CODEX_AUTH_JSON` is the contents of the `auth.json` Codex writes after
+`codex login --device-auth`. The other two are standard API keys from
 console.anthropic.com and platform.openai.com. See
 [Codex (alternative)](#codex-alternative) for the Codex trade-off and
 public-repo gate; [docs/security-model.md](docs/security-model.md) has
@@ -220,7 +220,7 @@ Installs `@openai/codex` on the runner and invokes `codex exec` against a
 bundled `AGENTS.md` that teaches it to resolve tend's slash commands to
 skill markdown. Two auth modes:
 
-- **`CODEX_AUTH_JSON`** (recommended) — `~/.codex/auth.json` shipped
+- **`CODEX_AUTH_JSON`** (recommended) — Codex `auth.json` shipped
   as a secret, billed at the Plus/Pro/Business subscription's flat
   rate. On public repos the token must come from a ChatGPT account
   dedicated to the bot; recommended on private. See

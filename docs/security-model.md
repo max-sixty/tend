@@ -170,7 +170,7 @@ credential whose exact form depends on `harness` in `.config/tend.yaml`.
 | Bot token (PAT or App) | GitHub API and git operations. Consistent bot identity. |
 | Harness auth (one of, per harness) | Authenticates the agent runtime. |
 | ↳ Claude OAuth token | `harness: claude`: authenticates Claude Code to the Anthropic API. |
-| ↳ `CODEX_AUTH_JSON` | `harness: codex`, subscription-funded: the contents of `~/.codex/auth.json` after `codex login`. Default recommendation; on public repos mint it from a ChatGPT account dedicated to the bot (see below). |
+| ↳ `CODEX_AUTH_JSON` | `harness: codex`, subscription-funded: the contents of the `auth.json` Codex writes after `codex login --device-auth`. Default recommendation; on public repos mint it from a ChatGPT account dedicated to the bot (see below). |
 | ↳ `OPENAI_API_KEY` | `harness: codex`, API-billed: standard OpenAI API key, billed per token. Alternative for users who'd rather not mint a separate ChatGPT account. |
 
 **Why one bot token.** The bot token is equally safe in any workflow because
@@ -188,7 +188,7 @@ consistent identity for reviews and comments and avoids the
 | `OPENAI_API_KEY` | Until revoked | Run Codex/OpenAI API calls billed to the account | Access GitHub |
 | `CODEX_AUTH_JSON` | ~8-day refresh window | Run any ChatGPT API call as the account the token was minted from. **Personal-account leak**: read chat history, access custom GPTs, exhaust plan quota. **Dedicated-account leak (recommended)**: burn subscription quota until rotation. | Access GitHub |
 
-**The `CODEX_AUTH_JSON` caveat.** `~/.codex/auth.json` is an OAuth
+**The `CODEX_AUTH_JSON` caveat.** Codex's `auth.json` is an OAuth
 refresh token bound to a ChatGPT account; a leak gives an attacker
 that account's plan resources. OpenAI's
 [CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth)
