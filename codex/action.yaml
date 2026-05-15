@@ -2,7 +2,7 @@ name: Tend (Codex)
 description: >-
   Tend's Codex harness: an autonomous junior maintainer for GitHub repos
   powered by OpenAI Codex. Authenticates via OPENAI_API_KEY or a
-  subscription-funded ~/.codex/auth.json (the latter is officially
+  subscription-funded Codex auth.json (the latter is officially
   discouraged by OpenAI for public repos — see docs/security-model.md).
 
 inputs:
@@ -20,10 +20,11 @@ inputs:
     required: false
     default: ""
     description: >-
-      Contents of ~/.codex/auth.json — funds the run from a flat-rate
-      Plus/Pro/Business subscription. Takes precedence over openai_api_key
-      when set. Carries read+write access to the minting ChatGPT account;
-      on public repos mint from a dedicated bot account
+      Contents of the auth.json Codex writes after `codex login
+      --device-auth` — funds the run from a flat-rate Plus/Pro/Business
+      subscription. Takes precedence over openai_api_key when set.
+      Carries read+write access to the minting ChatGPT account; on
+      public repos mint from a dedicated bot account
       (see docs/security-model.md).
   bot_name:
     required: true
