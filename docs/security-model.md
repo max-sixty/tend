@@ -233,8 +233,17 @@ Two paths to safe operation:
   updates the secret before any consumer workflow can trigger a
   rotation, so `last_refresh` stays under 8 days from the consumer's
   perspective and no refresh fires inside concurrent consumer runs.
-  See `.github/workflows/codex-auth-refresh.yaml` for the
-  implementation.
+
+  The PAT must not live as a plain repo secret — the bot has
+  `workflow` scope and can push workflow files to feature branches
+  that read repo secrets, which would escalate the bot from "write
+  collaborator" to "rewrite every repo secret." Store it in an
+  Environment (e.g. `codex-auth-refresh`) pinned to `main` only;
+  GitHub gates secret injection on the workflow's ref before the job
+  starts, so bot-pushed feature-branch workflows can't read it. See
+  `.github/workflows/codex-auth-refresh.yaml` for the implementation
+  and `plugins/install-tend/skills/install-tend/SKILL.md` §7b step 4
+  for the setup walkthrough.
 
 `GITHUB_TOKEN` is ephemeral (single job) and automatically scoped by each
 workflow's `permissions:` block. Not a meaningful leak target.
