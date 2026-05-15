@@ -10,8 +10,8 @@ const areas = [
     eyebrow: "i.",
     title: "PR reviews",
     body: [
-      "Reads each pull request as it opens or updates. Traces error paths, names duplication, and flags where the change cuts against the existing code.",
-      "On its own PRs it goes further — pushes the small mechanical fixes straight to the branch.",
+      "Reads each pull request. It draws on the Skills and docs your team already wrote, so the review weighs in on what your project cares about.",
+      "Because it runs in your CI, it can run the tests against the change and iterate on a fix until they pass. It'll offer to push the fix.",
     ],
   },
   {
@@ -118,7 +118,7 @@ claude /install-tend</code></pre>
     <div class="marginalia">
       <div class="margin-note">overlay</div>
       <div class="body">
-        <p>Skills and docs in your repo overlay Tend's defaults. Set what it auto-approves, calibrate what it flags in reviews, have it close some category of PR on sight, or give it a new chore to run each night.</p>
+        <p>Skills and docs in your repo overlay Tend's defaults. Set what it auto-approves, calibrate what it flags in reviews, have it push small fixes itself, close some category of PR on sight, or give it a new chore to run each night.</p>
       </div>
     </div>
   </section>
