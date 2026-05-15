@@ -221,3 +221,22 @@ jobs:
                 && format('You were mentioned in a comment ({0}). Read the full context and respond. If changes are requested, make them, commit, and push.', github.event.comment.html_url))
               || format('A user commented on an issue/PR where you previously participated ({0}). Read the full context. Only respond if the comment is directed at you, asks a question you can help with, or requests changes you can make. If the conversation is between other participants, exit silently.', github.event.comment.html_url)
             }}
+
+      - name: Remove eyes reaction
+        if: |
+          always()
+          && github.event.comment
+          && contains(github.event.comment.body, '@test-bot')
+        run: |
+          for KIND in issues pulls; do
+            REACTION_ID=$(gh api "repos/$REPO/$KIND/comments/$COMMENT_ID/reactions?content=eyes" \
+              --jq ".[] | select(.user.login == \"$BOT_NAME\") | .id" 2>/dev/null | head -n1)
+            if [ -n "$REACTION_ID" ]; then
+              gh api -X DELETE "repos/$REPO/$KIND/comments/$COMMENT_ID/reactions/$REACTION_ID" 2>/dev/null && break
+            fi
+          done
+        env:
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          BOT_NAME: test-bot
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}

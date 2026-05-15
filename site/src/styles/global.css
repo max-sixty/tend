@@ -23,7 +23,7 @@
   --font-mono:    "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 
   /* Layout */
-  --measure:        62ch;                                  /* prose readability cap — resolves against the element's own font */
+  --measure:        68ch;                                  /* prose readability cap — resolves against the element's own font */
   --measure-narrow: 48ch;                                  /* taglines, section leads — one cap for short serif intros */
   --gutter:         3rem;
   --rail:           7rem;                                  /* margin-note column + gap */
@@ -249,7 +249,7 @@ pre code {
   align-items: start;
 }
 .hero-body { min-width: 0; }
-.stats-rail .now-tending {
+.stats-rail .currently-tending {
   margin: 0.8rem 0 0;
 }
 @media (max-width: 760px) {
@@ -286,10 +286,8 @@ pre code {
 
 /* ---------- "Currently tending" indicator ---------- */
 
-.now-tending {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.currently-tending {
+  display: block;
   margin: 1.4rem 0 0;
   font-family: var(--font-mono);
   font-size: 0.78rem;
@@ -297,29 +295,35 @@ pre code {
   color: var(--ink-soft);
   text-decoration: none;
   border-bottom: none;
-  /* Space is reserved by the skeleton dot + nbsp label in the markup; we
-     just fade in once the fetch resolves so the hero doesn't redraw. */
+  /* Hanging indent: dot sits in a 1rem gutter on line 1; wrapped lines
+     align flush with the text, not under the dot. */
+  padding-left: 1rem;
+  text-indent: -1rem;
+  /* Space is reserved by the nbsp placeholder in the markup; we just
+     fade in once the fetch resolves so the hero doesn't redraw. */
   opacity: 0;
   transition: opacity 250ms ease;
 }
-.now-tending:hover { color: var(--moss-deep); }
-.now-tending[data-state="loaded"] { opacity: 1; }
-.now-tending[data-state="hidden"] { display: none; }
-
-.now-dot {
-  flex: none;
+.currently-tending::before {
+  content: "";
+  display: inline-block;
   width: 0.5rem;
   height: 0.5rem;
+  margin-right: 0.5rem;
   border-radius: 50%;
+  vertical-align: 0.1em;
 }
-.now-dot-live { background: var(--moss); }
-.now-dot-idle {
+.currently-tending[data-pulse="live"]::before { background: var(--moss); }
+.currently-tending[data-pulse="idle"]::before {
   background: transparent;
   border: 1px solid var(--oak-deep);
 }
+.currently-tending:hover { color: var(--moss-deep); }
+.currently-tending[data-state="loaded"] { opacity: 1; }
+.currently-tending[data-state="hidden"] { display: none; }
 
 @media (prefers-reduced-motion: no-preference) {
-  .now-dot-live { animation: now-pulse 2.6s ease-in-out infinite; }
+  .currently-tending[data-pulse="live"]::before { animation: now-pulse 2.6s ease-in-out infinite; }
 }
 @keyframes now-pulse {
   0%, 100% { opacity: 1; }
@@ -436,7 +440,7 @@ pre code {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 11rem) minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 7.5rem) minmax(0, 1fr) auto;
   column-gap: 1rem;
   /* Space is reserved by the 12 skeleton rows in the markup; the script
      replaces them with real rows when the fetch resolves. */

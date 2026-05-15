@@ -71,6 +71,13 @@ const MAX_ROWS = 12;
     tending: "tending",
   };
 
+  // Drop the org — current consumers have distinct repo names, and the
+  // owner just eats space.
+  function shortRepo(repo: string): string {
+    const i = repo.indexOf("/");
+    return i === -1 ? repo : repo.slice(i + 1);
+  }
+
   function updateTendingTimes(): void {
     const cells = document.querySelectorAll<HTMLTimeElement>(
       ".activity-row .at[data-started-at]",
@@ -169,7 +176,7 @@ const MAX_ROWS = 12;
 
       const repo = document.createElement("span");
       repo.className = "repo";
-      repo.textContent = e.repo;
+      repo.textContent = shortRepo(e.repo);
 
       const link = document.createElement("a");
       link.className = "title";

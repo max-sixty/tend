@@ -242,7 +242,7 @@ runs:
         codex plugin add tend-ci-runner@tend
         codex plugin list 2>/dev/null || true
 
-    # Stage AGENTS.md into $CODEX_HOME so it loads alongside any AGENTS.md
+    # Stage AGENTS.md into ~/.codex so it loads alongside any AGENTS.md
     # the adopter already has in their repo. Adopters' files are not
     # touched. The bulk of the prompt comes from shared/system-prompt.md
     # (harness-neutral; the Claude action consumes the same file via
@@ -364,7 +364,7 @@ runs:
         fi
         exit $EXIT
 
-    # Codex writes rollouts to $CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl.
+    # Codex writes rollouts to ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl.
     # Each event includes a token_count field (input/output/cached). Sum
     # them. Cost is left at 0 — Codex CLI doesn't surface API list prices
     # and computing them ourselves would require maintaining a price table.

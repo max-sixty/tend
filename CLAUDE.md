@@ -56,12 +56,18 @@ and rendered into each workflow.
 ```
 tend/
 ├── .claude-plugin/
-│   └── marketplace.json  # Lists both plugins
+│   └── marketplace.json  # Claude Code marketplace — lists both plugins
+├── .agents/plugins/
+│   └── marketplace.json  # Codex marketplace — lists tend-ci-runner
 ├── plugins/
 │   ├── install-tend/     # User-facing plugin (setup skill)
 │   └── tend-ci-runner/   # CI plugin (review, triage, ci-fix, etc.)
+│       ├── .codex-plugin/  # Codex plugin manifest
 │       └── scripts/      # Helper scripts (survey, run listing)
-├── action.yaml           # Composite action — the stable interface
+├── action.yaml           # Claude harness composite action
+├── codex/
+│   ├── action.yaml       # Codex harness composite action
+│   └── agents-tail.md    # AGENTS.md appendix for Codex
 ├── generator/            # Python package (uvx tend@latest), hatchling build
 │   ├── src/tend/
 │   │   ├── config.py     # Reads .config/tend.yaml
@@ -256,8 +262,9 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 
 ## Agent-driven vs deterministic steps
 
-Tend's workflows invoke Claude through `max-sixty/tend@v1`. When adding new
-capability, split work along this line:
+Tend's workflows invoke the agent through the harness-specific composite
+action (`max-sixty/tend@v1` for Claude, `max-sixty/tend/codex@v1` for
+Codex). When adding new capability, split work along this line:
 
 - **The agent drives diagnostics and remediation.** Once the action is
   running, put logic into the relevant skill (or a script the skill calls —

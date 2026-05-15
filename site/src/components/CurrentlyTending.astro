@@ -5,10 +5,7 @@
 // runs. Hidden only when both requests fail.
 ---
 
-<a id="now-tending" class="now-tending" href="#recent-activity" data-state="loading">
-  <span class="now-dot now-dot-idle" aria-hidden="true"></span>
-  <span>&nbsp;</span>
-</a>
+<a id="currently-tending" class="currently-tending" href="#recent-activity" data-state="loading" data-pulse="idle">&nbsp;</a>
 
 <script>
   import { fetchJson, liveData } from "../lib/api";
@@ -31,18 +28,21 @@
     comments?: Bucket;
   }
 
-  function paint(el: HTMLElement, state: "live" | "idle", text: string): HTMLSpanElement {
-    const dot = document.createElement("span");
-    dot.className = `now-dot now-dot-${state}`;
-    const label = document.createElement("span");
-    label.textContent = text;
-    el.replaceChildren(dot, label);
-    return label;
+  // Drop the org — the pulse already has plenty to say. Mirrors Activity.astro.
+  function shortRepo(repo: string): string {
+    const i = repo.indexOf("/");
+    return i === -1 ? repo : repo.slice(i + 1);
+  }
+
+  function paint(el: HTMLElement, state: "live" | "idle", text: string): HTMLElement {
+    el.dataset.pulse = state;
+    el.textContent = text;
+    return el;
   }
 
   liveData<{ currently_tending?: Run[] }>(
     "/currently-tending",
-    "now-tending",
+    "currently-tending",
     async (data, el) => {
       const runs = data?.currently_tending ?? [];
       if (runs.length > 0) {
@@ -57,9 +57,10 @@
         const startedMs = Date.parse(r.started_at);
         const buildText = () => {
           const elapsed = elapsedTime(r.started_at);
+          const repo = shortRepo(r.repo);
           return elapsed
-            ? `currently tending ${r.repo} · ${detail} · ${elapsed}${more}`
-            : `currently tending ${r.repo} · ${detail}${more}`;
+            ? `currently tending ${repo} · ${detail} · ${elapsed}${more}`
+            : `currently tending ${repo} · ${detail}${more}`;
         };
         const label = paint(el, "live", buildText());
         if (!Number.isNaN(startedMs)) {

@@ -61,8 +61,26 @@ Read the triggering comment, the PR/issue description, the diff (for PRs), and r
 
 - **Secrets**: Never run commands that expose secrets (`env`, `printenv`, `set`, `export`, `cat`/`echo` on credential files). Never include tokens or credentials in responses or comments.
 - **Merging**: Never merge PRs or enable auto-merge (`gh pr merge`, `gh pr merge --auto`). PRs are proposals — a maintainer decides when to merge.
-- **Scope**: Do not create issues, PRs, or comments in repositories outside the organization, unless the target repo explicitly welcomes AI-created issues (e.g., in its CONTRIBUTING guide).
+- **Scope**: PRs, pushes, and comments on existing threads in other repos are off-limits. Filing fresh issues in other repos follows **Filing Issues in Other Repos** below.
 - **Hanging commands**: Never use `gh run watch` or `gh pr checks --watch` — both hang indefinitely. Poll with `gh pr checks` in a loop instead.
+
+## Filing Issues in Other Repos
+
+Default: file an issue in the current repo asking for permission to file in the target. On maintainer approval, file in the target.
+
+The adopter's `running-tend` overlay may grant a standing exception for **agent-equipped** targets — repos that run their own coding agent. Signals:
+
+- `.github/workflows/tend-*.yaml` present (the target uses tend).
+- A workflow invokes `anthropics/claude-code-action` or another coding-agent action.
+- Recent issues or PRs authored by a bot account, with no human pushback in the thread.
+
+Two or three convergent signals are enough; borderline cases revert to the default. Without an explicit opt-in in `running-tend`, the default also applies.
+
+Whether filed direct or post-approval, the issue body includes:
+
+- Problem statement: what fires, where, under what conditions.
+- Evidence: run links; cost/duration if relevant.
+- Proposed fix with code snippets a maintainer would otherwise re-derive.
 
 ## PR Creation
 
@@ -355,7 +373,7 @@ Always use markdown links for files, issues, PRs, and docs. **Any link containin
 
 **If a Bash-tool command string contains a literal exclamation mark — issue body, PR body, comment body, jq script, markdown heredoc, anything — use the Write tool. Heredocs and quoting do not save you.** The Bash tool rewrites every exclamation mark to a literal backslash-bang before bash parses the command, so a greeting like "Thanks for the suggestion!" renders as "Thanks for the suggestion\!" in the posted comment. Quoting and heredoc form don't matter: `<< 'EOF'`, `<<EOF`, plain single-quoted, and double-quoted arguments all lose the character. Use the Write tool for any issue body, PR body, or comment body containing an exclamation mark, then pass the file to `gh issue create` / `gh issue edit` / `gh pr create` / `gh pr edit` / `gh issue comment` / `gh pr comment` via `--body-file`. Code references in survey or triage bodies are a common trap — a body that quotes `eprintln!(...)`, `assert!(...)`, `<!-- ... -->`, or `!=` and is composed via `gh issue create --body "$(cat <<EOF ... EOF)"` ships visibly corrupted backslash-bang sequences. The same trap applies to `jq` and `--jq` filters with `!=` — either avoid the `!=` operator (rephrase as `== "x" | not`), filter client-side after fetching, or load the jq script from a file written with the Write tool via `jq -f`.
 
-**Inside `<<'EOF' ... EOF` heredocs, leave backticks bare — do not escape them.** Single-quoted heredocs disable command substitution, so `\`` is wrong: the backslash survives as data and renders as a literal backslash in front of every backtick in the posted body (`` \`foo\` `` instead of `` `foo` ``). This is a model habit, not a Bash-tool preprocessor rewrite — the corruption is authored, not injected. If a body contains many code spans, use the Write tool with `--body-file` rather than relying on careful unescaping.
+**Inside `<<'EOF' ... EOF` heredocs, leave backticks bare — do not escape them.** Single-quoted heredocs disable command substitution, so `\`` is wrong: the backslash survives as data and renders as a literal backslash in front of every backtick in the posted body (`` \`foo\` `` instead of `` `foo` ``). This is a model habit, not a Bash-tool preprocessor rewrite — the corruption is authored, not injected. **Nested fenced code blocks hit the same shape.** When a body contains a fenced block inside another fenced section, the model often escapes the inner fence (`` \`\`\`bash ``) "to prevent it from closing the outer fence early"; the heredoc preserves those backslashes and the inner block ships with visible `` \`\`\` `` and `` \`foo\` `` in the rendered body. The correct idiom is a **longer outer fence** — four or five backticks outside, three inside — so the inner three-backtick fence renders intact without escaping. If a body contains many code spans or nested fenced blocks, use the Write tool with `--body-file` rather than relying on careful unescaping (note that Write preserves data verbatim, so authoring with bare backticks still applies).
 
 `gh pr create` / `gh pr edit` / `gh issue create` / `gh issue edit` have no `--title-file` flag, so a title containing an exclamation mark (e.g. the conventional-commits breaking-change marker in a title like "feat(hooks)!: rename …") hits the same rewrite and ships a visibly corrupted title. Write the title with the Write tool and pass it via command substitution — `$(cat …)` is evaluated by bash after the preprocessor's string scan, so the exclamation mark stays literal:
 
@@ -533,20 +551,9 @@ Do **not** propose when:
 - Confidence that the feedback generalizes is low — ask for clarification instead
 - The feedback comes from a non-maintainer — check `author_association` and skip the skill PR. Non-maintainers can raise preferences, but only a maintainer authorizes codifying them. If the pattern is worth capturing, note it in a reply and let a maintainer confirm.
 
-### Bundled-skill defects: ask permission to file in tend
+### Bundled-skill defects
 
-When the correction identifies a gap or bug in a **bundled** skill — the same root cause would fire in every tend consumer — open an issue in the current repo asking for permission to file the same issue in tend. On maintainer approval, open the tend issue.
-
-Signals:
-
-- The fix reads as generic guidance that would apply to any consumer.
-- The behavior being corrected comes from bundled skill text.
-
-Include in the permission request (and reuse verbatim in the tend issue once approved):
-
-- Problem statement: what fires, in which bundled skill, under what conditions.
-- Evidence: run links; cost/duration if relevant.
-- Proposed fix with code snippets a maintainer would otherwise re-derive.
+When the correction identifies a gap or bug in a **bundled** skill — the same root cause would fire in every tend consumer — the fix belongs in tend, not in this overlay. Signals: the fix reads as generic guidance that would apply to any consumer; the behavior being corrected comes from bundled skill text. File against tend per **Filing Issues in Other Repos** above.
 
 ### How to propose
 
