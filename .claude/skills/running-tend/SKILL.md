@@ -11,6 +11,14 @@ Repo-specific guidance for tend workflows running on tend itself. The generic
 skills (`tend-running-in-ci`, `tend-review`, `tend-triage`, etc.) provide the
 workflow framework; this skill adds tend conventions.
 
+## Filing issues in other repos
+
+Standing exception granted: file directly in agent-equipped targets without
+asking permission here first. Most tend consumers in `data/consumers.json`
+qualify, as do other Claude-Code-action-using repos. The default rule (open
+an issue here asking permission first) still applies when the target shows no
+agent signals.
+
 ## Non-standard workflows
 
 Tend has Claude-powered workflows beyond the generated `tend-*` set:

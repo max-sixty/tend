@@ -61,8 +61,26 @@ Read the triggering comment, the PR/issue description, the diff (for PRs), and r
 
 - **Secrets**: Never run commands that expose secrets (`env`, `printenv`, `set`, `export`, `cat`/`echo` on credential files). Never include tokens or credentials in responses or comments.
 - **Merging**: Never merge PRs or enable auto-merge (`gh pr merge`, `gh pr merge --auto`). PRs are proposals — a maintainer decides when to merge.
-- **Scope**: Do not create issues, PRs, or comments in repositories outside the organization, unless the target repo explicitly welcomes AI-created issues (e.g., in its CONTRIBUTING guide).
+- **Scope**: PRs, pushes, and comments on existing threads in other repos are off-limits. Filing fresh issues in other repos follows **Filing Issues in Other Repos** below.
 - **Hanging commands**: Never use `gh run watch` or `gh pr checks --watch` — both hang indefinitely. Poll with `gh pr checks` in a loop instead.
+
+## Filing Issues in Other Repos
+
+Default: file an issue in the current repo asking for permission to file in the target. On maintainer approval, file in the target.
+
+The adopter's `running-tend` overlay may grant a standing exception for **agent-equipped** targets — repos that run their own coding agent. Signals:
+
+- `.github/workflows/tend-*.yaml` present (the target uses tend).
+- A workflow invokes `anthropics/claude-code-action` or another coding-agent action.
+- Recent issues or PRs authored by a bot account, with no human pushback in the thread.
+
+Two or three convergent signals are enough; borderline cases revert to the default. Without an explicit opt-in in `running-tend`, the default also applies.
+
+Whether filed direct or post-approval, the issue body includes:
+
+- Problem statement: what fires, where, under what conditions.
+- Evidence: run links; cost/duration if relevant.
+- Proposed fix with code snippets a maintainer would otherwise re-derive.
 
 ## PR Creation
 
@@ -355,6 +373,8 @@ Always use markdown links for files, issues, PRs, and docs. **Any link containin
 
 **GitHub URLs — read `$GITHUB_REPOSITORY` from the environment, don't hand-type the owner.** The model reliably guesses wrong — past comments have shipped with the wrong owner (e.g. `anthropics/<repo>` on a repo not owned by Anthropic). Before posting, scan the composed body for `github.com/` and confirm every owner matches `$GITHUB_REPOSITORY`.
 
+**Authoring fenced bodies with backticks.** When a body contains a fenced code block, the model often defensively escapes the inner fence (`` \`\`\`bash ``) "to prevent it from closing the outer fence early"; the same instinct can produce `` \`foo\` `` for inline spans. Those backslashes survive into the rendered body as literal `\` characters. Author with bare backticks. For nested fenced blocks, use a **longer outer fence** — four or five backticks outside, three inside — so the inner three-backtick fence renders intact without escaping. The Write tool preserves data verbatim, so the same authoring rule applies whether you compose with the Write tool or inline; Write just removes shell-quoting from the equation.
+
 - **File-level link (no `#L` anchor)**: `blob/main/src/foo.rs` is fine
 - **Line reference**: `blob/<sha>/src/foo.rs#L42` — commit SHA required, never `blob/main/...#L42`
 - **Issues/PRs**: `#123` shorthand
@@ -517,20 +537,9 @@ Do **not** propose when:
 - Confidence that the feedback generalizes is low — ask for clarification instead
 - The feedback comes from a non-maintainer — check `author_association` and skip the skill PR. Non-maintainers can raise preferences, but only a maintainer authorizes codifying them. If the pattern is worth capturing, note it in a reply and let a maintainer confirm.
 
-### Bundled-skill defects: ask permission to file in tend
+### Bundled-skill defects
 
-When the correction identifies a gap or bug in a **bundled** skill — the same root cause would fire in every tend consumer — open an issue in the current repo asking for permission to file the same issue in tend. On maintainer approval, open the tend issue.
-
-Signals:
-
-- The fix reads as generic guidance that would apply to any consumer.
-- The behavior being corrected comes from bundled skill text.
-
-Include in the permission request (and reuse verbatim in the tend issue once approved):
-
-- Problem statement: what fires, in which bundled skill, under what conditions.
-- Evidence: run links; cost/duration if relevant.
-- Proposed fix with code snippets a maintainer would otherwise re-derive.
+When the correction identifies a gap or bug in a **bundled** skill — the same root cause would fire in every tend consumer — the fix belongs in tend, not in this overlay. Signals: the fix reads as generic guidance that would apply to any consumer; the behavior being corrected comes from bundled skill text. File against tend per **Filing Issues in Other Repos** above.
 
 ### How to propose
 

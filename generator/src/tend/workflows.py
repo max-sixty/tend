@@ -586,6 +586,25 @@ jobs:
           EVENT_TS: ${{{{ github.event.comment.created_at || github.event.review.submitted_at || github.event.issue.updated_at }}}}
 
 {agent}
+
+      - name: Remove eyes reaction
+        if: |
+          always()
+          && github.event.comment
+          && contains(github.event.comment.body, '@{bn}')
+        run: |
+          for KIND in issues pulls; do
+            REACTION_ID=$(gh api "repos/$REPO/$KIND/comments/$COMMENT_ID/reactions?content=eyes" \\
+              --jq ".[] | select(.user.login == \\"$BOT_NAME\\") | .id" 2>/dev/null | head -n1)
+            if [ -n "$REACTION_ID" ]; then
+              gh api -X DELETE "repos/$REPO/$KIND/comments/$COMMENT_ID/reactions/$REACTION_ID" 2>/dev/null && break
+            fi
+          done
+        env:
+          REPO: ${{{{ github.repository }}}}
+          COMMENT_ID: ${{{{ github.event.comment.id }}}}
+          BOT_NAME: {bn}
+          GITHUB_TOKEN: {bt}
 """
     return GeneratedWorkflow(filename="tend-mention.yaml", content=content)
 

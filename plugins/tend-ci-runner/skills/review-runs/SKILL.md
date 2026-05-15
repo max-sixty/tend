@@ -202,7 +202,7 @@ Improvements target **repo-local** files by default:
 - **`.config/tend.yaml`** — adjust workflow configuration if the problem is structural (e.g., wrong cron schedule, missing setup step).
 - **`CLAUDE.md`** — add project-specific guidance if the problem is about code conventions or patterns the bot keeps getting wrong.
 
-**Bundled-skill defects — ask permission before filing in tend.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — open an issue in this repo requesting permission to file the same issue in tend. Include problem statement, run links, and proposed fix with code snippets (reused verbatim once approved). Signal: the fix reads as generic guidance that would apply to any consumer. On maintainer approval, open the tend issue.
+**Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per **Filing Issues in Other Repos** in `running-in-ci`. Signal: the fix reads as generic guidance that would apply to any consumer.
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 

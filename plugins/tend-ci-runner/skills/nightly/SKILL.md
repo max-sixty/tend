@@ -117,7 +117,13 @@ Used by both Step 3 (applied to recent diffs) and Step 5 (applied to full files)
 Regenerate the tend workflow files and open a PR if anything changed. The checkout's `.github/` directory may be mounted read-only under the sandbox (protecting bots from modifying their own workflows in place), so do the regeneration in a git worktree under `$TMPDIR`, which is writable:
 
 ```bash
-git worktree add "$TMPDIR/tend-update-workflows" -b tend/update-workflows HEAD
+# Base the worktree on the open update-workflows PR if one exists, so the
+# regen produces only the incremental delta. Falls back to HEAD when no PR
+# is open (first regen, or after the prior PR merged). `-B` resets a stale
+# local branch from a prior failed attempt rather than rejecting it.
+git fetch origin tend/update-workflows 2>/dev/null || true
+BASE=$(git rev-parse --verify origin/tend/update-workflows 2>/dev/null || git rev-parse HEAD)
+git worktree add "$TMPDIR/tend-update-workflows" -B tend/update-workflows "$BASE"
 cd "$TMPDIR/tend-update-workflows"
 
 # Capture the stamped tend version before regenerating, so the next bash
