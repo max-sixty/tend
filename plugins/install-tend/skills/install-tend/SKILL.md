@@ -1,6 +1,6 @@
 ---
 name: install-tend
-description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the harness auth token (Claude OAuth or OpenAI API/Codex auth.json). Use when setting up tend on a new repo or when asked to install/configure tend.
+description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the harness auth token (Claude OAuth or OpenAI Codex auth.json/API key). Use when setting up tend on a new repo or when asked to install/configure tend.
 ---
 
 # Install Tend
@@ -32,10 +32,12 @@ Before running step 1, choose the harness and lay out the plan:
     to Claude Code and claude.ai only — `claude-code-action` is a
     third-party harness, so subscription auth may be blocked depending
     on enforcement. Confirm the user understands this before picking.
-  - **Codex (OpenAI)** — uses an OpenAI API key (billed per token) or
-    a ChatGPT Plus/Pro `auth.json` (subscription-funded but officially
-    discouraged for public repos). Don't recommend the `auth.json`
-    path for an open-source repo.
+  - **Codex (OpenAI)** — uses a ChatGPT Plus/Pro/Business `auth.json`
+    (flat subscription rate, capped by the plan's limits; recommended)
+    or an OpenAI API key (billed per token). On public repos the
+    `auth.json` must come from a ChatGPT account dedicated to the bot,
+    since the token has read+write access to the account that minted
+    it.
 - List the steps you'll be running (the section headings below: Create
   config → Generate workflows → Branch protection → Skill overlay →
   Badge → Bot account → Harness auth → Bot token → Grant access →
@@ -373,34 +375,43 @@ Codex supports two auth modes. The `tend/codex` action prefers
 
 Ask via `AskUserQuestion`:
 
-- **OpenAI API key (recommended)** — billed per token via the user's
-  OpenAI account. Works for any repo, public or private. The user
-  generates the key at `https://platform.openai.com/api-keys`.
-- **ChatGPT subscription (auth.json)** — funds the run from a
-  ChatGPT Plus/Pro/Business plan. OpenAI explicitly discourages this
-  for public repos (the token has read+write access to the user's
-  whole ChatGPT account, and CI runs print it in the proxy logs).
-  Only offer this option when the repo is private; refuse and
-  recommend API key for public repos.
+- **ChatGPT subscription (auth.json, recommended)** — billed at the
+  Plus/Pro/Business subscription's flat rate, capped by the plan's
+  limits. API billing scales per token instead, which on a busy repo
+  adds up fast. The token carries read+write access to the ChatGPT
+  account that minted it, so **mint `auth.json` from a dedicated bot
+  account that has no personal chat history** — required for public
+  repos, recommended for private. With a clean account the worst-case
+  leak is subscription-quota burn until the next rotation, similar in
+  scope to an `OPENAI_API_KEY` leak (agent-runtime access only, no
+  GitHub).
+- **OpenAI API key** — billed per token. Works for any repo. Pick
+  this if the user doesn't want to mint a separate ChatGPT account.
+  Key from `https://platform.openai.com/api-keys`.
 
-For **API key**:
+For **auth.json** (recommended):
+
+Ask via `AskUserQuestion` which account the user will sign in as:
+
+- **Dedicated bot account (recommended)** — no personal data behind
+  the token; a leak narrows to subscription-quota burn.
+- **Personal account** — exposes the user's full ChatGPT account if
+  leaked.
+
+Refuse the personal option on public repos; if the user won't mint a
+dedicated account, skip to **API key** below. On private repos
+accept either, and honor the answer in step 1.
 
 ```bash
-gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q OPENAI_API_KEY && echo "SET" || echo "NOT SET"
+gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q CODEX_AUTH_JSON && echo "SET" || echo "NOT SET"
 ```
 
-If not set, have the user paste the `sk-…` key. Store it:
-
-```bash
-gh secret set OPENAI_API_KEY --repo "$REPO" --body "$KEY"
-```
-
-For **auth.json** (private repos only, after confirming the user
-understands the trade-off):
+If not set:
 
 1. On a trusted local machine, the user installs codex
-   (`npm i -g @openai/codex`) and runs `codex login`. Codex writes
-   `~/.codex/auth.json` with the refresh-tokened OAuth payload.
+   (`npm i -g @openai/codex`) and runs `codex login`, signing in as
+   the account chosen above. Codex writes `~/.codex/auth.json` with
+   the refresh-tokened OAuth payload.
 2. Have the user run `cat ~/.codex/auth.json` and paste the
    full JSON back. Then:
 
@@ -414,6 +425,18 @@ understands the trade-off):
    ~7 days (the refresh window closes around 8 days). Codex refreshes
    on use, but a long-idle bot can expire — re-run `codex login` and
    re-set the secret if the bot starts failing 401.
+
+For **API key**:
+
+```bash
+gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q OPENAI_API_KEY && echo "SET" || echo "NOT SET"
+```
+
+If not set, have the user paste the `sk-…` key. Store it:
+
+```bash
+gh secret set OPENAI_API_KEY --repo "$REPO" --body "$KEY"
+```
 
 ## 8. Bot token and secret
 
@@ -531,7 +554,7 @@ line picks the row that matches the chosen harness):
 - [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` secret set
-- [ ] Harness auth (codex): `OPENAI_API_KEY` or `CODEX_AUTH_JSON` secret set
+- [ ] Harness auth (codex): `CODEX_AUTH_JSON` (subscription, recommended) or `OPENAI_API_KEY` secret set
 - [ ] Bot token: `BOT_TOKEN` secret set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot bio: profile bio reflects the authorization stance

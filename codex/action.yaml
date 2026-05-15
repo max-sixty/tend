@@ -13,16 +13,18 @@ inputs:
     required: false
     default: ""
     description: >-
-      OpenAI API key for the Responses API. One of openai_api_key or
-      codex_auth_json must be set; codex_auth_json takes precedence when both
-      are present.
+      OpenAI API key for the Responses API, billed per token. One of
+      openai_api_key or codex_auth_json must be set; codex_auth_json takes
+      precedence when both are present.
   codex_auth_json:
     required: false
     default: ""
     description: >-
-      Contents of ~/.codex/auth.json — funds the run from a ChatGPT
-      Plus/Pro/Business subscription. OpenAI's docs explicitly discourage
-      this for public repos. Takes precedence over openai_api_key when set.
+      Contents of ~/.codex/auth.json — funds the run from a flat-rate
+      Plus/Pro/Business subscription. Takes precedence over openai_api_key
+      when set. Carries read+write access to the minting ChatGPT account;
+      on public repos mint from a dedicated bot account
+      (see docs/security-model.md).
   bot_name:
     required: true
     description: GitHub username of the bot account

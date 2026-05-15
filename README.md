@@ -156,15 +156,16 @@ Repo secrets depend on the harness:
 | Harness   | Required secrets                                                                                                |
 | -------- | --------------------------------------------------------------------------------------------------------------- |
 | `claude` | `BOT_TOKEN` + `CLAUDE_CODE_OAUTH_TOKEN`                                                                          |
-| `codex`  | `BOT_TOKEN` + one of `OPENAI_API_KEY` (recommended) or `CODEX_AUTH_JSON` (subscription, discouraged on public repos) |
+| `codex`  | `BOT_TOKEN` + one of `CODEX_AUTH_JSON` (subscription, recommended) or `OPENAI_API_KEY` (pay-per-token) |
 
 `BOT_TOKEN` is the bot account's PAT — classic or fine-grained (see
 [example config](docs/tend.example.yaml) for scopes). `CLAUDE_CODE_OAUTH_TOKEN`
 is a Claude Code OAuth token via PKCE flow (not an API key from
-console.anthropic.com). `OPENAI_API_KEY` is a standard OpenAI API key.
-`CODEX_AUTH_JSON` is the literal contents of `~/.codex/auth.json` after
-running `codex login` locally — OpenAI's docs explicitly discourage this
-path for public repos.
+console.anthropic.com). `CODEX_AUTH_JSON` is the contents of
+`~/.codex/auth.json` after `codex login` — funds the runs from a
+flat-rate ChatGPT subscription. `OPENAI_API_KEY` is a standard OpenAI
+API key — pay-per-token. See [Codex (alternative)](#codex-alternative)
+below for the trade-off and the public-repo gate.
 
 All other options — secret name overrides, setup steps, protected branches,
 workflow overrides, schedules — are documented in
@@ -209,13 +210,15 @@ Installs `@openai/codex` on the runner and invokes `codex exec` against a
 bundled `AGENTS.md` that teaches it to resolve tend's slash commands to
 skill markdown. Two auth modes:
 
-- **`OPENAI_API_KEY`** — standard API billing; works for any repo.
-  Recommended.
-- **`CODEX_AUTH_JSON`** — `~/.codex/auth.json` shipped as a secret, billed
-  to a ChatGPT Plus/Pro/Business subscription. OpenAI explicitly
-  discourages this on public repos because the token has read+write access
-  to the entire ChatGPT account; only use on private repos and rotate
-  often (the refresh window closes around 8 days of inactivity).
+- **`CODEX_AUTH_JSON`** (recommended) — `~/.codex/auth.json` shipped
+  as a secret, billed at the Plus/Pro/Business subscription's flat
+  rate (capped by the plan's limits). The token has read+write access
+  to the ChatGPT account that minted it; on public repos it must
+  come from a dedicated bot account, recommended on private. Rotate
+  by re-running `codex login` and re-setting the secret — the refresh
+  window closes around 8 days of inactivity.
+- **`OPENAI_API_KEY`** — pay-per-token API billing. Works for any
+  repo; pick this to avoid a separate ChatGPT account.
 
 ## Badge
 
