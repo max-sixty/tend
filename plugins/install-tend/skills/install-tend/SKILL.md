@@ -445,18 +445,13 @@ If not set:
    is how the user authenticates as the bot without juggling browser
    sessions). Codex writes `/tmp/codex-tend/auth.json` with the
    refresh-tokened OAuth payload.
-2. Have the user run `cat /tmp/codex-tend/auth.json` and paste the
-   full JSON back. Then:
+2. Wait for the user to confirm they've signed in. Then read the
+   file directly and set the secret:
 
    ```bash
-   gh secret set CODEX_AUTH_JSON --repo "$REPO" --body "$(cat <<'EOF'
-   <pasted-json>
-   EOF
-   )"
+   gh secret set CODEX_AUTH_JSON --repo "$REPO" < /tmp/codex-tend/auth.json
+   rm -rf /tmp/codex-tend
    ```
-
-   After the secret is set, `rm -rf /tmp/codex-tend` to clear the
-   on-disk copy of the refresh token.
 3. Add a TODO in the repo's tracking system: rotate auth.json every
    ~7 days (the refresh window closes around 8 days). Codex refreshes
    on use, but a long-idle bot can expire — re-run the device-code
