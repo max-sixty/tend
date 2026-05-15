@@ -27,11 +27,12 @@ Before running step 1, choose the harness and lay out the plan:
 
 - Ask via `AskUserQuestion` which harness to use:
   - **Claude (Anthropic)** — uses a Claude Code OAuth token (Max/Team
-    subscription) or a console.anthropic.com API key. Note: as of
-    2026-02, Anthropic restricts OAuth tokens from Free/Pro/Max plans
-    to Claude Code and claude.ai only — `claude-code-action` is a
-    third-party harness, so subscription auth may be blocked depending
-    on enforcement. Confirm the user understands this before picking.
+    subscription) or a console.anthropic.com API key. Note: starting
+    2026-06-16, Anthropic bills non-interactive Claude Code runs (CI,
+    headless, batch) at API rates rather than against Max/Pro/Team
+    subscriptions. After that date, the OAuth path no longer funds CI
+    runs; the API key path is the only Claude option. Confirm the user
+    understands before picking.
   - **Codex (OpenAI)** — uses an OpenAI API key (billed per token) or
     a ChatGPT Plus/Pro `auth.json` (subscription-funded but officially
     discouraged for public repos). Don't recommend the `auth.json`
@@ -331,15 +332,35 @@ Branch on the harness chosen in Kickoff.
 
 ### 7a. Harness = claude
 
-An OAuth access token from Claude's auth service — uses the user's Claude
-subscription (Max/Team) for billing. Not an API key from console.anthropic.com.
+The Claude action accepts two auth modes; pick whichever the user has.
+The action prefers `CLAUDE_CODE_OAUTH_TOKEN` when both are set.
 
 ```bash
-gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q CLAUDE_CODE_OAUTH_TOKEN && echo "SET" || echo "NOT SET"
+gh secret list --repo "$REPO" --json name --jq '.[].name' \
+  | grep -E -q '^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)$' \
+  && echo "SET" || echo "NOT SET"
 ```
 
-If not set, ask the user via `AskUserQuestion` how to obtain it. Token is
-valid for 1 year. Before offering the CLI option, check:
+If not set, ask via `AskUserQuestion` which auth mode to use:
+
+- **API key (recommended after 2026-06-16)** — `sk-ant-…` from
+  `https://console.anthropic.com/settings/keys`. Billed per token. Works
+  for any repo and is the only Claude path that funds non-interactive
+  CI runs after Anthropic's 2026-06-16 policy change.
+- **OAuth token (subscription)** — `sk-ant-oat01-…` from
+  `claude setup-token`. Funded by a Max/Team subscription before
+  2026-06-16; after that date Anthropic bills these CI runs at API
+  rates regardless. Token is valid for 1 year.
+
+For **API key**:
+
+Have the user paste the `sk-ant-…` key, then store it:
+
+```bash
+gh secret set ANTHROPIC_API_KEY --repo "$REPO" --body "$KEY"
+```
+
+For **OAuth token**: before offering the CLI option, check:
 
 - `command -v claude` — if missing, only offer Manual (point them at
   `https://claude.com/claude-code` to install).
@@ -530,7 +551,7 @@ line picks the row that matches the chosen harness):
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
 - [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub
-- [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` secret set
+- [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
 - [ ] Harness auth (codex): `OPENAI_API_KEY` or `CODEX_AUTH_JSON` secret set
 - [ ] Bot token: `BOT_TOKEN` secret set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted

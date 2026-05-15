@@ -60,6 +60,10 @@ def _claude_token(cfg: Config) -> str:
     return f"${{{{ secrets.{cfg.claude_token_secret} }}}}"
 
 
+def _anthropic_api_key(cfg: Config) -> str:
+    return f"${{{{ secrets.{cfg.anthropic_api_key_secret} }}}}"
+
+
 def _openai_key(cfg: Config) -> str:
     return f"${{{{ secrets.{cfg.openai_key_secret} }}}}"
 
@@ -118,12 +122,14 @@ def _agent_step(
     lines.append(f"{pad}    github_token: {bt}")
 
     if cfg.harness == "claude":
-        ct = _claude_token(cfg)
-        lines.append(f"{pad}    claude_code_oauth_token: {ct}")
+        # Emit both Claude auth inputs unconditionally; the action validates
+        # exactly one is set and forwards both to claude-code-action, which
+        # treats empty as absent. Adopters set just the one they want.
+        lines.append(f"{pad}    claude_code_oauth_token: {_claude_token(cfg)}")
+        lines.append(f"{pad}    anthropic_api_key: {_anthropic_api_key(cfg)}")
     else:
-        # Emit both Codex auth inputs unconditionally; the codex action picks
-        # auth.json over api-key when both are configured. Adopters set just
-        # the one they want — the other renders as an empty string.
+        # Same pattern for Codex: the codex action picks auth.json over api-key
+        # when both are configured.
         lines.append(f"{pad}    openai_api_key: {_openai_key(cfg)}")
         lines.append(f"{pad}    codex_auth_json: {_codex_auth_json(cfg)}")
         if cfg.effort:

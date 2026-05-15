@@ -203,11 +203,31 @@ def test_custom_secrets(tmp_path: Path) -> None:
         secrets:
           bot_token: MY_BOT_PAT
           claude_token: MY_CLAUDE
+          anthropic_api_key: MY_API_KEY
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     for wf in generate_all(cfg):
         assert "MY_BOT_PAT" in wf.content, f"{wf.filename} missing custom bot token"
         assert "MY_CLAUDE" in wf.content, f"{wf.filename} missing custom claude token"
+        assert "MY_API_KEY" in wf.content, (
+            f"{wf.filename} missing custom anthropic_api_key secret"
+        )
+
+
+def test_claude_workflows_emit_both_auth_inputs(tmp_path: Path) -> None:
+    """Claude agent step references both OAuth token and API key secrets."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    for wf in generate_all(cfg):
+        assert (
+            "claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"
+            in wf.content
+        ), f"{wf.filename} missing claude_code_oauth_token input"
+        assert "anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}" in wf.content, (
+            f"{wf.filename} missing anthropic_api_key input"
+        )
+        assert "openai_api_key" not in wf.content, (
+            f"{wf.filename} should not reference openai_api_key under claude"
+        )
 
 
 def test_custom_prompt(tmp_path: Path) -> None:

@@ -322,8 +322,8 @@ def test_check_full_pipeline_with_mocked_gh(
 
     assert result.exit_code == 0
     assert "FAIL" not in result.output
-    # All four check types should report PASS
-    assert result.output.count("PASS") == 4
+    # branch-protection + bot-permission + secrets + claude-auth + allowlist = 5
+    assert result.output.count("PASS") == 5
 
 
 def test_check_full_pipeline_branch_not_protected(
