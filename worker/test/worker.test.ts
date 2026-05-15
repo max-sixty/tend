@@ -5,8 +5,10 @@ const originalFetch = globalThis.fetch;
 interface RunsResponse {
   workflow_runs: Array<{
     name: string;
+    display_title?: string;
     run_started_at: string;
     html_url: string;
+    pull_requests?: Array<{ number: number }>;
   }>;
 }
 
@@ -37,8 +39,10 @@ describe("fetchRepoRuns", () => {
           workflow_runs: [
             {
               name: "tend-review",
+              display_title: "Fix the bug",
               run_started_at: "2026-05-10T17:00:00Z",
               html_url: "https://github.com/o/r/actions/runs/1",
+              pull_requests: [{ number: 42 }],
             },
             {
               name: "ci",
@@ -47,8 +51,18 @@ describe("fetchRepoRuns", () => {
             },
             {
               name: "tend-triage",
+              display_title: "Bug: thing is broken",
               run_started_at: "2026-05-10T17:02:00Z",
               html_url: "https://github.com/o/r/actions/runs/3",
+              pull_requests: [],
+            },
+            {
+              name: "tend-nightly",
+              // schedule runs have display_title === name; should drop it.
+              display_title: "tend-nightly",
+              run_started_at: "2026-05-10T17:03:00Z",
+              html_url: "https://github.com/o/r/actions/runs/4",
+              pull_requests: [],
             },
           ],
         } satisfies RunsResponse,
@@ -61,14 +75,23 @@ describe("fetchRepoRuns", () => {
       {
         repo: "o/r",
         workflow: "tend-review",
+        display_title: "Fix the bug",
+        pr_number: 42,
         started_at: "2026-05-10T17:00:00Z",
         run_url: "https://github.com/o/r/actions/runs/1",
       },
       {
         repo: "o/r",
         workflow: "tend-triage",
+        display_title: "Bug: thing is broken",
         started_at: "2026-05-10T17:02:00Z",
         run_url: "https://github.com/o/r/actions/runs/3",
+      },
+      {
+        repo: "o/r",
+        workflow: "tend-nightly",
+        started_at: "2026-05-10T17:03:00Z",
+        run_url: "https://github.com/o/r/actions/runs/4",
       },
     ]);
   });

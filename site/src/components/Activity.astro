@@ -56,6 +56,8 @@ const MAX_ROWS = 12;
   interface Run {
     repo: string;
     workflow: string;
+    display_title?: string;
+    pr_number?: number;
     started_at: string;
     run_url: string;
   }
@@ -83,13 +85,26 @@ const MAX_ROWS = 12;
   liveData<Activity>("/activity", "recent-activity", async (data) => {
     const tending = await fetchJson<{ currently_tending?: Run[] }>("/currently-tending");
     const tendingRows: Array<RecentItem & { kind: Kind }> = (tending?.currently_tending ?? []).map(
-      (r) => ({
-        kind: "tending" as const,
-        repo: r.repo,
-        title: r.workflow.replace(/^tend-/, ""),
-        url: r.run_url,
-        at: r.started_at,
-      }),
+      (r) => {
+        const workflow = r.workflow.replace(/^tend-/, "");
+        // Show what the bot is working on, not just the job kind. PR-triggered
+        // runs (review/mention on a PR) get "review · #N PR title"; issue-
+        // triggered runs (triage, mention on an issue) get "triage · issue
+        // title". Scheduled runs (nightly/weekly) have no target — fall back
+        // to the job kind alone.
+        const detail = r.pr_number != null && r.display_title
+          ? `${workflow} · #${r.pr_number} ${r.display_title}`
+          : r.display_title
+            ? `${workflow} · ${r.display_title}`
+            : workflow;
+        return {
+          kind: "tending" as const,
+          repo: r.repo,
+          title: detail,
+          url: r.run_url,
+          at: r.started_at,
+        };
+      },
     );
 
     const rows: Array<RecentItem & { kind: Kind }> = [
