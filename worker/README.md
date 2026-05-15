@@ -224,3 +224,10 @@ A cold cache miss costs the route's full fanout (N actions/runs calls for
 `/currently-tending`, 4·N Search calls for `/activity`). The freshness
 budget bounds how often that happens: at most one cold refresh per budget
 per colo, under any traffic level.
+
+The zone's **Browser Cache TTL** must be set to "Respect Existing Headers"
+(value `0`). Any positive value is treated as a floor on outgoing
+`max-age` — the Free plan's 4 h default silently rewrites the response on
+the way out, pinning browsers to the first snapshot they fetched and
+defeating the per-route `max-age` chosen here. `s-maxage` is left alone,
+so the colo cache stays correct; only the browser view is affected.

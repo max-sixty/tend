@@ -670,9 +670,10 @@ function jsonResponse(data: unknown, env: Env, ttlSeconds: number): Response {
         // Browsers revalidate after the freshness budget (`max-age`); the
         // colo cache, a shared cache, keeps the entry for STALE_SERVE_FACTOR
         // budgets (`s-maxage`) so it stays warm for stale-while-revalidate.
-        // Assumes Cloudflare's zone cache isn't also storing this route — it
-        // isn't on a vanilla Workers custom domain, but adding a Cache Rule
-        // here would honor `s-maxage` and break SWR by shadowing the Worker.
+        // Requires the zone's Browser Cache TTL to be "Respect Existing
+        // Headers" — any positive value there acts as a floor on outgoing
+        // `max-age`, so a 4 h default silently inflates this header and
+        // pins browsers to whichever snapshot they fetched first.
         "Cache-Control":
           `public, max-age=${ttlSeconds}, ` +
           `s-maxage=${ttlSeconds * STALE_SERVE_FACTOR}`,

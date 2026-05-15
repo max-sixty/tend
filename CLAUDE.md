@@ -6,11 +6,19 @@ completely — old formats should fail with a clear error, not silently parse.
 ## Commands
 
 ```bash
-wt test                                # run pytest in generator/
-uvx tend@latest init                   # regenerate workflows from .config/tend.yaml
-uvx tend@latest init --dry-run         # preview without writing
-uvx tend@latest check                  # verify branch protection, secrets, bot access
+wt test                                               # run pytest in generator/
+wt list statusline --format json | jq -r '.[].url'    # this worktree's dev server URL
+uvx tend@latest init                                  # regenerate workflows from .config/tend.yaml
+uvx tend@latest init --dry-run                        # preview without writing
+uvx tend@latest check                                 # verify branch protection, secrets, bot access
 ```
+
+The Astro dev server starts automatically per worktree via a `wt`
+post-start hook (`.config/wt.toml`) on a deterministic port derived from
+the branch name. Get the URL from
+`wt list statusline --format json | jq -r '.[].url'`; logs land in
+`.git/wt/logs/`. Do not run `npm run dev` — it duplicates the existing
+server on a different port.
 
 ## Architecture
 

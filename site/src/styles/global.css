@@ -23,8 +23,11 @@
   --font-mono:    "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 
   /* Layout */
-  --measure:      62ch;
-  --gutter:       3rem;
+  --measure:        62ch;                                  /* prose readability cap — resolves against the element's own font */
+  --measure-narrow: 48ch;                                  /* taglines, section leads — one cap for short serif intros */
+  --gutter:         3rem;
+  --rail:           7rem;                                  /* margin-note column + gap */
+  --page-width:     50rem;                                 /* rail + measure-in-Inter + 4rem headroom; rem keeps this stable across child font-sizes */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -124,15 +127,15 @@ code {
 }
 
 pre {
-  background: var(--paper-soft);
-  border: 1px solid var(--paper-deep);
-  border-left: 2px solid var(--oak);
-  border-radius: 3px;
-  padding: 1rem 1.2rem;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--oak);
+  padding: 0.2rem 0 0.2rem 1rem;
   overflow-x: auto;
-  line-height: 1.55;
+  line-height: 1.7;
   width: fit-content;
   max-width: 100%;
+  margin: 0 0 1rem;
 }
 pre code {
   background: none;
@@ -141,21 +144,17 @@ pre code {
   color: var(--ink);
 }
 
-hr {
-  border: none;
-  height: 1px;
-  margin: 4rem auto 3rem;
-  width: 50%;
-  background: var(--paper-deep);
-}
-
 /* ---------- Page shell ---------- */
 
 .page {
-  max-width: 1080px;
+  max-width: calc(var(--page-width) + var(--gutter) * 2);
   margin: 0 auto;
   padding: 0.5rem var(--gutter) 6rem;
 }
+
+/* Sections are separated by whitespace rather than visible dividers — the
+   section-eyebrow's leading tick already marks each new block. */
+.page > section:not(.hero) { margin-top: 5rem; }
 
 @media (max-width: 720px) {
   :root { --gutter: 1.5rem; }
@@ -212,7 +211,7 @@ hr {
 
 .site-header {
   padding: 1.6rem var(--gutter);
-  max-width: 1080px;
+  max-width: calc(var(--page-width) + var(--gutter) * 2);
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -235,31 +234,15 @@ hr {
   align-items: center;
   gap: 0.55rem;
   line-height: 1;
+  margin-left: var(--rail);                              /* align to the body rail */
 }
 .site-header .wordmark .logo {
   color: var(--oak);
 }
-.site-header nav {
-  display: flex;
-  gap: 1.8rem;
-}
-
-@media (max-width: 620px) {
-  .site-header {
-    flex-wrap: wrap;
-    gap: 0.5rem 1.2rem;
-  }
-  .site-header nav {
-    flex-wrap: wrap;
-    gap: 0.4rem 1.2rem;
-    font-size: 0.82rem;
-  }
-}
-
 /* ---------- Hero ---------- */
 
 .hero {
-  padding: 2rem 0 1.5rem 7rem;
+  padding: 2rem 0 1.5rem var(--rail);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: clamp(1.5rem, 3vw, 2.5rem);
@@ -285,26 +268,13 @@ hr {
   font-size: 1.35rem;
   line-height: 1.45;
   color: var(--ink-soft);
-  max-width: 32ch;
+  max-width: var(--measure-narrow);
   margin: 0.5rem 0 1.8rem;
   font-style: italic;
 }
 
-.hero .install {
-  display: inline-block;
-  background: transparent;
-  border: none;
-  border-left: 1px solid var(--oak);
-  padding: 0.2rem 0 0.2rem 1rem;
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  color: var(--loam);
-  margin-bottom: 1rem;
-  line-height: 1.7;
-}
-
 .logo-frame {
-  width: clamp(210px, 26vw, 330px);
+  width: clamp(170px, 18vw, 230px);
   display: flex;
   justify-content: center;
   justify-self: center;
@@ -367,7 +337,7 @@ hr {
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--oak-deep);
-  margin: 0 0 0.6rem 7rem;
+  margin: 0 0 0.6rem var(--rail);
   position: relative;
 }
 .section-eyebrow::before {
@@ -387,14 +357,16 @@ hr {
   font-style: italic;
   line-height: 1.3;
   color: var(--ink);
-  margin: 0 0 1rem 7rem;
-  max-width: 48ch;
+  margin: 0 0 1rem var(--rail);
+  max-width: var(--measure-narrow);
 }
 
 @media (max-width: 760px) {
   .section-eyebrow { margin-left: 0; }
   .section-eyebrow::before { left: -1.5rem; }
   .section-lead { margin-left: 0; }
+  .site-header .wordmark,
+  .site-footer .credit { margin-left: 0; }
 }
 
 /* ---------- Stat strip ---------- */
@@ -567,7 +539,7 @@ hr {
   border-top: 1px solid var(--paper-deep);
   margin-top: 5rem;
   padding: 2rem var(--gutter);
-  max-width: 1080px;
+  max-width: calc(var(--page-width) + var(--gutter) * 2);
   margin-left: auto;
   margin-right: auto;
   display: flex;
@@ -588,6 +560,7 @@ hr {
 .site-footer .credit {
   font-family: var(--font-serif);
   font-style: italic;
+  margin-left: var(--rail);                              /* align to the body rail, matching the header */
 }
 
 /* ---------- Misc ---------- */
