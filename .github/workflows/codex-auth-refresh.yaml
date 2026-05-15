@@ -90,7 +90,10 @@ jobs:
             fi
           done
 
-          printf '%s' "$NEW_AUTH" | gh secret set CODEX_AUTH_JSON --repo "$REPO" --env codex-auth-refresh
+          # Repo secret, NOT --env: every consumer workflow (review,
+          # mention, triage, nightly, …) reads CODEX_AUTH_JSON and none
+          # declare this environment. Only CODEX_REFRESH_PAT is env-scoped.
+          printf '%s' "$NEW_AUTH" | gh secret set CODEX_AUTH_JSON --repo "$REPO"
 
           EXP=$(printf '%s' "$NEW_AUTH" | jq -r '.tokens.access_token' \
             | awk -F. '{print $2}' \
