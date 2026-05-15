@@ -5,10 +5,7 @@
 // runs. Hidden only when both requests fail.
 ---
 
-<a id="now-tending" class="now-tending" href="#recent-activity" data-state="loading">
-  <span class="now-dot now-dot-idle" aria-hidden="true"></span>
-  <span>&nbsp;</span>
-</a>
+<a id="currently-tending" class="currently-tending" href="#recent-activity" data-state="loading" data-pulse="idle">&nbsp;</a>
 
 <script>
   import { fetchJson, liveData } from "../lib/api";
@@ -37,18 +34,15 @@
     return i === -1 ? repo : repo.slice(i + 1);
   }
 
-  function paint(el: HTMLElement, state: "live" | "idle", text: string): HTMLSpanElement {
-    const dot = document.createElement("span");
-    dot.className = `now-dot now-dot-${state}`;
-    const label = document.createElement("span");
-    label.textContent = text;
-    el.replaceChildren(dot, label);
-    return label;
+  function paint(el: HTMLElement, state: "live" | "idle", text: string): HTMLElement {
+    el.dataset.pulse = state;
+    el.textContent = text;
+    return el;
   }
 
   liveData<{ currently_tending?: Run[] }>(
     "/currently-tending",
-    "now-tending",
+    "currently-tending",
     async (data, el) => {
       const runs = data?.currently_tending ?? [];
       if (runs.length > 0) {
