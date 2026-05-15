@@ -446,10 +446,20 @@ If not set:
    gh secret set CODEX_AUTH_JSON --repo "$REPO" < /tmp/codex-tend/auth.json
    rm -rf /tmp/codex-tend
    ```
-3. Add a TODO in the repo's tracking system: rotate auth.json every
-   ~7 days (the refresh window closes around 8 days). Codex refreshes
-   on use, but a long-idle bot can expire — re-run the device-code
-   mint and re-set the secret if the bot starts failing 401.
+3. Set up rotation. The static secret breaks ~8 days after mint —
+   the first consumer workflow to run after that triggers a Codex
+   refresh, rotates the tokens in an ephemeral runner, and the
+   GitHub secret holds the invalidated value. Two paths:
+
+   - **Manual** (low-volume bots): re-run the device-code mint every
+     ~6 days and re-set the secret.
+   - **Automated refresher workflow** (concurrent CI): a scheduled
+     workflow updates the secret before any consumer can trigger a
+     rotation. Requires a `CODEX_REFRESH_PAT` secret (fine-grained
+     PAT, `secrets: read and write` on the repo). See
+     `docs/security-model.md` for the pattern and
+     `.github/workflows/codex-auth-refresh.yaml` for a reference
+     implementation.
 
 For **API key**:
 
