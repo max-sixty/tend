@@ -423,30 +423,35 @@ gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q CODEX_AUTH_J
 
 If not set:
 
-1. On a trusted local machine, the user installs codex
-   (`npm i -g @openai/codex`) and runs:
+1. Install codex if missing (`npm i -g @openai/codex`) and create
+   the mint dir: `mkdir -p /tmp/codex-tend`.
+
+2. Have the user run, in their own terminal:
 
    ```bash
-   mkdir -p /tmp/codex-tend
    CODEX_HOME=/tmp/codex-tend codex login --device-auth
    ```
 
-   The dedicated `CODEX_HOME` isolates the bot's `auth.json` from
-   the user's personal `~/.codex/` — both coexist, no need to log
-   out of personal Codex. `--device-auth` prints a URL and a
-   one-time code; the user opens the URL in any browser and signs
-   in as the dedicated bot ChatGPT account chosen above (device-code
-   is how the user authenticates as the bot without juggling browser
-   sessions). Codex writes `/tmp/codex-tend/auth.json` with the
-   refresh-tokened OAuth payload.
-2. Wait for the user to confirm they've signed in. Then read the
-   file directly and set the secret:
+   (Don't drive this from Claude's `Bash` tool — codex blocks until
+   sign-in and only flushes stdout on exit, so Claude wouldn't be
+   able to surface the URL+code in time.) `--device-auth` prints a
+   URL and a one-time code; the user opens the URL in any browser
+   and signs in as the dedicated bot ChatGPT account chosen above
+   (device-code is how they sign in as the bot without juggling
+   browser sessions). The dedicated `CODEX_HOME` isolates the bot's
+   `auth.json` from the user's personal `~/.codex/` — both coexist,
+   no need to log out of personal Codex. Codex writes
+   `/tmp/codex-tend/auth.json` once they sign in.
+
+3. After the user confirms they've signed in, read the file and
+   set the secret:
 
    ```bash
    gh secret set CODEX_AUTH_JSON --repo "$REPO" < /tmp/codex-tend/auth.json
    rm -rf /tmp/codex-tend
    ```
-3. Set up rotation. The static secret breaks ~8 days after mint —
+
+4. Set up rotation. The static secret breaks ~8 days after mint —
    the first consumer workflow to run after that triggers a Codex
    refresh, rotates the tokens in an ephemeral runner, and the
    GitHub secret holds the invalidated value. Two paths:
