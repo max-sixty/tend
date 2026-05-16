@@ -2,10 +2,19 @@
 # Lists recently completed tend CI runs.
 #
 # Fetches runs started in the past 3 hours, then filters to only those that
-# are completed and whose updatedAt is within the past hour. This two-step
-# approach is needed because `gh run list --created` filters by *start* time,
-# not *end* time — a run started 2h ago may have just finished, and a run
-# started 50min ago may still be running.
+# are completed and whose updatedAt is within the past 2 hours. This
+# two-step approach is needed because `gh run list --created` filters by
+# *start* time, not *end* time — a run started 2h ago may have just
+# finished, and a run started 50min ago may still be running.
+#
+# The 2h completion window absorbs GitHub Actions cron delay. Hourly
+# review-reviewers runs (cron `47 * * * *`) routinely fire 20–40 min late
+# during peak hours, producing gaps of 80–100 min between consecutive
+# cycles. A tighter 1h cutoff drops everything older than the previous
+# cycle's expected start, silently hiding runs that landed in the delay
+# slack. The 2h cutoff covers all observed gaps with margin; the small
+# re-analysis overlap between cycles is cheap because gist entries are
+# keyed by run ID.
 #
 # Environment variables:
 #   TARGET_REPO - Query a different repo (default: current repo)
@@ -37,7 +46,7 @@ for prefix in "${PREFIXES[@]}"; do
 done
 
 CREATED_SINCE=$(date -d '3 hours ago' +%Y-%m-%dT%H:%M:%S)
-COMPLETED_AFTER=$(date -d '1 hour ago' +%s)
+COMPLETED_AFTER=$(date -d '2 hours ago' +%s)
 
 all_runs="[]"
 
