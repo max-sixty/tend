@@ -616,6 +616,80 @@ describe("getConsumers", () => {
   });
 });
 
+describe("coalesceAndRefresh (background refresh on stale-hit)", () => {
+  // Fake the colo cache so we can observe what gets written on success vs
+  // failure. caches.default is Cloudflare-specific; in node it's undefined.
+  function fakeCache() {
+    const store = new Map<string, Response>();
+    return {
+      store,
+      api: {
+        async match(req: Request) {
+          return store.get(req.url)?.clone();
+        },
+        async put(req: Request, resp: Response) {
+          store.set(req.url, resp.clone());
+        },
+      } as unknown as Cache,
+    };
+  }
+
+  it("keeps the previous cached entry alive when the refresh throws (does not overwrite with empty)", async () => {
+    const { __test } = await import("../src/index");
+    const { store, api } = fakeCache();
+    (globalThis as unknown as { caches: CacheStorage }).caches = {
+      default: api,
+    } as unknown as CacheStorage;
+
+    const cacheKey = new Request("https://api.example/activity");
+    const goodBody = JSON.stringify({ prs: { count: 994 } });
+    const stale = new Response(goodBody, {
+      headers: { "Content-Type": "application/json" },
+    });
+    store.set(cacheKey.url, stale);
+
+    const env = { ALLOWED_ORIGIN: "*" } as unknown as Parameters<typeof __test.coalesceAndRefresh>[2];
+    await __test.coalesceAndRefresh(cacheKey, stale, env, {
+      cacheKeyPath: "/activity",
+      ttl: { ok: 300, fallback: 30 },
+      refresh: async () => {
+        throw new Error("github down");
+      },
+      empty: () => ({ prs: { count: 0 } }),
+    });
+
+    const entry = store.get(cacheKey.url);
+    expect(entry).toBeDefined();
+    expect(await entry!.text()).toBe(goodBody); // unchanged — empty payload did NOT win
+  });
+
+  it("overwrites the cached entry with the fresh response on a successful refresh", async () => {
+    const { __test } = await import("../src/index");
+    const { store, api } = fakeCache();
+    (globalThis as unknown as { caches: CacheStorage }).caches = {
+      default: api,
+    } as unknown as CacheStorage;
+
+    const cacheKey = new Request("https://api.example/activity");
+    const stale = new Response(JSON.stringify({ prs: { count: 1 } }), {
+      headers: { "Content-Type": "application/json" },
+    });
+    store.set(cacheKey.url, stale);
+
+    const env = { ALLOWED_ORIGIN: "*" } as unknown as Parameters<typeof __test.coalesceAndRefresh>[2];
+    await __test.coalesceAndRefresh(cacheKey, stale, env, {
+      cacheKeyPath: "/activity",
+      ttl: { ok: 300, fallback: 30 },
+      refresh: async () => ({ prs: { count: 999 } }),
+      empty: () => ({ prs: { count: 0 } }),
+    });
+
+    const entry = store.get(cacheKey.url);
+    const body = JSON.parse(await entry!.text()) as { prs: { count: number } };
+    expect(body.prs.count).toBe(999);
+  });
+});
+
 describe("isStale (stale-while-revalidate decision)", () => {
   const now = 1_700_000_000_000;
 

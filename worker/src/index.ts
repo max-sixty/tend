@@ -285,32 +285,24 @@ async function serveCached<T>(
   return refreshAndCache(cacheKey, env, ctx, opts);
 }
 
-// Run the configured refresh and shape it into a Response stamped with
-// its freshness budget. On any unexpected failure return the empty
-// payload tagged with the shorter fallback budget so a transient outage
-// clears quickly instead of wedging the cache.
-async function freshResponse<T>(env: Env, opts: CacheOpts<T>): Promise<Response> {
-  let fresh: T;
-  let ttlSeconds = opts.ttl.ok;
-  try {
-    fresh = await opts.refresh();
-  } catch (e) {
-    console.error(`refresh failed for ${opts.cacheKeyPath}:`, e);
-    fresh = opts.empty();
-    ttlSeconds = opts.ttl.fallback;
-  }
-  return jsonResponse(fresh, env, ttlSeconds);
-}
-
 // Cold-cache path: the caller is waiting on this, so we return the fresh
-// Response and let the cache put run via ctx.waitUntil.
+// Response and let the cache put run via ctx.waitUntil. On refresh
+// failure return the empty payload tagged with the shorter fallback
+// budget — the caller has nothing else to render, so a brief outage
+// degrades to an empty section instead of wedging the request.
 async function refreshAndCache<T>(
   cacheKey: Request,
   env: Env,
   ctx: ExecutionContext,
   opts: CacheOpts<T>,
 ): Promise<Response> {
-  const response = await freshResponse(env, opts);
+  let response: Response;
+  try {
+    response = jsonResponse(await opts.refresh(), env, opts.ttl.ok);
+  } catch (e) {
+    console.error(`cold refresh failed for ${opts.cacheKeyPath}:`, e);
+    response = jsonResponse(opts.empty(), env, opts.ttl.fallback);
+  }
   ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
   return response;
 }
@@ -318,8 +310,10 @@ async function refreshAndCache<T>(
 // Stale-hit path: coalesce concurrent refreshes by bumping the cached
 // entry's stale-at forward before running the refresh. Concurrent
 // stale-hits arriving within REFRESH_GRACE_MS read the bumped entry as
-// fresh and skip starting their own refresh. The puts are sequenced —
-// bumped first, then the fresh result — so the fresh result always wins.
+// fresh and skip starting their own refresh. On refresh failure keep the
+// bumped cached entry — a viewer keeps seeing the previous (slightly
+// stale) data instead of an empty payload overwriting it for the
+// fallback TTL, which would briefly black out every viewer.
 async function coalesceAndRefresh<T>(
   cacheKey: Request,
   cached: Response,
@@ -332,7 +326,15 @@ async function coalesceAndRefresh<T>(
   });
   bumped.headers.set(STALE_AT_HEADER, String(Date.now() + REFRESH_GRACE_MS));
   await caches.default.put(cacheKey, bumped);
-  await caches.default.put(cacheKey, await freshResponse(env, opts));
+  try {
+    const fresh = jsonResponse(await opts.refresh(), env, opts.ttl.ok);
+    await caches.default.put(cacheKey, fresh);
+  } catch (e) {
+    console.error(
+      `background refresh failed for ${opts.cacheKeyPath}; keeping stale entry:`,
+      e,
+    );
+  }
 }
 
 // A cached entry past this instant (epoch ms, from STALE_AT_HEADER) is
@@ -733,4 +735,6 @@ export const __test = {
   findBotReviewUrl,
   findBotCommentUrl,
   isStale,
+  coalesceAndRefresh,
+  STALE_AT_HEADER,
 };
