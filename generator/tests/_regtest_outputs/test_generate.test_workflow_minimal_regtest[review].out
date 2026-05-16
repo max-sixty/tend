@@ -32,7 +32,7 @@ jobs:
       - name: Resolve PR checkout ref
         id: pr_ref
         env:
-          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           if gh api "repos/${{ github.repository }}/git/ref/pull/$PR/merge" --silent 2>/dev/null; then
@@ -46,11 +46,11 @@ jobs:
           ref: ${{ steps.pr_ref.outputs.ref }}
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ secrets.BOT_TOKEN }}
+          token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: max-sixty/tend@X.Y.Z
         with:
-          github_token: ${{ secrets.BOT_TOKEN }}
+          github_token: ${{ secrets.TEND_BOT_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           bot_name: test-bot

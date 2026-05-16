@@ -86,7 +86,7 @@ jobs:
             echo "$COUNT processable notification(s) ? proceeding"
           fi
         env:
-          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: actions/checkout@v6
         if: steps.check.outputs.count != '0' || github.event_name == 'workflow_dispatch'
@@ -94,11 +94,11 @@ jobs:
           ref: main
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ secrets.BOT_TOKEN }}
+          token: ${{ secrets.TEND_BOT_TOKEN }}
       - uses: max-sixty/tend@X.Y.Z
         if: steps.check.outputs.count != '0' || github.event_name == 'workflow_dispatch'
         with:
-          github_token: ${{ secrets.BOT_TOKEN }}
+          github_token: ${{ secrets.TEND_BOT_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           bot_name: test-bot
