@@ -17,10 +17,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Mirrors data/consumers.json. Keep in sync when a repo adopts tend.
         repo:
-          - max-sixty/worktrunk
-          - max-sixty/tend
           - PRQL/prql
+          - max-sixty/cargo-affected
+          - max-sixty/tend
+          - max-sixty/worktrunk
+          - numbagg/numbagg
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -35,9 +38,10 @@ jobs:
           fetch-tags: true
           token: ${{ secrets.BOT_TOKEN }}
 
-      - uses: max-sixty/tend@v1
+      - uses: max-sixty/tend/codex@0.0.22
         with:
           github_token: ${{ secrets.BOT_TOKEN }}
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
           bot_name: tend-agent
-          prompt: /tend-ci-runner:review-reviewers ${{ matrix.repo }}
+          model: gpt-5.5
+          prompt: $review-reviewers ${{ matrix.repo }}

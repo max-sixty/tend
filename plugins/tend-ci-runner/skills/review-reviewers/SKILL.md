@@ -14,16 +14,16 @@ Analyze tend's CI behavior on the target repo over the past hour. Focus on **out
 
 Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, PR/comment formatting (line wrapping, heredoc hazards), and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply.
 
-## Cost discipline: Haiku subagents for exploration
+## Cost discipline: cheap subagents for exploration
 
-Session log parsing and outcome checking are token-heavy. Delegate all broad exploration to **Haiku subagents** (`Agent` tool with `model: "haiku"`). Keep the main Opus agent for judgment: evaluating findings against gates, deciding whether to act, and drafting PRs.
+Session log parsing and outcome checking are token-heavy. Delegate all broad exploration to a **cheap subagent** (e.g. Haiku / gpt-mini). Keep the main agent for judgment: evaluating findings against gates, deciding whether to act, and drafting PRs.
 
 Pattern:
-1. Opus sets up context (bot identity, repo guidance, run list)
-2. Opus spawns Haiku subagent to survey outcomes across all runs → receives structured summary
-3. Opus evaluates the summary against gates
-4. If needed, Opus spawns another Haiku subagent to investigate specific session logs → receives diagnosis
-5. Opus drafts fix PR if warranted
+1. Main agent sets up context (bot identity, repo guidance, run list)
+2. Main agent spawns cheap subagent to survey outcomes across all runs → receives structured summary
+3. Main agent evaluates the summary against gates
+4. If needed, main agent spawns another cheap subagent to investigate specific session logs → receives diagnosis
+5. Main agent drafts fix PR if warranted
 
 ## Core principle: outcomes over internals
 
@@ -209,11 +209,11 @@ The script discovers `tend-*` workflows by default. Pass additional prefixes as 
 
 If empty, report "no runs to review" and exit.
 
-## Step 2: Survey outcomes via Haiku subagent
+## Step 2: Survey outcomes via cheap subagent
 
-Spawn a Haiku subagent to check outcomes across all runs from Step 1. The subagent does the token-heavy work of mapping runs to PRs/issues and checking acceptance signals.
+Spawn a cheap subagent to check outcomes across all runs from Step 1. The subagent does the token-heavy work of mapping runs to PRs/issues and checking acceptance signals.
 
-Use `Agent` with `model: "haiku"` and a prompt like:
+Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
 
 > Survey bot outcomes on `$ARGUMENTS` for the following runs: [run IDs from Step 1].
 > The bot's login is `$BOT_LOGIN`.
@@ -299,11 +299,11 @@ Use `Agent` with `model: "haiku"` and a prompt like:
 
 Review the subagent's summary. If all outputs are accepted and no sanity-check flags, skip to Step 6 (summary). If concerning outcomes exist, continue to Step 3.
 
-## Step 3: Investigate concerning outcomes via Haiku subagent
+## Step 3: Investigate concerning outcomes via cheap subagent
 
-For runs with negative outcome signals (or suspicious lack of output), spawn another Haiku subagent to download and inspect the specific session logs.
+For runs with negative outcome signals (or suspicious lack of output), spawn another cheap subagent to download and inspect the specific session logs.
 
-Use `Agent` with `model: "haiku"` and a prompt like:
+Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
 
 > Investigate session logs for run <run-id> on `$ARGUMENTS`.
 >
