@@ -528,6 +528,45 @@ def test_init_removes_unknown_tend_yaml_files(
     assert (wf_dir / "ci.yaml").exists()
 
 
+def test_init_removes_stale_files_when_no_workflows_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Disabling every workflow shouldn't skip cleanup. Stale tend-*.yaml
+    must still be removed so a maintainer can confidently turn tend off."""
+    _write_config(
+        tmp_path,
+        dedent("""\
+            bot_name: test-bot
+            workflows:
+              review:
+                enabled: false
+              mention:
+                enabled: false
+              triage:
+                enabled: false
+              nightly:
+                enabled: false
+              weekly:
+                enabled: false
+              notifications:
+                enabled: false
+              review-runs:
+                enabled: false
+        """),
+    )
+    monkeypatch.chdir(tmp_path)
+
+    wf_dir = _workflow_dir(tmp_path)
+    wf_dir.mkdir(parents=True)
+    stale = wf_dir / "tend-review.yaml"
+    stale.write_text("# leftover from a previous run\n")
+
+    result = _run_init()
+    assert result.exit_code == 0
+    assert not stale.exists()
+    assert "Removed 1 stale" in result.output
+
+
 def test_init_dry_run_previews_cleanup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

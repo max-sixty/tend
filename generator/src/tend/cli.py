@@ -103,11 +103,8 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
     outdir = Path(".github/workflows")
 
     workflows = generate_all(cfg, with_install_test=with_install_test)
-    if not workflows:
-        click.echo("No workflows enabled in config.")
-        return
 
-    if not dry_run:
+    if workflows and not dry_run:
         outdir.mkdir(parents=True, exist_ok=True)
 
     for wf in workflows:
@@ -123,8 +120,10 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
     # Remove stale tend-*.yaml files the generator didn't produce this run.
     # Catches: install-test cleanup on regen, disabled workflows leaving
     # behind their YAML, and workflows renamed across generator versions.
-    # The tend-*.yaml glob is the generator's filename contract per
-    # CLAUDE.md — adopter-owned workflows live under other names.
+    # Runs even when the generated set is empty (every workflow disabled)
+    # so the cleanup contract still applies. The tend-*.yaml glob is the
+    # generator's filename contract per CLAUDE.md — adopter-owned workflows
+    # live under other names.
     generated = {wf.filename for wf in workflows}
     removed = 0
     for path in sorted(outdir.glob("tend-*.yaml")):
@@ -137,10 +136,17 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
             click.echo(f"  removed {path}")
         removed += 1
 
-    if not dry_run:
-        suffix = f" ({removed} removed)" if removed else ""
-        click.echo(f"\nGenerated {len(workflows)} workflow files{suffix}.")
-        click.echo("Run `tend check` to verify security prerequisites.")
+    if dry_run:
+        return
+
+    if not workflows:
+        suffix = f" Removed {removed} stale tend-*.yaml file(s)." if removed else ""
+        click.echo(f"No workflows enabled in config.{suffix}")
+        return
+
+    suffix = f" ({removed} removed)" if removed else ""
+    click.echo(f"\nGenerated {len(workflows)} workflow files{suffix}.")
+    click.echo("Run `tend check` to verify security prerequisites.")
 
 
 @main.command()
