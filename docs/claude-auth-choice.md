@@ -30,8 +30,10 @@ Mechanics are in the support article
 > credit refreshes.
 
 Plan allowances: Pro $20, Max 5x $100, Max 20x $200, Team Standard $20,
-Team Premium $100, Enterprise $20–$200/seat. The credit is opt-in per
-billing cycle (claimed by email).
+Team Premium $100, Enterprise $20–$200/seat. Anthropic emails eligible
+users instructions to claim the credit before June 15; the claim is a
+one-time opt-in through the user's Claude account, after which the credit
+refreshes automatically each billing cycle.
 
 `claude-code-action` runs Claude Code non-interactively under `claude -p`,
 so tend workflows fall under this regime.
@@ -66,9 +68,10 @@ account-level scoping.
   Console key. Tend's primary security boundary is the merge restriction
   (see [docs/security-model.md](security-model.md)), so this is secondary,
   but parallel to the Codex `auth.json` argument in the same doc.
-- **Claim step.** The Agent SDK credit must be claimed once per billing
-  cycle (via the email Anthropic sends). Auto-refreshes after the first
-  claim. Trivial, but a non-zero setup step.
+- **Claim step.** The Agent SDK credit must be claimed once through the
+  user's Claude account (Anthropic emails instructions before June 15);
+  after that it refreshes automatically each billing cycle. Trivial, but
+  a non-zero one-time setup step.
 
 ## What the install skill says
 

@@ -210,10 +210,11 @@ prompts) around it but never sees the token itself.
 
 Caveat: starting **2026-06-15**, subscription-funded `claude-code-action`
 runs draw from a separate monthly Agent SDK credit rather than the plan's
-interactive usage limits. The credit must be claimed each cycle, and
-once exhausted, runs stop unless "extra usage" is enabled (in which case
-overage bills at API rates). OAuth tokens continue to authenticate;
-billing just shifts buckets. See Anthropic's
+interactive usage limits. The credit is a one-time opt-in through the
+user's Claude account and then refreshes automatically each billing
+cycle; once exhausted, runs stop unless "extra usage" is enabled (in
+which case overage bills at API rates). OAuth tokens continue to
+authenticate; billing just shifts buckets. See Anthropic's
 [authentication page](https://code.claude.com/docs/en/authentication)
 and the
 [Agent SDK plan article](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)

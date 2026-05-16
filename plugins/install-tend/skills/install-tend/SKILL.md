@@ -30,12 +30,12 @@ Before running step 1, choose the harness and lay out the plan:
     for adopters with a Pro/Max/Team/Enterprise subscription) or a
     console.anthropic.com API key. Starting 2026-06-15, subscription
     `claude-code-action` runs draw from a separate monthly Agent SDK
-    credit ($20–$200 depending on plan, claimed once per cycle); using
-    OAuth puts that bundled allowance to work. Enable "extra usage" in
-    the Console so credit exhaustion overflows to API rates instead of
-    hard-stopping CI. API key is the alternative when there's no
-    subscription to draw on, or you want a dedicated billing surface and
-    per-key revocation.
+    credit ($20–$200 depending on plan, one-time opt-in then
+    auto-refresh); using OAuth puts that bundled allowance to work.
+    Enable "extra usage" in the Console so credit exhaustion overflows
+    to API rates instead of hard-stopping CI. API key is the alternative
+    when there's no subscription to draw on, or you want a dedicated
+    billing surface and per-key revocation.
     [docs/claude-auth-choice.md](../../../../docs/claude-auth-choice.md)
     has the full reasoning.
   - **Codex (OpenAI)** — uses a ChatGPT Plus/Pro/Business `auth.json`
@@ -351,10 +351,11 @@ If not set, ask via `AskUserQuestion` which auth mode to use:
 - **OAuth token (recommended for Pro/Max/Team/Enterprise subscribers)** —
   `sk-ant-oat01-…` from `claude setup-token`. Funded by the subscription;
   from 2026-06-15 these runs draw from a separate monthly Agent SDK
-  credit ($20–$200/plan). Have the user claim the credit via the email
-  Anthropic sends, and enable "extra usage" in the Console if they want
-  credit exhaustion to overflow to API rates instead of stopping CI.
-  Token is advertised as 1-year.
+  credit ($20–$200/plan). Have the user opt in to the credit through
+  their Claude account once (Anthropic emails instructions; it
+  auto-refreshes each cycle after that), and enable "extra usage" in the
+  Console if they want credit exhaustion to overflow to API rates
+  instead of stopping CI. Token is advertised as 1-year.
 - **API key** — `sk-ant-…` from
   `https://console.anthropic.com/settings/keys`. Billed per token against
   the Console org. Pick this when there's no Claude subscription, when
