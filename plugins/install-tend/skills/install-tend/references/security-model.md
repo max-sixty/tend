@@ -45,6 +45,16 @@ bot-pushed ref matches an admin-gated policy entry. The deploy job is
 rejected before it can read the secret. No admin operation → no
 admin-gated ref → no environment access → no secret.
 
+That guarantee assumes the privileged workflow is reachable only by
+updating an admin-gated ref: trigger on `push: tags:` (release) or
+`push: branches: [<default-branch>]` (continuous deploy). Other triggers
+(`workflow_dispatch`, `release: published`, `deployment`, `schedule`,
+chained dispatches) can be initiated by a write-scoped bot against an
+allowed ref, so the env policy alone does not gate them. Workflows
+keeping those triggers need trigger-specific containment, typically
+required reviewers on the Environment, before release or deploy secrets
+are migrated there.
+
 The composite action refuses to start if the default branch is unprotected.
 
 Everything else (config pinning, rate limiting, fixed prompts) is defense

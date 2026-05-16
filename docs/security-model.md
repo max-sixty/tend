@@ -98,17 +98,20 @@ signing keys) live in GitHub Environments whose `deployment_branch_policy`
 lists only admin-gated refs: the default branch (merge restriction) and
 all tags (a sibling tag-target ruleset that gates `creation` and `update`
 with admin-only bypass; `update` is what force-push of an existing tag
-fires, so it must be blocked alongside `creation`). The merge restriction gates code that
-reaches the default branch through a merge; other paths to a privileged
-workflow (a tag push, a release, a manual or chained dispatch, a
-`deployment` API call, a `schedule` job) bypass it. Pinning environments
-to admin-gated refs closes those paths: the bot has write but not admin,
-so it cannot push to the default branch and cannot push any tag, and
-therefore cannot reach any environment pinned to those refs. Release and
-deploy workflows trigger on `push: tags:` or `push: branches: [main]`
-only, so the workflow YAML that runs is always at an admin-gated ref. The
-chain inherits the merge restriction's assumption that the bot has write,
-not admin; an admin session voids both the same way.
+fires, so it must be blocked alongside `creation`). The bot has write
+but not admin, so it cannot push to the default branch and cannot push
+any tag, and therefore cannot reach any environment pinned to those
+refs. The chain holds for workflows whose only path to invocation is
+updating one of those refs: trigger on `push: tags:` (release) or
+`push: branches: [main]` (continuous deploy). Other triggers
+(`workflow_dispatch`, `release: published`, `deployment`, `schedule`,
+chained dispatches) can be initiated by a write-scoped bot against an
+allowed ref, so the env policy alone does not gate them; workflows
+keeping those triggers need trigger-specific containment (typically
+required reviewers on the Environment) before release or deploy secrets
+are migrated there. The chain inherits the merge restriction's
+assumption that the bot has write, not admin; an admin session voids
+both the same way.
 
 OIDC-to-cloud deploys have no GitHub-stored secret to gate; there, the
 Environment plus the cloud provider's trust policy is the only control.
