@@ -96,8 +96,9 @@ can influence what Claude *reads* (the diff, the issue body) but not the
 **Environment-protected secrets.** Release secrets (registry tokens,
 signing keys) live in GitHub Environments whose `deployment_branch_policy`
 lists only admin-gated refs: the default branch (merge restriction) and
-all tags (a sibling tag-target ruleset that gates `creation`, `update`,
-`deletion` with admin-only bypass). The merge restriction gates code that
+all tags (a sibling tag-target ruleset that gates `creation` and `update`
+with admin-only bypass; `update` is what force-push of an existing tag
+fires, so it must be blocked alongside `creation`). The merge restriction gates code that
 reaches the default branch through a merge; other paths to a privileged
 workflow (a tag push, a release, a manual or chained dispatch, a
 `deployment` API call, a `schedule` job) bypass it. Pinning environments

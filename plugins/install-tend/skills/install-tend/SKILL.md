@@ -307,9 +307,9 @@ gh api "repos/$REPO/rulesets" --method POST --input - << 'EOF'
 EOF
 ```
 
-**Tag operations.** Same shape, applied to all tags. Creating, moving, or
-deleting any tag becomes an admin operation; the bot cannot push tags at
-all. Skipping the "what pattern do your tags use?" question is
+**Tag operations.** Same shape, applied to all tags. Pushing a new tag or
+moving an existing one becomes an admin operation; the bot can do
+neither. Skipping the "what pattern do your tags use?" question is
 deliberate: matching all tags removes a per-repo configuration choice
 and gives the chain a single, uniform rule.
 
@@ -324,8 +324,7 @@ gh api "repos/$REPO/rulesets" --method POST --input - << 'EOF'
   },
   "rules": [
     { "type": "creation" },
-    { "type": "update" },
-    { "type": "deletion" }
+    { "type": "update" }
   ],
   "bypass_actors": [{
     "actor_id": 5,
@@ -335,6 +334,14 @@ gh api "repos/$REPO/rulesets" --method POST --input - << 'EOF'
 }
 EOF
 ```
+
+`creation` blocks the bot from pushing a fresh admin-gated tag; `update`
+blocks rewriting an existing tag to point at a bot-controlled commit. The
+chain doesn't need `deletion` separately. Recreation is already blocked
+by `creation`, so a deleted tag can't be replaced with malicious code.
+Bot-deleting an admin-pushed tag is brief availability damage at worst;
+repos that need stronger protection against published-tag deletion can
+add a no-bypass `deletion` ruleset (see the publisher uplift below).
 
 **Release/deploy workflow design.** Workflows that use release or deploy
 secrets must trigger on `push: tags:` (release) or `push: branches: [main]`

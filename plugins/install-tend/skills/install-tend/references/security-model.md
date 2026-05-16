@@ -17,11 +17,15 @@ The two admin-gated operations are:
 - **Merging to the default branch.** A ruleset with the `update` rule on
   the default branch, admin-only bypass. Blocks the bot from landing code
   on the default branch.
-- **Operating on a tag.** A ruleset with the `creation`, `update`, and
-  `deletion` rules covering all tags (`~ALL` on a `tag`-target ruleset),
-  admin-only bypass. Blocks the bot from pushing, rewriting, or deleting
-  any tag. Pushing or repairing a release tag is itself an admin
-  operation.
+- **Operating on a tag.** A ruleset with the `creation` and `update`
+  rules covering all tags (`~ALL` on a `tag`-target ruleset), admin-only
+  bypass. Blocks the bot from pushing a new tag and from force-pushing
+  (re-pointing) an existing one. `update` is required: force-pushing an
+  existing tag maps to `update`, not `creation`, so without it a write-
+  access actor could re-point an admin-pushed `v1.2.3` to a malicious
+  commit. `deletion` is not in the chain: recreation is already blocked
+  by `creation`, so a deleted tag can't be substituted with malicious
+  code; the only damage is brief availability of the tag itself.
 
 The "all tags" scope is deliberate: matching every tag removes a per-repo
 pattern choice and keeps the chain a single uniform rule. Adopters that
