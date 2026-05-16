@@ -361,15 +361,19 @@ def test_bot_permission_404_wrong_username() -> None:
 def test_secrets_present() -> None:
     with patch(
         "tend.checks._gh",
-        return_value=_make_completed('["BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"]\n'),
+        return_value=_make_completed('["TEND_BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"]\n'),
     ):
-        result = check_secrets("owner/repo", ["BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
+        result = check_secrets(
+            "owner/repo", ["TEND_BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]
+        )
     assert result.passed is True
 
 
 def test_secrets_missing() -> None:
-    with patch("tend.checks._gh", return_value=_make_completed('["BOT_TOKEN"]\n')):
-        result = check_secrets("owner/repo", ["BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
+    with patch("tend.checks._gh", return_value=_make_completed('["TEND_BOT_TOKEN"]\n')):
+        result = check_secrets(
+            "owner/repo", ["TEND_BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]
+        )
     assert result.passed is False
     assert "CLAUDE_CODE_OAUTH_TOKEN" in result.message
     assert "admin:org" not in result.message
@@ -378,10 +382,12 @@ def test_secrets_missing() -> None:
 def test_secrets_missing_with_org_403_hint() -> None:
     """When org secrets return 403 and secrets are missing, include the hint."""
     with (
-        patch("tend.checks._gh", return_value=_make_completed('["BOT_TOKEN"]\n')),
+        patch("tend.checks._gh", return_value=_make_completed('["TEND_BOT_TOKEN"]\n')),
         patch("tend.checks._list_org_secrets", return_value=(None, True)),
     ):
-        result = check_secrets("owner/repo", ["BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
+        result = check_secrets(
+            "owner/repo", ["TEND_BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]
+        )
     assert result.passed is False
     assert "CLAUDE_CODE_OAUTH_TOKEN" in result.message
     assert "admin:org" in result.message
@@ -392,13 +398,13 @@ def test_secrets_api_error() -> None:
     with patch(
         "tend.checks._gh", return_value=_make_completed(returncode=1, stderr="HTTP 403")
     ):
-        result = check_secrets("owner/repo", ["BOT_TOKEN"])
+        result = check_secrets("owner/repo", ["TEND_BOT_TOKEN"])
     assert result.passed is None
 
 
 def test_secrets_bad_json() -> None:
     with patch("tend.checks._gh", return_value=_make_completed("not json")):
-        result = check_secrets("owner/repo", ["BOT_TOKEN"])
+        result = check_secrets("owner/repo", ["TEND_BOT_TOKEN"])
     assert result.passed is None
 
 
@@ -412,12 +418,14 @@ def test_repo_secret_allowlist_pass() -> None:
     with (
         patch(
             "tend.checks._gh",
-            return_value=_make_completed('["BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"]\n'),
+            return_value=_make_completed(
+                '["TEND_BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"]\n'
+            ),
         ),
         patch("tend.checks._list_org_secrets", return_value=(set(), False)),
     ):
         result = check_repo_secret_allowlist(
-            "owner/repo", {"BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+            "owner/repo", {"TEND_BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
         )
     assert result.passed is True
     assert "in allowlist" in result.message
@@ -429,13 +437,13 @@ def test_repo_secret_allowlist_unexpected_repo() -> None:
         patch(
             "tend.checks._gh",
             return_value=_make_completed(
-                '["BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN","PYPI_TOKEN"]\n'
+                '["TEND_BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN","PYPI_TOKEN"]\n'
             ),
         ),
         patch("tend.checks._list_org_secrets", return_value=(set(), False)),
     ):
         result = check_repo_secret_allowlist(
-            "owner/repo", {"BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+            "owner/repo", {"TEND_BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
         )
     assert result.passed is False
     assert "PYPI_TOKEN" in result.message
@@ -447,14 +455,14 @@ def test_repo_secret_allowlist_unexpected_org() -> None:
     with (
         patch(
             "tend.checks._gh",
-            return_value=_make_completed('["BOT_TOKEN"]\n'),
+            return_value=_make_completed('["TEND_BOT_TOKEN"]\n'),
         ),
         patch(
             "tend.checks._list_org_secrets",
-            return_value=({"BOT_TOKEN", "NPM_TOKEN"}, False),
+            return_value=({"TEND_BOT_TOKEN", "NPM_TOKEN"}, False),
         ),
     ):
-        result = check_repo_secret_allowlist("owner/repo", {"BOT_TOKEN"})
+        result = check_repo_secret_allowlist("owner/repo", {"TEND_BOT_TOKEN"})
     assert result.passed is False
     assert "NPM_TOKEN" in result.message
     assert "org-level" in result.message
@@ -465,14 +473,14 @@ def test_repo_secret_allowlist_unexpected_both() -> None:
     with (
         patch(
             "tend.checks._gh",
-            return_value=_make_completed('["BOT_TOKEN","PYPI_TOKEN"]\n'),
+            return_value=_make_completed('["TEND_BOT_TOKEN","PYPI_TOKEN"]\n'),
         ),
         patch(
             "tend.checks._list_org_secrets",
             return_value=({"NPM_TOKEN"}, False),
         ),
     ):
-        result = check_repo_secret_allowlist("owner/repo", {"BOT_TOKEN"})
+        result = check_repo_secret_allowlist("owner/repo", {"TEND_BOT_TOKEN"})
     assert result.passed is False
     assert "repo-level" in result.message
     assert "org-level" in result.message
@@ -485,7 +493,7 @@ def test_repo_secret_allowlist_org_allowed() -> None:
     with (
         patch(
             "tend.checks._gh",
-            return_value=_make_completed('["BOT_TOKEN"]\n'),
+            return_value=_make_completed('["TEND_BOT_TOKEN"]\n'),
         ),
         patch(
             "tend.checks._list_org_secrets",
@@ -493,7 +501,7 @@ def test_repo_secret_allowlist_org_allowed() -> None:
         ),
     ):
         result = check_repo_secret_allowlist(
-            "owner/repo", {"BOT_TOKEN", "CODECOV_TOKEN"}
+            "owner/repo", {"TEND_BOT_TOKEN", "CODECOV_TOKEN"}
         )
     assert result.passed is True
 
@@ -503,11 +511,11 @@ def test_repo_secret_allowlist_org_forbidden() -> None:
     with (
         patch(
             "tend.checks._gh",
-            return_value=_make_completed('["BOT_TOKEN"]\n'),
+            return_value=_make_completed('["TEND_BOT_TOKEN"]\n'),
         ),
         patch("tend.checks._list_org_secrets", return_value=(None, True)),
     ):
-        result = check_repo_secret_allowlist("owner/repo", {"BOT_TOKEN"})
+        result = check_repo_secret_allowlist("owner/repo", {"TEND_BOT_TOKEN"})
     assert result.passed is True
     assert "admin:org" in result.message
 
@@ -518,13 +526,13 @@ def test_repo_secret_allowlist_with_extra_allowed() -> None:
         patch(
             "tend.checks._gh",
             return_value=_make_completed(
-                '["BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN","CODECOV_TOKEN"]\n'
+                '["TEND_BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN","CODECOV_TOKEN"]\n'
             ),
         ),
         patch("tend.checks._list_org_secrets", return_value=(set(), False)),
     ):
         result = check_repo_secret_allowlist(
-            "owner/repo", {"BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CODECOV_TOKEN"}
+            "owner/repo", {"TEND_BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CODECOV_TOKEN"}
         )
     assert result.passed is True
 
@@ -535,7 +543,7 @@ def test_repo_secret_allowlist_empty_repo() -> None:
         patch("tend.checks._gh", return_value=_make_completed("[]\n")),
         patch("tend.checks._list_org_secrets", return_value=(set(), False)),
     ):
-        result = check_repo_secret_allowlist("owner/repo", {"BOT_TOKEN"})
+        result = check_repo_secret_allowlist("owner/repo", {"TEND_BOT_TOKEN"})
     assert result.passed is True
 
 
@@ -544,19 +552,19 @@ def test_repo_secret_allowlist_api_error() -> None:
         "tend.checks._gh",
         return_value=_make_completed(returncode=1, stderr="HTTP 403"),
     ):
-        result = check_repo_secret_allowlist("owner/repo", {"BOT_TOKEN"})
+        result = check_repo_secret_allowlist("owner/repo", {"TEND_BOT_TOKEN"})
     assert result.passed is None
 
 
 def test_repo_secret_allowlist_no_gh() -> None:
     with patch("tend.checks._gh", return_value=None):
-        result = check_repo_secret_allowlist("owner/repo", {"BOT_TOKEN"})
+        result = check_repo_secret_allowlist("owner/repo", {"TEND_BOT_TOKEN"})
     assert result.passed is None
 
 
 def test_repo_secret_allowlist_bad_json() -> None:
     with patch("tend.checks._gh", return_value=_make_completed("not json")):
-        result = check_repo_secret_allowlist("owner/repo", {"BOT_TOKEN"})
+        result = check_repo_secret_allowlist("owner/repo", {"TEND_BOT_TOKEN"})
     assert result.passed is None
 
 

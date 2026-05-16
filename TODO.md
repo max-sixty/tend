@@ -97,7 +97,7 @@ in `.config/tend.yaml` would select between two models:
 own fork and creates cross-fork PRs:
 
 ```bash
-git remote add fork https://x-access-token:${BOT_TOKEN}@github.com/${BOT_NAME}/${REPO}.git
+git remote add fork https://x-access-token:${TEND_BOT_TOKEN}@github.com/${BOT_NAME}/${REPO}.git
 git push fork fix/ci-123
 gh pr create --repo ${TARGET_REPO} --head ${BOT_NAME}:fix/ci-123
 ```
