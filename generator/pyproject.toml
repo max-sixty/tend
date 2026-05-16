@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tend"
-version = "0.0.20"
-description = "An autonomous junior maintainer for GitHub repos, powered by Claude — reviews PRs, triages issues, fixes CI"
+version = "0.0.21"
+description = "An autonomous junior maintainer for GitHub repos, powered by Claude or OpenAI Codex — reviews PRs, triages issues, fixes CI"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [{ name = "Maximilian Roos", email = "m@maxroos.com" }]

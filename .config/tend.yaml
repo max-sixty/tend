@@ -4,6 +4,14 @@ harness: codex
 setup:
   - uses: astral-sh/setup-uv@v6
 
+secrets:
+  # Consumed by codex-auth-refresh.yaml (custom non-tend workflow that
+  # rotates the Codex OAuth token nightly). Intentionally lives at repo
+  # scope so any future Codex-harness consumer workflow can read it
+  # without declaring an environment. See docs/security-model.md.
+  allowed:
+    - CODEX_AUTH_JSON
+
 workflows:
   ci-fix:
     watched_workflows: ["ci"]

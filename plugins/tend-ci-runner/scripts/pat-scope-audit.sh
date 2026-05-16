@@ -12,7 +12,7 @@
 #   REQUIRED=<csv of required scopes>  (ok, missing)
 #   MISSING=<csv of missing scopes>    (missing)
 #
-# Required scopes are duplicated in prose at docs/tend.example.toml,
+# Required scopes are duplicated in prose at docs/tend.example.yaml,
 # CLAUDE.md, plugins/install-tend/skills/install-tend/SKILL.md, and
 # plugins/tend-ci-runner/skills/nightly/SKILL.md — keep in sync when adding
 # a scope. This script is the one executable reference.
