@@ -30,10 +30,12 @@ Mechanics are in the support article
 > credit refreshes.
 
 Plan allowances: Pro $20, Max 5x $100, Max 20x $200, Team Standard $20,
-Team Premium $100, Enterprise $20–$200/seat. Anthropic emails eligible
-users instructions to claim the credit before June 15; the claim is a
-one-time opt-in through the user's Claude account, after which the credit
-refreshes automatically each billing cycle.
+Team Premium $100, Enterprise usage-based $20, Enterprise seat-based
+Premium seats $200. Seat-based Enterprise Standard seats are not
+eligible. Anthropic emails eligible users instructions to claim the
+credit before June 15; the claim is a one-time opt-in through the user's
+Claude account, after which the credit refreshes automatically each
+billing cycle.
 
 `claude-code-action` runs Claude Code non-interactively under `claude -p`,
 so tend workflows fall under this regime.
