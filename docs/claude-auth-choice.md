@@ -2,9 +2,9 @@
 
 Tend's Claude harness accepts either `CLAUDE_CODE_OAUTH_TOKEN` (a
 `claude setup-token` OAuth token, tied to a Claude subscription) or
-`ANTHROPIC_API_KEY` (a Console API key). The install skill recommends OAuth
-for adopters who already have a Pro/Max/Team/Enterprise subscription, and
-API key otherwise.
+`ANTHROPIC_API_KEY` (a Console API key). The install skill recommends
+OAuth for adopters with an eligible Claude subscription, and API key
+otherwise.
 
 ## What changes on June 15, 2026
 

@@ -54,15 +54,18 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 
 ## Reasons _not_ to use Tend
 
-- Tend uses lots of tokens. Either a Claude Max subscription, an OpenAI API
-  key, or a ChatGPT plan is needed to fund the runs.
+- Tend uses lots of tokens. A Claude subscription, an Anthropic API key,
+  an OpenAI API key, or a ChatGPT plan is needed to fund the runs.
   - Maintainers of sizeable OSS projects [get a 20x Claude Max subscription
     for free from
     Anthropic](https://claude.com/contact-sales/claude-for-oss).
-  - Anthropic has restricted OAuth tokens from Free/Pro/Max plans to Claude
-    Code and claude.ai only — using Claude Max with `claude-code-action`
-    in CI is in a grey zone and may be enforced against. The Codex harness
-    is an alternative.
+  - From 2026-06-15, subscription-funded `claude-code-action` runs draw
+    from a separate monthly Agent SDK credit on eligible plans (Pro $20,
+    Max 5x $100, Max 20x $200, Team Standard $20, Team Premium $100,
+    Enterprise usage-based $20, Enterprise seat-based Premium $200;
+    seat-based Enterprise Standard seats are not eligible). See
+    [docs/claude-auth-choice.md](docs/claude-auth-choice.md) for the
+    choice between OAuth and API key.
 - While it's built to protect important secrets, a determined attacker can
   get a) the bot's token and b) the harness auth credential (Claude OAuth
   token, OpenAI API key, or ChatGPT auth.json). They can't do that much
