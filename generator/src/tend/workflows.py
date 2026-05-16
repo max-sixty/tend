@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from importlib.metadata import version
 
 import click
-from jinja2 import Environment, StrictUndefined
+from jinja2 import Environment, PackageLoader, StrictUndefined
 from jinja2.runtime import Macro
 from ruamel.yaml import YAML
 
@@ -20,8 +20,11 @@ from tend.config import Config, WorkflowConfig
 # Actions expressions (`${{ github.foo }}`, ubiquitous in generated YAML)
 # pass through templates unchanged. Block tags `{% if %} ... {% endif %}`
 # stay default — GHA never uses that form. trim_blocks + lstrip_blocks let
-# control-flow tags be indented without polluting output.
+# control-flow tags be indented without polluting output. Templates live as
+# `.yaml.j2` files under `templates/`; the `.yaml.` infix gives editors YAML
+# syntax highlighting since most strip the `.j2` and apply by tail.
 _JINJA = Environment(
+    loader=PackageLoader("tend", "templates"),
     autoescape=False,
     trim_blocks=True,
     lstrip_blocks=True,
@@ -70,112 +73,10 @@ _JINJA.globals["header"] = HEADER
 _JINJA.globals["tend_version"] = _TEND_VERSION
 
 
-# The action ref pins to the generator's own release tag. Both actions ship
-# from this repo (Codex variant lives under /codex/); release tags are
-# immutable per docs/security-model.md, so the pin is a stable supply-chain
-# anchor. Consumers move forward via the nightly `uvx tend@latest init` regen
-# pulling a newer generator, which restamps a newer tag as a reviewable diff
-# in their own repo. `version("tend")` only resolves to an existing tag when
-# generation runs from a released package — generating from in-tree source
-# pins a tag that does not exist yet; never commit those workflows (see
-# CLAUDE.md).
-#
-# Claude emits both `claude_code_oauth_token` and `anthropic_api_key`
-# unconditionally; the action validates exactly one is set and forwards both
-# to claude-code-action, which treats empty as absent. Codex follows the same
-# pattern (auth.json wins over api-key when both configured). Sticky comments
-# are Claude-only — Codex posts via gh from inside skill prompts.
-_MACROS = _JINJA.from_string("""\
-{% macro agent_step(cfg, prompt_body, use_sticky_comment=False, if_condition='') %}
-{% if cfg.harness == 'claude' %}
-      - uses: max-sixty/tend@<<tend_version>>
-{% else %}
-      - uses: max-sixty/tend/codex@<<tend_version>>
-{% endif %}
-{% if if_condition %}
-        if: <<if_condition>>
-{% endif %}
-        with:
-          github_token: ${{ secrets.<<cfg.bot_token_secret>> }}
-{% if cfg.harness == 'claude' %}
-          claude_code_oauth_token: ${{ secrets.<<cfg.claude_token_secret>> }}
-          anthropic_api_key: ${{ secrets.<<cfg.anthropic_api_key_secret>> }}
-{% else %}
-          openai_api_key: ${{ secrets.<<cfg.openai_key_secret>> }}
-          codex_auth_json: ${{ secrets.<<cfg.codex_auth_json_secret>> }}
-{% if cfg.effort %}
-          effort: <<cfg.effort>>
-{% endif %}
-{% endif %}
-          bot_name: <<cfg.bot_name>>
-          model: <<cfg.model>>
-{% if use_sticky_comment and cfg.harness == 'claude' %}
-          use_sticky_comment: true
-{% endif %}
-          <<prompt_body>>
-{%- endmacro %}
-
-{# Permissions block at column 6. `issues` defaults to True because every
-   workflow except ci-fix needs it. The trailing inline conditional avoids
-   the trim_blocks-eats-the-separator issue between `actions: read` and
-   `      issues: write` that arises with `{% if %}` on its own line. #}
-{% macro permissions(issues=True) %}
-      contents: write
-      pull-requests: write
-      id-token: write
-      actions: read<<'\n      issues: write' if issues else ''>>
-{%- endmacro %}
-
-{# Skip a job when running outside the canonical owner. Compares
-   `github.repository_owner` against the configured owner: `secrets` isn't
-   available in `jobs.<job_id>.if`, and `github.event.repository.fork` is null
-   for `schedule` events, so the owner string is the only check that works
-   across all the affected event types.
-
-   Two shapes:
-   - fork_guard_if(cfg): emits `    if: <expr>` on its own line, or nothing
-   - fork_guard_prefix(cfg): emits `<expr> && ` inline, or nothing — used
-     when the job already has an `if:` (e.g. ci-fix's conclusion check) #}
-{% macro fork_guard_if(cfg) %}
-{% if cfg.repo_owner %}
-    if: github.repository_owner == '<<cfg.repo_owner|replace("'", "''")>>'
-{% endif %}
-{%- endmacro %}
-
-{% macro fork_guard_prefix(cfg) -%}
-{% if cfg.repo_owner %}github.repository_owner == '<<cfg.repo_owner|replace("'", "''")>>' && {% endif %}
-{%- endmacro %}
-
-{# Shared `actions/checkout@v6` step. `ref` defaults to the configured default
-   branch; pass `None` to omit (mention reuses the runner's default checkout
-   ref), or any GHA expression for review's pr_ref dispatch. `if_condition`
-   gates the step (used by notifications' skip_condition). #}
-{% macro checkout(cfg, ref=None, if_condition='') %}
-      - uses: actions/checkout@v6
-{% if if_condition %}
-        if: <<if_condition>>
-{% endif %}
-        with:
-{% if ref %}
-          ref: <<ref>>
-{% endif %}
-          fetch-depth: 0
-          fetch-tags: true
-          token: ${{ secrets.<<cfg.bot_token_secret>> }}
-{%- endmacro %}
-
-{# YAML block scalar prompt at column 10, with the supplied text indented at
-   column 12. Used by workflows whose prompt is just the bare invocation
-   (triage, scheduled, notifications); review and ci-fix have richer prompt
-   shapes that they inline. #}
-{% macro block_prompt(prompt) -%}
-prompt: |
-<<prompt|indent(12, first=True, blank=True)>>
-{%- endmacro %}
-""")
-
-# Make every macro defined in _MACROS available in workflow templates
-# without requiring explicit `{% from 'macros.j2' import ... %}` imports.
+# Register every macro defined in `macros.yaml.j2` as a Jinja global so
+# workflow templates can call `agent_step(...)` directly, without an
+# explicit `{% from 'macros.yaml.j2' import ... %}` header in each file.
+_MACROS = _JINJA.get_template("macros.yaml.j2")
 _JINJA.globals.update(
     {name: val for name, val in vars(_MACROS.module).items() if isinstance(val, Macro)}
 )
@@ -260,45 +161,7 @@ def _escape_braces(prompt: str, placeholder: str) -> tuple[str, bool]:
     return text, has_placeholder
 
 
-_REVIEW_TMPL = _JINJA.from_string("""\
-{%- set prompt_body %}prompt: >-
-            ${{ <<prompt_expr>> }}{%- endset -%}
-<<header>>
-name: tend-review
-on:
-  pull_request_target:
-    types: [opened, synchronize, ready_for_review, reopened]
-
-jobs:
-  review:
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
-    runs-on: ubuntu-24.04
-    permissions:
-<<permissions()>>
-    steps:
-      # GitHub only materializes refs/pull/N/merge for mergeable PRs — on
-      # conflicting PRs it 404s and every downstream step cascades as skipped.
-      # Probe first and fall back to /head so review always runs; on fallback
-      # the review sees the PR branch in isolation rather than the post-merge
-      # tree.
-      - name: Resolve PR checkout ref
-        id: pr_ref
-        env:
-          GITHUB_TOKEN: ${{ secrets.<<cfg.bot_token_secret>> }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          if gh api "repos/${{ github.repository }}/git/ref/pull/$PR/merge" --silent 2>/dev/null; then
-            echo "ref=refs/pull/$PR/merge" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=refs/pull/$PR/head" >> "$GITHUB_OUTPUT"
-            echo "::notice::refs/pull/$PR/merge unavailable (likely merge conflict); falling back to /head"
-          fi
-<<checkout(cfg, ref='${{ steps.pr_ref.outputs.ref }}')>>
-<<setup>>
-<<agent_step(cfg, prompt_body, use_sticky_comment=True)>>
-""")
+_REVIEW_TMPL = _JINJA.get_template("review.yaml.j2")
 
 
 def generate_review(cfg: Config) -> GeneratedWorkflow:
@@ -324,233 +187,7 @@ def generate_review(cfg: Config) -> GeneratedWorkflow:
 # ---------------------------------------------------------------------------
 
 
-# Continuation lines inside a folded `>-` scalar are indented one level
-# deeper than the `prompt:` key. The agent step renders fields at column 10;
-# continuation goes at column 12.
-_MENTION_TMPL = _JINJA.from_string("""\
-{%- set pr = "(github.event_name == 'issue_comment' && github.event.issue.number || github.event.pull_request.number)" -%}
-{%- set prompt_body %}prompt: >-
-            ${{ steps.delay.outputs.seconds
-            && format('This job started {0}s after the triggering event (over ~40s means it was queued). ',
-            steps.delay.outputs.seconds) || '' }}Before acting,
-            check recent comments: exit silently if the bot already responded
-            to the trigger; handle any other unaddressed comments too.
-
-            ${{ github.event_name == 'issues'
-              && format('An issue was updated with a mention of you ({0}). Read it and respond.', github.event.issue.html_url)
-              || (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@<<cfg.bot_name>>')
-                && format('You were mentioned in an inline review comment on PR #{0} ({1}, comment ID {2}). Read the full context, then respond. If changes are requested, make them, commit, and push.', <<pr>>, github.event.comment.html_url, github.event.comment.id))
-              || (github.event_name == 'pull_request_review_comment'
-                && format('An inline review comment was posted on a PR where you previously participated (PR #{0}, {1}, comment ID {2}). Read the full context. Only respond if the comment is directed at you or requests changes.', <<pr>>, github.event.comment.html_url, github.event.comment.id))
-              || (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@<<cfg.bot_name>>')
-                && format('A review was submitted on PR #{0} that mentions you ({1}, review ID {2}). Read the review and full context, then respond. If changes were requested, make them, commit, and push.', github.event.pull_request.number, github.event.review.html_url, github.event.review.id))
-              || (github.event_name == 'pull_request_review'
-                && format('A review was submitted on a PR where you previously participated (PR #{0}, {1}, review ID {2}). Read the review and full context. If the review requests changes or asks questions, respond appropriately. If the review approves or is between humans, exit silently.', github.event.pull_request.number, github.event.review.html_url, github.event.review.id))
-              || (contains(github.event.comment.body, '@<<cfg.bot_name>>')
-                && format('You were mentioned in a comment ({0}). Read the full context and respond. If changes are requested, make them, commit, and push.', github.event.comment.html_url))
-              || format('A user commented on an issue/PR where you previously participated ({0}). Read the full context. Only respond if the comment is directed at you, asks a question you can help with, or requests changes you can make. If the conversation is between other participants, exit silently.', github.event.comment.html_url)
-            }}{%- endset -%}
-<<header>>
-name: tend-mention
-on:
-  issues:
-    types: [edited]
-  issue_comment:
-    types: [created, edited]
-  # Works for same-repo PRs only; secrets unavailable on fork PRs (no _target variant exists)
-  pull_request_review:
-    types: [submitted]
-  # `created` is intentionally absent. Modern GitHub fires *both*
-  # pull_request_review and pull_request_review_comment for every newly-created
-  # inline comment (the standalone POST /pulls/PR/comments endpoint, the
-  # /replies endpoint, the "Add single comment" UI button, and reviews
-  # submitted with inline comments — all empirically verified). Subscribing to
-  # `created` would produce a duplicate workflow run that collides on the
-  # tend-mention-handle-PR concurrency group, with the loser cancelled and
-  # posted as a CANCELLED check_run on the PR head SHA — which renders the
-  # PR's statusCheckRollup as FAILURE even though the bot did its job from the
-  # sibling run. Edits have no sibling event (review submissions don't fire on
-  # edits), so we still need to listen for `edited` to catch edit-to-summon
-  # ("@bot" added to an existing comment after the fact).
-  pull_request_review_comment:
-    types: [edited]
-
-jobs:
-  verify:
-    # Filter out fork PRs for review events — secrets are unavailable there
-    # (no _target variant exists). The notifications workflow polls for these.
-    # Skip comments on `tend-outage` issues: the action's Report-failure step
-    # auto-comments on those when Claude invocation fails, and without this
-    # guard those comments re-trigger tend-mention during a persistent outage
-    # (e.g. Anthropic 401), producing a self-sustaining ~1 run/minute loop
-    # until the outage clears. The prompt's self-loop guard can't help here
-    # because the model never executes — the action fails before Claude starts.
-    if: |
-      (github.event_name == 'issues' &&
-        contains(github.event.issue.body, '@<<cfg.bot_name>>')) ||
-      (github.event_name == 'issue_comment' &&
-        !contains(github.event.issue.labels.*.name, 'tend-outage')) ||
-      (github.event_name == 'pull_request_review_comment' &&
-        github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'pull_request_review' &&
-        github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-24.04
-    outputs:
-      should_run: ${{ steps.check.outputs.should_run }}
-    steps:
-      - name: Verify bot engagement
-        id: check
-        run: |
-          # Mentions always run
-          if [ "$EVENT_NAME" = "issues" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ -n "$COMMENT_BODY" ] && printf '%s\\n' "$COMMENT_BODY" | grep -qF '@<<cfg.bot_name>>'; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # pull_request_review payloads include review.body (checked above)
-          # but NOT the bodies of inline comments attached to the review.
-          # Fetch them so a first-contact @-mention inside an inline comment
-          # is detected on PRs where the bot has no prior engagement.
-          if [ "$EVENT_NAME" = "pull_request_review" ] && [ -n "$REVIEW_ID" ]; then
-            if gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$EVENT_PR_NUMBER/reviews/$REVIEW_ID/comments" \\
-                 --jq '.[].body' | grep -qF '@<<cfg.bot_name>>'; then
-              echo "should_run=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-
-          # Non-mention: check bot engagement
-          if [ "$EVENT_NAME" = "issue_comment" ]; then
-            ISSUE_NUMBER="$ISSUE_OR_PR_NUMBER"
-
-            if [ -z "$PR_URL" ]; then
-              if [ "$ISSUE_AUTHOR" = "<<cfg.bot_name>>" ]; then
-                echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
-              fi
-              if printf '%s\\n' "$ISSUE_BODY" | grep -qF '@<<cfg.bot_name>>'; then
-                echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
-              fi
-              BOT_COMMENTS=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \\
-                --jq '[.[] | select(.user.login == "<<cfg.bot_name>>")] | length')
-              if [ "$BOT_COMMENTS" -gt "0" ]; then
-                echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
-              fi
-              echo "should_run=false" >> "$GITHUB_OUTPUT"; exit 0
-            fi
-
-            PR_NUMBER="$ISSUE_NUMBER"
-          else
-            PR_NUMBER="$EVENT_PR_NUMBER"
-          fi
-
-          PR_AUTHOR=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json author --jq '.author.login')
-          if [ "$PR_AUTHOR" = "<<cfg.bot_name>>" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-
-          BOT_REVIEWS=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \\
-            --jq '[.[] | select(.user.login == "<<cfg.bot_name>>")] | length')
-          if [ "$BOT_REVIEWS" -gt "0" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-
-          BOT_COMMENTS=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \\
-            --jq '[.[] | select(.user.login == "<<cfg.bot_name>>")] | length')
-          if [ "$BOT_COMMENTS" -gt "0" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-
-          echo "should_run=false" >> "$GITHUB_OUTPUT"
-        env:
-          GITHUB_TOKEN: ${{ secrets.<<cfg.bot_token_secret>> }}
-          EVENT_NAME: ${{ github.event_name }}
-          COMMENT_BODY: ${{ github.event.comment.body || github.event.review.body }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
-          ISSUE_OR_PR_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
-          PR_URL: ${{ github.event.issue.pull_request.url }}
-          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
-          REVIEW_ID: ${{ github.event.review.id }}
-
-      - name: React to mention
-        if: |
-          steps.check.outputs.should_run == 'true'
-          && github.event.comment
-          && contains(github.event.comment.body, '@<<cfg.bot_name>>')
-        run: |
-          gh api "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=eyes 2>/dev/null || \\
-          gh api "repos/$REPO/pulls/comments/$COMMENT_ID/reactions" -f content=eyes 2>/dev/null || true
-        env:
-          REPO: ${{ github.repository }}
-          COMMENT_ID: ${{ github.event.comment.id }}
-          GITHUB_TOKEN: ${{ secrets.<<cfg.bot_token_secret>> }}
-
-  handle:
-    needs: verify
-    if: needs.verify.outputs.should_run == 'true'
-    concurrency:
-      group: ${{ github.workflow }}-handle-${{ github.event.issue.number || github.event.pull_request.number }}
-      cancel-in-progress: false
-    runs-on: ubuntu-24.04
-    permissions:
-<<permissions()>>
-    steps:
-<<checkout(cfg)>>
-<<setup>>
-      - name: Check out PR branch
-        if: |
-          (github.event_name == 'issue_comment' && github.event.issue.pull_request.url != '') ||
-          github.event_name == 'pull_request_review_comment' ||
-          github.event_name == 'pull_request_review'
-        run: |
-          PR_STATE=$(gh pr view "$PR_NUMBER" --json state --jq '.state')
-          if [ "$PR_STATE" = "OPEN" ]; then
-            gh pr checkout "$PR_NUMBER"
-          else
-            echo "::warning::PR is $PR_STATE — staying on default branch"
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.<<cfg.bot_token_secret>> }}
-          PR_NUMBER: ${{ github.event_name == 'issue_comment' && github.event.issue.number || github.event.pull_request.number }}
-
-      - name: Compute queue delay
-        id: delay
-        run: |
-          if [ -z "$EVENT_TS" ]; then
-            echo "seconds=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          event_epoch=$(date -d "$EVENT_TS" +%s)
-          echo "seconds=$(( $(date +%s) - event_epoch ))" >> "$GITHUB_OUTPUT"
-        env:
-          EVENT_TS: ${{ github.event.comment.created_at || github.event.review.submitted_at || github.event.issue.updated_at }}
-
-<<agent_step(cfg, prompt_body)>>
-
-      - name: Remove eyes reaction
-        if: |
-          always()
-          && github.event.comment
-          && contains(github.event.comment.body, '@<<cfg.bot_name>>')
-        run: |
-          for KIND in issues pulls; do
-            REACTION_ID=$(gh api "repos/$REPO/$KIND/comments/$COMMENT_ID/reactions?content=eyes" \\
-              --jq ".[] | select(.user.login == \\"$BOT_NAME\\") | .id" 2>/dev/null | head -n1)
-            if [ -n "$REACTION_ID" ]; then
-              gh api -X DELETE "repos/$REPO/$KIND/comments/$COMMENT_ID/reactions/$REACTION_ID" 2>/dev/null && break
-            fi
-          done
-        env:
-          REPO: ${{ github.repository }}
-          COMMENT_ID: ${{ github.event.comment.id }}
-          BOT_NAME: <<cfg.bot_name>>
-          GITHUB_TOKEN: ${{ secrets.<<cfg.bot_token_secret>> }}
-""")
+_MENTION_TMPL = _JINJA.get_template("mention.yaml.j2")
 
 
 def generate_mention(cfg: Config) -> GeneratedWorkflow:
@@ -563,27 +200,7 @@ def generate_mention(cfg: Config) -> GeneratedWorkflow:
 # ---------------------------------------------------------------------------
 
 
-_TRIAGE_TMPL = _JINJA.from_string("""\
-<<header>>
-name: tend-triage
-on:
-  issues:
-    types: [opened]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.issue.number }}
-  cancel-in-progress: true
-
-jobs:
-  triage:
-<<fork_guard_if(cfg)>>    runs-on: ubuntu-24.04
-    permissions:
-<<permissions()>>
-    steps:
-<<checkout(cfg, ref=cfg.default_branch)>>
-<<setup>>
-<<agent_step(cfg, block_prompt(prompt))>>
-""")
+_TRIAGE_TMPL = _JINJA.get_template("triage.yaml.j2")
 
 
 def generate_triage(cfg: Config) -> GeneratedWorkflow:
@@ -601,31 +218,7 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
 # ---------------------------------------------------------------------------
 
 
-_CI_FIX_TMPL = _JINJA.from_string("""\
-{%- set prompt_body %}prompt: |
-            <<prompt>>
-            - Run URL: ${{ github.event.workflow_run.html_url }}
-            - Commit: ${{ github.event.workflow_run.head_sha }}
-            - Commit message: ${{ github.event.workflow_run.head_commit.message }}{%- endset -%}
-<<header>>
-name: tend-ci-fix
-on:
-  workflow_run:
-    workflows: <<watched|tojson>>
-    types: [completed]
-    branches: <<branches|tojson>>
-
-jobs:
-  fix-ci:
-    if: <<fork_guard_prefix(cfg)>>github.event.workflow_run.conclusion == 'failure'
-    runs-on: ubuntu-24.04
-    permissions:
-<<permissions(issues=False)>>
-    steps:
-<<checkout(cfg, ref=cfg.default_branch)>>
-<<setup>>
-<<agent_step(cfg, prompt_body)>>
-""")
+_CI_FIX_TMPL = _JINJA.get_template("ci-fix.yaml.j2")
 
 
 def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
@@ -658,24 +251,7 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
 # ---------------------------------------------------------------------------
 
 
-_SCHEDULED_TMPL = _JINJA.from_string("""\
-<<header>>
-name: tend-<<name>>
-on:
-  schedule:
-    - cron: "<<cron>>"
-  workflow_dispatch:
-
-jobs:
-  <<name>>:
-<<fork_guard_if(cfg)>>    runs-on: ubuntu-24.04
-    permissions:
-<<permissions()>>
-    steps:
-<<checkout(cfg, ref=cfg.default_branch)>>
-<<setup>>
-<<agent_step(cfg, block_prompt(prompt))>>
-""")
+_SCHEDULED_TMPL = _JINJA.get_template("scheduled.yaml.j2")
 
 
 # Default cron times target Anthropic's off-peak hours (outside weekday
@@ -702,89 +278,7 @@ def _generate_scheduled(cfg: Config, name: str) -> GeneratedWorkflow:
     return GeneratedWorkflow(filename=f"tend-{name}.yaml", content=content)
 
 
-_NOTIFICATIONS_TMPL = _JINJA.from_string("""\
-<<header>>
-name: tend-notifications
-on:
-  schedule:
-    - cron: "<<cron>>"
-  workflow_dispatch:
-
-jobs:
-  notifications:
-<<fork_guard_if(cfg)>>    runs-on: ubuntu-24.04
-    permissions:
-<<permissions()>>
-    steps:
-      - name: Check for unread notifications
-        id: check
-        run: |
-          COUNT=$(gh api notifications --jq 'length')
-          if [ "$COUNT" = "0" ]; then
-            echo "count=0" >> "$GITHUB_OUTPUT"
-            echo "No unread notifications — skipping"
-            exit 0
-          fi
-
-          # --- Layer B: drop notifications shadowed by recent dedicated runs ---
-          # Event workflows mark their own notifications read via action.yaml's
-          # post-step on success; this sweeps the case where Claude failed
-          # (post-step is gated by `if: success()`) so the notification still
-          # gets cleared without burning Claude turns to rediscover it.
-          SINCE=$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
-          RECENT_PRS=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?created=>=$SINCE&per_page=50" --jq '[.workflow_runs[] | select(.name | test("^(tend-review|tend-mention|tend-triage|tend-ci-fix)$")) | .pull_requests[]?.number] | unique | .[]' || true)
-
-          if [ -n "$RECENT_PRS" ]; then
-            NOTIFS=$(gh api notifications)
-            for pr in $RECENT_PRS; do
-              echo "$NOTIFS" | jq -r --arg repo "$GITHUB_REPOSITORY" --arg pr "$pr" '.[] | select(.subject.url == "https://api.github.com/repos/" + $repo + "/pulls/" + $pr or .subject.url == "https://api.github.com/repos/" + $repo + "/issues/" + $pr) | .id' | while read -r tid; do
-                [ -n "$tid" ] || continue
-                gh api "notifications/threads/$tid" -X PATCH || true
-              done
-            done
-          fi
-
-          # --- Layer C: drop notifications on bot-authored closed PRs ---
-          # The bot auto-subscribes to its own PRs. After merge/close, leftover
-          # subscription notifications are pure noise — no action needed.
-          NOTIFS=$(gh api notifications)
-          echo "$NOTIFS" | jq -r --arg repo "$GITHUB_REPOSITORY" '.[] | select(.repository.full_name == $repo and .subject.type == "PullRequest") | .id' | while read -r tid; do
-            [ -n "$tid" ] || continue
-            PR_NUM=$(echo "$NOTIFS" | jq -r --arg tid "$tid" '.[] | select(.id == $tid) | .subject.url | split("/") | last')
-            PR_INFO=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUM" --jq '"\\(.user.login) \\(.state)"' 2>/dev/null) || continue
-            PR_AUTHOR=${PR_INFO%% *}
-            PR_STATE=${PR_INFO##* }
-            if [ "$PR_AUTHOR" = "<<cfg.bot_name>>" ] && [ "$PR_STATE" = "closed" ]; then
-              gh api "notifications/threads/$tid" -X PATCH || true
-            fi
-          done
-
-          # --- Layer D: count processable notifications ---
-          # Same-repo notifications younger than 10 minutes are deferred: a
-          # dedicated workflow (tend-review/mention/triage/ci-fix) is likely
-          # still starting up or mid-flight and hasn't posted its response yet.
-          # Processing them now risks duplicating work. Cross-repo notifications
-          # are exempt — no dedicated workflow handles them.
-          CUTOFF=$(date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
-          REMAINING=$(gh api notifications)
-          COUNT=$(echo "$REMAINING" | jq --arg repo "$GITHUB_REPOSITORY" --arg cutoff "$CUTOFF" '[.[] | select(.repository.full_name != $repo or .updated_at <= $cutoff)] | length')
-          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
-          if [ "$COUNT" = "0" ]; then
-            TOTAL=$(echo "$REMAINING" | jq 'length')
-            if [ "$TOTAL" = "0" ]; then
-              echo "All notifications handled by pre-checks — skipping"
-            else
-              echo "$TOTAL notification(s) remain but all are fresh same-repo (deferred) — skipping"
-            fi
-          else
-            echo "$COUNT processable notification(s) — proceeding"
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.<<cfg.bot_token_secret>> }}
-
-<<checkout(cfg, ref=cfg.default_branch, if_condition=skip_condition)>>
-<<setup>><<agent_step(cfg, block_prompt(prompt), if_condition=skip_condition)>>
-""")
+_NOTIFICATIONS_TMPL = _JINJA.get_template("notifications.yaml.j2")
 
 
 def generate_notifications(cfg: Config) -> GeneratedWorkflow:

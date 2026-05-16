@@ -1,0 +1,19 @@
+<<header>>
+name: tend-triage
+on:
+  issues:
+    types: [opened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+<<fork_guard_if(cfg)>>    runs-on: ubuntu-24.04
+    permissions:
+<<permissions()>>
+    steps:
+<<checkout(cfg, ref=cfg.default_branch)>>
+<<setup>>
+<<agent_step(cfg, block_prompt(prompt))>>
