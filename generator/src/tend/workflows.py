@@ -1110,5 +1110,8 @@ def generate_all(
         wf = _apply_extras(wf, wf_cfg)
         results.append(wf)
     if with_install_test:
-        results.append(generate_install_test(cfg))
+        wf = generate_install_test(cfg)
+        wf_cfg = cfg.workflows.get("install-test", WorkflowConfig())
+        wf = _apply_extras(wf, wf_cfg)
+        results.append(wf)
     return results

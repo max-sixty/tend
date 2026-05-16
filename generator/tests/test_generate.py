@@ -1024,6 +1024,27 @@ def test_install_test_workflow_regtest(
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
+def test_install_test_honors_workflow_extras(tmp_path: Path) -> None:
+    """install-test goes through `_apply_extras`, so `workflow_extra` and
+    per-job overrides from .config/tend.yaml take effect (e.g. injecting
+    proxy env vars or pinning runs-on for a self-hosted runner)."""
+    extra = dedent("""\
+        workflows:
+          install-test:
+            workflow_extra:
+              env:
+                HTTPS_PROXY: http://proxy.corp:8080
+            jobs:
+              install-test:
+                runs-on: ubuntu-22.04-large
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg, with_install_test=True)}
+    data = yaml.safe_load(workflows["tend-install-test.yaml"].content)
+    assert data["env"]["HTTPS_PROXY"] == "http://proxy.corp:8080"
+    assert data["jobs"]["install-test"]["runs-on"] == "ubuntu-22.04-large"
+
+
 def test_codex_action_ref(tmp_path: Path) -> None:
     """Codex workflows reference max-sixty/tend/codex@<release tag>."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
