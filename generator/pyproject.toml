@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.11.14,<0.12"]
+build-backend = "uv_build"
 
 [project]
 name = "tend"
@@ -24,9 +24,6 @@ tend = "tend.cli:main"
 
 [project.urls]
 homepage = "https://github.com/max-sixty/tend"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/tend"]
 
 [dependency-groups]
 dev = ["pytest>=9.0.2", "pytest-regtest>=2.1.1"]
