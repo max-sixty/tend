@@ -38,11 +38,12 @@ the chain.
 
 Deploy and publish workflows declare a GitHub Environment whose
 `deployment_branch_policy` lists only those admin-gated refs (the default
-branch and/or the release tag pattern). Release secrets live in those
-environments, not at repo level. A leaked bot token can push a branch or a
-non-release tag, but neither ref matches an admin-gated policy entry, so
-the deploy job is rejected before it can read the secret. No admin
-operation → no admin-gated ref → no environment access → no secret.
+branch and/or all tags). Release secrets live in those environments, not
+at repo level. A leaked bot token can push a non-default branch, but it
+cannot push to the default branch and cannot push any tag, so no
+bot-pushed ref matches an admin-gated policy entry. The deploy job is
+rejected before it can read the secret. No admin operation → no
+admin-gated ref → no environment access → no secret.
 
 The composite action refuses to start if the default branch is unprotected.
 

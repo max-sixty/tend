@@ -350,8 +350,14 @@ secrets must trigger on `push: tags:` (release) or `push: branches: [main]`
 YAML at the PR's head ref, which a bot can write, so the workflow code is
 no longer admin-vetted and the chain breaks at the workflow file itself.
 Other triggers (`workflow_dispatch`, `release: published`, `deployment`,
-`schedule`) read the workflow file from the default branch, so they keep
-the chain.
+`schedule`) are outside the packaged recipe. Their workflow files run
+from the default branch (so code is admin-vetted), but they can be
+initiated by a write-scoped bot against an admin-gated ref, which means
+the env policy alone does not stop the bot from firing them at unwanted
+times. If a repo keeps such a trigger on a release/deploy workflow,
+treat it as a custom design and verify the trigger-specific proof
+(usually: gate the env with required reviewers on top of the chain) per
+workflow before migrating release or deploy secrets to that env.
 
 **More complicated approaches are possible** (per-pattern tag rulesets,
 mixed bypass actors, layered no-bypass immutability rulesets for repos
@@ -761,8 +767,8 @@ line picks the row that matches the chosen harness):
 
 - [ ] Config: `.config/tend.yaml` created (with `harness` set if Codex)
 - [ ] Workflows: generated in `.github/workflows/`
-- [ ] Rulesets: merge restriction on default branch (admin bypass), release tag operations (admin bypass)
-- [ ] Release/deploy secrets: environment-protected; the environment's deployment-branch-policies list only the admin-gated refs from §3 (default branch and/or release tag pattern)
+- [ ] Rulesets: merge restriction on default branch (admin bypass), tag operations on all tags (admin bypass)
+- [ ] Release/deploy secrets: environment-protected; the environment's deployment-branch-policies list only the admin-gated refs from §3 (default branch and/or all tags)
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
 - [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub
