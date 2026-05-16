@@ -26,13 +26,17 @@ not have to ask "where do I do that?".
 Before running step 1, choose the harness and lay out the plan:
 
 - Ask via `AskUserQuestion` which harness to use:
-  - **Claude (Anthropic)** — uses a Claude Code OAuth token (Max/Team
-    subscription) or a console.anthropic.com API key. Note: starting
-    2026-06-16, Anthropic bills non-interactive Claude Code runs (CI,
-    headless, batch) at API rates rather than against Max/Pro/Team
-    subscriptions. After that date, the OAuth path no longer funds CI
-    runs; the API key path is the only Claude option. Confirm the user
-    understands before picking.
+  - **Claude (Anthropic)** — uses a Claude Code OAuth token (recommended
+    for adopters with an eligible Claude subscription) or a
+    console.anthropic.com API key. Starting 2026-06-15, eligible-plan
+    `claude-code-action` runs draw from a separate monthly Agent SDK
+    credit (one-time opt-in then auto-refresh); using OAuth puts that
+    bundled allowance to work. Enable "extra usage" in the Console so
+    credit exhaustion overflows to API rates instead of hard-stopping
+    CI. API key is the alternative when the user is on an ineligible
+    plan (e.g. seat-based Enterprise Standard), has no subscription to
+    draw on, or wants a dedicated billing surface and per-key
+    revocation.
   - **Codex (OpenAI)** — uses a ChatGPT Plus/Pro/Business `auth.json`
     (subscription, recommended) or an OpenAI API key (pay-per-token).
     Public repos require `auth.json` from a ChatGPT account dedicated
@@ -423,22 +427,19 @@ gh secret list --repo "$REPO" --json name --jq '.[].name' \
 
 If not set, ask via `AskUserQuestion` which auth mode to use:
 
-- **API key (recommended after 2026-06-16)** — `sk-ant-…` from
-  `https://console.anthropic.com/settings/keys`. Billed per token. Works
-  for any repo and is the only Claude path that funds non-interactive
-  CI runs after Anthropic's 2026-06-16 policy change.
-- **OAuth token (subscription)** — `sk-ant-oat01-…` from
-  `claude setup-token`. Funded by a Max/Team subscription before
-  2026-06-16; after that date Anthropic bills these CI runs at API
-  rates regardless. Token is valid for 1 year.
-
-For **API key**:
-
-Have the user paste the `sk-ant-…` key, then store it:
-
-```bash
-gh secret set ANTHROPIC_API_KEY --repo "$REPO" --body "$KEY"
-```
+- **OAuth token (recommended for eligible Claude subscribers)** —
+  `sk-ant-oat01-…` from `claude setup-token`. Funded by eligible
+  subscriptions; from 2026-06-15 these runs draw from a separate monthly
+  Agent SDK credit. Have the user opt in to the credit through
+  their Claude account once (Anthropic emails instructions; it
+  auto-refreshes each cycle after that), and enable "extra usage" in the
+  Console if they want credit exhaustion to overflow to API rates
+  instead of stopping CI. Token is advertised as 1-year.
+- **API key** — `sk-ant-…` from
+  `https://console.anthropic.com/settings/keys`. Billed per token against
+  the Console org. Pick this when there's no Claude subscription, when
+  the bot should bill against a dedicated Console org, or when per-key
+  revocation matters. Works for any repo.
 
 For **OAuth token**: before offering the CLI option, check:
 
@@ -465,6 +466,14 @@ Then store the secret:
 
 ```bash
 echo "$TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO"
+```
+
+For **API key**:
+
+Have the user paste the `sk-ant-…` key, then store it:
+
+```bash
+gh secret set ANTHROPIC_API_KEY --repo "$REPO" --body "$KEY"
 ```
 
 ### 7b. Harness = codex
