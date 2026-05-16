@@ -53,7 +53,7 @@ def _print_check_results(results: list[CheckResult]) -> None:
 
 @click.group()
 def main() -> None:
-    """An autonomous junior maintainer for GitHub repos, powered by Claude. Generates and manages workflows from .config/tend.yaml."""
+    """An autonomous junior maintainer for GitHub repos, powered by Claude or OpenAI Codex. Generates and manages workflows from .config/tend.yaml."""
 
 
 @main.command()
