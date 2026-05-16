@@ -47,7 +47,17 @@ inputs:
       Reasoning effort — low, medium, high, or xhigh. Empty means leave
       at Codex CLI default (medium for gpt-5.5).
   sandbox:
-    default: workspace-write
+    # danger-full-access by default: this action only ever runs inside an
+    # ephemeral single-use GitHub Actions runner VM, which is itself the
+    # isolation boundary. Codex's inner bwrap jail (used by workspace-write
+    # and read-only on Linux) is redundant there — and unavailable anyway,
+    # since the standard ubuntu runner image ships no bubblewrap, so any
+    # non-full-access mode blocks codex from running even a file read. The
+    # boundaries that actually matter for tend (the bot cannot merge its own
+    # PRs; credentials are scope-limited) are enforced outside codex's
+    # local-exec sandbox and are unaffected by this. Standard codex-in-CI
+    # configuration.
+    default: danger-full-access
     description: Codex sandbox mode (workspace-write, read-only, danger-full-access)
   codex_version:
     default: ""
