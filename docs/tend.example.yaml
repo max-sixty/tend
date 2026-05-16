@@ -38,11 +38,11 @@ bot_name: my-project-bot
 
 # ## Protected branches
 #
-# The default branch is always protected. Additional branches (release tracks,
-# major-version branches) can be listed here — the bot cannot merge to any of
-# them without human approval.
+# The default branch is always protected. Additional long-lived branches
+# (e.g. release or staging branches) can be listed here. The bot cannot
+# merge to any of them without human approval.
 #
-# protected_branches: ["v1", "v2"]
+# protected_branches: ["release", "staging"]
 
 # ## Secrets
 #

@@ -9,7 +9,8 @@ The Codex harness landed but tend itself still runs on Claude. The cutover
 needs the release sequence:
 
 1. Land the harness support PR on `main`.
-2. Cut release `0.0.19` — bumping the `v1` tag to include `codex/action.yaml`.
+2. Cut a release so the new tag (with `codex/action.yaml`) is what the
+   version-pinned action ref resolves to.
 3. Edit `.config/tend.yaml`: add `harness: codex` (and optionally
    `effort: medium`). Set `model: gpt-5.5` explicitly or let the
    default win.
@@ -38,12 +39,12 @@ scoped installation token per workflow run. Workflows still live and run
 in the adopter's repo.
 
 ```yaml
-- uses: max-sixty/tend/auth@v1   # OIDC → our service → scoped token
+- uses: max-sixty/tend/auth@X.Y.Z   # OIDC → our service → scoped token
   id: auth
 - uses: actions/checkout@v6
   with:
     token: ${{ steps.auth.outputs.token }}
-- uses: max-sixty/tend@v1
+- uses: max-sixty/tend@X.Y.Z
   with:
     github_token: ${{ steps.auth.outputs.token }}
     claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -135,6 +136,38 @@ implemented yet:
   token never enters a job that touches attacker-controlled code.
   Significant complexity — every workflow becomes two with artifact
   passing between them.
+
+## Security channel for `tend check` drift (PVR)
+
+The nightly `tend check` step (`plugins/tend-ci-runner/skills/nightly/`)
+files one normal tracking issue for any configuration drift. Some failures
+are real security regressions — missing branch protection, bot escalated to
+`admin`, a deploy token (e.g. `CLOUDFLARE_API_TOKEN`) at repo level
+reachable from fork-triggered runs — others are benign drift (a runtime
+token needing allowlisting, a missing secret). On a *public* repo a labeled
+public issue broadcasts the misconfig before it's fixed.
+
+GitHub's native private channel is **Private Vulnerability Reporting**: a
+draft repository security advisory (`POST
+/repos/{owner}/{repo}/security-advisories` or the `/reports` intake) is
+maintainer-private — no CVE/GHSA entry, no Dependabot alerts until
+published. Deferred because:
+
+- **Semantic misfit.** Advisories model a vulnerability in the *shipped
+  package* (ecosystem, version ranges, CVSS), not a misconfiguration of
+  tend's deployment. An accidental "Publish" creates a bogus GHSA.
+- **Automation ergonomics.** The nightly loop needs idempotent
+  find-one / refresh-footer / close-when-green — `gh issue list --search`
+  gives that; an advisory's draft→triage→publish lifecycle doesn't.
+- **Permission.** A maintainer draft advisory needs repo `admin`; the bot
+  has `write`. Whether the `/reports` intake works with the bot's PAT (and
+  whether PVR is enabled) is unverified.
+
+If pursued: keep the tracking issue for operational drift, additionally
+open a draft advisory for security-classified failures. Needs (a) the
+discrimination rule (fix narrows a credential's scope → security; fix
+updates config to reflect intent → drift), (b) `install-tend` enabling PVR
+at setup, (c) confirming the bot token can hit the reports endpoint.
 
 ## Worker: Phase 2 LLM summary of `/activity`
 

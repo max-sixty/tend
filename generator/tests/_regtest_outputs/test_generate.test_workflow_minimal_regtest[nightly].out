@@ -29,7 +29,7 @@ jobs:
           fetch-tags: true
           token: ${{ secrets.BOT_TOKEN }}
 
-      - uses: max-sixty/tend@v1
+      - uses: max-sixty/tend@X.Y.Z
         with:
           github_token: ${{ secrets.BOT_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

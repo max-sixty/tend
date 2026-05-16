@@ -3,8 +3,9 @@ name: worker-deploy
 # Deploys the tend-website Cloudflare Worker on push to main that touches
 # worker/** or this workflow. The Worker serves all three live data streams
 # the site renders. One-time account setup (KV namespace, GITHUB_TOKEN
-# Worker secret, CLOUDFLARE_API_TOKEN repo secret, custom domain) is
-# documented in worker/README.md and is already done for max-sixty/tend.
+# Worker secret, CLOUDFLARE_API_TOKEN in the cloudflare-deploy environment,
+# custom domain) is documented in worker/README.md and is already done for
+# max-sixty/tend.
 
 on:
   push:
@@ -18,6 +19,7 @@ jobs:
   deploy:
     if: github.repository_owner == 'max-sixty'
     runs-on: ubuntu-24.04
+    environment: cloudflare-deploy
     permissions:
       contents: read
     steps:

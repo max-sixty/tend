@@ -51,6 +51,21 @@ branch protection) prevents the bot from merging to protected branches
 default branch isn't protected. Everything below is defense in depth — useful,
 but not load-bearing.
 
+**Action distribution integrity.** Generated workflows pin the composite
+action to the generator's own release version (`max-sixty/tend@X.Y.Z`), never
+a floating ref. Release-tag immutability is the boundary this relies on: a
+`tag` ruleset on `max-sixty/tend` restricts `update` and `deletion` (leaving
+`creation` open so the release can push a new `X.Y.Z`), with no bypass for
+write-access actors. That ruleset is applied out of band; until it is in
+place the boundary holds by convention, not enforcement, and anyone with
+write access on `max-sixty/tend` can rewrite a published tag. Once enforced,
+a leaked bot token or hijacked session cannot move a published tag and
+retroactively change the code every adopter already runs; the worst it can
+do is push a new release tag, which adopters only pick up on their next
+nightly regen, as a reviewable workflow-file diff in their own repo. Adopters extend trust to `max-sixty/tend`'s release-tag integrity the
+same way they trust any third-party action's publisher; pinning to `X.Y.Z`
+(or a commit SHA) bounds that trust to a reviewed, immutable point.
+
 **Config pinning.** `claude-code-action` restores `.claude/`, `.mcp.json`,
 `.claude.json`, `.gitmodules`, and `.ripgreprc` from the base branch on all
 PRs. These paths give the CLI code execution at startup — hooks run shell

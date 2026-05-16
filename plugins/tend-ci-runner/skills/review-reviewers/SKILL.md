@@ -113,11 +113,12 @@ if [ -z "$GIST_ID" ]; then
   # The gist file takes its name from the local file's basename; later reads
   # and PATCHes target `findings.md`, so the seed must live at that basename.
   mkdir -p /tmp/gist-seed
-  cat > /tmp/gist-seed/findings.md << EOF
-# review-reviewers evidence — $TARGET — $MONTH
-
-Secret gist. Append-only log of below-threshold findings used for gate evaluation.
-EOF
+  # Use the Write tool to author /tmp/gist-seed/findings.md (substituting
+  # $TARGET and $MONTH from the environment). Content:
+  #
+  #   # review-reviewers evidence — <target> — <YYYY-MM>
+  #
+  #   Secret gist. Append-only log of below-threshold findings used for gate evaluation.
   GIST_URL=$(gh gist create --desc "$GIST_DESC" /tmp/gist-seed/findings.md)
   if [ -z "$GIST_URL" ]; then
     echo "ERROR: gh gist create failed — BOT_TOKEN likely lacks 'gist' scope (see install-tend)" >&2
@@ -162,7 +163,6 @@ After applying the gates, write each run's new findings (format in `@review-gate
 ```bash
 # Verify the run heading references this run's $GITHUB_RUN_ID literally —
 # fabricated round numbers produce dead Workflow links, see @review-gates.md.
-# Use `||` not `if ! cmd` — the Bash-tool preprocessor rewrites bangs.
 grep -qF "$GITHUB_RUN_ID" /tmp/findings.md || {
   echo "ERROR: /tmp/findings.md does not contain \$GITHUB_RUN_ID=$GITHUB_RUN_ID — refusing to PATCH gist" >&2
   exit 1
@@ -238,9 +238,9 @@ Use `Agent` with `model: "haiku"` and a prompt like:
 > - Bot-closed issue was reopened
 > - Fix commit was reverted or CI still failing after bot pushed
 > - Human replied to bot with correction or complaint
-> - Bot comment contains corruption (literal `${`, unescaped bangs, broken heredoc markers)
+> - Bot comment contains corruption (literal `${`, unescaped bangs, backslash-backticks, broken heredoc markers)
 >
-> **Corruption-scan recipe.** Inline `jq` filters or `grep` regexes whose pattern is a literal backslash-bang are mangled by the Bash-tool preprocessor (every literal exclamation mark in the command string gets rewritten to backslash-bang, including inside the regex), so a `jq` filter aborts with `Invalid escape` and the scan silently passes zero matches. Save bot bodies to a file first, then scan the file with `grep -F` for fixed strings and `grep -P` for backslash-bang:
+> **Corruption-scan recipe.** Save bot bodies to a file, then scan with `grep`:
 >
 > ```bash
 > mkdir -p /tmp/bot-output && : > /tmp/bot-output/all.txt
@@ -280,7 +280,7 @@ Use `Agent` with `model: "haiku"` and a prompt like:
 > grep -nF 'anthropics/' /tmp/bot-output/all.txt         # wrong-owner URL
 > ```
 >
-> Cover all four bot-output surfaces: issue comments, issue bodies, PR bodies, and reviews/inline review comments. Comments-only scans miss corruption that ships in a survey-issue or PR body — those are composed via `gh issue create --body` / `gh pr create --body`, exactly the surface the Bash-tool preprocessor hits.
+> Cover all four bot-output surfaces: issue comments, issue bodies, PR bodies, and reviews/inline review comments. Comments-only scans miss corruption that ships in a survey-issue or PR body.
 >
 > **Report format** — return a structured summary:
 > ```
@@ -358,17 +358,17 @@ PR/issue bodies should link to the evidence gist (`$GIST_URL`) so reviewers can 
 
 ## Step 6: Summary
 
-Report results in the conversation log and save a markdown summary to `/tmp/claude/step-summary.md` (a post-Claude step copies this into the GitHub Actions step summary). Include `$GIST_URL` at the top so maintainers viewing the run page can click through to the full evidence log:
+Report results in the conversation log and save a markdown summary to `/tmp/claude/step-summary.md` (a post-Claude step copies this into the GitHub Actions step summary). Use the Write tool. Include `$GIST_URL` at the top so maintainers viewing the run page can click through to the full evidence log:
 
 ```bash
 mkdir -p /tmp/claude
-cat > /tmp/claude/step-summary.md << EOF
-## Review-reviewers summary
-
-Evidence: $GIST_URL
-
-...
-EOF
+# Then use the Write tool to author /tmp/claude/step-summary.md, starting:
+#
+#   ## Review-reviewers summary
+#
+#   Evidence: <value of $GIST_URL>
+#
+#   ...
 ```
 
 If no problems found (or none passed the gates), report "all clear" with: runs analyzed, outcomes checked, brief quality assessment, and a link to the evidence gist for any below-threshold findings recorded this run.

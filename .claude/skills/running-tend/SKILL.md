@@ -27,7 +27,7 @@ Tend has Claude-powered workflows beyond the generated `tend-*` set:
 |----------|------|----------|---------|
 | `review-reviewers` | `review-reviewers.yaml` | `47 * * * *` | Hourly analysis of adopter repo sessions |
 
-These use the `tend@v1` action and produce `claude-session-logs*` artifacts,
+These use the tend composite action and produce `claude-session-logs*` artifacts,
 but their names don't match the `tend-*` prefix that scripts filter on by
 default.
 
@@ -61,10 +61,13 @@ currently-tending dot, activity feed, and stat strip. Needs no opt-in
 because the workflow files are public.
 
 ```bash
-# 1. Discover consumer repos via code search. `max-sixty/tend@v1` only
-#    appears in generated tend-*.yaml workflow files.
+# 1. Discover consumer repos via code search. Generated workflows pin a
+#    version tag (`max-sixty/tend@X.Y.Z`, or `/codex@X.Y.Z`), so search the
+#    bare `max-sixty/tend` token (version-agnostic; GitHub code search does
+#    not index `@` or `/`, so this matches both the Claude and Codex refs).
+#    The `.github/workflows/tend-` path filter below bounds precision.
 mapfile -t REPOS < <(
-  gh search code 'max-sixty/tend@v1' --limit 100 --json repository,path \
+  gh search code 'max-sixty/tend' --limit 100 --json repository,path \
     | jq -r '.[] | select(.path | startswith(".github/workflows/tend-")) | .repository.nameWithOwner' \
     | sort -u
 )

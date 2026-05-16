@@ -80,9 +80,24 @@ gh issue close <issue-number> --reason "not planned" --comment "Transient — cl
 ```
 
 Use this path when:
-- The same code path succeeded on a recent prior run with no relevant changes between runs
+- The same code path succeeded on the most recent 5 prior runs with no relevant changes between runs
 - The failure shape is filesystem/network-level, not anything the project's code does
 - An upstream status incident matches the timing and components
+
+#### Repeat-occurrence escalation
+
+Before applying the transient path, check whether the same failure shape has already been classified transient recently. The single-shot criteria above don't catch an intermittent upstream regression — each rerun-pass reinforces the wrong classification.
+
+```bash
+BOT_LOGIN=$(gh api user --jq '.login')
+gh issue list --state all --author "$BOT_LOGIN" --search "ci-fix: in:title" \
+  --json number,title,createdAt \
+  --jq "[.[] | select(.createdAt >= (now - 7*86400 | todateiso8601))]"
+```
+
+Match by failure-shape keyword (e.g. `rustup-init`, `composer connect timeout`, `docker pull rate limit`) — not by job name. The same root cause can surface on multiple jobs.
+
+If 2+ prior issues match the current failure shape within the past 7 days, escalate to durable: a fault that re-fires every 1–3 days is not transient even when individual reruns pass. Search for an upstream-documented workaround (`gh issue search` against the action's repo, the action's README, GitHub Community threads) and apply it. If no upstream workaround is documented, open a fix PR proposing a minimal mitigation (pin runner image, skip the affected leg, disable the relevant cache layer) and link the upstream tracking issue.
 
 If you can't tell whether it's transient, treat it as durable and create a fix PR.
 
