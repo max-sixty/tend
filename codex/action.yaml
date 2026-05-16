@@ -82,7 +82,10 @@ outputs:
       cost_usd is 0 — Codex CLI doesn't surface API list prices.
     value: ${{ steps.tokens.outputs.usage }}
   final_message:
-    description: The final assistant message Codex wrote (markdown)
+    description: >-
+      The final assistant message Codex wrote (markdown), base64-encoded.
+      Decode with `base64 -d` before use. Encoded so arbitrary agent
+      content can't break the $GITHUB_OUTPUT framing.
     value: ${{ steps.codex.outputs.final_message }}
 
 runs:
@@ -328,16 +331,13 @@ runs:
 
         # Surface the final message as a step output even if codex
         # exited non-zero — downstream steps may still want to post it.
+        # base64 -w0 → single-line key=value, no heredoc. Agent output is
+        # arbitrary content; a $GITHUB_OUTPUT heredoc fails if it lacks a
+        # trailing newline (codex writes the file without one) or contains
+        # the delimiter. Encoding sidesteps both. Consumers decode with
+        # `base64 -d`.
         if [ -f "$OUTPUT_FILE" ]; then
-          # Random delimiter: agent output is content-dependent and could
-          # otherwise contain a line matching a fixed sentinel, truncating
-          # the multiline output. See GitHub's multiline-string guidance.
-          DELIM="ghadelimiter_$(openssl rand -hex 16)"
-          {
-            echo "final_message<<$DELIM"
-            cat "$OUTPUT_FILE"
-            echo "$DELIM"
-          } >> "$GITHUB_OUTPUT"
+          echo "final_message=$(base64 -w0 "$OUTPUT_FILE")" >> "$GITHUB_OUTPUT"
         fi
         exit $EXIT
 
