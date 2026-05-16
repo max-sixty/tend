@@ -297,7 +297,7 @@ class Config:
             bot_name=bot_name,
             default_branch="main",
             protected_branches=protected_branches,
-            bot_token_secret=secrets.get("bot_token", "BOT_TOKEN"),
+            bot_token_secret=secrets.get("bot_token", "TEND_BOT_TOKEN"),
             claude_token_secret=secrets.get("claude_token", "CLAUDE_CODE_OAUTH_TOKEN"),
             anthropic_api_key_secret=secrets.get(
                 "anthropic_api_key", "ANTHROPIC_API_KEY"

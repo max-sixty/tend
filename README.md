@@ -155,12 +155,12 @@ bot_name: my-project-bot
 
 Repo secrets depend on the harness:
 
-| Harness   | Required secrets                                                                                                |
-| -------- | --------------------------------------------------------------------------------------------------------------- |
-| `claude` | `BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription, see caveat below) or `ANTHROPIC_API_KEY` (API-billed) |
-| `codex`  | `BOT_TOKEN` + one of `CODEX_AUTH_JSON` (subscription, recommended) or `OPENAI_API_KEY` (pay-per-token) |
+| Harness   | Required secrets                                                                                                        |
+| -------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `claude` | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription, see caveat below) or `ANTHROPIC_API_KEY` (API-billed) |
+| `codex`  | `TEND_BOT_TOKEN` + one of `CODEX_AUTH_JSON` (subscription, recommended) or `OPENAI_API_KEY` (pay-per-token)              |
 
-`BOT_TOKEN` is the bot account's PAT — see
+`TEND_BOT_TOKEN` is the bot account's PAT — see
 [example config](docs/tend.example.yaml) for scopes.
 `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token`;
 `CODEX_AUTH_JSON` is the contents of the `auth.json` Codex writes after

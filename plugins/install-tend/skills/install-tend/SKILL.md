@@ -572,7 +572,7 @@ copy the bot's token to the repo secret, and verify:
 
 ```bash
 gh auth switch --user <maintainer>
-gh auth token --user <bot-name> | gh secret set BOT_TOKEN --repo "$REPO"
+gh auth token --user <bot-name> | gh secret set TEND_BOT_TOKEN --repo "$REPO"
 gh secret list --repo "$REPO"
 ```
 
@@ -645,7 +645,7 @@ line picks the row that matches the chosen harness):
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
 - [ ] Harness auth (codex): `CODEX_AUTH_JSON` (subscription, recommended) or `OPENAI_API_KEY` secret set
-- [ ] Bot token: `BOT_TOKEN` secret set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
+- [ ] Bot token: `TEND_BOT_TOKEN` secret set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot bio: profile bio reflects the authorization stance
 - [ ] Committed (push requires explicit permission)
