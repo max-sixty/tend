@@ -54,15 +54,16 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 
 ## Reasons _not_ to use Tend
 
-- Tend uses lots of tokens. Either a Claude Max subscription, an OpenAI API
-  key, or a ChatGPT plan is needed to fund the runs.
+- Tend uses lots of tokens. A Claude subscription, an Anthropic API key,
+  an OpenAI API key, or a ChatGPT plan is needed to fund the runs.
   - Maintainers of sizeable OSS projects [get a 20x Claude Max subscription
     for free from
     Anthropic](https://claude.com/contact-sales/claude-for-oss).
-  - Anthropic has restricted OAuth tokens from Free/Pro/Max plans to Claude
-    Code and claude.ai only — using Claude Max with `claude-code-action`
-    in CI is in a grey zone and may be enforced against. The Codex harness
-    is an alternative.
+  - From 2026-06-15, subscription-funded `claude-code-action` runs draw
+    from a separate monthly Agent SDK credit on eligible plans (Pro $20,
+    Max 5x $100, Max 20x $200, Team Standard $20, Team Premium $100,
+    Enterprise usage-based $20, Enterprise seat-based Premium $200;
+    seat-based Enterprise Standard seats are not eligible).
 - While it's built to protect important secrets, a determined attacker can
   get a) the bot's token and b) the harness auth credential (Claude OAuth
   token, OpenAI API key, or ChatGPT auth.json). They can't do that much
@@ -194,26 +195,31 @@ Wraps
 Anthropic's official GitHub Action for running Claude Code in CI. Two
 auth modes:
 
-- **`CLAUDE_CODE_OAUTH_TOKEN`** — Claude Code OAuth token from
-  `claude setup-token`. Funded by a Max/Team subscription before
-  2026-06-16; see caveat below.
+- **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended with an eligible Claude
+  subscription) — Claude Code OAuth token from `claude setup-token`.
+  Funded by the subscription; from 2026-06-15 eligible-plan runs draw
+  from a separate monthly Agent SDK credit — see caveat below for the
+  per-plan breakdown and the seat-based Enterprise Standard exclusion.
 - **`ANTHROPIC_API_KEY`** — standard API key from console.anthropic.com,
-  billed per token. Works for any repo and is the recommended path for
-  open-source.
+  billed per token against the Console org. Pick this when there's no
+  Claude subscription, when the bot should bill against a dedicated
+  Console org, or when per-key revocation matters.
 
 Whichever you set is used exactly as it would be in any
 claude-code-action workflow — tend adds the framework (workflows, skills,
 prompts) around it but never sees the token itself.
 
-Caveat: starting **2026-06-16**, Anthropic bills non-interactive Claude
-Code runs (CI, headless, batch) at API rates rather than against
-Max/Pro/Team plan allowances. `anthropics/claude-code-action` in
-GitHub Actions is non-interactive — a Max subscription will not fund
-runs after that date. Adopters needing subscription-funded CI should
-plan to move to the Codex harness, or switch to `ANTHROPIC_API_KEY`. See
-Anthropic's
-[authentication policy](https://code.claude.com/docs/en/authentication)
-for the canonical statement.
+Caveat: starting **2026-06-15**, subscription-funded `claude-code-action`
+runs draw from a separate monthly Agent SDK credit rather than the plan's
+interactive usage limits. The credit is a one-time opt-in through the
+user's Claude account and then refreshes automatically each billing
+cycle; once exhausted, runs stop unless "extra usage" is enabled (in
+which case overage bills at API rates). OAuth tokens continue to
+authenticate; billing just shifts buckets. See Anthropic's
+[authentication page](https://code.claude.com/docs/en/authentication)
+and the
+[Agent SDK plan article](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
+for the canonical statements.
 
 ### Codex (alternative)
 
