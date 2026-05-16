@@ -12,10 +12,14 @@ set -euo pipefail
 CYCLE_LENGTH=28
 TODAY_BUCKET=$(( $(date +%s) / 86400 % CYCLE_LENGTH ))
 
-git ls-files | while read -r f; do
+count=0
+while read -r f; do
   hash=$(echo -n "$f" | cksum | awk '{print $1}')
   bucket=$(( hash % CYCLE_LENGTH ))
   if [ "$bucket" -eq "$TODAY_BUCKET" ]; then
     echo "$f"
+    count=$((count + 1))
   fi
-done
+done < <(git ls-files)
+
+echo "# bucket=$TODAY_BUCKET/$CYCLE_LENGTH files=$count" >&2
