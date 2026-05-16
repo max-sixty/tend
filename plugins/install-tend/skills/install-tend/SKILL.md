@@ -37,8 +37,6 @@ Before running step 1, choose the harness and lay out the plan:
     plan (e.g. seat-based Enterprise Standard), has no subscription to
     draw on, or wants a dedicated billing surface and per-key
     revocation.
-    [docs/claude-auth-choice.md](../../../../docs/claude-auth-choice.md)
-    has the full reasoning.
   - **Codex (OpenAI)** — uses a ChatGPT Plus/Pro/Business `auth.json`
     (subscription, recommended) or an OpenAI API key (pay-per-token).
     Public repos require `auth.json` from a ChatGPT account dedicated
@@ -362,9 +360,6 @@ If not set, ask via `AskUserQuestion` which auth mode to use:
   the Console org. Pick this when there's no Claude subscription, when
   the bot should bill against a dedicated Console org, or when per-key
   revocation matters. Works for any repo.
-
-Full trade-off in
-[docs/claude-auth-choice.md](../../../../docs/claude-auth-choice.md).
 
 For **OAuth token**: before offering the CLI option, check:
 

@@ -219,9 +219,7 @@ authenticate; billing just shifts buckets. See Anthropic's
 [authentication page](https://code.claude.com/docs/en/authentication)
 and the
 [Agent SDK plan article](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
-for the canonical statements, and
-[docs/claude-auth-choice.md](docs/claude-auth-choice.md) for tend's
-recommendation.
+for the canonical statements.
 
 ### Codex (alternative)
 
