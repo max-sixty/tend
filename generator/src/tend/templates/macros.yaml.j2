@@ -1,0 +1,101 @@
+{# The action ref pins to the generator's own release tag. Both actions ship
+   from this repo (Codex variant lives under /codex/); release tags are
+   immutable per docs/security-model.md, so the pin is a stable supply-chain
+   anchor. Consumers move forward via the nightly `uvx tend@latest init` regen
+   pulling a newer generator, which restamps a newer tag as a reviewable diff
+   in their own repo. `version("tend")` only resolves to an existing tag when
+   generation runs from a released package — generating from in-tree source
+   pins a tag that does not exist yet; never commit those workflows (see
+   CLAUDE.md).
+
+   Claude emits both `claude_code_oauth_token` and `anthropic_api_key`
+   unconditionally; the action validates exactly one is set and forwards both
+   to claude-code-action, which treats empty as absent. Codex follows the same
+   pattern (auth.json wins over api-key when both configured). Sticky comments
+   are Claude-only — Codex posts via gh from inside skill prompts. #}
+{% macro agent_step(cfg, prompt_body, use_sticky_comment=False, if_condition='') %}
+{% if cfg.harness == 'claude' %}
+      - uses: max-sixty/tend@<<tend_version>>
+{% else %}
+      - uses: max-sixty/tend/codex@<<tend_version>>
+{% endif %}
+{% if if_condition %}
+        if: <<if_condition>>
+{% endif %}
+        with:
+          github_token: ${{ secrets.<<cfg.bot_token_secret>> }}
+{% if cfg.harness == 'claude' %}
+          claude_code_oauth_token: ${{ secrets.<<cfg.claude_token_secret>> }}
+          anthropic_api_key: ${{ secrets.<<cfg.anthropic_api_key_secret>> }}
+{% else %}
+          openai_api_key: ${{ secrets.<<cfg.openai_key_secret>> }}
+          codex_auth_json: ${{ secrets.<<cfg.codex_auth_json_secret>> }}
+{% if cfg.effort %}
+          effort: <<cfg.effort>>
+{% endif %}
+{% endif %}
+          bot_name: <<cfg.bot_name>>
+          model: <<cfg.model>>
+{% if use_sticky_comment and cfg.harness == 'claude' %}
+          use_sticky_comment: true
+{% endif %}
+          <<prompt_body>>
+{%- endmacro %}
+
+{# Permissions block at column 6. `issues` defaults to True because every
+   workflow except ci-fix needs it. The trailing inline conditional avoids
+   the trim_blocks-eats-the-separator issue between `actions: read` and
+   `      issues: write` that arises with `{% if %}` on its own line. #}
+{% macro permissions(issues=True) %}
+      contents: write
+      pull-requests: write
+      id-token: write
+      actions: read<<'\n      issues: write' if issues else ''>>
+{%- endmacro %}
+
+{# Skip a job when running outside the canonical owner. Compares
+   `github.repository_owner` against the configured owner: `secrets` isn't
+   available in `jobs.<job_id>.if`, and `github.event.repository.fork` is null
+   for `schedule` events, so the owner string is the only check that works
+   across all the affected event types.
+
+   Two shapes:
+   - fork_guard_if(cfg): emits `    if: <expr>` on its own line, or nothing
+   - fork_guard_prefix(cfg): emits `<expr> && ` inline, or nothing — used
+     when the job already has an `if:` (e.g. ci-fix's conclusion check) #}
+{% macro fork_guard_if(cfg) %}
+{% if cfg.repo_owner %}
+    if: github.repository_owner == '<<cfg.repo_owner|replace("'", "''")>>'
+{% endif %}
+{%- endmacro %}
+
+{% macro fork_guard_prefix(cfg) -%}
+{% if cfg.repo_owner %}github.repository_owner == '<<cfg.repo_owner|replace("'", "''")>>' && {% endif %}
+{%- endmacro %}
+
+{# Shared `actions/checkout@v6` step. `ref` defaults to the configured default
+   branch; pass `None` to omit (mention reuses the runner's default checkout
+   ref), or any GHA expression for review's pr_ref dispatch. `if_condition`
+   gates the step (used by notifications' skip_condition). #}
+{% macro checkout(cfg, ref=None, if_condition='') %}
+      - uses: actions/checkout@v6
+{% if if_condition %}
+        if: <<if_condition>>
+{% endif %}
+        with:
+{% if ref %}
+          ref: <<ref>>
+{% endif %}
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.<<cfg.bot_token_secret>> }}
+{%- endmacro %}
+
+{# YAML block scalar prompt at column 10, with the supplied text indented at
+   column 12. Used by workflows whose prompt is just the bare invocation
+   (triage, scheduled, notifications); review and ci-fix have richer prompt
+   shapes that they inline. #}
+{% macro block_prompt(prompt) -%}
+prompt: |
+<<prompt|indent(12, first=True, blank=True)>>
+{%- endmacro %}

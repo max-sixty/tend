@@ -1,0 +1,23 @@
+{%- set prompt_body %}prompt: |
+            <<prompt>>
+            - Run URL: ${{ github.event.workflow_run.html_url }}
+            - Commit: ${{ github.event.workflow_run.head_sha }}
+            - Commit message: ${{ github.event.workflow_run.head_commit.message }}{%- endset -%}
+<<header>>
+name: tend-ci-fix
+on:
+  workflow_run:
+    workflows: <<watched|tojson>>
+    types: [completed]
+    branches: <<branches|tojson>>
+
+jobs:
+  fix-ci:
+    if: <<fork_guard_prefix(cfg)>>github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-24.04
+    permissions:
+<<permissions(issues=False)>>
+    steps:
+<<checkout(cfg, ref=cfg.default_branch)>>
+<<setup>>
+<<agent_step(cfg, prompt_body)>>

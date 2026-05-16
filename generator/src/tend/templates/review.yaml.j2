@@ -1,0 +1,37 @@
+{%- set prompt_body %}prompt: >-
+            ${{ <<prompt_expr>> }}{%- endset -%}
+<<header>>
+name: tend-review
+on:
+  pull_request_target:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  review:
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+    permissions:
+<<permissions()>>
+    steps:
+      # GitHub only materializes refs/pull/N/merge for mergeable PRs — on
+      # conflicting PRs it 404s and every downstream step cascades as skipped.
+      # Probe first and fall back to /head so review always runs; on fallback
+      # the review sees the PR branch in isolation rather than the post-merge
+      # tree.
+      - name: Resolve PR checkout ref
+        id: pr_ref
+        env:
+          GITHUB_TOKEN: ${{ secrets.<<cfg.bot_token_secret>> }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if gh api "repos/${{ github.repository }}/git/ref/pull/$PR/merge" --silent 2>/dev/null; then
+            echo "ref=refs/pull/$PR/merge" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=refs/pull/$PR/head" >> "$GITHUB_OUTPUT"
+            echo "::notice::refs/pull/$PR/merge unavailable (likely merge conflict); falling back to /head"
+          fi
+<<checkout(cfg, ref='${{ steps.pr_ref.outputs.ref }}')>>
+<<setup>>
+<<agent_step(cfg, prompt_body, use_sticky_comment=True)>>

@@ -17,7 +17,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3 :: Only",
 ]
-dependencies = ["click>=8.0", "ruamel.yaml>=0.18"]
+dependencies = ["click>=8.0", "jinja2>=3.1.6", "ruamel.yaml>=0.18"]
 
 [project.scripts]
 tend = "tend.cli:main"
