@@ -22,6 +22,9 @@ KNOWN_WORKFLOWS = {
     "weekly",
     "notifications",
     "review-runs",
+    # install-test is opt-in via `tend init --with-install-test` but still
+    # honors workflow_extra / jobs overrides from .config/tend.yaml.
+    "install-test",
 }
 KNOWN_TOP_LEVEL = {
     "bot_name",
