@@ -210,12 +210,24 @@ runs:
     # up) registers tend-ci-runner as a local-source plugin. We add that
     # marketplace, then `codex plugin add` installs the plugin so its skills
     # become discoverable by `codex exec`.
+    #
+    # We export `CLAUDE_PLUGIN_ROOT` to the install location so skills can
+    # resolve `${CLAUDE_PLUGIN_ROOT}/scripts/...` paths the same way they do
+    # under Claude Code (which sets this variable natively). One variable
+    # name across harnesses — skills stay harness-agnostic.
     - name: Install tend-ci-runner plugin
       shell: bash
       run: |
         MARKETPLACE_ROOT="$(realpath "${{ github.action_path }}/..")"
         codex plugin marketplace add "$MARKETPLACE_ROOT"
-        codex plugin add tend-ci-runner@tend
+        INSTALL_OUTPUT=$(codex plugin add tend-ci-runner@tend)
+        echo "$INSTALL_OUTPUT"
+        PLUGIN_ROOT=$(awk -F': ' '/^Installed plugin root: /{print $2}' <<<"$INSTALL_OUTPUT")
+        if [ -z "$PLUGIN_ROOT" ] || [ ! -d "$PLUGIN_ROOT" ]; then
+          echo "::error::Failed to parse 'Installed plugin root: <path>' from codex plugin add output"
+          exit 1
+        fi
+        echo "CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT" >> "$GITHUB_ENV"
         codex plugin list 2>/dev/null || true
 
     # Stage AGENTS.md into ~/.codex so it loads alongside any AGENTS.md
