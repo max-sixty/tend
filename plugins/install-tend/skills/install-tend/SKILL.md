@@ -57,7 +57,14 @@ prerequisite before acting. Derive `REPO` once at the start:
 ```bash
 gh auth status
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+echo "$REPO"
 ```
+
+Confirm with the user that `$REPO` is the canonical repo where tend
+will run — not a fork. Every command below passes `--repo "$REPO"`
+explicitly, so if the working directory is a fork clone, just
+override the variable with the canonical `owner/name` and continue;
+no need to touch git remotes.
 
 ## Browser sessions
 
@@ -246,8 +253,14 @@ examples (extending permissions, timeouts, top-level env vars).
 ## 2. Generate workflows
 
 ```bash
-uvx tend@latest init
+uvx tend@latest init --with-install-test
 ```
+
+`--with-install-test` adds a one-shot `tend-install-test.yaml` workflow
+that runs on the install PR to verify secrets are set and the committed
+workflows match the generator's current output. The next nightly regen
+runs `uvx tend@latest init` without the flag, and the init cleanup step
+removes the file from the default branch.
 
 Verify workflow files appear in `.github/workflows/tend-*.yaml`. Run
 `uvx tend@latest check` to validate branch protection, secrets, and bot access.
@@ -617,7 +630,7 @@ The bot's token needs scopes `repo`, `workflow`, `notifications`,
 `write:discussion`, `gist`, and `user` (per-scope justifications in
 ${CLAUDE_SKILL_DIR}/references/tend.example.yaml).
 
-Have the user run, in any terminal:
+Have the user run, in a bash terminal (Git Bash on Windows works):
 
 ```bash
 env -u GH_TOKEN -u GITHUB_TOKEN gh auth login --hostname github.com --git-protocol https --web \
@@ -629,6 +642,9 @@ them in that precedence, and either being set makes `gh auth login`
 short-circuit with "The value of the … environment variable is being
 used for authentication" and skip the keyring/device-code flow.
 Unsetting them for this one command keeps the user's normal env intact.
+(On PowerShell or cmd, `env -u` isn't available — translate to the
+shell's unset-then-run equivalent, e.g. PowerShell
+`Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN; gh auth login …`.)
 
 `gh` prints a one-time code and the URL `https://github.com/login/device`.
 The user opens that URL in any browser logged in as the bot, pastes the
@@ -712,6 +728,12 @@ git add .
 
 Commit with co-author attribution. Do NOT push without explicit permission.
 
+After pushing the install PR, wait for the `tend-install-test` workflow
+to pass before merging — it verifies the bot+harness secrets are set and
+that the committed workflow files match the generator's output. The file
+itself is removed on the next nightly regen, so future PRs won't trigger
+it.
+
 ## Summary checklist
 
 After completing all steps, present this checklist (harness-specific
@@ -730,3 +752,4 @@ line picks the row that matches the chosen harness):
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot bio: profile bio reflects the authorization stance
 - [ ] Committed (push requires explicit permission)
+- [ ] `tend-install-test` workflow passed on the install PR before merging

@@ -452,6 +452,213 @@ def test_init_notifications_has_precheck(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# --with-install-test flag + cleanup of stale tend-*.yaml files
+# ---------------------------------------------------------------------------
+
+
+def test_init_with_install_test_generates_extra_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The flag adds tend-install-test.yaml on top of the standard set."""
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+
+    result = _run_init(["--with-install-test"])
+    assert result.exit_code == 0
+
+    wf_dir = _workflow_dir(tmp_path)
+    files = sorted(p.name for p in wf_dir.glob("tend-*.yaml"))
+    assert "tend-install-test.yaml" in files
+    assert len(files) == 8  # 7 standard + install-test
+
+
+def test_init_without_flag_omits_install_test(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plain `init` produces the standard 7-file set without the install-test workflow."""
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+
+    _run_init()
+
+    wf_dir = _workflow_dir(tmp_path)
+    files = sorted(p.name for p in wf_dir.glob("tend-*.yaml"))
+    assert "tend-install-test.yaml" not in files
+
+
+def test_init_removes_install_test_on_regen_without_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run with flag, then without — the install-test file must disappear.
+
+    This is the lifecycle the install skill depends on: maintainer runs
+    `init --with-install-test`, install PR merges, nightly regen runs `init`
+    (no flag) and removes the file from the default branch.
+    """
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+
+    _run_init(["--with-install-test"])
+    install_test = _workflow_dir(tmp_path) / "tend-install-test.yaml"
+    assert install_test.exists()
+
+    result = _run_init()
+    assert result.exit_code == 0
+    assert not install_test.exists()
+    assert "removed" in result.output
+
+
+def test_init_removes_unknown_tend_yaml_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cleanup also removes stale tend-*.yaml files left by older generators
+    (renamed workflows, disabled workflows). Non-tend workflows are kept."""
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+
+    wf_dir = _workflow_dir(tmp_path)
+    wf_dir.mkdir(parents=True)
+    (wf_dir / "tend-defunct.yaml").write_text("# leftover from an older generator\n")
+    (wf_dir / "ci.yaml").write_text("# adopter-owned, must not be touched\n")
+
+    _run_init()
+
+    assert not (wf_dir / "tend-defunct.yaml").exists()
+    assert (wf_dir / "ci.yaml").exists()
+
+
+def test_init_removes_stale_files_when_no_workflows_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Disabling every workflow shouldn't skip cleanup. Stale tend-*.yaml
+    must still be removed so a maintainer can confidently turn tend off."""
+    _write_config(
+        tmp_path,
+        dedent("""\
+            bot_name: test-bot
+            workflows:
+              review:
+                enabled: false
+              mention:
+                enabled: false
+              triage:
+                enabled: false
+              nightly:
+                enabled: false
+              weekly:
+                enabled: false
+              notifications:
+                enabled: false
+              review-runs:
+                enabled: false
+        """),
+    )
+    monkeypatch.chdir(tmp_path)
+
+    wf_dir = _workflow_dir(tmp_path)
+    wf_dir.mkdir(parents=True)
+    stale = wf_dir / "tend-review.yaml"
+    stale.write_text("# leftover from a previous run\n")
+
+    result = _run_init()
+    assert result.exit_code == 0
+    assert not stale.exists()
+    assert "Removed 1 stale" in result.output
+
+
+def test_init_dry_run_previews_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--dry-run must not delete anything on disk, but should report what
+    would be removed so the user can preview the regen accurately."""
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+
+    wf_dir = _workflow_dir(tmp_path)
+    wf_dir.mkdir(parents=True)
+    stale = wf_dir / "tend-defunct.yaml"
+    stale.write_text("# would be removed on a non-dry-run\n")
+
+    result = _run_init(["--dry-run"])
+
+    assert stale.exists()
+    assert "would remove" in result.output
+
+
+def test_install_test_workflow_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The install-test workflow has the expected trigger, fork-PR skip,
+    secret-existence check, and generator-drift check."""
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+    _run_init(["--with-install-test"])
+
+    path = _workflow_dir(tmp_path) / "tend-install-test.yaml"
+    content = path.read_text()
+    data = yaml.safe_load(content)
+
+    assert data["name"] == "tend-install-test"
+    assert "pull_request" in data["on"]
+    assert data["on"]["pull_request"]["paths"] == [
+        ".github/workflows/tend-*.yaml",
+        ".config/tend.yaml",
+    ]
+
+    job = data["jobs"]["install-test"]
+    assert "head.repo.full_name == github.repository" in job["if"]
+    assert job["permissions"] == {"contents": "read"}
+
+    # Default Claude secret names appear in the env block.
+    assert "secrets.TEND_BOT_TOKEN" in content
+    assert "CLAUDE_CODE_OAUTH_TOKEN" in content
+    assert "ANTHROPIC_API_KEY" in content
+
+    # Generator-drift step regenerates with the same flag to keep output stable.
+    # Version is pinned from the committed header (not `@latest`) so a release
+    # mid-PR doesn't fail the drift check for an irrelevant reason.
+    assert 'uvx "tend@$TEND_VERSION" init --with-install-test' in content
+    assert "astral-sh/setup-uv@v6" in content
+    assert "git remote set-head origin --auto" in content
+
+
+def test_install_test_workflow_codex_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Codex harness wires Codex-specific secret names into the workflow."""
+    _write_config(tmp_path, "bot_name: test-bot\nharness: codex\n")
+    monkeypatch.chdir(tmp_path)
+    _run_init(["--with-install-test"])
+
+    content = (_workflow_dir(tmp_path) / "tend-install-test.yaml").read_text()
+    assert "CODEX_AUTH_JSON" in content
+    assert "OPENAI_API_KEY" in content
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in content
+
+
+def test_install_test_workflow_honors_secret_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Custom bot/harness secret names from config flow into the workflow."""
+    _write_config(
+        tmp_path,
+        dedent("""\
+            bot_name: test-bot
+            secrets:
+              bot_token: GH_BOT_TOKEN
+              claude_token: MY_OAUTH
+        """),
+    )
+    monkeypatch.chdir(tmp_path)
+    _run_init(["--with-install-test"])
+
+    content = (_workflow_dir(tmp_path) / "tend-install-test.yaml").read_text()
+    assert "secrets.GH_BOT_TOKEN" in content
+    assert "secrets.MY_OAUTH" in content
+    assert "secrets.TEND_BOT_TOKEN" not in content
+
+
 def test_init_bot_name_in_workflow_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
