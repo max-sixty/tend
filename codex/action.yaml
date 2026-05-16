@@ -47,14 +47,26 @@ inputs:
       Reasoning effort — low, medium, high, or xhigh. Empty means leave
       at Codex CLI default (medium for gpt-5.5).
   sandbox:
-    default: workspace-write
+    # danger-full-access by default: this action only ever runs inside an
+    # ephemeral single-use GitHub Actions runner VM, which is itself the
+    # isolation boundary. Codex's inner bwrap jail (used by workspace-write
+    # and read-only on Linux) is redundant there — and unavailable anyway,
+    # since the standard ubuntu runner image ships no bubblewrap, so any
+    # non-full-access mode blocks codex from running even a file read. The
+    # boundaries that actually matter for tend (the bot cannot merge its own
+    # PRs; credentials are scope-limited) are enforced outside codex's
+    # local-exec sandbox and are unaffected by this. Standard codex-in-CI
+    # configuration.
+    default: danger-full-access
     description: Codex sandbox mode (workspace-write, read-only, danger-full-access)
   codex_version:
-    default: ""
+    default: "0.131.0-alpha.22"
     description: >-
-      Codex CLI git tag to build (e.g. `rust-v0.131.0-alpha.17`). Empty
-      means the action's pinned default. Once a stable release with
-      `codex plugin add` ships to npm, this will become a version string.
+      `@openai/codex` npm version to install (e.g. `0.131.0-alpha.22`).
+      Must ship the `codex plugin add` subcommand (PR #21396, first
+      released in `rust-v0.131.0-alpha.17`). On npm this currently lives
+      on the `alpha` dist-tag — `latest` is still 0.130.0 and lacks it,
+      so the default pins an explicit alpha rather than tracking `latest`.
   allowed_bots:
     default: "*"
     description: Bots allowed to trigger workflows (engagement gate, not used yet)
@@ -158,57 +170,18 @@ runs:
         curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-    # Build Codex from source at a known-good tag. The shipped npm releases
-    # (≤0.131.0-alpha.9) and the latest published GitHub release
-    # (alpha.16) both predate PR #21396, which is what gives us the
-    # `codex plugin add` subcommand we need to install tend-ci-runner
-    # non-interactively.
-    #
-    # When a stable release containing that PR lands on npm, swap the
-    # four steps below for the commented `Install Codex CLI` block — same
-    # interface, no Rust toolchain, ~10 min cold build → ~30 s npm install.
-    #
-    # We cache the built binary directly (~/.cargo/bin/codex) keyed on
-    # the codex version + runner OS — cache hit skips the build entirely
-    # (~22 min → ~3 s). Same idea worktrunk uses via baptiste0928/cargo-install,
-    # but that action only supports crates.io, not git tags.
-    - name: Cache codex binary
-      id: codex-cache
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/bin/codex
-        key: codex-bin-${{ runner.os }}-${{ inputs.codex_version || 'rust-v0.131.0-alpha.17' }}
-
-    - name: Set up Rust toolchain
-      if: steps.codex-cache.outputs.cache-hit != 'true'
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Build Codex CLI from source
-      if: steps.codex-cache.outputs.cache-hit != 'true'
+    # Install the Codex CLI from npm. `@openai/codex` ships a prebuilt
+    # per-platform binary, so this is ~3 s with no Rust toolchain. We pin
+    # an explicit version (`codex_version`, default a `0.131.0-alpha.*`)
+    # because tend needs `codex plugin add` (PR #21396, first in
+    # `rust-v0.131.0-alpha.17`) and as of 2026-05-15 npm's `latest`
+    # (0.130.0) still predates it — only the `alpha` dist-tag carries it.
+    # Bump the default once a stable npm release ships PR #21396.
+    - name: Install Codex CLI
       shell: bash
       run: |
-        TAG="${{ inputs.codex_version || 'rust-v0.131.0-alpha.17' }}"
-        cargo install --locked --git https://github.com/openai/codex.git \
-          --tag "$TAG" --bin codex codex-cli
-
-    - name: Verify codex binary
-      shell: bash
-      run: codex --version
-
-    # --- Swap-in once npm has a release with `codex plugin add` ---
-    # Delete the four steps above (Cache codex / Set up Rust / Build Codex /
-    # Verify) and uncomment this single step. Update the `codex_version`
-    # input description to refer to npm versions again.
-    #
-    # - name: Install Codex CLI
-    #   shell: bash
-    #   run: |
-    #     if [ -n "${{ inputs.codex_version }}" ]; then
-    #       npm install -g "@openai/codex@${{ inputs.codex_version }}"
-    #     else
-    #       npm install -g @openai/codex
-    #     fi
-    #     codex --version
+        npm install -g "@openai/codex@${{ inputs.codex_version }}"
+        codex --version
 
     # Codex CLI prefers auth.json over $OPENAI_API_KEY when both are
     # present. We mirror that precedence here: write auth.json if supplied,
@@ -356,10 +329,14 @@ runs:
         # Surface the final message as a step output even if codex
         # exited non-zero — downstream steps may still want to post it.
         if [ -f "$OUTPUT_FILE" ]; then
+          # Random delimiter: agent output is content-dependent and could
+          # otherwise contain a line matching a fixed sentinel, truncating
+          # the multiline output. See GitHub's multiline-string guidance.
+          DELIM="ghadelimiter_$(openssl rand -hex 16)"
           {
-            echo 'final_message<<TEND_EOF'
+            echo "final_message<<$DELIM"
             cat "$OUTPUT_FILE"
-            echo 'TEND_EOF'
+            echo "$DELIM"
           } >> "$GITHUB_OUTPUT"
         fi
         exit $EXIT
