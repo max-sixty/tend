@@ -104,71 +104,58 @@ warning. Classify each non-bot secret and act now — don't defer:
 - Release secrets (registry tokens like `PYPI_TOKEN`/`NPM_TOKEN`, signing
   keys, deploy credentials) at the repo level are reachable from any
   workflow run, including ones a write-access bot can trigger with no
-  merge. Don't allowlist them. Migrate each to a GitHub Environment with
-  required reviewers, so the deploy job can't read the secret until a human
-  approves. The steps below configure that.
+  merge. Don't allowlist them. Migrate each to a GitHub Environment whose
+  deployment policy pins to the admin-gated refs from §3 (the default
+  branch, and the release tag pattern for tag-triggered deploys). The bot
+  can reach neither ref, so it cannot reach the secret.
 
-  Pick the reviewer first: a trusted human or human team, never the bot, a
-  bot-controlled account, or another automation (only one reviewer's
-  approval is needed, so a second automation reviewer defeats the gate).
-  The bot must be neither a reviewer, directly or via a team, nor an admin.
+  Migrate the secret: recreate it on the Environment, delete the
+  repo-level copy (confirm via `AskUserQuestion` first), and set
+  `environment: <name>` on the publishing job.
 
-  Migrate the secret: recreate it on the Environment, delete the repo-level
-  copy (confirm via `AskUserQuestion` first), and set `environment: <name>`
-  on the publishing job.
-
-  Configure the Environment. The PUT replaces the whole config, and
-  `prevent_self_review` is rejected unless a reviewer is set in the same
-  call, so send both together:
+  Configure the deployment policy. Allow the default branch:
 
   ```bash
   REPO=<owner>/<repo>; ENV=<name>
-  REVIEWER_ID=$(gh api /users/<trusted-human> --jq .id)
+  DEFAULT_BRANCH=$(gh api "repos/$REPO" --jq .default_branch)
   gh api --method PUT "/repos/$REPO/environments/$ENV" \
-    -F prevent_self_review=true \
-    -f 'reviewers[][type]=User' -F "reviewers[][id]=$REVIEWER_ID"
-  ```
-
-  For a tag-triggered deploy, also pin the Environment's "Deployment
-  branches and tags" setting to a tag pattern (an environment setting, not
-  a repo `tag` ruleset); this gates the deploy deterministically without a
-  human. Re-send the full PUT with the policy fields added (a partial PUT
-  clears the reviewer), then create the policy:
-
-  ```bash
-  gh api --method PUT "/repos/$REPO/environments/$ENV" \
-    -F prevent_self_review=true \
-    -f 'reviewers[][type]=User' -F "reviewers[][id]=$REVIEWER_ID" \
     -F 'deployment_branch_policy[protected_branches]=false' \
     -F 'deployment_branch_policy[custom_branch_policies]=true'
   gh api --method POST "/repos/$REPO/environments/$ENV/deployment-branch-policies" \
-    -f name='v*' -f type=tag
+    -f "name=$DEFAULT_BRANCH" -f type=branch
   ```
 
-  Then find what else can reach a publishing job with no merge. The merge
-  ruleset gates only default-branch merges; a tag push, release, dispatch,
-  `deployment`, `pull_request_target`, or `schedule` trigger bypasses it.
-  Sweep every deploy/publish workflow and read each hit; this grep misses
-  reusable workflows in other repos and over-matches `pull_request_target`
-  references in expressions and step inputs:
+  For a tag-triggered deploy (workflow with `on: push: tags:`), also allow
+  the release tag pattern from §3:
+
+  ```bash
+  gh api --method POST "/repos/$REPO/environments/$ENV/deployment-branch-policies" \
+    -f "name=$TAG_PATTERN" -f type=tag
+  ```
+
+  Verify:
+
+  ```bash
+  gh api "/repos/$REPO/environments/$ENV/deployment-branch-policies" \
+    --jq '.branch_policies | map({name, type})'
+  ```
+
+  Each entry must match a ref class from §3 (default branch and/or release
+  tag pattern). Confirm before checking the box.
+
+  Then sweep deploy/publish workflows for triggers that bypass the merge
+  restriction; each must declare an Environment so the policy applies. The
+  grep misses reusable workflows in other repos and over-matches
+  `pull_request_target` references in expressions and step inputs, so read
+  each hit:
 
   ```bash
   grep -RniE 'tags:|workflow_dispatch|release:|schedule:|workflow_run|repository_dispatch|deployment:|pull_request_target' .github/workflows
   ```
 
-  Verify last, covering whatever config was applied:
-
-  ```bash
-  gh api "/repos/$REPO/environments/$ENV" \
-    --jq '{rules: .protection_rules, branch_policy: .deployment_branch_policy}'
-  ```
-
-  It must show a `required_reviewers` rule listing the human and
-  `prevent_self_review: true`. Confirm before checking the box.
-
   An OIDC-to-cloud deploy has no secret to migrate; the Environment with
-  required reviewers plus the cloud provider's trust policy is then the
-  only control.
+  its admin-gated deployment policy plus the cloud provider's trust policy
+  is then the only control on that path.
 
   The original repo-level secret value isn't readable (GitHub secrets are
   write-only), so a fresh token is needed. Ask the user via `AskUserQuestion`
@@ -270,16 +257,21 @@ grep -rl 'anthropics/claude-code-action' .github/workflows/ 2>/dev/null
 If found, delete them — tend replaces claude-code-action entirely. Remind the
 user that team members should @-mention the bot account instead of `@claude`.
 
-## 3. Branch protection
+## 3. Ref protection
 
-Check existing rulesets — skip if one already protects the default branch:
+Two refs can land code that reaches a deploy or publish workflow: the
+default branch (via merge) and release tags (via tag push). Restrict both
+to admin-only operations so every privileged code path chains back to an
+admin action. The bot has write, not admin, so it satisfies neither
+bypass.
+
+Survey existing rulesets; skip any slot already covered:
 
 ```bash
-gh api "repos/$REPO/rulesets" --jq '.[] | {name, enforcement}'
+gh api "repos/$REPO/rulesets" --jq '.[] | {name, target, enforcement}'
 ```
 
-If none exist, create a ruleset restricting pushes/merges to the default
-branch. Only admins can bypass — the bot (write role) cannot merge.
+**Merge restriction on the default branch.** Create if missing:
 
 ```bash
 gh api "repos/$REPO/rulesets" --method POST --input - << 'EOF'
@@ -300,9 +292,37 @@ gh api "repos/$REPO/rulesets" --method POST --input - << 'EOF'
 EOF
 ```
 
-- `type: update` — restricts who can push to or merge into the branch
-- `actor_id: 5` = Repository Admin role
-- `bypass_mode: exempt` — silently skips the rule for admins
+**Release tags.** Ask the user via `AskUserQuestion` what pattern their
+release tags use. Recommend `[0-9]*` (bare semver, e.g. `0.0.1`) and
+`v[0-9]*` (v-prefixed, e.g. `v1.2.3`) as the common options. Store the
+choice as `$TAG_PATTERN`; the release-secrets step (§1) references it.
+
+Create one ruleset covering creation, update, and deletion. The bot
+(write) is blocked from all three; admins can do all three, so creating
+or repairing a release tag is itself an admin operation:
+
+```bash
+gh api "repos/$REPO/rulesets" --method POST --input - << EOF
+{
+  "name": "Release tag operations",
+  "target": "tag",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": { "include": ["refs/tags/$TAG_PATTERN"], "exclude": [] }
+  },
+  "rules": [
+    { "type": "creation" },
+    { "type": "update" },
+    { "type": "deletion" }
+  ],
+  "bypass_actors": [{
+    "actor_id": 5,
+    "actor_type": "RepositoryRole",
+    "bypass_mode": "exempt"
+  }]
+}
+EOF
+```
 
 ## 4. Create skill overlay (recommended)
 
@@ -690,8 +710,8 @@ line picks the row that matches the chosen harness):
 
 - [ ] Config: `.config/tend.yaml` created (with `harness` set if Codex)
 - [ ] Workflows: generated in `.github/workflows/`
-- [ ] Ruleset: merge restriction on default branch, admin bypass
-- [ ] Release/deploy secrets: environment-protected; the GET on the environment shows a `required_reviewers` rule (trusted human, not the bot) and `prevent_self_review: true`. Closes merge-free trigger paths the default-branch ruleset does not
+- [ ] Rulesets: merge restriction on default branch (admin bypass), release tag operations (admin bypass)
+- [ ] Release/deploy secrets: environment-protected; the environment's deployment-branch-policies list only the admin-gated refs from §3 (default branch and/or release tag pattern)
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
 - [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub

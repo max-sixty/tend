@@ -6,28 +6,35 @@ canonical, full threat model is maintained in the tend source repo at
 https://github.com/max-sixty/tend/blob/main/docs/security-model.md; this is
 the subset an installing agent needs.
 
-## Two boundaries
+## The chain: every privileged path is admin-gated
 
-Tend runs an agent with write access on attacker-controlled input. There are
-two load-bearing boundaries, one per path code can take to run with
-privileges:
+Tend runs an agent with write access on attacker-controlled input. The
+boundary is structural: every code path into a privileged workflow chains
+back to an admin-controlled operation, and the bot has write, not admin.
 
-- **Merge restriction.** A ruleset (or branch protection) stops the bot
-  merging to protected branches regardless of review. Covers code that
-  reaches the default branch through a merge. The composite action refuses
-  to start if the default branch is unprotected.
-- **Environment-protected secrets.** Release and deploy secrets in a GitHub
-  Environment with required reviewers. Covers code that runs without a
-  merge, which the merge restriction does not touch: a tag push, a release,
-  a `workflow_dispatch`/`workflow_run`/`repository_dispatch` job, a
-  `deployment` API call, a `pull_request_target` workflow, or a `schedule`
-  job. The deploy job cannot read the secret until a reviewer approves; the
-  actor who triggered the deploy must not be able to approve it ("Prevent
-  self-review", off by default), and the bot must be neither a reviewer nor
-  an admin.
+The two admin-gated operations are:
 
-Everything else (config pinning, rate limiting, fixed prompts) is defense in
-depth.
+- **Merging to the default branch.** A ruleset with the `update` rule on
+  the default branch, admin-only bypass. Blocks the bot from landing code
+  on the default branch.
+- **Operating on a release tag.** A ruleset with the `creation`,
+  `update`, and `deletion` rules on the release tag pattern, admin-only
+  bypass. Blocks the bot from pushing, rewriting, or deleting any
+  matching tag. Creating or repairing a release tag is itself an admin
+  operation.
+
+Deploy and publish workflows declare a GitHub Environment whose
+`deployment_branch_policy` lists only those admin-gated refs (the default
+branch and/or the release tag pattern). Release secrets live in those
+environments, not at repo level. A leaked bot token can push a branch or a
+non-release tag, but neither ref matches an admin-gated policy entry, so
+the deploy job is rejected before it can read the secret. No admin
+operation → no admin-gated ref → no environment access → no secret.
+
+The composite action refuses to start if the default branch is unprotected.
+
+Everything else (config pinning, rate limiting, fixed prompts) is defense
+in depth.
 
 ## If a token leaks
 
