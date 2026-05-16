@@ -194,26 +194,32 @@ Wraps
 Anthropic's official GitHub Action for running Claude Code in CI. Two
 auth modes:
 
-- **`CLAUDE_CODE_OAUTH_TOKEN`** — Claude Code OAuth token from
-  `claude setup-token`. Funded by a Max/Team subscription before
-  2026-06-16; see caveat below.
+- **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended with a Pro/Max/Team/Enterprise
+  subscription) — Claude Code OAuth token from `claude setup-token`.
+  Funded by the subscription; from 2026-06-15 these runs draw from a
+  separate monthly Agent SDK credit ($20–$200 depending on plan) — see
+  caveat below.
 - **`ANTHROPIC_API_KEY`** — standard API key from console.anthropic.com,
-  billed per token. Works for any repo and is the recommended path for
-  open-source.
+  billed per token against the Console org. Pick this when there's no
+  Claude subscription, when the bot should bill against a dedicated
+  Console org, or when per-key revocation matters.
 
 Whichever you set is used exactly as it would be in any
 claude-code-action workflow — tend adds the framework (workflows, skills,
 prompts) around it but never sees the token itself.
 
-Caveat: starting **2026-06-16**, Anthropic bills non-interactive Claude
-Code runs (CI, headless, batch) at API rates rather than against
-Max/Pro/Team plan allowances. `anthropics/claude-code-action` in
-GitHub Actions is non-interactive — a Max subscription will not fund
-runs after that date. Adopters needing subscription-funded CI should
-plan to move to the Codex harness, or switch to `ANTHROPIC_API_KEY`. See
-Anthropic's
-[authentication policy](https://code.claude.com/docs/en/authentication)
-for the canonical statement.
+Caveat: starting **2026-06-15**, subscription-funded `claude-code-action`
+runs draw from a separate monthly Agent SDK credit rather than the plan's
+interactive usage limits. The credit must be claimed each cycle, and
+once exhausted, runs stop unless "extra usage" is enabled (in which case
+overage bills at API rates). OAuth tokens continue to authenticate;
+billing just shifts buckets. See Anthropic's
+[authentication page](https://code.claude.com/docs/en/authentication)
+and the
+[Agent SDK plan article](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
+for the canonical statements, and
+[docs/claude-auth-choice.md](docs/claude-auth-choice.md) for tend's
+recommendation.
 
 ### Codex (alternative)
 
