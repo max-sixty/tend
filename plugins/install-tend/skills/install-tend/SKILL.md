@@ -40,7 +40,7 @@ Before running step 1, choose the harness and lay out the plan:
   - **Codex (OpenAI)** — uses a ChatGPT Plus/Pro/Business `auth.json`
     (subscription, recommended) or an OpenAI API key (pay-per-token).
     Public repos require `auth.json` from a ChatGPT account dedicated
-    to the bot. Detail in `docs/security-model.md`.
+    to the bot. Detail in ${CLAUDE_SKILL_DIR}/references/security-model.md.
 - List the steps you'll be running (the section headings below: Create
   config → Generate workflows → Branch protection → Skill overlay →
   Badge → Bot account → Harness auth → Bot token → Grant access →
@@ -114,12 +114,59 @@ warning. Classify each non-bot secret and act now — don't defer:
 
 - Release secrets (registry tokens like `PYPI_TOKEN`/`NPM_TOKEN`, signing
   keys, deploy credentials) at the repo level are reachable from any
-  workflow run. Don't allowlist them. Propose moving them to a protected
-  environment and do the migration in this session: create the environment
-  (gated on the default branch with required reviewers), recreate the
-  secret there, delete the repo-level secret, and set `environment: <name>`
-  on the publishing job. Confirm with `AskUserQuestion` before deleting
-  the original.
+  workflow run, including ones a write-access bot can trigger with no
+  merge. Don't allowlist them. Migrate each to a GitHub Environment whose
+  deployment policy pins to the admin-gated refs from §3 (the default
+  branch, and the release tag pattern for tag-triggered deploys). The bot
+  can reach neither ref, so it cannot reach the secret.
+
+  Migrate the secret: recreate it on the Environment, delete the
+  repo-level copy (confirm via `AskUserQuestion` first), and set
+  `environment: <name>` on the publishing job.
+
+  Configure the deployment policy. Allow the default branch:
+
+  ```bash
+  REPO=<owner>/<repo>; ENV=<name>
+  DEFAULT_BRANCH=$(gh api "repos/$REPO" --jq .default_branch)
+  gh api --method PUT "/repos/$REPO/environments/$ENV" \
+    -F 'deployment_branch_policy[protected_branches]=false' \
+    -F 'deployment_branch_policy[custom_branch_policies]=true'
+  gh api --method POST "/repos/$REPO/environments/$ENV/deployment-branch-policies" \
+    -f "name=$DEFAULT_BRANCH" -f type=branch
+  ```
+
+  For a tag-triggered deploy (workflow with `on: push: tags:`), also allow
+  the release tag pattern from §3:
+
+  ```bash
+  gh api --method POST "/repos/$REPO/environments/$ENV/deployment-branch-policies" \
+    -f "name=$TAG_PATTERN" -f type=tag
+  ```
+
+  Verify:
+
+  ```bash
+  gh api "/repos/$REPO/environments/$ENV/deployment-branch-policies" \
+    --jq '.branch_policies | map({name, type})'
+  ```
+
+  Each entry must match a ref class from §3 (default branch and/or release
+  tag pattern). Confirm before checking the box.
+
+  Then sweep deploy/publish workflows for triggers that bypass the merge
+  restriction; each must declare an Environment so the policy applies. The
+  grep misses reusable workflows in other repos and over-matches
+  `pull_request_target` references in expressions and step inputs, so read
+  each hit:
+
+  ```bash
+  grep -RniE 'tags:|workflow_dispatch|release:|schedule:|workflow_run|repository_dispatch|deployment:|pull_request_target' .github/workflows
+  ```
+
+  An OIDC-to-cloud deploy has no secret to migrate; the Environment with
+  its admin-gated deployment policy plus the cloud provider's trust policy
+  is then the only control on that path.
 
   The original repo-level secret value isn't readable (GitHub secrets are
   write-only), so a fresh token is needed. Ask the user via `AskUserQuestion`
@@ -200,8 +247,8 @@ workflows:
         if: "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
 ```
 
-See `docs/tend.example.yaml` in the tend repo for more override examples
-(extending permissions, timeouts, top-level env vars).
+See ${CLAUDE_SKILL_DIR}/references/tend.example.yaml for more override
+examples (extending permissions, timeouts, top-level env vars).
 
 ## 2. Generate workflows
 
@@ -227,16 +274,21 @@ grep -rl 'anthropics/claude-code-action' .github/workflows/ 2>/dev/null
 If found, delete them — tend replaces claude-code-action entirely. Remind the
 user that team members should @-mention the bot account instead of `@claude`.
 
-## 3. Branch protection
+## 3. Ref protection
 
-Check existing rulesets — skip if one already protects the default branch:
+Two refs can land code that reaches a deploy or publish workflow: the
+default branch (via merge) and release tags (via tag push). Restrict both
+to admin-only operations so every privileged code path chains back to an
+admin action. The bot has write, not admin, so it satisfies neither
+bypass.
+
+Survey existing rulesets; skip any slot already covered:
 
 ```bash
-gh api "repos/$REPO/rulesets" --jq '.[] | {name, enforcement}'
+gh api "repos/$REPO/rulesets" --jq '.[] | {name, target, enforcement}'
 ```
 
-If none exist, create a ruleset restricting pushes/merges to the default
-branch. Only admins can bypass — the bot (write role) cannot merge.
+**Merge restriction on the default branch.** Create if missing:
 
 ```bash
 gh api "repos/$REPO/rulesets" --method POST --input - << 'EOF'
@@ -257,9 +309,37 @@ gh api "repos/$REPO/rulesets" --method POST --input - << 'EOF'
 EOF
 ```
 
-- `type: update` — restricts who can push to or merge into the branch
-- `actor_id: 5` = Repository Admin role
-- `bypass_mode: exempt` — silently skips the rule for admins
+**Release tags.** Ask the user via `AskUserQuestion` what pattern their
+release tags use. Recommend `[0-9]*` (bare semver, e.g. `0.0.1`) and
+`v[0-9]*` (v-prefixed, e.g. `v1.2.3`) as the common options. Store the
+choice as `$TAG_PATTERN`; the release-secrets step (§1) references it.
+
+Create one ruleset covering creation, update, and deletion. The bot
+(write) is blocked from all three; admins can do all three, so creating
+or repairing a release tag is itself an admin operation:
+
+```bash
+gh api "repos/$REPO/rulesets" --method POST --input - << EOF
+{
+  "name": "Release tag operations",
+  "target": "tag",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": { "include": ["refs/tags/$TAG_PATTERN"], "exclude": [] }
+  },
+  "rules": [
+    { "type": "creation" },
+    { "type": "update" },
+    { "type": "deletion" }
+  ],
+  "bypass_actors": [{
+    "actor_id": 5,
+    "actor_type": "RepositoryRole",
+    "bypass_mode": "exempt"
+  }]
+}
+EOF
+```
 
 ## 4. Create skill overlay (recommended)
 
@@ -421,7 +501,7 @@ Ask via `AskUserQuestion`:
   read+write access to the ChatGPT account that minted it, so
   **mint `auth.json` from a dedicated bot account** — required on
   public repos, recommended on private. See
-  `docs/security-model.md` for the leak breakdown.
+  ${CLAUDE_SKILL_DIR}/references/security-model.md for the leak breakdown.
 - **OpenAI API key** — billed per token. Works for any repo. Pick
   this if the user doesn't want to mint a separate ChatGPT account.
   Key from `https://platform.openai.com/api-keys`.
@@ -482,9 +562,9 @@ If not set:
      ~6 days and re-set the secret.
    - **Automated refresher** (recommended for concurrent CI): a
      scheduled workflow updates the secret before any consumer can
-     trigger a rotation. See `docs/security-model.md` for the threat
-     model and `.github/workflows/codex-auth-refresh.yaml` in the
-     tend repo as the reference workflow to copy in.
+     trigger a rotation. See
+     ${CLAUDE_SKILL_DIR}/references/security-model.md for the threat
+     model and the reference workflow to copy in.
 
      The refresher needs a fine-grained PAT with `secrets: read and
      write`. The bot has `workflow` scope and can push workflow
@@ -548,7 +628,7 @@ gh secret set OPENAI_API_KEY --repo "$REPO" --body "$KEY"
 
 The bot's token needs scopes `repo`, `workflow`, `notifications`,
 `write:discussion`, `gist`, and `user` (per-scope justifications in
-`docs/tend.example.yaml`).
+${CLAUDE_SKILL_DIR}/references/tend.example.yaml).
 
 Have the user run, in a bash terminal (Git Bash on Windows works):
 
@@ -661,7 +741,8 @@ line picks the row that matches the chosen harness):
 
 - [ ] Config: `.config/tend.yaml` created (with `harness` set if Codex)
 - [ ] Workflows: generated in `.github/workflows/`
-- [ ] Ruleset: merge restriction on default branch, admin bypass
+- [ ] Rulesets: merge restriction on default branch (admin bypass), release tag operations (admin bypass)
+- [ ] Release/deploy secrets: environment-protected; the environment's deployment-branch-policies list only the admin-gated refs from §3 (default branch and/or release tag pattern)
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
 - [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub
