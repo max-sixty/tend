@@ -117,14 +117,15 @@ warning. Classify each non-bot secret and act now — don't defer:
   workflow run, including ones a write-access bot can trigger with no
   merge. Don't allowlist them. Migrate each to a GitHub Environment whose
   deployment policy pins to the admin-gated refs from §3 (the default
-  branch, and the release tag pattern for tag-triggered deploys). The bot
-  can reach neither ref, so it cannot reach the secret.
+  branch and/or all tags). The bot can reach neither ref class, so it
+  cannot reach the secret.
 
   Migrate the secret: recreate it on the Environment, delete the
   repo-level copy (confirm via `AskUserQuestion` first), and set
   `environment: <name>` on the publishing job.
 
-  Configure the deployment policy. Allow the default branch:
+  Configure the deployment policy. Allow whichever ref classes the
+  workflow runs on:
 
   ```bash
   REPO=<owner>/<repo>; ENV=<name>
@@ -132,16 +133,12 @@ warning. Classify each non-bot secret and act now — don't defer:
   gh api --method PUT "/repos/$REPO/environments/$ENV" \
     -F 'deployment_branch_policy[protected_branches]=false' \
     -F 'deployment_branch_policy[custom_branch_policies]=true'
+  # Continuous-deploy on default branch:
   gh api --method POST "/repos/$REPO/environments/$ENV/deployment-branch-policies" \
     -f "name=$DEFAULT_BRANCH" -f type=branch
-  ```
-
-  For a tag-triggered deploy (workflow with `on: push: tags:`), also allow
-  the release tag pattern from §3:
-
-  ```bash
+  # Release on tags (workflow has `on: push: tags:`):
   gh api --method POST "/repos/$REPO/environments/$ENV/deployment-branch-policies" \
-    -f "name=$TAG_PATTERN" -f type=tag
+    -f 'name=*' -f type=tag
   ```
 
   Verify:
@@ -151,14 +148,15 @@ warning. Classify each non-bot secret and act now — don't defer:
     --jq '.branch_policies | map({name, type})'
   ```
 
-  Each entry must match a ref class from §3 (default branch and/or release
-  tag pattern). Confirm before checking the box.
+  Each entry must match a ref class from §3 (default branch and/or all
+  tags). Confirm before checking the box.
 
-  Then sweep deploy/publish workflows for triggers that bypass the merge
-  restriction; each must declare an Environment so the policy applies. The
-  grep misses reusable workflows in other repos and over-matches
-  `pull_request_target` references in expressions and step inputs, so read
-  each hit:
+  Then sweep deploy/publish workflows. Each must trigger on `push: tags:`
+  or `push: branches: [<default-branch>]` (per §3 workflow design) and
+  declare an Environment. The grep below catches the common shapes; it
+  misses reusable workflows in other repos and over-matches
+  `pull_request_target` references in expressions and step inputs, so
+  read each hit:
 
   ```bash
   grep -RniE 'tags:|workflow_dispatch|release:|schedule:|workflow_run|repository_dispatch|deployment:|pull_request_target' .github/workflows
@@ -276,9 +274,9 @@ user that team members should @-mention the bot account instead of `@claude`.
 
 ## 3. Ref protection
 
-Two refs can land code that reaches a deploy or publish workflow: the
-default branch (via merge) and release tags (via tag push). Restrict both
-to admin-only operations so every privileged code path chains back to an
+Two ref classes can land code that reaches a deploy or publish workflow:
+the default branch (via merge) and tags (via tag push). Restrict both to
+admin-only operations so every privileged code path chains back to an
 admin action. The bot has write, not admin, so it satisfies neither
 bypass.
 
@@ -309,23 +307,20 @@ gh api "repos/$REPO/rulesets" --method POST --input - << 'EOF'
 EOF
 ```
 
-**Release tags.** Ask the user via `AskUserQuestion` what pattern their
-release tags use. Recommend `[0-9]*` (bare semver, e.g. `0.0.1`) and
-`v[0-9]*` (v-prefixed, e.g. `v1.2.3`) as the common options. Store the
-choice as `$TAG_PATTERN`; the release-secrets step (§1) references it.
-
-Create one ruleset covering creation, update, and deletion. The bot
-(write) is blocked from all three; admins can do all three, so creating
-or repairing a release tag is itself an admin operation:
+**Tag operations.** Same shape, applied to all tags. Creating, moving, or
+deleting any tag becomes an admin operation; the bot cannot push tags at
+all. Skipping the "what pattern do your tags use?" question is
+deliberate: matching all tags removes a per-repo configuration choice
+and gives the chain a single, uniform rule.
 
 ```bash
-gh api "repos/$REPO/rulesets" --method POST --input - << EOF
+gh api "repos/$REPO/rulesets" --method POST --input - << 'EOF'
 {
-  "name": "Release tag operations",
+  "name": "Tag operations",
   "target": "tag",
   "enforcement": "active",
   "conditions": {
-    "ref_name": { "include": ["refs/tags/$TAG_PATTERN"], "exclude": [] }
+    "ref_name": { "include": ["~ALL"], "exclude": [] }
   },
   "rules": [
     { "type": "creation" },
@@ -340,6 +335,24 @@ gh api "repos/$REPO/rulesets" --method POST --input - << EOF
 }
 EOF
 ```
+
+**Release/deploy workflow design.** Workflows that use release or deploy
+secrets must trigger on `push: tags:` (release) or `push: branches: [main]`
+(continuous deploy from the default branch), and reference an Environment
+(§1). Don't trigger on `pull_request`. A `pull_request` workflow runs the
+YAML at the PR's head ref, which a bot can write, so the workflow code is
+no longer admin-vetted and the chain breaks at the workflow file itself.
+Other triggers (`workflow_dispatch`, `release: published`, `deployment`,
+`schedule`) read the workflow file from the default branch, so they keep
+the chain.
+
+**More complicated approaches are possible** (per-pattern tag rulesets,
+mixed bypass actors, layered no-bypass immutability rulesets for repos
+that publish actions consumed via tag pins, required-reviewer environment
+gates for per-deploy human approval). Install-tend packages the recipe
+above because it is the simplest configuration that holds the chain;
+adopters with stricter requirements can layer additional rulesets or
+environment protection rules on top.
 
 ## 4. Create skill overlay (recommended)
 

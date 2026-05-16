@@ -17,11 +17,20 @@ The two admin-gated operations are:
 - **Merging to the default branch.** A ruleset with the `update` rule on
   the default branch, admin-only bypass. Blocks the bot from landing code
   on the default branch.
-- **Operating on a release tag.** A ruleset with the `creation`,
-  `update`, and `deletion` rules on the release tag pattern, admin-only
-  bypass. Blocks the bot from pushing, rewriting, or deleting any
-  matching tag. Creating or repairing a release tag is itself an admin
+- **Operating on a tag.** A ruleset with the `creation`, `update`, and
+  `deletion` rules covering all tags (`~ALL` on a `tag`-target ruleset),
+  admin-only bypass. Blocks the bot from pushing, rewriting, or deleting
+  any tag. Pushing or repairing a release tag is itself an admin
   operation.
+
+The "all tags" scope is deliberate: matching every tag removes a per-repo
+pattern choice and keeps the chain a single uniform rule. Adopters that
+need a narrower or layered configuration (per-pattern rulesets,
+no-bypass immutability on release tags for repos that publish actions
+consumed via tag pins, required-reviewer environment gates for per-deploy
+human approval) can layer additional rulesets and environment protection
+rules on top; install-tend packages the simplest configuration that holds
+the chain.
 
 Deploy and publish workflows declare a GitHub Environment whose
 `deployment_branch_policy` lists only those admin-gated refs (the default
