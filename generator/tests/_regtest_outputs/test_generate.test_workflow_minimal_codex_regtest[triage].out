@@ -30,11 +30,11 @@ jobs:
           ref: main
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ secrets.BOT_TOKEN }}
+          token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: max-sixty/tend/codex@X.Y.Z
         with:
-          github_token: ${{ secrets.BOT_TOKEN }}
+          github_token: ${{ secrets.TEND_BOT_TOKEN }}
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
           bot_name: test-bot

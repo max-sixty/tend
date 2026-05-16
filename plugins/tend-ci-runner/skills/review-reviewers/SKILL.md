@@ -121,7 +121,7 @@ if [ -z "$GIST_ID" ]; then
   #   Secret gist. Append-only log of below-threshold findings used for gate evaluation.
   GIST_URL=$(gh gist create --desc "$GIST_DESC" /tmp/gist-seed/findings.md)
   if [ -z "$GIST_URL" ]; then
-    echo "ERROR: gh gist create failed — BOT_TOKEN likely lacks 'gist' scope (see install-tend)" >&2
+    echo "ERROR: gh gist create failed — TEND_BOT_TOKEN likely lacks 'gist' scope (see install-tend)" >&2
     exit 1
   fi
   GIST_ID=$(basename "$GIST_URL")
@@ -133,7 +133,7 @@ else
 fi
 ```
 
-The BOT_TOKEN needs `gist` scope (see install-tend). Without it, `gh gist create` fails with `403 Forbidden` and the skill exits before posting a broken tracking-issue comment.
+The TEND_BOT_TOKEN needs `gist` scope (see install-tend). Without it, `gh gist create` fails with `403 Forbidden` and the skill exits before posting a broken tracking-issue comment.
 
 ### Reading historical evidence
 

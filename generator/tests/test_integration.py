@@ -303,7 +303,7 @@ def _fake_gh_all_pass(*args: str, **kwargs: str) -> subprocess.CompletedProcess[
     if "collaborators" in url:
         return _make_completed("write\n")
     if "secrets" in url:
-        return _make_completed('["BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"]\n')
+        return _make_completed('["TEND_BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"]\n')
     return _make_completed(returncode=1)
 
 
@@ -347,7 +347,7 @@ def test_check_full_pipeline_branch_not_protected(
         if "collaborators" in url:
             return _make_completed("write\n")
         if "secrets" in url:
-            return _make_completed('["BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"]\n')
+            return _make_completed('["TEND_BOT_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"]\n')
         return _make_completed(returncode=1)
 
     with (

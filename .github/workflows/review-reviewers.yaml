@@ -2,7 +2,7 @@ name: review-reviewers
 # Hourly outcome-based analysis of bot behavior across adopter repos.
 #
 # Each matrix entry is a repo to analyze. The job checks out the tend repo
-# (for creating improvement PRs/issues). BOT_TOKEN is sufficient for reading
+# (for creating improvement PRs/issues). TEND_BOT_TOKEN is sufficient for reading
 # CI data from public adopter repos.
 #
 # TODO: Move repo list to a config file so adding a repo doesn't require a workflow change
@@ -36,11 +36,11 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ secrets.BOT_TOKEN }}
+          token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: max-sixty/tend/codex@0.0.22
         with:
-          github_token: ${{ secrets.BOT_TOKEN }}
+          github_token: ${{ secrets.TEND_BOT_TOKEN }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
           bot_name: tend-agent
           model: gpt-5.5
