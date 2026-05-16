@@ -45,12 +45,14 @@ bucket changes.
 
 ## Recommendation
 
-**OAuth token, if you have a Pro/Max/Team/Enterprise subscription.** The
-Agent SDK credit is bundled with the plan you're already paying for; using
-OAuth puts that allowance to work instead of billing tend runs separately.
-For typical bot volume ($20/Pro is a few million Sonnet tokens), the credit
-covers ordinary operation. Enable "extra usage" in the Console so credit
-exhaustion overflows to API rates instead of hard-stopping CI.
+**OAuth token, if you have an eligible Claude subscription.** The Agent
+SDK credit is bundled with eligible plans you're already paying for;
+using OAuth puts that allowance to work instead of billing tend runs
+separately. For typical bot volume ($20/Pro is a few million Sonnet
+tokens), the credit covers ordinary operation. Enable "extra usage" in
+the Console so credit exhaustion overflows to API rates instead of
+hard-stopping CI. Seat-based Enterprise Standard seats are not
+eligible — admins on those seats should take the API-key path.
 
 **API key, otherwise.** Use this when there's no subscription to draw on,
 when the bot should bill against a dedicated Console org for accounting

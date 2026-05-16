@@ -27,15 +27,16 @@ Before running step 1, choose the harness and lay out the plan:
 
 - Ask via `AskUserQuestion` which harness to use:
   - **Claude (Anthropic)** — uses a Claude Code OAuth token (recommended
-    for adopters with a Pro/Max/Team/Enterprise subscription) or a
-    console.anthropic.com API key. Starting 2026-06-15, subscription
+    for adopters with an eligible Claude subscription) or a
+    console.anthropic.com API key. Starting 2026-06-15, eligible-plan
     `claude-code-action` runs draw from a separate monthly Agent SDK
-    credit ($20–$200 depending on plan, one-time opt-in then
-    auto-refresh); using OAuth puts that bundled allowance to work.
-    Enable "extra usage" in the Console so credit exhaustion overflows
-    to API rates instead of hard-stopping CI. API key is the alternative
-    when there's no subscription to draw on, or you want a dedicated
-    billing surface and per-key revocation.
+    credit (one-time opt-in then auto-refresh); using OAuth puts that
+    bundled allowance to work. Enable "extra usage" in the Console so
+    credit exhaustion overflows to API rates instead of hard-stopping
+    CI. API key is the alternative when the user is on an ineligible
+    plan (e.g. seat-based Enterprise Standard), has no subscription to
+    draw on, or wants a dedicated billing surface and per-key
+    revocation.
     [docs/claude-auth-choice.md](../../../../docs/claude-auth-choice.md)
     has the full reasoning.
   - **Codex (OpenAI)** — uses a ChatGPT Plus/Pro/Business `auth.json`
@@ -348,10 +349,10 @@ gh secret list --repo "$REPO" --json name --jq '.[].name' \
 
 If not set, ask via `AskUserQuestion` which auth mode to use:
 
-- **OAuth token (recommended for Pro/Max/Team/Enterprise subscribers)** —
-  `sk-ant-oat01-…` from `claude setup-token`. Funded by the subscription;
-  from 2026-06-15 these runs draw from a separate monthly Agent SDK
-  credit ($20–$200/plan). Have the user opt in to the credit through
+- **OAuth token (recommended for eligible Claude subscribers)** —
+  `sk-ant-oat01-…` from `claude setup-token`. Funded by eligible
+  subscriptions; from 2026-06-15 these runs draw from a separate monthly
+  Agent SDK credit. Have the user opt in to the credit through
   their Claude account once (Anthropic emails instructions; it
   auto-refreshes each cycle after that), and enable "extra usage" in the
   Console if they want credit exhaustion to overflow to API rates

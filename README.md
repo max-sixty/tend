@@ -194,11 +194,11 @@ Wraps
 Anthropic's official GitHub Action for running Claude Code in CI. Two
 auth modes:
 
-- **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended with a Pro/Max/Team/Enterprise
+- **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended with an eligible Claude
   subscription) — Claude Code OAuth token from `claude setup-token`.
-  Funded by the subscription; from 2026-06-15 these runs draw from a
-  separate monthly Agent SDK credit ($20–$200 depending on plan) — see
-  caveat below.
+  Funded by the subscription; from 2026-06-15 eligible-plan runs draw
+  from a separate monthly Agent SDK credit — see caveat below for the
+  per-plan breakdown and the seat-based Enterprise Standard exclusion.
 - **`ANTHROPIC_API_KEY`** — standard API key from console.anthropic.com,
   billed per token against the Console org. Pick this when there's no
   Claude subscription, when the bot should bill against a dedicated
