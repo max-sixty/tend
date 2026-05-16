@@ -44,7 +44,7 @@ def test_bot_name_only(tmp_path: Path) -> None:
     assert cfg.bot_name == "my-bot"
     assert cfg.model == "opus"
     assert cfg.protected_branches == []
-    assert cfg.bot_token_secret == "BOT_TOKEN"
+    assert cfg.bot_token_secret == "TEND_BOT_TOKEN"
     assert cfg.claude_token_secret == "CLAUDE_CODE_OAUTH_TOKEN"
     assert cfg.setup == []
     assert cfg.workflows == {}
