@@ -124,7 +124,13 @@ attacker wrote. A `Makefile`, `package.json` postinstall hook, or
 variables and sending them over the network. Config pinning prevents
 *Claude Code's own* startup hooks from being hijacked, but it can't prevent
 Claude from voluntarily running `make test` on a repo where `make test` has
-been weaponized.
+been weaponized. The Codex harness makes this explicit: its composite
+action runs with `sandbox: danger-full-access`, deliberately not relying
+on codex's inner bwrap jail. The ephemeral single-use runner VM is the
+isolation boundary; the inner sandbox is redundant there and unavailable
+on the standard runner image anyway. The boundaries that are load-bearing
+(merge restriction, scope-limited credentials) sit outside the harness's
+local-exec sandbox regardless.
 
 **Token exfiltration via side channels.** Log masking only catches exact
 string matches in stdout. An attacker who gets code execution can exfiltrate
