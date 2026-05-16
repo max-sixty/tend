@@ -366,10 +366,14 @@ runs:
         # Surface the final message as a step output even if codex
         # exited non-zero — downstream steps may still want to post it.
         if [ -f "$OUTPUT_FILE" ]; then
+          # Random delimiter: agent output is content-dependent and could
+          # otherwise contain a line matching a fixed sentinel, truncating
+          # the multiline output. See GitHub's multiline-string guidance.
+          DELIM="ghadelimiter_$(openssl rand -hex 16)"
           {
-            echo 'final_message<<TEND_EOF'
+            echo "final_message<<$DELIM"
             cat "$OUTPUT_FILE"
-            echo 'TEND_EOF'
+            echo "$DELIM"
           } >> "$GITHUB_OUTPUT"
         fi
         exit $EXIT
