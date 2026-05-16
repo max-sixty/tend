@@ -85,3 +85,43 @@ every later run 401s permanently. OpenAI's guide also forbids sharing one
   the workflow ref before the job starts, so bot-pushed feature-branch
   workflows cannot read it. Reference implementation to copy:
   https://github.com/max-sixty/tend/blob/main/.github/workflows/codex-auth-refresh.yaml
+
+## Token assignment
+
+Use a single bot token across all workflows for consistent identity. The
+merge restriction caps blast radius regardless of which token is used.
+
+Two tokens are needed: the bot's PAT (or GitHub App) credential, plus a
+harness-auth credential whose form depends on `harness` in
+`.config/tend.yaml`.
+
+| Token | Purpose |
+|-------|---------|
+| Bot token (PAT or App) | GitHub API and git operations. Consistent bot identity. |
+| Harness auth (one of, per harness) | Authenticates the agent runtime. |
+| ↳ Claude OAuth token | `harness: claude`: authenticates Claude Code to the Anthropic API. |
+| ↳ `CODEX_AUTH_JSON` | `harness: codex`, subscription-funded: the `auth.json` Codex writes after `codex login --device-auth`. Default recommendation; on public repos mint it from a dedicated ChatGPT account (see above). |
+| ↳ `OPENAI_API_KEY` | `harness: codex`, API-billed: standard OpenAI API key, per-token billing. Alternative when minting a dedicated ChatGPT account isn't desired. |
+
+A single bot token is safe across workflows because the merge restriction
+caps the blast radius. One token also gives consistent bot identity for
+reviews and comments and avoids the `github-actions[bot]` branding.
+
+## How tokens flow through workflows
+
+Two independent authentication paths exist in every workflow:
+
+1. **Git CLI** (`git push`): authenticates with the token from
+   `actions/checkout`. When no explicit token is passed it defaults to
+   `GITHUB_TOKEN` scoped by the `permissions:` block; passing an explicit
+   token swaps in that token's scopes.
+2. **GitHub API** (`gh pr create`, `gh api`): `claude-code-action`
+   overwrites the `GITHUB_TOKEN` env var with its `github_token` input.
+
+All workflows should pass the bot token to both paths.
+
+Bind the bot token to `GITHUB_TOKEN`, not `GH_TOKEN`. `GITHUB_TOKEN` is
+auto-injected by GitHub Actions and read by most third-party tools;
+overriding it gives one bot identity everywhere in the job. `GH_TOKEN`
+only overrides the `gh` CLI; anything else still sees the auto-injected
+`github-actions[bot]` token.

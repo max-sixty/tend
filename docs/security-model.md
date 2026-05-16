@@ -75,85 +75,43 @@ nightly regen, as a reviewable workflow-file diff in their own repo. Adopters ex
 same way they trust any third-party action's publisher; pinning to `X.Y.Z`
 (or a commit SHA) bounds that trust to a reviewed, immutable point.
 
-**Config pinning.** `claude-code-action` restores `.claude/`, `.mcp.json`,
-`.claude.json`, `.gitmodules`, and `.ripgreprc` from the base branch on all
-PRs. These paths give the CLI code execution at startup — hooks run shell
-commands, `.mcp.json` spawns server processes, `.claude.json` can set
-environment variables, `.gitmodules` can point submodules at attacker repos,
-`.ripgreprc` can inject commands via ripgrep's `--pre` flag. A malicious PR
-that adds a `SessionStart` hook or an MCP server gets those changes silently
-reverted before Claude starts. The composite action separately pins
-`CLAUDE.md` to the base branch on fork PRs — `claude-code-action` doesn't
-cover this because CLAUDE.md is a prompt-injection vector, not an RCE
-vector, and it's reasonable for same-repo PRs to modify their own
-instructions.
+**Config pinning.** `claude-code-action` restores RCE-relevant config
+(`.claude/`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`)
+from the base branch on all PRs, so a malicious PR's `SessionStart` hook
+or MCP server is silently reverted before Claude starts. The composite
+action additionally pins `CLAUDE.md` to the base branch on fork PRs as a
+prompt-injection defense.
 
-**Rate limiting.** Burst detection (10 PRs and 10 issues per 20 minutes,
-checked independently) and spike detection (today's volume vs 6-day baseline)
-abort the run before Claude starts. This catches runaway loops — triage
-creates a fix PR, CI fails, ci-fix creates another PR, repeat. Because the
-check runs as a shell step before the Claude session, prompt injection can't
-skip it.
-
-| Check | Limit | Layer |
-|-------|-------|-------|
-| PRs created in last 20 min | 10 | Burst |
-| Issues created in last 20 min | 10 | Burst |
-| Items created today | 10 + 2× daily avg (past 6 days) | Spike |
-
-The spike formula adapts to each repo's normal activity level: a repo that
-averages 0 posts/day trips at 11, while one averaging 15/day trips at 41.
-These are hardcoded in `action.yaml`. Because the check runs outside Claude's
-session, a prompt injection attack cannot instruct the bot to skip it.
+**Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
+spike detection (today's volume vs 6-day baseline, scaled per repo) abort
+the run before Claude starts, catching runaway loops between workflows.
+The check runs as a shell step, so a prompt-injection attack inside the
+Claude session cannot skip it. Concrete limits live in `action.yaml`.
 
 **Fixed prompts and marketplace skills.** The prompt and skill set come from
 the composite action and the tend marketplace, not from the PR. An attacker
 can influence what Claude *reads* (the diff, the issue body) but not the
 *instructions* Claude follows or the *tools* it has access to.
 
-**Environment-protected secrets.** Release secrets (registry tokens, signing
-keys) belong in a GitHub Environment, never at the repo level where any
-workflow run can read them. An Environment's `deployment_branch_policy`
-restricts deploys to a specific set of refs; pinning to refs that are
-themselves admin-gated chains the environment to the same boundary as the
-merge restriction.
+**Environment-protected secrets.** Release secrets (registry tokens,
+signing keys) live in GitHub Environments whose `deployment_branch_policy`
+lists only admin-gated refs (the default branch and the release tag
+pattern). The merge restriction gates code that reaches the default branch
+through a merge; other paths to a privileged workflow (a tag push, a
+release, a manual or chained dispatch, a `pull_request_target` workflow on
+a bot-pushed fork branch, a `deployment` API call, a `schedule` job)
+bypass it. Pinning environments to admin-gated refs closes those paths:
+the bot has write but not admin, so it cannot push to the default branch,
+cannot create or rewrite a release tag, and therefore cannot reach any
+environment pinned to those refs. The chain inherits the merge
+restriction's assumption that the bot has write, not admin; an admin
+session voids both the same way.
 
-The merge restriction only gates code that reaches the default branch
-*through a merge*. A leaked bot token can run privileged code with no merge
-at all, through any of:
+OIDC-to-cloud deploys have no GitHub-stored secret to gate; there, the
+Environment plus the cloud provider's trust policy is the only control.
 
-- a branch push plus a PR whose modified workflow runs with repo secrets;
-- a `pull_request_target` workflow, which runs in base context from a
-  bot-pushed fork branch (base-context split: see "GitHub API: event types
-  for PR comments");
-- a pushed tag an `on: push: tags:` deploy consumes;
-- a published release a `release: published` deploy consumes;
-- a `workflow_dispatch`, `workflow_run`, or `repository_dispatch` job on a
-  bot-pushed ref;
-- `POST /repos/{}/deployments`, firing a `deployment` job with no merge or tag;
-- a `schedule` job that reads secrets with no trigger at all.
-
-Two refs are admin-gated:
-
-- The **default branch**, via the merge-restriction ruleset (`update` rule,
-  admin-only bypass).
-- The **release tag pattern**, via a sibling tag ruleset (`creation`,
-  `update`, `deletion` rules, admin-only bypass). Pushing a release tag is
-  therefore an admin operation, and the bot cannot rewrite an existing one.
-
-An Environment whose `deployment_branch_policy` lists only those refs is
-reachable only via an admin operation. A leaked bot token can push a
-branch or a non-release tag, but neither ref matches the environment's
-policy, so the deploy is rejected before it can read the secret. No admin
-operation → no admin-gated ref → no environment access → no secret.
-
-The chain inherits the merge restriction's assumption that the bot has
-write, not admin. An admin session voids the chain just as it voids the
-merge restriction.
-
-An OIDC-to-cloud deploy has no GitHub-stored secret to move; there, the
-Environment with its admin-gated deployment policy plus the cloud
-provider's trust policy is the only control.
+Configuration recipe:
+`plugins/install-tend/skills/install-tend/references/security-model.md`.
 
 **GitHub's log masking.** Secrets stored in GitHub are automatically redacted
 from workflow logs. This is exact-match only — if a token appears
@@ -198,180 +156,3 @@ Claude ultimately reasons about attacker-controlled text.
 Deferred hardening options (Haiku pre-screening, read-only fork PRs, network
 isolation, subprocess env scrubbing, workflow-dispatch isolation, GitHub App
 in place of PAT) live in `TODO.md`.
-
----
-
-## Reference
-
-### What each workflow needs to do
-
-| Capability | Triage | Mention | Review | CI Fix | Nightly | Weekly |
-|------------|:---:|:---:|:---:|:---:|:---:|:---:|
-| Read issues/PRs | Yes | Yes | Yes | Yes | Yes | Yes |
-| Comment on issues | Yes | Yes | Yes | — | Yes | Yes |
-| Create branches | Yes | Yes | Yes | Yes | Yes | Yes |
-| Push commits | Yes | Yes | Yes | Yes | Yes | Yes |
-| Create PRs | Yes | Yes | — | Yes | Yes | Yes |
-| Post PR reviews | — | — | Yes | — | — | Yes |
-| Resolve review threads | — | — | Yes | — | — | — |
-| Monitor CI | Yes | Yes | Yes | Yes | Yes | Yes |
-| **Pushes must trigger CI** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
-
-The last row matters: `GITHUB_TOKEN` pushes don't trigger downstream workflows
-(GitHub prevents infinite loops). Workflows that push code and need CI to run
-**must** use a PAT or GitHub App installation token.
-
-### Token assignment
-
-Use a single bot token across all workflows for consistent identity.
-The merge restriction (ruleset) caps blast radius regardless of which token
-is used.
-
-Two tokens are needed: the bot's PAT/App credential, plus a harness auth
-credential whose exact form depends on `harness` in `.config/tend.yaml`.
-
-| Token | Purpose |
-|-------|---------|
-| Bot token (PAT or App) | GitHub API and git operations. Consistent bot identity. |
-| Harness auth (one of, per harness) | Authenticates the agent runtime. |
-| ↳ Claude OAuth token | `harness: claude`: authenticates Claude Code to the Anthropic API. |
-| ↳ `CODEX_AUTH_JSON` | `harness: codex`, subscription-funded: the contents of the `auth.json` Codex writes after `codex login --device-auth`. Default recommendation; on public repos mint it from a ChatGPT account dedicated to the bot (see below). |
-| ↳ `OPENAI_API_KEY` | `harness: codex`, API-billed: standard OpenAI API key, billed per token. Alternative for users who'd rather not mint a separate ChatGPT account. |
-
-**Why one bot token.** The bot token is equally safe in any workflow because
-the merge restriction caps the blast radius. Using a single token gives
-consistent identity for reviews and comments and avoids the
-`github-actions[bot]` branding.
-
-**If a token leaks:**
-
-| Token | Lifetime | If leaked, attacker can... | ...but cannot |
-|-------|----------|---------------------------|---------------|
-| Bot token (PAT) | Long-lived | Push to unprotected branches, create PRs, impersonate bot — **indefinitely** | Merge PRs (merge restriction), push to default branch, access release secrets (environment-protected) |
-| Bot token (App) | ~1 hour | Same as PAT, but only until token expires | Same + token auto-expires |
-| Claude OAuth | Long-lived | Run Claude sessions billed to the account | Access GitHub |
-| `OPENAI_API_KEY` | Until revoked | Run Codex/OpenAI API calls billed to the account | Access GitHub |
-| `CODEX_AUTH_JSON` | ~8-day refresh window | Run any ChatGPT API call as the account the token was minted from. **Personal-account leak**: read chat history, access custom GPTs, exhaust plan quota. **Dedicated-account leak (recommended)**: burn subscription quota until rotation. | Access GitHub |
-
-**The `CODEX_AUTH_JSON` caveat.** Codex's `auth.json` is an OAuth
-refresh token bound to a ChatGPT account; a leak gives an attacker
-that account's plan resources. OpenAI's
-[CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth)
-discourages this path for public or open-source repos:
-
-> The right way to authenticate automation is with an API key. Use this
-> guide only if you specifically need to run the workflow as your Codex
-> account... Do not use this workflow for public or open-source repositories.
-
-That guidance assumes the token comes from the user's personal account.
-Tend recommends a **ChatGPT account dedicated to the bot** instead —
-required on public repos, recommended on private — which narrows a
-leak to subscription-quota burn until the next rotation, similar in
-scope to an `OPENAI_API_KEY` leak (agent-runtime access only, no
-GitHub). Flat-rate subscription billing also typically beats per-token
-API billing on a busy repo, so the dedicated-account `auth.json` is
-the install skill's default. Revoke via
-`https://chatgpt.com/#settings/Personalization` if leaked.
-
-**Static-secret CI requires active rotation, not just hygiene.** Codex
-rotates the refresh token on use with a ~1-hour grace window for the
-old token. In CI the rotated tokens land in an ephemeral runner and
-the GitHub secret holds the invalidated value. After ~8 days Codex's
-proactive refresh fires in the next consumer workflow to run, and
-within ~1 hour every subsequent run 401s permanently. The same OpenAI
-guide adds: "Use one `auth.json` per runner or per serialized workflow
-stream. Do not share the same file across concurrent jobs or multiple
-machines." — which rules out the naive single-secret pattern for any
-repo with overlapping workflows.
-
-Two paths to safe operation:
-
-- **Manual rotation.** Re-run `CODEX_HOME=/tmp/codex-tend codex login
-  --device-auth` every ~6 days and re-set the secret. Fails on a
-  missed week. Acceptable when consumer workflows are rare enough
-  that the day-8 rotation race is unlikely.
-- **Automated refresher workflow.** A scheduled workflow POSTs the
-  current refresh token to `https://auth.openai.com/oauth/token`,
-  reconstructs auth.json with the rotated tokens, and updates
-  `CODEX_AUTH_JSON` via a dedicated PAT (`CODEX_REFRESH_PAT`,
-  fine-grained, `secrets: read and write` on the repo). The refresher
-  updates the secret before any consumer workflow can trigger a
-  rotation, so `last_refresh` stays under 8 days from the consumer's
-  perspective and no refresh fires inside concurrent consumer runs.
-
-  The PAT must not live as a plain repo secret — the bot has
-  `workflow` scope and can push workflow files to feature branches
-  that read repo secrets, which would escalate the bot from "write
-  collaborator" to "rewrite every repo secret." Store it in an
-  Environment (e.g. `codex-auth-refresh`) pinned to `main` only;
-  GitHub gates secret injection on the workflow's ref before the job
-  starts, so bot-pushed feature-branch workflows can't read it. See
-  `.github/workflows/codex-auth-refresh.yaml` for the implementation
-  and `plugins/install-tend/skills/install-tend/SKILL.md` §7b step 4
-  for the setup walkthrough.
-
-`GITHUB_TOKEN` is ephemeral (single job) and automatically scoped by each
-workflow's `permissions:` block. Not a meaningful leak target.
-
-**How tokens interact with `permissions:` and `actions/checkout`.** Two
-independent authentication paths exist in every workflow:
-
-1. **Git CLI** (`git push`): authenticates with the token from
-   `actions/checkout`. When no explicit token is passed, this defaults to
-   `GITHUB_TOKEN` scoped by the `permissions:` block. When an explicit token
-   is passed, that token's scopes apply instead.
-2. **GitHub API** (`gh pr create`, `gh api`): `claude-code-action` overwrites
-   the `GITHUB_TOKEN` env var with its `github_token` input.
-
-All workflows should pass the bot token to both paths.
-
-**Env var binding in shell steps.** Bind the bot token to `GITHUB_TOKEN`, not
-`GH_TOKEN`. `GITHUB_TOKEN` is auto-injected by GitHub Actions and read by most
-third-party tools — overriding it gives one bot identity everywhere in the
-job. `GH_TOKEN` only overrides the `gh` CLI; anything else still sees the
-auto-injected `github-actions[bot]` token.
-
-### GitHub API: event types for PR comments
-
-GitHub treats PRs as a superset of issues. Comments on a PR arrive via
-different event types depending on where they're posted:
-
-- **Conversation tab** → `issue_comment` event. Runs in base repo context —
-  secrets available even for fork PRs. The PR is at
-  `github.event.issue.pull_request`. The PR number is
-  `github.event.issue.number`.
-- **Files changed (inline)** → `pull_request_review_comment` event. Runs in
-  fork context — no secret access for fork PRs (same restriction as
-  `pull_request`). The PR is at `github.event.pull_request`. There is no
-  `github.event.issue`.
-- **Review submission** → `pull_request_review` event (type: `submitted`). Same
-  fork restriction as `pull_request_review_comment`. The review is at
-  `github.event.review`. The PR is at `github.event.pull_request`.
-
-Individual inline comments from a review also fire as separate
-`pull_request_review_comment` events.
-
-GitHub provides `pull_request_target` as a secrets-safe equivalent of
-`pull_request`, but no such variant exists for `pull_request_review_comment` or
-`pull_request_review` ([community discussion][gh-55940]). This means
-`tend-mention` cannot respond to inline review comments on fork PRs.
-Conversation-tab comments (`issue_comment`) are unaffected.
-
-[gh-55940]: https://github.com/orgs/community/discussions/55940
-
-### Rules for modifying workflows
-
-- **No role-based gating**: Don't check `author_association` (OWNER, MEMBER,
-  etc.) to decide whether to run. The merge restriction is the security
-  boundary. Use technical criteria: fork detection, loop prevention, trigger
-  phrases.
-- **Adding `allowed_non_write_users`** to a workflow with user-controlled
-  prompts requires security review.
-- **System prompt**: Claude workflows append a CI-environment hint via
-  `--append-system-prompt`; Codex workflows stage equivalent guidance into
-  `$CODEX_HOME/AGENTS.md`. Both load `/tend-ci-runner:running-in-ci`
-  before any other skill.
-- **Token choice**: All workflows use the bot token for consistent
-  identity.
-- **`permissions:` block**: Set `contents: read` for read-only workflows.
-- **Sensitive secrets** must be in protected environments, never repo-level.

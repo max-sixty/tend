@@ -48,12 +48,12 @@ bot_name: my-project-bot
 #
 # Repo secrets, by harness:
 #
-# | Harness   | Required                                                                |
-# |----------|--------------------------------------------------------------------------|
-# | `claude` | `BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`    |
-# | `codex`  | `BOT_TOKEN` + one of `CODEX_AUTH_JSON` or `OPENAI_API_KEY`               |
+# | Harness   | Required                                                                     |
+# |----------|-------------------------------------------------------------------------------|
+# | `claude` | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`    |
+# | `codex`  | `TEND_BOT_TOKEN` + one of `CODEX_AUTH_JSON` or `OPENAI_API_KEY`               |
 #
-# `BOT_TOKEN` is the bot account's PAT (scopes below).
+# `TEND_BOT_TOKEN` is the bot account's PAT (scopes below).
 # `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token` (PKCE).
 # `ANTHROPIC_API_KEY` is a console.anthropic.com API key.
 # `CODEX_AUTH_JSON` is the contents of the `auth.json` Codex writes
