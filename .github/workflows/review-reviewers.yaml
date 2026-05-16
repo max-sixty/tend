@@ -38,7 +38,7 @@ jobs:
           fetch-tags: true
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
-      - uses: max-sixty/tend/codex@0.0.22
+      - uses: max-sixty/tend/codex@0.0.23
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}

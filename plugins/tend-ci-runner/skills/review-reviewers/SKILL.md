@@ -307,7 +307,7 @@ Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
 
 > Investigate session logs for run <run-id> on `$ARGUMENTS`.
 >
-> Download: `gh run download <run-id> -R $ARGUMENTS --pattern 'claude-session-logs*' --dir /tmp/session-logs/<run-id>/`
+> Download: `gh run download <run-id> -R $ARGUMENTS --pattern 'claude-session-logs*' --pattern 'codex-session-logs*' --dir /tmp/session-logs/<run-id>/` (both patterns are passed because the artifact prefix depends on the target repo's harness — Claude uploads `claude-session-logs*`, Codex uploads `codex-session-logs*`)
 >
 > The concerning outcome was: <signal from Step 2>.
 >
