@@ -112,8 +112,11 @@ can influence what Claude *reads* (the diff, the issue body) but not the
 *instructions* Claude follows or the *tools* it has access to.
 
 **Environment-protected secrets.** Release secrets (registry tokens, signing
-keys) belong in a GitHub Environment with required reviewers, never at the
-repo level where any workflow run can read them.
+keys) belong in a GitHub Environment, never at the repo level where any
+workflow run can read them. An Environment's `deployment_branch_policy`
+restricts deploys to a specific set of refs; pinning to refs that are
+themselves admin-gated chains the environment to the same boundary as the
+merge restriction.
 
 The merge restriction only gates code that reaches the default branch
 *through a merge*. A leaked bot token can run privileged code with no merge
@@ -130,30 +133,27 @@ at all, through any of:
 - `POST /repos/{}/deployments`, firing a `deployment` job with no merge or tag;
 - a `schedule` job that reads secrets with no trigger at all.
 
-An Environment closes all of these: the deploy job cannot read the secret
-until a reviewer approves. The gate holds under one condition, that **the
-actor who triggered the deploy cannot approve it**. "Prevent self-review"
-(off by default) enforces this even when that actor is a required reviewer;
-equivalently, the bot is not an eligible reviewer at all, directly or
-through a team. At least one reviewer must be a trusted human, not the bot
-or another automation: only one approval is needed, so a single automation
-reviewer defeats the gate.
+Two refs are admin-gated:
 
-Two caveats:
+- The **default branch**, via the merge-restriction ruleset (`update` rule,
+  admin-only bypass).
+- The **release tag pattern**, via a sibling tag ruleset (`creation`,
+  `update`, `deletion` rules, admin-only bypass). Pushing a release tag is
+  therefore an admin operation, and the bot cannot rewrite an existing one.
 
-- **Admin voids it.** Like the merge restriction, the gate assumes the bot
-  has write, not admin. Admin bypass of environment protection rules is on
-  by default.
-- **Tags need the tag setting, not a branch policy.** GitHub stopped
-  matching deployment *branch* policies against tags in August 2023 (a
-  write-access actor could otherwise bypass them). For a tag-triggered
-  deploy, restrict the environment's "Deployment branches and tags" setting
-  to a tag pattern instead, an environment setting distinct from the
-  repository `tag` ruleset under "Action distribution integrity". This
-  gates the deploy deterministically without a human reviewer.
+An Environment whose `deployment_branch_policy` lists only those refs is
+reachable only via an admin operation. A leaked bot token can push a
+branch or a non-release tag, but neither ref matches the environment's
+policy, so the deploy is rejected before it can read the secret. No admin
+operation → no admin-gated ref → no environment access → no secret.
+
+The chain inherits the merge restriction's assumption that the bot has
+write, not admin. An admin session voids the chain just as it voids the
+merge restriction.
 
 An OIDC-to-cloud deploy has no GitHub-stored secret to move; there, the
-Environment plus the cloud provider's trust policy is the only control.
+Environment with its admin-gated deployment policy plus the cloud
+provider's trust policy is the only control.
 
 **GitHub's log masking.** Secrets stored in GitHub are automatically redacted
 from workflow logs. This is exact-match only — if a token appears
@@ -194,11 +194,6 @@ A carefully crafted PR description or issue body could get Claude to approve a
 bad PR, post misleading comments, or dismiss legitimate review concerns. Fixed
 prompts and skill instructions reduce this risk but can't eliminate it —
 Claude ultimately reasons about attacker-controlled text.
-
-**Compromised environment reviewer.** The Environment gate assumes the
-required-reviewer set is itself trustworthy. A compromised human reviewer who
-did not trigger the run can still approve it, since "Prevent self-review" only
-blocks the actor who triggered the deploy, not other reviewers.
 
 Deferred hardening options (Haiku pre-screening, read-only fork PRs, network
 isolation, subprocess env scrubbing, workflow-dispatch isolation, GitHub App
