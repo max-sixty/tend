@@ -27,12 +27,12 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Verify required secrets are set
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          BOT_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
           CLAUDE_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           missing=""
-          [ -n "$BOT_TOKEN" ] || missing="$missing BOT_TOKEN"
+          [ -n "$BOT_TOKEN" ] || missing="$missing TEND_BOT_TOKEN"
           if [ -z "$CLAUDE_OAUTH$ANTHROPIC_KEY" ]; then
             missing="$missing harness-auth(set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)"
           fi

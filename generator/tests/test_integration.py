@@ -572,7 +572,7 @@ def test_install_test_workflow_shape(
     assert job["permissions"] == {"contents": "read"}
 
     # Default Claude secret names appear in the env block.
-    assert "BOT_TOKEN" in content
+    assert "secrets.TEND_BOT_TOKEN" in content
     assert "CLAUDE_CODE_OAUTH_TOKEN" in content
     assert "ANTHROPIC_API_KEY" in content
 
@@ -617,7 +617,7 @@ def test_install_test_workflow_honors_secret_overrides(
     content = (_workflow_dir(tmp_path) / "tend-install-test.yaml").read_text()
     assert "secrets.GH_BOT_TOKEN" in content
     assert "secrets.MY_OAUTH" in content
-    assert "secrets.BOT_TOKEN" not in content
+    assert "secrets.TEND_BOT_TOKEN" not in content
 
 
 def test_init_bot_name_in_workflow_content(
