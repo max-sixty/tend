@@ -1,7 +1,9 @@
 ---
 // Stat strip — runtime-fetched from api.tend-src.com/activity (the bucket
-// counts). Hidden until the fetch returns non-zero values, so a cold deploy
-// with empty data doesn't render a row of zeros.
+// counts). Hidden only when the fetch itself fails (network or non-OK
+// response); a successful fetch with zero counts still renders, because
+// distinguishing "data is missing" from "data is genuinely zero" matters
+// — a transient worker outage shouldn't silently black out the section.
 //
 // The strip ships with four placeholder cells of the same shape as the real
 // data so the section reserves its natural height before the fetch resolves
@@ -40,14 +42,13 @@
   }
 
   liveData<Activity>("/activity", "stats", (data) => {
-    if (!data) return false;
+    if (!data) return false; // fetch failed — hide rather than render zeros
     const cells = [
       { n: data.prs?.count ?? 0, week: data.prs?.count_this_week ?? 0, label: "PRs" },
       { n: data.reviews?.count ?? 0, week: data.reviews?.count_this_week ?? 0, label: "reviews" },
       { n: data.comments?.count ?? 0, week: data.comments?.count_this_week ?? 0, label: "comments" },
       { n: data.issues?.count ?? 0, week: data.issues?.count_this_week ?? 0, label: "issues" },
     ];
-    if (cells.every((c) => !c.n)) return false; // all zero — hide entirely
 
     const strip = document.querySelector("[data-stat-strip]");
     if (!strip) return false;
