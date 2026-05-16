@@ -63,9 +63,7 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
     from a separate monthly Agent SDK credit on eligible plans (Pro $20,
     Max 5x $100, Max 20x $200, Team Standard $20, Team Premium $100,
     Enterprise usage-based $20, Enterprise seat-based Premium $200;
-    seat-based Enterprise Standard seats are not eligible). See
-    [docs/claude-auth-choice.md](docs/claude-auth-choice.md) for the
-    choice between OAuth and API key.
+    seat-based Enterprise Standard seats are not eligible).
 - While it's built to protect important secrets, a determined attacker can
   get a) the bot's token and b) the harness auth credential (Claude OAuth
   token, OpenAI API key, or ChatGPT auth.json). They can't do that much
