@@ -138,6 +138,19 @@ class Config:
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
 
+    def default_prompt(self, skill: str, args: str = "") -> str:
+        """Default prompt invoking a tend-ci-runner skill in harness-native syntax.
+
+        Claude resolves `/tend-ci-runner:NAME` as a slash command. Codex resolves
+        `$NAME` as a skill mention (or matches by description); the
+        `tend-ci-runner` namespace prefix isn't needed at the prompt site because
+        skill names within the plugin are unique. `args` is appended raw so
+        callers can splice their own placeholders (`{pr_number}` etc.) and run
+        the existing replace step.
+        """
+        prefix = f"/tend-ci-runner:{skill}" if self.harness == "claude" else f"${skill}"
+        return f"{prefix} {args}".rstrip()
+
     @classmethod
     def load(cls, path: Path | None = None) -> Config:
         if path is None:
