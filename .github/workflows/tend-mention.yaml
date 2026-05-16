@@ -195,13 +195,13 @@ jobs:
         env:
           EVENT_TS: ${{ github.event.comment.created_at || github.event.review.submitted_at || github.event.issue.updated_at }}
 
-      - uses: max-sixty/tend@0.0.22
+      - uses: max-sixty/tend/codex@0.0.22
         with:
           github_token: ${{ secrets.BOT_TOKEN }}
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
           bot_name: tend-agent
-          model: opus
+          model: gpt-5.5
           prompt: >-
             ${{ steps.delay.outputs.seconds
             && format('This job started {0}s after the triggering event (over ~40s means it was queued). ',
