@@ -36,7 +36,7 @@ Before running step 1, choose the harness and lay out the plan:
   - **Codex (OpenAI)** — uses a ChatGPT Plus/Pro/Business `auth.json`
     (subscription, recommended) or an OpenAI API key (pay-per-token).
     Public repos require `auth.json` from a ChatGPT account dedicated
-    to the bot. Detail in `docs/security-model.md`.
+    to the bot. Detail in ${CLAUDE_SKILL_DIR}/references/security-model.md.
 - List the steps you'll be running (the section headings below: Create
   config → Generate workflows → Branch protection → Skill overlay →
   Badge → Bot account → Harness auth → Bot token → Grant access →
@@ -103,12 +103,72 @@ warning. Classify each non-bot secret and act now — don't defer:
 
 - Release secrets (registry tokens like `PYPI_TOKEN`/`NPM_TOKEN`, signing
   keys, deploy credentials) at the repo level are reachable from any
-  workflow run. Don't allowlist them. Propose moving them to a protected
-  environment and do the migration in this session: create the environment
-  (gated on the default branch with required reviewers), recreate the
-  secret there, delete the repo-level secret, and set `environment: <name>`
-  on the publishing job. Confirm with `AskUserQuestion` before deleting
-  the original.
+  workflow run, including ones a write-access bot can trigger with no
+  merge. Don't allowlist them. Migrate each to a GitHub Environment with
+  required reviewers, so the deploy job can't read the secret until a human
+  approves. The steps below configure that.
+
+  Pick the reviewer first: a trusted human or human team, never the bot, a
+  bot-controlled account, or another automation (only one reviewer's
+  approval is needed, so a second automation reviewer defeats the gate).
+  The bot must be neither a reviewer, directly or via a team, nor an admin.
+
+  Migrate the secret: recreate it on the Environment, delete the repo-level
+  copy (confirm via `AskUserQuestion` first), and set `environment: <name>`
+  on the publishing job.
+
+  Configure the Environment. The PUT replaces the whole config, and
+  `prevent_self_review` is rejected unless a reviewer is set in the same
+  call, so send both together:
+
+  ```bash
+  REPO=<owner>/<repo>; ENV=<name>
+  REVIEWER_ID=$(gh api /users/<trusted-human> --jq .id)
+  gh api --method PUT "/repos/$REPO/environments/$ENV" \
+    -F prevent_self_review=true \
+    -f 'reviewers[][type]=User' -F "reviewers[][id]=$REVIEWER_ID"
+  ```
+
+  For a tag-triggered deploy, also pin the Environment's "Deployment
+  branches and tags" setting to a tag pattern (an environment setting, not
+  a repo `tag` ruleset); this gates the deploy deterministically without a
+  human. Re-send the full PUT with the policy fields added (a partial PUT
+  clears the reviewer), then create the policy:
+
+  ```bash
+  gh api --method PUT "/repos/$REPO/environments/$ENV" \
+    -F prevent_self_review=true \
+    -f 'reviewers[][type]=User' -F "reviewers[][id]=$REVIEWER_ID" \
+    -F 'deployment_branch_policy[protected_branches]=false' \
+    -F 'deployment_branch_policy[custom_branch_policies]=true'
+  gh api --method POST "/repos/$REPO/environments/$ENV/deployment-branch-policies" \
+    -f name='v*' -f type=tag
+  ```
+
+  Then find what else can reach a publishing job with no merge. The merge
+  ruleset gates only default-branch merges; a tag push, release, dispatch,
+  `deployment`, `pull_request_target`, or `schedule` trigger bypasses it.
+  Sweep every deploy/publish workflow and read each hit; this grep misses
+  reusable workflows in other repos and over-matches `pull_request:` and
+  step inputs:
+
+  ```bash
+  grep -RniE 'tags:|workflow_dispatch|release:|schedule:|workflow_run|repository_dispatch|deployment:|pull_request_target' .github/workflows
+  ```
+
+  Verify last, covering whatever config was applied:
+
+  ```bash
+  gh api "/repos/$REPO/environments/$ENV" \
+    --jq '{rules: .protection_rules, branch_policy: .deployment_branch_policy}'
+  ```
+
+  It must show a `required_reviewers` rule listing the human and
+  `prevent_self_review: true`. Confirm before checking the box.
+
+  An OIDC-to-cloud deploy has no secret to migrate; the Environment with
+  required reviewers plus the cloud provider's trust policy is then the
+  only control.
 
   The original repo-level secret value isn't readable (GitHub secrets are
   write-only), so a fresh token is needed. Ask the user via `AskUserQuestion`
@@ -189,8 +249,8 @@ workflows:
         if: "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
 ```
 
-See `docs/tend.example.yaml` in the tend repo for more override examples
-(extending permissions, timeouts, top-level env vars).
+See ${CLAUDE_SKILL_DIR}/references/tend.example.yaml for more override
+examples (extending permissions, timeouts, top-level env vars).
 
 ## 2. Generate workflows
 
@@ -399,7 +459,7 @@ Ask via `AskUserQuestion`:
   read+write access to the ChatGPT account that minted it, so
   **mint `auth.json` from a dedicated bot account** — required on
   public repos, recommended on private. See
-  `docs/security-model.md` for the leak breakdown.
+  ${CLAUDE_SKILL_DIR}/references/security-model.md for the leak breakdown.
 - **OpenAI API key** — billed per token. Works for any repo. Pick
   this if the user doesn't want to mint a separate ChatGPT account.
   Key from `https://platform.openai.com/api-keys`.
@@ -460,9 +520,9 @@ If not set:
      ~6 days and re-set the secret.
    - **Automated refresher** (recommended for concurrent CI): a
      scheduled workflow updates the secret before any consumer can
-     trigger a rotation. See `docs/security-model.md` for the threat
-     model and `.github/workflows/codex-auth-refresh.yaml` in the
-     tend repo as the reference workflow to copy in.
+     trigger a rotation. See
+     ${CLAUDE_SKILL_DIR}/references/security-model.md for the threat
+     model and the reference workflow to copy in.
 
      The refresher needs a fine-grained PAT with `secrets: read and
      write`. The bot has `workflow` scope and can push workflow
@@ -526,7 +586,7 @@ gh secret set OPENAI_API_KEY --repo "$REPO" --body "$KEY"
 
 The bot's token needs scopes `repo`, `workflow`, `notifications`,
 `write:discussion`, `gist`, and `user` (per-scope justifications in
-`docs/tend.example.yaml`).
+${CLAUDE_SKILL_DIR}/references/tend.example.yaml).
 
 Have the user run, in any terminal:
 
@@ -631,6 +691,7 @@ line picks the row that matches the chosen harness):
 - [ ] Config: `.config/tend.yaml` created (with `harness` set if Codex)
 - [ ] Workflows: generated in `.github/workflows/`
 - [ ] Ruleset: merge restriction on default branch, admin bypass
+- [ ] Release/deploy secrets: environment-protected; the GET on the environment shows a `required_reviewers` rule (trusted human, not the bot) and `prevent_self_review: true`. Closes merge-free trigger paths the default-branch ruleset does not
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
 - [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub

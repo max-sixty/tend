@@ -1,0 +1,316 @@
+# # Configuration
+#
+# Place at `.config/tend.yaml`. Regenerate workflows after editing:
+#
+#   uvx tend@latest init
+#
+# Only `bot_name` is required. Everything else has sensible defaults.
+#
+# Parsed under YAML 1.2 (ruamel.yaml), so `on`, `yes`, `no`, `off` stay
+# strings — only `true`/`false` are booleans.
+
+bot_name: my-project-bot
+
+# ## Harness
+#
+# Which agent runtime to use. Defaults to "claude" (wraps
+# anthropics/claude-code-action). Set to "codex" to use OpenAI Codex via
+# `codex exec` instead.
+#
+# harness: codex
+
+# ## Model
+#
+# Model to use for all workflows. Valid values depend on the harness:
+#
+# - harness: claude — opus (default), sonnet, haiku
+# - harness: codex  — gpt-5.5 (default); any string Codex CLI accepts
+#
+# model: opus
+
+# ## Effort (codex only)
+#
+# Reasoning effort for the Codex model. Valid values: low, medium, high,
+# xhigh. Empty (default) leaves the choice to the Codex CLI default
+# (medium for gpt-5.5).
+#
+# effort: medium
+
+# ## Protected branches
+#
+# The default branch is always protected. Additional long-lived branches
+# (e.g. release or staging branches) can be listed here. The bot cannot
+# merge to any of them without human approval.
+#
+# protected_branches: ["release", "staging"]
+
+# ## Secrets
+#
+# Repo secrets, by harness:
+#
+# | Harness   | Required                                                                |
+# |----------|--------------------------------------------------------------------------|
+# | `claude` | `BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`    |
+# | `codex`  | `BOT_TOKEN` + one of `CODEX_AUTH_JSON` or `OPENAI_API_KEY`               |
+#
+# `BOT_TOKEN` is the bot account's PAT (scopes below).
+# `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token` (PKCE).
+# `ANTHROPIC_API_KEY` is a console.anthropic.com API key.
+# `CODEX_AUTH_JSON` is the contents of the `auth.json` Codex writes
+# after `codex login --device-auth` — the install skill's default; see
+# docs/security-model.md for the trade-off and public-repo gate.
+# `OPENAI_API_KEY` is a standard OpenAI API key.
+#
+# Both actions prefer the subscription token (`CLAUDE_CODE_OAUTH_TOKEN`,
+# `CODEX_AUTH_JSON`) over the API key when both are set.
+#
+# Classic PAT scopes: `repo`, `workflow`, `notifications`, `write:discussion`,
+# `gist`, `user`. `workflow` is required to push commits that modify
+# `.github/workflows/` files. `gist` lets internal skills store structured
+# evidence in secret gists owned by the bot. `user` lets `install-tend` set
+# the bot's profile bio so contributors can see the authorization stance.
+#
+# Fine-grained PAT permissions: `contents:write`, `pull-requests:write`,
+# `issues:write`, `actions:write`, `workflows:write`, `discussions:write`,
+# `notifications:write`, `gists:write`, plus the account-level `Profile:
+# read and write` permission (for the bio). `notifications:write` is
+# required so the action can mark threads read after handling an event.
+#
+# Override names if the repo uses different secret names:
+#
+# secrets:
+#   bot_token: MY_BOT_PAT
+#   claude_token: MY_CLAUDE_TOKEN      # harness: claude (OAuth)
+#   anthropic_api_key: MY_ANTHROPIC_KEY  # harness: claude (API key)
+#   openai_key: MY_OPENAI_KEY          # harness: codex
+#   codex_auth_json: MY_CODEX_AUTH     # harness: codex
+#
+# `tend check` flags repo-level secrets not in an explicit allowlist. Repos with
+# additional legitimate secrets must list them:
+#
+# secrets:
+#   allowed: ["CODECOV_TOKEN", "DEPLOY_KEY"]
+
+# ## Setup steps
+#
+# Build tools, caches, and environment variables that run before Claude in every
+# workflow. A `setup:` entry mirrors a GitHub Actions step: give it exactly
+# one of `uses` or `run`, plus any of these optional fields:
+#
+#     name, id, if, with, env, shell, working-directory,
+#     continue-on-error, timeout-minutes
+#
+# For multi-step setup, add multiple entries to the `setup:` list — they
+# render in declared order. For anything more elaborate (conditional shells,
+# shared env across many steps, anchored caches), move the YAML into a local
+# composite action (`.github/actions/tend-setup/action.yaml`) and reference
+# it from one entry with `uses`.
+#
+# `tend-notifications` injects an `if:` guard on every step so setup is
+# skipped when the pre-check finds no work. A user-supplied `if:` is passed
+# through unchanged (with a generation-time warning) — your condition wins.
+#
+# Each form below shows the config and the YAML it produces inside the
+# `steps:` block. The `if:` guard injected in `tend-notifications` is shown
+# on the first example; it's added the same way on every step.
+#
+# `uses`:
+#
+#     setup:
+#       - uses: astral-sh/setup-uv@v6
+#
+#     # renders as (in tend-notifications):
+#     #   - uses: astral-sh/setup-uv@v6
+#     #     if: steps.check.outputs.count != '0' || github.event_name == 'workflow_dispatch'
+#     #
+#     # and in other workflows:
+#     #   - uses: astral-sh/setup-uv@v6
+#
+# `uses` with action inputs and step-level env:
+#
+#     setup:
+#       - uses: actions/setup-node@v4
+#         name: Setup Node
+#         with:
+#           node-version-file: .node-version
+#         env:
+#           FORCE_COLOR: "1"
+#
+#     # renders as:
+#     #   - uses: actions/setup-node@v4
+#     #     name: Setup Node
+#     #     with:
+#     #       node-version-file: .node-version
+#     #     env:
+#     #       FORCE_COLOR: '1'
+#
+# `run` with shell and working directory:
+#
+#     setup:
+#       - run: cargo build --release
+#         shell: bash
+#         working-directory: ./crates/core
+#         env:
+#           RUSTFLAGS: -D warnings
+#
+#     # renders as:
+#     #   - run: cargo build --release
+#     #     shell: bash
+#     #     working-directory: ./crates/core
+#     #     env:
+#     #       RUSTFLAGS: -D warnings
+
+# ## Workflows
+#
+# All workflows are enabled by default except ci-fix (requires
+# `watched_workflows`). Every workflow accepts these options:
+#
+# - `enabled` (bool)  — disable with `enabled: false`
+# - `prompt` (string) — override the default skill invocation
+#
+# Scheduled workflows also accept `cron` to override their default schedule.
+#
+# workflows:
+#   notifications:
+#     enabled: false
+
+# ### review
+#
+# Triggers on PR open/update. Reviews for correctness, duplication, error paths.
+# Monitors CI. Pushes mechanical fixes to bot-authored PRs.
+#
+# workflows:
+#   review:
+#     prompt: "/my-custom-review {pr_number}"   # override default prompt
+#
+# tend-review checks out the prospective post-merge tree
+# (`refs/pull/N/merge`) when available, and falls back to the PR branch head
+# (`refs/pull/N/head`) when it isn't — GitHub only materializes the merge ref
+# for mergeable PRs, so the fallback keeps review running on PRs with merge
+# conflicts against the base. On fallback the review sees the PR branch in
+# isolation rather than the post-merge tree.
+
+# ### mention
+#
+# Triggers on @bot mentions and review comments. Responds to requests in PR and
+# issue conversations.
+
+# ### triage
+#
+# Triggers on new issues. Classifies, checks for duplicates, reproduces bugs,
+# attempts conservative fixes.
+
+# ### ci-fix
+#
+# Triggers when a watched CI workflow fails on the default branch. Reads failure
+# logs, identifies root cause, opens a fix PR.
+#
+# workflows:
+#   ci-fix:
+#     watched_workflows: ["ci", "build"]      # required — names of CI workflows to monitor
+#     branches: ["main", "v1"]                # optional — defaults to default branch only
+
+# ### nightly
+#
+# Daily (default 06:17 UTC). Resolves conflicts on open PRs, reviews recent
+# commits, surveys ~10 files for bugs and stale docs, closes resolved issues,
+# regenerates tend workflow files.
+#
+# workflows:
+#   nightly:
+#     cron: "0 8 * * *"                       # override schedule
+
+# ### weekly
+#
+# Weekly (default Sunday 09:17 UTC). Reviews dependency PRs, auto-merges safe
+# patch and minor updates.
+#
+# workflows:
+#   weekly:
+#     cron: "0 10 * * 1"                      # override to Monday
+
+# ### notifications
+#
+# Every 15 minutes. Polls GitHub notifications, responds to unhandled mentions,
+# marks handled threads as read.
+
+# ### review-runs
+#
+# Daily (default 07:47 UTC). Reviews recent CI runs for behavioral problems
+# and proposes skill/config improvements.
+
+# ## Workflow overrides
+#
+# The generator owns every `tend-*.yaml` file — editing them directly loses
+# changes on the next `uvx tend@latest init`. To customize the generated YAML,
+# set overrides in `.config/tend.yaml`; they survive regeneration.
+#
+# Two scopes are supported:
+#
+# - `workflow_extra` — adds or replaces top-level keys (e.g. `env`, `defaults`)
+# - `jobs.<name>`    — adds or replaces keys inside a specific job
+#
+# Overrides use RFC 7396 (JSON Merge Patch): mappings deep-merge, scalars and
+# lists replace, and `null` deletes the key. Unknown job names print a warning
+# but don't fail. Step-level overrides aren't supported — use the `setup:`
+# mechanism above to inject steps.
+#
+# ### Example: skip review on labeled PRs
+#
+# The `review` job's default `if:` only skips draft PRs. To also skip PRs
+# carrying a `tend:dismissed` label (useful once a PR has been reviewed and
+# the author doesn't want re-reviews on every push), replace the `if:` —
+# scalars replace under JSON Merge Patch, so duplicate the draft check:
+#
+# workflows:
+#   review:
+#     jobs:
+#       review:
+#         if: "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+#
+# ### Example: extend permissions without losing defaults
+#
+# Mappings deep-merge, so adding one permission preserves the rest:
+#
+# workflows:
+#   review:
+#     jobs:
+#       review:
+#         permissions:
+#           packages: read
+#
+# ### Example: longer timeout on a specific job
+#
+# workflows:
+#   review:
+#     jobs:
+#       review:
+#         timeout-minutes: 240
+#
+# ### Example: target a specific job in a multi-job workflow
+#
+# workflows:
+#   mention:
+#     jobs:
+#       handle:
+#         timeout-minutes: 180
+#
+# ### Example: top-level env vars
+#
+# workflows:
+#   review:
+#     workflow_extra:
+#       env:
+#         MY_VAR: hello
+#
+# ### Example: delete a generated key with null
+#
+# YAML has a native `null` literal, so JSON Merge Patch's delete-key
+# semantics work directly. Drop the cron schedule from nightly while
+# keeping `workflow_dispatch`:
+#
+# workflows:
+#   nightly:
+#     workflow_extra:
+#       on:
+#         schedule: null

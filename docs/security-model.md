@@ -45,11 +45,20 @@ user-controlled input.
 
 ## What we do
 
-**Merge restriction** is the primary security boundary. A GitHub ruleset (or
-branch protection) prevents the bot from merging to protected branches
-(default branch plus any in `protected_branches`) regardless of review status. The composite action refuses to start if the
-default branch isn't protected. Everything below is defense in depth — useful,
-but not load-bearing.
+There are two load-bearing boundaries, one per path code can take.
+
+**Merge restriction** covers code that reaches the default branch through a
+merge. A GitHub ruleset (or branch protection) prevents the bot from merging
+to protected branches (the default branch plus any in `protected_branches`)
+regardless of review status, and the composite action refuses to start if the
+default branch isn't protected.
+
+**Environment-protected secrets** (below) covers code that runs *without* a
+merge: a tag push, a release, a manual or chained dispatch. The merge
+restriction does nothing there, so that gate carries the path on its own.
+
+Everything else in this section is defense in depth: useful, but not
+load-bearing.
 
 **Action distribution integrity.** Generated workflows pin the composite
 action to the generator's own release version (`max-sixty/tend@X.Y.Z`), never
@@ -103,13 +112,48 @@ can influence what Claude *reads* (the diff, the issue body) but not the
 *instructions* Claude follows or the *tools* it has access to.
 
 **Environment-protected secrets.** Release secrets (registry tokens, signing
-keys) should be in a GitHub Environment with deployment approval. Even if the
-bot token leaks, the attacker can't exfiltrate environment-protected
-secrets — those require a separate approval step. This matters because the
-most dangerous escalation from a leaked bot token is pushing a branch with a
-modified workflow that references repo-level secrets, then opening a PR — the
-modified workflow runs from the PR branch and all repo-level secrets are
-exposed.
+keys) belong in a GitHub Environment with required reviewers, never at the
+repo level where any workflow run can read them.
+
+The merge restriction only gates code that reaches the default branch
+*through a merge*. A leaked bot token can run privileged code with no merge
+at all, through any of:
+
+- a branch push plus a PR whose modified workflow runs with repo secrets;
+- a `pull_request_target` workflow, which runs in base context from a
+  bot-pushed fork branch (base-context split: see "GitHub API: event types
+  for PR comments");
+- a pushed tag an `on: push: tags:` deploy consumes;
+- a published release a `release: published` deploy consumes;
+- a `workflow_dispatch`, `workflow_run`, or `repository_dispatch` job on a
+  bot-pushed ref;
+- `POST /repos/{}/deployments`, firing a `deployment` job with no merge or tag;
+- a `schedule` job that reads secrets with no trigger at all.
+
+An Environment closes all of these: the deploy job cannot read the secret
+until a reviewer approves. The gate holds under one condition, that **the
+actor who triggered the deploy cannot approve it**. "Prevent self-review"
+(off by default) enforces this even when that actor is a required reviewer;
+equivalently, the bot is not an eligible reviewer at all, directly or
+through a team. At least one reviewer must be a trusted human, not the bot
+or another automation: only one approval is needed, so a single automation
+reviewer defeats the gate.
+
+Two caveats:
+
+- **Admin voids it.** Like the merge restriction, the gate assumes the bot
+  has write, not admin. Admin bypass of environment protection rules is on
+  by default.
+- **Tags need the tag setting, not a branch policy.** GitHub stopped
+  matching deployment *branch* policies against tags in August 2023 (a
+  write-access actor could otherwise bypass them). For a tag-triggered
+  deploy, restrict the environment's "Deployment branches and tags" setting
+  to a tag pattern instead, an environment setting distinct from the
+  repository `tag` ruleset under "Action distribution integrity". This
+  gates the deploy deterministically without a human reviewer.
+
+An OIDC-to-cloud deploy has no GitHub-stored secret to move; there, the
+Environment plus the cloud provider's trust policy is the only control.
 
 **GitHub's log masking.** Secrets stored in GitHub are automatically redacted
 from workflow logs. This is exact-match only — if a token appears
@@ -144,6 +188,11 @@ A carefully crafted PR description or issue body could get Claude to approve a
 bad PR, post misleading comments, or dismiss legitimate review concerns. Fixed
 prompts and skill instructions reduce this risk but can't eliminate it —
 Claude ultimately reasons about attacker-controlled text.
+
+**Compromised environment reviewer.** The Environment gate assumes the
+required-reviewer set is itself trustworthy. A compromised human reviewer who
+did not trigger the run can still approve it, since "Prevent self-review" only
+blocks the actor who triggered the deploy, not other reviewers.
 
 Deferred hardening options (Haiku pre-screening, read-only fork PRs, network
 isolation, subprocess env scrubbing, workflow-dispatch isolation, GitHub App
