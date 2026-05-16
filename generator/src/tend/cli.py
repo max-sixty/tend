@@ -65,7 +65,17 @@ def main() -> None:
     default=None,
 )
 @click.option("--dry-run", is_flag=True, help="Print generated files without writing")
-def init(config_path: Path | None, dry_run: bool) -> None:
+@click.option(
+    "--with-install-test",
+    is_flag=True,
+    help=(
+        "Also generate tend-install-test.yaml, a one-shot workflow that runs "
+        "on the install PR to verify secrets and generator drift. The install "
+        "skill passes this flag during initial setup; the nightly regen runs "
+        "without it so the file is removed once the install PR has landed."
+    ),
+)
+def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> None:
     """Generate workflow files from config. Idempotent — always overwrites."""
     # Auto-migrate a legacy .config/tend.toml. One-shot upgrade path for
     # adopters bumping past the TOML→YAML cutover; the migration verifies
@@ -92,12 +102,9 @@ def init(config_path: Path | None, dry_run: bool) -> None:
         )
     outdir = Path(".github/workflows")
 
-    workflows = generate_all(cfg)
-    if not workflows:
-        click.echo("No workflows enabled in config.")
-        return
+    workflows = generate_all(cfg, with_install_test=with_install_test)
 
-    if not dry_run:
+    if workflows and not dry_run:
         outdir.mkdir(parents=True, exist_ok=True)
 
     for wf in workflows:
@@ -110,9 +117,36 @@ def init(config_path: Path | None, dry_run: bool) -> None:
         path.write_text(wf.content)
         click.echo(f"  wrote {path}")
 
-    if not dry_run:
-        click.echo(f"\nGenerated {len(workflows)} workflow files.")
-        click.echo("Run `tend check` to verify security prerequisites.")
+    # Remove stale tend-*.yaml files the generator didn't produce this run.
+    # Catches: install-test cleanup on regen, disabled workflows leaving
+    # behind their YAML, and workflows renamed across generator versions.
+    # Runs even when the generated set is empty (every workflow disabled)
+    # so the cleanup contract still applies. The tend-*.yaml glob is the
+    # generator's filename contract per CLAUDE.md — adopter-owned workflows
+    # live under other names.
+    generated = {wf.filename for wf in workflows}
+    removed = 0
+    for path in sorted(outdir.glob("tend-*.yaml")):
+        if path.name in generated:
+            continue
+        if dry_run:
+            click.echo(f"  would remove {path}")
+        else:
+            path.unlink()
+            click.echo(f"  removed {path}")
+        removed += 1
+
+    if dry_run:
+        return
+
+    if not workflows:
+        suffix = f" Removed {removed} stale tend-*.yaml file(s)." if removed else ""
+        click.echo(f"No workflows enabled in config.{suffix}")
+        return
+
+    suffix = f" ({removed} removed)" if removed else ""
+    click.echo(f"\nGenerated {len(workflows)} workflow files{suffix}.")
+    click.echo("Run `tend check` to verify security prerequisites.")
 
 
 @main.command()

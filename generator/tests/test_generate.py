@@ -13,7 +13,13 @@ from click.testing import CliRunner
 
 from tend.cli import main
 from tend.config import Config
-from tend.workflows import GENERATORS, _deep_merge, generate_all, generate_mention
+from tend.workflows import (
+    GENERATORS,
+    _deep_merge,
+    generate_all,
+    generate_install_test,
+    generate_mention,
+)
 
 
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
@@ -999,6 +1005,22 @@ def test_workflow_minimal_codex_regtest(
     extra = "harness: codex\n" + _extra_for(name)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = GENERATORS[name](cfg)
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Install test workflow (not in GENERATORS — only generated via --with-install-test)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_install_test_workflow_regtest(
+    regtest: object, tmp_path: Path, harness: str
+) -> None:
+    """Snapshot the install-test workflow YAML for both harnesses."""
+    extra = f"harness: {harness}\n" if harness != "claude" else ""
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    wf = generate_install_test(cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
