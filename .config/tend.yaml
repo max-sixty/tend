@@ -1,4 +1,5 @@
 bot_name: tend-agent
+harness: codex
 
 setup:
   - uses: astral-sh/setup-uv@v6
