@@ -149,8 +149,8 @@ warning. Classify each non-bot secret and act now — don't defer:
   ruleset gates only default-branch merges; a tag push, release, dispatch,
   `deployment`, `pull_request_target`, or `schedule` trigger bypasses it.
   Sweep every deploy/publish workflow and read each hit; this grep misses
-  reusable workflows in other repos and over-matches `pull_request:` and
-  step inputs:
+  reusable workflows in other repos and over-matches `pull_request_target`
+  references in expressions and step inputs:
 
   ```bash
   grep -RniE 'tags:|workflow_dispatch|release:|schedule:|workflow_run|repository_dispatch|deployment:|pull_request_target' .github/workflows
