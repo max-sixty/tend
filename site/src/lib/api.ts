@@ -24,13 +24,26 @@ export async function fetchJson<T>(path: string): Promise<T | null> {
 // true) or `"hidden"` (false). CSS uses these states to reserve layout space
 // during loading, fade content in on success, and collapse on failure — so
 // the page doesn't shift when the fetch resolves.
+//
+// Pass `intervalMs` to keep refetching on a timer — without it the section is
+// frozen as of page load, which lies after the data changes (a "live" pulse
+// kept animating long after the underlying job finished, etc.). Refreshes
+// re-run `render`, so the section can transition between live and idle states
+// across the page's lifetime.
 export async function liveData<T>(
   path: string,
   sectionId: string,
   render: (data: T | null, el: HTMLElement) => boolean | Promise<boolean>,
+  intervalMs?: number,
 ): Promise<void> {
   const el = document.getElementById(sectionId);
   if (!el) return;
-  const shown = await render(await fetchJson<T>(path), el);
-  el.dataset.state = shown ? "loaded" : "hidden";
+  const tick = async () => {
+    const shown = await render(await fetchJson<T>(path), el);
+    el.dataset.state = shown ? "loaded" : "hidden";
+  };
+  await tick();
+  if (intervalMs && intervalMs > 0) {
+    setInterval(tick, intervalMs);
+  }
 }
