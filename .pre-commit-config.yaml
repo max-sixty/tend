@@ -63,3 +63,45 @@ repos:
                 )
                 sys.exit(1)
         pass_filenames: false
+
+      # install-tend ships from the marketplace into other repos, so its
+      # skill cannot reference repo-internal paths like docs/. Files an
+      # installing agent needs are mirrored into the skill's references/
+      # dir, which ships inside the plugin subtree. This hook keeps the
+      # mirror byte-identical to its canonical source and fails the commit
+      # if it drifted (re-stage the synced file).
+      - id: sync-install-tend-references
+        name: sync install-tend references/ from canonical sources
+        language: system
+        entry: python3
+        args:
+          - -c
+          - |
+            import pathlib, sys
+
+            refs = pathlib.Path(
+                "plugins/install-tend/skills/install-tend/references"
+            )
+            # canonical source -> shipped mirror
+            mirrors = {
+                pathlib.Path("docs/tend.example.yaml"): refs / "tend.example.yaml",
+            }
+            stale = []
+            for src, dst in mirrors.items():
+                if not src.exists():
+                    print(
+                        f"ERROR: canonical source {src} is missing. A mirror "
+                        "in install-tend references/ points at it; update the "
+                        "sync-install-tend-references hook if the path moved."
+                    )
+                    sys.exit(1)
+                want = src.read_text()
+                if not dst.exists() or dst.read_text() != want:
+                    dst.write_text(want)
+                    stale.append(f"{dst} (synced from {src})")
+            if stale:
+                print("Updated install-tend mirrors; re-stage them:")
+                for s in stale:
+                    print(f"  {s}")
+                sys.exit(1)
+        pass_filenames: false
