@@ -1,18 +1,27 @@
 name: codex-auth-refresh
 
-# Refresh the CODEX_AUTH_JSON secret nightly by hitting OpenAI's OAuth
-# token endpoint directly with the current refresh_token. Decouples
-# refresh from consumer workflows so they never trigger a rotation —
-# they read a always-fresh secret and codex sees last_refresh < 8 days,
-# so no proactive refresh fires inside the consumer runs.
+# Reference implementation of the Codex OAuth-token refresher, linked from
+# the install-tend skill's security-model.md for adopters to copy. tend's
+# own harness is Claude, so this no longer runs on a schedule here — it is
+# dispatch-only and kept solely as the canonical example.
 #
-# Without this, the static secret breaks after ~8 days when the first
-# consumer workflow triggers a refresh, ephemeral runner discards the
-# new tokens, and the GitHub secret still holds the rotated-out value.
+# What it does: refresh the CODEX_AUTH_JSON secret by hitting OpenAI's
+# OAuth token endpoint directly with the current refresh_token. Adopters
+# on `harness: codex` run it nightly to decouple refresh from consumer
+# workflows so they never trigger a rotation — they read an always-fresh
+# secret and codex sees last_refresh < 8 days, so no proactive refresh
+# fires inside the consumer runs. Without it the static secret breaks
+# after ~8 days when the first consumer workflow triggers a refresh, the
+# ephemeral runner discards the new tokens, and the GitHub secret still
+# holds the rotated-out value.
 
 on:
-  schedule:
-    - cron: "17 3 * * *"
+  # Adopters on `harness: codex`: uncomment to refresh nightly (the
+  # security-model.md guidance assumes a scheduled run). Disabled here
+  # because tend's own harness is Claude — this file is dispatch-only and
+  # kept only as the reference implementation.
+  # schedule:
+  #   - cron: "17 3 * * *"
   workflow_dispatch:
 
 jobs:
