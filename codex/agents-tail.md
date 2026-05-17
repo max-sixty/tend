@@ -1,17 +1,24 @@
 ## Skills (Codex-specific)
 
-The `tend-ci-runner` plugin is installed; its skills (`review`,
+The `tend-ci-runner` plugin is installed. Its skills (`review`,
 `triage`, `ci-fix`, `nightly`, `weekly`, `notifications`,
 `review-runs`, `running-in-ci`, `review-reviewers`) are invocable
 via `$<skill-name>` mentions in prompts.
 
-ALWAYS load `$running-in-ci` first when handling any workflow — it
-covers CI security rules, polling conventions, and comment-formatting
-guidance. Other skills depend on it.
+**Read each tend skill in full.** When you open a `tend-ci-runner`
+`SKILL.md`, read the entire file with `cat`. Do not read a prefix with
+`sed -n '1,Np'` or `head`. These skills are short, and their trailing
+sections carry load-bearing security, dedup, and CI-polling rules. A
+prefix read silently drops those and produces wrong behavior. This
+overrides any general "read only enough" guidance for tend skills.
+
+ALWAYS read `$running-in-ci` first (in full) when handling any
+workflow. It covers CI security rules, polling conventions, and
+comment-formatting guidance. Other skills depend on it.
 
 Repo-local skills live under `.claude/skills/<name>/SKILL.md` in the
 adopter's repo (e.g. `running-tend`). The `running-in-ci` skill tells
-you when to load them.
+you when to read them; read those in full too.
 
 ## Tooling
 

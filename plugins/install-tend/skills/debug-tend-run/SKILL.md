@@ -6,7 +6,8 @@ description: Investigates a specific tend GitHub Actions run by downloading its 
 # Debug Tend Run
 
 Investigate what tend did during a GitHub Actions run by downloading and
-parsing its session log artifacts.
+parsing its session log artifacts. Works for both supported harnesses
+(Claude and Codex); the artifact name distinguishes them.
 
 ## Identify the run
 
@@ -35,17 +36,26 @@ gh run list -R "$REPO" --branch "$HEAD" --limit 10 \
 
 ## Download session logs
 
-Session logs are uploaded as artifacts named `claude-session-logs*` (the name
-is set by `claude-code-action`, which tend wraps). Each artifact contains one
-or more JSONL files — one per agent session in that run.
+The artifact name identifies the harness:
+
+- `claude-session-logs*` — Claude harness (`claude-code-action` wraps tend)
+- `codex-session-logs-*` — Codex harness (`max-sixty/tend/codex`)
 
 ```bash
 RUN_ID=<run-id>
-gh run download "$RUN_ID" -R "$REPO" --pattern 'claude-session-logs*' --dir /tmp/session-logs/"$RUN_ID"/
+DEST=/tmp/session-logs/$RUN_ID
+gh run download "$RUN_ID" -R "$REPO" --pattern '*session-logs*' --dir "$DEST"
+ls "$DEST"  # confirm claude- or codex-
+FILE=$(find "$DEST" -name '*.jsonl' | head -1)
+echo "$FILE"
 ```
 
-If no artifacts exist, the run either had no agent session or the session was
-too short to produce logs. Check the run's console output as a fallback:
+Claude artifacts hold flat JSONL files (one per agent session). Codex
+artifacts store the rollout at `sessions/YYYY/MM/DD/rollout-*.jsonl`
+plus `projects/token-usage.json`; one rollout per session.
+
+If no artifacts exist, the run either had no agent session or ended before
+logs were uploaded. Fall back to console output:
 
 ```bash
 gh run view "$RUN_ID" -R "$REPO" --log-failed
@@ -53,79 +63,15 @@ gh run view "$RUN_ID" -R "$REPO" --log-failed
 
 ## Parse session logs
 
-Each JSONL line has a `type` field. The main message types are `user` and
-`assistant` (with `.message.content`). Other types (`system`, `progress`,
-`queue-operation`, `last-prompt`) carry metadata — ignore them for most
-debugging.
+The JSONL schema differs by harness. Open the reference matching the
+artifact name and follow its recipes:
 
-### Overview — what happened
+- `claude-session-logs*` → [`references/claude-logs.md`](references/claude-logs.md)
+- `codex-session-logs-*` → [`references/codex-logs.md`](references/codex-logs.md)
 
-Start with a high-level trace of the session:
-
-```bash
-FILE=/tmp/session-logs/$RUN_ID/<session>.jsonl
-
-# Skills loaded
-jq -r 'select(.type == "assistant") | .message.content[]? |
-  select(.type == "tool_use" and .name == "Skill") |
-  .input.skill' "$FILE"
-
-# Tool calls in order
-jq -r 'select(.type == "assistant") | .message.content[]? |
-  select(.type == "tool_use") |
-  "\(.name): \(.input | tostring | .[0:120])"' "$FILE"
-
-# Assistant text (reasoning and responses)
-jq -r 'select(.type == "assistant") | .message.content[]? |
-  select(.type == "text") | .text' "$FILE"
-```
-
-### Targeted queries
-
-```bash
-# What the bot was told (user messages including injected prompts)
-jq -r 'select(.type == "user") |
-  .message.content | if type == "string" then . else
-  [.[]? | select(.type == "text") | .text] | join("\n") end' "$FILE"
-
-# Bash commands executed
-jq -r 'select(.type == "assistant") | .message.content[]? |
-  select(.type == "tool_use" and .name == "Bash") |
-  .input.command' "$FILE"
-
-# Tool results (what the bot saw back)
-jq -r 'select(.type == "user") | .message.content[]? |
-  select(.type == "tool_result") |
-  "\(.tool_use_id): \(.content | tostring | .[0:200])"' "$FILE"
-
-# Files read
-jq -r 'select(.type == "assistant") | .message.content[]? |
-  select(.type == "tool_use" and .name == "Read") |
-  .input.file_path' "$FILE"
-
-# Files written or edited
-jq -r 'select(.type == "assistant") | .message.content[]? |
-  select(.type == "tool_use" and (.name == "Write" or .name == "Edit")) |
-  "\(.name): \(.input.file_path)"' "$FILE"
-
-# GitHub API calls (gh commands, including inside variable assignments)
-jq -r 'select(.type == "assistant") | .message.content[]? |
-  select(.type == "tool_use" and .name == "Bash") |
-  .input.command | select(test("\\bgh\\b"))' "$FILE"
-```
-
-### Searching for specific behavior
-
-```bash
-# Find where the bot mentioned a keyword
-jq -r 'select(.type == "assistant") | .message.content[]? |
-  select(.type == "text") | .text | select(test("KEYWORD"; "i"))' "$FILE"
-
-# Find tool calls with specific input
-jq -c 'select(.type == "assistant") | .message.content[]? |
-  select(.type == "tool_use") |
-  select(.input | tostring | test("KEYWORD"; "i"))' "$FILE"
-```
+Each reference covers the line schema plus copy-paste jq for an overview
+trace, targeted queries (commands, tool results, files, gh calls), and
+keyword search. Both assume `$FILE` from the download step.
 
 ## Diagnose the problem
 
@@ -134,14 +80,15 @@ After extracting the session trace, reconstruct the decision chain:
 1. **What triggered the run?** Check the event type and triggering context
    (PR comment, push, schedule).
 2. **What did the bot see?** Look at system/user messages and tool results.
-3. **What did it decide?** Follow assistant text for reasoning.
+3. **What did it decide?** Follow assistant/agent text for reasoning.
 4. **Where did it go wrong?** Compare intended behavior against actual tool
    calls and outputs.
 
 Common failure modes:
-- **Wrong skill loaded** (or skill not loaded) — check the Skill tool calls
+- **Wrong skill loaded** (or skill not loaded) — Claude logs a `Skill`
+  tool call; Codex `cat`s/`sed`s a `SKILL.md` path via `exec_command`
 - **Stale context** — bot acted on outdated PR state or missed recent commits
-- **Tool error ignored** — a Bash command failed but the bot continued
+- **Tool error ignored** — a command failed but the bot continued
 - **Hallucinated file/function** — bot referenced something that doesn't exist
 - **CI polling timeout** — bot ran out of time waiting for checks
 
