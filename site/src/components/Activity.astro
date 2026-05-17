@@ -198,9 +198,12 @@ const MAX_ROWS = 12;
       ul.appendChild(li);
     }
 
-    if (top.some((r) => r.kind === "tending")) {
-      setInterval(updateTendingTimes, 1000);
-    }
     return true;
-  });
+  }, 60_000);
+
+  // One ticker for the lifetime of the page — it no-ops when no tending
+  // rows are present, so it costs a cheap querySelectorAll per second. It
+  // must live outside the render callback: liveData re-runs that callback
+  // on every refresh, and a per-render setInterval would stack.
+  setInterval(updateTendingTimes, 1000);
 </script>
