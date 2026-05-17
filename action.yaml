@@ -240,7 +240,12 @@ runs:
         use_sticky_comment: ${{ inputs.use_sticky_comment }}
         additional_permissions: ${{ inputs.additional_permissions }}
         prompt: ${{ inputs.prompt }}
-        plugin_marketplaces: https://github.com/max-sixty/tend.git
+        # Load the marketplace from this action's own checkout (pinned to
+        # the release tag the workflow used) rather than the remote URL,
+        # which floats on main. Skills move with the action version — same
+        # as the Codex harness (codex/action.yaml). claude-code-action
+        # passes absolute paths straight to `claude plugin marketplace add`.
+        plugin_marketplaces: ${{ github.action_path }}
         plugins: |
           install-tend@tend
           tend-ci-runner@tend
