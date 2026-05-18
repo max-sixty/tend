@@ -206,7 +206,7 @@ Improvements target **repo-local** files by default:
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
-The checkout's `.claude/` directory is bind-mounted read-only under the sandbox (protecting bots from modifying their own skills in place), so edits to `.claude/skills/` files fail with `OSError: [Errno 30] Read-only file system`. Do the edit, commit, and push from a git worktree under `$TMPDIR`, which is writable.
+The checkout's `.claude/` directory is bind-mounted read-only under the sandbox (protecting bots from modifying their own skills in place), so edits to `.claude/skills/` files fail with `OSError: [Errno 30] Read-only file system`. Do the edit, commit, and push from a git worktree under `/tmp`, which is writable. (Don't write `$TMPDIR/...` — GitHub Actions runners leave `$TMPDIR` unset, so the path expands to `/review-runs-fix`, which the runner user can't create.)
 
 Claude Code's harness adds a second restriction on top of the read-only mount: `Edit`, `Write`, and Bash commands with `.claude/skills/` as a write-target argument are denied regardless of filesystem permissions ([anthropics/claude-code#37157](https://github.com/anthropics/claude-code/issues/37157)). The guard checks argument text, so `Write(/tmp/…)` and `Bash(mv /tmp/… SKILL.md)` both pass — the second because `SKILL.md` is a bare filename inside the `cd`'d directory.
 
@@ -215,20 +215,20 @@ Claude Code's harness adds a second restriction on top of the read-only mount: `
 
 
 ```bash
-git worktree add "$TMPDIR/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID HEAD
+git worktree add "/tmp/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID HEAD
 
 # Use the Write tool to author each edited skill file to /tmp/<name>.md.
 # Then move the files into place:
-cd "$TMPDIR/review-runs-fix/.claude/skills/running-tend" && mv /tmp/running-tend.md SKILL.md
+cd "/tmp/review-runs-fix/.claude/skills/running-tend" && mv /tmp/running-tend.md SKILL.md
 # Repeat per skill file being updated.
 
-cd "$TMPDIR/review-runs-fix"
+cd "/tmp/review-runs-fix"
 git add .claude/skills/
 git commit -m "skills(running-tend): ..."
 git push -u origin daily/review-runs-$GITHUB_RUN_ID
 gh pr create --title "..." --body-file /tmp/pr-body.md --head daily/review-runs-$GITHUB_RUN_ID
 cd -
-git worktree remove "$TMPDIR/review-runs-fix" --force
+git worktree remove "/tmp/review-runs-fix" --force
 ```
 
 `.config/tend.yaml` and `CLAUDE.md` are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.

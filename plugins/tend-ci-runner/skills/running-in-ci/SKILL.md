@@ -561,7 +561,7 @@ When the correction identifies a gap or bug in a **bundled** skill — the same 
 
    The checkout's `.claude/` directory is bind-mounted **read-only** under the sandbox (protecting bots from modifying their own skills in place), so edits to `.claude/skills/` files in the working tree fail with `Read-only file system`. Claude Code's harness adds a second restriction on top of the read-only mount: `Edit`, `Write`, and Bash commands with `.claude/skills/` as a write-target argument are denied regardless of filesystem permissions ([anthropics/claude-code#37157](https://github.com/anthropics/claude-code/issues/37157)). The guard checks argument text, so `Write(/tmp/…)` and `Bash(mv /tmp/… SKILL.md)` both pass — the second because `SKILL.md` is a bare filename inside the `cd`'d directory.
 
-   Do the edit, commit, and push from a git worktree under `$TMPDIR`, which is writable and sits outside the harness's `.claude/skills/` write-guard:
+   Do the edit, commit, and push from a git worktree under `/tmp`, which is writable and sits outside the harness's `.claude/skills/` write-guard. (Don't write `$TMPDIR/...` — GitHub Actions runners leave `$TMPDIR` unset, so the path expands to `/skill-fix`, which the runner user can't create.)
 
    <!-- TODO(anthropics/claude-code#37157): once the harness exempts .claude/skills/ as
         documented, replace the /tmp-then-mv dance below with direct `Write` to the worktree path. -->
@@ -571,22 +571,22 @@ When the correction identifies a gap or bug in a **bundled** skill — the same 
    ```bash
    DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
    git fetch origin "$DEFAULT_BRANCH"
-   git worktree add "$TMPDIR/skill-fix" -b "skills/<topic>-$GITHUB_RUN_ID" "origin/$DEFAULT_BRANCH"
+   git worktree add "/tmp/skill-fix" -b "skills/<topic>-$GITHUB_RUN_ID" "origin/$DEFAULT_BRANCH"
 
    # Use the Write tool to author the new skill file to /tmp/running-tend-new.md.
    # Then move it into place from inside the worktree. mkdir -p covers the
    # new-skill case where .claude/skills/<name>/ doesn't yet exist in the
    # default branch:
-   mkdir -p "$TMPDIR/skill-fix/.claude/skills/running-tend"
-   cd "$TMPDIR/skill-fix/.claude/skills/running-tend" && mv /tmp/running-tend-new.md SKILL.md
+   mkdir -p "/tmp/skill-fix/.claude/skills/running-tend"
+   cd "/tmp/skill-fix/.claude/skills/running-tend" && mv /tmp/running-tend-new.md SKILL.md
 
-   cd "$TMPDIR/skill-fix"
+   cd "/tmp/skill-fix"
    git add .claude/skills/
    git commit -m "skills(running-tend): ..."
    git push -u origin skills/<topic>-$GITHUB_RUN_ID
    gh pr create --title "..." --body-file /tmp/pr-body.md --head skills/<topic>-$GITHUB_RUN_ID
    cd -
-   git worktree remove "$TMPDIR/skill-fix" --force
+   git worktree remove "/tmp/skill-fix" --force
    ```
 4. **Open as a separate PR.** Follow the repo's PR title conventions (conventional commits, Jira prefix, or whatever the repo uses — check recent merged PRs or `CONTRIBUTING.md`). The body quotes the triggering feedback and links the thread (PR/issue/comment URL).
 5. **Open and exit — don't merge, don't wait.** The PR itself is the review request; a maintainer lands it (or doesn't) in their own time. Don't post a separate comment pinging for review, and don't block the session waiting.
