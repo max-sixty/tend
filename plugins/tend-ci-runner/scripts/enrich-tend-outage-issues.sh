@@ -7,10 +7,17 @@
 #
 # This script runs nightly: for each open tend-outage issue, it finds run IDs
 # in the body and comments, fetches failure annotations for each failed job
-# in those runs, and posts a comment with the details. Already-processed
-# runs are skipped via an `<!-- enriched-run:RUN_ID -->` marker in prior
-# comments — the marker is posted even when no annotations were found, so
-# unenrichable runs aren't retried every night.
+# in those runs, and posts a single comment per issue with details for every
+# newly-enriched run. Already-processed runs are skipped via an
+# `<!-- enriched-run:RUN_ID -->` marker — the marker is posted even when no
+# annotations were found, so unenrichable runs aren't retried every night.
+#
+# Per-issue batching: a single nightly invocation may find dozens of unenriched
+# runs (e.g. when a failing workflow accumulated rows during the day). Posting
+# one comment per run produces a flood — visible spam, plus one sibling
+# `issue_comment` event per comment that spins up (and skips) `tend-mention`
+# at runner-minute cost. Collapsing into one comment per issue per invocation
+# avoids both.
 
 set -euo pipefail
 
@@ -28,6 +35,8 @@ gh issue list --label "$LABEL" --state open --json number --jq '.[].number' \
       .comments[].body | scan("<!-- enriched-run:([0-9]+) -->")[0]
     ' | sort -u)
 
+    : > /tmp/enrich-batch.md
+
     comm -23 <(echo "$REFERENCED") <(echo "$ENRICHED") \
       | while read -r RUN_ID; do
         [ -z "$RUN_ID" ] && continue
@@ -44,24 +53,31 @@ gh issue list --label "$LABEL" --state open --json number --jq '.[].number' \
             --jq '[.[] | select(.annotation_level == "failure") | .message
                   | select(test("^Process completed") | not)] | join("\n\n")' \
             2>/dev/null || true)
-          [ -n "$MSG" ] && printf '### %s\n\n```\n%s\n```\n\n' "$JOB_NAME" "$MSG" \
+          [ -n "$MSG" ] && printf '#### %s\n\n```\n%s\n```\n\n' "$JOB_NAME" "$MSG" \
             >> /tmp/enrich-errors.md
         done <<< "$JOBS"
 
         RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
         if [ -s /tmp/enrich-errors.md ]; then
           {
-            echo "Error details for [run $RUN_ID]($RUN_URL):"
+            echo "### [Run $RUN_ID]($RUN_URL)"
             echo
             cat /tmp/enrich-errors.md
             echo "<!-- enriched-run:$RUN_ID -->"
-          } > /tmp/enrich-comment.md
+            echo
+          } >> /tmp/enrich-batch.md
         else
           {
-            echo "No failure details could be extracted for [run $RUN_ID]($RUN_URL)."
+            echo "### [Run $RUN_ID]($RUN_URL)"
+            echo
+            echo "No failure details could be extracted."
+            echo
             echo "<!-- enriched-run:$RUN_ID -->"
-          } > /tmp/enrich-comment.md
+            echo
+          } >> /tmp/enrich-batch.md
         fi
-        gh issue comment "$ISSUE" --repo "$REPO" -F /tmp/enrich-comment.md
       done
+
+    [ -s /tmp/enrich-batch.md ] \
+      && gh issue comment "$ISSUE" --repo "$REPO" -F /tmp/enrich-batch.md
   done
