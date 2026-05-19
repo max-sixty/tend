@@ -356,9 +356,9 @@ gh api graphql -F query=@/tmp/resolve-thread.graphql -f threadId="THREAD_ID"
 
 Outdated comments (null line) are best-effort — skip if the original context can't be located.
 
-### 8. Push mechanical fixes
+### 8. Push fixes
 
-**Bot PRs** (Dependabot, renovate, etc.): If the review found concrete, fixable issues and there's no human author to act on feedback, commit and push the fix directly to the PR branch.
+**Bot PRs** (Dependabot, renovate, etc.): There's no human author to action a deferred offer — if the review can name a concrete fix and its reasoning, push it directly to the PR branch, even when the fix needs a judgment call. When several reasonable approaches exist, pick the one most consistent with the repo's existing patterns, push, and note the alternative in the review body. Only scope-for-maintainer when no defensible default exists — real semantic ambiguity, not "more than zero lines of thought". Otherwise the PR sits red until a human re-does the work the review already analysed.
 
 **Human PRs**: Post inline suggestions first. Additionally, offer to push a commit when the fixes are mechanical and correctness is obvious. Only push after the author accepts.
 
