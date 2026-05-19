@@ -74,7 +74,7 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 
 | Workflow          | Trigger                    | What happens                                                                                                                                                |
 | ----------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **review**        | PR opened/updated          | Reviews for correctness and duplication. Traces error paths. Monitors CI. Pushes mechanical fixes to bot-authored PRs.                                      |
+| **review**        | PR opened/updated          | Reviews for correctness and duplication. Traces error paths. Monitors CI. Pushes fixes to bot-authored PRs.                                                 |
 | **mention**       | @bot mention, review       | Responds to requests in PR and issue conversations.                                                                                                         |
 | **triage**        | Issue opened               | Classifies the issue, checks for duplicates, reproduces bugs, attempts conservative fixes.                                                                  |
 | **ci-fix**        | CI fails on default branch | Reads failure logs, identifies root cause, searches for the same pattern elsewhere, opens a fix PR.                                                         |
