@@ -288,7 +288,7 @@ Then handle the outcome:
   gh api "repos/$REPO/pulls/<number>/reviews/$REVIEW_ID/dismissals" \
     -X PUT -f message="CI failed — <reason>"
   ```
-  Skip if already dismissed. **Do not push fixes on human-authored PRs** — post the analysis and offer to fix, then wait for the author to accept.
+  Skip if already dismissed. On **human-authored PRs**, do not push fixes — post the analysis and offer to fix, then wait for the author to accept. On **bot PRs** (Dependabot, renovate, etc.), don't stop at analysis: apply the fix per step 8 so the PR can go green, since no author will act on the offer.
 - **A check was cancelled** (conclusion `cancelled`) -> do nothing. Cancellations are almost always caused by concurrency groups — a new workflow run (often triggered by your own approval event) replaces the in-progress one. The replacement run will cover the cancelled checks. **Do not re-run cancelled jobs** — that creates another run that gets cancelled again, wasting time in a loop.
 - **A check failed** (conclusion `failure`, not `cancelled`) and it's a transient flake (unrelated to the PR changes) ->
   1. **Re-run the failed jobs:**
@@ -356,9 +356,9 @@ gh api graphql -F query=@/tmp/resolve-thread.graphql -f threadId="THREAD_ID"
 
 Outdated comments (null line) are best-effort — skip if the original context can't be located.
 
-### 8. Push mechanical fixes
+### 8. Push fixes
 
-**Bot PRs** (Dependabot, renovate, etc.): If the review found concrete, fixable issues and there's no human author to act on feedback, commit and push the fix directly to the PR branch.
+**Bot PRs** (Dependabot, renovate, etc.): There is no human author to act on feedback, so a review that only describes the fix leaves the PR red and pushes the work onto a maintainer — the opposite of the point. If you can articulate the fix, apply it: commit and push it to the PR branch. "Not a one-token change" and "more than one syntactically valid form exists" are **not** reasons to defer — pick the option most consistent with the surrounding code and the repo's existing conventions, push it, and note any alternative in the review. The only bar for deferring is that *no defensible default exists*: a genuine semantic ambiguity that needs maintainer intent, not merely a fix that took thought to derive. If the review already worked out the answer, that answer is pushable. Rebase onto the latest target branch first if the branch is behind.
 
 **Human PRs**: Post inline suggestions first. Additionally, offer to push a commit when the fixes are mechanical and correctness is obvious. Only push after the author accepts.
 
