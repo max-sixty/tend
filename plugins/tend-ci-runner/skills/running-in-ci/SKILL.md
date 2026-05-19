@@ -171,7 +171,7 @@ After pushing, wait for CI before reporting completion.
 # tend-mention's `tend-mention-handle-{PR#}` group), the sibling's handle job
 # queues behind the current one — its CheckRun shows PENDING in the rollup
 # but it can't start until the current run exits. Polling for it deadlocks
-# until the 15-min cap breaks it ($1+ wasted per occurrence). For workflows
+# until the 15-min cap breaks it. For workflows
 # with `cancel-in-progress: true`, the older sibling is cancelled and
 # wouldn't gate polling anyway, so this filter is a no-op there.
 #
