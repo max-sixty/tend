@@ -50,8 +50,8 @@ TARGET_REPO=max-sixty/tend "${CLAUDE_PLUGIN_ROOT}/scripts/list-recent-runs.sh" "
 
 Artifact paths: `-home-runner-work-tend-tend/<session-id>.jsonl`
 
-`review-reviewers` runs produce 3 session logs per run (one per matrix repo:
-`max-sixty/worktrunk`, `max-sixty/tend`, `PRQL/prql`).
+`review-reviewers` runs produce one session log per matrix repo in
+`.github/workflows/review-reviewers.yaml`.
 
 ## Weekly: refresh `data/consumers.json`
 
