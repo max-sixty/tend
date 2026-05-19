@@ -177,7 +177,7 @@ bot_name: my-project-bot
 # ### review
 #
 # Triggers on PR open/update. Reviews for correctness, duplication, error paths.
-# Monitors CI. Pushes mechanical fixes to bot-authored PRs.
+# Monitors CI. Pushes fixes to bot-authored PRs.
 #
 # workflows:
 #   review:
