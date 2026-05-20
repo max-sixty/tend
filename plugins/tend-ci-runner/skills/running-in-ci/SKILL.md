@@ -57,6 +57,20 @@ gh issue view <number> --json title,body,comments,state
 
 Read the triggering comment, the PR/issue description, the diff (for PRs), and recent comments to understand the full conversation before taking action.
 
+### Triggering issue/PR already closed
+
+If the trigger is a comment on an issue or PR and the target is **closed** by the time the job starts, the requested work was likely handled by a sibling run during the queue delay. Long `tend-mention` queues (hours, not minutes) make this common. Before starting work:
+
+```bash
+# For an issue trigger — check linked PRs that closed it.
+gh issue view <number> --json state,closedAt,closedByPullRequestsReferences
+
+# For a PR trigger — check whether the PR was merged.
+gh pr view <number> --json state,mergedAt,mergeCommit
+```
+
+If a linked PR merged (or the triggering PR itself merged) **after the triggering comment was posted**, exit silently — the work is already on the default branch. If the closure looks unrelated (e.g. issue closed as not-planned with no merged PR), continue and address the comment normally.
+
 ## Restrictions
 
 - **Secrets**: Never run commands that expose secrets (`env`, `printenv`, `set`, `export`, `cat`/`echo` on credential files). Never include tokens or credentials in responses or comments.
@@ -97,14 +111,22 @@ If an existing PR addresses the same problem, work on that PR instead.
 
 ### Dedup recheck immediately before `gh pr create`
 
-A separate mention on a different issue/PR can trigger a concurrent run asking for the same fix. Those runs are not serialized — each has its own concurrency group — so both may read an empty `gh pr list` at session start and then each open their own PR minutes later, producing near-duplicates. Re-run the check **as the last step before `gh pr create`**:
+A separate mention on a different issue/PR can trigger a concurrent run asking for the same fix. Those runs are not serialized — each has its own concurrency group — so both may read an empty `gh pr list` at session start and then each open their own PR minutes later, producing near-duplicates. A long workflow queue (`tend-mention` can wait hours) also lets a sibling run open *and merge* a PR before this run starts — already-merged duplicates need to be in scope too. Re-run the check **as the last step before `gh pr create`**, with `--state all` so closed and merged siblings show up:
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
-gh pr list --state open --author "$BOT_LOGIN" --json number,title,headRefName,createdAt
+gh pr list --state all --author "$BOT_LOGIN" --limit 30 \
+  --json number,title,state,mergedAt,headRefName,createdAt
 ```
 
-Compare by title keywords **and** the files the new PR would modify — two concurrent fixes for the same bug typically pick different branch names, so a branch-name match is not sufficient. If a sibling bot PR overlaps in scope, **do not create**: post a comment on the triggering thread linking the existing PR and exit.
+When the trigger is an issue/PR comment, also search for sibling PRs that reference that issue number — a merged PR's title or body often cites the issue (`Fixes #123`, `#123` in title) even when the branch name diverged:
+
+```bash
+gh pr list --state all --search "author:$BOT_LOGIN <issue-number>" \
+  --json number,title,state,mergedAt
+```
+
+Compare by title keywords **and** the files the new PR would modify — two concurrent fixes for the same bug typically pick different branch names, so a branch-name match is not sufficient. If a sibling bot PR overlaps in scope — whether open, closed, or already merged — **do not create**: post a comment on the triggering thread linking the existing PR and exit.
 
 ## Pushing to PR Branches
 
