@@ -134,6 +134,17 @@ Always use `git push` without specifying a remote — `gh pr checkout` configure
 
 If pushing fails (fork PR with edits disabled), fall back to posting code snippets in a comment. Don't reference commit SHAs from temporary branches — post code inline.
 
+### Re-check PR state before pushing a follow-up commit
+
+Any wait that lets time pass — a CI poll, coverage fetch, sleep, background task — also gives a maintainer time to merge or close the PR. After waiting:
+
+```bash
+STATE=$(gh pr view <N> --json state --jq '.state')
+[ "$STATE" = "OPEN" ] || { echo "PR #<N> is $STATE — skipping push"; exit 0; }
+```
+
+If the PR is merged, the work is superseded. Comment if a real gap remains; do not push to the now-orphan branch. After merge, `gh pr view <N> --json headRefOid` returns the SHA at merge time and never advances — polling it for a new push is a guaranteed deadlock.
+
 ## Merging Upstream into PR Branches
 
 When asked to merge the default branch into a PR branch:
@@ -235,6 +246,20 @@ gh api "repos/{owner}/{repo}/actions/runs?branch=main&status=completed&per_page=
 ```
 
 If you cannot verify, say "I haven't confirmed whether these failures are pre-existing."
+
+### Bound every polling loop
+
+Use `for i in $(seq 1 N); do ... done` — never an unbounded `until <check>; do sleep N; done` from Bash. A backgrounded `until` loop survives the agent exiting and holds the GitHub Actions job alive until the workflow timeout (default 360 min) cancels it. If the harness blocks `sleep N && check` and suggests `until <check>; do sleep 2; done`, add a counter:
+
+```bash
+# Wait up to ~5 min, then bail rather than loop forever.
+for i in $(seq 1 60); do
+  <check> && break
+  sleep 5
+done
+```
+
+`Monitor` with an `until` predicate is fine — the harness caps it. The hazard is Bash `until` loops launched via `run_in_background: true`.
 
 ### Polling `gh run rerun --failed`
 
