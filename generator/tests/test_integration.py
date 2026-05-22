@@ -620,7 +620,14 @@ def test_install_test_workflow_shape(
     # mid-PR doesn't fail the drift check for an irrelevant reason.
     assert 'uvx "tend@$TEND_VERSION" init --with-install-test' in content
     assert "astral-sh/setup-uv@v6" in content
-    assert "git remote set-head origin --auto" in content
+
+    # Default-branch probe: must not use `git remote set-head origin --auto`,
+    # which errors on the default shallow `actions/checkout@v6` (only the PR
+    # head ref is fetched, so `refs/remotes/origin/<default>` doesn't exist
+    # locally). Query the API and fetch the default branch instead. See #582.
+    assert "git remote set-head" not in content
+    assert "gh api" in content and ".default_branch" in content
+    assert "git symbolic-ref" in content
 
 
 def test_install_test_workflow_codex_secrets(

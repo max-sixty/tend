@@ -44,10 +44,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # `actions/checkout` doesn't set `origin/HEAD`, so the generator's
-          # default-branch probe falls back to "main" and a repo with a
-          # non-`main` default reports spurious drift. Query the remote.
-          git remote set-head origin --auto
+          # `actions/checkout` only fetches the PR head ref, so the
+          # generator's default-branch probe (`git rev-parse --abbrev-ref
+          # origin/HEAD`) falls back to "main" and a repo with a non-`main`
+          # default reports spurious drift. Resolve the default branch via
+          # the API, fetch it, then point `origin/HEAD` at it.
+          DEFAULT_BRANCH=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+          git fetch origin --depth 1 "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          git symbolic-ref "refs/remotes/origin/HEAD" "refs/remotes/origin/$DEFAULT_BRANCH"
           # Pin the regen to the version in the committed header so a tend
           # release between local `init` and this CI run doesn't fail the
           # drift check for an irrelevant reason.
