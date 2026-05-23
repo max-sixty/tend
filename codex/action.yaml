@@ -471,6 +471,12 @@ runs:
           "| ${TIMESTAMP} | [workflow run](${RUN_URL}) | ${REF:-N/A} |" \
           "This issue was created automatically. Close it once the outage is resolved." > /tmp/body.md
 
+        # Jittered backoff before the check-then-act narrows the race window
+        # when a matrix workflow's legs fail at near-identical times (e.g.
+        # API outages exhausting the retry budget across every leg within
+        # a few seconds). Without this, every leg reads $EXISTING as empty
+        # in parallel and each files its own outage issue.
+        sleep $((RANDOM % 30))
         EXISTING=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
 
         if [ -n "$EXISTING" ]; then
