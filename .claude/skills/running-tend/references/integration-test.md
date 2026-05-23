@@ -1,8 +1,8 @@
 # Weekly integration test
 
 Drives a real issue and a real PR against a persistent test repo, asserts
-`tend-triage` and `tend-review` responded, and resets the repo for the
-next week.
+`tend-triage` and `tend-review` ran end-to-end, and resets the repo for
+the next week.
 
 ## Safety — read first
 
@@ -29,8 +29,9 @@ Run steps in order. If §3, §4, or §5 fails, jump to §6 (reset), then §7
 
 ## 1. Bootstrap (first run only — idempotent on subsequent runs)
 
-Create the test repo if missing, with workflows installed on `main` and
-both secrets set. This block is a no-op once the repo exists.
+Create the test repo if missing, with workflows installed on `main`,
+branch protection enabled on the default branch, and both secrets set.
+This block is a no-op once the repo exists.
 
 ```bash
 if ! gh repo view tend-agent/tend-integration --json name >/dev/null 2>&1; then
@@ -39,6 +40,11 @@ if ! gh repo view tend-agent/tend-integration --json name >/dev/null 2>&1; then
   WORK=$(mktemp -d)
   gh repo clone tend-agent/tend-integration "$WORK"
   cd "$WORK"
+
+  # The runner has no global git identity; commit needs both fields set
+  # locally or `git commit` aborts and the follow-up push silently no-ops.
+  git config user.email "tend-agent@users.noreply.github.com"
+  git config user.name "tend-agent"
 
   mkdir -p .config
   cat > .config/tend.yaml <<'EOF'
@@ -61,6 +67,27 @@ EOF
 
   cd - >/dev/null
   rm -rf "$WORK"
+
+  # tend's preflight requires the default branch to be protected
+  # (`gh api .../branches/main --jq '.protected'` must be true). Without
+  # this, every tend-* run on the repo aborts at the Security preflight
+  # step. The bot owns this repo so it has admin to set protection.
+  gh api -X PUT repos/tend-agent/tend-integration/branches/main/protection \
+    -H "Accept: application/vnd.github+json" \
+    --input - <<'EOF'
+{
+  "required_status_checks": null,
+  "enforce_admins": false,
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": false,
+    "require_code_owner_reviews": false,
+    "required_approving_review_count": 1
+  },
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+EOF
 fi
 
 # Always (re)seed secrets — handles OAuth-token rotation in the source repo.
@@ -135,12 +162,24 @@ COMMENTS=$(gh issue view "$ISSUE" --repo tend-agent/tend-integration \
 ## 4. Verify tend-review
 
 Clone, create a branch with a trivial README edit, open a PR, wait for
-`tend-review` to register and finish, assert the bot reviewed.
+`tend-review` to register and finish, assert the action invoked the
+Claude session (artifact present).
+
+The `tend-review` skill is explicitly directed to exit silently on
+self-authored, trivial PRs (GitHub blocks self-approval; the skill keeps
+quiet when there are no concerns). So an "is there a bot review on the
+PR?" assertion can't distinguish "the action never ran" from "the action
+ran and stayed silent by design" — both produce zero reviews. Asserting
+on the session-log artifact, which `claude-code-action` uploads
+unconditionally on every invocation, distinguishes the two.
 
 ```bash
 WORK=$(mktemp -d)
 gh repo clone tend-agent/tend-integration "$WORK"
 cd "$WORK"
+
+git config user.email "tend-agent@users.noreply.github.com"
+git config user.name "tend-agent"
 
 BRANCH="integration-test-review-$TS"
 git checkout -b "$BRANCH"
@@ -175,10 +214,13 @@ for _ in $(seq 1 60); do
 done
 [ "$conclusion" = "success" ] || { echo "tend-review: $status/$conclusion"; exit 1; }
 
-# Self-authored PRs come back as COMMENTED rather than APPROVED — count either.
-REVIEWS=$(gh pr view "$PR" --repo tend-agent/tend-integration \
-  --json reviews --jq '[.reviews[] | select(.author.login == "tend-agent")] | length')
-[ "$REVIEWS" -ge 1 ] || { echo "tend-review: no bot review on PR #$PR"; exit 1; }
+# Session-log artifact presence proves claude-code-action invoked the
+# Claude session. The skill may then post a review, post nothing, or
+# anything in between — that's a separate concern from "did tend-review
+# fire end-to-end?".
+ARTIFACTS=$(gh api "repos/tend-agent/tend-integration/actions/runs/$RUN_ID/artifacts" \
+  --jq '[.artifacts[] | select(.name | startswith("claude-session-logs"))] | length')
+[ "$ARTIFACTS" -ge 1 ] || { echo "tend-review: no session-log artifact on run $RUN_ID"; exit 1; }
 
 cd - >/dev/null
 rm -rf "$WORK"
