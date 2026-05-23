@@ -4,9 +4,13 @@ Create a fresh public repo under `tend-agent`, install tend on it, drive a
 real issue and a real PR, assert the bot responded, and delete the repo.
 
 `$GITHUB_TOKEN` (bot PAT) and `$CLAUDE_CODE_OAUTH_TOKEN` are both present
-in the agent's env — claude-code-action propagates them, and the action's
-`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0` lets bash inherit them. `gh`
-authenticates as `tend-agent` automatically.
+in the agent's env, set on the claude step in `action.yaml`. `gh`
+authenticates as `tend-agent` via `$GITHUB_TOKEN` automatically.
+
+The bot PAT needs `workflow` (to push generated workflow files at §4) and
+`delete_repo` (to clean up the test repo at §1 and §9). If `tend check`
+or the install-tend skill's scope guidance was followed correctly, both
+are present; if not, the recipe fails loudly at §4 and silently at §9.
 
 Run steps in order. If any step from §2 to §8 fails, jump to §9 (cleanup),
 then §10 (report). Do not skip cleanup.
@@ -60,6 +64,8 @@ uvx tend@latest init --with-install-test
 git checkout -b install-tend
 git add .
 git commit -m "chore: install tend"
+# git's credential helper isn't auto-wired to gh in this env; do it now.
+gh auth setup-git
 git push -u origin install-tend
 gh pr create --title "Install tend" \
   --body "Integration test install PR." \
@@ -69,13 +75,24 @@ PR=$(gh pr view --json number --jq .number)
 
 ## 5. Verify tend-install-test, then merge
 
-Poll up to 10 min. Failing conclusion or absence of a run = test failure.
+Two-stage poll: wait up to 1 min for the run to register, then up to 10
+min for it to complete. Distinguishing "no run created" from "run failed"
+matters because the former usually means workflow files didn't push.
 
 ```bash
-for _ in $(seq 1 60); do
-  read -r status conclusion < <(gh run list --repo "$TEST_REPO" \
+RUN_ID=""
+for _ in $(seq 1 12); do
+  RUN_ID=$(gh run list --repo "$TEST_REPO" \
     --workflow tend-install-test --branch install-tend --limit 1 \
-    --json status,conclusion --jq '.[] | "\(.status) \(.conclusion)"')
+    --json databaseId --jq '.[0].databaseId // empty')
+  [ -n "$RUN_ID" ] && break
+  sleep 5
+done
+[ -n "$RUN_ID" ] || { echo "tend-install-test: workflow run never registered (workflow file pushed?)"; exit 1; }
+
+for _ in $(seq 1 60); do
+  read -r status conclusion < <(gh run view "$RUN_ID" --repo "$TEST_REPO" \
+    --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
   [ "$status" = "completed" ] && break
   sleep 10
 done
@@ -117,7 +134,16 @@ for _ in $(seq 1 24); do
   sleep 5
 done
 [ -n "$RUN_ID" ] || { echo "tend-triage: no run created"; exit 1; }
-gh run watch "$RUN_ID" --repo "$TEST_REPO" --exit-status
+
+# Poll instead of `gh run watch` — the latter is on the `running-in-ci`
+# never-use list (hangs indefinitely).
+for _ in $(seq 1 60); do
+  read -r status conclusion < <(gh run view "$RUN_ID" --repo "$TEST_REPO" \
+    --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
+  [ "$status" = "completed" ] && break
+  sleep 10
+done
+[ "$conclusion" = "success" ] || { echo "tend-triage: $status/$conclusion"; exit 1; }
 
 COMMENTS=$(gh issue view "$ISSUE" --repo "$TEST_REPO" --json comments \
   --jq '[.comments[] | select(.author.login == "tend-agent")] | length')
@@ -147,7 +173,14 @@ for _ in $(seq 1 24); do
   sleep 5
 done
 [ -n "$RUN_ID" ] || { echo "tend-review: no run created"; exit 1; }
-gh run watch "$RUN_ID" --repo "$TEST_REPO" --exit-status
+
+for _ in $(seq 1 60); do
+  read -r status conclusion < <(gh run view "$RUN_ID" --repo "$TEST_REPO" \
+    --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
+  [ "$status" = "completed" ] && break
+  sleep 10
+done
+[ "$conclusion" = "success" ] || { echo "tend-review: $status/$conclusion"; exit 1; }
 
 # Self-authored PRs get COMMENT, not APPROVE — match either.
 REVIEWS=$(gh pr view "$PR" --repo "$TEST_REPO" --json reviews \
