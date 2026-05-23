@@ -413,6 +413,14 @@ example, if the repo uses `style=for-the-badge`, append
 `&style=for-the-badge` to the URL. If no existing badges or no style
 parameter, use the default (no style parameter needed).
 
+Wrap the image in a link to `https://github.com/max-sixty/tend` — always
+this exact URL, regardless of the consumer's org or repo name. The full
+markdown shape:
+
+```
+[![maintained with tend](<image-url>)](https://github.com/max-sixty/tend)
+```
+
 Use `AskUserQuestion` to confirm. Describe the badge briefly in the
 question ("an olive-green 'maintained with tend' badge with the tend
 wordmark") — do NOT paste the raw `img.shields.io` URL or its base64
