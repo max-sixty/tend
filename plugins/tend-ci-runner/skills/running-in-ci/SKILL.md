@@ -247,20 +247,6 @@ gh api "repos/{owner}/{repo}/actions/runs?branch=main&status=completed&per_page=
 
 If you cannot verify, say "I haven't confirmed whether these failures are pre-existing."
 
-### Bound every polling loop
-
-Use `for i in $(seq 1 N); do ... done` — never an unbounded `until <check>; do sleep N; done` from Bash. A backgrounded `until` loop survives the agent exiting and holds the GitHub Actions job alive until the workflow timeout (default 360 min) cancels it. If the harness blocks `sleep N && check` and suggests `until <check>; do sleep 2; done`, add a counter:
-
-```bash
-# Wait up to ~5 min, then bail rather than loop forever.
-for i in $(seq 1 60); do
-  <check> && break
-  sleep 5
-done
-```
-
-`Monitor` with an `until` predicate is fine — the harness caps it. The hazard is Bash `until` loops launched via `run_in_background: true`.
-
 ### Polling `gh run rerun --failed`
 
 After `gh run rerun <run-id> --failed`, poll the rerun jobs directly. The parent run's `.status` stays `in_progress` until every sibling job finishes, including unrelated long-running ones, and the `pending()` recipe above also doesn't help — sibling check-runs on the head SHA still appear pending. Polling specific job IDs is the only fix.
