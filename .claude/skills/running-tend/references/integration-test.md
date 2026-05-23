@@ -1,54 +1,47 @@
 # Weekly integration test
 
-Create a fresh public repo under `tend-agent`, install tend on it, drive a
-real issue and a real PR, assert the bot responded, and delete the repo.
+Drives a real issue and a real PR against a persistent test repo, asserts
+`tend-triage` and `tend-review` responded, and resets the repo for the
+next week.
+
+## Safety — read first
+
+This recipe issues destructive operations (close issues, close PRs,
+delete branches, overwrite secrets) against **exactly one** repo:
+`tend-agent/tend-integration`. The literal string `tend-agent/tend-integration`
+appears as `--repo` argument on every destructive call below — not a
+variable. **Do not substitute a variable**, do not rename the repo, do
+not run this recipe against any other repo.
+
+If `tend-agent/tend-integration` does not exist yet, the §1 bootstrap
+creates it. Once it exists, subsequent weekly runs only operate on it.
 
 `$GITHUB_TOKEN` (bot PAT) and `$CLAUDE_CODE_OAUTH_TOKEN` are both present
 in the agent's env, set on the claude step in `action.yaml`. `gh`
 authenticates as `tend-agent` via `$GITHUB_TOKEN` automatically.
 
-The bot PAT needs `workflow` (to push generated workflow files at §4) and
-`delete_repo` (to clean up the test repo at §1 and §9). If `tend check`
-or the install-tend skill's scope guidance was followed correctly, both
-are present; if not, the recipe fails loudly at §4 and silently at §9.
+The bot PAT needs `workflow` (to push generated workflow files) but
+**does not** need `delete_repo` — the recipe never deletes the test
+repo; it resets in place.
 
-Run steps in order. If any step from §2 to §8 fails, jump to §9 (cleanup),
-then §10 (report). Do not skip cleanup.
+Run steps in order. If §3, §4, or §5 fails, jump to §6 (reset), then §7
+(report).
 
-## 1. Setup
+## 1. Bootstrap (first run only — idempotent on subsequent runs)
 
-```bash
-TEST_REPO="tend-agent/tend-integration-$(date -u +%Y%m%d)"
-WORK="/tmp/$(basename "$TEST_REPO")"
-# A prior run that crashed before cleanup will collide on create; wipe it.
-gh repo delete "$TEST_REPO" --yes 2>/dev/null || true
-rm -rf "$WORK"
-```
-
-## 2. Create the test repo
+Create the test repo if missing, with workflows installed on `main` and
+both secrets set. This block is a no-op once the repo exists.
 
 ```bash
-gh repo create "$TEST_REPO" --public --add-readme
-gh repo clone "$TEST_REPO" "$WORK"
-cd "$WORK"
-```
+if ! gh repo view tend-agent/tend-integration --json name >/dev/null 2>&1; then
+  gh repo create tend-agent/tend-integration --public --add-readme
 
-## 3. Seed secrets
+  WORK=$(mktemp -d)
+  gh repo clone tend-agent/tend-integration "$WORK"
+  cd "$WORK"
 
-```bash
-printf '%s' "$GITHUB_TOKEN" | gh secret set TEND_BOT_TOKEN --repo "$TEST_REPO"
-printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$TEST_REPO"
-```
-
-## 4. Open the install PR
-
-Only `triage` and `review` are exercised; the rest are disabled to keep the
-test fast and to avoid `mention` self-triggering on the bot's own review
-comment.
-
-```bash
-mkdir -p .config
-cat > .config/tend.yaml <<'EOF'
+  mkdir -p .config
+  cat > .config/tend.yaml <<'EOF'
 bot_name: tend-agent
 harness: claude
 workflows:
@@ -60,146 +53,184 @@ workflows:
   weekly: false
 EOF
 
-uvx tend@latest init --with-install-test
-git checkout -b install-tend
-git add .
-git commit -m "chore: install tend"
-# git's credential helper isn't auto-wired to gh in this env; do it now.
-gh auth setup-git
-git push -u origin install-tend
-gh pr create --title "Install tend" \
-  --body "Integration test install PR." \
-  --base main --head install-tend
-PR=$(gh pr view --json number --jq .number)
+  uvx tend@latest init
+  gh auth setup-git
+  git add .
+  git commit -m "chore: install tend (integration-test bootstrap)"
+  git push origin main
+
+  cd - >/dev/null
+  rm -rf "$WORK"
+fi
+
+# Always (re)seed secrets — handles OAuth-token rotation in the source repo.
+printf '%s' "$GITHUB_TOKEN" \
+  | gh secret set TEND_BOT_TOKEN --repo tend-agent/tend-integration
+printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" \
+  | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo tend-agent/tend-integration
 ```
 
-## 5. Verify tend-install-test, then merge
+## 2. Reset to a known-clean state
 
-Two-stage poll: wait up to 1 min for the run to register, then up to 10
-min for it to complete. Distinguishing "no run created" from "run failed"
-matters because the former usually means workflow files didn't push.
+Close any leftover issues/PRs from prior runs, delete any leftover
+branches. `main` is never touched.
 
 ```bash
-RUN_ID=""
-for _ in $(seq 1 12); do
-  RUN_ID=$(gh run list --repo "$TEST_REPO" \
-    --workflow tend-install-test --branch install-tend --limit 1 \
-    --json databaseId --jq '.[0].databaseId // empty')
-  [ -n "$RUN_ID" ] && break
-  sleep 5
+for n in $(gh issue list --repo tend-agent/tend-integration \
+            --state open --json number --jq '.[].number'); do
+  gh issue close "$n" --repo tend-agent/tend-integration \
+    --comment "Cleaned up by weekly integration-test reset."
 done
-[ -n "$RUN_ID" ] || { echo "tend-install-test: workflow run never registered (workflow file pushed?)"; exit 1; }
 
-for _ in $(seq 1 60); do
-  read -r status conclusion < <(gh run view "$RUN_ID" --repo "$TEST_REPO" \
-    --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
-  [ "$status" = "completed" ] && break
-  sleep 10
+for n in $(gh pr list --repo tend-agent/tend-integration \
+            --state open --json number --jq '.[].number'); do
+  gh pr close "$n" --repo tend-agent/tend-integration \
+    --delete-branch \
+    --comment "Cleaned up by weekly integration-test reset."
 done
-[ "$conclusion" = "success" ] || { echo "tend-install-test: $status/$conclusion"; exit 1; }
 
-gh pr merge "$PR" --repo "$TEST_REPO" --squash --admin --delete-branch
+# Any branches still hanging around (orphaned by a crashed prior run).
+for b in $(gh api repos/tend-agent/tend-integration/branches \
+             --jq '.[].name' | grep -v '^main$' || true); do
+  gh api -X DELETE "repos/tend-agent/tend-integration/git/refs/heads/$b"
+done
 ```
 
-## 6. Set branch protection
+## 3. Verify tend-triage
 
-The install-test moment is past; run the rest under production-like
-protection. The bot is admin and so can bypass — that's a known property
-of the security model (see `docs/security-model.md`).
-
-```bash
-gh api -X PUT "repos/$TEST_REPO/branches/main/protection" --input - <<'EOF'
-{
-  "required_status_checks": null,
-  "enforce_admins": false,
-  "required_pull_request_reviews": {"required_approving_review_count": 1},
-  "restrictions": null
-}
-EOF
-```
-
-## 7. Verify tend-triage
+Open a fresh test issue, wait for `tend-triage` to register and finish,
+assert the bot commented.
 
 ```bash
-ISSUE=$(gh issue create --repo "$TEST_REPO" \
-  --title "integration test: triage me" \
-  --body "Automated integration test. Briefly triage; the repo will be deleted shortly." \
-  | grep -oE '[0-9]+$')
+TS=$(date -u +%Y%m%d-%H%M%S)
+ISSUE_URL=$(gh issue create --repo tend-agent/tend-integration \
+  --title "integration-test triage $TS" \
+  --body "Automated weekly integration test. The bot's reply confirms tend-triage is working; the reset step will close this.")
+ISSUE=${ISSUE_URL##*/}
 
 RUN_ID=""
 for _ in $(seq 1 24); do
-  RUN_ID=$(gh run list --repo "$TEST_REPO" --workflow tend-triage --limit 1 \
+  RUN_ID=$(gh run list --repo tend-agent/tend-integration \
+    --workflow tend-triage --limit 1 \
     --json databaseId --jq '.[0].databaseId // empty')
   [ -n "$RUN_ID" ] && break
   sleep 5
 done
-[ -n "$RUN_ID" ] || { echo "tend-triage: no run created"; exit 1; }
+[ -n "$RUN_ID" ] || { echo "tend-triage: workflow run never registered"; exit 1; }
 
-# Poll instead of `gh run watch` — the latter is on the `running-in-ci`
-# never-use list (hangs indefinitely).
 for _ in $(seq 1 60); do
-  read -r status conclusion < <(gh run view "$RUN_ID" --repo "$TEST_REPO" \
+  read -r status conclusion < <(gh run view "$RUN_ID" \
+    --repo tend-agent/tend-integration \
     --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
   [ "$status" = "completed" ] && break
   sleep 10
 done
 [ "$conclusion" = "success" ] || { echo "tend-triage: $status/$conclusion"; exit 1; }
 
-COMMENTS=$(gh issue view "$ISSUE" --repo "$TEST_REPO" --json comments \
-  --jq '[.comments[] | select(.author.login == "tend-agent")] | length')
+COMMENTS=$(gh issue view "$ISSUE" --repo tend-agent/tend-integration \
+  --json comments --jq '[.comments[] | select(.author.login == "tend-agent")] | length')
 [ "$COMMENTS" -ge 1 ] || { echo "tend-triage: no bot comment on issue #$ISSUE"; exit 1; }
 ```
 
-## 8. Verify tend-review
+## 4. Verify tend-review
+
+Clone, create a branch with a trivial README edit, open a PR, wait for
+`tend-review` to register and finish, assert the bot reviewed.
 
 ```bash
-git checkout main && git pull
-git checkout -b integration-test-review
-printf '\n(integration test edit)\n' >> README.md
+WORK=$(mktemp -d)
+gh repo clone tend-agent/tend-integration "$WORK"
+cd "$WORK"
+
+BRANCH="integration-test-review-$TS"
+git checkout -b "$BRANCH"
+printf '\n(integration-test edit %s)\n' "$TS" >> README.md
 git add README.md
-git commit -m "chore: trivial edit"
-git push -u origin integration-test-review
-gh pr create --repo "$TEST_REPO" \
-  --title "integration test: review me" \
-  --body "Automated integration test PR." \
-  --base main --head integration-test-review
-PR=$(gh pr view --repo "$TEST_REPO" --json number --jq .number)
+git commit -m "chore: integration-test trivial edit"
+gh auth setup-git
+git push -u origin "$BRANCH"
+
+PR_URL=$(gh pr create --repo tend-agent/tend-integration \
+  --title "integration-test review $TS" \
+  --body "Automated weekly integration test. The bot's review confirms tend-review is working; the reset step will close this." \
+  --base main --head "$BRANCH")
+PR=${PR_URL##*/}
 
 RUN_ID=""
 for _ in $(seq 1 24); do
-  RUN_ID=$(gh run list --repo "$TEST_REPO" --workflow tend-review --limit 1 \
+  RUN_ID=$(gh run list --repo tend-agent/tend-integration \
+    --workflow tend-review --limit 1 \
     --json databaseId --jq '.[0].databaseId // empty')
   [ -n "$RUN_ID" ] && break
   sleep 5
 done
-[ -n "$RUN_ID" ] || { echo "tend-review: no run created"; exit 1; }
+[ -n "$RUN_ID" ] || { echo "tend-review: workflow run never registered"; exit 1; }
 
 for _ in $(seq 1 60); do
-  read -r status conclusion < <(gh run view "$RUN_ID" --repo "$TEST_REPO" \
+  read -r status conclusion < <(gh run view "$RUN_ID" \
+    --repo tend-agent/tend-integration \
     --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
   [ "$status" = "completed" ] && break
   sleep 10
 done
 [ "$conclusion" = "success" ] || { echo "tend-review: $status/$conclusion"; exit 1; }
 
-# Self-authored PRs get COMMENT, not APPROVE — match either.
-REVIEWS=$(gh pr view "$PR" --repo "$TEST_REPO" --json reviews \
-  --jq '[.reviews[] | select(.author.login == "tend-agent")] | length')
+# Self-authored PRs come back as COMMENTED rather than APPROVED — count either.
+REVIEWS=$(gh pr view "$PR" --repo tend-agent/tend-integration \
+  --json reviews --jq '[.reviews[] | select(.author.login == "tend-agent")] | length')
 [ "$REVIEWS" -ge 1 ] || { echo "tend-review: no bot review on PR #$PR"; exit 1; }
-```
 
-## 9. Cleanup (always)
-
-```bash
-cd /
-gh repo delete "$TEST_REPO" --yes 2>/dev/null || true
+cd - >/dev/null
 rm -rf "$WORK"
 ```
 
-## 10. Report failure
+## 5. Verify generator drift (lightweight)
 
-If any step from §2 to §8 failed, open a labeled issue in `max-sixty/tend`.
-The label is created on demand so the first failure works without prior
+Catch generator regressions without round-tripping through the
+install-test workflow: re-run the generator against the committed
+config and assert no diff.
+
+```bash
+WORK=$(mktemp -d)
+gh repo clone tend-agent/tend-integration "$WORK"
+cd "$WORK"
+uvx tend@latest init
+if ! git diff --quiet .github/workflows/; then
+  echo "tend-integration drift: $(git diff --stat .github/workflows/)"
+  exit 1
+fi
+cd - >/dev/null
+rm -rf "$WORK"
+```
+
+## 6. Reset (always — even on failure)
+
+Same as §2; run again to close anything created in §3/§4.
+
+```bash
+for n in $(gh issue list --repo tend-agent/tend-integration \
+            --state open --json number --jq '.[].number'); do
+  gh issue close "$n" --repo tend-agent/tend-integration \
+    --comment "Cleaned up by weekly integration-test reset."
+done
+
+for n in $(gh pr list --repo tend-agent/tend-integration \
+            --state open --json number --jq '.[].number'); do
+  gh pr close "$n" --repo tend-agent/tend-integration \
+    --delete-branch \
+    --comment "Cleaned up by weekly integration-test reset."
+done
+
+for b in $(gh api repos/tend-agent/tend-integration/branches \
+             --jq '.[].name' | grep -v '^main$' || true); do
+  gh api -X DELETE "repos/tend-agent/tend-integration/git/refs/heads/$b"
+done
+```
+
+## 7. Report failure
+
+If any of §3–§5 failed, open a labeled issue in `max-sixty/tend`. The
+label is created on demand so the first failure works without prior
 setup.
 
 ````bash
@@ -215,9 +246,10 @@ gh issue create --repo max-sixty/tend \
 Failed at <step>. Captured output:
 
 \`\`\`
-<paste the failing command's stderr and any relevant gh run URLs>
+<paste the failing command's stderr and any relevant gh run URLs from
+tend-agent/tend-integration; do NOT include any secret values>
 \`\`\`"
 ````
 
-Include the test repo's failing workflow run URL in the body if the
-failure was in §5, §7, or §8 (capture it before §9 deletes the repo).
+Include the test repo's failing workflow run URL in the body when
+relevant (capture it during §3/§4 before §6's reset moves on).
