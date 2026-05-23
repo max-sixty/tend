@@ -90,3 +90,10 @@ the PR (no diff to land) when `git status --porcelain data/consumers.json`
 is empty — `git diff --quiet` returns 0 for untracked paths, so the
 first-run case would no-op. Code search is 10 req/min — one call covers
 the whole list.
+
+## Weekly: integration test
+
+End-to-end check that a fresh install completes and the generated workflows
+respond to a real issue and PR. Open `references/integration-test.md` and
+follow the recipe in order; do not skip the cleanup step even on assertion
+failure.
