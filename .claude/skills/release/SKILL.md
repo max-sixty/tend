@@ -18,7 +18,7 @@ metadata:
 7. **Merge to main**: Push, create PR via `gh pr create`, wait for CI, merge with `gh pr merge --squash`
 8. **Tag and push**: `git tag X.Y.Z && git push origin X.Y.Z` (triggers PyPI release workflow in `.github/workflows/pypi-release.yaml`)
 9. **Wait for PyPI release**: Poll the release workflow until `uvx tend@X.Y.Z --help` succeeds
-10. **Regenerate tend's own workflows**: Run `uvx tend@latest init` and open a PR titled `chore: regenerate workflows with tend X.Y.Z`. Until this merges, tend's deployed workflows lag the just-released generator, so critical fixes (e.g. loop-prevention filters) remain unreachable on tend itself.
+10. **Regenerate tend's own workflows**: Stay on the `release` branch (don't create a new one — same as step 6). The squash-merge deleted `origin/release`, so `git fetch && git reset --hard origin/main` to realign with the squashed history. Then `uvx tend@latest init`, commit, push, and open a PR titled `chore: regenerate workflows with tend X.Y.Z`. Until this merges, tend's deployed workflows lag the just-released generator, so critical fixes (e.g. loop-prevention filters) remain unreachable on tend itself.
 
 ## Version scheme
 
