@@ -275,22 +275,29 @@ If any of §3–§5 failed, open a labeled issue in `max-sixty/tend`. The
 label is created on demand so the first failure works without prior
 setup.
 
+Assemble the body via a quoted heredoc (so bash doesn't try to evaluate
+the inner backticks) and substitute the run URL through `envsubst`:
+
 ````bash
 gh label create integration-test-failure --color B60205 \
   --repo max-sixty/tend 2>/dev/null || true
 
-RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-gh issue create --repo max-sixty/tend \
-  --title "Weekly integration test failed" \
-  --label integration-test-failure \
-  --body "Run: $RUN_URL
+export RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+envsubst '$RUN_URL' > /tmp/integration-failure.md <<'EOF'
+Run: $RUN_URL
 
 Failed at <step>. Captured output:
 
-\`\`\`
+```
 <paste the failing command's stderr and any relevant gh run URLs from
 tend-agent/tend-integration; do NOT include any secret values>
-\`\`\`"
+```
+EOF
+
+gh issue create --repo max-sixty/tend \
+  --title "Weekly integration test failed" \
+  --label integration-test-failure \
+  --body-file /tmp/integration-failure.md
 ````
 
 Include the test repo's failing workflow run URL in the body when
