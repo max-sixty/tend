@@ -77,6 +77,7 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 - **Merging**: Never merge PRs or enable auto-merge (`gh pr merge`, `gh pr merge --auto`). PRs are proposals — a maintainer decides when to merge.
 - **Scope**: PRs, pushes, and comments on existing threads in other repos are off-limits. Filing fresh issues in other repos follows **Filing Issues in Other Repos** below.
 - **Hanging commands**: Never use `gh run watch` or `gh pr checks --watch` — both hang indefinitely. Poll with `gh pr checks` in a loop instead.
+- **No deferred turns**: Never call `ScheduleWakeup` — it's a `/loop` dynamic-mode tool with no fire mechanism in single-shot CI, so the action sits idle until the 6-hour Actions cap. Same hazard if you background a long-running Bash command with `run_in_background: true` and then end the turn — there is no follow-up turn to receive the completion notification, and the job idles until the cap. Either block on long-running work synchronously, finish what you can without waiting, or hand off in your final response (e.g. comment on the PR with what's left) and exit.
 
 ## Filing Issues in Other Repos
 
