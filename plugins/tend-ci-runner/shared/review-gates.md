@@ -33,7 +33,7 @@ If a finding doesn't meet the threshold, **skip it** — don't create a PR, don'
 
 Before applying the gates, classify each failure by asking: **did the bot have a decision point?**
 
-- **Structural**: no decision point — the same conditions produce the same failure every time, regardless of how the bot approached the task. E.g., "the checkout differs between `pull_request_target` and `issue_comment` events, so grepping always finds stale content." One clear occurrence is sufficient evidence for a targeted fix.
+- **Structural**: no decision point — the same conditions produce the same failure every time, regardless of how the bot approached the task. E.g., "the checkout differs between `pull_request_target` and `issue_comment` events, so grepping always finds stale content." Structural classification raises confidence the failure will recur, but does **not** override Gate 1 — a non-Critical structural failure still needs the occurrence count its evidence level requires (High = 2–3, Medium = 5+). Only **Critical** structural failures act on a single occurrence.
 
 - **Stochastic**: the failure is a probabilistic model behavior — e.g., "the model was too agreeable when challenged" or "the model forgot to check X." The same model might handle the next identical situation correctly without any guidance change. These need significantly more evidence (5+ occurrences) because adding guidance for a one-off stochastic lapse adds noise that can degrade performance on other tasks.
 
