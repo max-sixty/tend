@@ -557,11 +557,18 @@ When a maintainer corrects the bot's behavior during a run — points out a repo
 
 ### When to propose
 
-Only when feedback is **generalizable** — it should apply to future runs, not just the current task. Signals:
+Open a repo-overlay PR only when feedback is **generalizable** — applies to future runs, not just the current task — AND at least one of these bars is met:
+
+- **Recurrence**: the same correction has been observed at least twice, or there is direct evidence the failure mode is recurring. "Saw it once, wrote a rule" is below the bar.
+- **Invisible failure mode**: the bad behavior would not surface as a future CI failure (e.g. cancelled/timed-out runs whose actual work succeeded), so without codification it would not be caught next time.
+- **Maintainer-explicit codification request**: a maintainer has explicitly asked for the rule to be codified after a single occurrence.
+
+This mirrors the bar tend uses for bundled-skill changes — those go through human review on the tend repo before merge, which acts as an implicit recurrence/impact filter. Per-repo overlays don't get the same scrutiny, so the bar belongs here.
+
+Signals that point toward a generalizable rule:
 
 - Correction names a pattern (*"stop adding inline suggestions for formatting — the linter handles that"*), not a task detail (*"rename this variable"*)
 - Feedback references a repo convention (*"we use conventional commits"*, *"PRs go to the `develop` branch, not `main`"*)
-- The same correction has surfaced before, or would plausibly surface again
 
 Do **not** propose when:
 
