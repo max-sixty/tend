@@ -134,6 +134,17 @@ Always use `git push` without specifying a remote — `gh pr checkout` configure
 
 If pushing fails (fork PR with edits disabled), fall back to posting code snippets in a comment. Don't reference commit SHAs from temporary branches — post code inline.
 
+### Re-check PR state before pushing a follow-up commit
+
+Any wait that lets time pass — a CI poll, coverage fetch, sleep, background task — also gives a maintainer time to merge or close the PR. After waiting:
+
+```bash
+STATE=$(gh pr view <N> --json state --jq '.state')
+[ "$STATE" = "OPEN" ] || { echo "PR #<N> is $STATE — skipping push"; exit 0; }
+```
+
+If the PR is merged, the work is superseded. Comment if a real gap remains; do not push to the now-orphan branch. After merge, `gh pr view <N> --json headRefOid` returns the SHA at merge time and never advances — polling it for a new push is a guaranteed deadlock.
+
 ## Merging Upstream into PR Branches
 
 When asked to merge the default branch into a PR branch:
