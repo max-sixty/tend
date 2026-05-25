@@ -9,6 +9,8 @@ GitHub classifies authors of comments and events by `author_association`. Use th
 gh api repos/{owner}/{repo}/issues/comments/{comment_id} --jq '.author_association'
 ```
 
+`gh issue view --json` / `gh pr view --json` / `gh issue list --json` do **not** expose an `authorAssociation` field — only the REST API does. Use `gh api … --jq '.author_association'`, never `gh … --json authorAssociation` (which errors with `Unknown JSON field`).
+
 | Tier | Values | Meaning |
 |---|---|---|
 | **Maintainer** | `OWNER`, `MEMBER`, `COLLABORATOR` | Write access — can direct bot actions on others' work |

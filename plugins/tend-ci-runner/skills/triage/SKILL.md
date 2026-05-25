@@ -169,8 +169,6 @@ Always comment via `gh issue comment`. Keep it brief, polite, and specific. A ma
 gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
 ```
 
-`gh issue view --json` does not expose `authorAssociation` — only the REST API does.
-
 **Stay within what you verified.** State facts you found in the codebase — don't characterize something as "known" unless you find prior issues or documentation about it. Don't speculate beyond the code you read.
 
 Choose the appropriate template:
