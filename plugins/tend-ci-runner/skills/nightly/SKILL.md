@@ -87,8 +87,8 @@ For each conflicted PR by one of these bots, first confirm the branch has no hum
 ```bash
 # COMMIT_LOGIN is "dependabot[bot]" or "renovate[bot]" depending on the bot
 gh pr view <number> --json commits \
-  --jq --arg bot "$COMMIT_LOGIN" \
-  '[.commits[].authors[].login] | unique | map(select(. != $bot))'
+  | jq --arg bot "$COMMIT_LOGIN" \
+       '[.commits[].authors[].login] | unique | map(select(. != $bot))'
 ```
 
 - Empty → trigger the bot per the table below.
