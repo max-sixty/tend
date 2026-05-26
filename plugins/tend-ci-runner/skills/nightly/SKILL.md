@@ -66,13 +66,44 @@ a one-line reason) plus a `_Last refreshed: <YYYY-MM-DD>_` footer. Updates:
 
 ## Step 3: Resolve conflicts on bot PRs
 
+Find conflicted PRs from this bot and from upstream dependency bots:
+
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
-gh pr list --author "$BOT_LOGIN" --json number,title,mergeable,headRefName \
-  --jq '.[] | select(.mergeable == "CONFLICTING")'
+for author in "$BOT_LOGIN" app/dependabot app/renovate; do
+  gh pr list --author "$author" --json number,title,mergeable,headRefName,author \
+    --jq '.[] | select(.mergeable == "CONFLICTING")'
+done
 ```
 
-For each conflicted PR, dispatch a subagent to:
+Skip the rest of this step if none of the queries return anything.
+
+### Upstream dependency bots: trigger the bot's own rebase
+
+`dependabot[bot]` and `renovate[bot]` both attempt rebases on their own, but stop once `main` rewrites a file the bump also touched (`Cargo.lock`, `uv.lock`, generated headers). The PR then sits `CONFLICTING`. Each bot exposes a way to force a fresh rebuild against current `main`.
+
+For each conflicted PR by one of these bots, first confirm the branch has no human commits — both triggers force-push and would discard local edits. The check compares each commit's author login against the bot's commit-author login (`dependabot[bot]` or `renovate[bot]`); note that the PR's `.author.login` is the App slug (`app/dependabot`, `app/renovate`) and does **not** match — use the literal commit-author login below.
+
+```bash
+# COMMIT_LOGIN is "dependabot[bot]" or "renovate[bot]" depending on the bot
+gh pr view <number> --json commits \
+  | jq --arg bot "$COMMIT_LOGIN" \
+       '[.commits[].authors[].login] | unique | map(select(. != $bot))'
+```
+
+- Empty → trigger the bot per the table below.
+- Non-empty → skip. Leave the PR for manual resolution; the force-push would throw away the human commits.
+
+| `--author` (PR list) | Commit-author login | Trigger |
+| --- | --- | --- |
+| `app/dependabot` | `dependabot[bot]` | Post `@dependabot recreate` as a comment. |
+| `app/renovate` | `renovate[bot]` | Edit the PR body and replace `- [ ] <!-- rebase-check -->` with `- [x] <!-- rebase-check -->`. Renovate has no comment command for rebase. |
+
+Do not check out or rebase manually — the bot owns the branch and will overwrite anything you push.
+
+### Bot-authored PRs: resolve manually
+
+For each conflicted PR authored by `$BOT_LOGIN`, dispatch a subagent to:
 
 1. Check out the PR: `gh pr checkout <number>`
 2. Merge the default branch: `git merge origin/main`
@@ -82,8 +113,6 @@ For each conflicted PR, dispatch a subagent to:
 
 Run subagents in parallel. Each must work in isolation (`git worktree add /tmp/pr-<number>
 <branch>`). After all complete, clean up temp worktrees.
-
-Skip if no PRs have conflicts.
 
 ## Step 4: Review recent commits
 
