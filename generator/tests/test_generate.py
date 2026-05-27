@@ -1156,6 +1156,85 @@ def test_claude_interactive_prompt_uses_slash_command(tmp_path: Path) -> None:
     assert cfg.default_prompt("review") == "/tend-ci-runner:review"
 
 
+# ---------------------------------------------------------------------------
+# Per-workflow harness override
+# ---------------------------------------------------------------------------
+
+
+def test_per_workflow_harness_override_targets_only_named_workflow(
+    tmp_path: Path,
+) -> None:
+    """`workflows.<name>.harness` flips the action ref for that workflow
+    only; sibling workflows keep the top-level harness. This is what lets
+    an adopter trial claude-interactive on nightly without flipping their
+    PR-review workflow."""
+    extra = dedent("""\
+        workflows:
+          nightly:
+            harness: claude-interactive
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+
+    nightly = workflows["tend-nightly.yaml"]
+    assert f"max-sixty/tend/interactive@{ACTION_VERSION}" in nightly.content
+    assert f"max-sixty/tend@{ACTION_VERSION}" not in nightly.content
+
+    # Sibling workflows still use the top-level claude harness.
+    review = workflows["tend-review.yaml"]
+    assert f"max-sixty/tend@{ACTION_VERSION}" in review.content
+    assert f"max-sixty/tend/interactive@{ACTION_VERSION}" not in review.content
+
+
+def test_per_workflow_harness_unknown_rejected(tmp_path: Path) -> None:
+    extra = dedent("""\
+        workflows:
+          nightly:
+            harness: gpt
+    """)
+    with pytest.raises(
+        click.ClickException, match="workflows.nightly.harness 'gpt' is not recognized"
+    ):
+        Config.load(_minimal_config(tmp_path, extra))
+
+
+def test_per_workflow_harness_incompatible_model_rejected(tmp_path: Path) -> None:
+    """Cross-family override needs a compatible model.
+
+    codex's catalog churns so we don't validate codex model strings — the
+    error fires when the top-level model is from a churnable harness and
+    the per-workflow override is to one with an allowlist. Concretely:
+    codex (gpt-5.5) → claude per-workflow yields a model invalid for the
+    target harness."""
+    extra = dedent("""\
+        harness: codex
+        model: gpt-5.5
+        workflows:
+          nightly:
+            harness: claude
+    """)
+    with pytest.raises(
+        click.ClickException,
+        match="workflows.nightly.harness 'claude' is incompatible with the top-level model 'gpt-5.5'",
+    ):
+        Config.load(_minimal_config(tmp_path, extra))
+
+
+def test_per_workflow_harness_same_family_no_model_clash(tmp_path: Path) -> None:
+    """claude → claude-interactive shares the model set; no compatibility
+    error even though it's a per-workflow override."""
+    extra = dedent("""\
+        workflows:
+          nightly:
+            harness: claude-interactive
+          review:
+            harness: claude-interactive
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    assert cfg.workflows["nightly"].harness == "claude-interactive"
+    assert cfg.workflows["review"].harness == "claude-interactive"
+
+
 def test_codex_model_unrestricted(tmp_path: Path) -> None:
     """Codex model strings pass through unvalidated.
 

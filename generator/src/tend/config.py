@@ -99,6 +99,12 @@ class WorkflowConfig:
     branches: list[str] | None = None
     workflow_extra: dict | None = None
     jobs: dict[str, dict] | None = None
+    # Per-workflow harness override. Lets adopters trial a new harness on
+    # a single workflow (e.g. `claude-interactive` on nightly only) before
+    # flipping the whole bot. None means inherit from top-level `harness`.
+    # Cross-family overrides (claude → codex or vice versa) require also
+    # overriding the model, since model defaults are per-harness.
+    harness: str | None = None
 
 
 # Claude model allowlist — the set is small and stable enough that a
@@ -300,6 +306,25 @@ class Config:
                     raise click.ClickException(
                         f"workflows.{name}.jobs must be a mapping of mappings"
                     )
+                wf_harness = wf_raw.get("harness")
+                if wf_harness is not None:
+                    if wf_harness not in KNOWN_HARNESSES:
+                        raise click.ClickException(
+                            f"workflows.{name}.harness '{wf_harness}' is not recognized "
+                            f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
+                        )
+                    # Cross-family overrides need a compatible model. Same-family
+                    # overrides (claude ↔ claude-interactive) share the model set.
+                    eff_known = KNOWN_MODELS_BY_HARNESS.get(wf_harness)
+                    if eff_known is not None and model not in eff_known:
+                        raise click.ClickException(
+                            f"workflows.{name}.harness '{wf_harness}' is incompatible "
+                            f"with the top-level model '{model}' "
+                            f"(known for {wf_harness}: {', '.join(sorted(eff_known))}). "
+                            f"Cross-family per-workflow harness overrides require "
+                            "setting `model:` per-workflow too, or changing the "
+                            "top-level model."
+                        )
                 workflows[name] = WorkflowConfig(
                     enabled=wf_raw.get("enabled", True),
                     prompt=wf_raw.get("prompt", ""),
@@ -308,6 +333,7 @@ class Config:
                     branches=wf_raw.get("branches"),
                     workflow_extra=workflow_extra,
                     jobs=jobs_raw,
+                    harness=wf_harness,
                 )
             else:
                 workflows[name] = WorkflowConfig(enabled=bool(wf_raw))

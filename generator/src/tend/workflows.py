@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import io
 import textwrap
 from collections.abc import Callable
@@ -161,12 +162,26 @@ def _escape_braces(prompt: str, placeholder: str) -> tuple[str, bool]:
     return text, has_placeholder
 
 
+def _effective_cfg(cfg: Config, wf: WorkflowConfig) -> Config:
+    """Return cfg, or a shallow clone with workflow's harness override applied.
+
+    Per-workflow harness lets an adopter trial a new harness on one
+    workflow without flipping the whole bot. Validation (model
+    compatibility, known-harness check) happens in `Config.load`; this
+    helper just produces the effective config the renderer sees.
+    """
+    if wf.harness is None or wf.harness == cfg.harness:
+        return cfg
+    return dataclasses.replace(cfg, harness=wf.harness)
+
+
 _REVIEW_TMPL = _JINJA.get_template("review.yaml.j2")
 
 
 def generate_review(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("review", WorkflowConfig())
-    raw_prompt = wf.prompt or cfg.default_prompt("review", "{pr_number}")
+    eff = _effective_cfg(cfg, wf)
+    raw_prompt = wf.prompt or eff.default_prompt("review", "{pr_number}")
     format_body, needs_format = _escape_braces(raw_prompt, "pr_number")
     escaped = format_body.replace("'", "''")
     if needs_format:
@@ -175,8 +190,8 @@ def generate_review(cfg: Config) -> GeneratedWorkflow:
         prompt_expr = f"'{escaped}'"
 
     content = _REVIEW_TMPL.render(
-        cfg=cfg,
-        setup=_setup_yaml(cfg),
+        cfg=eff,
+        setup=_setup_yaml(eff),
         prompt_expr=prompt_expr,
     )
     return GeneratedWorkflow(filename="tend-review.yaml", content=content)
@@ -191,7 +206,9 @@ _MENTION_TMPL = _JINJA.get_template("mention.yaml.j2")
 
 
 def generate_mention(cfg: Config) -> GeneratedWorkflow:
-    content = _MENTION_TMPL.render(cfg=cfg, setup=_setup_yaml(cfg))
+    wf = cfg.workflows.get("mention", WorkflowConfig())
+    eff = _effective_cfg(cfg, wf)
+    content = _MENTION_TMPL.render(cfg=eff, setup=_setup_yaml(eff))
     return GeneratedWorkflow(filename="tend-mention.yaml", content=content)
 
 
@@ -205,11 +222,12 @@ _TRIAGE_TMPL = _JINJA.get_template("triage.yaml.j2")
 
 def generate_triage(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("triage", WorkflowConfig())
-    prompt = (wf.prompt or cfg.default_prompt("triage", "{issue_number}")).replace(
+    eff = _effective_cfg(cfg, wf)
+    prompt = (wf.prompt or eff.default_prompt("triage", "{issue_number}")).replace(
         "{issue_number}", "${{ github.event.issue.number }}"
     )
 
-    content = _TRIAGE_TMPL.render(cfg=cfg, setup=_setup_yaml(cfg), prompt=prompt)
+    content = _TRIAGE_TMPL.render(cfg=eff, setup=_setup_yaml(eff), prompt=prompt)
     return GeneratedWorkflow(filename="tend-triage.yaml", content=content)
 
 
@@ -230,17 +248,18 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
             "    ci-fix:\n"
             '      watched_workflows: ["ci"]'
         )
+    eff = _effective_cfg(cfg, wf)
     watched = wf.watched_workflows
-    branches = wf.branches if wf.branches is not None else [cfg.default_branch]
-    prompt = (wf.prompt or cfg.default_prompt("ci-fix", "{run_id}")).replace(
+    branches = wf.branches if wf.branches is not None else [eff.default_branch]
+    prompt = (wf.prompt or eff.default_prompt("ci-fix", "{run_id}")).replace(
         "{run_id}", "${{ github.event.workflow_run.id }}"
     )
 
     content = _CI_FIX_TMPL.render(
-        cfg=cfg,
+        cfg=eff,
         watched=watched,
         branches=branches,
-        setup=_setup_yaml(cfg),
+        setup=_setup_yaml(eff),
         prompt=prompt,
     )
     return GeneratedWorkflow(filename="tend-ci-fix.yaml", content=content)
@@ -265,14 +284,15 @@ _SCHEDULED_DEFAULT_CRON = {
 
 def _generate_scheduled(cfg: Config, name: str) -> GeneratedWorkflow:
     wf = cfg.workflows.get(name, WorkflowConfig())
+    eff = _effective_cfg(cfg, wf)
     cron = wf.cron or _SCHEDULED_DEFAULT_CRON[name]
-    prompt = wf.prompt or cfg.default_prompt(name)
+    prompt = wf.prompt or eff.default_prompt(name)
 
     content = _SCHEDULED_TMPL.render(
-        cfg=cfg,
+        cfg=eff,
         name=name,
         cron=cron,
-        setup=_setup_yaml(cfg),
+        setup=_setup_yaml(eff),
         prompt=prompt,
     )
     return GeneratedWorkflow(filename=f"tend-{name}.yaml", content=content)
@@ -283,18 +303,19 @@ _NOTIFICATIONS_TMPL = _JINJA.get_template("notifications.yaml.j2")
 
 def generate_notifications(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("notifications", WorkflowConfig())
+    eff = _effective_cfg(cfg, wf)
     cron = wf.cron or "*/15 * * * *"
-    prompt = wf.prompt or cfg.default_prompt("notifications")
+    prompt = wf.prompt or eff.default_prompt("notifications")
 
     skip_condition = (
         "steps.check.outputs.count != '0' || github.event_name == 'workflow_dispatch'"
     )
 
     content = _NOTIFICATIONS_TMPL.render(
-        cfg=cfg,
+        cfg=eff,
         cron=cron,
         skip_condition=skip_condition,
-        setup=_setup_yaml(cfg, condition=skip_condition),
+        setup=_setup_yaml(eff, condition=skip_condition),
         prompt=prompt,
     )
     return GeneratedWorkflow(filename="tend-notifications.yaml", content=content)
