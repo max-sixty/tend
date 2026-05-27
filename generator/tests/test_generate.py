@@ -1260,6 +1260,39 @@ def test_per_workflow_model_override_unblocks_cross_family(tmp_path: Path) -> No
     assert "model: opus" in review.content
 
 
+def test_per_workflow_model_typo_without_harness_rejected(tmp_path: Path) -> None:
+    """Reviewer-flagged gap (#612): per-workflow `model:` override WITHOUT
+    a `harness:` change must still be validated against the top-level
+    harness's allowlist. Previously skipped because both checks gated on
+    `wf_harness is not None`."""
+    extra = dedent("""\
+        workflows:
+          nightly:
+            model: opus-99
+    """)
+    with pytest.raises(
+        click.ClickException,
+        match=r"workflows.nightly harness 'claude' is incompatible with model 'opus-99'",
+    ):
+        Config.load(_minimal_config(tmp_path, extra))
+
+
+def test_per_workflow_model_only_override_valid(tmp_path: Path) -> None:
+    """Per-workflow `model:` override (no harness change) to a valid model
+    in the top-level harness's allowlist loads cleanly and renders."""
+    extra = dedent("""\
+        workflows:
+          nightly:
+            model: haiku
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    nightly = workflows["tend-nightly.yaml"]
+    assert "model: haiku" in nightly.content
+    review = workflows["tend-review.yaml"]
+    assert "model: opus" in review.content
+
+
 def test_per_workflow_harness_same_family_no_model_clash(tmp_path: Path) -> None:
     """claude → claude-interactive shares the model set; no compatibility
     error even though it's a per-workflow override."""

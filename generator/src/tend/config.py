@@ -316,39 +316,43 @@ class Config:
                         f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
                     )
                 # Validate the effective (harness, model) pair this workflow
-                # will run with. Symmetric in both directions: claude → codex
-                # picks up gpt-5.5 absence-of-validation but the reverse
-                # (codex → claude) checks the model is in the Claude allowlist.
-                # Same-family overrides (claude ↔ claude-interactive) share
-                # the model set, no error.
-                eff_harness = wf_harness or harness
-                eff_model = wf_model or model
-                eff_known = KNOWN_MODELS_BY_HARNESS.get(eff_harness)
-                if (
-                    wf_harness is not None
-                    and eff_known is not None
-                    and eff_model not in eff_known
-                ):
-                    raise click.ClickException(
-                        f"workflows.{name} harness '{eff_harness}' is incompatible "
-                        f"with model '{eff_model}' "
-                        f"(known for {eff_harness}: {', '.join(sorted(eff_known))}). "
-                        f"Cross-family per-workflow harness overrides need a "
-                        f"compatible model — set `workflows.{name}.model:` to "
-                        "a valid value for the target harness."
-                    )
-                # Reverse direction: per-workflow override switches AWAY from
-                # a harness with a model allowlist (claude → codex) — the
-                # effective model is the top-level Claude model, which codex
-                # won't accept. Caught by the same check via eff_harness/eff_known
-                # being None for codex, so we additionally check the *source*
-                # had an allowlist that the new harness doesn't satisfy.
-                src_known = KNOWN_MODELS_BY_HARNESS.get(harness)
+                # will run with. Three cases to cover, all gated on "the
+                # user overrode something at the workflow level":
+                #
+                #   (A) wf_model set, eff_harness has an allowlist, eff_model
+                #       not in it: fail. Covers `model: opus-99` typo with no
+                #       harness override (top-level claude harness).
+                #   (B) wf_harness flips into a harness with an allowlist
+                #       (e.g. codex → claude) and the effective model isn't
+                #       in it: fail.
+                #   (C) wf_harness flips OUT of a harness with an allowlist
+                #       (claude → codex) without a per-workflow model: fail
+                #       (effective model is opus, codex won't accept).
+                if wf_harness is not None or wf_model is not None:
+                    eff_harness = wf_harness or harness
+                    eff_model = wf_model or model
+                    eff_known = KNOWN_MODELS_BY_HARNESS.get(eff_harness)
+                    src_known = KNOWN_MODELS_BY_HARNESS.get(harness)
+
+                    # Cases A and B collapse: effective model isn't valid for
+                    # the effective harness's allowlist.
+                    if eff_known is not None and eff_model not in eff_known:
+                        raise click.ClickException(
+                            f"workflows.{name} harness '{eff_harness}' is incompatible "
+                            f"with model '{eff_model}' "
+                            f"(known for {eff_harness}: {', '.join(sorted(eff_known))}). "
+                            f"Set `workflows.{name}.model:` (or change the top-level "
+                            "`model:`) to a valid value for this harness."
+                        )
+
+                    # Case C: cross-family flip AWAY from an allowlist harness
+                    # without an explicit model. eff_harness has no allowlist
+                    # to catch it, so check the source.
                 if (
                     wf_harness is not None
                     and wf_harness != harness
-                    and src_known is not None
-                    and eff_known is None
+                    and KNOWN_MODELS_BY_HARNESS.get(harness) is not None
+                    and KNOWN_MODELS_BY_HARNESS.get(wf_harness) is None
                     and wf_model is None
                 ):
                     raise click.ClickException(
