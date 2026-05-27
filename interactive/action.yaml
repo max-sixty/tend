@@ -365,12 +365,18 @@ runs:
         claude plugin list 2>/dev/null || true
 
     # The supervisor pattern, in three pieces:
-    #   1. Stop hook in .claude/settings.local.json writes a sentinel file
-    #      when the model finishes a turn. StopFailure writes a separate
-    #      sentinel for API/rate-limit/auth errors. settings.local.json is
-    #      additive — adopter project settings still apply.
-    #   2. A wrapper script invokes `claude --permission-mode
-    #      bypassPermissions "$PROMPT"` so all argv/env quoting happens in
+    #   1. .claude/settings.local.json sets `permissions.defaultMode:
+    #      dontAsk` with a permissive allow list, plus Stop/StopFailure
+    #      hooks. Stop writes a success sentinel; StopFailure writes a
+    #      failure sentinel for API/rate-limit/auth errors. Adopter
+    #      project settings still apply via the layered settings system.
+    #      We avoid `--permission-mode bypassPermissions` because
+    #      interactive claude shows a one-time "I accept the risks"
+    #      disclaimer the first time bypass mode is entered, with no
+    #      documented way to pre-seed acceptance — `dontAsk` + explicit
+    #      allow is equivalent for CI's purposes.
+    #   2. A wrapper script invokes `claude` with `--permission-mode
+    #      dontAsk --allowedTools …` so all argv/env quoting happens in
     #      bash, not in nested YAML strings.
     #   3. `script(1)` allocates a PTY (GHA runners have no TTY by
     #      default; without this the Ink-based UI degrades or hangs).
@@ -412,13 +418,21 @@ runs:
         WRAPPER="$RUNNER_TEMP/tend-run-claude.sh"
         rm -f "$SENTINEL_OK" "$SENTINEL_FAIL" "$LOG"
 
-        # Stop hook → success sentinel. StopFailure → failure sentinel
-        # (fires on rate-limit, auth, max-tokens, server errors per
-        # https://code.claude.com/docs/en/hooks.md). Written to
-        # settings.local.json so adopter project settings still apply.
+        # Build the permissions allow list from the comma-separated
+        # `allowed_tools` input. defaultMode=dontAsk means anything not
+        # explicitly allowed is denied (no interactive prompt). For tools
+        # like Bash with no `(...)` suffix, the entry matches all
+        # invocations — semantically equivalent to bypassPermissions for
+        # the listed tools.
+        ALLOW_JSON=$(jq -nc --arg list "$TEND_ALLOWED_TOOLS" '$list | split(",") | map(. | gsub("^\\s+|\\s+$"; ""))')
+
         mkdir -p .claude
         cat > .claude/settings.local.json <<EOF
         {
+          "permissions": {
+            "defaultMode": "dontAsk",
+            "allow": $ALLOW_JSON
+          },
           "hooks": {
             "Stop": [
               {
@@ -436,12 +450,15 @@ runs:
         }
         EOF
 
-        # Wrapper script — keeps the argv quoting in bash, not YAML.
+        # Wrapper script — keeps the argv quoting in bash, not YAML. The
+        # --permission-mode flag matches settings.local.json above; either
+        # alone would suffice but specifying both is explicit and survives
+        # an adopter who overrides settings.local.json.
         cat > "$WRAPPER" <<'WRAPEOF'
         #!/usr/bin/env bash
         exec claude \
           --model "$TEND_MODEL" \
-          --permission-mode bypassPermissions \
+          --permission-mode dontAsk \
           --allowedTools "$TEND_ALLOWED_TOOLS" \
           --append-system-prompt "$TEND_SYSTEM_PROMPT" \
           "$TEND_PROMPT"
