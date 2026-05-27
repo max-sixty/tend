@@ -90,6 +90,12 @@ The adopter's `running-tend` overlay may grant a standing exception for **agent-
 
 Two or three convergent signals are enough; borderline cases revert to the default. Without an explicit opt-in in `running-tend`, the default also applies.
 
+When asking permission (the default path), close with a short offer so the user can record a preference for future asks:
+
+> By default I ask before filing upstream issues. If you'd prefer I file without asking, let me know and I'll add a standing exception to my guidance. If you'd rather keep approving each one but stop seeing this offer, also let me know.
+
+Either reply gets codified in the consumer repo's `running-tend` overlay per **Learning from Feedback** below — opt-in adds the target (or "all agent-equipped targets") to the exceptions list; suppress adds a one-line rule telling the bot to skip the offer for future asks.
+
 Whether filed direct or post-approval, the issue body includes:
 
 - Problem statement: what fires, where, under what conditions.
