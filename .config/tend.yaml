@@ -1,11 +1,11 @@
 bot_name: tend-agent
-harness: claude
+harness: claude-interactive
 
 setup:
   - uses: astral-sh/setup-uv@v6
 
 secrets:
-  # tend's own harness is Claude; no generated workflow consumes this. The
+  # tend's own harness is Claude (interactive); no generated workflow consumes this. The
   # CODEX_AUTH_JSON repo secret is retained only for the dispatch-only
   # codex-auth-refresh.yaml reference workflow, so it stays allowlisted to
   # keep tend's own secret audit (check_repo_secret_allowlist) from
