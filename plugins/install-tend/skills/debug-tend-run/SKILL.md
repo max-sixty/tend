@@ -39,18 +39,22 @@ gh run list -R "$REPO" --branch "$HEAD" --limit 10 \
 The artifact name identifies the harness:
 
 - `claude-session-logs*` — Claude harness (`claude-code-action` wraps tend)
+- `claude-interactive-session-logs*` — Claude interactive harness (PTY-supervised binary)
 - `codex-session-logs-*` — Codex harness (`max-sixty/tend/codex`)
 
 ```bash
 RUN_ID=<run-id>
 DEST=/tmp/session-logs/$RUN_ID
 gh run download "$RUN_ID" -R "$REPO" --pattern '*session-logs*' --dir "$DEST"
-ls "$DEST"  # confirm claude- or codex-
+ls "$DEST"  # confirm claude-, claude-interactive-, or codex-
 FILE=$(find "$DEST" -name '*.jsonl' | head -1)
 echo "$FILE"
 ```
 
-Claude artifacts hold flat JSONL files (one per agent session). Codex
+Claude artifacts (both harnesses) hold flat JSONL files (one per agent
+session) — same schema. Claude interactive additionally ships
+`tend-claude.log` (the PTY transcript) at the artifact root; useful when
+the session aborted before Stop fired and the JSONL is incomplete. Codex
 artifacts store the rollout at `sessions/YYYY/MM/DD/rollout-*.jsonl`
 plus `projects/token-usage.json`; one rollout per session.
 
@@ -66,7 +70,7 @@ gh run view "$RUN_ID" -R "$REPO" --log-failed
 The JSONL schema differs by harness. Open the reference matching the
 artifact name and follow its recipes:
 
-- `claude-session-logs*` → [`references/claude-logs.md`](references/claude-logs.md)
+- `claude-session-logs*` or `claude-interactive-session-logs*` → [`references/claude-logs.md`](references/claude-logs.md)
 - `codex-session-logs-*` → [`references/codex-logs.md`](references/codex-logs.md)
 
 Each reference covers the line schema plus copy-paste jq for an overview
