@@ -1198,14 +1198,11 @@ def test_per_workflow_harness_unknown_rejected(tmp_path: Path) -> None:
         Config.load(_minimal_config(tmp_path, extra))
 
 
-def test_per_workflow_harness_incompatible_model_rejected(tmp_path: Path) -> None:
-    """Cross-family override needs a compatible model.
-
-    codex's catalog churns so we don't validate codex model strings — the
-    error fires when the top-level model is from a churnable harness and
-    the per-workflow override is to one with an allowlist. Concretely:
-    codex (gpt-5.5) → claude per-workflow yields a model invalid for the
-    target harness."""
+def test_per_workflow_harness_incompatible_model_rejected_codex_target(
+    tmp_path: Path,
+) -> None:
+    """codex (gpt-5.5) → claude per-workflow: top-level model 'gpt-5.5' isn't
+    in claude's allowlist. Fail at config load."""
     extra = dedent("""\
         harness: codex
         model: gpt-5.5
@@ -1215,9 +1212,52 @@ def test_per_workflow_harness_incompatible_model_rejected(tmp_path: Path) -> Non
     """)
     with pytest.raises(
         click.ClickException,
-        match="workflows.nightly.harness 'claude' is incompatible with the top-level model 'gpt-5.5'",
+        match=r"workflows.nightly harness 'claude' is incompatible with model 'gpt-5.5'",
     ):
         Config.load(_minimal_config(tmp_path, extra))
+
+
+def test_per_workflow_harness_incompatible_model_rejected_codex_source(
+    tmp_path: Path,
+) -> None:
+    """Symmetric case: claude (opus) → codex per-workflow without a model
+    override. codex doesn't accept 'opus' but has no allowlist, so the
+    cross-family-source check catches it instead of the target-allowlist
+    check. Reviewer-flagged asymmetry in #612.
+
+    Without this guard, the renderer would emit `model: opus` on a codex
+    action step that codex would reject at runtime."""
+    extra = dedent("""\
+        harness: claude
+        workflows:
+          nightly:
+            harness: codex
+    """)
+    with pytest.raises(
+        click.ClickException,
+        match=r"workflows.nightly crosses harness families \(claude → codex\)",
+    ):
+        Config.load(_minimal_config(tmp_path, extra))
+
+
+def test_per_workflow_model_override_unblocks_cross_family(tmp_path: Path) -> None:
+    """Cross-family override succeeds when paired with a per-workflow model."""
+    extra = dedent("""\
+        harness: claude
+        workflows:
+          nightly:
+            harness: codex
+            model: gpt-5.5
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    nightly = workflows["tend-nightly.yaml"]
+    assert f"max-sixty/tend/codex@{ACTION_VERSION}" in nightly.content
+    assert "model: gpt-5.5" in nightly.content
+    # Sibling workflows still on claude with opus
+    review = workflows["tend-review.yaml"]
+    assert f"max-sixty/tend@{ACTION_VERSION}" in review.content
+    assert "model: opus" in review.content
 
 
 def test_per_workflow_harness_same_family_no_model_clash(tmp_path: Path) -> None:

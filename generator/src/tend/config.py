@@ -102,9 +102,11 @@ class WorkflowConfig:
     # Per-workflow harness override. Lets adopters trial a new harness on
     # a single workflow (e.g. `claude-interactive` on nightly only) before
     # flipping the whole bot. None means inherit from top-level `harness`.
-    # Cross-family overrides (claude → codex or vice versa) require also
-    # overriding the model, since model defaults are per-harness.
     harness: str | None = None
+    # Per-workflow model override. Pairs with `harness` for cross-family
+    # overrides — top-level `model` may not be valid for the new harness.
+    # None means inherit from top-level `model`.
+    model: str | None = None
 
 
 # Claude model allowlist — the set is small and stable enough that a
@@ -307,24 +309,55 @@ class Config:
                         f"workflows.{name}.jobs must be a mapping of mappings"
                     )
                 wf_harness = wf_raw.get("harness")
-                if wf_harness is not None:
-                    if wf_harness not in KNOWN_HARNESSES:
-                        raise click.ClickException(
-                            f"workflows.{name}.harness '{wf_harness}' is not recognized "
-                            f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
-                        )
-                    # Cross-family overrides need a compatible model. Same-family
-                    # overrides (claude ↔ claude-interactive) share the model set.
-                    eff_known = KNOWN_MODELS_BY_HARNESS.get(wf_harness)
-                    if eff_known is not None and model not in eff_known:
-                        raise click.ClickException(
-                            f"workflows.{name}.harness '{wf_harness}' is incompatible "
-                            f"with the top-level model '{model}' "
-                            f"(known for {wf_harness}: {', '.join(sorted(eff_known))}). "
-                            f"Cross-family per-workflow harness overrides require "
-                            "setting `model:` per-workflow too, or changing the "
-                            "top-level model."
-                        )
+                wf_model = wf_raw.get("model")
+                if wf_harness is not None and wf_harness not in KNOWN_HARNESSES:
+                    raise click.ClickException(
+                        f"workflows.{name}.harness '{wf_harness}' is not recognized "
+                        f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
+                    )
+                # Validate the effective (harness, model) pair this workflow
+                # will run with. Symmetric in both directions: claude → codex
+                # picks up gpt-5.5 absence-of-validation but the reverse
+                # (codex → claude) checks the model is in the Claude allowlist.
+                # Same-family overrides (claude ↔ claude-interactive) share
+                # the model set, no error.
+                eff_harness = wf_harness or harness
+                eff_model = wf_model or model
+                eff_known = KNOWN_MODELS_BY_HARNESS.get(eff_harness)
+                if (
+                    wf_harness is not None
+                    and eff_known is not None
+                    and eff_model not in eff_known
+                ):
+                    raise click.ClickException(
+                        f"workflows.{name} harness '{eff_harness}' is incompatible "
+                        f"with model '{eff_model}' "
+                        f"(known for {eff_harness}: {', '.join(sorted(eff_known))}). "
+                        f"Cross-family per-workflow harness overrides need a "
+                        f"compatible model — set `workflows.{name}.model:` to "
+                        "a valid value for the target harness."
+                    )
+                # Reverse direction: per-workflow override switches AWAY from
+                # a harness with a model allowlist (claude → codex) — the
+                # effective model is the top-level Claude model, which codex
+                # won't accept. Caught by the same check via eff_harness/eff_known
+                # being None for codex, so we additionally check the *source*
+                # had an allowlist that the new harness doesn't satisfy.
+                src_known = KNOWN_MODELS_BY_HARNESS.get(harness)
+                if (
+                    wf_harness is not None
+                    and wf_harness != harness
+                    and src_known is not None
+                    and eff_known is None
+                    and wf_model is None
+                ):
+                    raise click.ClickException(
+                        f"workflows.{name} crosses harness families "
+                        f"({harness} → {wf_harness}) without a model override. "
+                        f"The top-level model '{model}' is from the {harness} "
+                        f"allowlist and likely won't apply to {wf_harness}. "
+                        f"Set `workflows.{name}.model:` to a valid {wf_harness} model."
+                    )
                 workflows[name] = WorkflowConfig(
                     enabled=wf_raw.get("enabled", True),
                     prompt=wf_raw.get("prompt", ""),
@@ -334,6 +367,7 @@ class Config:
                     workflow_extra=workflow_extra,
                     jobs=jobs_raw,
                     harness=wf_harness,
+                    model=wf_model,
                 )
             else:
                 workflows[name] = WorkflowConfig(enabled=bool(wf_raw))

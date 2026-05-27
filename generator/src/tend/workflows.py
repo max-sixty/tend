@@ -163,16 +163,22 @@ def _escape_braces(prompt: str, placeholder: str) -> tuple[str, bool]:
 
 
 def _effective_cfg(cfg: Config, wf: WorkflowConfig) -> Config:
-    """Return cfg, or a shallow clone with workflow's harness override applied.
+    """Return cfg, or a shallow clone with workflow overrides applied.
 
-    Per-workflow harness lets an adopter trial a new harness on one
-    workflow without flipping the whole bot. Validation (model
-    compatibility, known-harness check) happens in `Config.load`; this
-    helper just produces the effective config the renderer sees.
+    Per-workflow `harness` and `model` let an adopter trial a different
+    harness on one workflow (e.g. claude-interactive on nightly only)
+    without flipping the whole bot. Validation (model compatibility,
+    known-harness check) happens in `Config.load`; this helper just
+    produces the effective config the renderer sees.
     """
-    if wf.harness is None or wf.harness == cfg.harness:
+    if wf.harness is None and wf.model is None:
         return cfg
-    return dataclasses.replace(cfg, harness=wf.harness)
+    updates = {}
+    if wf.harness is not None:
+        updates["harness"] = wf.harness
+    if wf.model is not None:
+        updates["model"] = wf.model
+    return dataclasses.replace(cfg, **updates)
 
 
 _REVIEW_TMPL = _JINJA.get_template("review.yaml.j2")
