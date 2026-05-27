@@ -71,6 +71,10 @@ jobs:
           # bot-authored PR otherwise fall through to the PR-author short-circuit
           # below and spin up a no-op session ? twice per notification when the
           # source bot edits its comment. Skip them here.
+          # TODO: reassess ? a quick pass of a small/fast model could replace
+          # this blanket skip with content-aware filtering (only drop comments
+          # that have no actionable signal), so we don't miss bot comments that
+          # actually warrant a response.
           if [ "$EVENT_NAME" = "issue_comment" ] && [ "$COMMENT_AUTHOR_TYPE" = "Bot" ]; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
