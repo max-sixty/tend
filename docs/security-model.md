@@ -83,13 +83,13 @@ action additionally pins `CLAUDE.md` to the base branch on fork PRs as a
 prompt-injection defense.
 
 The alternative `claude-interactive` harness (composite action at
-`interactive/`) does NOT restore those RCE-relevant config files today —
-only `CLAUDE.md` is pinned. Adopters should not flip a
-`pull_request_target` workflow to `claude-interactive` until parity is
-restored. Internal scheduled workflows (`nightly`, `weekly`,
-`notifications`, `review-runs`) and `workflow_run` (`ci-fix`) don't
-execute fork-controlled code paths through this surface, so the gap
-doesn't bite there.
+`interactive/`) does the same restoration in shell rather than via
+claude-code-action's TypeScript, with the same path list. The
+PR-authored versions of those paths are snapshotted to `.claude-pr/`
+(added to `.git/info/exclude` so they're not tracked) before being
+overwritten, matching claude-code-action's behavior so review skills can
+optionally inspect what the PR changed without those files ever being
+executed.
 
 **Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort

@@ -179,30 +179,90 @@ runs:
         curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-    # See action.yaml for the rationale — claude-code-action restores
-    # several config files from base on fork PRs but not CLAUDE.md. The
-    # interactive harness does the same restoration here (CLAUDE.md only;
-    # the RCE-vector files like .claude/, .mcp.json aren't auto-restored
-    # by this action, so adopters relying on fork-PR safety should review
-    # before flipping their workflows).
-    - name: Pin CLAUDE.md to base branch (fork PRs)
+    # On a PR, the head checkout contains attacker-controlled files that
+    # the CLI reads at startup BEFORE any permission gating — SessionStart
+    # hooks, env-var overrides (NODE_OPTIONS, LD_PRELOAD, PATH), MCP
+    # servers, apiKeyHelper shell commands. Restore from the PR base
+    # branch, which a maintainer has reviewed and merged.
+    #
+    # Path list and ordering mirror claude-code-action's restore-config.ts
+    # (src/github/operations/restore-config.ts). Snapshot PR-authored
+    # versions to .claude-pr/ first (excluded from git via info/exclude)
+    # so review skills can optionally inspect what the PR changed without
+    # those files ever being executed. Then delete (so an attacker-
+    # controlled .gitmodules can't stall the fetch on credential prompts),
+    # then fetch base, then check out each path, then unstage so the
+    # revert doesn't silently leak into commits Claude makes later.
+    #
+    # Known limitation: a PR that legitimately edits .claude/ or CLAUDE.md
+    # will have those edits reverted for the duration of this run. Same
+    # tradeoff claude-code-action makes — narrow UX cost for closing the
+    # RCE surface.
+    - name: Restore sensitive config from base branch (PRs)
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
-        if [ "$GITHUB_EVENT_NAME" != "pull_request_target" ]; then
+        SENSITIVE=(.claude .mcp.json .claude.json .gitmodules .ripgreprc CLAUDE.md CLAUDE.local.md .husky)
+
+        case "$GITHUB_EVENT_NAME" in
+          pull_request_target|pull_request_review|pull_request_review_comment)
+            BASE_REF=$(jq -r '.pull_request.base.ref' "$GITHUB_EVENT_PATH")
+            ;;
+          issue_comment)
+            PR_URL=$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")
+            if [ -z "$PR_URL" ]; then
+              echo "issue_comment on issue (not PR); nothing to restore"
+              exit 0
+            fi
+            BASE_REF=$(gh api "${PR_URL#https://api.github.com/}" --jq '.base.ref')
+            ;;
+          *)
+            echo "Event $GITHUB_EVENT_NAME is not a PR event; nothing to restore"
+            exit 0
+            ;;
+        esac
+
+        if [ -z "$BASE_REF" ] || [ "$BASE_REF" = "null" ]; then
+          echo "::warning::Could not determine base ref; skipping config restoration"
           exit 0
         fi
-        IS_FORK=$(jq -r '.pull_request.head.repo.fork // false' "$GITHUB_EVENT_PATH")
-        if [ "$IS_FORK" != "true" ]; then
-          exit 0
+
+        echo "Restoring ${SENSITIVE[*]} from origin/$BASE_REF"
+
+        # Snapshot PR-authored versions to .claude-pr/ for optional review
+        rm -rf .claude-pr
+        for p in "${SENSITIVE[@]}"; do
+          if [ -e "$p" ]; then
+            mkdir -p ".claude-pr/$(dirname "$p")"
+            cp -aL "$p" ".claude-pr/$p" 2>/dev/null || true
+          fi
+        done
+        if [ -d .claude-pr ]; then
+          EXCLUDE_FILE="$(git rev-parse --git-path info/exclude)"
+          mkdir -p "$(dirname "$EXCLUDE_FILE")"
+          if ! grep -qxF '/.claude-pr/' "$EXCLUDE_FILE" 2>/dev/null; then
+            [ -s "$EXCLUDE_FILE" ] && [ "$(tail -c1 "$EXCLUDE_FILE" | wc -l)" -eq 0 ] && echo "" >> "$EXCLUDE_FILE"
+            echo '/.claude-pr/' >> "$EXCLUDE_FILE"
+          fi
         fi
-        DEFAULT_BRANCH=$(jq -r '.repository.default_branch' "$GITHUB_EVENT_PATH")
-        if git show "origin/${DEFAULT_BRANCH}:CLAUDE.md" > /tmp/base-claude.md 2>/dev/null; then
-          cp /tmp/base-claude.md CLAUDE.md
-          echo "Pinned CLAUDE.md to ${DEFAULT_BRANCH}"
-        else
-          rm -f CLAUDE.md
-          echo "No CLAUDE.md on ${DEFAULT_BRANCH} — removed fork version"
-        fi
+
+        # Delete BEFORE fetch so attacker-controlled .gitmodules can't stall on
+        # credential prompts (git's default fetch.recurseSubmodules=on-demand).
+        for p in "${SENSITIVE[@]}"; do
+          rm -rf "$p"
+        done
+
+        git fetch origin "$BASE_REF" --depth=1 --no-recurse-submodules
+
+        for p in "${SENSITIVE[@]}"; do
+          git checkout "origin/$BASE_REF" -- "$p" 2>/dev/null || true
+        done
+
+        # Unstage — `git checkout <ref> -- <path>` stages restored files.
+        git reset -- "${SENSITIVE[@]}" 2>/dev/null || true
+
+        echo "Restored from origin/$BASE_REF"
 
     # Compose the system prompt from shared/system-prompt.md (harness-neutral)
     # plus a Claude-specific skill-loading directive. Same recipe as
@@ -250,28 +310,42 @@ runs:
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
         "$HOME/.local/bin/claude" --version
 
-    # Interactive `claude` refuses to start in an untrusted workspace
-    # until the user accepts the trust dialog. `claude -p` skips it
-    # automatically. The state lives at
-    # `~/.claude.json:.projects[<abspath>].hasTrustDialogAccepted` —
-    # pre-seed it for the current workspace so the session starts cleanly.
-    # Merge into an existing file if one exists (the install step or
-    # earlier action invocations may have created it).
-    - name: Pre-seed workspace trust
+    # Interactive `claude` runs first-run onboarding on a fresh install:
+    # workspace-trust dialog, theme picker, then per-project onboarding.
+    # `claude -p` skips them all automatically; interactive mode doesn't.
+    # Pre-seed the state so the session reaches the prompt-processing
+    # loop immediately. The first smoke test on a clean runner timed out
+    # at the theme picker because only the workspace-trust seed was set.
+    #
+    # Keys (all live in ~/.claude.json):
+    #   hasCompletedOnboarding=true, lastOnboardingVersion=<installed>
+    #     → skips the welcome/theme/intro flow
+    #   theme=dark
+    #     → fallback in case onboarding still triggers
+    #   projects[$PWD].hasTrustDialogAccepted=true
+    #     → skips the workspace-trust dialog
+    #   projects[$PWD].hasCompletedProjectOnboarding=true
+    #     → skips the per-project "first time in this folder" prompt
+    - name: Pre-seed Claude onboarding state
       shell: bash
+      env:
+        CLAUDE_VERSION: ${{ inputs.claude_version }}
       run: |
         PROJECT_PATH="$(realpath "$PWD")"
-        if [ -f "$HOME/.claude.json" ]; then
-          jq --arg p "$PROJECT_PATH" \
-            '.projects[$p] = ((.projects[$p] // {}) + {hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true})' \
-            "$HOME/.claude.json" > "$HOME/.claude.json.tmp"
-          mv "$HOME/.claude.json.tmp" "$HOME/.claude.json"
-        else
-          jq -n --arg p "$PROJECT_PATH" \
-            '{projects: {($p): {hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true}}}' \
-            > "$HOME/.claude.json"
+        if [ ! -f "$HOME/.claude.json" ]; then
+          echo '{}' > "$HOME/.claude.json"
         fi
-        echo "Pre-seeded trust for $PROJECT_PATH"
+        jq --arg p "$PROJECT_PATH" --arg v "$CLAUDE_VERSION" '
+          .hasCompletedOnboarding = true
+          | .lastOnboardingVersion = $v
+          | .theme = (.theme // "dark")
+          | .projects[$p] = ((.projects[$p] // {}) + {
+              hasTrustDialogAccepted: true,
+              hasCompletedProjectOnboarding: true
+            })
+        ' "$HOME/.claude.json" > "$HOME/.claude.json.tmp"
+        mv "$HOME/.claude.json.tmp" "$HOME/.claude.json"
+        echo "Pre-seeded onboarding for $PROJECT_PATH (claude $CLAUDE_VERSION)"
 
     # Install the tend-ci-runner plugin from this action's own checkout —
     # same approach as action.yaml's `plugin_marketplaces:
