@@ -332,7 +332,6 @@ class Config:
                     eff_harness = wf_harness or harness
                     eff_model = wf_model or model
                     eff_known = KNOWN_MODELS_BY_HARNESS.get(eff_harness)
-                    src_known = KNOWN_MODELS_BY_HARNESS.get(harness)
 
                     # Cases A and B collapse: effective model isn't valid for
                     # the effective harness's allowlist.
