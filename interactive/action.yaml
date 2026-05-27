@@ -357,6 +357,9 @@ runs:
       env:
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        # Suppress any interactive prompts (auth confirmation, plugin
+        # install confirmation, etc.) the CLI might otherwise show.
+        CLAUDE_CODE_REMOTE: "1"
       run: |
         MARKETPLACE_ROOT="$(realpath "${{ github.action_path }}/..")"
         claude plugin marketplace add "$MARKETPLACE_ROOT"
@@ -388,6 +391,13 @@ runs:
       env:
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        # Tells claude this is a remote/non-interactive context so it
+        # skips permission prompts that would otherwise block the
+        # supervisor (interactive mode shows a one-time disclaimer the
+        # first time bypass-permission tools are invoked). Belt-and-
+        # suspenders alongside the settings.local.json dontAsk allow
+        # list below.
+        CLAUDE_CODE_REMOTE: "1"
         # Mirrors action.yaml: the Linux bwrap wrapping path in claude-
         # code v2.1.142 corrupts argv tokens containing `!` next to `'`.
         # Setting this to 0 routes bash through the fixed quoting path.
