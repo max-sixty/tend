@@ -16,6 +16,8 @@
 {% macro agent_step(cfg, prompt_body, use_sticky_comment=False, if_condition='') %}
 {% if cfg.harness == 'claude' %}
       - uses: max-sixty/tend@<<tend_version>>
+{% elif cfg.harness == 'claude-interactive' %}
+      - uses: max-sixty/tend/interactive@<<tend_version>>
 {% else %}
       - uses: max-sixty/tend/codex@<<tend_version>>
 {% endif %}
@@ -24,7 +26,7 @@
 {% endif %}
         with:
           github_token: ${{ secrets.<<cfg.bot_token_secret>> }}
-{% if cfg.harness == 'claude' %}
+{% if cfg.harness in ('claude', 'claude-interactive') %}
           claude_code_oauth_token: ${{ secrets.<<cfg.claude_token_secret>> }}
           anthropic_api_key: ${{ secrets.<<cfg.anthropic_api_key_secret>> }}
 {% else %}

@@ -1,0 +1,613 @@
+name: Tend (Claude interactive)
+description: >-
+  Tend's interactive-Claude harness: runs the official `claude` binary
+  inside a PTY (via `script(1)`) instead of going through
+  `claude-code-action` / `@anthropic-ai/claude-agent-sdk`. A Stop hook
+  writes a sentinel file the supervisor watches for; on fire, the session
+  is terminated cleanly. Motivation: Anthropic's June 15 2026 billing
+  split puts the Agent SDK on a metered Agent-SDK credit pool, while
+  interactive Claude Code stays on the flat Pro/Max subscription. Inputs
+  mirror `action.yaml` so workflows can swap one for the other.
+
+inputs:
+  github_token:
+    required: true
+    description: GitHub token for API access and pushing commits
+  claude_code_oauth_token:
+    required: false
+    default: ""
+    description: >-
+      Claude Code OAuth token (Max/Team subscription, obtained via
+      `claude setup-token`). One of claude_code_oauth_token or
+      anthropic_api_key must be set.
+  anthropic_api_key:
+    required: false
+    default: ""
+    description: >-
+      Anthropic API key from console.anthropic.com (billed per token).
+      One of claude_code_oauth_token or anthropic_api_key must be set;
+      claude_code_oauth_token takes precedence when both are present.
+  bot_name:
+    required: true
+    description: GitHub username of the bot account
+  prompt:
+    required: true
+    description: The prompt to send to Claude
+  model:
+    default: "opus"
+    description: Claude model to use
+  allowed_tools:
+    default: "Bash,Edit,Read,Write,Glob,Grep,WebSearch,WebFetch,Task,Skill"
+    description: Comma-separated list of allowed tools
+  system_prompt_append:
+    default: ""
+    description: >-
+      Extra text appended to the computed system prompt (see action.yaml
+      for the composition recipe; shared/system-prompt.md is the base).
+  allowed_bots:
+    default: "*"
+    description: >-
+      Bots allowed to trigger workflows. Not enforced here yet — primary
+      gating happens in the generated workflow `if:` expressions. Kept
+      for input-shape parity with `action.yaml` (see TODO note in the
+      Run Claude step).
+  allowed_non_write_users:
+    default: "*"
+    description: >-
+      Non-write users allowed to trigger workflows. Same caveat as
+      allowed_bots.
+  show_full_output:
+    default: "true"
+    description: Include the full Claude transcript in the workflow step summary.
+  use_sticky_comment:
+    default: "false"
+    description: >-
+      No-op under the interactive harness: sticky-comment behavior lived
+      in claude-code-action's JS layer, which this action doesn't run.
+      Skills post comments via `gh` directly; pass `--edit-last` in the
+      skill if you want sticky behavior.
+  additional_permissions:
+    default: "actions: read"
+    description: >-
+      No-op under the interactive harness. Permissions are set in the
+      generated workflow YAML; this input exists for input-shape parity
+      with `action.yaml`.
+  claude_version:
+    default: "2.1.150"
+    description: >-
+      Version of the `claude` binary to install via
+      `https://claude.ai/install.sh`. Matches the version
+      claude-code-base-action installs today.
+  timeout_seconds:
+    default: "3600"
+    description: >-
+      Maximum time the supervised Claude session is allowed to run before
+      the supervisor kills it. Defaults to 60 minutes — well above any
+      single-turn skill we have today.
+
+outputs:
+  token_usage:
+    description: >-
+      JSON object with token usage parsed from the Claude Code session
+      JSONL written under `~/.claude/projects/`. Shape matches
+      `action.yaml`'s output for compatibility.
+    value: ${{ steps.tokens.outputs.usage }}
+
+runs:
+  using: composite
+  steps:
+    # Preflight steps mirror action.yaml. Kept in lockstep so that swapping
+    # `uses:` between the two actions is a true apples-to-apples swap.
+    - name: Security preflight
+      shell: bash
+      run: |
+        DEFAULT_BRANCH=$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.default_branch')
+        PROTECTED=$(gh api "repos/${GITHUB_REPOSITORY}/branches/${DEFAULT_BRANCH}" --jq '.protected')
+        if [ "$PROTECTED" != "true" ]; then
+          echo "::error::Default branch '${DEFAULT_BRANCH}' is NOT protected. Without branch protection, the bot can merge PRs without review. Add a branch protection rule or ruleset before using Tend. See docs/security-model.md in the Tend repo."
+          exit 1
+        fi
+        echo "Security preflight passed: default branch '${DEFAULT_BRANCH}' is protected"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: Rate limit preflight
+      shell: bash
+      run: |
+        REPO="${GITHUB_REPOSITORY}"
+        BOT="${{ inputs.bot_name }}"
+        TWENTY_MIN_AGO=$(date -u -d '20 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+        TODAY=$(date -u +%Y-%m-%d)
+        YESTERDAY=$(date -u -d 'yesterday' +%Y-%m-%d)
+        SIX_DAYS_AGO=$(date -u -d '6 days ago' +%Y-%m-%d)
+
+        RECENT_PRS=$(gh api "repos/$REPO/pulls?state=all&sort=created&direction=desc&per_page=30" \
+          --jq "[.[] | select(.user.login == \"$BOT\" and .created_at > \"$TWENTY_MIN_AGO\")] | length" || echo 0)
+        RECENT_ISSUES=$(gh api "repos/$REPO/issues?creator=$BOT&state=all&sort=created&direction=desc&per_page=30" \
+          --jq "[.[] | select(.pull_request == null and .created_at > \"$TWENTY_MIN_AGO\")] | length" || echo 0)
+
+        TODAY_POSTS=$(gh api "search/issues?q=author:${BOT}+repo:${REPO}+created:${TODAY}" \
+          --jq '.total_count' || echo 0)
+        PAST_POSTS=$(gh api "search/issues?q=author:${BOT}+repo:${REPO}+created:${SIX_DAYS_AGO}..${YESTERDAY}" \
+          --jq '.total_count' || echo 0)
+        SPIKE_LIMIT=$((10 + PAST_POSTS / 3))
+
+        echo "Rate limit: burst=${RECENT_PRS} PRs, ${RECENT_ISSUES} issues (20min); today=${TODAY_POSTS} (limit: ${SPIKE_LIMIT})"
+
+        ABORT=false
+        if [ "$RECENT_PRS" -gt 10 ]; then
+          echo "::error::Rate limit: bot created ${RECENT_PRS} PRs in the last 20 minutes (limit: 10)"
+          ABORT=true
+        fi
+        if [ "$RECENT_ISSUES" -gt 10 ]; then
+          echo "::error::Rate limit: bot created ${RECENT_ISSUES} issues in the last 20 minutes (limit: 10)"
+          ABORT=true
+        fi
+        if [ "$TODAY_POSTS" -gt "$SPIKE_LIMIT" ]; then
+          echo "::error::Rate limit: bot created ${TODAY_POSTS} items today, above spike limit of ${SPIKE_LIMIT} (baseline: ${PAST_POSTS} over past 6 days)"
+          ABORT=true
+        fi
+        if [ "$ABORT" = true ]; then
+          exit 1
+        fi
+        echo "Rate limit check passed"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: Resolve bot ID
+      id: bot
+      shell: bash
+      run: echo "id=$(gh api users/${{ inputs.bot_name }} --jq '.id')" >> "$GITHUB_OUTPUT"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: Validate auth configured
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.claude_code_oauth_token }}" ] && [ -z "${{ inputs.anthropic_api_key }}" ]; then
+          echo "::error::No Claude auth configured. Set either the CLAUDE_CODE_OAUTH_TOKEN secret (subscription-funded, via \`claude setup-token\`) or the ANTHROPIC_API_KEY secret (billed per token via console.anthropic.com)."
+          exit 1
+        fi
+
+    - name: Ensure uv is available
+      shell: bash
+      run: |
+        if command -v uvx >/dev/null 2>&1; then
+          echo "uvx already available at $(command -v uvx)"
+          exit 0
+        fi
+        curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    # See action.yaml for the rationale — claude-code-action restores
+    # several config files from base on fork PRs but not CLAUDE.md. The
+    # interactive harness does the same restoration here (CLAUDE.md only;
+    # the RCE-vector files like .claude/, .mcp.json aren't auto-restored
+    # by this action, so adopters relying on fork-PR safety should review
+    # before flipping their workflows).
+    - name: Pin CLAUDE.md to base branch (fork PRs)
+      shell: bash
+      run: |
+        if [ "$GITHUB_EVENT_NAME" != "pull_request_target" ]; then
+          exit 0
+        fi
+        IS_FORK=$(jq -r '.pull_request.head.repo.fork // false' "$GITHUB_EVENT_PATH")
+        if [ "$IS_FORK" != "true" ]; then
+          exit 0
+        fi
+        DEFAULT_BRANCH=$(jq -r '.repository.default_branch' "$GITHUB_EVENT_PATH")
+        if git show "origin/${DEFAULT_BRANCH}:CLAUDE.md" > /tmp/base-claude.md 2>/dev/null; then
+          cp /tmp/base-claude.md CLAUDE.md
+          echo "Pinned CLAUDE.md to ${DEFAULT_BRANCH}"
+        else
+          rm -f CLAUDE.md
+          echo "No CLAUDE.md on ${DEFAULT_BRANCH} — removed fork version"
+        fi
+
+    # Compose the system prompt from shared/system-prompt.md (harness-neutral)
+    # plus a Claude-specific skill-loading directive. Same recipe as
+    # action.yaml; the only difference is the relative path to shared/,
+    # since this action lives under interactive/ (one level deeper).
+    - name: Compose system prompt
+      id: prompt
+      shell: bash
+      env:
+        BOT_NAME: ${{ inputs.bot_name }}
+        EXTRA: ${{ inputs.system_prompt_append }}
+      run: |
+        SHARED="${{ github.action_path }}/../shared/system-prompt.md"
+        CLAUDE_DIRECTIVE="Use /tend-ci-runner:running-in-ci before starting work."
+        AUTONOMY_DIRECTIVE="You are running in CI; no human is available to answer questions. Never prompt for clarification or approval. When uncertain, make the best reasonable choice from the available evidence and proceed. Permissions are pre-approved; tool calls execute without confirmation."
+        BASE=$(BOT_NAME="$BOT_NAME" envsubst '$BOT_NAME' < "$SHARED")
+        FULL="${CLAUDE_DIRECTIVE}"$'\n\n'"${AUTONOMY_DIRECTIVE}"$'\n\n'"${BASE}"
+        if [ -n "$EXTRA" ]; then
+          FULL="${FULL}"$'\n\n'"${EXTRA}"
+        fi
+        {
+          echo 'value<<TEND_EOF'
+          printf '%s\n' "$FULL"
+          echo 'TEND_EOF'
+        } >> "$GITHUB_OUTPUT"
+
+    # Install the claude binary. Same recipe and pinned version as
+    # claude-code-base-action's install step.
+    - name: Install Claude Code
+      shell: bash
+      env:
+        CLAUDE_VERSION: ${{ inputs.claude_version }}
+      run: |
+        for i in 1 2 3; do
+          if timeout 60 bash -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_VERSION"; then
+            break
+          fi
+          echo "Install attempt $i failed; retrying"
+          sleep $((i * 5))
+        done
+        if ! [ -x "$HOME/.local/bin/claude" ]; then
+          echo "::error::claude binary not found at $HOME/.local/bin/claude after install"
+          exit 1
+        fi
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        "$HOME/.local/bin/claude" --version
+
+    # Interactive `claude` refuses to start in an untrusted workspace
+    # until the user accepts the trust dialog. `claude -p` skips it
+    # automatically. The state lives at
+    # `~/.claude.json:.projects[<abspath>].hasTrustDialogAccepted` —
+    # pre-seed it for the current workspace so the session starts cleanly.
+    # Merge into an existing file if one exists (the install step or
+    # earlier action invocations may have created it).
+    - name: Pre-seed workspace trust
+      shell: bash
+      run: |
+        PROJECT_PATH="$(realpath "$PWD")"
+        if [ -f "$HOME/.claude.json" ]; then
+          jq --arg p "$PROJECT_PATH" \
+            '.projects[$p] = ((.projects[$p] // {}) + {hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true})' \
+            "$HOME/.claude.json" > "$HOME/.claude.json.tmp"
+          mv "$HOME/.claude.json.tmp" "$HOME/.claude.json"
+        else
+          jq -n --arg p "$PROJECT_PATH" \
+            '{projects: {($p): {hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true}}}' \
+            > "$HOME/.claude.json"
+        fi
+        echo "Pre-seeded trust for $PROJECT_PATH"
+
+    # Install the tend-ci-runner plugin from this action's own checkout —
+    # same approach as action.yaml's `plugin_marketplaces:
+    # ${{ github.action_path }}`. The plugin marketplace manifest at the
+    # repo root (../.claude-plugin/marketplace.json relative to this
+    # action) registers both plugins.
+    - name: Install tend plugins
+      shell: bash
+      env:
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+      run: |
+        MARKETPLACE_ROOT="$(realpath "${{ github.action_path }}/..")"
+        claude plugin marketplace add "$MARKETPLACE_ROOT"
+        claude plugin install install-tend@tend
+        claude plugin install tend-ci-runner@tend
+        claude plugin list 2>/dev/null || true
+
+    # The supervisor pattern, in three pieces:
+    #   1. Stop hook in .claude/settings.local.json writes a sentinel file
+    #      when the model finishes a turn. StopFailure writes a separate
+    #      sentinel for API/rate-limit/auth errors. settings.local.json is
+    #      additive — adopter project settings still apply.
+    #   2. A wrapper script invokes `claude --permission-mode
+    #      bypassPermissions "$PROMPT"` so all argv/env quoting happens in
+    #      bash, not in nested YAML strings.
+    #   3. `script(1)` allocates a PTY (GHA runners have no TTY by
+    #      default; without this the Ink-based UI degrades or hangs).
+    #      The supervisor polls for either sentinel, process exit, or the
+    #      timeout, then cleanly terminates the session.
+    - name: Run Claude
+      id: claude
+      shell: bash
+      env:
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        # Mirrors action.yaml: the Linux bwrap wrapping path in claude-
+        # code v2.1.142 corrupts argv tokens containing `!` next to `'`.
+        # Setting this to 0 routes bash through the fixed quoting path.
+        # See anthropics/claude-code#35701.
+        CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
+        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        BOT_NAME: ${{ inputs.bot_name }}
+        BOT_ID: ${{ steps.bot.outputs.id }}
+        TEND_MODEL: ${{ inputs.model }}
+        TEND_ALLOWED_TOOLS: ${{ inputs.allowed_tools }}
+        TEND_SYSTEM_PROMPT: ${{ steps.prompt.outputs.value }}
+        TEND_PROMPT: ${{ inputs.prompt }}
+        TEND_TIMEOUT_SEC: ${{ inputs.timeout_seconds }}
+        # TODO: allowed_bots / allowed_non_write_users are not enforced
+        # here. Generated workflows already gate triggers in their `if:`
+        # conditions; this action-level check is belt-and-suspenders that
+        # lived in claude-code-action's JS. Reintroduce if we observe a
+        # gap during the trial.
+        ALLOWED_BOTS: ${{ inputs.allowed_bots }}
+        ALLOWED_NON_WRITE_USERS: ${{ inputs.allowed_non_write_users }}
+      run: |
+        set -u
+
+        SENTINEL_OK="$RUNNER_TEMP/tend-turn-done"
+        SENTINEL_FAIL="$RUNNER_TEMP/tend-turn-failed"
+        LOG="$RUNNER_TEMP/tend-claude.log"
+        WRAPPER="$RUNNER_TEMP/tend-run-claude.sh"
+        rm -f "$SENTINEL_OK" "$SENTINEL_FAIL" "$LOG"
+
+        # Stop hook → success sentinel. StopFailure → failure sentinel
+        # (fires on rate-limit, auth, max-tokens, server errors per
+        # https://code.claude.com/docs/en/hooks.md). Written to
+        # settings.local.json so adopter project settings still apply.
+        mkdir -p .claude
+        cat > .claude/settings.local.json <<EOF
+        {
+          "hooks": {
+            "Stop": [
+              {
+                "matcher": "",
+                "hooks": [{"type": "command", "command": "touch '$SENTINEL_OK'"}]
+              }
+            ],
+            "StopFailure": [
+              {
+                "matcher": "",
+                "hooks": [{"type": "command", "command": "touch '$SENTINEL_FAIL'"}]
+              }
+            ]
+          }
+        }
+        EOF
+
+        # Wrapper script — keeps the argv quoting in bash, not YAML.
+        cat > "$WRAPPER" <<'WRAPEOF'
+        #!/usr/bin/env bash
+        exec claude \
+          --model "$TEND_MODEL" \
+          --permission-mode bypassPermissions \
+          --allowedTools "$TEND_ALLOWED_TOOLS" \
+          --append-system-prompt "$TEND_SYSTEM_PROMPT" \
+          "$TEND_PROMPT"
+        WRAPEOF
+        chmod +x "$WRAPPER"
+
+        # Run under script(1) for PTY allocation. -q quiet, -e propagate
+        # exit code, -f flush after each write, -c "command" specifies
+        # the command, last positional is the typescript log file. Linux
+        # util-linux syntax (BSD differs); GHA runners are Ubuntu.
+        script -qefc "$WRAPPER" "$LOG" &
+        CLAUDE_PID=$!
+        echo "Claude PID: $CLAUDE_PID"
+
+        # Supervisor poll loop: success sentinel, failure sentinel,
+        # process exit, or timeout — whichever comes first.
+        start=$(date +%s)
+        status=running
+        while true; do
+          if [ -f "$SENTINEL_OK" ]; then
+            status=ok
+            break
+          fi
+          if [ -f "$SENTINEL_FAIL" ]; then
+            status=stop-failure
+            break
+          fi
+          if ! kill -0 "$CLAUDE_PID" 2>/dev/null; then
+            status=exited
+            break
+          fi
+          if [ $(($(date +%s) - start)) -ge "$TEND_TIMEOUT_SEC" ]; then
+            status=timeout
+            break
+          fi
+          sleep 2
+        done
+
+        # Clean termination — SIGTERM, wait up to 5s, then SIGKILL.
+        if kill -0 "$CLAUDE_PID" 2>/dev/null; then
+          kill -TERM "$CLAUDE_PID" 2>/dev/null || true
+          for i in 1 2 3 4 5; do
+            sleep 1
+            kill -0 "$CLAUDE_PID" 2>/dev/null || break
+          done
+          kill -KILL "$CLAUDE_PID" 2>/dev/null || true
+        fi
+        wait "$CLAUDE_PID" 2>/dev/null || true
+        CLAUDE_EXIT=$?
+
+        elapsed=$(($(date +%s) - start))
+        echo "Supervisor: status=$status elapsed=${elapsed}s claude_exit=$CLAUDE_EXIT"
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+        echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
+
+        if [ "${{ inputs.show_full_output }}" = "true" ] && [ -s "$LOG" ]; then
+          {
+            echo "## Claude transcript (last 200 lines, ANSI stripped)"
+            echo
+            echo '```'
+            tail -200 "$LOG" | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | tr -d '\r'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        case "$status" in
+          ok) exit 0 ;;
+          stop-failure)
+            echo "::error::Claude turn ended in failure (StopFailure hook fired — rate limit, auth, or server error)"
+            exit 1
+            ;;
+          exited)
+            echo "::error::Claude process exited before Stop hook fired (exit=$CLAUDE_EXIT)"
+            exit "${CLAUDE_EXIT:-1}"
+            ;;
+          timeout)
+            echo "::error::Claude session exceeded ${TEND_TIMEOUT_SEC}s timeout"
+            exit 1
+            ;;
+        esac
+
+    - name: Mark event notification read
+      if: success()
+      shell: bash
+      run: |
+        case "$GITHUB_EVENT_NAME" in
+          pull_request_target|pull_request_review|pull_request_review_comment)
+            NUM=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
+            SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${NUM}"
+            ;;
+          issue_comment)
+            NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
+            if [ "$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")" != "" ]; then
+              SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${NUM}"
+            else
+              SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${NUM}"
+            fi
+            ;;
+          issues)
+            NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
+            SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${NUM}"
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+
+        RUN_STARTED_AT=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+          --jq '.run_started_at')
+
+        (gh api notifications \
+          | jq -r --arg url "$SUBJECT_URL" --arg started "$RUN_STARTED_AT" \
+              '.[] | select(.subject.url == $url and .updated_at <= $started) | .id' \
+          | while read -r tid; do
+              [ -n "$tid" ] || continue
+              gh api "notifications/threads/$tid" -X PATCH || true
+            done) || echo "::warning::Failed to mark notification as read (non-fatal)"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: Append skill step summary
+      if: always()
+      shell: bash
+      run: |
+        if [ -f /tmp/claude/step-summary.md ]; then
+          cat /tmp/claude/step-summary.md >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    # Parse the session JSONL Claude Code writes under
+    # ~/.claude/projects/<munged-cwd>/<session-id>.jsonl. Each line is a
+    # JSON event; assistant messages carry `.message.usage`. Shape of the
+    # output mirrors action.yaml's `token_usage` so downstream consumers
+    # (review-reviewers' evidence gist, dashboards) don't need to branch
+    # on harness.
+    - name: Token usage
+      if: always()
+      id: tokens
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+      run: |
+        LOGS_DIR="$HOME/.claude/projects"
+        mkdir -p "$LOGS_DIR"
+
+        SESSIONS=$(find "$HOME/.claude/projects" -name '*.jsonl' -newer "$RUNNER_TEMP/tend-run-claude.sh" 2>/dev/null | tr '\n' ' ')
+
+        if [ -n "$SESSIONS" ]; then
+          USAGE=$(jq -s -c --arg model "$MODEL" '
+            def n: . // 0;
+            [.[] | .[] | select(.message.usage)] as $msgs |
+            {
+              input_tokens:                ([$msgs[] | .message.usage.input_tokens? | n] | add // 0),
+              output_tokens:               ([$msgs[] | .message.usage.output_tokens? | n] | add // 0),
+              cache_creation_input_tokens: ([$msgs[] | .message.usage.cache_creation_input_tokens? | n] | add // 0),
+              cache_read_input_tokens:     ([$msgs[] | .message.usage.cache_read_input_tokens? | n] | add // 0),
+              turns:                       ([.[] | .[] | select(.type? == "assistant")] | length),
+              model:                       $model,
+              cost_usd:                    0
+            }
+          ' $SESSIONS 2>/dev/null || echo '{}')
+        fi
+        if [ -z "${USAGE:-}" ] || [ "$USAGE" = "{}" ]; then
+          USAGE='{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"turns":0,"model":"'"$MODEL"'","cost_usd":0}'
+        fi
+
+        echo "$USAGE" > "$LOGS_DIR/token-usage.json"
+        echo "usage=$(jq -c . <<< "$USAGE")" >> "$GITHUB_OUTPUT"
+
+        jq -r '
+          "## Token Usage (interactive)",
+          "| Metric | Value |",
+          "|--------|-------|",
+          "| Input | \(.input_tokens) |",
+          "| Output | \(.output_tokens) |",
+          "| Cache creation | \(.cache_creation_input_tokens) |",
+          "| Cache read | \(.cache_read_input_tokens) |",
+          "| Turns | \(.turns) |",
+          "| Model | \(.model) |",
+          "",
+          "*Cost is not computed under the interactive harness — usage funds from the OAuth-token subscription, not per-token API billing.*"
+        ' <<< "$USAGE" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Report failure
+      if: failure() && steps.claude.outcome == 'failure'
+      shell: bash
+      run: |
+        LABEL="tend-outage"
+        TITLE="Bot temporarily unavailable"
+        RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+        REF=""
+        if [ "$GITHUB_EVENT_NAME" = "pull_request_target" ] || [ "$GITHUB_EVENT_NAME" = "pull_request_review" ] || [ "$GITHUB_EVENT_NAME" = "pull_request_review_comment" ]; then
+          PR_NUM=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
+          REF="#${PR_NUM}"
+        elif [ "$GITHUB_EVENT_NAME" = "issues" ] || [ "$GITHUB_EVENT_NAME" = "issue_comment" ]; then
+          ISSUE_NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
+          REF="#${ISSUE_NUM}"
+        elif [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+          REF="CI fix for workflow run"
+        fi
+
+        TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        gh label create "$LABEL" --description "Tracks bot outage incidents" --color "d93f0b" 2>/dev/null || true
+        printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
+          "The bot failed to process a request. This issue tracks failures until the underlying cause is resolved." \
+          "| When | Run | Trigger |" \
+          "|------|-----|---------|" \
+          "| ${TIMESTAMP} | [workflow run](${RUN_URL}) | ${REF:-N/A} |" \
+          "This issue was created automatically. Close it once the outage is resolved." > /tmp/body.md
+
+        sleep $((RANDOM % 30))
+        EXISTING=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
+
+        if [ -n "$EXISTING" ]; then
+          printf 'Failed run at %s: [workflow run](%s)%s\n' \
+            "$TIMESTAMP" "$RUN_URL" "${REF:+ (triggered by ${REF})}" > /tmp/comment.md
+          gh issue comment "$EXISTING" -F /tmp/comment.md
+        else
+          gh issue create --title "$TITLE" --label "$LABEL" -F /tmp/body.md
+        fi
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: Compute artifact name
+      if: always()
+      id: artifact
+      shell: bash
+      run: |
+        suffix="${INVOCATION_ID:+"-${INVOCATION_ID:0:8}"}"
+        echo "name=claude-interactive-session-logs${suffix}" >> "$GITHUB_OUTPUT"
+
+    - name: Upload session logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.artifact.outputs.name }}
+        path: |
+          ~/.claude/projects/
+          ${{ runner.temp }}/tend-claude.log
+        retention-days: 30
+        if-no-files-found: warn
