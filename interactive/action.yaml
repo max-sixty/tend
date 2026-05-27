@@ -604,7 +604,12 @@ runs:
         LOGS_DIR="$HOME/.claude/projects"
         mkdir -p "$LOGS_DIR"
 
-        SESSIONS=$(find "$HOME/.claude/projects" -name '*.jsonl' -newer "$RUNNER_TEMP/tend-run-claude.sh" 2>/dev/null | tr '\n' ' ')
+        # The whole step runs after the supervised session, on an
+        # ephemeral CI runner where ~/.claude/projects is freshly
+        # populated by this run. Take everything — no `-newer` filter
+        # (older filter once dropped a real session because mtime ties
+        # with the wrapper script were inconsistent).
+        SESSIONS=$(find "$HOME/.claude/projects" -name '*.jsonl' 2>/dev/null | tr '\n' ' ')
 
         if [ -n "$SESSIONS" ]; then
           USAGE=$(jq -s -c --arg model "$MODEL" '
