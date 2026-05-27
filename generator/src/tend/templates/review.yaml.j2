@@ -34,4 +34,4 @@ jobs:
           fi
 <<checkout(cfg, ref='${{ steps.pr_ref.outputs.ref }}')>>
 <<setup>>
-<<agent_step(cfg, prompt_body, use_sticky_comment=True)>>
+<<agent_step(cfg, prompt_body)>>
