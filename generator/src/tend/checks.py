@@ -15,7 +15,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
-from tend.config import Config
+from tend.config import CLAUDE_FAMILY_HARNESSES, Config
 
 
 @dataclass
@@ -449,7 +449,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
     # verified in a separate check below so the message can name both.
     engine_auth_secrets = (
         [cfg.claude_token_secret, cfg.anthropic_api_key_secret]
-        if cfg.harness == "claude"
+        if cfg.harness in CLAUDE_FAMILY_HARNESSES
         else [cfg.openai_key_secret, cfg.codex_auth_json_secret]
     )
     required_secrets = [cfg.bot_token_secret]
@@ -464,7 +464,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
             results.append(check_branch_protection(repo, branch))
     results.append(check_bot_permission(repo, cfg.bot_name))
     results.append(check_secrets(repo, required_secrets))
-    if cfg.harness == "claude":
+    if cfg.harness in CLAUDE_FAMILY_HARNESSES:
         results.append(check_claude_auth(repo, cfg))
     else:
         results.append(check_codex_auth(repo, cfg))

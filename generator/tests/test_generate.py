@@ -1013,11 +1013,11 @@ def test_workflow_minimal_codex_regtest(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("harness", ["claude", "codex"])
+@pytest.mark.parametrize("harness", ["claude", "claude-interactive", "codex"])
 def test_install_test_workflow_regtest(
     regtest: object, tmp_path: Path, harness: str
 ) -> None:
-    """Snapshot the install-test workflow YAML for both harnesses."""
+    """Snapshot the install-test workflow YAML for every harness."""
     extra = f"harness: {harness}\n" if harness != "claude" else ""
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = generate_install_test(cfg)
