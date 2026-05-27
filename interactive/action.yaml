@@ -622,15 +622,20 @@ runs:
         SESSIONS=$(find "$HOME/.claude/projects" -name '*.jsonl' 2>/dev/null | tr '\n' ' ')
 
         if [ -n "$SESSIONS" ]; then
+          # `jq -s` slurps inputs from ALL files into ONE flat array of
+          # events. Iterate once with `.[]`, not twice. (Smoke 4 caught
+          # this — the double `.[]` errored "Cannot index string with
+          # string", the `|| echo '{}'` swallowed it, and the step fell
+          # through to zeros.)
           USAGE=$(jq -s -c --arg model "$MODEL" '
             def n: . // 0;
-            [.[] | .[] | select(.message.usage)] as $msgs |
+            [.[] | select(.message.usage)] as $msgs |
             {
               input_tokens:                ([$msgs[] | .message.usage.input_tokens? | n] | add // 0),
               output_tokens:               ([$msgs[] | .message.usage.output_tokens? | n] | add // 0),
               cache_creation_input_tokens: ([$msgs[] | .message.usage.cache_creation_input_tokens? | n] | add // 0),
               cache_read_input_tokens:     ([$msgs[] | .message.usage.cache_read_input_tokens? | n] | add // 0),
-              turns:                       ([.[] | .[] | select(.type? == "assistant")] | length),
+              turns:                       ([.[] | select(.type? == "assistant")] | length),
               model:                       $model,
               cost_usd:                    0
             }
