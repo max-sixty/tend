@@ -164,29 +164,12 @@ runs:
         curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-    # claude-code-action restores these from the base branch on all PRs
-    # (RCE vectors — hooks, env vars, MCP servers):
-    #   .claude/  .mcp.json  .claude.json  .gitmodules  .ripgreprc
-    # It does NOT restore CLAUDE.md (prompt-injection, not RCE), so we
-    # pin it ourselves for fork PRs.
-    - name: Pin CLAUDE.md to base branch (fork PRs)
-      shell: bash
-      run: |
-        if [ "$GITHUB_EVENT_NAME" != "pull_request_target" ]; then
-          exit 0
-        fi
-        IS_FORK=$(jq -r '.pull_request.head.repo.fork // false' "$GITHUB_EVENT_PATH")
-        if [ "$IS_FORK" != "true" ]; then
-          exit 0
-        fi
-        DEFAULT_BRANCH=$(jq -r '.repository.default_branch' "$GITHUB_EVENT_PATH")
-        if git show "origin/${DEFAULT_BRANCH}:CLAUDE.md" > /tmp/base-claude.md 2>/dev/null; then
-          cp /tmp/base-claude.md CLAUDE.md
-          echo "Pinned CLAUDE.md to ${DEFAULT_BRANCH}"
-        else
-          rm -f CLAUDE.md
-          echo "No CLAUDE.md on ${DEFAULT_BRANCH} — removed fork version"
-        fi
+    # claude-code-action restores every PR-controllable cwd-trusted file
+    # from the base branch on every PR — RCE vectors (.claude/, .mcp.json,
+    # .claude.json, .gitmodules, .ripgreprc, .husky) plus prompt-injection
+    # vectors (CLAUDE.md, CLAUDE.local.md). See restoreConfigFromBase in
+    # the upstream action's src/github/operations/restore-config.ts. No
+    # additional pinning is needed here.
 
     # Compose the system prompt from shared/system-prompt.md (harness-neutral
     # bulk: conduct, scope, precedence) plus a Claude-specific
