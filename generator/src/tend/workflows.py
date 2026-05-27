@@ -14,7 +14,7 @@ from jinja2 import Environment, PackageLoader, StrictUndefined
 from jinja2.runtime import Macro
 from ruamel.yaml import YAML
 
-from tend.config import Config, WorkflowConfig
+from tend.config import CLAUDE_FAMILY_HARNESSES, Config, WorkflowConfig
 
 # Variable delimiters are swapped from `{{`/`}}` to `<<`/`>>` so GitHub
 # Actions expressions (`${{ github.foo }}`, ubiquitous in generated YAML)
@@ -375,7 +375,7 @@ def generate_install_test(cfg: Config) -> GeneratedWorkflow:
     exercised end-to-end by `tend-review` on the first post-merge PR.
     """
     bt_name = cfg.bot_token_secret
-    if cfg.harness == "claude":
+    if cfg.harness in CLAUDE_FAMILY_HARNESSES:
         harness_envs = (
             f"          CLAUDE_OAUTH: ${{{{ secrets.{cfg.claude_token_secret} }}}}\n"
             f"          ANTHROPIC_KEY: ${{{{ secrets.{cfg.anthropic_api_key_secret} }}}}"

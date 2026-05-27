@@ -1,0 +1,101 @@
+name: interactive-smoke
+
+# Smoke test for `interactive/action.yaml` — the supervised-tmux/script
+# alternative to the Agent-SDK-based claude-code-action wrapper. Runs the
+# in-tree action via `uses: ./interactive` so we don't need a release tag
+# (release tags are pinned to the generator's own version; the in-tree
+# action is unreleased until the next `pypi-release` run).
+#
+# Trigger manually:
+#   gh workflow run interactive-smoke.yaml --ref claude-p \
+#     -f prompt="…"   # optional; default exercises Bash + Stop hook
+#
+# What we're validating:
+#   1. `claude` binary installs cleanly on a fresh runner.
+#   2. Workspace trust pre-seeding unblocks interactive startup.
+#   3. `claude plugin install` works non-interactively with an
+#      OAuth-token env var (the part the local spike could not cover).
+#   4. The Stop hook fires after a turn that uses a tool, and the
+#      supervisor exits 0.
+#   5. Token usage is parseable from the session JSONL.
+#
+# Failure modes the supervisor distinguishes (see Run Claude step in the
+# action):
+#   ok           → Stop hook fired, exit 0
+#   stop-failure → StopFailure hook fired (rate limit / auth / server)
+#   exited       → process died before either hook fired
+#   timeout      → exceeded timeout_seconds
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: Prompt to send to Claude
+        required: false
+        default: |
+          You are running a smoke test of the interactive Claude harness.
+          Do exactly the following and then stop, without asking any
+          questions:
+
+          1. Use the Bash tool to run: `pwd && date -u +%FT%TZ && uname -a`.
+          2. Reply with one line summarizing the date the command printed,
+             in the form: "Smoke test ran at <date>".
+
+          Do not push, comment, modify files, or use any tool other than Bash.
+      model:
+        description: Claude model
+        required: false
+        default: sonnet
+        type: choice
+        options:
+          - sonnet
+          - haiku
+          - opus
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # Same fork-guard pattern as generated tend workflows — secrets are
+    # not available on forks, so the run would fail noisily.
+    if: github.repository_owner == 'max-sixty'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Run interactive harness
+        id: claude
+        uses: ./interactive
+        with:
+          github_token: ${{ secrets.TEND_BOT_TOKEN }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          bot_name: tend-agent
+          prompt: ${{ inputs.prompt }}
+          model: ${{ inputs.model }}
+          # Short cap — the default prompt should finish in well under a
+          # minute. Catching a hang here is part of the test.
+          timeout_seconds: "300"
+
+      # The action exits non-zero on stop-failure / exited / timeout, so a
+      # successful job already implies the supervisor saw a clean Stop. This
+      # step just echoes the parsed usage so the human reader can sanity-
+      # check turns > 0 (proves the session actually ran end-to-end and
+      # we're not looking at a no-op).
+      - name: Show token usage
+        if: always()
+        env:
+          USAGE: ${{ steps.claude.outputs.token_usage }}
+        run: |
+          if [ -z "$USAGE" ]; then
+            echo "::warning::token_usage output is empty — supervisor likely never reached the token-usage step"
+            exit 0
+          fi
+          echo "$USAGE" | jq .
+          TURNS=$(echo "$USAGE" | jq -r '.turns // 0')
+          if [ "$TURNS" -eq 0 ]; then
+            echo "::warning::token_usage reports 0 turns — session may not have completed any assistant response"
+          fi

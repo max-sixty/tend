@@ -82,6 +82,15 @@ or MCP server is silently reverted before Claude starts. The composite
 action additionally pins `CLAUDE.md` to the base branch on fork PRs as a
 prompt-injection defense.
 
+The alternative `claude-interactive` harness (composite action at
+`interactive/`) does NOT restore those RCE-relevant config files today —
+only `CLAUDE.md` is pinned. Adopters should not flip a
+`pull_request_target` workflow to `claude-interactive` until parity is
+restored. Internal scheduled workflows (`nightly`, `weekly`,
+`notifications`, `review-runs`) and `workflow_run` (`ci-fix`) don't
+execute fork-controlled code paths through this surface, so the gap
+doesn't bite there.
+
 **Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort
 the run before Claude starts, catching runaway loops between workflows.

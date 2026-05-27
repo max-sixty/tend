@@ -36,7 +36,13 @@ KNOWN_TOP_LEVEL = {
     "setup",
     "workflows",
 }
-KNOWN_HARNESSES = {"claude", "codex"}
+KNOWN_HARNESSES = {"claude", "claude-interactive", "codex"}
+# Harnesses that consume Claude-shaped inputs (claude_code_oauth_token /
+# anthropic_api_key, /tend-ci-runner:NAME slash-command syntax). The
+# `claude-interactive` harness runs the official `claude` binary under a
+# PTY supervisor instead of the Agent SDK; everything upstream of the
+# action ref is the same.
+CLAUDE_FAMILY_HARNESSES = {"claude", "claude-interactive"}
 # Claude harness reads claude_token (OAuth) and anthropic_api_key (console.
 # anthropic.com) — adopters set one. Codex harness reads openai_key and
 # codex_auth_json; the latter is the subscription-funded path (the auth.json
@@ -104,9 +110,11 @@ class WorkflowConfig:
 # at runtime if it's wrong.
 KNOWN_MODELS_BY_HARNESS = {
     "claude": {"opus", "sonnet", "haiku"},
+    "claude-interactive": {"opus", "sonnet", "haiku"},
 }
 DEFAULT_MODEL_BY_HARNESS = {
     "claude": "opus",
+    "claude-interactive": "opus",
     "codex": "gpt-5.5",
 }
 # Codex `--config model_reasoning_effort=...` values, per the supported
@@ -148,7 +156,11 @@ class Config:
         callers can splice their own placeholders (`{pr_number}` etc.) and run
         the existing replace step.
         """
-        prefix = f"/tend-ci-runner:{skill}" if self.harness == "claude" else f"${skill}"
+        prefix = (
+            f"/tend-ci-runner:{skill}"
+            if self.harness in CLAUDE_FAMILY_HARNESSES
+            else f"${skill}"
+        )
         return f"{prefix} {args}".rstrip()
 
     @classmethod

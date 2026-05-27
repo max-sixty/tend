@@ -1013,11 +1013,11 @@ def test_workflow_minimal_codex_regtest(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("harness", ["claude", "codex"])
+@pytest.mark.parametrize("harness", ["claude", "claude-interactive", "codex"])
 def test_install_test_workflow_regtest(
     regtest: object, tmp_path: Path, harness: str
 ) -> None:
-    """Snapshot the install-test workflow YAML for both harnesses."""
+    """Snapshot the install-test workflow YAML for every harness."""
     extra = f"harness: {harness}\n" if harness != "claude" else ""
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = generate_install_test(cfg)
@@ -1109,6 +1109,51 @@ def test_codex_default_model(tmp_path: Path) -> None:
 def test_unknown_engine_rejected(tmp_path: Path) -> None:
     with pytest.raises(click.ClickException, match="harness 'gpt' is not recognized"):
         Config.load(_minimal_config(tmp_path, "harness: gpt"))
+
+
+# ---------------------------------------------------------------------------
+# claude-interactive harness — sibling of `claude` that resolves to the
+# tend/interactive composite action (PTY-supervised official `claude` binary
+# instead of the Agent SDK). Auth secrets and slash-command syntax are
+# identical to `claude`; only the action ref differs.
+# ---------------------------------------------------------------------------
+
+
+def test_claude_interactive_action_ref(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path, "harness: claude-interactive"))
+    for wf in generate_all(cfg):
+        assert f"max-sixty/tend/interactive@{ACTION_VERSION}" in wf.content, (
+            f"{wf.filename} missing interactive action ref"
+        )
+        assert f"max-sixty/tend@{ACTION_VERSION}" not in wf.content, (
+            f"{wf.filename} should not reference the bare claude action ref"
+        )
+        assert f"max-sixty/tend/codex@{ACTION_VERSION}" not in wf.content, (
+            f"{wf.filename} should not reference the codex action ref"
+        )
+
+
+def test_claude_interactive_uses_claude_secrets(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path, "harness: claude-interactive"))
+    for wf in generate_all(cfg):
+        assert (
+            "claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"
+            in wf.content
+        ), f"{wf.filename} missing claude_code_oauth_token input"
+        assert "openai_api_key" not in wf.content, (
+            f"{wf.filename} should not reference openai_api_key under claude-interactive"
+        )
+
+
+def test_claude_interactive_default_model(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path, "harness: claude-interactive"))
+    assert cfg.model == "opus"
+
+
+def test_claude_interactive_prompt_uses_slash_command(tmp_path: Path) -> None:
+    """default_prompt emits the same /tend-ci-runner:NAME syntax as `claude`."""
+    cfg = Config.load(_minimal_config(tmp_path, "harness: claude-interactive"))
+    assert cfg.default_prompt("review") == "/tend-ci-runner:review"
 
 
 def test_codex_model_unrestricted(tmp_path: Path) -> None:
