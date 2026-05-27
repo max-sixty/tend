@@ -53,7 +53,7 @@ Four pieces:
    from defaults only. `harness: claude | claude-interactive | codex`
    selects the harness (default `claude`). A per-workflow `harness:`
    override (and matching `model:`) lets an adopter trial a different
-   harness on one workflow at a time. All six workflows are enabled by
+   harness on one workflow at a time. All workflows are enabled by
    default.
 
 Generated workflows are standalone — full `steps:` jobs, not
