@@ -99,6 +99,14 @@ class WorkflowConfig:
     branches: list[str] | None = None
     workflow_extra: dict | None = None
     jobs: dict[str, dict] | None = None
+    # Per-workflow harness override. Lets adopters trial a new harness on
+    # a single workflow (e.g. `claude-interactive` on nightly only) before
+    # flipping the whole bot. None means inherit from top-level `harness`.
+    harness: str | None = None
+    # Per-workflow model override. Pairs with `harness` for cross-family
+    # overrides — top-level `model` may not be valid for the new harness.
+    # None means inherit from top-level `model`.
+    model: str | None = None
 
 
 # Claude model allowlist — the set is small and stable enough that a
@@ -300,6 +308,59 @@ class Config:
                     raise click.ClickException(
                         f"workflows.{name}.jobs must be a mapping of mappings"
                     )
+                wf_harness = wf_raw.get("harness")
+                wf_model = wf_raw.get("model")
+                if wf_harness is not None and wf_harness not in KNOWN_HARNESSES:
+                    raise click.ClickException(
+                        f"workflows.{name}.harness '{wf_harness}' is not recognized "
+                        f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
+                    )
+                # Validate the effective (harness, model) pair this workflow
+                # will run with. Three cases to cover, all gated on "the
+                # user overrode something at the workflow level":
+                #
+                #   (A) wf_model set, eff_harness has an allowlist, eff_model
+                #       not in it: fail. Covers `model: opus-99` typo with no
+                #       harness override (top-level claude harness).
+                #   (B) wf_harness flips into a harness with an allowlist
+                #       (e.g. codex → claude) and the effective model isn't
+                #       in it: fail.
+                #   (C) wf_harness flips OUT of a harness with an allowlist
+                #       (claude → codex) without a per-workflow model: fail
+                #       (effective model is opus, codex won't accept).
+                if wf_harness is not None or wf_model is not None:
+                    eff_harness = wf_harness or harness
+                    eff_model = wf_model or model
+                    eff_known = KNOWN_MODELS_BY_HARNESS.get(eff_harness)
+
+                    # Cases A and B collapse: effective model isn't valid for
+                    # the effective harness's allowlist.
+                    if eff_known is not None and eff_model not in eff_known:
+                        raise click.ClickException(
+                            f"workflows.{name} harness '{eff_harness}' is incompatible "
+                            f"with model '{eff_model}' "
+                            f"(known for {eff_harness}: {', '.join(sorted(eff_known))}). "
+                            f"Set `workflows.{name}.model:` (or change the top-level "
+                            "`model:`) to a valid value for this harness."
+                        )
+
+                    # Case C: cross-family flip AWAY from an allowlist harness
+                    # without an explicit model. eff_harness has no allowlist
+                    # to catch it, so check the source.
+                if (
+                    wf_harness is not None
+                    and wf_harness != harness
+                    and KNOWN_MODELS_BY_HARNESS.get(harness) is not None
+                    and KNOWN_MODELS_BY_HARNESS.get(wf_harness) is None
+                    and wf_model is None
+                ):
+                    raise click.ClickException(
+                        f"workflows.{name} crosses harness families "
+                        f"({harness} → {wf_harness}) without a model override. "
+                        f"The top-level model '{model}' is from the {harness} "
+                        f"allowlist and likely won't apply to {wf_harness}. "
+                        f"Set `workflows.{name}.model:` to a valid {wf_harness} model."
+                    )
                 workflows[name] = WorkflowConfig(
                     enabled=wf_raw.get("enabled", True),
                     prompt=wf_raw.get("prompt", ""),
@@ -308,6 +369,8 @@ class Config:
                     branches=wf_raw.get("branches"),
                     workflow_extra=workflow_extra,
                     jobs=jobs_raw,
+                    harness=wf_harness,
+                    model=wf_model,
                 )
             else:
                 workflows[name] = WorkflowConfig(enabled=bool(wf_raw))
