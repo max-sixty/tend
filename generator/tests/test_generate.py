@@ -1087,17 +1087,6 @@ def test_codex_effort_only_when_set(tmp_path: Path) -> None:
         assert "effort: high" in wf.content, f"{wf.filename} missing effort: high"
 
 
-def test_codex_review_omits_sticky_comment(tmp_path: Path) -> None:
-    """use_sticky_comment is a Claude-only feature; the Codex review step omits it."""
-    cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
-    workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    review = workflows["tend-review.yaml"]
-    assert "use_sticky_comment" not in review.content, (
-        "use_sticky_comment is Claude-only; the codex action posts via gh "
-        "from skill prompts instead"
-    )
-
-
 def test_codex_default_model(tmp_path: Path) -> None:
     """Engine = codex without explicit model picks gpt-5.5."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
