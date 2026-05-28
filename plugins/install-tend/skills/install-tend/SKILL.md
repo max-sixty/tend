@@ -664,6 +664,38 @@ The bot's token needs scopes `repo`, `workflow`, `notifications`,
 `write:discussion`, `gist`, and `user` (per-scope justifications in
 ${CLAUDE_SKILL_DIR}/references/tend.example.yaml).
 
+First check whether the bot is already in the gh keyring (likely on
+re-runs or scope refreshes — e.g. responding to a `tend-pat-scope-audit`
+issue):
+
+```bash
+gh auth status 2>&1 | grep -A 4 "<bot-name>"
+```
+
+If a `<bot-name>` entry exists, use the **refresh path** below — it
+targets the existing keyring entry directly, skipping a separate
+`gh api user` verification. Otherwise use the **login path**.
+
+In both paths, the user opens `https://github.com/login/device` in a
+browser logged in as the bot, pastes the printed one-time code, and
+authorizes. gh stores/updates the token in the keyring.
+
+### Refresh path (bot already in keyring)
+
+```bash
+gh auth switch --user <bot-name>
+gh auth refresh --hostname github.com \
+  --scopes repo,workflow,notifications,write:discussion,gist,user
+gh auth switch --user <maintainer>
+```
+
+`gh auth refresh` operates on the active account, so the switch is
+required even though it then switches back. No post-hoc identity check
+is needed: refresh updates the existing `<bot-name>` entry, it can't
+bind to a different user.
+
+### Login path (first-time setup)
+
 Have the user run, in a bash terminal (Git Bash on Windows works):
 
 ```bash
@@ -680,11 +712,6 @@ Unsetting them for this one command keeps the user's normal env intact.
 shell's unset-then-run equivalent, e.g. PowerShell
 `Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN; gh auth login …`.)
 
-`gh` prints a one-time code and the URL `https://github.com/login/device`.
-The user opens that URL in any browser logged in as the bot, pastes the
-code, and authorizes. gh stores the token in keyring and makes the bot
-the active account.
-
 `gh auth login` has no `--user` flag — the GitHub user it binds to is
 whoever was logged into github.com in the approving browser session.
 Verify before continuing:
@@ -697,11 +724,18 @@ This must print the bot name. Anything else means the wrong account
 approved the device code — run `gh auth logout --user <wrong-name>`
 and retry. Don't proceed to the secret-set step until this matches.
 
-Switch gh back to the maintainer (whose token has admin on the repo),
-copy the bot's token to the repo secret, and verify:
+Switch back to the maintainer (whose token has admin on the repo):
 
 ```bash
 gh auth switch --user <maintainer>
+```
+
+### Push token to secret
+
+With the maintainer active, copy the bot's token to the repo secret
+and verify:
+
+```bash
 gh auth token --user <bot-name> | gh secret set TEND_BOT_TOKEN --repo "$REPO"
 gh secret list --repo "$REPO"
 ```
