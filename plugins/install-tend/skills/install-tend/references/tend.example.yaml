@@ -51,18 +51,20 @@ bot_name: my-project-bot
 # | Harness   | Required                                                                     |
 # |----------|-------------------------------------------------------------------------------|
 # | `claude` | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`    |
-# | `codex`  | `TEND_BOT_TOKEN` + one of `CODEX_AUTH_JSON` or `OPENAI_API_KEY`               |
+# | `codex`  | `TEND_BOT_TOKEN` + `OPENAI_API_KEY` (`CODEX_AUTH_JSON` is incompatible)       |
 #
 # `TEND_BOT_TOKEN` is the bot account's PAT (scopes below).
 # `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token` (PKCE).
 # `ANTHROPIC_API_KEY` is a console.anthropic.com API key.
-# `CODEX_AUTH_JSON` is the contents of the `auth.json` Codex writes
-# after `codex login --device-auth` — the install skill's default; see
-# docs/security-model.md for the trade-off and public-repo gate.
 # `OPENAI_API_KEY` is a standard OpenAI API key.
 #
-# Both actions prefer the subscription token (`CLAUDE_CODE_OAUTH_TOKEN`,
-# `CODEX_AUTH_JSON`) over the API key when both are set.
+# `CODEX_AUTH_JSON` (subscription `auth.json`) is incompatible with
+# tend's concurrent workflows — Codex rotates the refresh token on
+# every call, so concurrent jobs (review/mention/triage/nightly/…)
+# invalidate each other's auth mid-run. The path is being removed.
+#
+# The Claude action prefers the subscription token
+# (`CLAUDE_CODE_OAUTH_TOKEN`) over the API key when both are set.
 #
 # Classic PAT scopes: `repo`, `workflow`, `notifications`, `write:discussion`,
 # `gist`, `user`. `workflow` is required to push commits that modify
@@ -83,7 +85,6 @@ bot_name: my-project-bot
 #   claude_token: MY_CLAUDE_TOKEN      # harness: claude (OAuth)
 #   anthropic_api_key: MY_ANTHROPIC_KEY  # harness: claude (API key)
 #   openai_key: MY_OPENAI_KEY          # harness: codex
-#   codex_auth_json: MY_CODEX_AUTH     # harness: codex
 #
 # `tend check` flags repo-level secrets not in an explicit allowlist. Repos with
 # additional legitimate secrets must list them:
