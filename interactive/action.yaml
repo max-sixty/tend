@@ -7,7 +7,11 @@ description: >-
   is terminated cleanly. Motivation: Anthropic's June 15 2026 billing
   split puts the Agent SDK on a metered Agent-SDK credit pool, while
   interactive Claude Code stays on the flat Pro/Max subscription. Inputs
-  mirror `action.yaml` so workflows can swap one for the other.
+  overlap with `action.yaml`'s for the common ones (auth, prompt, model,
+  bot_name, allowed_tools, system_prompt_append, show_full_output); inputs
+  that only existed for the Agent-SDK harness (`use_sticky_comment`,
+  `additional_permissions`, `allowed_bots`, `allowed_non_write_users`)
+  are not accepted here.
 
 inputs:
   github_token:
@@ -44,34 +48,9 @@ inputs:
     description: >-
       Extra text appended to the computed system prompt (see action.yaml
       for the composition recipe; shared/system-prompt.md is the base).
-  allowed_bots:
-    default: "*"
-    description: >-
-      Bots allowed to trigger workflows. Not enforced here yet — primary
-      gating happens in the generated workflow `if:` expressions. Kept
-      for input-shape parity with `action.yaml` (see TODO note in the
-      Run Claude step).
-  allowed_non_write_users:
-    default: "*"
-    description: >-
-      Non-write users allowed to trigger workflows. Same caveat as
-      allowed_bots.
   show_full_output:
     default: "true"
     description: Include the full Claude transcript in the workflow step summary.
-  use_sticky_comment:
-    default: "false"
-    description: >-
-      No-op under the interactive harness: sticky-comment behavior lived
-      in claude-code-action's JS layer, which this action doesn't run.
-      Skills post comments via `gh` directly; pass `--edit-last` in the
-      skill if you want sticky behavior.
-  additional_permissions:
-    default: "actions: read"
-    description: >-
-      No-op under the interactive harness. Permissions are set in the
-      generated workflow YAML; this input exists for input-shape parity
-      with `action.yaml`.
   claude_version:
     default: "2.1.150"
     description: >-
@@ -412,13 +391,6 @@ runs:
         TEND_SYSTEM_PROMPT: ${{ steps.prompt.outputs.value }}
         TEND_PROMPT: ${{ inputs.prompt }}
         TEND_TIMEOUT_SEC: ${{ inputs.timeout_seconds }}
-        # TODO: allowed_bots / allowed_non_write_users are not enforced
-        # here. Generated workflows already gate triggers in their `if:`
-        # conditions; this action-level check is belt-and-suspenders that
-        # lived in claude-code-action's JS. Reintroduce if we observe a
-        # gap during the trial.
-        ALLOWED_BOTS: ${{ inputs.allowed_bots }}
-        ALLOWED_NON_WRITE_USERS: ${{ inputs.allowed_non_write_users }}
       run: |
         set -u
 
