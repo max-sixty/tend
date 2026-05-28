@@ -28,13 +28,12 @@ jobs:
       - name: Verify required secrets are set
         env:
           BOT_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
-          CODEX_AUTH: ${{ secrets.CODEX_AUTH_JSON }}
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           missing=""
           [ -n "$BOT_TOKEN" ] || missing="$missing TEND_BOT_TOKEN"
-          if [ -z "$CODEX_AUTH$OPENAI_KEY" ]; then
-            missing="$missing harness-auth(set CODEX_AUTH_JSON or OPENAI_API_KEY)"
+          if [ -z "$OPENAI_KEY" ]; then
+            missing="$missing harness-auth(set OPENAI_API_KEY)"
           fi
           if [ -n "$missing" ]; then
             echo "::error::Missing repo secrets:$missing"

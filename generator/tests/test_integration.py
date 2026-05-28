@@ -639,8 +639,8 @@ def test_install_test_workflow_codex_secrets(
     _run_init(["--with-install-test"])
 
     content = (_workflow_dir(tmp_path) / "tend-install-test.yaml").read_text()
-    assert "CODEX_AUTH_JSON" in content
     assert "OPENAI_API_KEY" in content
+    assert "CODEX_AUTH_JSON" not in content
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in content
 
 

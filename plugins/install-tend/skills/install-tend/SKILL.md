@@ -1,6 +1,6 @@
 ---
 name: install-tend
-description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the harness auth token (Claude OAuth or OpenAI Codex auth.json/API key). Use when setting up tend on a new repo or when asked to install/configure tend.
+description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the harness auth token (Claude OAuth or OpenAI API key). Use when setting up tend on a new repo or when asked to install/configure tend.
 ---
 
 # Install Tend
@@ -37,10 +37,11 @@ Before running step 1, choose the harness and lay out the plan:
     plan (e.g. seat-based Enterprise Standard), has no subscription to
     draw on, or wants a dedicated billing surface and per-key
     revocation.
-  - **Codex (OpenAI)** — uses a ChatGPT Plus/Pro/Business `auth.json`
-    (subscription, recommended) or an OpenAI API key (pay-per-token).
-    Public repos require `auth.json` from a ChatGPT account dedicated
-    to the bot. Detail in ${CLAUDE_SKILL_DIR}/references/security-model.md.
+  - **Codex (OpenAI)** — uses an OpenAI API key (pay-per-token). The
+    `auth.json` subscription path is incompatible with tend's
+    concurrent workflows (per-call refresh-token invalidation) and is
+    being removed. Detail in
+    ${CLAUDE_SKILL_DIR}/references/security-model.md.
 - List the steps you'll be running (the section headings below: Create
   config → Generate workflows → Branch protection → Skill overlay →
   Badge → Bot account → Harness auth → Bot token → Grant access →
@@ -525,128 +526,12 @@ gh secret set ANTHROPIC_API_KEY --repo "$REPO" --body "$KEY"
 
 ### 7b. Harness = codex
 
-Codex supports two auth modes. The `tend/codex` action prefers
-`auth.json` when both are set.
-
-Ask via `AskUserQuestion`:
-
-- **ChatGPT subscription (auth.json, recommended)** — billed at the
-  Plus/Pro/Business subscription's flat rate. The token carries
-  read+write access to the ChatGPT account that minted it, so
-  **mint `auth.json` from a dedicated bot account** — required on
-  public repos, recommended on private. See
-  ${CLAUDE_SKILL_DIR}/references/security-model.md for the leak breakdown.
-- **OpenAI API key** — billed per token. Works for any repo. Pick
-  this if the user doesn't want to mint a separate ChatGPT account.
-  Key from `https://platform.openai.com/api-keys`.
-
-For **auth.json** (recommended):
-
-Ask via `AskUserQuestion` which account the user will sign in as:
-
-- **Dedicated bot account (recommended)** — no personal chat data
-  behind the token.
-- **Personal account** — token grants access to the user's full
-  ChatGPT account if leaked.
-
-Refuse the personal option on public repos; if the user won't mint a
-dedicated account, skip to **API key** below. On private repos
-accept either, and honor the answer in step 1.
-
-```bash
-gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q CODEX_AUTH_JSON && echo "SET" || echo "NOT SET"
-```
-
-If not set:
-
-1. Install codex if missing (`npm i -g @openai/codex`) and create
-   the mint dir: `mkdir -p /tmp/codex-tend`.
-
-2. Have the user run, in their own terminal:
-
-   ```bash
-   CODEX_HOME=/tmp/codex-tend codex login --device-auth
-   ```
-
-   (Don't drive this from Claude's `Bash` tool — codex blocks until
-   sign-in and only flushes stdout on exit, so Claude wouldn't be
-   able to surface the URL+code in time.) `--device-auth` prints a
-   URL and a one-time code; the user opens the URL in any browser
-   and signs in as the dedicated bot ChatGPT account chosen above
-   (device-code is how they sign in as the bot without juggling
-   browser sessions). The dedicated `CODEX_HOME` isolates the bot's
-   `auth.json` from the user's personal `~/.codex/` — both coexist,
-   no need to log out of personal Codex. Codex writes
-   `/tmp/codex-tend/auth.json` once they sign in.
-
-3. After the user confirms they've signed in, read the file and
-   set the secret:
-
-   ```bash
-   gh secret set CODEX_AUTH_JSON --repo "$REPO" < /tmp/codex-tend/auth.json
-   rm -rf /tmp/codex-tend
-   ```
-
-4. Set up rotation. The static secret breaks ~8 days after mint —
-   the first consumer workflow to run after that triggers a Codex
-   refresh, rotates the tokens in an ephemeral runner, and the
-   GitHub secret holds the invalidated value. Two paths:
-
-   - **Manual** (low-volume bots): re-run the device-code mint every
-     ~6 days and re-set the secret.
-   - **Automated refresher** (recommended for concurrent CI): a
-     scheduled workflow updates the secret before any consumer can
-     trigger a rotation. See
-     ${CLAUDE_SKILL_DIR}/references/security-model.md for the threat
-     model and the reference workflow to copy in.
-
-     The refresher needs a fine-grained PAT with `secrets: read and
-     write`. The bot has `workflow` scope and can push workflow
-     files to feature branches that read repo secrets, so a plain
-     repo secret would hand the bot a "rewrite any secret"
-     credential. Store the PAT in an **Environment** pinned to
-     `main` — GitHub rejects branch refs that fail the policy
-     *before* injecting secrets, so a bot-pushed feature-branch run
-     can't read it.
-
-     Create the environment and pin it to `main`:
-
-     ```bash
-     gh api -X PUT "repos/$REPO/environments/codex-auth-refresh" \
-       -F 'deployment_branch_policy[protected_branches]=false' \
-       -F 'deployment_branch_policy[custom_branch_policies]=true' \
-       > /dev/null
-     gh api -X POST \
-       "repos/$REPO/environments/codex-auth-refresh/deployment-branch-policies" \
-       -F 'name=main' -F 'type=branch' > /dev/null
-     ```
-
-     Have the user mint a fine-grained PAT on the repo owner's
-     account (the bot doesn't have admin) via a pre-filled URL —
-     substitute `$OWNER` with the repo owner:
-
-     ```
-     https://github.com/settings/personal-access-tokens/new?name=tend-codex-refresh&description=Refresher%20for%20CODEX_AUTH_JSON&target_name=$OWNER&expires_in=none&secrets=write
-     ```
-
-     The URL pre-fills name, description, owner, no expiry, and
-     `secrets: read+write`. One manual step remains: under
-     **Repository access** pick "Only select repositories" →
-     this repo. No expiry because the env's `main`-only policy is
-     the actual security boundary; calendar rotation adds little.
-
-     Have the user paste the PAT back, then store it in the
-     environment:
-
-     ```bash
-     gh secret set CODEX_REFRESH_PAT --env codex-auth-refresh \
-       --repo "$REPO" --body "$PAT"
-     ```
-
-     The reference workflow already includes
-     `environment: codex-auth-refresh`.
-
-For **API key**:
+Codex uses `OPENAI_API_KEY` (pay-per-token, from
+`https://platform.openai.com/api-keys`). The subscription `auth.json`
+path is not supported — Codex rotates that refresh token on every
+API call and invalidates the prior one, so tend's concurrent
+workflows (review/mention/triage/nightly/…) would break each other's
+auth mid-run. See ${CLAUDE_SKILL_DIR}/references/security-model.md.
 
 ```bash
 gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q OPENAI_API_KEY && echo "SET" || echo "NOT SET"
@@ -781,7 +666,7 @@ line picks the row that matches the chosen harness):
 - [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
-- [ ] Harness auth (codex): `CODEX_AUTH_JSON` (subscription, recommended) or `OPENAI_API_KEY` secret set
+- [ ] Harness auth (codex): `OPENAI_API_KEY` secret set
 - [ ] Bot token: `TEND_BOT_TOKEN` secret set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot bio: profile bio reflects the authorization stance

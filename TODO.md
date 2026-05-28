@@ -14,7 +14,7 @@ needs the release sequence:
 3. Edit `.config/tend.yaml`: add `harness: codex` (and optionally
    `effort: medium`). Set `model: gpt-5.5` explicitly or let the
    default win.
-4. Set `CODEX_AUTH_JSON` secret on `max-sixty/tend` (or `OPENAI_API_KEY`).
+4. Set `OPENAI_API_KEY` secret on `max-sixty/tend`.
    Drop `CLAUDE_CODE_OAUTH_TOKEN` from `secrets.allowed` once unused.
 5. `uvx tend@latest init` to regenerate workflows. Commit both the config
    and the regenerated `tend-*.yaml` files in one commit.

@@ -411,11 +411,10 @@ def generate_install_test(cfg: Config) -> GeneratedWorkflow:
         harness_check = '"$CLAUDE_OAUTH$ANTHROPIC_KEY"'
     else:
         harness_envs = (
-            f"          CODEX_AUTH: ${{{{ secrets.{cfg.codex_auth_json_secret} }}}}\n"
             f"          OPENAI_KEY: ${{{{ secrets.{cfg.openai_key_secret} }}}}"
         )
-        harness_names = f"{cfg.codex_auth_json_secret} or {cfg.openai_key_secret}"
-        harness_check = '"$CODEX_AUTH$OPENAI_KEY"'
+        harness_names = cfg.openai_key_secret
+        harness_check = '"$OPENAI_KEY"'
 
     content = f"""\
 {HEADER}

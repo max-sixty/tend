@@ -1058,14 +1058,14 @@ def test_codex_action_ref(tmp_path: Path) -> None:
 
 
 def test_codex_workflows_use_openai_secrets_not_claude(tmp_path: Path) -> None:
-    """Codex agent step references OPENAI_API_KEY + CODEX_AUTH_JSON, not Claude."""
+    """Codex agent step references OPENAI_API_KEY, not Claude or auth.json."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
     for wf in generate_all(cfg):
         assert "openai_api_key: ${{ secrets.OPENAI_API_KEY }}" in wf.content, (
             f"{wf.filename} missing openai_api_key input"
         )
-        assert "codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}" in wf.content, (
-            f"{wf.filename} missing codex_auth_json input"
+        assert "codex_auth_json" not in wf.content, (
+            f"{wf.filename} should not reference codex_auth_json"
         )
         assert "claude_code_oauth_token" not in wf.content, (
             f"{wf.filename} should not reference claude_code_oauth_token under codex"

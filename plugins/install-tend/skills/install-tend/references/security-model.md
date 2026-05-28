@@ -68,47 +68,26 @@ in depth.
 | Bot token (App) | ~1 hour | Same as PAT, until the token expires | Same, plus auto-expiry |
 | Claude OAuth | Long-lived | Run Claude sessions billed to the account | Access GitHub |
 | `OPENAI_API_KEY` | Until revoked | Run Codex/OpenAI calls billed to the account | Access GitHub |
-| `CODEX_AUTH_JSON` | ~8-day refresh window | Run ChatGPT API calls as the minting account. Personal account: read chat history, access custom GPTs, exhaust quota. Dedicated account: burn subscription quota until rotation. | Access GitHub |
 
-## Codex auth.json: mint from a dedicated bot account
+## Codex auth.json is not supported
 
-`auth.json` is an OAuth refresh token bound to a ChatGPT account; a leak
-gives the attacker that account's plan resources. OpenAI's CI/CD auth guide
-(https://developers.openai.com/codex/auth/ci-cd-auth) discourages this path
-for public or open-source repos, on the assumption the token comes from a
-personal account. Tend's mitigation is to mint `auth.json` from a ChatGPT
-account dedicated to the bot: required on public repos, recommended on
-private. That narrows a leak to subscription-quota burn until rotation,
-comparable in scope to an `OPENAI_API_KEY` leak (agent-runtime access only,
-no GitHub). Flat-rate subscription billing also usually beats per-token API
-billing on a busy repo, so the dedicated-account `auth.json` is the install
-default. Revoke a leaked token at
-https://chatgpt.com/#settings/Personalization.
+`harness: codex` accepts only `OPENAI_API_KEY`. The subscription
+`auth.json` path is not exposed because Codex rotates that refresh
+token on every API call and invalidates the prior one after a short
+grace window. Tend runs multiple workflows concurrently
+(review/mention/triage/nightly/…), so each in-flight job's call
+invalidates the credential the other in-flight jobs are using — a
+scheduled refresher works around the ~8-day full-rotation schedule
+but cannot solve the per-call collision between concurrent jobs.
+OpenAI's own
+[CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth)
+forbids sharing one `auth.json` across concurrent jobs and
+discourages it for public repos.
 
-## Codex static-secret rotation
-
-Codex rotates the refresh token on use with a ~1-hour grace window for the
-old token. In CI the rotated token lands in an ephemeral runner while the
-GitHub secret still holds the now-invalid value. After ~8 days Codex's
-proactive refresh fires in the next workflow to run, and within ~1 hour
-every later run 401s permanently. OpenAI's guide also forbids sharing one
-`auth.json` across concurrent jobs. Two safe paths:
-
-- **Manual rotation.** Re-run `CODEX_HOME=/tmp/codex-tend codex login
-  --device-auth` every ~6 days and re-set the secret. Acceptable only when
-  consumer workflows are rare enough that the day-8 rotation race is
-  unlikely.
-- **Automated refresher.** A scheduled workflow refreshes the token and
-  updates `CODEX_AUTH_JSON` before any consumer workflow can trigger a
-  rotation. Its PAT (`CODEX_REFRESH_PAT`, fine-grained, `secrets: read and
-  write` on the repo) must not be a plain repo secret: the bot has
-  `workflow` scope and can push workflow files on feature branches that
-  read repo secrets, which would escalate it from write collaborator to
-  rewriting every repo secret. Store the PAT in an Environment (for example
-  `codex-auth-refresh`) pinned to `main`; GitHub gates secret injection on
-  the workflow ref before the job starts, so bot-pushed feature-branch
-  workflows cannot read it. Reference implementation to copy:
-  https://github.com/max-sixty/tend/blob/main/.github/workflows/codex-auth-refresh.yaml
+If `auth.json` was previously installed, replace it with an
+`OPENAI_API_KEY` secret and delete the `CODEX_AUTH_JSON` and
+`CODEX_REFRESH_PAT` secrets plus any `codex-auth-refresh.yaml`
+workflow.
 
 ## Token assignment
 
@@ -124,8 +103,7 @@ harness-auth credential whose form depends on `harness` in
 | Bot token (PAT or App) | GitHub API and git operations. Consistent bot identity. |
 | Harness auth (one of, per harness) | Authenticates the agent runtime. |
 | ↳ Claude OAuth token | `harness: claude`: authenticates Claude Code to the Anthropic API. |
-| ↳ `CODEX_AUTH_JSON` | `harness: codex`, subscription-funded: the `auth.json` Codex writes after `codex login --device-auth`. Default recommendation; on public repos mint it from a dedicated ChatGPT account (see above). |
-| ↳ `OPENAI_API_KEY` | `harness: codex`, API-billed: standard OpenAI API key, per-token billing. Alternative when minting a dedicated ChatGPT account isn't desired. |
+| ↳ `OPENAI_API_KEY` | `harness: codex`: standard OpenAI API key, per-token billing. The subscription `auth.json` path is not supported (see above). |
 
 A single bot token is safe across workflows because the merge restriction
 caps the blast radius. One token also gives consistent bot identity for

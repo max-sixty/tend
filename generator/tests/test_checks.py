@@ -45,7 +45,6 @@ def _config(
         claude_token_secret=claude_token_secret,
         anthropic_api_key_secret="ANTHROPIC_API_KEY",
         openai_key_secret="OPENAI_API_KEY",
-        codex_auth_json_secret="CODEX_AUTH_JSON",
         harness=harness,
         model=model,
         effort="",
@@ -712,37 +711,8 @@ def test_codex_engine_passes_with_openai_key() -> None:
     assert "OPENAI_API_KEY" in codex_check[0].message
 
 
-def test_codex_engine_passes_with_auth_json() -> None:
-    """CODEX_AUTH_JSON alone is sufficient — auth.json takes precedence."""
-
-    def fake_gh(*args, **kwargs):
-        url = args[1]
-        if url == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
-            return _make_completed("main\n")
-        if "rules/branches" in url:
-            return _make_completed(_BRANCH_HAS_UPDATE_RULE)
-        if "branches" in url:
-            return _make_completed("true\n")
-        if "collaborators" in url:
-            return _make_completed("write\n")
-        if "secrets" in url:
-            if "--json" in args:
-                return _make_completed('[{"name":"T1"},{"name":"CODEX_AUTH_JSON"}]\n')
-            return _make_completed('["T1","CODEX_AUTH_JSON"]\n')
-        return _make_completed(returncode=1)
-
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("tend.checks._gh", side_effect=fake_gh),
-    ):
-        results = run_all_checks(_config(harness="codex"), repo="owner/repo")
-    codex_check = [r for r in results if r.name == "codex-auth"]
-    assert codex_check[0].passed is True
-    assert "CODEX_AUTH_JSON" in codex_check[0].message
-
-
 def test_codex_engine_fails_when_no_auth() -> None:
-    """Engine=codex with neither secret set is a hard failure."""
+    """Engine=codex with OPENAI_API_KEY unset is a hard failure."""
 
     def fake_gh(*args, **kwargs):
         url = args[1]
@@ -768,7 +738,6 @@ def test_codex_engine_fails_when_no_auth() -> None:
     codex_check = [r for r in results if r.name == "codex-auth"]
     assert codex_check[0].passed is False
     assert "OPENAI_API_KEY" in codex_check[0].message
-    assert "CODEX_AUTH_JSON" in codex_check[0].message
 
 
 def test_claude_engine_omits_codex_auth_check() -> None:
