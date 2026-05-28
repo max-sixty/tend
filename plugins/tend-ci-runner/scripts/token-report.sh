@@ -83,7 +83,14 @@ for row in "${ROWS[@]}"; do
   RUNDIR="$WORKDIR/$RUN_ID"
   mkdir -p "$RUNDIR"
 
-  if ! gh run download "$RUN_ID" "${repo_args[@]}" --pattern 'claude-session-logs*' --dir "$RUNDIR" 2>/dev/null; then
+  # Two artifact prefixes since the interactive harness lands: the
+  # SDK action uploads `claude-session-logs-X`, the interactive action
+  # uploads `claude-interactive-session-logs-X`. A consumer repo may
+  # have both in flight during a harness migration, so we accept either.
+  if ! gh run download "$RUN_ID" "${repo_args[@]}" \
+      --pattern 'claude-session-logs*' \
+      --pattern 'claude-interactive-session-logs*' \
+      --dir "$RUNDIR" 2>/dev/null; then
     continue
   fi
 
