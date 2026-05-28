@@ -14,9 +14,10 @@ inputs:
     required: false
     default: ""
     description: >-
-      OpenAI API key for the Responses API, billed per token. One of
-      openai_api_key or codex_auth_json must be set; codex_auth_json takes
-      precedence when both are present.
+      OpenAI API key for the Responses API, billed per token. The only
+      supported codex auth — codex_auth_json is incompatible with tend's
+      concurrent workflows and is being removed. (If both are set,
+      codex_auth_json still takes precedence; clear it to use this key.)
   codex_auth_json:
     required: false
     default: ""
@@ -159,7 +160,7 @@ runs:
       shell: bash
       run: |
         if [ -z "${{ inputs.openai_api_key }}" ] && [ -z "${{ inputs.codex_auth_json }}" ]; then
-          echo "::error::No Codex auth configured. Set either the OPENAI_API_KEY secret (API-billed) or the CODEX_AUTH_JSON secret (subscription-funded, see docs/security-model.md for the caveat)."
+          echo "::error::No Codex auth configured. Set the OPENAI_API_KEY secret (CODEX_AUTH_JSON is incompatible with tend's concurrent workflows — see docs/security-model.md)."
           exit 1
         fi
 
