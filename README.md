@@ -160,14 +160,14 @@ Repo secrets depend on the harness:
 | Harness   | Required secrets                                                                                                        |
 | -------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `claude` | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription, see caveat below) or `ANTHROPIC_API_KEY` (API-billed) |
-| `codex`  | `TEND_BOT_TOKEN` + `OPENAI_API_KEY` (pay-per-token). `CODEX_AUTH_JSON` is incompatible with tend — see below.            |
+| `codex`  | `TEND_BOT_TOKEN` + `OPENAI_API_KEY` (pay-per-token).                                                                     |
 
 `TEND_BOT_TOKEN` is the bot account's PAT — see
 [example config](docs/tend.example.yaml) for scopes.
 `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token`. The other two
 are standard API keys from console.anthropic.com and
 platform.openai.com. See [Codex (alternative)](#codex-alternative) for
-why `CODEX_AUTH_JSON` doesn't work with tend;
+why the Codex subscription `auth.json` path isn't supported;
 [docs/security-model.md](docs/security-model.md) has the full leak
 breakdown.
 
@@ -231,13 +231,13 @@ skill markdown.
 Use `OPENAI_API_KEY` (a standard OpenAI API key, pay-per-token, from
 platform.openai.com). Works for any repo, public or private.
 
-> **`CODEX_AUTH_JSON` is incompatible with tend.** Codex rotates its
+> **Subscription `auth.json` is not supported.** Codex rotates that
 > refresh token on every API call and invalidates the prior token; tend
 > runs multiple workflows concurrently (review, mention, triage,
-> nightly, …), so each call invalidates the credential the other
+> nightly, …), so each call would invalidate the credential the other
 > in-flight jobs are using. A scheduled refresher works around the
 > ~8-day rotation but not the per-call invalidation between concurrent
-> jobs. The path is being removed — use `OPENAI_API_KEY` instead.
+> jobs. Use `OPENAI_API_KEY` instead.
 
 ## Badge
 

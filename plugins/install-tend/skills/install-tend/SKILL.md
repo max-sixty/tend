@@ -527,12 +527,11 @@ gh secret set ANTHROPIC_API_KEY --repo "$REPO" --body "$KEY"
 ### 7b. Harness = codex
 
 Codex uses `OPENAI_API_KEY` (pay-per-token, from
-`https://platform.openai.com/api-keys`). The `CODEX_AUTH_JSON`
-(subscription `auth.json`) path is **incompatible with tend** —
-Codex rotates the refresh token on every API call and invalidates
-the prior one, so tend's concurrent workflows
-(review/mention/triage/nightly/…) break each other's auth mid-run.
-See ${CLAUDE_SKILL_DIR}/references/security-model.md.
+`https://platform.openai.com/api-keys`). The subscription `auth.json`
+path is not supported — Codex rotates that refresh token on every
+API call and invalidates the prior one, so tend's concurrent
+workflows (review/mention/triage/nightly/…) would break each other's
+auth mid-run. See ${CLAUDE_SKILL_DIR}/references/security-model.md.
 
 ```bash
 gh secret list --repo "$REPO" --json name --jq '.[].name' | grep -q OPENAI_API_KEY && echo "SET" || echo "NOT SET"
@@ -667,7 +666,7 @@ line picks the row that matches the chosen harness):
 - [ ] Badge: offered to add to README (optional)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
-- [ ] Harness auth (codex): `OPENAI_API_KEY` secret set (`CODEX_AUTH_JSON` is incompatible with tend's concurrent workflows)
+- [ ] Harness auth (codex): `OPENAI_API_KEY` secret set
 - [ ] Bot token: `TEND_BOT_TOKEN` secret set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot bio: profile bio reflects the authorization stance

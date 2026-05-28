@@ -51,17 +51,16 @@ bot_name: my-project-bot
 # | Harness   | Required                                                                     |
 # |----------|-------------------------------------------------------------------------------|
 # | `claude` | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`    |
-# | `codex`  | `TEND_BOT_TOKEN` + `OPENAI_API_KEY` (`CODEX_AUTH_JSON` is incompatible)       |
+# | `codex`  | `TEND_BOT_TOKEN` + `OPENAI_API_KEY`                                           |
 #
 # `TEND_BOT_TOKEN` is the bot account's PAT (scopes below).
 # `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token` (PKCE).
 # `ANTHROPIC_API_KEY` is a console.anthropic.com API key.
-# `OPENAI_API_KEY` is a standard OpenAI API key.
-#
-# `CODEX_AUTH_JSON` (subscription `auth.json`) is incompatible with
-# tend's concurrent workflows — Codex rotates the refresh token on
-# every call, so concurrent jobs (review/mention/triage/nightly/…)
-# invalidate each other's auth mid-run. The path is being removed.
+# `OPENAI_API_KEY` is a standard OpenAI API key. The Codex
+# subscription `auth.json` path is not supported — Codex rotates that
+# refresh token on every call, so concurrent jobs
+# (review/mention/triage/nightly/…) would invalidate each other's auth
+# mid-run.
 #
 # The Claude action prefers the subscription token
 # (`CLAUDE_CODE_OAUTH_TOKEN`) over the API key when both are set.

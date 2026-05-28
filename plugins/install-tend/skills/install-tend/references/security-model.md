@@ -68,28 +68,26 @@ in depth.
 | Bot token (App) | ~1 hour | Same as PAT, until the token expires | Same, plus auto-expiry |
 | Claude OAuth | Long-lived | Run Claude sessions billed to the account | Access GitHub |
 | `OPENAI_API_KEY` | Until revoked | Run Codex/OpenAI calls billed to the account | Access GitHub |
-| `CODEX_AUTH_JSON` | DEPRECATED — incompatible with tend's concurrent workflows; use `OPENAI_API_KEY`. | | |
 
-## Codex auth.json: incompatible with tend (use `OPENAI_API_KEY`)
+## Codex auth.json is not supported
 
-`CODEX_AUTH_JSON` is being removed. Use `OPENAI_API_KEY` for `harness:
-codex`. Two reasons it doesn't work for tend in practice:
-
-- **Per-call refresh-token invalidation.** Codex rotates the refresh
-  token on every API call and invalidates the prior one after a short
-  grace window. Tend runs multiple workflows concurrently
-  (review/mention/triage/nightly/…), so each in-flight job's call
-  invalidates the credential the other in-flight jobs are using. A
-  scheduled refresher works around the ~8-day full-rotation schedule
-  but cannot solve the per-call collision between concurrent jobs.
-- **OpenAI's own guidance.** The CI/CD auth guide
-  (https://developers.openai.com/codex/auth/ci-cd-auth) forbids sharing
-  one `auth.json` across concurrent jobs and discourages it for public
-  repos.
+`harness: codex` accepts only `OPENAI_API_KEY`. The subscription
+`auth.json` path is not exposed because Codex rotates that refresh
+token on every API call and invalidates the prior one after a short
+grace window. Tend runs multiple workflows concurrently
+(review/mention/triage/nightly/…), so each in-flight job's call
+invalidates the credential the other in-flight jobs are using — a
+scheduled refresher works around the ~8-day full-rotation schedule
+but cannot solve the per-call collision between concurrent jobs.
+OpenAI's own
+[CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth)
+forbids sharing one `auth.json` across concurrent jobs and
+discourages it for public repos.
 
 If `auth.json` was previously installed, replace it with an
-`OPENAI_API_KEY` secret and delete `CODEX_AUTH_JSON` plus any
-`codex-auth-refresh.yaml` workflow and `CODEX_REFRESH_PAT` secret.
+`OPENAI_API_KEY` secret and delete the `CODEX_AUTH_JSON` and
+`CODEX_REFRESH_PAT` secrets plus any `codex-auth-refresh.yaml`
+workflow.
 
 ## Token assignment
 
@@ -105,7 +103,7 @@ harness-auth credential whose form depends on `harness` in
 | Bot token (PAT or App) | GitHub API and git operations. Consistent bot identity. |
 | Harness auth (one of, per harness) | Authenticates the agent runtime. |
 | ↳ Claude OAuth token | `harness: claude`: authenticates Claude Code to the Anthropic API. |
-| ↳ `OPENAI_API_KEY` | `harness: codex`: standard OpenAI API key, per-token billing. The only supported codex auth — `CODEX_AUTH_JSON` doesn't work with tend's concurrent workflows (see above). |
+| ↳ `OPENAI_API_KEY` | `harness: codex`: standard OpenAI API key, per-token billing. The subscription `auth.json` path is not supported (see above). |
 
 A single bot token is safe across workflows because the merge restriction
 caps the blast radius. One token also gives consistent bot identity for

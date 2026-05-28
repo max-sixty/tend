@@ -1,33 +1,20 @@
 name: Tend (Codex)
 description: >-
   Tend's Codex harness: an autonomous junior maintainer for GitHub repos
-  powered by OpenAI Codex. Authenticate via OPENAI_API_KEY. The
-  codex_auth_json input is retained for compatibility but is incompatible
-  with tend's concurrent workflows (per-call refresh-token invalidation)
-  and is being removed — see docs/security-model.md.
+  powered by OpenAI Codex. Authenticate via OPENAI_API_KEY.
 
 inputs:
   github_token:
     required: true
     description: GitHub token for API access and pushing commits
   openai_api_key:
-    required: false
-    default: ""
+    required: true
     description: >-
-      OpenAI API key for the Responses API, billed per token. The only
-      supported codex auth — codex_auth_json is incompatible with tend's
-      concurrent workflows and is being removed. (If both are set,
-      codex_auth_json still takes precedence; clear it to use this key.)
-  codex_auth_json:
-    required: false
-    default: ""
-    description: >-
-      DEPRECATED — incompatible with tend's concurrent workflows. Codex
-      rotates this refresh token on every API call and invalidates the
-      prior one, so concurrent jobs (review/mention/triage/nightly/…)
-      break each other's auth mid-run. Use openai_api_key instead. This
-      input is retained for compatibility and will be removed in a
-      follow-up release. Takes precedence over openai_api_key when set.
+      OpenAI API key for the Responses API, billed per token. The
+      subscription `auth.json` path is not supported — Codex rotates
+      that refresh token on every API call and invalidates the prior
+      one, so concurrent jobs (review/mention/triage/nightly/…) would
+      break each other's auth mid-run.
   bot_name:
     required: true
     description: GitHub username of the bot account
@@ -159,8 +146,8 @@ runs:
     - name: Validate auth configured
       shell: bash
       run: |
-        if [ -z "${{ inputs.openai_api_key }}" ] && [ -z "${{ inputs.codex_auth_json }}" ]; then
-          echo "::error::No Codex auth configured. Set the OPENAI_API_KEY secret (CODEX_AUTH_JSON is incompatible with tend's concurrent workflows — see docs/security-model.md)."
+        if [ -z "${{ inputs.openai_api_key }}" ]; then
+          echo "::error::OPENAI_API_KEY is unset. Set the OPENAI_API_KEY repo secret."
           exit 1
         fi
 
@@ -187,24 +174,6 @@ runs:
       run: |
         npm install -g "@openai/codex@${{ inputs.codex_version }}"
         codex --version
-
-    # Codex CLI prefers auth.json over $OPENAI_API_KEY when both are
-    # present. We mirror that precedence here: write auth.json if supplied,
-    # otherwise rely on the env var. Mode 600 matches what `codex login`
-    # writes locally.
-    - name: Configure Codex auth
-      shell: bash
-      env:
-        CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
-      run: |
-        mkdir -p "$HOME/.codex"
-        if [ -n "$CODEX_AUTH_JSON" ]; then
-          printf '%s' "$CODEX_AUTH_JSON" > "$HOME/.codex/auth.json"
-          chmod 600 "$HOME/.codex/auth.json"
-          echo "Codex auth: using subscription-funded auth.json"
-        else
-          echo "Codex auth: using OPENAI_API_KEY"
-        fi
 
     # Install the tend-ci-runner plugin from the action's own checkout.
     # `github.action_path` is .../<runner-cache>/max-sixty/tend/<ref>/codex/;

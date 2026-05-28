@@ -44,16 +44,12 @@ KNOWN_HARNESSES = {"claude", "claude-interactive", "codex"}
 # action ref is the same.
 CLAUDE_FAMILY_HARNESSES = {"claude", "claude-interactive"}
 # Claude harness reads claude_token (OAuth) and anthropic_api_key (console.
-# anthropic.com) — adopters set one. Codex harness reads openai_key and
-# codex_auth_json; the latter is the subscription-funded path (the auth.json
-# Codex writes after `codex login --device-auth`, stored as a repo secret),
-# officially discouraged for public repos but supported.
+# anthropic.com) — adopters set one. Codex harness reads openai_key.
 KNOWN_SECRETS_KEYS = {
     "bot_token",
     "claude_token",
     "anthropic_api_key",
     "openai_key",
-    "codex_auth_json",
     "allowed",
 }
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
@@ -140,7 +136,6 @@ class Config:
     claude_token_secret: str
     anthropic_api_key_secret: str
     openai_key_secret: str
-    codex_auth_json_secret: str
     harness: str
     model: str
     effort: str
@@ -394,7 +389,6 @@ class Config:
                 "anthropic_api_key", "ANTHROPIC_API_KEY"
             ),
             openai_key_secret=secrets.get("openai_key", "OPENAI_API_KEY"),
-            codex_auth_json_secret=secrets.get("codex_auth_json", "CODEX_AUTH_JSON"),
             harness=harness,
             model=model,
             effort=effort,
