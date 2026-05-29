@@ -144,23 +144,27 @@ Full threat model: [docs/security-model.md](docs/security-model.md).
 
 ## Configuration
 
-`.config/tend.yaml` — only `bot_name` is required. The default harness is
-Claude; set `harness: codex` to use OpenAI Codex instead.
+`.config/tend.yaml` — only `bot_name` is required. The default harness wraps
+`claude-code-action`; `harness: codex` selects OpenAI Codex, and
+`harness: claude-interactive` runs the official `claude` CLI under a PTY
+(see [Harnesses](#harnesses) below for when each fits).
 
 ```yaml
 bot_name: my-project-bot
 
 # Optional — defaults to "claude"
 # harness: codex
+# harness: claude-interactive
 # effort: medium   # codex only: minimal | low | medium | high
 ```
 
 Repo secrets depend on the harness:
 
-| Harness   | Required secrets                                                                                                        |
-| -------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `claude` | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription, see caveat below) or `ANTHROPIC_API_KEY` (API-billed) |
-| `codex`  | `TEND_BOT_TOKEN` + `OPENAI_API_KEY` (pay-per-token).                                                                     |
+| Harness               | Required secrets                                                                                                        |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `claude`              | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription, see caveat below) or `ANTHROPIC_API_KEY` (API-billed) |
+| `claude-interactive`  | Same as `claude`.                                                                                                       |
+| `codex`               | `TEND_BOT_TOKEN` + `OPENAI_API_KEY` (pay-per-token).                                                                    |
 
 `TEND_BOT_TOKEN` is the bot account's PAT — see
 [example config](docs/tend.example.yaml) for scopes.
@@ -186,8 +190,9 @@ workflow names `tend-ci-fix` watches, PR title conventions, label policies.
 
 ## Harnesses
 
-Tend supports two harnesses. Pick whichever fits the credentials you
-already have; both run with the same workflows and skills.
+Tend supports three harnesses. Pick whichever fits the credentials and
+billing path that already work for you; all three run the same workflows
+and skills.
 
 ### Claude (default)
 
@@ -221,6 +226,22 @@ authenticate; billing just shifts buckets. See Anthropic's
 and the
 [Agent SDK plan article](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
 for the canonical statements.
+
+### Claude (interactive)
+
+Runs the official `claude` CLI inside a PTY (via `script(1)`) instead of
+through `claude-code-action`. End-of-turn detection comes from a `Stop`
+hook that writes a sentinel file the supervisor polls for.
+
+Auth matches the default Claude harness (`CLAUDE_CODE_OAUTH_TOKEN` or
+`ANTHROPIC_API_KEY`).
+
+From 2026-06-15, subscription-funded `claude-code-action` runs draw from
+the separate metered Agent SDK credit pool described in the caveat above;
+the interactive `claude` CLI continues to draw from the flat Pro/Max
+subscription.
+
+Opt-in: `harness: claude-interactive`.
 
 ### Codex (alternative)
 
