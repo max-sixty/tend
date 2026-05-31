@@ -1,0 +1,80 @@
+# TEMPORARY: confirms the minimal upstream repro for the `!` bug —
+# `sandbox.enabled: true` ALONE (no CLAUDE_CODE_SUBPROCESS_ENV_SCRUB) corrupts
+# `!` in Bash tool commands. Writes to cwd (always sandbox-writable). Remove
+# after the upstream issue is filed.
+name: sandbox-repro
+
+on:
+  push:
+    branches: [keys]
+    paths: ['.github/workflows/sandbox-repro.yaml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install claude
+        env:
+          CLAUDE_VERSION: "2.1.158"
+        run: |
+          for i in 1 2 3; do
+            if timeout 60 bash -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_VERSION"; then break; fi
+            sleep $((i * 5))
+          done
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/claude" --version
+
+      - name: Install bubblewrap
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bubblewrap socat
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+            sudo tee /etc/apparmor.d/bwrap >/dev/null <<'EOF'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+            include if exists <local/bwrap>
+          }
+          EOF
+            sudo systemctl reload apparmor || sudo service apparmor reload || true
+          fi
+
+      - name: Repro — sandbox.enabled:true only, no env scrub
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_REMOTE: "1"
+        run: |
+          WORK="$RUNNER_TEMP/repro"
+          mkdir -p "$WORK/.claude"
+          cd "$WORK"
+          printf '{}' > "$HOME/.claude.json"
+          jq --arg p "$(realpath "$WORK")" '
+            .hasCompletedOnboarding = true | .theme = "dark"
+            | .projects[$p] = {hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true}
+          ' "$HOME/.claude.json" > "$HOME/.claude.json.tmp" && mv "$HOME/.claude.json.tmp" "$HOME/.claude.json"
+
+          cat > .claude/settings.json <<'JSON'
+          {
+            "sandbox": { "enabled": true, "failIfUnavailable": true },
+            "permissions": { "defaultMode": "dontAsk", "allow": ["Bash"] }
+          }
+          JSON
+
+          rm -f out.txt jq.txt
+          claude -p "Run each of these two bash commands exactly as written, one tool call each, no edits, then reply: done.
+          printf '%s\n' 'alpha!beta' > out.txt
+          echo '[1,2,3]' | jq -c 'map(select(. != 2))' > jq.txt 2>&1" \
+            --allowedTools Bash --permission-mode dontAsk > claude.log 2>&1 || true
+
+          {
+            echo "## Repro verdict (sandbox.enabled:true, no env scrub)"
+            echo -n "out.txt bytes: "; od -An -c out.txt 2>/dev/null || echo MISSING
+            actual=$(cat out.txt 2>/dev/null)
+            if [ "$actual" = "alpha!beta" ]; then echo "EXCLAIM=CLEAN"; else echo "EXCLAIM=CORRUPTED (got: $actual)"; fi
+            echo -n "jq.txt: "; cat jq.txt 2>/dev/null || echo MISSING
+          } | tee -a "$GITHUB_STEP_SUMMARY"
