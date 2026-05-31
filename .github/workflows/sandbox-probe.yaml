@@ -23,12 +23,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scrub: ["0", "1"]
-    name: probe (scrub=${{ matrix.scrub }})
+        include:
+          - { version: "2.1.158", scrub: "1" }
+          - { version: "2.1.159", scrub: "1" }
+    name: probe (v${{ matrix.version }} scrub=${{ matrix.scrub }})
     steps:
       - name: Install claude
         env:
-          CLAUDE_VERSION: "2.1.150"
+          CLAUDE_VERSION: ${{ matrix.version }}
         run: |
           for i in 1 2 3; do
             if timeout 60 bash -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_VERSION"; then break; fi
@@ -74,7 +76,7 @@ jobs:
       - name: Pre-seed onboarding + write settings
         env:
           SCRUB: ${{ matrix.scrub }}
-          CLAUDE_VERSION: "2.1.150"
+          CLAUDE_VERSION: ${{ matrix.version }}
         run: |
           WORKDIR="$RUNNER_TEMP/probe"
           mkdir -p "$WORKDIR/.claude"
