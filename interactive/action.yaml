@@ -682,7 +682,7 @@ runs:
       shell: bash
       run: |
         # Thread key (`-n<issue/PR number>`) lets a later run on the same
-        # issue or PR find this run's session log by artifact name alone —
+        # issue or PR find this run's session log by artifact name alone:
         # the GitHub artifacts API returns names without a download. The
         # repo's issue/PR number space is shared, so one number keys the
         # thread whether the event was an issue comment or a review. Empty
@@ -692,6 +692,8 @@ runs:
           num=$(jq -r '.issue.number // .pull_request.number // empty' "$GITHUB_EVENT_PATH")
           [ -n "$num" ] && thread="-n${num}"
         fi
+        # INVOCATION_ID (unique per job in matrix workflows) avoids artifact
+        # name collisions when the action runs in multiple matrix jobs.
         suffix="${INVOCATION_ID:+"-${INVOCATION_ID:0:8}"}"
         echo "name=claude-interactive-session-logs${thread}${suffix}" >> "$GITHUB_OUTPUT"
 

@@ -432,7 +432,7 @@ runs:
       shell: bash
       run: |
         # Thread key (`-n<issue/PR number>`) lets a later run on the same
-        # issue or PR find this run's session log by artifact name alone —
+        # issue or PR find this run's session log by artifact name alone:
         # the GitHub artifacts API returns names without a download. The
         # repo's issue/PR number space is shared, so one number keys the
         # thread whether the event was an issue comment or a review. Empty

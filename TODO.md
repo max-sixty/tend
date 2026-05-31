@@ -36,11 +36,11 @@ reaches for prior context.
 Moving retrieval into a deterministic action step would make it free for the
 agent: before invoking the harness, the action lists the thread's prior
 artifacts, downloads them, builds a condensed index (run id, date, event,
-final posted text, files touched) with `jq`, stages it on disk, and injects
-the path into the prompt (the seam that already injects the queue-delay
-line). The agent then reads a small index instead of running the queries,
-and opens a full JSONL only when it needs the investigation behind a prior
-conclusion.
+final posted text, files touched) with `jq`, and stages it on disk at a
+path the skill reads (or prepends a pointer to the prompt, as the action
+already does for the CI directive). The agent then reads a small index
+instead of running the queries, and opens a full JSONL only when it needs
+the investigation behind a prior conclusion.
 
 Worth building once usage shows the agent reaches for thread history often
 enough that the per-run retrieval cost is material. Until then the
