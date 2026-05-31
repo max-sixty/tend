@@ -16,9 +16,15 @@ not run this recipe against any other repo.
 If `tend-agent/tend-integration` does not exist yet, the §1 bootstrap
 creates it. Once it exists, subsequent weekly runs only operate on it.
 
-`$GITHUB_TOKEN` (bot PAT) and `$CLAUDE_CODE_OAUTH_TOKEN` are both present
-in the agent's env, set on the claude step in `action.yaml`. `gh`
-authenticates as `tend-agent` via `$GITHUB_TOKEN` automatically.
+`$GITHUB_TOKEN` (bot PAT) is present in the agent's env, set on the
+claude step in `action.yaml`. `gh` authenticates as `tend-agent` via
+`$GITHUB_TOKEN` automatically.
+
+`$CLAUDE_CODE_OAUTH_TOKEN` is **not** available here — the harness sets
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, which strips Anthropic credentials
+from this subprocess. Rotation on the integration repo is therefore a
+manual maintainer task; the reseed below is guarded so a scrubbed env
+never clobbers the stored secret.
 
 The bot PAT needs `workflow` (to push generated workflow files) but
 **does not** need `delete_repo` — the recipe never deletes the test
@@ -90,11 +96,21 @@ EOF
 EOF
 fi
 
-# Always (re)seed secrets — handles OAuth-token rotation in the source repo.
+# Reseed TEND_BOT_TOKEN every run (env var is present and rotates with
+# the parent workflow's secret).
 printf '%s' "$GITHUB_TOKEN" \
   | gh secret set TEND_BOT_TOKEN --repo tend-agent/tend-integration
-printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" \
-  | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo tend-agent/tend-integration
+
+# CLAUDE_CODE_OAUTH_TOKEN is scrubbed from this subprocess by the
+# harness — an unguarded reseed would pipe empty into the secret and
+# break every subsequent tend-* run on the integration repo at the
+# action's auth preflight. Only reseed if the env var actually has a
+# value (it currently never will under env-scrub; the guard exists so
+# the recipe is safe if that ever changes).
+if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+  printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" \
+    | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo tend-agent/tend-integration
+fi
 ```
 
 ## 2. Reset to a known-clean state
