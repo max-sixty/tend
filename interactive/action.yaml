@@ -681,8 +681,19 @@ runs:
       id: artifact
       shell: bash
       run: |
+        # Thread key (`-n<issue/PR number>`) lets a later run on the same
+        # issue or PR find this run's session log by artifact name alone —
+        # the GitHub artifacts API returns names without a download. The
+        # repo's issue/PR number space is shared, so one number keys the
+        # thread whether the event was an issue comment or a review. Empty
+        # for schedule/workflow_run/dispatch (no thread).
+        thread=""
+        if [ -f "${GITHUB_EVENT_PATH:-}" ]; then
+          num=$(jq -r '.issue.number // .pull_request.number // empty' "$GITHUB_EVENT_PATH")
+          [ -n "$num" ] && thread="-n${num}"
+        fi
         suffix="${INVOCATION_ID:+"-${INVOCATION_ID:0:8}"}"
-        echo "name=claude-interactive-session-logs${suffix}" >> "$GITHUB_OUTPUT"
+        echo "name=claude-interactive-session-logs${thread}${suffix}" >> "$GITHUB_OUTPUT"
 
     - name: Upload session logs
       if: always()
