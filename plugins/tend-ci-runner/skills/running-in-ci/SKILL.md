@@ -444,7 +444,7 @@ Review-response runs triggered by `pull_request_review` or `pull_request_review_
 
 ## Grounded Analysis
 
-CI runs are not interactive — every claim must be grounded in evidence. The user can't ask follow-up questions; treat every response as your final answer.
+CI runs are not interactive — every claim must be grounded in evidence. The thread is also high-latency: a follow-up may not arrive for hours, so make each response fairly complete rather than counting on a quick back-and-forth.
 
 Read logs, code, and API data before drawing conclusions. Show evidence: cite log lines, file paths, commit SHAs. Trace causation — if two things co-occur, find the mechanism rather than saying "this may be related." Never claim a failure is "pre-existing" without checking main branch CI history. Distinguish what you verified from what you inferred.
 
