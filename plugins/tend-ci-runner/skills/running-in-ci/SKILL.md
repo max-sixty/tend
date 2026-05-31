@@ -400,10 +400,12 @@ Code blocks, bullet lists, and tables keep their newlines as-is — only prose p
 
 Keep comments concise. Put supporting detail inside `<details>` tags — the reader should get the gist without expanding. Don't collapse content that *is* the answer (e.g., a requested analysis).
 
-```
-<details><summary>Detailed findings (6 files)</summary>
+When an answer rests on deeper research — citations across several files, a reproduction, a traced mechanism — keep the visible reply short and fold the sources, line-anchored links, and working notes into `<details>`. Each CI run is a fresh session with no memory of prior reasoning, so a follow-up on the same thread starts cold; the thread is the only durable record, so that block doubles as a scratchpad the next session reads back instead of re-deriving the same citations.
 
-...details here...
+```
+<details><summary>Sources and notes</summary>
+
+...line-anchored source links, repro steps, working notes...
 
 </details>
 ```
