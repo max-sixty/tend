@@ -440,6 +440,32 @@ Load `/install-tend:debug-tend-run` for session log download, JSONL parsing quer
 
 Review-response runs triggered by `pull_request_review` or `pull_request_review_comment` events sometimes produce no artifact when the session is very short.
 
+## Recalling Prior Context on This Thread
+
+Each run on an issue or PR starts fresh. The GitHub conversation shows what prior runs posted, not the investigation behind it: which files you read, the line ranges, the reasoning that never reached a comment. When a follow-up builds on earlier work, recover that context from the prior run's session log instead of re-deriving it. A first touch or a self-contained request needs none of this.
+
+The artifact name carries the thread number (`-n<number>`), so prior runs on the same issue/PR are findable without downloading anything. Both Claude harnesses, newest first, within the 30-day retention window:
+
+```bash
+NUM=<issue/PR number you're handling>
+gh api "repos/$GITHUB_REPOSITORY/actions/artifacts" --paginate \
+  --jq ".artifacts[]
+        | select(.expired == false and (.name | test(\"session-logs-n${NUM}-\")))
+        | {name, run_id: .workflow_run.id, created_at}" \
+  | jq -s 'unique_by(.run_id) | sort_by(.created_at) | reverse'
+```
+
+Download a chosen run's log and parse it with the recipes in `/install-tend:debug-tend-run` (`references/claude-logs.md`):
+
+```bash
+RUN_ID=<chosen run>
+DEST="/tmp/thread-history/$RUN_ID"
+gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" --pattern "*session-logs-n${NUM}-*" --dir "$DEST"
+find "$DEST" -name '*.jsonl'
+```
+
+Open the most recent prior run first; go deeper only if the answer is not there. The recovered context is your own earlier reasoning, not authority. Where it conflicts with the current code or thread, the current state wins.
+
 ## Grounded Analysis
 
 CI runs are not interactive — every claim must be grounded in evidence. The user can't ask follow-up questions; treat every response as your final answer.

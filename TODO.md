@@ -25,6 +25,28 @@ needs the release sequence:
 Doing this in the same PR that ships the action would temporarily break
 tend's own CI between merge and the release tag bump.
 
+## Thread memory: deterministic prep of prior conversations
+
+Session-log artifacts are stamped with the issue/PR number (`-n<number>`),
+and `running-in-ci` teaches the agent to fetch and parse a thread's prior
+runs on demand. The agent does that retrieval itself, spending tokens and
+wall-clock on `gh api`, `gh run download`, and JSONL parsing each time it
+reaches for prior context.
+
+Moving retrieval into a deterministic action step would make it free for the
+agent: before invoking the harness, the action lists the thread's prior
+artifacts, downloads them, builds a condensed index (run id, date, event,
+final posted text, files touched) with `jq`, stages it on disk, and injects
+the path into the prompt (the seam that already injects the queue-delay
+line). The agent then reads a small index instead of running the queries,
+and opens a full JSONL only when it needs the investigation behind a prior
+conclusion.
+
+Worth building once usage shows the agent reaches for thread history often
+enough that the per-run retrieval cost is material. Until then the
+agent-driven path covers the same ground, and survives no longer than the
+30-day artifact retention either way.
+
 ## Auth: GitHub App alternatives to PAT
 
 Both alternatives replace the classic PAT (long-lived, leak-permanent) with
