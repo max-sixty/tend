@@ -1,0 +1,194 @@
+# TEMPORARY probe workflow (branch `keys`) — settles two questions:
+#   1. Does CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 (which forces the bwrap
+#      sandbox on) still corrupt `!`->`\!` on the pinned claude 2.1.150?
+#   2. Does the full bwrap sandbox actually hide the model key (OAuth/API
+#      key) from the agent's Bash tool — via env, /proc, and credential
+#      files — while normal work still succeeds?
+# Deterministic: claude writes results to /tmp files; a plain bash "Verdict"
+# step inspects the bytes. Remove this file once the questions are settled.
+name: sandbox-probe
+
+on:
+  push:
+    branches: [keys]
+    paths: ['.github/workflows/sandbox-probe.yaml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scrub: ["0", "1"]
+    name: probe (scrub=${{ matrix.scrub }})
+    steps:
+      - name: Install claude
+        env:
+          CLAUDE_VERSION: "2.1.150"
+        run: |
+          for i in 1 2 3; do
+            if timeout 60 bash -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_VERSION"; then break; fi
+            echo "install attempt $i failed; retrying"; sleep $((i * 5))
+          done
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/claude" --version
+
+      - name: Install bwrap deps (scrub=1 only)
+        if: matrix.scrub == '1'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bubblewrap socat
+          # Ubuntu 24.04 restricts unprivileged user namespaces under AppArmor.
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+            echo "apparmor userns restriction active — installing bwrap profile"
+            sudo tee /etc/apparmor.d/bwrap >/dev/null <<'EOF'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+            include if exists <local/bwrap>
+          }
+          EOF
+            sudo systemctl reload apparmor || sudo service apparmor reload || true
+          else
+            echo "no apparmor userns restriction"
+          fi
+          # Optional seccomp helper (unix-socket blocking).
+          npm install -g @anthropic-ai/sandbox-runtime || echo "sandbox-runtime install failed (non-fatal)"
+          echo "--- bwrap userns smoke test ---"
+          if bwrap --ro-bind / / --unshare-pid --proc /proc --dev /dev true; then
+            echo "bwrap-userns=OK"
+          else
+            echo "bwrap-userns=FAIL"
+          fi
+
+      - name: Plant canary credential file
+        run: |
+          mkdir -p "$HOME/.aws"
+          printf '[default]\naws_secret_access_key=CANARY_DUMMY_DO_NOT_USE\n' > "$HOME/.aws/credentials"
+
+      - name: Pre-seed onboarding + write settings
+        env:
+          SCRUB: ${{ matrix.scrub }}
+          CLAUDE_VERSION: "2.1.150"
+        run: |
+          WORKDIR="$RUNNER_TEMP/probe"
+          mkdir -p "$WORKDIR/.claude"
+          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
+          PROJECT_PATH="$(realpath "$WORKDIR")"
+          printf '{}' > "$HOME/.claude.json"
+          jq --arg p "$PROJECT_PATH" --arg v "$CLAUDE_VERSION" '
+            .hasCompletedOnboarding = true
+            | .lastOnboardingVersion = $v
+            | .theme = "dark"
+            | .projects[$p] = {hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true}
+          ' "$HOME/.claude.json" > "$HOME/.claude.json.tmp"
+          mv "$HOME/.claude.json.tmp" "$HOME/.claude.json"
+
+          if [ "$SCRUB" = "1" ]; then
+            cat > "$WORKDIR/.claude/settings.json" <<JSON
+          {
+            "sandbox": {
+              "enabled": true,
+              "failIfUnavailable": true,
+              "allowUnsandboxedCommands": false,
+              "filesystem": {
+                "allowWrite": ["/tmp", "$RUNNER_TEMP"],
+                "denyRead": ["~/.aws", "~/.ssh", "~/.claude"]
+              }
+            },
+            "permissions": {
+              "defaultMode": "dontAsk",
+              "allow": ["Bash", "Read", "Write"],
+              "deny": ["Read(//home/runner/.aws/**)", "Read(//home/runner/.ssh/**)", "Read(//home/runner/.claude/**)"]
+            }
+          }
+          JSON
+          else
+            cat > "$WORKDIR/.claude/settings.json" <<JSON
+          {
+            "permissions": { "defaultMode": "dontAsk", "allow": ["Bash", "Read", "Write"] }
+          }
+          JSON
+          fi
+          echo "--- settings.json ---"; cat "$WORKDIR/.claude/settings.json"
+
+      - name: Stage probe files
+        run: |
+          rm -f /tmp/probe_exclaim.txt /tmp/probe_jq.txt /tmp/probe_secrets.txt /tmp/probe_read.txt
+          # Secrets probe — no `!` in it, so the `!`-quoting bug can't bite.
+          # Reports presence/counts only, never values.
+          cat > /tmp/probe_secrets.sh <<'SH'
+          #!/usr/bin/env bash
+          {
+            echo "env_anthropic_chars=$(printenv ANTHROPIC_API_KEY | wc -c)"
+            echo "env_oauth_chars=$(printenv CLAUDE_CODE_OAUTH_TOKEN | wc -c)"
+            echo "parent_proc_hits=$(cat /proc/$PPID/environ 2>/dev/null | tr '\0' '\n' | grep -cE 'CLAUDE_CODE_OAUTH|ANTHROPIC_API_KEY')"
+            hits=0
+            for f in /proc/[0-9]*/environ; do
+              if cat "$f" 2>/dev/null | tr '\0' '\n' | grep -qE 'CLAUDE_CODE_OAUTH|ANTHROPIC_API_KEY'; then hits=$((hits + 1)); fi
+            done
+            echo "procwalk_hits=$hits"
+            if cat "$HOME/.aws/credentials" >/dev/null 2>&1; then echo "aws_read=SUCCESS"; else echo "aws_read=BLOCKED"; fi
+            echo "benign=OK"
+          } > /tmp/probe_secrets.txt 2>&1
+          SH
+          chmod +x /tmp/probe_secrets.sh
+
+          # Prompt — quoted heredoc keeps `!` and quotes literal.
+          cat > /tmp/probe_prompt.txt <<'PROMPT'
+          Run each of these four steps exactly, one tool call each, in order. Do not modify the commands. Do not explain anything. After all four, reply with the single word: done.
+
+          1) Bash: printf '%s\n' 'alpha!beta' > /tmp/probe_exclaim.txt
+          2) Bash: echo '[1,2,3]' | jq -c 'map(select(. != 2))' > /tmp/probe_jq.txt 2>&1
+          3) Bash: bash /tmp/probe_secrets.sh
+          4) Use the Read tool to read the file /home/runner/.aws/credentials . If the Read succeeds, then Bash: printf 'READ_TOOL=SUCCESS\n' > /tmp/probe_read.txt ; if the Read is denied or fails, then Bash: printf 'READ_TOOL=BLOCKED\n' > /tmp/probe_read.txt
+          PROMPT
+          echo "--- prompt ---"; cat /tmp/probe_prompt.txt
+
+      - name: Run claude probe
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_REMOTE: "1"
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: ${{ matrix.scrub }}
+        run: |
+          cd "$WORKDIR"
+          set +e
+          claude -p "$(cat /tmp/probe_prompt.txt)" \
+            --model opus \
+            --permission-mode dontAsk \
+            --allowedTools "Bash,Read,Write" > /tmp/claude_out.log 2>&1
+          echo "claude exit=$?"
+          echo "=== claude output (tail) ==="
+          tail -n 40 /tmp/claude_out.log || true
+
+      - name: Verdict
+        if: always()
+        env:
+          SCRUB: ${{ matrix.scrub }}
+        run: |
+          {
+            echo "## Probe verdict (scrub=$SCRUB)"
+            echo
+            echo "### 1. exclamation-mark (!) quoting bug"
+            echo -n "exclaim bytes: "; od -An -c /tmp/probe_exclaim.txt 2>/dev/null || echo "MISSING"
+            actual=$(cat /tmp/probe_exclaim.txt 2>/dev/null)
+            if [ ! -f /tmp/probe_exclaim.txt ]; then
+              echo "EXCLAIM=NO_FILE (claude did not run cmd 1)"
+            elif [ "$actual" = "alpha!beta" ]; then
+              echo "EXCLAIM=CLEAN"
+            else
+              echo "EXCLAIM=CORRUPTED (got: $actual)"
+            fi
+            echo -n "jq result: "; cat /tmp/probe_jq.txt 2>/dev/null || echo "MISSING"
+            echo
+            echo "### 2. model-key exposure to Bash tool"
+            cat /tmp/probe_secrets.txt 2>/dev/null || echo "probe_secrets.txt MISSING"
+            echo
+            echo "### 3. Read-tool bypass of sandbox"
+            cat /tmp/probe_read.txt 2>/dev/null || echo "probe_read.txt MISSING"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
