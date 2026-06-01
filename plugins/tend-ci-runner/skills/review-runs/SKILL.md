@@ -85,36 +85,40 @@ Also check last month's tracking issue (if it exists) for recent carry-over.
 
 After analysis, find **the bot's existing comment** on the tracking issue and **append** new findings to it. If no bot comment exists yet, create one. This avoids notification spam from frequent runs.
 
+The guard must run **before any posting path** — append-existing and create-new both publish a comment that needs to embed the real run ID, and a guard placed inside one branch silently no-ops on the other. The first run after a monthly tracking issue is created always takes the create-new branch, so the guard belongs above the branch:
+
 ```bash
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 BOT_LOGIN=$(gh api user --jq '.login')
 EXISTING_COMMENT=$(gh api "repos/$REPO/issues/$TRACKING_NUMBER/comments" \
   --jq "[.[] | select(.user.login == \"$BOT_LOGIN\")] | last | .id // empty")
-```
 
-If `EXISTING_COMMENT` is non-empty, check its size before appending. GitHub rejects comment bodies over 65536 characters — start a new comment when the existing one is too large.
-
-```bash
 # Verify the run heading references this run's $GITHUB_RUN_ID literally —
 # fabricated round numbers produce dead Workflow links, see @review-gates.md.
+# Unconditional: the create-new branch below also publishes a comment.
 grep -qF "$GITHUB_RUN_ID" /tmp/findings.md || {
   echo "ERROR: /tmp/findings.md does not contain \$GITHUB_RUN_ID=$GITHUB_RUN_ID — refusing to post" >&2
   exit 1
 }
-gh api "repos/$REPO/issues/comments/$EXISTING_COMMENT" --jq '.body' > /tmp/existing.md
-EXISTING_SIZE=$(wc -c < /tmp/existing.md)
-if [ "$EXISTING_SIZE" -lt 50000 ]; then
-  cat /tmp/existing.md /tmp/findings.md > /tmp/combined.md
-  gh api "repos/$REPO/issues/comments/$EXISTING_COMMENT" -X PATCH -F body=@/tmp/combined.md
+
+if [ -n "$EXISTING_COMMENT" ]; then
+  # Append to existing comment if it fits. GitHub rejects bodies over 65536
+  # characters — start a new comment when the existing one is too large.
+  gh api "repos/$REPO/issues/comments/$EXISTING_COMMENT" --jq '.body' > /tmp/existing.md
+  EXISTING_SIZE=$(wc -c < /tmp/existing.md)
+  if [ "$EXISTING_SIZE" -lt 50000 ]; then
+    cat /tmp/existing.md /tmp/findings.md > /tmp/combined.md
+    gh api "repos/$REPO/issues/comments/$EXISTING_COMMENT" -X PATCH -F body=@/tmp/combined.md
+  else
+    gh api "repos/$REPO/issues/$TRACKING_NUMBER/comments" -F body=@/tmp/findings.md
+  fi
 else
-  # Comment approaching limit — start a new one
+  # No prior bot comment on this month's tracking issue — create the first one.
   gh api "repos/$REPO/issues/$TRACKING_NUMBER/comments" -F body=@/tmp/findings.md
 fi
 ```
 
-Never replace the body — prior entries contain per-run evidence needed for gate evaluation.
-
-If `EXISTING_COMMENT` is empty, create a new comment. See the finding format in `@review-gates.md`.
+Never replace the body — prior entries contain per-run evidence needed for gate evaluation. See the finding format in `@review-gates.md`.
 
 ## Step 1: Find recent runs
 
