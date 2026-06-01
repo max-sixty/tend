@@ -275,8 +275,13 @@ runs:
       env:
         CLAUDE_VERSION: ${{ inputs.claude_version }}
       run: |
+        # `set -o pipefail` inside the bash -c subshell is required: without it
+        # a curl failure (e.g. a 403 from the claude.ai CDN) passes empty
+        # stdin to the downstream `bash -s --`, which exits 0, so the if
+        # branch succeeds and the loop breaks after one attempt without
+        # actually retrying.
         for i in 1 2 3; do
-          if timeout 60 bash -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_VERSION"; then
+          if timeout 60 bash -c "set -o pipefail; curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_VERSION"; then
             break
           fi
           echo "Install attempt $i failed; retrying"
