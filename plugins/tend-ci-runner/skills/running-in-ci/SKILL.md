@@ -446,26 +446,22 @@ Each run on an issue or PR starts fresh. The GitHub conversation shows what prio
 
 Only runs triggered directly by an issue or PR event carry the stamp, on the Claude harnesses; scheduled, ci-fix (`workflow_run`), and Codex runs don't, so their reasoning isn't recallable this way.
 
-The artifact name carries the thread number (`-n<number>`), so prior runs are findable without downloading anything. The API's `name` filter is exact-match only, and a thread's runs have distinct names (per-job suffixes, two harness prefixes), so this lists every artifact in the repo and filters locally: several seconds and many paginated calls on a large repo, so reach for it only when a follow-up needs prior reasoning. Newest first, within the 30-day retention window:
+Every run on a thread names its log the same (one name per harness), so the API's exact-match `name` filter returns the whole thread in one call per harness, with no repo-wide scan. Newest first, within the 30-day retention window:
 
 ```bash
 NUM=<issue/PR number you're handling>
-gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --paginate \
-  --jq ".artifacts[]
-        | select(.expired == false and (.name | test(\"session-logs-n${NUM}(-|$)\")))
-        | {name, run_id: .workflow_run.id, created_at}" \
-  | jq -s 'unique_by(.run_id) | sort_by(.created_at) | reverse'
+for prefix in claude-session-logs claude-interactive-session-logs; do
+  gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=${prefix}-n${NUM}&per_page=100" \
+    --jq '.artifacts[] | select(.expired == false) | {run_id: .workflow_run.id, created_at}'
+done | jq -s 'sort_by(.created_at) | reverse'
 ```
-
-The `(-|$)` boundary matches both the matrix-job name (`-n42-<id>`) and the single-job name (`-n42`) while rejecting `-n420`.
 
 Download a chosen run's log and parse it with the recipes in `/install-tend:debug-tend-run` (`references/claude-logs.md`):
 
 ```bash
 RUN_ID=<chosen run>
 DEST="/tmp/thread-history/$RUN_ID"
-gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" \
-  --pattern "*session-logs-n${NUM}" --pattern "*session-logs-n${NUM}-*" --dir "$DEST"
+gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" --pattern '*session-logs*' --dir "$DEST"
 find "$DEST" -name '*.jsonl'
 ```
 
