@@ -145,9 +145,12 @@ request wait on the fanout. A cron-triggered prewarm would close even that
 gap but would trade away the zero-when-idle property; not worth it at this
 scale.
 
-When a refresh throws (GitHub outage), the empty payload is cached with a
-short **fallback budget** (5 s / 30 s) so the next request retries soon
-rather than locking in an empty response.
+When a refresh throws (GitHub outage) with no prior entry to serve, the Worker
+returns a 503 rather than a 200 all-zero payload, so the site renders nothing
+for that section instead of fabricated zeros. The 503 is negative-cached at the
+short **fallback budget** (5 s / 30 s) so the next request retries soon. On a
+warm cache a failed background refresh keeps the last good entry instead, so an
+outage never overwrites good data with zeros.
 
 ## Topology
 

@@ -622,23 +622,6 @@ describe("getConsumers", () => {
 });
 
 describe("coalesceAndRefresh (background refresh on stale-hit)", () => {
-  // Fake the colo cache so we can observe what gets written on success vs
-  // failure. caches.default is Cloudflare-specific; in node it's undefined.
-  function fakeCache() {
-    const store = new Map<string, Response>();
-    return {
-      store,
-      api: {
-        async match(req: Request) {
-          return store.get(req.url)?.clone();
-        },
-        async put(req: Request, resp: Response) {
-          store.set(req.url, resp.clone());
-        },
-      } as unknown as Cache,
-    };
-  }
-
   it("keeps the previous cached entry alive when the refresh throws (does not overwrite with empty)", async () => {
     const { __test } = await import("../src/index");
     const { store, api } = fakeCache();
@@ -660,7 +643,6 @@ describe("coalesceAndRefresh (background refresh on stale-hit)", () => {
       refresh: async () => {
         throw new Error("github down");
       },
-      empty: () => ({ prs: { count: 0 } }),
     });
 
     const entry = store.get(cacheKey.url);
@@ -686,12 +668,77 @@ describe("coalesceAndRefresh (background refresh on stale-hit)", () => {
       cacheKeyPath: "/activity",
       ttl: { ok: 300, fallback: 30 },
       refresh: async () => ({ prs: { count: 999 } }),
-      empty: () => ({ prs: { count: 0 } }),
     });
 
     const entry = store.get(cacheKey.url);
     const body = JSON.parse(await entry!.text()) as { prs: { count: number } };
     expect(body.prs.count).toBe(999);
+  });
+});
+
+describe("refreshAndCache (cold cache)", () => {
+  function fakeCtx() {
+    const tasks: Promise<unknown>[] = [];
+    return {
+      tasks,
+      ctx: {
+        waitUntil: (p: Promise<unknown>) => tasks.push(p),
+      } as unknown as ExecutionContext,
+    };
+  }
+
+  function installCache() {
+    const fc = fakeCache();
+    (globalThis as unknown as { caches: CacheStorage }).caches = {
+      default: fc.api,
+    } as unknown as CacheStorage;
+    return fc;
+  }
+
+  it("caches and returns the fresh 200 on a successful cold refresh", async () => {
+    const { __test } = await import("../src/index");
+    const { store } = installCache();
+    const { tasks, ctx } = fakeCtx();
+    const cacheKey = new Request("https://api.example/activity");
+    const env = { ALLOWED_ORIGIN: "*" } as unknown as Parameters<
+      typeof __test.refreshAndCache
+    >[1];
+
+    const resp = await __test.refreshAndCache(cacheKey, env, ctx, {
+      cacheKeyPath: "/activity",
+      ttl: { ok: 300, fallback: 30 },
+      refresh: async () => ({ prs: { count: 5 } }),
+    });
+
+    expect(resp.status).toBe(200);
+    expect(JSON.parse(await resp.clone().text())).toEqual({ prs: { count: 5 } });
+    await Promise.all(tasks);
+    expect(store.get(cacheKey.url)?.status).toBe(200);
+  });
+
+  it("returns a 503 (not a 200 all-zero payload) when the cold refresh throws, and negative-caches it", async () => {
+    const { __test } = await import("../src/index");
+    const { store } = installCache();
+    const { tasks, ctx } = fakeCtx();
+    const cacheKey = new Request("https://api.example/activity");
+    const env = { ALLOWED_ORIGIN: "*" } as unknown as Parameters<
+      typeof __test.refreshAndCache
+    >[1];
+
+    const resp = await __test.refreshAndCache(cacheKey, env, ctx, {
+      cacheKeyPath: "/activity",
+      ttl: { ok: 300, fallback: 30 },
+      refresh: async () => {
+        throw new Error("github down");
+      },
+    });
+
+    // Non-OK so the site's fetchJson returns null and hides the section
+    // rather than rendering fabricated zeros from a 200 all-zero body.
+    expect(resp.ok).toBe(false);
+    expect(resp.status).toBe(503);
+    await Promise.all(tasks);
+    expect(store.get(cacheKey.url)?.status).toBe(503); // negative-cached
   });
 });
 
@@ -712,6 +759,23 @@ describe("isStale (stale-while-revalidate decision)", () => {
     expect(__test.isStale("not-a-number", now)).toBe(true);
   });
 });
+
+// Fake the colo cache so tests can observe what gets written on success vs
+// failure. caches.default is Cloudflare-specific; in node it's undefined.
+function fakeCache() {
+  const store = new Map<string, Response>();
+  return {
+    store,
+    api: {
+      async match(req: Request) {
+        return store.get(req.url)?.clone();
+      },
+      async put(req: Request, resp: Response) {
+        store.set(req.url, resp.clone());
+      },
+    } as unknown as Cache,
+  };
+}
 
 function makeFakeKv(): KVNamespace {
   const store = new Map<string, string>();
