@@ -402,8 +402,13 @@ describe("refreshActivity", () => {
     ]);
   });
 
-  it("degrades a failed bucket query to an empty bucket without sinking the refresh", async () => {
+  it("throws when a Search query fails (rate-limit / transient) — sinks the refresh rather than caching all-zero", async () => {
     const { __test } = await import("../src/index");
+    // One bucket's query is rate-limited. Swallowing it to an empty bucket used
+    // to cache an all-zero "success" at the full TTL, so the site rendered
+    // "0 PRs / …" for up to the stale-serve window. The refresh must throw so
+    // coalesceAndRefresh keeps the last good entry (warm) and the cold path
+    // short-fallbacks and retries.
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.endsWith("/data/consumers.json")) {
@@ -413,7 +418,7 @@ describe("refreshActivity", () => {
         );
       }
       if (url.includes("commenter")) {
-        return new Response("Validation Failed", { status: 422 });
+        return new Response("rate limited", { status: 429 });
       }
       return new Response(JSON.stringify({ total_count: 1, items: [] }), {
         status: 200,
@@ -427,11 +432,9 @@ describe("refreshActivity", () => {
       REPOS_URL:
         "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
     };
-    const out = await __test.refreshActivity(env);
-    expect(out.comments).toEqual({ count: 0, count_this_week: 0, recent: [] });
-    expect(out.prs.count).toBe(1);
-    expect(out.issues.count).toBe(1);
-    expect(out.reviews.count).toBe(1);
+    await expect(__test.refreshActivity(env)).rejects.toThrow(
+      /search request failed \(429\)/,
+    );
   });
 
   it("returns empty buckets when there are no consumers", async () => {
@@ -477,7 +480,9 @@ describe("refreshActivity", () => {
       REPOS_URL:
         "https://raw.githubusercontent.com/max-sixty/tend/main/data/consumers.json",
     };
-    await expect(__test.refreshActivity(env)).rejects.toThrow(/auth failure/);
+    await expect(__test.refreshActivity(env)).rejects.toThrow(
+      /search request failed \(401\)/,
+    );
   });
 
   it("keeps only the newest RECENT_PER_BUCKET items per bucket", async () => {

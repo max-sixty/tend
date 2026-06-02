@@ -9,6 +9,12 @@ metadata:
 
 Resolve conflicts on bot PRs, review recent commits, survey a slice of existing code/docs, and update tend workflows.
 
+## Step 0: Load environment skills
+
+Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules,
+polling conventions, and comment formatting guidance. It will also prompt you
+to load any repo-specific skills (e.g., `running-tend`).
+
 ## Step 1: Verify bot PAT scopes
 
 Run the scope audit script to check the bot PAT against tend's required classic OAuth scopes (`repo`, `workflow`, `notifications`, `write:discussion`, `gist`, `user`):

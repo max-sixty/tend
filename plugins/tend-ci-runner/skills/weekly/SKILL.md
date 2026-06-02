@@ -42,9 +42,7 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
 
 ## Step 3: Repo-specific weekly tasks
 
-Scan the loaded `running-tend` skill for sections describing weekly maintenance — typical headings include "Weekly Maintenance", "Weekly:", or task names like "MSRV bump", "toolchain update", "cache audit", "README refresh". For each such task, perform it as the repo describes and follow the repo's PR title conventions when opening a PR.
-
-If `running-tend` defines no weekly tasks (or none are due this week), say so in the summary.
+Perform any weekly maintenance the loaded `running-tend` overlay defines, following the repo's PR title conventions. If it defines no weekly tasks (or none are due this week), say so in the summary.
 
 ## Step 4: Summary
 

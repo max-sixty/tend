@@ -590,9 +590,14 @@ function repoFromApiUrl(repositoryUrl: string): string {
 // ---------------------------------------------------------------------------
 // Search API
 
-// One Search page, newest-first — the page yields both `items` (recent) and
-// `total_count` (lifetime). 401/403 throws (sinks the refresh → short fallback
-// TTL); 422/429/other degrade to `{}` so one bad bucket doesn't sink the rest.
+// One Search page, newest-first — yields both `items` (recent) and
+// `total_count` (lifetime). Any non-OK status throws, sinking the refresh: a
+// background refresh keeps the last good cached entry, a cold refresh
+// short-fallbacks (30s) and retries. We do NOT degrade a failure to `{}` —
+// that cached an all-zero payload as a successful refresh at the full budget,
+// pinning "0 PRs / 0 reviews / …" on the site for up to the stale-serve window
+// on a transient Search error (429 from the 4·N fanout, a 5xx blip). A real
+// empty bucket is a 200 with `total_count: 0`, so genuine zeros still pass.
 async function searchIssues(query: string, token: string): Promise<SearchResponse> {
   const params = new URLSearchParams({
     q: query,
@@ -604,11 +609,7 @@ async function searchIssues(query: string, token: string): Promise<SearchRespons
     headers: githubHeaders(token),
   });
   if (!resp.ok) {
-    if (resp.status === 401 || resp.status === 403) {
-      throw new Error(`search auth failure: ${resp.status}`);
-    }
-    console.error(`search failed (${resp.status}): ${query}`);
-    return {};
+    throw new Error(`search request failed (${resp.status}): ${query}`);
   }
   return (await resp.json()) as SearchResponse;
 }

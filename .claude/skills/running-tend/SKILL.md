@@ -53,10 +53,39 @@ Artifact paths: `-home-runner-work-tend-tend/<session-id>.jsonl`
 `review-reviewers` runs produce one session log per matrix repo in
 `.github/workflows/review-reviewers.yaml`.
 
+## Nightly: verify website live data
+
+`tend-src.com` renders its stat strip, activity feed, and currently-tending
+dot entirely from the data Worker at `api.tend-src.com`. Each section *hides
+itself* when its fetch fails or returns empty, so a Worker outage shows as a
+blank page, not an error. Check the Worker directly — it serves the data the
+site renders. See [`worker/README.md`](../../../worker/README.md).
+
+```bash
+curl -fsS https://api.tend-src.com/activity | jq '{
+  prs: .prs.count, reviews: .reviews.count,
+  comments: .comments.count, issues: .issues.count,
+  recent: ([.prs, .issues, .reviews, .comments] | map(.recent | length) | add)
+}'
+curl -fsSI https://tend-src.com/ | head -1   # GitHub Pages serving the HTML
+```
+
+Healthy: both return HTTP 200, every lifetime `count` > 0, and `recent` > 0.
+An empty `/currently-tending` is normal between runs — don't alarm on it.
+
+If `/activity` is non-200, all-zero, or `recent` is 0, wait ~60s and retry
+once. (Transient GitHub errors keep the last good data rather than caching
+zeros, so a persistent empty is a real signal.) If it persists, file or update
+**one** tracking issue (dedup by title, e.g. `website: data Worker returning
+empty`) with the failing endpoint, the counts seen, and whether the bots still
+have recent activity on GitHub — that localizes the fault to the Worker. The
+bot can't rotate the Worker's Cloudflare-side secret itself, so leave the
+diagnosis to a maintainer; `worker/README.md` covers the Worker's setup.
+
 ## Weekly: refresh `data/consumers.json`
 
 Public repos that have installed tend. Read by the website's data Worker
-(see [`docs/website-data.md`](../../../docs/website-data.md)) to power the
+(see [`worker/README.md`](../../../worker/README.md)) to power the
 currently-tending dot, activity feed, and stat strip. Needs no opt-in
 because the workflow files are public.
 
