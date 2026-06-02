@@ -6,9 +6,10 @@
 # authenticated GitHub call is a local mitmproxy that holds the real token:
 #
 #   1. Create the tend-sandbox user (no sudo, distinct UID).
-#   2. Strip the bot PAT that `actions/checkout` persisted into .git/config —
-#      otherwise the sandbox reads it straight off disk and isolation is moot.
-#   3. Hand the checkout to tend-sandbox so the agent can edit and commit.
+#   2. Neutralize the bot PAT actions/checkout persists for git — otherwise the
+#      sandbox reads it off disk and isolation is moot.
+#   3. Hand the checkout to tend-sandbox (and make the path traversable) so the
+#      agent can edit and commit.
 #   4. Start the injecting proxy (holds TEND_GH_TOKEN in its own memory) and
 #      system-trust its CA so the sandbox's gh/git accept the intercepted TLS.
 #
@@ -26,6 +27,8 @@ PROXY_URL="http://127.0.0.1:${PROXY_PORT}"
 TEND_RUN_DIR="${RUNNER_TEMP}/tend-sandbox"
 CONFDIR="${RUNNER_TEMP}/tend-proxy"
 
+log() { echo "[setup-sandbox] $*"; }
+
 if [ -z "${TEND_GH_TOKEN:-}" ]; then
   echo "::error::TEND_GH_TOKEN is unset; cannot start the credential proxy"
   exit 1
@@ -36,21 +39,39 @@ fi
 if ! id "$SANDBOX" >/dev/null 2>&1; then
   sudo useradd -m -s /usr/bin/bash "$SANDBOX"
 fi
+log "user $SANDBOX uid=$(id -u "$SANDBOX")"
 
-# 2. Strip the PAT that `actions/checkout` (persist-credentials: true) wrote
-#    into .git/config. After this the only authenticated path to GitHub is the
-#    proxy. Run before the chown while the file is still runner-owned.
-git -C "$GITHUB_WORKSPACE" config --unset-all \
+# 2. Neutralize the credential actions/checkout persisted for git. Modern
+#    checkout stores it in an external file referenced by an includeIf, not as
+#    a plain extraheader — so drop the extraheader (older form), remove any
+#    includeIf sections, and lock the external credential files to runner-only.
+#    Belt: even if an include survives, git can't read a 0600 runner-owned file
+#    as the sandbox, so no credential reaches the agent. The proxy is the only
+#    authenticated path left.
+git -C "$GITHUB_WORKSPACE" config --local --unset-all \
   'http.https://github.com/.extraheader' 2>/dev/null || true
+while read -r key; do
+  [ -n "$key" ] || continue
+  git -C "$GITHUB_WORKSPACE" config --local --remove-section "${key%.path}" 2>/dev/null || true
+done < <(git -C "$GITHUB_WORKSPACE" config --local --name-only --get-regexp '^includeif\.' 2>/dev/null || true)
+sudo find "$RUNNER_TEMP" -maxdepth 1 -name 'git-credentials-*' -exec chmod 600 {} + 2>/dev/null || true
+log "neutralized persisted git credentials"
 
-# 3. Hand the checkout to the sandbox and mark it a safe git directory for it.
+# 3. Make the path to the workspace traversable by the sandbox, then hand it
+#    the checkout so the agent can edit and commit. The sandbox owns the tree,
+#    so no safe.directory entry is needed. o+x grants traversal only (not read)
+#    on the runner's home — fine on a single-use runner.
+sudo chmod o+x /home/runner /home/runner/work "$(dirname "$GITHUB_WORKSPACE")"
 sudo chown -R "${SANDBOX}:${SANDBOX}" "$GITHUB_WORKSPACE"
-sudo -u "$SANDBOX" git config --global --add safe.directory "$GITHUB_WORKSPACE"
+sudo -u "$SANDBOX" test -r "$GITHUB_WORKSPACE/.git/config" \
+  || { echo "::error::sandbox cannot access the workspace at $GITHUB_WORKSPACE"; exit 1; }
+log "workspace handed to $SANDBOX"
 
 # Shared dir the sandbox writes (sentinels, PTY log, wrapper) and the runner
-# reads. Sandbox-owned so its hooks can touch the sentinels; 0755 so the
-# runner supervisor can poll them.
+# reads. Sandbox-owned so its hooks can touch the sentinels; the runner
+# supervisor polls them via the 0755 home/temp path.
 sudo -u "$SANDBOX" mkdir -p "$TEND_RUN_DIR"
+log "run dir $TEND_RUN_DIR"
 
 # 4. Start the injecting proxy. It inherits TEND_GH_TOKEN from this shell; the
 #    token never leaves this runner-owned process. confdir is 0700 runner-only
@@ -61,6 +82,7 @@ chmod 700 "$CONFDIR"
 # Warm the uvx cache first so the backgrounded launch starts immediately and
 # the readiness wait below measures startup, not a cold dependency resolve.
 uvx --from mitmproxy mitmdump --version >/dev/null
+log "starting proxy"
 nohup uvx --from mitmproxy mitmdump \
   -s "${ACTION_PATH}/proxy/github_auth.py" \
   --listen-host 127.0.0.1 --listen-port "$PROXY_PORT" \
@@ -76,7 +98,7 @@ for _ in $(seq 1 60); do
   sleep 0.5
 done
 if [ ! -f "${CONFDIR}/mitmproxy-ca-cert.pem" ]; then
-  echo "::error::proxy CA not generated after 20s; mitmdump failed to start"
+  echo "::error::proxy CA not generated after 30s; mitmdump failed to start"
   cat "${RUNNER_TEMP}/tend-proxy.log" || true
   exit 1
 fi
@@ -85,6 +107,7 @@ fi
 # the intercepted GitHub TLS. Only the public cert is exported.
 sudo cp "${CONFDIR}/mitmproxy-ca-cert.pem" /usr/local/share/ca-certificates/tend-proxy.crt
 sudo update-ca-certificates >/dev/null
+log "proxy up at $PROXY_URL; CA trusted"
 
 {
   echo "SANDBOX=${SANDBOX}"
@@ -93,4 +116,4 @@ sudo update-ca-certificates >/dev/null
   echo "TEND_RUN_DIR=${TEND_RUN_DIR}"
 } >>"$GITHUB_ENV"
 
-echo "Sandbox ready: agent runs as ${SANDBOX}; GitHub auth via ${PROXY_URL}"
+log "done; agent runs as ${SANDBOX}, GitHub auth via the proxy"

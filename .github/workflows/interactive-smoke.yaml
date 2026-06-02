@@ -73,6 +73,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
+          # The agent runs as a non-sudo sandbox user and authenticates to
+          # GitHub only through the injecting proxy, so it needs no persisted
+          # git credential — and persisting one would leave it on disk in the
+          # sandbox-owned checkout. (Real generated workflows persist the bot
+          # PAT; setup-sandbox.sh neutralizes it there.)
+          persist-credentials: false
 
       - name: Run interactive harness
         id: claude
