@@ -24,7 +24,10 @@ SANDBOX=tend-sandbox
 AGENT_HOME="/home/${SANDBOX}"
 PROXY_PORT="${PROXY_PORT:-8899}"
 PROXY_URL="http://127.0.0.1:${PROXY_PORT}"
-TEND_RUN_DIR="${RUNNER_TEMP}/tend-sandbox"
+# Run dir (sentinels, PTY log, wrapper) lives in the sandbox's own home so it
+# can write there freely; the runner reads it via the 0755 home path. (Under
+# RUNNER_TEMP the sandbox can't create it — that dir is runner-owned.)
+TEND_RUN_DIR="${AGENT_HOME}/run"
 CONFDIR="${RUNNER_TEMP}/tend-proxy"
 
 log() { echo "[setup-sandbox] $*"; }
