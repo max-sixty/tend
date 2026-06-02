@@ -63,6 +63,11 @@ inputs:
       Maximum time the supervised Claude session is allowed to run before
       the supervisor kills it. Defaults to 60 minutes — well above any
       single-turn skill we have today.
+  mitmproxy_version:
+    default: "12.2.1"
+    description: >-
+      Pinned `mitmproxy` version for the credential-injection proxy. Pinned
+      so the uv download cache key is stable; bump to upgrade.
 
 outputs:
   token_usage:
@@ -279,11 +284,23 @@ runs:
     # Runs after "Restore sensitive config" (which needs the persisted git
     # credential for its base fetch) and before the claude lifecycle, which
     # from here on executes as the sandbox user.
+    # Cache the proxy's mitmproxy download (a sizeable dependency) in an
+    # isolated uv cache dir, keyed on the pinned version. First run populates;
+    # every run after restores in seconds instead of a cold ~20s resolve. The
+    # agent's own uvx usage keeps its default cache, untouched.
+    - name: Cache mitmproxy
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/tend-mitmproxy-uv
+        key: tend-mitmproxy-${{ runner.os }}-${{ inputs.mitmproxy_version }}
+
     - name: Set up credential-isolation sandbox
       shell: bash
       env:
         TEND_GH_TOKEN: ${{ inputs.github_token }}
         ACTION_PATH: ${{ github.action_path }}
+        MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
+        UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
       run: bash "${{ github.action_path }}/proxy/setup-sandbox.sh"
 
     # Install the claude binary. Same recipe and pinned version as

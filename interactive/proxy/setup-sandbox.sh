@@ -84,9 +84,12 @@ mkdir -p "$CONFDIR"
 chmod 700 "$CONFDIR"
 # Warm the uvx cache first so the backgrounded launch starts immediately and
 # the readiness wait below measures startup, not a cold dependency resolve.
-uvx --from mitmproxy mitmdump --version >/dev/null
+# Pinned + UV_CACHE_DIR (set by the action) point at the actions/cache-backed
+# dir, so this is a fast restore after the first run.
+MITMPROXY="mitmproxy==${MITMPROXY_VERSION:-12.2.1}"
+uvx --from "$MITMPROXY" mitmdump --version >/dev/null
 log "starting proxy"
-nohup uvx --from mitmproxy mitmdump \
+nohup uvx --from "$MITMPROXY" mitmdump \
   -s "${ACTION_PATH}/proxy/github_auth.py" \
   --listen-host 127.0.0.1 --listen-port "$PROXY_PORT" \
   --set confdir="$CONFDIR" \
