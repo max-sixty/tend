@@ -442,7 +442,7 @@ Review-response runs triggered by `pull_request_review` or `pull_request_review_
 
 ## Recalling Prior Context on This Thread
 
-Each run on an issue or PR starts fresh. The GitHub conversation shows what prior runs posted, not the investigation behind it: which files you read, the line ranges, the reasoning that never reached a comment. When a follow-up builds on earlier work, recover that context from the prior run's session log instead of re-deriving it. A first touch or a self-contained request needs none of this.
+Rarely needed, and not free: downloading and reading a prior log costs real tokens. The thread's comments already carry what prior runs concluded. A session log only adds the reasoning they didn't post (files an earlier run read, line ranges, what it weighed but never wrote down). Reach for one only when a follow-up turns on that un-posted reasoning, such as a question about why an earlier decision was made, or when you're revising a prior bot conclusion and need what it considered. For a first engagement or a self-contained request, skip it.
 
 Only runs triggered directly by an issue or PR event carry the stamp, on the Claude harnesses; scheduled, ci-fix (`workflow_run`), and Codex runs don't, so their reasoning isn't recallable this way.
 
