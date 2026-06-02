@@ -28,8 +28,8 @@ tend's own CI between merge and the release tag bump.
 ## Thread memory: deterministic prep of prior conversations
 
 A thread's session logs share one artifact name per harness, so
-`running-in-ci` finds a thread's prior runs with a single `?name=` call and
-the agent downloads and parses them on demand. The lookup is cheap; the
+`running-in-ci` finds its prior runs with a single `?name=` call, and the
+agent downloads and parses them on demand. The lookup is cheap; the
 cost is the agent reading raw logs (a session JSONL runs ~100 KB, ~30k
 tokens) each time it opens one.
 
@@ -38,7 +38,7 @@ text, files touched, and key reasoning (~1-2k tokens) with `jq` before the
 agent sees it, stage that index on disk at a path the skill reads (or
 prepend a pointer to the prompt, as the action already does for the CI
 directive), and let the agent open a full JSONL only when the digest isn't
-enough. The win is the digest, not the lookup.
+enough.
 
 Worth building once usage shows the agent reaches for thread history often
 enough that the per-log read cost is material. Until then the agent-driven
