@@ -219,14 +219,12 @@ export default {
           cacheKeyPath: "/currently-tending",
           ttl: TTL["currently-tending"],
           refresh: () => refreshCurrentlyTending(env),
-          empty: () => ({ generated_at: nowIso(), currently_tending: [] }),
         });
       case "/activity":
         return serveCached(url, env, ctx, {
           cacheKeyPath: "/activity",
           ttl: TTL.activity,
           refresh: () => refreshActivity(env),
-          empty: emptyActivity,
         });
       default:
         return withCors(new Response("Not Found", { status: 404 }), env);
@@ -241,7 +239,6 @@ interface CacheOpts<T> {
   cacheKeyPath: string;
   ttl: { ok: number; fallback: number };
   refresh: () => Promise<T>;
-  empty: () => T;
 }
 
 async function serveCached<T>(
@@ -286,10 +283,14 @@ async function serveCached<T>(
 }
 
 // Cold-cache path: the caller is waiting on this, so we return the fresh
-// Response and let the cache put run via ctx.waitUntil. On refresh
-// failure return the empty payload tagged with the shorter fallback
-// budget — the caller has nothing else to render, so a brief outage
-// degrades to an empty section instead of wedging the request.
+// Response and let the cache put run via ctx.waitUntil. On refresh failure
+// there's no prior data to serve, so we return a 503 rather than a 200
+// all-zero payload: the site reads the non-OK response as "no data" and hides
+// the section instead of rendering fabricated zeros. The 503 is negative-cached
+// at the short fallback budget so a sustained outage doesn't re-fan-out on
+// every request; a later stale hit revalidates and swaps in real data once the
+// source recovers. (Warm-cache failures never reach here — coalesceAndRefresh
+// keeps the last good entry, so an outage never overwrites good data.)
 async function refreshAndCache<T>(
   cacheKey: Request,
   env: Env,
@@ -301,9 +302,18 @@ async function refreshAndCache<T>(
     response = jsonResponse(await opts.refresh(), env, opts.ttl.ok);
   } catch (e) {
     console.error(`cold refresh failed for ${opts.cacheKeyPath}:`, e);
-    response = jsonResponse(opts.empty(), env, opts.ttl.fallback);
+    response = jsonResponse(
+      { error: "upstream unavailable" },
+      env,
+      opts.ttl.fallback,
+      503,
+    );
   }
-  ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
+  ctx.waitUntil(
+    caches.default
+      .put(cacheKey, response.clone())
+      .catch((e) => console.error(`cache put failed for ${opts.cacheKeyPath}:`, e)),
+  );
   return response;
 }
 
@@ -687,10 +697,16 @@ function withCors(resp: Response, env: Env): Response {
   return resp;
 }
 
-function jsonResponse(data: unknown, env: Env, ttlSeconds: number): Response {
+function jsonResponse(
+  data: unknown,
+  env: Env,
+  ttlSeconds: number,
+  status = 200,
+): Response {
   const staleAtMs = Date.now() + ttlSeconds * 1000;
   return withCors(
     new Response(JSON.stringify(data), {
+      status,
       headers: {
         "Content-Type": "application/json",
         // Browsers revalidate after the freshness budget (`max-age`); the
@@ -737,5 +753,6 @@ export const __test = {
   findBotCommentUrl,
   isStale,
   coalesceAndRefresh,
+  refreshAndCache,
   STALE_AT_HEADER,
 };
