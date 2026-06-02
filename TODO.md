@@ -25,6 +25,26 @@ needs the release sequence:
 Doing this in the same PR that ships the action would temporarily break
 tend's own CI between merge and the release tag bump.
 
+## Thread memory: deterministic prep of prior conversations
+
+A thread's session logs share one artifact name per harness, so
+`running-in-ci` finds its prior runs with a single `?name=` call, and the
+agent downloads and parses them on demand. The lookup is cheap; the
+cost is the agent reading raw logs (a session JSONL runs ~100 KB, ~30k
+tokens) each time it opens one.
+
+A deterministic action step would condense each matched log to its posted
+text, files touched, and key reasoning (~1-2k tokens) with `jq` before the
+agent sees it, stage that index on disk at a path the skill reads (or
+prepend a pointer to the prompt, as the action already does for the CI
+directive), and let the agent open a full JSONL only when the digest isn't
+enough.
+
+Worth building once usage shows the agent reaches for thread history often
+enough that the per-log read cost is material. Until then the agent-driven
+path covers the same ground, and survives no longer than the 30-day
+artifact retention either way.
+
 ## Auth: GitHub App alternatives to PAT
 
 Both alternatives replace the classic PAT (long-lived, leak-permanent) with

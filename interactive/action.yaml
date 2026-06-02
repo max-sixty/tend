@@ -686,8 +686,22 @@ runs:
       id: artifact
       shell: bash
       run: |
-        suffix="${INVOCATION_ID:+"-${INVOCATION_ID:0:8}"}"
-        echo "name=claude-interactive-session-logs${suffix}" >> "$GITHUB_OUTPUT"
+        # Name the session log so a later run on the same thread finds it with
+        # one `GET /actions/artifacts?name=...` call. The thread workflows are
+        # single-job, so a thread run (issue/PR event) takes a constant
+        # `-n<number>` name; the repo's shared issue/PR number space means one
+        # number keys the thread across issue-comment and review events. Other
+        # runs (schedule/workflow_run/dispatch), including matrixed ones, get
+        # the per-job INVOCATION_ID suffix so legs don't collide. Matrixing a
+        # thread workflow would collide two legs on the constant name and fail
+        # loudly at upload.
+        name_key=""
+        if [ -f "${GITHUB_EVENT_PATH:-}" ]; then
+          num=$(jq -r '.issue.number // .pull_request.number // empty' "$GITHUB_EVENT_PATH")
+          [ -n "$num" ] && name_key="-n${num}"
+        fi
+        [ -z "$name_key" ] && name_key="${INVOCATION_ID:+"-${INVOCATION_ID:0:8}"}"
+        echo "name=claude-interactive-session-logs${name_key}" >> "$GITHUB_OUTPUT"
 
     - name: Upload session logs
       if: always()
