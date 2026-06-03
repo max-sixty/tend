@@ -13,7 +13,37 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Create the monthly tracking issue before the matrix runs, so all matrix
+  # legs find an existing issue instead of racing to create one. Without this,
+  # the first cron tick of each new month produced N-1 duplicate tracking
+  # issues (one per matrix leg that lost the find-or-create race).
+  init-tracking:
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
+        run: |
+          MONTH=$(date -u +%Y-%m)
+          LABEL="review-reviewers-tracking"
+          NUM=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --label "$LABEL" \
+            --json number,title \
+            --jq "[.[] | select(.title | contains(\"$MONTH\"))] | sort_by(.number) | .[0].number // empty")
+          if [ -n "$NUM" ]; then
+            echo "Tracking issue for $MONTH exists: #$NUM"
+            exit 0
+          fi
+          cat > /tmp/body.md <<'EOF'
+          Monthly tracking issue for `review-reviewers`. Per-target evidence lives in secret gists owned by the bot. A comment below is posted when each target's gist is first created.
+
+          **Do not close manually** — a new issue is created each month.
+          EOF
+          gh issue create -R "$GITHUB_REPOSITORY" \
+            --title "$LABEL: $MONTH" --label "$LABEL" -F /tmp/body.md
+
   review-reviewers:
+    needs: init-tracking
     strategy:
       fail-fast: false
       matrix:
