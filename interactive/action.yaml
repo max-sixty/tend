@@ -377,10 +377,11 @@ runs:
         # suspenders alongside the settings.local.json dontAsk allow
         # list below.
         CLAUDE_CODE_REMOTE: "1"
-        # Mirrors action.yaml: the Linux bwrap wrapping path in claude-
-        # code v2.1.142 corrupts argv tokens containing `!` next to `'`.
-        # Setting this to 0 routes bash through the fixed quoting path.
-        # See anthropics/claude-code#35701.
+        # Mirrors action.yaml: the Linux bwrap wrapping path corrupts `!`
+        # to `\!` in Bash commands, so the sandbox stays off (`0`). The
+        # sandbox would otherwise hide the model auth from the agent;
+        # re-enable once the upstream bug lands. Reproduced through claude
+        # 2.1.159; anthropics/claude-code#64301, write-up in #639.
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
         GH_TOKEN: ${{ inputs.github_token }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
