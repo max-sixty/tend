@@ -26,7 +26,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
-      - run: uv run --no-project --with mitmproxy --with pytest pytest
+      # Pin to match interactive/action.yaml's mitmproxy_version default so the
+      # test exercises the same version the production proxy runs — the addon
+      # imports mitmproxy.test (an internal helper), so version skew could green
+      # the test while production breaks.
+      - run: uv run --no-project --with 'mitmproxy==12.2.1' --with pytest pytest
 
   test-worker:
     runs-on: ubuntu-24.04
