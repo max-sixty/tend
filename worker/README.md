@@ -57,9 +57,12 @@ Recent things tend has done, in primitive buckets — one Search query per
 bucket per bot (`sort=updated`): the page yields both the `recent` items and
 the lifetime `count` (`total_count`); `count_this_week` is counted off the
 page, so it saturates around one page (~100) per bot per bucket — fine for a
-headline number. The fanout is 4·N concurrent Search requests, which stays
-under the 30 req/min cap up to ~7 bots; past that, the per-bot calls would
-need staggering or a scheduled refresh (see the Phase-2 note).
+headline number. The fanout is 4·N concurrent Search requests against the
+30 req/min Search cap, so a single fanout stays clear up to ~7 bots. The KV
+sharing tier (see [Caching](#caching)) bounds how often a fanout fires by the
+freshness budget network-wide rather than letting it scale with colo count or
+traffic, so near-simultaneous fanouts that would stack against the cap stay
+rare.
 
 ```jsonc
 {
@@ -129,28 +132,43 @@ the hour.
 
 ## Caching
 
-Responses are served **stale-while-revalidate** from the colo cache
-(`caches.default`). A request is always answered from cache — no waiting on
-the GitHub fanout. When the cached entry is past its freshness budget
-(30 s / 5 min), the hit also kicks off a background refresh via
-`ctx.waitUntil` so the next viewer sees fresher data. An entry stays
-serveable for ten freshness budgets — 5 min on `/currently-tending`, 50 min
-on `/activity` — before the cache drops it, so a viewer never sees data
-older than that and an ordinarily-trafficked site never goes cold.
+Two tiers. The **colo cache** (`caches.default`) is the hot, per-data-center
+tier: every request is answered from it, never waiting on the GitHub fanout.
+Past its freshness budget (30 s / 5 min) a hit also kicks off a background
+refresh via `ctx.waitUntil`, so the next viewer sees fresher data. An entry
+stays serveable for ten freshness budgets (5 min on `/currently-tending`,
+50 min on `/activity`) before the cache drops it.
 
-Still demand-driven: a background refresh only fires when a request comes
-in, so a no-traffic day costs zero GitHub calls. The cost is one cold start
-— a fresh deploy, or a gap longer than 10 freshness budgets, makes that one
-request wait on the fanout. A cron-triggered prewarm would close even that
-gap but would trade away the zero-when-idle property; not worth it at this
-scale.
+The colo cache is per-colo, so each Cloudflare data center would otherwise fan
+out to GitHub on its own. `/activity` adds a **KV tier** (`activity:v1`)
+behind the hot tier: a refresh publishes its rendered payload to KV, a global
+store, so a refresh in one colo serves every other colo. The GitHub fanout
+then fires about once per freshness budget across the whole network instead of
+once per colo. That keeps the 4·N Search burst clear of the 30 req/min cap
+whatever the colo count. KV survives deploys and outlives the colo cache, so a
+viewer waits on the fanout only when colo cache and KV are both empty: the
+first request ever, or after an idle longer than KV's retention.
+`/currently-tending` skips KV; its 30 s budget is under KV's 60 s floor, and
+its fanout is cheap core REST, not the Search quota the sharing protects.
 
-When a refresh throws (GitHub outage) with no prior entry to serve, the Worker
-returns a 503 rather than a 200 all-zero payload, so the site renders nothing
-for that section instead of fabricated zeros. The 503 is negative-cached at the
-short **fallback budget** (5 s / 30 s) so the next request retries soon. On a
-warm cache a failed background refresh keeps the last good entry instead, so an
-outage never overwrites good data with zeros.
+Still demand-driven: a refresh fires only on a request (foreground on a true
+cold start, background otherwise), so a no-traffic day costs zero GitHub
+calls. The KV coordination is best-effort, not a global lock: colos going
+stale at the same instant can still race within KV's write-propagation window
+(up to ~60 s) before the first write is visible, after which later arrivals
+read the fresh entry and skip the fanout. A cron-driven single refresher would
+make that a hard guarantee but trade away the zero-when-idle property; not
+worth it at this scale.
+
+When a refresh throws (GitHub outage) on a warm colo cache, the bumped stale
+entry is kept, so an outage never overwrites good data with zeros. On a cold
+colo cache, `/activity` serves a prior KV entry (stale if need be) and
+revalidates in the background, so even a cold start during an outage shows the
+last-known data. Only when colo cache and KV are both empty does a thrown
+refresh return a 503 rather than a 200 all-zero payload, so the site renders
+nothing for that section instead of fabricated zeros. The 503 is
+negative-cached at the short **fallback budget** (5 s / 30 s) so the next
+request retries soon.
 
 ## Topology
 
@@ -164,7 +182,8 @@ data/consumers.json on main
 Cloudflare Worker (tend-website)
   ├─ reads data/consumers.json via raw URL (KV-cached 1 h)
   ├─ /currently-tending: fans out actions/runs per repo (in-progress, tend-*)
-  ├─ /activity:          fans out one Search query per bucket per bot
+  ├─ /activity:          fans out one Search query per bucket per bot,
+  │                      payload shared across colos via KV (activity:v1)
   └─ each route stale-while-revalidate from the colo cache, served at api.tend-src.com
 ```
 
@@ -213,22 +232,29 @@ Then `curl http://localhost:8787/activity` etc. `wrangler dev` reads the same
   response tells `serveCached` when to background-refresh a hit. A missing
   or garbled stamp counts as stale, so the first hit self-heals an entry
   written by code predating this scheme.
-- `CACHE` KV namespace, key `repos:v1`, TTL 1 h — the `consumers.json`
-  content. Decouples `running-tend`'s weekly refresh from Worker deploys. KV
-  is appropriate here because the 1 h TTL is above KV's 60 s minimum and we
-  want cross-isolate sharing.
+- `CACHE` KV namespace, two keys. `repos:v1` (TTL 1 h) holds the
+  `consumers.json` content, decoupling `running-tend`'s weekly refresh from
+  Worker deploys. `activity:v1` (TTL = 10 freshness budgets) holds the rendered
+  `/activity` payload plus its `staleAt`, the shared tier that lets one colo's
+  refresh serve the others. KV suits both: the TTLs clear its 60 s minimum, and
+  the whole point is cross-isolate, cross-colo sharing.
 
-Concurrent stale-hits are coalesced: the first request pushes the
+Concurrent stale-hits are coalesced within a colo: the first request pushes the
 cached entry's `x-tend-stale-at` forward by a short grace window
 (`REFRESH_GRACE_MS`, currently 30 s) and starts the background refresh;
 viewers arriving within that window read the bumped entry as fresh and
 skip starting their own refresh. One refresh per stale window per colo,
-not one per viewer — keeps the Search-API fanout bounded under bursts.
+not one per viewer. `refreshShared` extends this across colos: a refresh
+(cold or background) returns a sibling colo's still-fresh `activity:v1` entry
+instead of fanning out, and publishes its own result there when it does fan
+out.
 
-A cold cache miss costs the route's full fanout (N actions/runs calls for
-`/currently-tending`, 4·N Search calls for `/activity`). The freshness
-budget bounds how often that happens: at most one cold refresh per budget
-per colo, under any traffic level.
+For `/currently-tending` a cold colo cache costs the full N actions/runs
+fanout, bounded to one cold refresh per budget per colo. For `/activity` the
+KV tier collapses that to roughly one 4·N Search fanout per budget across the
+whole network: a cold or stale colo reads `activity:v1` first and fans out only
+when KV is stale too, so neither colo count nor traffic multiplies the GitHub
+load.
 
 The zone's **Browser Cache TTL** must be set to "Respect Existing Headers"
 (value `0`). Any positive value is treated as a floor on outgoing

@@ -674,6 +674,128 @@ describe("coalesceAndRefresh (background refresh on stale-hit)", () => {
     const body = JSON.parse(await entry!.text()) as { prs: { count: number } };
     expect(body.prs.count).toBe(999);
   });
+
+  it("pulls a sibling colo's fresh KV entry instead of fanning out (kvKey)", async () => {
+    const { __test } = await import("../src/index");
+    const { store, api } = fakeCache();
+    (globalThis as unknown as { caches: CacheStorage }).caches = {
+      default: api,
+    } as unknown as CacheStorage;
+
+    const kv = makeFakeKv();
+    await kv.put(
+      "activity:v1",
+      JSON.stringify({ payload: { prs: { count: 994 } }, staleAt: Date.now() + 100_000 }),
+    );
+    const cacheKey = new Request("https://api.example/activity");
+    const stale = new Response(JSON.stringify({ prs: { count: 1 } }), {
+      headers: { "Content-Type": "application/json" },
+    });
+    store.set(cacheKey.url, stale);
+
+    const env = { ALLOWED_ORIGIN: "*", CACHE: kv } as unknown as Parameters<
+      typeof __test.coalesceAndRefresh
+    >[2];
+    const refresh = vi.fn(async () => {
+      throw new Error("should not fan out — KV is fresh");
+    });
+    await __test.coalesceAndRefresh(cacheKey, stale, env, {
+      cacheKeyPath: "/activity",
+      ttl: { ok: 300, fallback: 30 },
+      kvKey: "activity:v1",
+      refresh,
+    });
+
+    expect(refresh).not.toHaveBeenCalled();
+    const entry = store.get(cacheKey.url);
+    expect(JSON.parse(await entry!.text())).toEqual({ prs: { count: 994 } });
+  });
+});
+
+describe("refreshShared (KV-coordinated refresh)", () => {
+  it("reuses a fresh KV entry instead of fanning out", async () => {
+    const { __test } = await import("../src/index");
+    const kv = makeFakeKv();
+    await kv.put(
+      "activity:v1",
+      JSON.stringify({ payload: { prs: { count: 994 } }, staleAt: Date.now() + 100_000 }),
+    );
+    const env = { CACHE: kv } as unknown as Parameters<typeof __test.refreshShared>[0];
+    const refresh = vi.fn(async () => {
+      throw new Error("should not fan out — KV is fresh");
+    });
+
+    const result = await __test.refreshShared(env, {
+      cacheKeyPath: "/activity",
+      ttl: { ok: 300, fallback: 30 },
+      kvKey: "activity:v1",
+      refresh,
+    });
+
+    expect(result).toEqual({ prs: { count: 994 } });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("fans out and publishes the result to KV when no entry exists", async () => {
+    const { __test } = await import("../src/index");
+    const kv = makeFakeKv();
+    const env = { CACHE: kv } as unknown as Parameters<typeof __test.refreshShared>[0];
+    const refresh = vi.fn(async () => ({ prs: { count: 5 } }));
+
+    const result = await __test.refreshShared(env, {
+      cacheKeyPath: "/activity",
+      ttl: { ok: 300, fallback: 30 },
+      kvKey: "activity:v1",
+      refresh,
+    });
+
+    expect(result).toEqual({ prs: { count: 5 } });
+    expect(refresh).toHaveBeenCalledOnce();
+    const stored = (await kv.get("activity:v1", "json")) as {
+      payload: unknown;
+      staleAt: number;
+    };
+    expect(stored.payload).toEqual({ prs: { count: 5 } });
+    expect(stored.staleAt).toBeGreaterThan(Date.now()); // published fresh for siblings
+  });
+
+  it("fans out a stale KV entry rather than serving it", async () => {
+    const { __test } = await import("../src/index");
+    const kv = makeFakeKv();
+    await kv.put(
+      "activity:v1",
+      JSON.stringify({ payload: { prs: { count: 1 } }, staleAt: Date.now() - 1000 }),
+    );
+    const env = { CACHE: kv } as unknown as Parameters<typeof __test.refreshShared>[0];
+    const refresh = vi.fn(async () => ({ prs: { count: 999 } }));
+
+    const result = await __test.refreshShared(env, {
+      cacheKeyPath: "/activity",
+      ttl: { ok: 300, fallback: 30 },
+      kvKey: "activity:v1",
+      refresh,
+    });
+
+    expect(result).toEqual({ prs: { count: 999 } });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("fans out without touching KV when no kvKey is set (currently-tending)", async () => {
+    const { __test } = await import("../src/index");
+    const kv = makeFakeKv();
+    const env = { CACHE: kv } as unknown as Parameters<typeof __test.refreshShared>[0];
+    const refresh = vi.fn(async () => ({ currently_tending: [] }));
+
+    const result = await __test.refreshShared(env, {
+      cacheKeyPath: "/currently-tending",
+      ttl: { ok: 30, fallback: 5 },
+      refresh,
+    });
+
+    expect(result).toEqual({ currently_tending: [] });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(await kv.get("activity:v1")).toBeNull();
+  });
 });
 
 describe("refreshAndCache (cold cache)", () => {
@@ -739,6 +861,101 @@ describe("refreshAndCache (cold cache)", () => {
     expect(resp.status).toBe(503);
     await Promise.all(tasks);
     expect(store.get(cacheKey.url)?.status).toBe(503); // negative-cached
+  });
+
+  it("serves a sibling colo's fresh KV entry on a cold colo cache, no fanout, inheriting its stale-at (kvKey)", async () => {
+    const { __test } = await import("../src/index");
+    const { store } = installCache();
+    const { tasks, ctx } = fakeCtx();
+    const kv = makeFakeKv();
+    // KV entry written earlier: it goes stale 100s from now, NOT a full budget
+    // (300s) from now. The colo entry must inherit this instant, otherwise the
+    // colo resets the shared clock and serves data up to a budget too long.
+    const staleAt = Date.now() + 100_000;
+    await kv.put(
+      "activity:v1",
+      JSON.stringify({ payload: { prs: { count: 994 } }, staleAt }),
+    );
+    const cacheKey = new Request("https://api.example/activity");
+    const env = { ALLOWED_ORIGIN: "*", CACHE: kv } as unknown as Parameters<
+      typeof __test.refreshAndCache
+    >[1];
+    const refresh = vi.fn(async () => {
+      throw new Error("should not fan out — KV is fresh");
+    });
+
+    const resp = await __test.refreshAndCache(cacheKey, env, ctx, {
+      cacheKeyPath: "/activity",
+      ttl: { ok: 300, fallback: 30 },
+      kvKey: "activity:v1",
+      refresh,
+    });
+
+    expect(resp.status).toBe(200);
+    expect(JSON.parse(await resp.clone().text())).toEqual({ prs: { count: 994 } });
+    expect(resp.headers.get(__test.STALE_AT_HEADER)).toBe(String(staleAt));
+    expect(refresh).not.toHaveBeenCalled();
+    await Promise.all(tasks);
+    const colo = store.get(cacheKey.url);
+    expect(colo?.status).toBe(200); // colo hydrated from KV
+    expect(colo?.headers.get(__test.STALE_AT_HEADER)).toBe(String(staleAt)); // not now+ttl.ok
+  });
+
+  it("serves a stale KV entry immediately and revalidates in the background (kvKey)", async () => {
+    const { __test } = await import("../src/index");
+    const { store } = installCache();
+    const { tasks, ctx } = fakeCtx();
+    const kv = makeFakeKv();
+    await kv.put(
+      "activity:v1",
+      JSON.stringify({ payload: { prs: { count: 1 } }, staleAt: Date.now() - 1000 }),
+    );
+    const cacheKey = new Request("https://api.example/activity");
+    const env = { ALLOWED_ORIGIN: "*", CACHE: kv } as unknown as Parameters<
+      typeof __test.refreshAndCache
+    >[1];
+    const refresh = vi.fn(async () => ({ prs: { count: 999 } }));
+
+    const resp = await __test.refreshAndCache(cacheKey, env, ctx, {
+      cacheKeyPath: "/activity",
+      ttl: { ok: 300, fallback: 30 },
+      kvKey: "activity:v1",
+      refresh,
+    });
+
+    // Served immediately = the stale payload (no waiting on the fanout).
+    expect(JSON.parse(await resp.clone().text())).toEqual({ prs: { count: 1 } });
+    await Promise.all(tasks); // run the background revalidation
+    expect(refresh).toHaveBeenCalledOnce();
+    // KV and colo cache now hold the fresh payload for the next viewers.
+    const stored = (await kv.get("activity:v1", "json")) as { payload: unknown };
+    expect(stored.payload).toEqual({ prs: { count: 999 } });
+    expect(JSON.parse(await store.get(cacheKey.url)!.text())).toEqual({ prs: { count: 999 } });
+  });
+
+  it("503s and publishes nothing when colo cache and KV are both empty and the fanout fails (kvKey)", async () => {
+    const { __test } = await import("../src/index");
+    const { store } = installCache();
+    const { tasks, ctx } = fakeCtx();
+    const kv = makeFakeKv();
+    const cacheKey = new Request("https://api.example/activity");
+    const env = { ALLOWED_ORIGIN: "*", CACHE: kv } as unknown as Parameters<
+      typeof __test.refreshAndCache
+    >[1];
+
+    const resp = await __test.refreshAndCache(cacheKey, env, ctx, {
+      cacheKeyPath: "/activity",
+      ttl: { ok: 300, fallback: 30 },
+      kvKey: "activity:v1",
+      refresh: async () => {
+        throw new Error("github down");
+      },
+    });
+
+    expect(resp.status).toBe(503);
+    await Promise.all(tasks);
+    expect(store.get(cacheKey.url)?.status).toBe(503); // negative-cached
+    expect(await kv.get("activity:v1")).toBeNull(); // nothing published on failure
   });
 });
 
