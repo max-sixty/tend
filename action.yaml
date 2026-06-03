@@ -201,14 +201,17 @@ runs:
       uses: anthropics/claude-code-action@v1
       env:
         # Disable the bubblewrap-backed subprocess sandbox. The Linux bwrap
-        # wrapping path inside Claude Code v2.1.142 still uses the legacy
+        # wrapping path inside Claude Code still uses the legacy
         # shell-quote `quote()` (`/(["\\$`!])/g`), which escapes `!` to `\!`
-        # in any command whose argv tokens contain both `'` and whitespace —
-        # corrupting jq `!=`, code references like `assert!()`, conventional-
-        # commits `feat!:` titles, and so on. macOS uses sandbox-exec on a
+        # in any command whose argv tokens contain both `'` and whitespace,
+        # corrupting jq `!=`, code references like `assert!()`, and
+        # conventional-commit `feat!:` titles. macOS uses sandbox-exec on a
         # different code path that's already fixed; the bug is Linux-only.
-        # Setting this to 0 routes bash through the fixed `'\''`-wrap path
-        # at the cost of subprocess env isolation. See anthropics/claude-code#35701.
+        # Setting this to 0 routes bash through the fixed `'\''`-wrap path;
+        # the cost is that the sandbox no longer hides the model auth from
+        # the agent's Bash tool (it otherwise does; verified). Reproduced
+        # through claude 2.1.159 and filed as anthropics/claude-code#64301
+        # (write-up: max-sixty/tend#639); re-enable once that lands.
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
         # Expose the harness auth so skills running in the agent's bash can
         # propagate it (e.g. seeding a managed repo's secrets). The action's

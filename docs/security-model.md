@@ -153,7 +153,12 @@ local-exec sandbox regardless.
 string matches in stdout. An attacker who gets code execution can exfiltrate
 tokens via DNS queries, HTTP requests to an external server, or encoding
 tricks that bypass the log filter. On GitHub-hosted runners, there's no way
-to restrict outbound network access.
+to restrict outbound network access. For the model auth specifically,
+Claude Code's bubblewrap sandbox would remove it from the agent's Bash tool
+entirely: a probe confirmed the sandbox's fresh `/proc` mount and `denyRead`
+rules block reading the token from the environment, `/proc`, and credential
+files. It is not deployed because the same bwrap path corrupts `!` in Bash
+commands (anthropics/claude-code#64301). See the `TODO.md` entry and #639.
 
 **Long-lived PAT exposure.** A classic PAT is valid until revoked and grants
 access to every repo the bot account can reach. A single successful
@@ -169,5 +174,5 @@ prompts and skill instructions reduce this risk but can't eliminate it —
 Claude ultimately reasons about attacker-controlled text.
 
 Deferred hardening options (Haiku pre-screening, read-only fork PRs, network
-isolation, subprocess env scrubbing, workflow-dispatch isolation, GitHub App
-in place of PAT) live in `TODO.md`.
+isolation, the Bash sandbox, workflow-dispatch isolation, GitHub App in
+place of PAT) live in `TODO.md`.

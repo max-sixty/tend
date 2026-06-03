@@ -144,12 +144,20 @@ implemented yet:
 - **Network isolation.** Self-hosted runners with outbound traffic
   restricted to GitHub and Anthropic API endpoints. Not viable on
   GitHub-hosted runners; significant infra overhead self-hosted.
-- **Subprocess environment scrubbing.** `claude-code-action` supports
-  `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`. Currently activated only when
-  `allowed_non_write_users` is set; could enable for all fork PRs. Naive
-  `echo $GITHUB_TOKEN` attacks would fail, though a subprocess can still
-  read the parent's unscrubbed env via `/proc/$PPID/environ`
-  (same-user, no privilege barrier on GitHub-hosted runners).
+- **Bash sandbox to hide the model auth.** Setting
+  `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` forces Claude Code's bubblewrap
+  sandbox on, which hides the model auth from the agent's Bash tool. The
+  fresh `/proc` mount blocks the `/proc/<harness-pid>/environ` read that
+  defeats naive env-scrubbing (a GHA probe found the OAuth token in 2
+  processes with the sandbox off, 0 with it on), and `denyRead` plus
+  Read-tool deny rules block credential files. Verified to work; the
+  reusable `settings.json` and probe live in #639. Blocked from shipping:
+  the same bwrap path corrupts `!` to `\!` in Bash commands (breaks `jq
+  !=`, `feat!:` titles), so both actions pin `=0`. Reproduced through
+  claude 2.1.159 and filed as anthropics/claude-code#64301; re-enable
+  once that lands. Hides the model auth only. The GitHub token sits in
+  the writable cwd (`.git/config`) and still needs the short-lived
+  GitHub App token (see "Auth: GitHub App alternatives to PAT").
 - **Workflow dispatch isolation.** Split each workflow into an analysis
   job (`GITHUB_TOKEN` only, reads the diff, produces a plan) and a push
   job (bot token, separate workflow triggered by `workflow_run`). The bot
