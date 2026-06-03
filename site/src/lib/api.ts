@@ -43,7 +43,14 @@ export async function liveData<T>(
     el.dataset.state = shown ? "loaded" : "hidden";
   };
   await tick();
+  // Self-schedule so the next tick can't start before the previous one
+  // resolves — otherwise a slow fetch overlapping a fast one can land
+  // out of order and overwrite `dataset.state` with stale data.
   if (intervalMs && intervalMs > 0) {
-    setInterval(tick, intervalMs);
+    const loop = async () => {
+      await tick();
+      setTimeout(loop, intervalMs);
+    };
+    setTimeout(loop, intervalMs);
   }
 }
