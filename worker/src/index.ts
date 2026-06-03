@@ -277,12 +277,22 @@ function readKvEntry<T>(env: Env, key: string): Promise<KvEntry<T> | null> {
 // GitHub fanout. Both the cold path and the background refresh funnel through
 // here, so the GitHub fanout fires at most once per freshness budget across
 // every colo except those racing within KV's write-propagation window.
-async function refreshShared<T>(env: Env, opts: CacheOpts<T>): Promise<T> {
-  if (!opts.kvKey) return opts.refresh();
+//
+// Returns the entry, not just the payload: a reused KV entry carries its
+// original stale-at, a freshly-fetched one `now + ttl.ok`. Callers stamp the
+// colo cache from that, so a colo inherits the shared clock instead of
+// resetting it (see entryResponse).
+async function refreshShared<T>(env: Env, opts: CacheOpts<T>): Promise<KvEntry<T>> {
+  // staleAt is read after the fanout resolves (property order), so a slow
+  // fanout doesn't shorten the published freshness window.
+  const mint = async (): Promise<KvEntry<T>> => ({
+    payload: await opts.refresh(),
+    staleAt: Date.now() + opts.ttl.ok * 1000,
+  });
+  if (!opts.kvKey) return mint();
   const entry = await readKvEntry<T>(env, opts.kvKey);
-  if (entry && Date.now() < entry.staleAt) return entry.payload;
-  const payload = await opts.refresh();
-  const fresh: KvEntry<T> = { payload, staleAt: Date.now() + opts.ttl.ok * 1000 };
+  if (entry && Date.now() < entry.staleAt) return entry; // sibling colo's fresh write
+  const fresh = await mint();
   await env.CACHE.put(opts.kvKey, JSON.stringify(fresh), {
     // Outlive the freshness budget by STALE_SERVE_FACTOR, matching the colo
     // cache, so a quiet stretch still leaves a (stale) entry to serve. Stays
@@ -290,7 +300,7 @@ async function refreshShared<T>(env: Env, opts: CacheOpts<T>): Promise<T> {
     // (activity's is 300s); a shorter-budget route would need its own floor.
     expirationTtl: opts.ttl.ok * STALE_SERVE_FACTOR,
   }).catch((e) => console.error(`KV put failed for ${opts.kvKey}:`, e));
-  return payload;
+  return fresh;
 }
 
 async function serveCached<T>(
@@ -358,7 +368,7 @@ async function refreshAndCache<T>(
   if (opts.kvKey) {
     const entry = await readKvEntry<T>(env, opts.kvKey);
     if (entry) {
-      const response = kvHydratedResponse(entry, env, opts.ttl.ok);
+      const response = entryResponse(entry, env, opts.ttl.ok);
       if (Date.now() >= entry.staleAt) {
         // coalesceAndRefresh writes the colo entry (bumped, then fresh) and
         // re-checks KV, so don't also put here.
@@ -380,7 +390,7 @@ async function refreshAndCache<T>(
 
   let response: Response;
   try {
-    response = jsonResponse(await refreshShared(env, opts), env, opts.ttl.ok);
+    response = entryResponse(await refreshShared(env, opts), env, opts.ttl.ok);
   } catch (e) {
     console.error(`cold refresh failed for ${opts.cacheKeyPath}:`, e);
     response = jsonResponse(
@@ -420,7 +430,7 @@ async function coalesceAndRefresh<T>(
   bumped.headers.set(STALE_AT_HEADER, String(Date.now() + REFRESH_GRACE_MS));
   await caches.default.put(cacheKey, bumped);
   try {
-    const fresh = jsonResponse(await refreshShared(env, opts), env, opts.ttl.ok);
+    const fresh = entryResponse(await refreshShared(env, opts), env, opts.ttl.ok);
     await caches.default.put(cacheKey, fresh);
   } catch (e) {
     console.error(
@@ -824,12 +834,13 @@ function jsonResponse(
   );
 }
 
-// A payload hydrated from KV: inherit the entry's stale-at so the colo doesn't
-// reset the shared clock (an entry written 200 s ago must still go stale at its
-// original instant, not 300 s from now), while keeping the full colo-retention
-// window. max-age is the entry's remaining freshness, floored at 0 for a stale
-// entry — which serveCached then revalidates.
-function kvHydratedResponse<T>(entry: KvEntry<T>, env: Env, okTtl: number): Response {
+// A response built from a cache entry (a fresh fetch or a sibling colo's KV
+// write). It inherits the entry's stale-at, so a colo never resets the shared
+// clock: an entry written 200 s ago goes stale at its original instant, not a
+// full budget from now. max-age is the entry's remaining freshness, floored at
+// 0 for a stale entry, which serveCached then revalidates. s-maxage keeps the
+// full colo-retention window regardless.
+function entryResponse<T>(entry: KvEntry<T>, env: Env, okTtl: number): Response {
   return cacheableJson(entry.payload, env, {
     staleAtMs: entry.staleAt,
     maxAgeSeconds: Math.max(0, Math.ceil((entry.staleAt - Date.now()) / 1000)),

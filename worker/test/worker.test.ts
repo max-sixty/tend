@@ -683,9 +683,10 @@ describe("coalesceAndRefresh (background refresh on stale-hit)", () => {
     } as unknown as CacheStorage;
 
     const kv = makeFakeKv();
+    const staleAt = Date.now() + 100_000; // fresh, but not a full budget out
     await kv.put(
       "activity:v1",
-      JSON.stringify({ payload: { prs: { count: 994 } }, staleAt: Date.now() + 100_000 }),
+      JSON.stringify({ payload: { prs: { count: 994 } }, staleAt }),
     );
     const cacheKey = new Request("https://api.example/activity");
     const stale = new Response(JSON.stringify({ prs: { count: 1 } }), {
@@ -709,17 +710,20 @@ describe("coalesceAndRefresh (background refresh on stale-hit)", () => {
     expect(refresh).not.toHaveBeenCalled();
     const entry = store.get(cacheKey.url);
     expect(JSON.parse(await entry!.text())).toEqual({ prs: { count: 994 } });
+    // The colo entry inherits KV's stale-at, not now + ttl.ok — otherwise this
+    // common warm-stale path would reset the shared clock and drift freshness.
+    expect(entry?.headers.get(__test.STALE_AT_HEADER)).toBe(String(staleAt));
   });
 });
 
 describe("refreshShared (KV-coordinated refresh)", () => {
-  it("reuses a fresh KV entry instead of fanning out", async () => {
+  it("reuses a fresh KV entry, returning its original stale-at (not a re-minted one)", async () => {
     const { __test } = await import("../src/index");
     const kv = makeFakeKv();
-    await kv.put(
-      "activity:v1",
-      JSON.stringify({ payload: { prs: { count: 994 } }, staleAt: Date.now() + 100_000 }),
-    );
+    // staleAt 100s out — NOT a full budget (300s). The reused entry must carry
+    // this instant forward so callers don't reset the shared clock.
+    const staleAt = Date.now() + 100_000;
+    await kv.put("activity:v1", JSON.stringify({ payload: { prs: { count: 994 } }, staleAt }));
     const env = { CACHE: kv } as unknown as Parameters<typeof __test.refreshShared>[0];
     const refresh = vi.fn(async () => {
       throw new Error("should not fan out — KV is fresh");
@@ -732,7 +736,8 @@ describe("refreshShared (KV-coordinated refresh)", () => {
       refresh,
     });
 
-    expect(result).toEqual({ prs: { count: 994 } });
+    expect(result.payload).toEqual({ prs: { count: 994 } });
+    expect(result.staleAt).toBe(staleAt); // inherited, not now + ttl.ok
     expect(refresh).not.toHaveBeenCalled();
   });
 
@@ -749,14 +754,14 @@ describe("refreshShared (KV-coordinated refresh)", () => {
       refresh,
     });
 
-    expect(result).toEqual({ prs: { count: 5 } });
+    expect(result.payload).toEqual({ prs: { count: 5 } });
+    expect(result.staleAt).toBeGreaterThan(Date.now()); // freshly minted
     expect(refresh).toHaveBeenCalledOnce();
     const stored = (await kv.get("activity:v1", "json")) as {
       payload: unknown;
       staleAt: number;
     };
-    expect(stored.payload).toEqual({ prs: { count: 5 } });
-    expect(stored.staleAt).toBeGreaterThan(Date.now()); // published fresh for siblings
+    expect(stored).toEqual(result); // published verbatim for siblings
   });
 
   it("fans out a stale KV entry rather than serving it", async () => {
@@ -776,7 +781,8 @@ describe("refreshShared (KV-coordinated refresh)", () => {
       refresh,
     });
 
-    expect(result).toEqual({ prs: { count: 999 } });
+    expect(result.payload).toEqual({ prs: { count: 999 } });
+    expect(result.staleAt).toBeGreaterThan(Date.now()); // re-minted, not the stale instant
     expect(refresh).toHaveBeenCalledOnce();
   });
 
@@ -792,7 +798,8 @@ describe("refreshShared (KV-coordinated refresh)", () => {
       refresh,
     });
 
-    expect(result).toEqual({ currently_tending: [] });
+    expect(result.payload).toEqual({ currently_tending: [] });
+    expect(result.staleAt).toBeGreaterThan(Date.now());
     expect(refresh).toHaveBeenCalledOnce();
     expect(await kv.get("activity:v1")).toBeNull();
   });
