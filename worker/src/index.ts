@@ -10,16 +10,25 @@
 // for an hour, and fan out to GitHub. Responses are stale-while-revalidate:
 // a request is always answered from the colo cache (no waiting on the
 // fanout) and, when the cached entry is past its budget, also kicks off a
-// background refresh so the next request sees fresher data. Only a cold
-// cache — a fresh deploy, or a quiet stretch long enough for the entry to
-// be evicted — makes a viewer wait. A background refresh only fires on a
-// request, so idle days still cost zero GitHub calls.
+// background refresh so the next request sees fresher data. A background
+// refresh only fires on a request, so idle days still cost zero GitHub calls.
+//
+// The colo cache is per-data-center, so each colo would otherwise fan out to
+// GitHub on its own. `/activity` therefore also publishes its rendered
+// payload to KV (a global store): a refresh in one colo populates KV for the
+// others, so the GitHub fanout fires roughly once per freshness budget across
+// the whole network instead of once per colo. KV survives deploys and outlives
+// the colo cache, so a viewer waits on GitHub only when colo cache and KV are
+// both empty (the first request ever, or after a long idle). `/currently-tending`
+// skips KV: its 30s budget is under KV's 60s floor, and its fanout is cheap
+// core REST, not the Search quota that the sharing protects.
 //
 // `/activity` is one Search query per bucket per bot (`sort=updated`): the
 // page yields both the recent items and the lifetime `total_count`; "this
 // week" is counted off the page, so it saturates around one page (~100) per
 // bot per bucket — fine for a headline number. The fanout is 4·N concurrent
-// Search requests, under the 30/min cap up to ~7 bots.
+// Search requests against the 30/min Search cap; KV sharing keeps how often
+// it fires independent of colo count and traffic.
 //
 // See ../README.md for architecture and the rate-limit reasoning behind
 // the budgets.
@@ -112,6 +121,9 @@ interface IssueCommentObject {
 
 const REPOS_KEY = "repos:v1";
 const REPOS_TTL_SECONDS = 3600;
+// /activity's rendered payload, shared across colos so one colo's fanout
+// spares the rest. See refreshShared.
+const ACTIVITY_KV_KEY = "activity:v1";
 const FETCH_TIMEOUT_MS = 10_000;
 const WORKFLOW_PREFIX = "tend-";
 // `actions/runs` sorts by created_at desc across ALL workflows in the
@@ -224,6 +236,7 @@ export default {
         return serveCached(url, env, ctx, {
           cacheKeyPath: "/activity",
           ttl: TTL.activity,
+          kvKey: ACTIVITY_KV_KEY,
           refresh: () => refreshActivity(env),
         });
       default:
@@ -239,6 +252,55 @@ interface CacheOpts<T> {
   cacheKeyPath: string;
   ttl: { ok: number; fallback: number };
   refresh: () => Promise<T>;
+  // When set, refreshes coordinate through this KV key (a global store) so a
+  // fanout in one colo populates KV for every other colo. Routes without it
+  // (currently-tending, whose 30s budget is under KV's 60s floor) refresh
+  // straight from GitHub on each colo.
+  kvKey?: string;
+}
+
+// A KV-stored payload plus the instant it goes stale (epoch ms). The colo
+// cache is the hot, per-colo tier; KV is the shared tier behind it, so one
+// colo's refresh serves the others.
+interface KvEntry<T> {
+  payload: T;
+  staleAt: number;
+}
+
+function readKvEntry<T>(env: Env, key: string): Promise<KvEntry<T> | null> {
+  return env.CACHE.get<KvEntry<T>>(key, "json").catch(() => null);
+}
+
+// Refresh that coordinates through KV when opts.kvKey is set: if a sibling
+// colo wrote a still-fresh entry, reuse it and skip GitHub; otherwise fan out
+// and publish the result to KV for the others. Without a kvKey it's a straight
+// GitHub fanout. Both the cold path and the background refresh funnel through
+// here, so the GitHub fanout fires at most once per freshness budget across
+// every colo except those racing within KV's write-propagation window.
+//
+// Returns the entry, not just the payload: a reused KV entry carries its
+// original stale-at, a freshly-fetched one `now + ttl.ok`. Callers stamp the
+// colo cache from that, so a colo inherits the shared clock instead of
+// resetting it (see entryResponse).
+async function refreshShared<T>(env: Env, opts: CacheOpts<T>): Promise<KvEntry<T>> {
+  // staleAt is read after the fanout resolves (property order), so a slow
+  // fanout doesn't shorten the published freshness window.
+  const mint = async (): Promise<KvEntry<T>> => ({
+    payload: await opts.refresh(),
+    staleAt: Date.now() + opts.ttl.ok * 1000,
+  });
+  if (!opts.kvKey) return mint();
+  const entry = await readKvEntry<T>(env, opts.kvKey);
+  if (entry && Date.now() < entry.staleAt) return entry; // sibling colo's fresh write
+  const fresh = await mint();
+  await env.CACHE.put(opts.kvKey, JSON.stringify(fresh), {
+    // Outlive the freshness budget by STALE_SERVE_FACTOR, matching the colo
+    // cache, so a quiet stretch still leaves a (stale) entry to serve. Stays
+    // above KV's 60s minimum expirationTtl for any route whose ttl.ok ≥ 6s
+    // (activity's is 300s); a shorter-budget route would need its own floor.
+    expirationTtl: opts.ttl.ok * STALE_SERVE_FACTOR,
+  }).catch((e) => console.error(`KV put failed for ${opts.kvKey}:`, e));
+  return fresh;
 }
 
 async function serveCached<T>(
@@ -247,9 +309,10 @@ async function serveCached<T>(
   ctx: ExecutionContext,
   opts: CacheOpts<T>,
 ): Promise<Response> {
-  // Normalize the cache key so query strings don't fork the cache. Using
-  // the colo cache (not KV) for the response also dodges KV's 60s minimum
-  // expirationTtl — currently-tending's budget is shorter than that.
+  // Normalize the cache key so query strings don't fork the cache. The colo
+  // cache (not KV) holds the rendered Response: its sub-second granularity
+  // suits currently-tending's 30s budget, below KV's 60s floor. /activity
+  // shares its payload across colos via KV behind this hot tier (refreshShared).
   const cacheKey = new Request(`${url.origin}${opts.cacheKeyPath}`, {
     method: "GET",
   });
@@ -276,15 +339,20 @@ async function serveCached<T>(
     return cached;
   }
 
-  // Cold cache — a fresh deploy, or no traffic for STALE_SERVE_FACTOR
-  // budgets. This request pays the fanout; everyone after it is served
-  // from cache until the next cold start.
+  // Cold colo cache — a fresh isolate, or no traffic for STALE_SERVE_FACTOR
+  // budgets. refreshAndCache checks KV before paying the fanout.
   return refreshAndCache(cacheKey, env, ctx, opts);
 }
 
-// Cold-cache path: the caller is waiting on this, so we return the fresh
-// Response and let the cache put run via ctx.waitUntil. On refresh failure
-// there's no prior data to serve, so we return a 503 rather than a 200
+// Cold colo-cache path. For a KV-shared route, a sibling colo may already
+// have the data in KV: serve that (even when stale) so this viewer skips the
+// GitHub fanout, and a burst after idle doesn't make every colo fan out at
+// once. A stale KV entry is served immediately and revalidated in the
+// background, so an outage on cold start shows the last-known data rather than
+// nothing.
+//
+// Only when colo cache and KV are both empty does this request pay the fanout.
+// On failure there's then no prior data, so we return a 503 rather than a 200
 // all-zero payload: the site reads the non-OK response as "no data" and hides
 // the section instead of rendering fabricated zeros. The 503 is negative-cached
 // at the short fallback budget so a sustained outage doesn't re-fan-out on
@@ -297,9 +365,32 @@ async function refreshAndCache<T>(
   ctx: ExecutionContext,
   opts: CacheOpts<T>,
 ): Promise<Response> {
+  if (opts.kvKey) {
+    const entry = await readKvEntry<T>(env, opts.kvKey);
+    if (entry) {
+      const response = entryResponse(entry, env, opts.ttl.ok);
+      if (Date.now() >= entry.staleAt) {
+        // coalesceAndRefresh writes the colo entry (bumped, then fresh) and
+        // re-checks KV, so don't also put here.
+        ctx.waitUntil(
+          coalesceAndRefresh(cacheKey, response.clone(), env, opts).catch((e) =>
+            console.error(`background refresh failed for ${opts.cacheKeyPath}:`, e),
+          ),
+        );
+      } else {
+        ctx.waitUntil(
+          caches.default
+            .put(cacheKey, response.clone())
+            .catch((e) => console.error(`cache put failed for ${opts.cacheKeyPath}:`, e)),
+        );
+      }
+      return response;
+    }
+  }
+
   let response: Response;
   try {
-    response = jsonResponse(await opts.refresh(), env, opts.ttl.ok);
+    response = entryResponse(await refreshShared(env, opts), env, opts.ttl.ok);
   } catch (e) {
     console.error(`cold refresh failed for ${opts.cacheKeyPath}:`, e);
     response = jsonResponse(
@@ -320,10 +411,12 @@ async function refreshAndCache<T>(
 // Stale-hit path: coalesce concurrent refreshes by bumping the cached
 // entry's stale-at forward before running the refresh. Concurrent
 // stale-hits arriving within REFRESH_GRACE_MS read the bumped entry as
-// fresh and skip starting their own refresh. On refresh failure keep the
-// bumped cached entry — a viewer keeps seeing the previous (slightly
-// stale) data instead of an empty payload overwriting it for the
-// fallback TTL, which would briefly black out every viewer.
+// fresh and skip starting their own refresh. The refresh goes through
+// refreshShared, so on a KV-shared route it pulls a sibling colo's fresh KV
+// entry instead of fanning out. On refresh failure keep the bumped cached
+// entry — a viewer keeps seeing the previous (slightly stale) data instead of
+// an empty payload overwriting it for the fallback TTL, which would briefly
+// black out every viewer.
 async function coalesceAndRefresh<T>(
   cacheKey: Request,
   cached: Response,
@@ -337,7 +430,7 @@ async function coalesceAndRefresh<T>(
   bumped.headers.set(STALE_AT_HEADER, String(Date.now() + REFRESH_GRACE_MS));
   await caches.default.put(cacheKey, bumped);
   try {
-    const fresh = jsonResponse(await opts.refresh(), env, opts.ttl.ok);
+    const fresh = entryResponse(await refreshShared(env, opts), env, opts.ttl.ok);
     await caches.default.put(cacheKey, fresh);
   } catch (e) {
     console.error(
@@ -697,33 +790,62 @@ function withCors(resp: Response, env: Env): Response {
   return resp;
 }
 
+function cacheableJson(
+  data: unknown,
+  env: Env,
+  cache: { staleAtMs: number; maxAgeSeconds: number; sMaxAgeSeconds: number },
+  status = 200,
+): Response {
+  return withCors(
+    new Response(JSON.stringify(data), {
+      status,
+      headers: {
+        "Content-Type": "application/json",
+        // Browsers revalidate after `max-age`; the colo cache, a shared
+        // cache, keeps the entry for `s-maxage` so it stays warm for
+        // stale-while-revalidate. Requires the zone's Browser Cache TTL to be
+        // "Respect Existing Headers" — any positive value there acts as a floor
+        // on outgoing `max-age`, so a 4 h default silently inflates this header
+        // and pins browsers to whichever snapshot they fetched first.
+        "Cache-Control": `public, max-age=${cache.maxAgeSeconds}, s-maxage=${cache.sMaxAgeSeconds}`,
+        [STALE_AT_HEADER]: String(cache.staleAtMs),
+      },
+    }),
+    env,
+  );
+}
+
+// A freshly-fetched payload: the budget starts ticking now.
 function jsonResponse(
   data: unknown,
   env: Env,
   ttlSeconds: number,
   status = 200,
 ): Response {
-  const staleAtMs = Date.now() + ttlSeconds * 1000;
-  return withCors(
-    new Response(JSON.stringify(data), {
-      status,
-      headers: {
-        "Content-Type": "application/json",
-        // Browsers revalidate after the freshness budget (`max-age`); the
-        // colo cache, a shared cache, keeps the entry for STALE_SERVE_FACTOR
-        // budgets (`s-maxage`) so it stays warm for stale-while-revalidate.
-        // Requires the zone's Browser Cache TTL to be "Respect Existing
-        // Headers" — any positive value there acts as a floor on outgoing
-        // `max-age`, so a 4 h default silently inflates this header and
-        // pins browsers to whichever snapshot they fetched first.
-        "Cache-Control":
-          `public, max-age=${ttlSeconds}, ` +
-          `s-maxage=${ttlSeconds * STALE_SERVE_FACTOR}`,
-        [STALE_AT_HEADER]: String(staleAtMs),
-      },
-    }),
+  return cacheableJson(
+    data,
     env,
+    {
+      staleAtMs: Date.now() + ttlSeconds * 1000,
+      maxAgeSeconds: ttlSeconds,
+      sMaxAgeSeconds: ttlSeconds * STALE_SERVE_FACTOR,
+    },
+    status,
   );
+}
+
+// A response built from a cache entry (a fresh fetch or a sibling colo's KV
+// write). It inherits the entry's stale-at, so a colo never resets the shared
+// clock: an entry written 200 s ago goes stale at its original instant, not a
+// full budget from now. max-age is the entry's remaining freshness, floored at
+// 0 for a stale entry, which serveCached then revalidates. s-maxage keeps the
+// full colo-retention window regardless.
+function entryResponse<T>(entry: KvEntry<T>, env: Env, okTtl: number): Response {
+  return cacheableJson(entry.payload, env, {
+    staleAtMs: entry.staleAt,
+    maxAgeSeconds: Math.max(0, Math.ceil((entry.staleAt - Date.now()) / 1000)),
+    sMaxAgeSeconds: okTtl * STALE_SERVE_FACTOR,
+  });
 }
 
 function corsPreflight(env: Env): Response {
@@ -754,5 +876,7 @@ export const __test = {
   isStale,
   coalesceAndRefresh,
   refreshAndCache,
+  refreshShared,
+  ACTIVITY_KV_KEY,
   STALE_AT_HEADER,
 };
