@@ -382,22 +382,23 @@ runs:
         claude plugin list 2>/dev/null || true
 
     # The claude binary, uv, plugins, and onboarding state were installed
-    # into the runner's home by the steps above. Move them into the sandbox
+    # into the runner's home by the steps above. Copy them into the sandbox
     # user's home so the agent — which runs as tend-sandbox from here — finds
-    # its toolchain and config natively (no CLAUDE_CONFIG_DIR guesswork). `mv`
-    # not `cp`: the runner copy is dead after this, and a same-filesystem rename
-    # avoids copying the ~200MB claude binary on every run. The bot PAT is in
-    # none of these paths, so nothing carries a GitHub credential into the sandbox.
+    # its toolchain and config natively (no CLAUDE_CONFIG_DIR guesswork). cp -a,
+    # not mv: the claude binary has absolute-path references into ~/.local/share,
+    # so moving the originals out breaks it. (The cheaper fix — installing the
+    # toolchain as the sandbox user directly — is a follow-up.) The bot PAT is in
+    # none of these paths, so the copy carries no GitHub credential into the sandbox.
     - name: Hand off Claude toolchain to sandbox
       shell: bash
       run: |
         sudo mkdir -p "$AGENT_HOME/.local"
-        sudo mv /home/runner/.local/bin "$AGENT_HOME/.local/bin"
+        sudo cp -a /home/runner/.local/bin "$AGENT_HOME/.local/bin"
         if [ -d /home/runner/.local/share ]; then
-          sudo mv /home/runner/.local/share "$AGENT_HOME/.local/share"
+          sudo cp -a /home/runner/.local/share "$AGENT_HOME/.local/share"
         fi
-        sudo mv /home/runner/.claude "$AGENT_HOME/.claude"
-        sudo mv /home/runner/.claude.json "$AGENT_HOME/.claude.json"
+        sudo cp -a /home/runner/.claude "$AGENT_HOME/.claude"
+        sudo cp -a /home/runner/.claude.json "$AGENT_HOME/.claude.json"
         sudo chown -R "${SANDBOX}:${SANDBOX}" "$AGENT_HOME"
         sudo -u "$SANDBOX" "$AGENT_HOME/.local/bin/claude" --version
 
