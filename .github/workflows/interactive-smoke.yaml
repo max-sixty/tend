@@ -45,8 +45,11 @@ on:
              through the credential-injecting proxy — it should print the bot
              account's login even though your environment only holds a dummy
              token.
-          3. Reply with one line in the form:
-             "Smoke test ran at <date>; gh authenticated as <login>".
+          3. Use the Bash tool to run: `git ls-remote origin HEAD`. This must
+             succeed (not fatal): it proves the persisted-credential strip
+             didn't break git and that git reaches origin through the proxy.
+          4. Reply with one line in the form:
+             "Smoke test ran at <date>; gh authenticated as <login>; git ls-remote ok".
 
           Do not push, comment, or modify files. Use only the Bash tool.
       model:
@@ -73,12 +76,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
-          # The agent runs as a non-sudo sandbox user and authenticates to
-          # GitHub only through the injecting proxy, so it needs no persisted
-          # git credential — and persisting one would leave it on disk in the
-          # sandbox-owned checkout. (Real generated workflows persist the bot
-          # PAT; setup-sandbox.sh neutralizes it there.)
-          persist-credentials: false
+          # Keep the DEFAULT persist-credentials: true so the smoke exercises
+          # the production shape — checkout persists a git credential, and
+          # setup-sandbox.sh must neutralize it. (An earlier cut set this to
+          # false, which silently skipped the strip path; the git ls-remote
+          # step in the prompt now asserts the strip didn't break git.)
+          persist-credentials: true
 
       - name: Run interactive harness
         id: claude

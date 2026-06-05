@@ -29,8 +29,12 @@ import os
 from mitmproxy import http
 
 # git's smart-HTTP transport authenticates with Basic (token as the password);
-# the REST and upload hosts take the ``token`` scheme. ``pretty_host`` carries
-# no port, so these are bare hostnames.
+# the REST and upload hosts take the ``token`` scheme. These are bare hostnames
+# (``flow.request.host`` carries no port).
+#
+# Not covered: ``*.githubusercontent.com`` (raw content, release assets, LFS).
+# Those are served from signed/anonymous URLs in the common path; private-asset
+# fetches that need auth are out of scope for this cut.
 GIT_HOSTS = frozenset({"github.com", "codeload.github.com"})
 API_HOSTS = frozenset({"api.github.com", "uploads.github.com"})
 
@@ -51,7 +55,11 @@ class GitHubAuthInjector:
         ).decode()
 
     def request(self, flow: http.HTTPFlow) -> None:
-        host = flow.request.pretty_host
+        # Gate on `host` — the real connection target — NOT `pretty_host`, which
+        # mitmproxy derives from the client-supplied Host header. A sandboxed
+        # agent could otherwise send `Host: api.github.com` to an attacker host
+        # and have the real token injected and forwarded there.
+        host = flow.request.host
         if host in API_HOSTS:
             flow.request.headers["Authorization"] = f"token {self._token}"
         elif host in GIT_HOSTS:

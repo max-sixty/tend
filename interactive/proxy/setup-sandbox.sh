@@ -17,12 +17,13 @@
 # TEND_RUN_DIR.
 #
 # Inputs (env): TEND_GH_TOKEN (real PAT), ACTION_PATH (this action's checkout),
-# PROXY_PORT (default 8899). GITHUB_WORKSPACE / RUNNER_TEMP come from Actions.
+# MITMPROXY_VERSION (pinned mitmproxy version). GITHUB_WORKSPACE / RUNNER_TEMP /
+# UV_CACHE_DIR come from Actions.
 set -euo pipefail
 
 SANDBOX=tend-sandbox
 AGENT_HOME="/home/${SANDBOX}"
-PROXY_PORT="${PROXY_PORT:-8899}"
+PROXY_PORT=8899
 PROXY_URL="http://127.0.0.1:${PROXY_PORT}"
 # Run dir (sentinels, PTY log, wrapper) lives in the sandbox's own home so it
 # can write there freely; the runner reads it via the 0755 home path. (Under
@@ -36,6 +37,10 @@ if [ -z "${TEND_GH_TOKEN:-}" ]; then
   echo "::error::TEND_GH_TOKEN is unset; cannot start the credential proxy"
   exit 1
 fi
+if [ -z "${MITMPROXY_VERSION:-}" ]; then
+  echo "::error::MITMPROXY_VERSION is unset; the action must pin it"
+  exit 1
+fi
 
 # 1. Non-sudo sandbox user. -m gives it /home/tend-sandbox (0755, so the
 #    runner can still read the session logs it writes).
@@ -46,25 +51,41 @@ log "user $SANDBOX uid=$(id -u "$SANDBOX")"
 
 # 2. Neutralize the credential actions/checkout persisted for git. Modern
 #    checkout stores it in an external file referenced by an includeIf, not as
-#    a plain extraheader — so drop the extraheader (older form), remove any
-#    includeIf sections, and lock the external credential files to runner-only.
-#    Belt: even if an include survives, git can't read a 0600 runner-owned file
-#    as the sandbox, so no credential reaches the agent. The proxy is the only
-#    authenticated path left.
+#    a plain extraheader. So: drop the extraheader (older form); unset each
+#    includeIf key (--unset on the FULL key — --remove-section can't match the
+#    dotted subsection name); and DELETE the external credential files. Deleting
+#    (not chmod) is load-bearing: the PAT is gone from disk, and git silently
+#    skips a now-missing include — whereas an unreadable include is *fatal* and
+#    would break every agent git operation. The proxy is the only auth path left.
 git -C "$GITHUB_WORKSPACE" config --local --unset-all \
   'http.https://github.com/.extraheader' 2>/dev/null || true
 while read -r key; do
   [ -n "$key" ] || continue
-  git -C "$GITHUB_WORKSPACE" config --local --remove-section "${key%.path}" 2>/dev/null || true
+  git -C "$GITHUB_WORKSPACE" config --local --unset "$key" 2>/dev/null || true
 done < <(git -C "$GITHUB_WORKSPACE" config --local --name-only --get-regexp '^includeif\.' 2>/dev/null || true)
-sudo find "$RUNNER_TEMP" -maxdepth 1 -name 'git-credentials-*' -exec chmod 600 {} + 2>/dev/null || true
+sudo find "$RUNNER_TEMP" -maxdepth 2 -name 'git-credentials-*' -delete 2>/dev/null || true
+
+# Verify the strip actually worked (the load-bearing security step): fail loudly
+# if any GitHub credential still resolves in the workspace config. The repo rule
+# is that an unhandled format fails with a clear error, not silently.
+if git -C "$GITHUB_WORKSPACE" config --local --list 2>/dev/null \
+     | grep -qiE 'extraheader=|^includeif\.gitdir'; then
+  echo "::error::failed to neutralize the persisted git credential in $GITHUB_WORKSPACE/.git/config"
+  git -C "$GITHUB_WORKSPACE" config --local --list | grep -iE 'extraheader=|^includeif\.gitdir' || true
+  exit 1
+fi
 log "neutralized persisted git credentials"
 
 # 3. Make the path to the workspace traversable by the sandbox, then hand it
 #    the checkout so the agent can edit and commit. The sandbox owns the tree,
-#    so no safe.directory entry is needed. o+x grants traversal only (not read)
-#    on the runner's home — fine on a single-use runner.
-sudo chmod o+x /home/runner /home/runner/work "$(dirname "$GITHUB_WORKSPACE")"
+#    so no safe.directory entry is needed. Grant o+x (traversal only, not read)
+#    on every ancestor of the workspace — derived, not hard-coded to /home/runner,
+#    so it works wherever the runner places the checkout. Fine on a single-use runner.
+parent="$(dirname "$GITHUB_WORKSPACE")"
+while [ "$parent" != "/" ]; do
+  sudo chmod o+x "$parent" 2>/dev/null || true
+  parent="$(dirname "$parent")"
+done
 sudo chown -R "${SANDBOX}:${SANDBOX}" "$GITHUB_WORKSPACE"
 sudo -u "$SANDBOX" test -r "$GITHUB_WORKSPACE/.git/config" \
   || { echo "::error::sandbox cannot access the workspace at $GITHUB_WORKSPACE"; exit 1; }
@@ -86,14 +107,14 @@ chmod 700 "$CONFDIR"
 # the readiness wait below measures startup, not a cold dependency resolve.
 # Pinned + UV_CACHE_DIR (set by the action) point at the actions/cache-backed
 # dir, so this is a fast restore after the first run.
-MITMPROXY="mitmproxy==${MITMPROXY_VERSION:-12.2.1}"
+MITMPROXY="mitmproxy==${MITMPROXY_VERSION}"
 uvx --from "$MITMPROXY" mitmdump --version >/dev/null
 log "starting proxy"
 nohup uvx --from "$MITMPROXY" mitmdump \
   -s "${ACTION_PATH}/proxy/github_auth.py" \
   --listen-host 127.0.0.1 --listen-port "$PROXY_PORT" \
   --set confdir="$CONFDIR" \
-  --allow-hosts 'github\.com' \
+  --allow-hosts '^(api\.|codeload\.|uploads\.)?github\.com(:[0-9]+)?$' \
   </dev/null >"${RUNNER_TEMP}/tend-proxy.log" 2>&1 &
 echo $! >"${RUNNER_TEMP}/tend-proxy.pid"
 disown

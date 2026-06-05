@@ -382,21 +382,22 @@ runs:
         claude plugin list 2>/dev/null || true
 
     # The claude binary, uv, plugins, and onboarding state were installed
-    # into the runner's home by the steps above. Copy them into the sandbox
+    # into the runner's home by the steps above. Move them into the sandbox
     # user's home so the agent — which runs as tend-sandbox from here — finds
-    # its toolchain and config natively (no CLAUDE_CONFIG_DIR guesswork). The
-    # bot PAT is in none of these paths, so the copy carries no GitHub
-    # credential into the sandbox.
+    # its toolchain and config natively (no CLAUDE_CONFIG_DIR guesswork). `mv`
+    # not `cp`: the runner copy is dead after this, and a same-filesystem rename
+    # avoids copying the ~200MB claude binary on every run. The bot PAT is in
+    # none of these paths, so nothing carries a GitHub credential into the sandbox.
     - name: Hand off Claude toolchain to sandbox
       shell: bash
       run: |
         sudo mkdir -p "$AGENT_HOME/.local"
-        sudo cp -a /home/runner/.local/bin "$AGENT_HOME/.local/bin"
+        sudo mv /home/runner/.local/bin "$AGENT_HOME/.local/bin"
         if [ -d /home/runner/.local/share ]; then
-          sudo cp -a /home/runner/.local/share "$AGENT_HOME/.local/share"
+          sudo mv /home/runner/.local/share "$AGENT_HOME/.local/share"
         fi
-        sudo cp -a /home/runner/.claude "$AGENT_HOME/.claude"
-        sudo cp -a /home/runner/.claude.json "$AGENT_HOME/.claude.json"
+        sudo mv /home/runner/.claude "$AGENT_HOME/.claude"
+        sudo mv /home/runner/.claude.json "$AGENT_HOME/.claude.json"
         sudo chown -R "${SANDBOX}:${SANDBOX}" "$AGENT_HOME"
         sudo -u "$SANDBOX" "$AGENT_HOME/.local/bin/claude" --version
 
@@ -468,31 +469,23 @@ runs:
         # the listed tools.
         ALLOW_JSON=$(jq -nc --arg list "$TEND_ALLOWED_TOOLS" '$list | split(",") | map(. | gsub("^\\s+|\\s+$"; ""))')
 
-        # Settings and wrapper are written into sandbox-owned locations as the
-        # sandbox user. The `< file` redirects are opened by the runner shell,
-        # so tee needs no read access to the runner-owned temp files.
-        cat > "$RUNNER_TEMP/tend-settings.json" <<EOF
-        {
-          "permissions": {
-            "defaultMode": "dontAsk",
-            "allow": $ALLOW_JSON
-          },
-          "hooks": {
-            "Stop": [
-              {
-                "matcher": "",
-                "hooks": [{"type": "command", "command": "touch '$SENTINEL_OK'"}]
-              }
-            ],
-            "StopFailure": [
-              {
-                "matcher": "",
-                "hooks": [{"type": "command", "command": "touch '$SENTINEL_FAIL'"}]
-              }
-            ]
-          }
-        }
-        EOF
+        # Build settings.local.json with jq, not a heredoc — jq escapes the
+        # (adopter-controlled) tool list and the sentinel paths, so nothing in
+        # them is re-expanded by the shell. @sh quotes the paths for the hook's
+        # shell command. Settings and wrapper are written into sandbox-owned
+        # locations as the sandbox user; the `< file` redirect is opened by the
+        # runner shell, so tee needs no read access to the runner temp file.
+        jq -nc \
+          --argjson allow "$ALLOW_JSON" \
+          --arg ok "$SENTINEL_OK" \
+          --arg fail "$SENTINEL_FAIL" \
+          '{
+            permissions: {defaultMode: "dontAsk", allow: $allow},
+            hooks: {
+              Stop:        [{matcher: "", hooks: [{type: "command", command: ("touch " + ($ok   | @sh))}]}],
+              StopFailure: [{matcher: "", hooks: [{type: "command", command: ("touch " + ($fail | @sh))}]}]
+            }
+          }' > "$RUNNER_TEMP/tend-settings.json"
         sudo -u "$SANDBOX" mkdir -p "$GITHUB_WORKSPACE/.claude"
         sudo -u "$SANDBOX" tee "$GITHUB_WORKSPACE/.claude/settings.local.json" \
           < "$RUNNER_TEMP/tend-settings.json" >/dev/null
@@ -564,17 +557,25 @@ runs:
           sleep 2
         done
 
-        # Clean termination — SIGTERM, wait up to 5s, then SIGKILL.
+        # Clean termination — SIGTERM, wait up to 5s, then SIGKILL. Killing the
+        # `sudo` PID may leave the agent tree (script→claude→node) orphaned
+        # since SIGKILL can't be relayed, so also reap every process owned by
+        # the dedicated sandbox user.
         if sudo kill -0 "$CLAUDE_PID" 2>/dev/null; then
           sudo kill -TERM "$CLAUDE_PID" 2>/dev/null || true
-          for i in 1 2 3 4 5; do
+          for _ in 1 2 3 4 5; do
             sleep 1
             sudo kill -0 "$CLAUDE_PID" 2>/dev/null || break
           done
           sudo kill -KILL "$CLAUDE_PID" 2>/dev/null || true
         fi
-        wait "$CLAUDE_PID" 2>/dev/null || true
-        CLAUDE_EXIT=$?
+        sudo pkill -KILL -u "$SANDBOX" 2>/dev/null || true
+
+        # Capture the real exit, but NOT via `|| true` — that would make
+        # CLAUDE_EXIT always 0 (the exit of `true`) and report a crashed run as
+        # success. The process is dead by now, so wait returns promptly.
+        CLAUDE_EXIT=0
+        wait "$CLAUDE_PID" 2>/dev/null || CLAUDE_EXIT=$?
 
         elapsed=$(($(date +%s) - start))
         echo "Supervisor: status=$status elapsed=${elapsed}s claude_exit=$CLAUDE_EXIT"
@@ -669,10 +670,12 @@ runs:
         MODEL: ${{ inputs.model }}
       run: |
         # The agent ran as the sandbox user, so its session JSONL lives under
-        # the sandbox home (created with restrictive perms). Make it
-        # runner-readable, then consolidate the sessions and PTY log into a
-        # runner-owned dir for token parsing and the uploaded artifact.
-        sudo chmod -R a+rX "${AGENT_HOME:-/nonexistent}/.claude" 2>/dev/null || true
+        # the sandbox home (created with restrictive perms). Make just the
+        # session dir runner-readable (not the whole plugin tree under .claude),
+        # then consolidate the sessions and PTY log into a runner-owned dir for
+        # token parsing and the uploaded artifact.
+        sudo chmod a+x "${AGENT_HOME:-/nonexistent}" "${AGENT_HOME:-/nonexistent}/.claude" 2>/dev/null || true
+        sudo chmod -R a+rX "${AGENT_HOME:-/nonexistent}/.claude/projects" 2>/dev/null || true
         LOGS_DIR="$RUNNER_TEMP/tend-logs"
         mkdir -p "$LOGS_DIR"
         cp -a "${AGENT_HOME}/.claude/projects/." "$LOGS_DIR/" 2>/dev/null || true
