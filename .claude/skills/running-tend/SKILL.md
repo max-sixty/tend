@@ -94,9 +94,12 @@ because the workflow files are public.
 #    version tag (`max-sixty/tend@X.Y.Z`, or `/codex@X.Y.Z`), so search the
 #    bare `max-sixty/tend` token (version-agnostic; GitHub code search does
 #    not index `@` or `/`, so this matches both the Claude and Codex refs).
+#    `--extension yaml` is required: without it, README/CLAUDE.md/TODO.md
+#    hits on `max-sixty/tend` itself crowd out tend's own workflow files
+#    past the 100-result cap, dropping tend from its own consumers.json.
 #    The `.github/workflows/tend-` path filter below bounds precision.
 mapfile -t REPOS < <(
-  gh search code 'max-sixty/tend' --limit 100 --json repository,path \
+  gh search code 'max-sixty/tend' --extension yaml --limit 100 --json repository,path \
     | jq -r '.[] | select(.path | startswith(".github/workflows/tend-")) | .repository.nameWithOwner' \
     | sort -u
 )
