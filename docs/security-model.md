@@ -91,6 +91,20 @@ overwritten, matching claude-code-action's behavior so review skills can
 optionally inspect what the PR changed without those files ever being
 executed.
 
+**Credential isolation (`claude-interactive` harness).** The agent runs as a
+separate non-sudo `tend-sandbox` user. The bot PAT lives only in a local
+mitmproxy that the agent reaches over `HTTPS_PROXY`; the proxy injects the
+token into requests to GitHub hosts and tunnels everything else. The agent
+holds only a dummy token, so it can't read the real one: a different UID with
+no sudo can't read the proxy's `/proc/<pid>/environ`, and the credential
+`actions/checkout` persists in `.git/config` is stripped before the workspace
+is handed over. The injection allowlist is exact-match on the connection's real
+destination, so a request to a lookalike host gets no token. This covers the
+GitHub credential only; the Claude OAuth/API token still reaches the agent's
+env, and the other two harnesses (`action.yaml`, `codex/action.yaml`) pass the
+PAT directly. The merge restriction and `tend check` remain the load-bearing
+boundaries regardless of harness.
+
 **Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort
 the run before Claude starts, catching runaway loops between workflows.
@@ -164,7 +178,10 @@ commands (anthropics/claude-code#64301). See the `TODO.md` entry and #639.
 access to every repo the bot account can reach. A single successful
 exfiltration gives the attacker persistent, broad write access. The merge
 restriction limits what they can *do* with it, but they can still push
-branches, create PRs, and post comments indefinitely.
+branches, create PRs, and post comments indefinitely. The credential isolation
+above keeps the PAT out of the agent on the `claude-interactive` harness; it
+remains directly exposed on the other harnesses and the Claude token on all of
+them.
 
 **Prompt injection without code execution.** Even without hijacking the
 tools, an attacker who controls what Claude reads can influence its behavior.

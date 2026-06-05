@@ -63,6 +63,11 @@ inputs:
       Maximum time the supervised Claude session is allowed to run before
       the supervisor kills it. Defaults to 60 minutes — well above any
       single-turn skill we have today.
+  mitmproxy_version:
+    default: "12.2.1"
+    description: >-
+      Pinned `mitmproxy` version for the credential-injection proxy. Pinned
+      so the uv download cache key is stable; bump to upgrade.
 
 outputs:
   token_usage:
@@ -268,6 +273,36 @@ runs:
           echo 'TEND_EOF'
         } >> "$GITHUB_OUTPUT"
 
+    # Credential isolation (gh/git): run the agent as a separate, non-sudo
+    # `tend-sandbox` user while the bot PAT lives only in a local mitmproxy
+    # that injects it into GitHub requests. The agent never holds the PAT —
+    # not in its env, and not in .git/config (the setup script strips the
+    # credential `actions/checkout` persists there). Claude's own auth
+    # (OAuth / API key) is out of scope for this cut and still reaches the
+    # agent's env. See proxy/setup-sandbox.sh and proxy/github_auth.py.
+    #
+    # Runs after "Restore sensitive config" (which needs the persisted git
+    # credential for its base fetch) and before the claude lifecycle, which
+    # from here on executes as the sandbox user.
+    # Cache the proxy's mitmproxy download (a sizeable dependency) in an
+    # isolated uv cache dir, keyed on the pinned version. First run populates;
+    # every run after restores in seconds instead of a cold ~20s resolve. The
+    # agent's own uvx usage keeps its default cache, untouched.
+    - name: Cache mitmproxy
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/tend-mitmproxy-uv
+        key: tend-mitmproxy-${{ runner.os }}-${{ inputs.mitmproxy_version }}
+
+    - name: Set up credential-isolation sandbox
+      shell: bash
+      env:
+        TEND_GH_TOKEN: ${{ inputs.github_token }}
+        ACTION_PATH: ${{ github.action_path }}
+        MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
+        UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
+      run: bash "${{ github.action_path }}/proxy/setup-sandbox.sh"
+
     # Install the claude binary. Same recipe and pinned version as
     # claude-code-base-action's install step.
     - name: Install Claude Code
@@ -351,6 +386,27 @@ runs:
         claude plugin install tend-ci-runner@tend
         claude plugin list 2>/dev/null || true
 
+    # The claude binary, uv, plugins, and onboarding state were installed
+    # into the runner's home by the steps above. Copy them into the sandbox
+    # user's home so the agent — which runs as tend-sandbox from here — finds
+    # its toolchain and config natively (no CLAUDE_CONFIG_DIR guesswork). cp -a,
+    # not mv: the claude binary has absolute-path references into ~/.local/share,
+    # so moving the originals out breaks it. (The cheaper fix — installing the
+    # toolchain as the sandbox user directly — is a follow-up.) The bot PAT is in
+    # none of these paths, so the copy carries no GitHub credential into the sandbox.
+    - name: Hand off Claude toolchain to sandbox
+      shell: bash
+      run: |
+        sudo mkdir -p "$AGENT_HOME/.local"
+        sudo cp -a /home/runner/.local/bin "$AGENT_HOME/.local/bin"
+        if [ -d /home/runner/.local/share ]; then
+          sudo cp -a /home/runner/.local/share "$AGENT_HOME/.local/share"
+        fi
+        sudo cp -a /home/runner/.claude "$AGENT_HOME/.claude"
+        sudo cp -a /home/runner/.claude.json "$AGENT_HOME/.claude.json"
+        sudo chown -R "${SANDBOX}:${SANDBOX}" "$AGENT_HOME"
+        sudo -u "$SANDBOX" "$AGENT_HOME/.local/bin/claude" --version
+
     # The supervisor pattern, in three pieces:
     #   1. .claude/settings.local.json sets `permissions.defaultMode:
     #      dontAsk` with a permissive allow list, plus Stop/StopFailure
@@ -388,8 +444,10 @@ runs:
         # re-enable once the upstream bug lands. Reproduced through claude
         # 2.1.159; anthropics/claude-code#64301, write-up in #639.
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
-        GH_TOKEN: ${{ inputs.github_token }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
+        # No GH_TOKEN/GITHUB_TOKEN here — the agent runs as the sandbox user
+        # with only a dummy token; the real PAT lives in the proxy. With the
+        # secrets gone from the agent's env, the SUBPROCESS_ENV_SCRUB=0
+        # quoting workaround above no longer carries any credential cost.
         BOT_NAME: ${{ inputs.bot_name }}
         BOT_ID: ${{ steps.bot.outputs.id }}
         TEND_MODEL: ${{ inputs.model }}
@@ -400,11 +458,15 @@ runs:
       run: |
         set -u
 
-        SENTINEL_OK="$RUNNER_TEMP/tend-turn-done"
-        SENTINEL_FAIL="$RUNNER_TEMP/tend-turn-failed"
-        LOG="$RUNNER_TEMP/tend-claude.log"
-        WRAPPER="$RUNNER_TEMP/tend-run-claude.sh"
-        rm -f "$SENTINEL_OK" "$SENTINEL_FAIL" "$LOG"
+        # Sentinels, PTY log, and wrapper live in the sandbox-writable run
+        # dir ($TEND_RUN_DIR, created by setup-sandbox.sh) so the agent's
+        # Stop hook — running as tend-sandbox — can touch the sentinels and
+        # the runner-side supervisor can poll them.
+        SENTINEL_OK="$TEND_RUN_DIR/tend-turn-done"
+        SENTINEL_FAIL="$TEND_RUN_DIR/tend-turn-failed"
+        LOG="$TEND_RUN_DIR/tend-claude.log"
+        WRAPPER="$TEND_RUN_DIR/tend-run-claude.sh"
+        sudo -u "$SANDBOX" rm -f "$SENTINEL_OK" "$SENTINEL_FAIL" "$LOG"
 
         # Build the permissions allow list from the comma-separated
         # `allowed_tools` input. defaultMode=dontAsk means anything not
@@ -414,35 +476,32 @@ runs:
         # the listed tools.
         ALLOW_JSON=$(jq -nc --arg list "$TEND_ALLOWED_TOOLS" '$list | split(",") | map(. | gsub("^\\s+|\\s+$"; ""))')
 
-        mkdir -p .claude
-        cat > .claude/settings.local.json <<EOF
-        {
-          "permissions": {
-            "defaultMode": "dontAsk",
-            "allow": $ALLOW_JSON
-          },
-          "hooks": {
-            "Stop": [
-              {
-                "matcher": "",
-                "hooks": [{"type": "command", "command": "touch '$SENTINEL_OK'"}]
-              }
-            ],
-            "StopFailure": [
-              {
-                "matcher": "",
-                "hooks": [{"type": "command", "command": "touch '$SENTINEL_FAIL'"}]
-              }
-            ]
-          }
-        }
-        EOF
+        # Build settings.local.json with jq, not a heredoc — jq escapes the
+        # (adopter-controlled) tool list and the sentinel paths, so nothing in
+        # them is re-expanded by the shell. @sh quotes the paths for the hook's
+        # shell command. Settings and wrapper are written into sandbox-owned
+        # locations as the sandbox user; the `< file` redirect is opened by the
+        # runner shell, so tee needs no read access to the runner temp file.
+        jq -nc \
+          --argjson allow "$ALLOW_JSON" \
+          --arg ok "$SENTINEL_OK" \
+          --arg fail "$SENTINEL_FAIL" \
+          '{
+            permissions: {defaultMode: "dontAsk", allow: $allow},
+            hooks: {
+              Stop:        [{matcher: "", hooks: [{type: "command", command: ("touch " + ($ok   | @sh))}]}],
+              StopFailure: [{matcher: "", hooks: [{type: "command", command: ("touch " + ($fail | @sh))}]}]
+            }
+          }' > "$RUNNER_TEMP/tend-settings.json"
+        sudo -u "$SANDBOX" mkdir -p "$GITHUB_WORKSPACE/.claude"
+        sudo -u "$SANDBOX" tee "$GITHUB_WORKSPACE/.claude/settings.local.json" \
+          < "$RUNNER_TEMP/tend-settings.json" >/dev/null
 
         # Wrapper script — keeps the argv quoting in bash, not YAML. The
         # --permission-mode flag matches settings.local.json above; either
         # alone would suffice but specifying both is explicit and survives
         # an adopter who overrides settings.local.json.
-        cat > "$WRAPPER" <<'WRAPEOF'
+        cat > "$RUNNER_TEMP/tend-wrapper.sh" <<'WRAPEOF'
         #!/usr/bin/env bash
         exec claude \
           --model "$TEND_MODEL" \
@@ -451,18 +510,38 @@ runs:
           --append-system-prompt "$TEND_SYSTEM_PROMPT" \
           "$TEND_PROMPT"
         WRAPEOF
-        chmod +x "$WRAPPER"
+        sudo -u "$SANDBOX" tee "$WRAPPER" < "$RUNNER_TEMP/tend-wrapper.sh" >/dev/null
+        sudo -u "$SANDBOX" chmod +x "$WRAPPER"
 
-        # Run under script(1) for PTY allocation. -q quiet, -e propagate
-        # exit code, -f flush after each write, -c "command" specifies
-        # the command, last positional is the typescript log file. Linux
-        # util-linux syntax (BSD differs); GHA runners are Ubuntu.
-        script -qefc "$WRAPPER" "$LOG" &
+        # Launch the agent as the non-sudo sandbox user. Its env carries a
+        # DUMMY GitHub token (gh refuses to run without one); the proxy
+        # replaces it with the real PAT for GitHub hosts only. HTTPS_PROXY
+        # routes gh/git through the proxy; non-GitHub traffic tunnels through
+        # untouched. The real PAT is in none of this env. script(1) allocates
+        # the PTY (GHA runners have no TTY; without it the Ink UI hangs).
+        DUMMY_GH_TOKEN="ghp_tendproxydummy000000000000000000000"
+        sudo -u "$SANDBOX" env \
+          HOME="$AGENT_HOME" \
+          PATH="$AGENT_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+          HTTPS_PROXY="$PROXY_URL" HTTP_PROXY="$PROXY_URL" \
+          https_proxy="$PROXY_URL" http_proxy="$PROXY_URL" \
+          NO_PROXY="localhost,127.0.0.1" no_proxy="localhost,127.0.0.1" \
+          GH_TOKEN="$DUMMY_GH_TOKEN" GITHUB_TOKEN="$DUMMY_GH_TOKEN" \
+          CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+          ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+          CLAUDE_CODE_REMOTE="$CLAUDE_CODE_REMOTE" \
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB="$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB" \
+          BOT_NAME="$BOT_NAME" BOT_ID="$BOT_ID" \
+          TEND_MODEL="$TEND_MODEL" TEND_ALLOWED_TOOLS="$TEND_ALLOWED_TOOLS" \
+          TEND_SYSTEM_PROMPT="$TEND_SYSTEM_PROMPT" TEND_PROMPT="$TEND_PROMPT" \
+          script -qefc "$WRAPPER" "$LOG" &
         CLAUDE_PID=$!
-        echo "Claude PID: $CLAUDE_PID"
+        echo "Claude PID: $CLAUDE_PID (running as $SANDBOX)"
 
         # Supervisor poll loop: success sentinel, failure sentinel,
-        # process exit, or timeout — whichever comes first.
+        # process exit, or timeout — whichever comes first. The agent tree
+        # runs as the sandbox user, so liveness/termination signals from the
+        # runner cross the UID boundary and go through sudo.
         start=$(date +%s)
         status=running
         while true; do
@@ -474,7 +553,7 @@ runs:
             status=stop-failure
             break
           fi
-          if ! kill -0 "$CLAUDE_PID" 2>/dev/null; then
+          if ! sudo kill -0 "$CLAUDE_PID" 2>/dev/null; then
             status=exited
             break
           fi
@@ -485,17 +564,25 @@ runs:
           sleep 2
         done
 
-        # Clean termination — SIGTERM, wait up to 5s, then SIGKILL.
-        if kill -0 "$CLAUDE_PID" 2>/dev/null; then
-          kill -TERM "$CLAUDE_PID" 2>/dev/null || true
-          for i in 1 2 3 4 5; do
+        # Clean termination — SIGTERM, wait up to 5s, then SIGKILL. Killing the
+        # `sudo` PID may leave the agent tree (script→claude→node) orphaned
+        # since SIGKILL can't be relayed, so also reap every process owned by
+        # the dedicated sandbox user.
+        if sudo kill -0 "$CLAUDE_PID" 2>/dev/null; then
+          sudo kill -TERM "$CLAUDE_PID" 2>/dev/null || true
+          for _ in 1 2 3 4 5; do
             sleep 1
-            kill -0 "$CLAUDE_PID" 2>/dev/null || break
+            sudo kill -0 "$CLAUDE_PID" 2>/dev/null || break
           done
-          kill -KILL "$CLAUDE_PID" 2>/dev/null || true
+          sudo kill -KILL "$CLAUDE_PID" 2>/dev/null || true
         fi
-        wait "$CLAUDE_PID" 2>/dev/null || true
-        CLAUDE_EXIT=$?
+        sudo pkill -KILL -u "$SANDBOX" 2>/dev/null || true
+
+        # Capture the real exit, but NOT via `|| true` — that would make
+        # CLAUDE_EXIT always 0 (the exit of `true`) and report a crashed run as
+        # success. The process is dead by now, so wait returns promptly.
+        CLAUDE_EXIT=0
+        wait "$CLAUDE_PID" 2>/dev/null || CLAUDE_EXIT=$?
 
         elapsed=$(($(date +%s) - start))
         echo "Supervisor: status=$status elapsed=${elapsed}s claude_exit=$CLAUDE_EXIT"
@@ -589,15 +676,22 @@ runs:
       env:
         MODEL: ${{ inputs.model }}
       run: |
-        LOGS_DIR="$HOME/.claude/projects"
+        # The agent ran as the sandbox user, so its session JSONL lives under
+        # the sandbox home (created with restrictive perms). Make just the
+        # session dir runner-readable (not the whole plugin tree under .claude),
+        # then consolidate the sessions and PTY log into a runner-owned dir for
+        # token parsing and the uploaded artifact.
+        sudo chmod a+x "${AGENT_HOME:-/nonexistent}" "${AGENT_HOME:-/nonexistent}/.claude" 2>/dev/null || true
+        sudo chmod -R a+rX "${AGENT_HOME:-/nonexistent}/.claude/projects" 2>/dev/null || true
+        LOGS_DIR="$RUNNER_TEMP/tend-logs"
         mkdir -p "$LOGS_DIR"
+        cp -a "${AGENT_HOME}/.claude/projects/." "$LOGS_DIR/" 2>/dev/null || true
+        cp -a "${TEND_RUN_DIR}/tend-claude.log" "$LOGS_DIR/" 2>/dev/null || true
 
-        # The whole step runs after the supervised session, on an
-        # ephemeral CI runner where ~/.claude/projects is freshly
-        # populated by this run. Take everything — no `-newer` filter
-        # (older filter once dropped a real session because mtime ties
-        # with the wrapper script were inconsistent).
-        SESSIONS=$(find "$HOME/.claude/projects" -name '*.jsonl' 2>/dev/null | tr '\n' ' ')
+        # Everything in $LOGS_DIR is freshly populated by this run. Take all
+        # of it — no `-newer` filter (an older filter once dropped a real
+        # session because mtime ties were inconsistent).
+        SESSIONS=$(find "$LOGS_DIR" -name '*.jsonl' 2>/dev/null | tr '\n' ' ')
 
         if [ -n "$SESSIONS" ]; then
           # `jq -s` slurps inputs from ALL files into ONE flat array of
@@ -709,8 +803,8 @@ runs:
       uses: actions/upload-artifact@v7
       with:
         name: ${{ steps.artifact.outputs.name }}
-        path: |
-          ~/.claude/projects/
-          ${{ runner.temp }}/tend-claude.log
+        # The Token usage step consolidates the sandbox user's session JSONL,
+        # token-usage.json, and the PTY log into this runner-owned dir.
+        path: ${{ runner.temp }}/tend-logs/
         retention-days: 30
         if-no-files-found: warn
