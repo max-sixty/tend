@@ -1,6 +1,6 @@
 {
   "name": "install-tend",
-  "description": "Set up tend — an autonomous junior maintainer for your GitHub repo, powered by Claude.",
+  "description": "Set up tend — an autonomous junior maintainer for your GitHub repo, powered by Claude or OpenAI Codex.",
   "author": {
     "name": "Maximilian Roos",
     "url": "https://github.com/max-sixty"
