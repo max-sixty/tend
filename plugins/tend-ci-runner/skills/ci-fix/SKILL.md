@@ -31,6 +31,14 @@ Match by **failure shape** — the diagnostic snippet in the bot's PR body, or t
 - If an existing **open** PR addresses the same failure, comment on it linking the new run and stop.
 - If a **closed** PR with a maintainer rejection covers the same failure, exit silently; check the closure comment for the rationale before referencing it. Re-deriving the same fix forces a maintainer to close it twice.
 
+Also check for open tracking issues left by a prior unfixable diagnosis (see 3b) — if one matches the current failure shape, the fix PR you eventually open should reference it via `Fixes #<n>` so the issue closes when the PR merges:
+
+```bash
+BOT_LOGIN=$(gh api user --jq '.login')
+gh issue list --state open --author "$BOT_LOGIN" --search "ci-fix: in:title" \
+  --json number,title,body --limit 10
+```
+
 ### 2. Diagnose and fix
 
 1. Get failure logs: `gh run view <run-id> --log-failed`
@@ -100,6 +108,52 @@ Match by failure-shape keyword (e.g. `rustup-init`, `composer connect timeout`, 
 If 2+ prior issues match the current failure shape within the past 7 days, escalate to durable: a fault that re-fires every 1–3 days is not transient even when individual reruns pass. Search for an upstream-documented workaround (`gh issue search` against the action's repo, the action's README, GitHub Community threads) and apply it. If no upstream workaround is documented, open a fix PR proposing a minimal mitigation (pin runner image, skip the affected leg, disable the relevant cache layer) and link the upstream tracking issue.
 
 If you can't tell whether it's transient, treat it as durable and create a fix PR.
+
+Skip step 4 — there's no PR to monitor.
+
+### 3b. Diagnosis without a fix (durable causes)
+
+If the diagnosis identifies a durable root cause but a safe fix can't be produced — the cause is in an external system the bot can't change, the fix requires judgment the bot shouldn't make unilaterally, or an attempted fix didn't validate locally — leave a tracking issue. Without one, a durable failure that the bot can't fix lives only on the workflow-run page and is invisible in the issues list.
+
+Leave the issue **open**. A subsequent fix PR closes it via `Fixes #<n>` in the PR body (see step 1 — search for a matching open tracking issue before opening the fix PR). This mirrors the consumer-side `create-issue-on-nightly-failure` pattern and gives maintainers a durable "still broken" signal until a fix ships.
+
+**Dedup first.** Search for an open tracking issue covering the same failure shape; if one exists, comment with the new run link rather than opening a duplicate. Match by failure shape (workflow name + diagnostic snippet), not run ID — each run ID is unique and won't dedup:
+
+```bash
+BOT_LOGIN=$(gh api user --jq '.login')
+gh issue list --state open --author "$BOT_LOGIN" --search "ci-fix: in:title" \
+  --json number,title,body --limit 10
+```
+
+If an open tracking issue matches:
+
+```bash
+gh issue comment <issue-number> --body-file /tmp/recurrence.md
+```
+
+Otherwise, open a new tracking issue. Use a title prefix that future runs can search on (`ci-fix: <workflow-name> failing`) with a short root-cause suffix for human readability:
+
+```bash
+gh issue create \
+  --title "ci-fix: <workflow-name> failing — <short root cause>" \
+  --body-file /tmp/diagnosis.md
+```
+
+Body format:
+
+```
+## Failure
+
+[Workflow name + link to failed run]
+
+## Diagnosis
+
+[Root cause — what failed and why]
+
+## Why no fix was produced
+
+[What was attempted, what blocks an automated fix]
+```
 
 Skip step 4 — there's no PR to monitor.
 
