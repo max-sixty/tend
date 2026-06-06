@@ -134,6 +134,10 @@ gh pr list --state all --search "author:$BOT_LOGIN <issue-number>" \
 
 Compare by title keywords **and** the files the new PR would modify — two concurrent fixes for the same bug typically pick different branch names, so a branch-name match is not sufficient. If a sibling bot PR overlaps in scope — whether open, closed, or already merged — **do not create**: post a comment on the triggering thread linking the existing PR and exit.
 
+### Ship the deliverable before any long wait
+
+Don't gate `git push` / `gh pr create` on a multi-minute local validation — a full test suite, a comprehensive lint hook, a `Monitor`-waited background task. Session budget is finite; if the wait outlives the session the implementation is lost on a local branch the maintainer can't see, with no comment, no PR, and no signal that the work happened. Sequence the visible deliverable (commit, push, `gh pr create`) **first**; CI re-runs the same gates after push and gives the maintainer progress regardless of how long the local check would have taken. A targeted compile plus the tests directly exercising the change is enough local confidence to ship — leave the comprehensive matrix to CI. If a slow local validation is genuinely needed (rare), run it synchronously and accept the time cost, but don't background it behind a `Monitor` wait that the session may not outlast.
+
 ## Pushing to PR Branches
 
 Always use `git push` without specifying a remote — `gh pr checkout` configures tracking to the correct remote, including for fork PRs. Specifying `origin` explicitly can push to the wrong place.
