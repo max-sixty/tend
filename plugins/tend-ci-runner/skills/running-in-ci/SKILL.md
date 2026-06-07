@@ -78,6 +78,16 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 - **Scope**: PRs, pushes, and comments on existing threads in other repos are off-limits. Filing fresh issues in other repos follows **Filing Issues in Other Repos** below.
 - **Hanging commands**: Never use `gh run watch` or `gh pr checks --watch` — both hang indefinitely. Poll with `gh pr checks` in a loop instead.
 
+## End the turn only when work is shipped
+
+Emitting `end_turn` ends the CI session — the runner is discarded, and the harness does not reliably resume it from a background-task completion. If you `end_turn` while a `run_in_background: true` Bash whose result was going to gate the deliverable is still running, the task either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `/tmp/comment-body.md` — dies with it.
+
+The session is live until the deliverable is **maintainer-visible**: pushed, posted, or opened. Local-only state — a commit nobody else can see, a comment body never sent — does not count and is not recoverable on a follow-up.
+
+Corollary: don't background anything whose output gates the deliverable. If a full test suite or comprehensive lint needs to run before push, run it synchronously and accept the time cost; if it's too slow for the session budget, push first and let CI re-run it. A session that shipped a partial result is recoverable; a session that ended mid-wait with the deliverable on a local branch is not. A targeted compile plus the tests directly exercising the change is enough local confidence to ship — leave the comprehensive matrix to CI.
+
+The `run_in_background: true` recipe under **CI Monitoring** is safe because it runs *after* push: the deliverable is already shipped, so the worst case is a missed CI-result follow-up, not a lost PR. Pre-push has no such fallback.
+
 ## Filing Issues in Other Repos
 
 Default: file an issue in the current repo asking for permission to file in the target. On maintainer approval, file in the target.
