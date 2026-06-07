@@ -530,6 +530,29 @@ runs:
         # `grep -qF "$GITHUB_RUN_ID"` short-circuit on an empty pattern
         # and skill-composed `github.com/$GITHUB_REPOSITORY/...` links
         # collapse to the wrong owner.
+        #
+        # Pass GITHUB_* through as a denylist rather than an explicit
+        # allowlist: most GITHUB_* vars are informational (GITHUB_ACTOR,
+        # GITHUB_API_URL, GITHUB_REF_NAME, GITHUB_WORKSPACE, …) and a
+        # denylist picks up future additions automatically. Exclude:
+        #   GITHUB_TOKEN — replaced by a dummy below; real PAT lives in
+        #     the proxy.
+        #   GITHUB_{ENV,PATH,OUTPUT,STATE,STEP_SUMMARY} — paths the
+        #     runner re-reads after this step exits. Appended lines land
+        #     in later steps' env / PATH / outputs / post-step state, or
+        #     are rendered as markdown in the job-summary UI. Today these
+        #     files are owned by the runner user and the sandbox UID
+        #     likely can't open them for write, but the value still points
+        #     at the path; the conservative default is not to name the
+        #     channel at all.
+        GHA_VARS=()
+        while IFS= read -r name; do
+          case "$name" in
+            GITHUB_TOKEN|GITHUB_ENV|GITHUB_PATH|GITHUB_OUTPUT|GITHUB_STATE|GITHUB_STEP_SUMMARY) continue ;;
+          esac
+          GHA_VARS+=("$name=${!name}")
+        done < <(compgen -e | grep '^GITHUB_')
+
         DUMMY_GH_TOKEN="ghp_tendproxydummy000000000000000000000"
         sudo -u "$SANDBOX" env \
           HOME="$AGENT_HOME" \
@@ -545,12 +568,8 @@ runs:
           BOT_NAME="$BOT_NAME" BOT_ID="$BOT_ID" \
           TEND_MODEL="$TEND_MODEL" TEND_ALLOWED_TOOLS="$TEND_ALLOWED_TOOLS" \
           TEND_SYSTEM_PROMPT="$TEND_SYSTEM_PROMPT" TEND_PROMPT="$TEND_PROMPT" \
-          GITHUB_ACTIONS="$GITHUB_ACTIONS" CI="${CI:-true}" \
-          GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
-          GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_REPOSITORY_OWNER="$GITHUB_REPOSITORY_OWNER" \
-          GITHUB_WORKFLOW="$GITHUB_WORKFLOW" GITHUB_SERVER_URL="$GITHUB_SERVER_URL" \
-          GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" \
-          GITHUB_SHA="$GITHUB_SHA" GITHUB_REF="$GITHUB_REF" \
+          CI="${CI:-true}" \
+          "${GHA_VARS[@]}" \
           script -qefc "$WRAPPER" "$LOG" &
         CLAUDE_PID=$!
         echo "Claude PID: $CLAUDE_PID (running as $SANDBOX)"
