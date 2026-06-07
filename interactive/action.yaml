@@ -519,6 +519,17 @@ runs:
         # routes gh/git through the proxy; non-GitHub traffic tunnels through
         # untouched. The real PAT is in none of this env. script(1) allocates
         # the PTY (GHA runners have no TTY; without it the Ink UI hangs).
+        #
+        # The `sudo env VAR=...` form replaces the environment with only
+        # what's listed, so the standard GitHub Actions context vars
+        # (GITHUB_RUN_ID, GITHUB_REPOSITORY, GITHUB_WORKFLOW, …) must be
+        # re-passed explicitly. They are public values, not secrets;
+        # skills depend on them for run-self-reference (branch names,
+        # gist headings, dedup of own check runs) and for owner-correct
+        # URL construction. Without them, recipes like
+        # `grep -qF "$GITHUB_RUN_ID"` short-circuit on an empty pattern
+        # and skill-composed `github.com/$GITHUB_REPOSITORY/...` links
+        # collapse to the wrong owner.
         DUMMY_GH_TOKEN="ghp_tendproxydummy000000000000000000000"
         sudo -u "$SANDBOX" env \
           HOME="$AGENT_HOME" \
@@ -534,6 +545,11 @@ runs:
           BOT_NAME="$BOT_NAME" BOT_ID="$BOT_ID" \
           TEND_MODEL="$TEND_MODEL" TEND_ALLOWED_TOOLS="$TEND_ALLOWED_TOOLS" \
           TEND_SYSTEM_PROMPT="$TEND_SYSTEM_PROMPT" TEND_PROMPT="$TEND_PROMPT" \
+          GITHUB_ACTIONS="$GITHUB_ACTIONS" CI="${CI:-true}" \
+          GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+          GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_REPOSITORY_OWNER="$GITHUB_REPOSITORY_OWNER" \
+          GITHUB_WORKFLOW="$GITHUB_WORKFLOW" GITHUB_SERVER_URL="$GITHUB_SERVER_URL" \
+          GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" GITHUB_SHA="$GITHUB_SHA" GITHUB_REF="$GITHUB_REF" \
           script -qefc "$WRAPPER" "$LOG" &
         CLAUDE_PID=$!
         echo "Claude PID: $CLAUDE_PID (running as $SANDBOX)"
