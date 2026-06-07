@@ -9,7 +9,8 @@
 #   2. Neutralize the bot PAT actions/checkout persists for git — otherwise the
 #      sandbox reads it off disk and isolation is moot.
 #   3. Hand the checkout to tend-sandbox (and make the path traversable) so the
-#      agent can edit and commit.
+#      agent can edit and commit, and make the action checkout (the plugin
+#      marketplace source) readable so the install-as-sandbox steps can use it.
 #   4. Start the injecting proxy (holds TEND_GH_TOKEN in its own memory) and
 #      system-trust its CA so the sandbox's gh/git accept the intercepted TLS.
 #
@@ -90,6 +91,25 @@ sudo chown -R "${SANDBOX}:${SANDBOX}" "$GITHUB_WORKSPACE"
 sudo -u "$SANDBOX" test -r "$GITHUB_WORKSPACE/.git/config" \
   || { echo "::error::sandbox cannot access the workspace at $GITHUB_WORKSPACE"; exit 1; }
 log "workspace handed to $SANDBOX"
+
+# Make the action checkout (the tend plugin marketplace source) readable and
+# traversable by the sandbox, so the install-as-sandbox plugin step can run
+# `claude plugin marketplace add` against it. It is public repo content with no
+# secret — the PAT lives only in the proxy and the CA key in the 0700 confdir —
+# so world-read is safe. o+x every ancestor for traversal (same derivation as
+# the workspace above), o+rX the tree. For a pinned external action this is the
+# runner-owned _actions checkout. For a local `uses: ./` checkout it resolves to
+# the workspace itself (already sandbox-owned), so the recursive o+rX widens the
+# whole workspace to world-read — bounded to the single-use runner, and only in
+# the local-uses case (the smoke test), not for adopters on a pinned action.
+MARKETPLACE_ROOT="$(realpath "${ACTION_PATH}/..")"
+parent="$(dirname "$MARKETPLACE_ROOT")"
+while [ "$parent" != "/" ]; do
+  sudo chmod o+x "$parent" 2>/dev/null || true
+  parent="$(dirname "$parent")"
+done
+sudo chmod -R o+rX "$MARKETPLACE_ROOT" 2>/dev/null || true
+log "marketplace source $MARKETPLACE_ROOT readable by $SANDBOX"
 
 # Shared dir the sandbox writes (sentinels, PTY log, wrapper) and the runner
 # reads. Sandbox-owned so its hooks can touch the sentinels; the runner
