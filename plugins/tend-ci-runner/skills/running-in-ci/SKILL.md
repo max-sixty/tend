@@ -330,6 +330,8 @@ If a maintainer has already addressed the point, exit silently unless you can ad
 
 If you are responding to your own prior comment or review (not a human's reply to it), only respond if there is a distinct role boundary (e.g., you are the reviewer on your own PR and need to address review feedback). If there is no such role distinction, exit silently to avoid self-conversation loops.
 
+**Exception — bot-authored issues with no prior bot comments.** A freshly-opened issue the bot authored (nightly failure, CI report, code-quality finding) is a report to act on, not a self-conversation. Triage it normally. The Recheck Before Posting guard below still prevents duplicate triage comments if a sibling run fires on the same issue.
+
 ## Recheck Before Posting
 
 **Before posting any comment, review, or inline reply**, re-fetch the conversation and check whether the response would duplicate something already there. Two duplication paths:
