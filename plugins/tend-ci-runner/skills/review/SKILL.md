@@ -207,7 +207,7 @@ The state check matters because the maintainer may close (or another path may me
 ```bash
 FAILED=$(gh pr view <number> --json statusCheckRollup \
   --jq '[.statusCheckRollup[]
-         | select(((.status // "") == "COMPLETED") and ((.conclusion // .state) == "FAILURE"))
+         | select((.conclusion // .state) == "FAILURE")
          | .name // .context // "unknown"] | join(", ")')
 if [ -n "$FAILED" ]; then
   echo "Skipping APPROVE — failing checks present on $HEAD_SHA: $FAILED"
