@@ -80,10 +80,11 @@ Automated fix for [failed run](run-url)
 
 If the diagnosis identifies the failure as transient — runner-disk corruption, an isolated network blip, an upstream incident that has since resolved — there is no fix PR to create. Don't post the diagnosis as a commit comment (it surfaces on whatever commit triggered CI, including release commits where it's visibly off-topic).
 
-Instead, open an issue with the diagnosis and close it immediately. The closure records "diagnosed, no further action" while keeping the analysis discoverable and off the commit timeline:
+Instead, open an issue with the diagnosis and close it immediately. The closure records "diagnosed, no further action" while keeping the analysis discoverable and off the commit timeline. Apply the `tend-outage` label — the workflow-level `if:` in `tend-triage` and `tend-mention` skip labelled issues, suppressing the no-op cascade runs (`opened` → silent-exit; `closed`-comment → silent-exit) that would otherwise fire on every transient tracker:
 
 ```bash
-gh issue create --title "ci-fix: transient failure on <run-id>" --body-file /tmp/diagnosis.md
+gh label create tend-outage --description "Tracks bot outage incidents" --color "d93f0b" 2>/dev/null || true
+gh issue create --title "ci-fix: transient failure on <run-id>" --label tend-outage --body-file /tmp/diagnosis.md
 gh issue close <issue-number> --reason "not planned" --comment "Transient — closing as diagnosed."
 ```
 
