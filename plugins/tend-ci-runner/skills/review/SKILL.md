@@ -202,6 +202,21 @@ ALREADY_POSTED=$(gh api "repos/$REPO/pulls/<number>/reviews" \
 
 The state check matters because the maintainer may close (or another path may merge) the PR while a review is in flight — `pull_request_target` reviews routinely run for 5–10 minutes between fetching `HEAD_SHA` and posting the verdict, and HEAD doesn't move when the PR is closed. Approving a CLOSED or MERGED PR creates a confusing artifact (an approval timestamped after the close).
 
+**Before APPROVE specifically**, also peek the current check rollup on `HEAD_SHA`. If any check has reached terminal `FAILURE`, do not emit an empty-body APPROVE — the close-out reads as the bot rubber-stamping over the visibly red signal:
+
+```bash
+FAILED=$(gh pr view <number> --json statusCheckRollup \
+  --jq '[.statusCheckRollup[]
+         | select(((.status // "") == "COMPLETED") and ((.conclusion // .state) == "FAILURE"))
+         | .name // .context // "unknown"] | join(", ")')
+if [ -n "$FAILED" ]; then
+  echo "Skipping APPROVE — failing checks present on $HEAD_SHA: $FAILED"
+  exit 0
+fi
+```
+
+Step 6's "approve, monitor CI in background, dismiss if a check fails" pattern only recovers when the agent is still alive when the failure notification arrives. Sessions routinely end within minutes of the foreground `gh pr review --approve`, leaving any post-approve failure undismissed and the PR carrying a misleading APPROVED state. A synchronous pre-APPROVE peek catches the case where the failure is already in the rollup — including non-required checks like `codecov/patch` that an overlay treats as a merge gate. If a failure is present, skip the close-out entirely; any earlier substantive bot review (e.g. a COMMENT with inline suggestions) remains the active verdict until the author addresses it.
+
 Post at most one review per run. Give a verdict (**approve** or **comment**, never "request changes") when this run has something to say: a new diff-grounded finding, or an approval because the last open concern is now resolved. If the dedup rule above left nothing new and a prior unresolved bot thread still stands, post nothing; the earlier review remains the active verdict. Use `gh pr review` for reviews, not `gh pr comment`. Note: `--comment` requires a non-empty body — if there's nothing to say and no prior concern stands, use the approve-with-empty-body pattern.
 
 **Inline suggestions are mandatory for concrete fixes.** Whenever there's a concrete fix (typos, doc updates, naming, missing imports, minor refactors, test additions), post it as an inline suggestion on the exact line — never as a code block in the review body. Inline suggestions let the author apply with one click; code blocks force them to find the line and copy-paste manually.
