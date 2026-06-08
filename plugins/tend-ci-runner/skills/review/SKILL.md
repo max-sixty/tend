@@ -215,7 +215,7 @@ if [ -n "$FAILED" ]; then
 fi
 ```
 
-Step 6's "approve, monitor CI in background, dismiss if a check fails" pattern only recovers when the agent is still alive when the failure notification arrives. Sessions routinely end within minutes of the foreground `gh pr review --approve`, leaving any post-approve failure undismissed and the PR carrying a misleading APPROVED state. A synchronous pre-APPROVE peek catches the case where the failure is already in the rollup — including non-required checks like `codecov/patch` that an overlay treats as a merge gate. If a failure is present, skip the close-out entirely; any earlier substantive bot review (e.g. a COMMENT with inline suggestions) remains the active verdict until the author addresses it.
+Step 6's "approve, foreground-poll CI, dismiss if a check fails" pattern only recovers while the session is still alive — the job timeout or a poll cap can leave a post-approve failure undismissed and the PR carrying a misleading APPROVED state. A synchronous pre-APPROVE peek catches the case where the failure is already in the rollup — including non-required checks like `codecov/patch` that an overlay treats as a merge gate. If a failure is present, skip the close-out entirely; any earlier substantive bot review (e.g. a COMMENT with inline suggestions) remains the active verdict until the author addresses it.
 
 Post at most one review per run. Give a verdict (**approve** or **comment**, never "request changes") when this run has something to say: a new diff-grounded finding, or an approval because the last open concern is now resolved. If the dedup rule above left nothing new and a prior unresolved bot thread still stands, post nothing; the earlier review remains the active verdict. Use `gh pr review` for reviews, not `gh pr comment`. Note: `--comment` requires a non-empty body — if there's nothing to say and no prior concern stands, use the approve-with-empty-body pattern.
 
@@ -292,7 +292,9 @@ Prevention: before writing any inline comment, verify the target line falls insi
 
 ### 6. Monitor CI
 
-After approving or staying silent, poll CI using the polling loop in `/tend-ci-runner:running-in-ci` under "CI Monitoring". Run it with the Bash tool's `run_in_background: true`.
+If you **stayed silent** (no review posted, nothing to dismiss), end the session — there's no follow-up gated on the CI result. Don't background-poll: per `/tend-ci-runner:running-in-ci` under "End the turn only when work is shipped", the completion notification isn't reliably delivered to a CI session.
+
+If you **approved**, the dismissal-on-failure is a gated follow-up. Foreground-poll using the recipe in `/tend-ci-runner:running-in-ci` under "CI Monitoring" (don't use `run_in_background`).
 
 Then handle the outcome:
 

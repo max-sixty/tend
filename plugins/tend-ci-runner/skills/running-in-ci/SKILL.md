@@ -86,7 +86,7 @@ The session is live until the deliverable is **maintainer-visible**: pushed, pos
 
 Corollary: don't background anything whose output gates the deliverable. If a full test suite or comprehensive lint needs to run before push, run it synchronously and accept the time cost; if it's too slow for the session budget, push first and let CI re-run it. A session that shipped a partial result is recoverable; a session that ended mid-wait with the deliverable on a local branch is not. A targeted compile plus the tests directly exercising the change is enough local confidence to ship — leave the comprehensive matrix to CI.
 
-The `run_in_background: true` recipe under **CI Monitoring** is safe because it runs *after* push: the deliverable is already shipped, so the worst case is a missed CI-result follow-up, not a lost PR. Pre-push has no such fallback.
+After push, match the polling shape to whether a follow-up is gated on the CI result — see **CI Monitoring**. When nothing is gated, end the session; the deliverable is shipped and the harness can't deliver a background-poll notification reliably enough to keep an "I'll report the result" promise. When a follow-up *is* gated (fix-on-failure, dismiss your own approval), foreground-poll synchronously so the wait and the follow-up share the same session.
 
 ## Filing Issues in Other Repos
 
@@ -182,12 +182,14 @@ When asked to merge the default branch into a PR branch:
 
 ## CI Monitoring
 
-After pushing, wait for CI before reporting completion.
+After pushing, decide based on whether a concrete follow-up is gated on the CI result.
 
-**Use `run_in_background: true`** for the polling loop so it does not block the session. When the background task completes you will be notified — check the result and take any follow-up action (dismiss approval, post analysis) at that point.
+**Nothing is gated on the result** — the common case after a nightly pushes a PR or a self-authored PR is reviewed silently: state CI is in flight in your final message and **end the session**. Don't foreground-wait, and don't start a background poll — its completion notification isn't reliably delivered to a CI session, so any "I'll report the result" promise won't fire. The deliverable is already shipped; the worst case is a missed follow-up, not lost work.
+
+**A follow-up is gated on the result** — fix-on-failure, dismiss your own approval, post failure analysis: poll **synchronously in the foreground** (don't use `run_in_background`) and accept the time cost. The follow-up has to run in the same session as the wait.
 
 ```bash
-# Run with Bash tool's run_in_background: true.
+# Foreground poll — invoke Bash without run_in_background.
 #
 # Poll statusCheckRollup — every check-run + status context on the commit.
 # Exit when all non-own items are terminal.
@@ -252,7 +254,7 @@ exit 1
 
 1. Poll every 60 seconds (up to ~15 minutes) until all non-own check-runs on the commit are terminal. **Filter out the current run's URL (`/runs/$GITHUB_RUN_ID/`)** — the current workflow's own check is always pending while polling and must be excluded to avoid a deadlock. **Also filter same-workflow check runs (`$GITHUB_WORKFLOW`)** — sibling runs of the same workflow on the same PR are subject to concurrency rules (queueing or cancel-in-progress) and don't represent independent CI signals. The 30s grace re-check catches late-registering omnibus checks.
 2. If a required check fails, diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, repeat.
-3. Report completion only after all required checks pass.
+3. Once checks are terminal, perform the gated follow-up.
 
 Before dismissing local test failures as "pre-existing", check main branch CI:
 
