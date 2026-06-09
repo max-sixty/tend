@@ -209,7 +209,7 @@ TARGET_REPO=$ARGUMENTS ${CLAUDE_PLUGIN_ROOT}/scripts/list-recent-runs.sh
 
 The script discovers `tend-*` workflows by default. Pass additional prefixes as arguments to include other workflows (e.g., `review-reviewers` when analyzing tend itself).
 
-If empty, report "no runs to review" and exit.
+If empty, **still append a `## Run <RUN_ID>` heading to the gist** with an all-clear body (per "Recording below-threshold findings" above) before exiting — the audit-trail entry is what later cycles read to count occurrences and confirm which hours were analyzed. Skipping the append on empty-window cycles silently widens the next cycle's recovery window and breaks Gate 1's occurrence counting. After PATCHing the gist, skip Steps 2–5 and proceed directly to Step 6 (summary).
 
 ## Step 2: Survey outcomes via cheap subagent
 
