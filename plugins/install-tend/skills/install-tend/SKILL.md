@@ -552,45 +552,98 @@ The bot's token needs scopes `repo`, `workflow`, `notifications`,
 `write:discussion`, `gist`, and `user` (per-scope justifications in
 ${CLAUDE_SKILL_DIR}/references/tend.example.yaml).
 
-Have the user run, in a bash terminal (Git Bash on Windows works):
+Arriving here from a `Bot PAT` scope-audit issue? This step is the
+whole remediation: mint the broader token (below), push it to the
+secret, close the issue. The secret to update is the
+`secrets.bot_token` name from `.config/tend.yaml` (default
+`TEND_BOT_TOKEN`); audit issues sometimes paraphrase the name, so go
+by the config.
+
+gh gives the `GH_TOKEN`/`GITHUB_TOKEN` env vars precedence over the
+keyring: when either is set, keyring-mutating commands
+(`gh auth login/refresh/switch/logout`) refuse to run ("The value of
+the … environment variable is being used for authentication") and
+identity reads (`gh api user`) answer as the env token's user. This
+step pins specific keyring accounts, so the keyring-mutating and
+identity-read commands below carry an
+`env -u GH_TOKEN -u GITHUB_TOKEN` prefix, which keeps the rest of the
+environment intact. `gh auth token --user` reads only
+the keyring regardless, and the `gh secret` commands just need admin
+on the repo, so those run bare.
+
+First check whether the bot is already in the gh keyring (likely on
+re-runs and scope refreshes):
+
+```bash
+gh auth status 2>&1 | grep -A 4 "<bot-name> (keyring)"
+```
+
+If found, use the **refresh path** (8a); otherwise use the **login
+path** (8b). Insecure-storage entries print a file path instead of
+`(keyring)`, so they route to 8b; the re-login just overwrites them.
+
+Both paths run a device flow: gh prints a one-time code and polls
+until someone approves it at `https://github.com/login/device` in a
+browser logged in as the bot. Run the command yourself when you have
+shell and keyring access: start it in the background, surface the code
+and URL to the user, and the poll completes when they approve. Have
+the user run it in their own terminal only when you can't (no keyring
+access, or a shell where `env -u` needs translating — Git Bash takes
+it as-is; PowerShell:
+`Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN; gh auth …`).
+
+### 8a. Refresh path (bot already in keyring)
+
+```bash
+env -u GH_TOKEN -u GITHUB_TOKEN gh auth switch --user <bot-name>
+env -u GH_TOKEN -u GITHUB_TOKEN gh auth refresh --hostname github.com \
+  --scopes repo,workflow,notifications,write:discussion,gist,user
+```
+
+`gh auth refresh` operates on the active account (it has no `--user`
+flag), so switch to the bot first. Requested scopes merge with the
+token's existing ones, so none are lost. No post-hoc identity check is
+needed: when the approving browser session belongs to anyone other
+than `<bot-name>`, refresh discards the token and errors with
+"received credentials for <other-user>"; have the user re-approve from
+the bot's session and rerun.
+
+### 8b. Login path (first-time setup)
 
 ```bash
 env -u GH_TOKEN -u GITHUB_TOKEN gh auth login --hostname github.com --git-protocol https --web \
   --scopes repo,workflow,notifications,write:discussion,gist,user
 ```
 
-Unsetting both `GH_TOKEN` and `GITHUB_TOKEN` is required: `gh` checks
-them in that precedence, and either being set makes `gh auth login`
-short-circuit with "The value of the … environment variable is being
-used for authentication" and skip the keyring/device-code flow.
-Unsetting them for this one command keeps the user's normal env intact.
-(On PowerShell or cmd, `env -u` isn't available — translate to the
-shell's unset-then-run equivalent, e.g. PowerShell
-`Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN; gh auth login …`.)
-
-`gh` prints a one-time code and the URL `https://github.com/login/device`.
-The user opens that URL in any browser logged in as the bot, pastes the
-code, and authorizes. gh stores the token in keyring and makes the bot
-the active account.
-
-`gh auth login` has no `--user` flag — the GitHub user it binds to is
-whoever was logged into github.com in the approving browser session.
-Verify before continuing:
+`gh auth login` binds to whoever was logged into github.com in the
+approving browser session, stores that token without checking, and
+makes it the active account. Verify before continuing:
 
 ```bash
-gh api user --jq '.login'
+env -u GH_TOKEN -u GITHUB_TOKEN gh api user --jq '.login'
 ```
 
 This must print the bot name. Anything else means the wrong account
-approved the device code — run `gh auth logout --user <wrong-name>`
-and retry. Don't proceed to the secret-set step until this matches.
+approved the device code — run
+`env -u GH_TOKEN -u GITHUB_TOKEN gh auth logout --user <wrong-name>`
+and retry. Don't proceed to 8c until this matches.
 
-Switch gh back to the maintainer (whose token has admin on the repo),
-copy the bot's token to the repo secret, and verify:
+### 8c. Push token to secret
+
+Both paths leave the bot as gh's active account. Switch back to the
+maintainer, whose token has admin on the repo (skip when the
+maintainer authenticates via `GH_TOKEN` rather than the keyring):
 
 ```bash
-gh auth switch --user <maintainer>
-gh auth token --user <bot-name> | gh secret set TEND_BOT_TOKEN --repo "$REPO"
+env -u GH_TOKEN -u GITHUB_TOKEN gh auth switch --user <maintainer>
+```
+
+Copy the bot's token to the repo secret (`<secret-name>` is the
+`secrets.bot_token` value from §1, default `TEND_BOT_TOKEN`) and
+verify the `Updated` timestamp is fresh:
+
+```bash
+gh auth token --user <bot-name> | gh secret set <secret-name> --repo "$REPO"
 gh secret list --repo "$REPO"
 ```
 
@@ -670,7 +723,7 @@ line picks the row that matches the chosen harness):
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
 - [ ] Harness auth (codex): `OPENAI_API_KEY` secret set
-- [ ] Bot token: `TEND_BOT_TOKEN` secret set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
+- [ ] Bot token: the `secrets.bot_token` secret (default `TEND_BOT_TOKEN`) set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot bio: profile bio reflects the authorization stance
 - [ ] Committed (push requires explicit permission)
