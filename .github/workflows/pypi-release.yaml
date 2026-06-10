@@ -51,3 +51,29 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.13.0
+
+  github-release:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create GitHub Release from CHANGELOG section
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Publish the tag's CHANGELOG section verbatim as the release notes.
+          # Exact header match so 0.1.1 doesn't capture 0.1.10's section.
+          awk -v ver="$GITHUB_REF_NAME" '
+            $0 == "## " ver {flag=1; next}
+            flag && /^## / {exit}
+            flag {print}
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if [ ! -s "$RUNNER_TEMP/notes.md" ]; then
+            echo "::error::No CHANGELOG.md section for $GITHUB_REF_NAME in the tagged commit. The tag is immutable, so re-running cannot fix this — add the section on main and run 'gh release create $GITHUB_REF_NAME' manually with the extracted notes."
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag

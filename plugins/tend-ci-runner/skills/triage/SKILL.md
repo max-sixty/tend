@@ -105,9 +105,8 @@ Step 3's duplicate check catches identical fixes. It misses the *same root cause
 ### If fixing
 
 1. Fix the root cause (not just the symptom)
-2. Confirm the test now passes
-3. Run the full test suite and lints (use project test commands from CLAUDE.md)
-4. Create branch, commit, push, and create PR:
+2. Confirm the reproduction test now passes — that targeted pass plus a clean compile is enough local confidence to ship. Leave the comprehensive suite to PR CI per `/tend-ci-runner:running-in-ci`'s "End the turn only when work is shipped"; backgrounding a long suite before push pushes the agent into mid-wait `end_turn` and the deliverable never ships.
+3. Create branch, commit, push, and create PR:
    ```bash
    git checkout -b fix/issue-$ARGUMENTS
    git add -A
@@ -129,7 +128,7 @@ Step 3's duplicate check catches identical fixes. It misses the *same root cause
    ---
    Closes #<issue-number> — automated triage"
    ```
-5. Monitor CI using the approach from /tend-ci-runner:running-in-ci.
+4. Monitor CI using the approach from /tend-ci-runner:running-in-ci.
 
 ### If reproduction test works but fix is not confident
 
