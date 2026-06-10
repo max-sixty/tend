@@ -656,7 +656,7 @@ read straight in would silently blank a working secret.
 
 ```bash
 BOT_GH_TOKEN=$(gh auth token --user <bot-name>)
-[ -n "$BOT_GH_TOKEN" ]  # stop here if the keyring read failed
+[ -n "$BOT_GH_TOKEN" ] || { echo "bot token empty — refusing to push" >&2; exit 1; }
 gh secret set <secret-name> --repo "$REPO" --body "$BOT_GH_TOKEN"
 gh secret list --repo "$REPO"
 ```
