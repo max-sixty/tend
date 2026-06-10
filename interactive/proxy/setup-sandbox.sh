@@ -110,11 +110,16 @@ chmod 700 "$CONFDIR"
 MITMPROXY="mitmproxy==${MITMPROXY_VERSION}"
 uvx --from "$MITMPROXY" mitmdump --version >/dev/null
 log "starting proxy"
+# --allow-hosts picks which hosts to TLS-intercept (and thus inject into): the
+# GitHub git/REST hosts plus raw.githubusercontent.com for private raw content.
+# objects.githubusercontent.com is intentionally excluded — its release-asset /
+# git-LFS downloads use signed URLs and batch-provided tokens that PAT injection
+# would break, so it stays an opaque tunnel (see github_auth.py).
 nohup uvx --from "$MITMPROXY" mitmdump \
   -s "${ACTION_PATH}/proxy/github_auth.py" \
   --listen-host 127.0.0.1 --listen-port "$PROXY_PORT" \
   --set confdir="$CONFDIR" \
-  --allow-hosts '^(api\.|codeload\.|uploads\.)?github\.com(:[0-9]+)?$' \
+  --allow-hosts '^(api\.|codeload\.|uploads\.)?github\.com(:[0-9]+)?$|^raw\.githubusercontent\.com(:[0-9]+)?$' \
   </dev/null >"${RUNNER_TEMP}/tend-proxy.log" 2>&1 &
 echo $! >"${RUNNER_TEMP}/tend-proxy.pid"
 disown

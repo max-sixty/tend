@@ -39,6 +39,29 @@ def test_git_host_gets_basic_scheme(injector: GitHubAuthInjector) -> None:
     assert flow.request.headers["Authorization"] == expected
 
 
+def test_raw_content_host_gets_token_scheme(injector: GitHubAuthInjector) -> None:
+    # Private raw.githubusercontent.com content authenticates a PAT via the
+    # ``token`` scheme, same as the API hosts.
+    flow = _flow("raw.githubusercontent.com", "token ghp_dummy")
+    injector.request(flow)
+    assert flow.request.headers["Authorization"] == "token ghp_REALTOKEN"
+
+
+def test_raw_lookalike_host_is_untouched(injector: GitHubAuthInjector) -> None:
+    flow = _flow("raw.githubusercontent.com.evil.example", "token ghp_dummy")
+    injector.request(flow)
+    assert flow.request.headers["Authorization"] == "token ghp_dummy"
+
+
+def test_object_store_host_is_untouched(injector: GitHubAuthInjector) -> None:
+    # objects.githubusercontent.com serves release assets / git-LFS objects from
+    # signed URLs and batch-provided tokens; the PAT must NOT be injected or it
+    # collides with the signature and breaks the download.
+    flow = _flow("objects.githubusercontent.com", "token ghp_dummy")
+    injector.request(flow)
+    assert flow.request.headers["Authorization"] == "token ghp_dummy"
+
+
 def test_missing_authorization_is_added_for_github(injector: GitHubAuthInjector) -> None:
     # git's first request is unauthenticated; the proxy authenticates it so git
     # never needs a credential of its own.
