@@ -341,6 +341,12 @@ runs:
     #     → skips the welcome/theme/intro flow
     #   theme=dark
     #     → fallback in case onboarding still triggers
+    #   bypassPermissionsModeAccepted=true
+    #     → skips the one-time "I accept the risks" disclaimer shown the
+    #       first time bypassPermissions mode is entered. Undocumented key;
+    #       CLAUDE_CODE_REMOTE=1 does NOT suppress this disclaimer (a smoke
+    #       run hung at the prompt until the supervisor timeout), so the
+    #       pre-seed is the only thing keeping the session from hanging.
     #   projects[$PWD].hasTrustDialogAccepted=true
     #     → skips the workspace-trust dialog
     #   projects[$PWD].hasCompletedProjectOnboarding=true
@@ -358,6 +364,7 @@ runs:
           .hasCompletedOnboarding = true
           | .lastOnboardingVersion = $v
           | .theme = (.theme // "dark")
+          | .bypassPermissionsModeAccepted = true
           | .projects[$p] = ((.projects[$p] // {}) + {
               hasTrustDialogAccepted: true,
               hasCompletedProjectOnboarding: true
@@ -418,8 +425,9 @@ runs:
     #      .github/, .husky/, .cargo/, dotfiles), which blocked the bot from
     #      autonomous fixes. It's safe here: the run is sandboxed and can only
     #      land via reviewed PRs. The one-time "I accept the risks" disclaimer
-    #      bypass mode shows interactively is suppressed by CLAUDE_CODE_REMOTE=1
-    #      (set below) — verify via interactive-smoke that it doesn't hang.
+    #      bypass mode shows interactively is pre-accepted by seeding
+    #      bypassPermissionsModeAccepted in ~/.claude.json (see "Pre-seed
+    #      Claude onboarding state" above).
     #      TODO: research a more hawkish posture that keeps this write
     #      capability — e.g. an auto-mode classifier, or scoped overrides of
     #      specific protected paths — without reintroducing hard blocks.
@@ -437,10 +445,9 @@ runs:
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
         # Tells claude this is a remote/non-interactive context so it skips
-        # the permission prompts (and the one-time bypass-mode "I accept the
-        # risks" disclaimer) that would otherwise block the PTY supervisor.
-        # With defaultMode=bypassPermissions this is load-bearing: it's what
-        # keeps the disclaimer from hanging the session.
+        # permission prompts that would otherwise block the PTY supervisor.
+        # It does NOT suppress the bypass-mode disclaimer — that's handled by
+        # the bypassPermissionsModeAccepted pre-seed in ~/.claude.json.
         CLAUDE_CODE_REMOTE: "1"
         # Mirrors action.yaml: the Linux bwrap wrapping path corrupts `!`
         # to `\!` in Bash commands, so the sandbox stays off (`0`). The
