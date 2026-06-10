@@ -201,14 +201,17 @@ runs:
       uses: anthropics/claude-code-action@v1
       env:
         # Disable the bubblewrap-backed subprocess sandbox. The Linux bwrap
-        # wrapping path inside Claude Code v2.1.142 still uses the legacy
+        # wrapping path inside Claude Code still uses the legacy
         # shell-quote `quote()` (`/(["\\$`!])/g`), which escapes `!` to `\!`
-        # in any command whose argv tokens contain both `'` and whitespace —
-        # corrupting jq `!=`, code references like `assert!()`, conventional-
-        # commits `feat!:` titles, and so on. macOS uses sandbox-exec on a
+        # in any command whose argv tokens contain both `'` and whitespace,
+        # corrupting jq `!=`, code references like `assert!()`, and
+        # conventional-commit `feat!:` titles. macOS uses sandbox-exec on a
         # different code path that's already fixed; the bug is Linux-only.
-        # Setting this to 0 routes bash through the fixed `'\''`-wrap path
-        # at the cost of subprocess env isolation. See anthropics/claude-code#35701.
+        # Setting this to 0 routes bash through the fixed `'\''`-wrap path;
+        # the cost is that the sandbox no longer hides the model auth from
+        # the agent's Bash tool (it otherwise does; verified). Reproduced
+        # through claude 2.1.159 and filed as anthropics/claude-code#64301
+        # (write-up: max-sixty/tend#639); re-enable once that lands.
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
         # Expose the harness auth so skills running in the agent's bash can
         # propagate it (e.g. seeding a managed repo's secrets). The action's
@@ -431,10 +434,22 @@ runs:
       id: artifact
       shell: bash
       run: |
-        # Use INVOCATION_ID (unique per job in matrix workflows) to avoid
-        # artifact name collisions when the action runs in multiple matrix jobs
-        suffix="${INVOCATION_ID:+"-${INVOCATION_ID:0:8}"}"
-        echo "name=claude-session-logs${suffix}" >> "$GITHUB_OUTPUT"
+        # Name the session log so a later run on the same thread finds it with
+        # one `GET /actions/artifacts?name=...` call. The thread workflows are
+        # single-job, so a thread run (issue/PR event) takes a constant
+        # `-n<number>` name; the repo's shared issue/PR number space means one
+        # number keys the thread across issue-comment and review events. Other
+        # runs (schedule/workflow_run/dispatch), including matrixed ones, get
+        # the per-job INVOCATION_ID suffix so legs don't collide. Matrixing a
+        # thread workflow would collide two legs on the constant name and fail
+        # loudly at upload.
+        name_key=""
+        if [ -f "${GITHUB_EVENT_PATH:-}" ]; then
+          num=$(jq -r '.issue.number // .pull_request.number // empty' "$GITHUB_EVENT_PATH")
+          [ -n "$num" ] && name_key="-n${num}"
+        fi
+        [ -z "$name_key" ] && name_key="${INVOCATION_ID:+"-${INVOCATION_ID:0:8}"}"
+        echo "name=claude-session-logs${name_key}" >> "$GITHUB_OUTPUT"
 
     - name: Upload session logs
       if: always()

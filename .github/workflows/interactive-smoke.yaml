@@ -18,6 +18,9 @@ name: interactive-smoke
 #   4. The Stop hook fires after a turn that uses a tool, and the
 #      supervisor exits 0.
 #   5. Token usage is parseable from the session JSONL.
+#   6. Credential isolation: the agent runs as the tend-sandbox user with
+#      only a dummy GitHub token, yet `gh api user` succeeds — proving the
+#      injecting proxy attached the real PAT. A broken proxy would 401.
 #
 # Failure modes the supervisor distinguishes (see Run Claude step in the
 # action):
@@ -38,10 +41,17 @@ on:
           questions:
 
           1. Use the Bash tool to run: `pwd && date -u +%FT%TZ && uname -a`.
-          2. Reply with one line summarizing the date the command printed,
-             in the form: "Smoke test ran at <date>".
+          2. Use the Bash tool to run: `gh api user --jq .login`. This goes
+             through the credential-injecting proxy — it should print the bot
+             account's login even though your environment only holds a dummy
+             token.
+          3. Use the Bash tool to run: `git ls-remote origin HEAD`. This must
+             succeed (not fatal): it proves the persisted-credential strip
+             didn't break git and that git reaches origin through the proxy.
+          4. Reply with one line in the form:
+             "Smoke test ran at <date>; gh authenticated as <login>; git ls-remote ok".
 
-          Do not push, comment, modify files, or use any tool other than Bash.
+          Do not push, comment, or modify files. Use only the Bash tool.
       model:
         description: Claude model
         required: false
@@ -66,6 +76,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
+          # Keep the DEFAULT persist-credentials: true so the smoke exercises
+          # the production shape — checkout persists a git credential, and
+          # setup-sandbox.sh must neutralize it. (An earlier cut set this to
+          # false, which silently skipped the strip path; the git ls-remote
+          # step in the prompt now asserts the strip didn't break git.)
+          persist-credentials: true
 
       - name: Run interactive harness
         id: claude

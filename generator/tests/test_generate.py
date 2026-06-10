@@ -462,6 +462,53 @@ def test_mention_verify_detects_inline_mentions_on_review(tmp_path: Path) -> Non
     )
 
 
+def test_mention_verify_skips_bot_comments_without_mention(tmp_path: Path) -> None:
+    """Undirected bot comments (deploy notifications, CI status) on a
+    bot-authored PR must not spin up a session.
+
+    The bot-engagement fallback short-circuits to should_run=true whenever the
+    triggering PR's author is the bot. That branch fires even when the comment
+    is from another bot (e.g. cloudflare-pages deploy notification) with no
+    @-mention of our bot — wasting a full session per `created` event and
+    again per `edited` event (deploy bots edit their comment to update status).
+
+    Skip `issue_comment` events whose comment author is a `Bot` after the
+    @-mention check has already returned false. github.event.comment.user.type
+    is the public-API-visible discriminator (Bot vs User)."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    mention = workflows["tend-mention.yaml"]
+    data = yaml.safe_load(mention.content)
+    check_step = next(
+        s for s in data["jobs"]["verify"]["steps"] if s.get("id") == "check"
+    )
+    run = check_step["run"]
+
+    assert check_step["env"].get("COMMENT_AUTHOR_TYPE") == (
+        "${{ github.event.comment.user.type }}"
+    ), (
+        "verify must wire github.event.comment.user.type so the script can "
+        "distinguish bot-authored comments from human ones"
+    )
+
+    assert '"$COMMENT_AUTHOR_TYPE" = "Bot"' in run, (
+        "verify must short-circuit issue_comment events from Bot accounts "
+        "(deploy notifications, CI status) when no @-mention is present"
+    )
+
+    # The guard must run for issue_comment events specifically and must come
+    # AFTER the @-mention check (so legitimate bot summons are still honored)
+    # and BEFORE the PR-author short-circuit (so it actually skips the
+    # bot-authored-PR fallback that produces the no-op session).
+    mention_idx = run.index("grep -qF '@test-bot'")
+    bot_guard_idx = run.index('"$COMMENT_AUTHOR_TYPE" = "Bot"')
+    pr_author_idx = run.index('"$PR_AUTHOR" = "test-bot"')
+    assert mention_idx < bot_guard_idx < pr_author_idx, (
+        "bot-comment guard must run after the @-mention check and before the "
+        "PR-author short-circuit"
+    )
+
+
 def test_mention_verify_no_concurrency(tmp_path: Path) -> None:
     """verify job must not have concurrency — a non-mention comment can cancel
     an explicit @bot mention if both arrive on the same PR within seconds (#93)."""
@@ -1058,14 +1105,14 @@ def test_codex_action_ref(tmp_path: Path) -> None:
 
 
 def test_codex_workflows_use_openai_secrets_not_claude(tmp_path: Path) -> None:
-    """Codex agent step references OPENAI_API_KEY + CODEX_AUTH_JSON, not Claude."""
+    """Codex agent step references OPENAI_API_KEY, not Claude or auth.json."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
     for wf in generate_all(cfg):
         assert "openai_api_key: ${{ secrets.OPENAI_API_KEY }}" in wf.content, (
             f"{wf.filename} missing openai_api_key input"
         )
-        assert "codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}" in wf.content, (
-            f"{wf.filename} missing codex_auth_json input"
+        assert "codex_auth_json" not in wf.content, (
+            f"{wf.filename} should not reference codex_auth_json"
         )
         assert "claude_code_oauth_token" not in wf.content, (
             f"{wf.filename} should not reference claude_code_oauth_token under codex"

@@ -14,11 +14,24 @@ metadata:
 3. **Review commits**: `git log <last-version>..HEAD --oneline` to understand scope
 4. **Confirm version with user**: Present changes summary and proposed version
 5. **Bump version**: Edit `version` in `generator/pyproject.toml`, then `cd generator && uv lock`
-6. **Commit on the current branch**: `chore: release X.Y.Z` with a one-line summary of changes since last release. Don't create a new branch — this worktree is already on the release branch, and the PR opens from it to `main`.
-7. **Merge to main**: Push, create PR via `gh pr create`, wait for CI, merge with `gh pr merge --squash`
-8. **Tag and push**: `git tag X.Y.Z && git push origin X.Y.Z` (triggers PyPI release workflow in `.github/workflows/pypi-release.yaml`)
-9. **Wait for PyPI release**: Poll the release workflow until `uvx tend@X.Y.Z --help` succeeds
-10. **Regenerate tend's own workflows**: Stay on the `release` branch (don't create a new one — same as step 6). The squash-merge deleted `origin/release`, so `git fetch && git reset --hard origin/main` to realign with the squashed history. Then `uvx tend@latest init`, commit, push, and open a PR titled `chore: regenerate workflows with tend X.Y.Z`. Until this merges, tend's deployed workflows lag the just-released generator, so critical fixes (e.g. loop-prevention filters) remain unreachable on tend itself.
+6. **Update CHANGELOG**: Add a `## X.Y.Z` section at the top of `CHANGELOG.md` (see "CHANGELOG" below). The release workflow publishes this section verbatim as the GitHub Release notes and **fails the GitHub Release job if the section is missing** (PyPI publish has already happened by then; recovery is a manual `gh release create`), so it must land in the release commit — before the tag.
+7. **Commit on the current branch**: `chore: release X.Y.Z` (version bump, lockfile, and CHANGELOG). Don't create a new branch — this worktree is already on the release branch, and the PR opens from it to `main`.
+8. **Merge to main**: Push, create PR via `gh pr create`, wait for CI, merge with `gh pr merge --squash`
+9. **Tag and push**: `git tag X.Y.Z && git push origin X.Y.Z` — triggers `.github/workflows/pypi-release.yaml`, which publishes to PyPI and creates a GitHub Release from the version's CHANGELOG section.
+10. **Wait for the release workflow**: Poll until `uvx tend@X.Y.Z --help` succeeds and the release appears (`gh release view X.Y.Z`).
+11. **Regenerate tend's own workflows**: Stay on the `release` branch (don't create a new one — same as step 7). The squash-merge deleted `origin/release`, so `git fetch && git reset --hard origin/main` to realign with the squashed history. Then `uvx tend@latest init`, commit, push, and open a PR titled `chore: regenerate workflows with tend X.Y.Z`. Until this merges, tend's deployed workflows lag the just-released generator, so critical fixes (e.g. loop-prevention filters) remain unreachable on tend itself.
+
+## CHANGELOG
+
+`CHANGELOG.md` holds one `## X.Y.Z` section per release, newest first. The header must be exactly `## X.Y.Z` — the release workflow matches it literally to extract the notes.
+
+Draft the section from the commits since the last release (`git log <last-version>..HEAD --oneline`):
+
+- **Group by section**, in order, omitting empty ones: **Improved**, **Fixed**, **Documentation**, **Internal**. Internal is for selected notable internals, not everything.
+- **Combine related PRs** into one bullet; cite them all in a trailing `([#a](url), [#b](url))` list. Use full `https://github.com/max-sixty/tend/pull/N` URLs so links resolve from the GitHub Release page.
+- **Be brief**: 1–3 sentences per bullet; Internal bullets terser.
+- **No editorial framing**: describe what changed, not what was wrong with the old approach.
+- **Verify against the diff**, not the commit subject — subjects often undersell or misdescribe. `git show <sha>` anything user-facing before trusting its bullet.
 
 ## Version scheme
 
@@ -28,7 +41,7 @@ Generated workflows pin the action to the generator's own version
 (`max-sixty/tend@X.Y.Z`); there is no floating `v1`. Each `X.Y.Z` tag is the
 immutable ref consumers run, enforced by a tag ruleset on `max-sixty/tend`
 (`update`/`deletion` restricted). Never force-move or delete a published tag.
-Step 8 (tag) must precede step 10 (regenerate via `uvx tend@latest`) so the
+Step 9 (tag) must precede step 11 (regenerate via `uvx tend@latest`) so the
 pinned ref resolves to an existing tag.
 
 ## Commit message pattern

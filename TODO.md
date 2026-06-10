@@ -14,7 +14,7 @@ needs the release sequence:
 3. Edit `.config/tend.yaml`: add `harness: codex` (and optionally
    `effort: medium`). Set `model: gpt-5.5` explicitly or let the
    default win.
-4. Set `CODEX_AUTH_JSON` secret on `max-sixty/tend` (or `OPENAI_API_KEY`).
+4. Set `OPENAI_API_KEY` secret on `max-sixty/tend`.
    Drop `CLAUDE_CODE_OAUTH_TOKEN` from `secrets.allowed` once unused.
 5. `uvx tend@latest init` to regenerate workflows. Commit both the config
    and the regenerated `tend-*.yaml` files in one commit.
@@ -24,6 +24,26 @@ needs the release sequence:
 
 Doing this in the same PR that ships the action would temporarily break
 tend's own CI between merge and the release tag bump.
+
+## Thread memory: deterministic prep of prior conversations
+
+A thread's session logs share one artifact name per harness, so
+`running-in-ci` finds its prior runs with a single `?name=` call, and the
+agent downloads and parses them on demand. The lookup is cheap; the
+cost is the agent reading raw logs (a session JSONL runs ~100 KB, ~30k
+tokens) each time it opens one.
+
+A deterministic action step would condense each matched log to its posted
+text, files touched, and key reasoning (~1-2k tokens) with `jq` before the
+agent sees it, stage that index on disk at a path the skill reads (or
+prepend a pointer to the prompt, as the action already does for the CI
+directive), and let the agent open a full JSONL only when the digest isn't
+enough.
+
+Worth building once usage shows the agent reaches for thread history often
+enough that the per-log read cost is material. Until then the agent-driven
+path covers the same ground, and survives no longer than the 30-day
+artifact retention either way.
 
 ## Auth: GitHub App alternatives to PAT
 
@@ -124,12 +144,20 @@ implemented yet:
 - **Network isolation.** Self-hosted runners with outbound traffic
   restricted to GitHub and Anthropic API endpoints. Not viable on
   GitHub-hosted runners; significant infra overhead self-hosted.
-- **Subprocess environment scrubbing.** `claude-code-action` supports
-  `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`. Currently activated only when
-  `allowed_non_write_users` is set; could enable for all fork PRs. Naive
-  `echo $GITHUB_TOKEN` attacks would fail, though a subprocess can still
-  read the parent's unscrubbed env via `/proc/$PPID/environ`
-  (same-user, no privilege barrier on GitHub-hosted runners).
+- **Bash sandbox to hide the model auth.** Setting
+  `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` forces Claude Code's bubblewrap
+  sandbox on, which hides the model auth from the agent's Bash tool. The
+  fresh `/proc` mount blocks the `/proc/<harness-pid>/environ` read that
+  defeats naive env-scrubbing (a GHA probe found the OAuth token in 2
+  processes with the sandbox off, 0 with it on), and `denyRead` plus
+  Read-tool deny rules block credential files. Verified to work; the
+  reusable `settings.json` and probe live in #639. Blocked from shipping:
+  the same bwrap path corrupts `!` to `\!` in Bash commands (breaks `jq
+  !=`, `feat!:` titles), so both actions pin `=0`. Reproduced through
+  claude 2.1.159 and filed as anthropics/claude-code#64301; re-enable
+  once that lands. Hides the model auth only. The GitHub token sits in
+  the writable cwd (`.git/config`) and still needs the short-lived
+  GitHub App token (see "Auth: GitHub App alternatives to PAT").
 - **Workflow dispatch isolation.** Split each workflow into an analysis
   job (`GITHUB_TOKEN` only, reads the diff, produces a plan) and a push
   job (bot token, separate workflow triggered by `workflow_run`). The bot

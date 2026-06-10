@@ -84,18 +84,23 @@ If `IN_PROGRESS > 0`, **skip without marking read** — the next poll will see t
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
 NOTIF_UPDATED_AT=<updated_at from the notification>
+# GitHub's notification indexing can lag the triggering event by 20-60s, so a
+# bot reply posted seconds before NOTIF_UPDATED_AT can still be the response
+# to the same trigger. Compare against a 60s-padded cutoff so the dedup
+# query doesn't miss replies that landed in that window.
+DEDUP_CUTOFF=$(date -u -d "$NOTIF_UPDATED_AT -60 seconds" +%Y-%m-%dT%H:%M:%SZ)
 
 # Conversation comments — issues and PR conversation
 gh issue view {number} -R {owner}/{repo} --json comments \
   --jq "[.comments[] | select(.author.login == \"$BOT_LOGIN\"
-                              and .createdAt > \"$NOTIF_UPDATED_AT\")] | length"
+                              and .createdAt > \"$DEDUP_CUTOFF\")] | length"
 
 # For PR notifications, fold reviews into one gh pr view --json call
 gh pr view {number} -R {owner}/{repo} --json comments,reviews \
   --jq "{comments: [.comments[] | select(.author.login == \"$BOT_LOGIN\"
-                                         and .createdAt > \"$NOTIF_UPDATED_AT\")] | length,
+                                         and .createdAt > \"$DEDUP_CUTOFF\")] | length,
          reviews:  [.reviews[]  | select(.author.login == \"$BOT_LOGIN\"
-                                         and .submittedAt > \"$NOTIF_UPDATED_AT\")] | length}"
+                                         and .submittedAt > \"$DEDUP_CUTOFF\")] | length}"
 ```
 
 For issue notifications, also check the timeline for bot-authored PRs that cross-reference the issue. `tend-mention` typically handles an `@`-mention-asking-for-a-PR by opening a PR with `Refs #N` in its body — *without* commenting on the issue. The comments check above misses that path, so without this timeline check the same notification races to a duplicate PR from this skill:
@@ -105,7 +110,7 @@ gh api "repos/{owner}/{repo}/issues/{number}/timeline" \
   --jq "[.[] | select(.event == \"cross-referenced\"
     and .source.issue.pull_request
     and .source.issue.user.login == \"$BOT_LOGIN\"
-    and .created_at > \"$NOTIF_UPDATED_AT\")] | length"
+    and .created_at > \"$DEDUP_CUTOFF\")] | length"
 ```
 
 If any of the three returns `> 0`, mark read and move on:

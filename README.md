@@ -23,7 +23,9 @@ To use Tend, a project needs:
 - A GitHub account for the agent (for example this project's is **[@tend-agent](https://www.github.com/tend-agent))**
 - One of:
   - A Claude Max subscription (harness = "claude")
-  - An OpenAI API key, or a ChatGPT subscription via a Codex `auth.json` (harness = "codex")
+  - An OpenAI API key (harness = "codex"). A ChatGPT subscription via
+    a Codex `auth.json` is **not** compatible with tend's concurrent
+    workflows — see [Codex (alternative)](#codex-alternative).
 
 Tend offers the default code & guidance for the agent. Specifically that means:
 
@@ -79,7 +81,7 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 | **triage**        | Issue opened               | Classifies the issue, checks for duplicates, reproduces bugs, attempts conservative fixes.                                                                  |
 | **ci-fix**        | CI fails on default branch | Reads failure logs, identifies root cause, searches for the same pattern elsewhere, opens a fix PR.                                                         |
 | **nightly**       | Daily                      | Resolves conflicts on open PRs, reviews recent commits, surveys ~10 files for bugs and stale docs, closes resolved issues, regenerates tend workflow files. |
-| **weekly**        | Weekly                     | Reviews dependency PRs, auto-merges safe patch and minor updates.                                                                                           |
+| **weekly**        | Weekly                     | Reviews dependency PRs, approves safe patch and minor updates (the bot never merges — a merge restriction is the security boundary).                        |
 | **notifications** | Every 15 minutes           | Polls GitHub notifications, responds to unhandled mentions, marks handled threads as read.                                                                  |
 | **review-runs**   | Daily                      | Reviews recent CI runs for behavioral problems and proposes skill/config improvements.                                                                      |
 
@@ -142,33 +144,36 @@ Full threat model: [docs/security-model.md](docs/security-model.md).
 
 ## Configuration
 
-`.config/tend.yaml` — only `bot_name` is required. The default harness is
-Claude; set `harness: codex` to use OpenAI Codex instead.
+`.config/tend.yaml` — only `bot_name` is required. The default harness wraps
+`claude-code-action`; `harness: codex` selects OpenAI Codex, and
+`harness: claude-interactive` runs the official `claude` CLI under a PTY
+(see [Harnesses](#harnesses) below for when each fits).
 
 ```yaml
 bot_name: my-project-bot
 
 # Optional — defaults to "claude"
 # harness: codex
+# harness: claude-interactive
 # effort: medium   # codex only: minimal | low | medium | high
 ```
 
 Repo secrets depend on the harness:
 
-| Harness   | Required secrets                                                                                                        |
-| -------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `claude` | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription, see caveat below) or `ANTHROPIC_API_KEY` (API-billed) |
-| `codex`  | `TEND_BOT_TOKEN` + one of `CODEX_AUTH_JSON` (subscription, recommended) or `OPENAI_API_KEY` (pay-per-token)              |
+| Harness               | Required secrets                                                                                                        |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `claude`              | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription, see caveat below) or `ANTHROPIC_API_KEY` (API-billed) |
+| `claude-interactive`  | Same as `claude`.                                                                                                       |
+| `codex`               | `TEND_BOT_TOKEN` + `OPENAI_API_KEY` (pay-per-token).                                                                    |
 
 `TEND_BOT_TOKEN` is the bot account's PAT — see
 [example config](docs/tend.example.yaml) for scopes.
-`CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token`;
-`CODEX_AUTH_JSON` is the contents of the `auth.json` Codex writes after
-`codex login --device-auth`. The other two are standard API keys from
-console.anthropic.com and platform.openai.com. See
-[Codex (alternative)](#codex-alternative) for the Codex trade-off and
-public-repo gate; [docs/security-model.md](docs/security-model.md) has
-the full leak breakdown.
+`CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token`. The other two
+are standard API keys from console.anthropic.com and
+platform.openai.com. See [Codex (alternative)](#codex-alternative) for
+why the Codex subscription `auth.json` path isn't supported;
+[docs/security-model.md](docs/security-model.md) has the full leak
+breakdown.
 
 All other options — secret name overrides, setup steps, protected branches,
 workflow overrides, schedules — are documented in
@@ -185,8 +190,9 @@ workflow names `tend-ci-fix` watches, PR title conventions, label policies.
 
 ## Harnesses
 
-Tend supports two harnesses. Pick whichever fits the credentials you
-already have; both run with the same workflows and skills.
+Tend supports three harnesses. Pick whichever fits the credentials and
+billing path that already work for you; all three run the same workflows
+and skills.
 
 ### Claude (default)
 
@@ -221,20 +227,38 @@ and the
 [Agent SDK plan article](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
 for the canonical statements.
 
+### Claude (interactive)
+
+Runs the official `claude` CLI inside a PTY (via `script(1)`) instead of
+through `claude-code-action`. End-of-turn detection comes from a `Stop`
+hook that writes a sentinel file the supervisor polls for.
+
+Auth matches the default Claude harness (`CLAUDE_CODE_OAUTH_TOKEN` or
+`ANTHROPIC_API_KEY`).
+
+From 2026-06-15, subscription-funded `claude-code-action` runs draw from
+the separate metered Agent SDK credit pool described in the caveat above;
+the interactive `claude` CLI continues to draw from the flat Pro/Max
+subscription.
+
+Opt-in: `harness: claude-interactive`.
+
 ### Codex (alternative)
 
 Installs `@openai/codex` on the runner and invokes `codex exec` against a
 bundled `AGENTS.md` that teaches it to resolve tend's slash commands to
-skill markdown. Two auth modes:
+skill markdown.
 
-- **`CODEX_AUTH_JSON`** (recommended) — Codex `auth.json` shipped
-  as a secret, billed at the Plus/Pro/Business subscription's flat
-  rate. On public repos the token must come from a ChatGPT account
-  dedicated to the bot; recommended on private. See
-  [docs/security-model.md](docs/security-model.md) for the leak
-  breakdown and rotation cadence.
-- **`OPENAI_API_KEY`** — pay-per-token API billing. Works for any
-  repo; pick this to avoid a separate ChatGPT account.
+Use `OPENAI_API_KEY` (a standard OpenAI API key, pay-per-token, from
+platform.openai.com). Works for any repo, public or private.
+
+> **Subscription `auth.json` is not supported.** Codex rotates that
+> refresh token on every API call and invalidates the prior token; tend
+> runs multiple workflows concurrently (review, mention, triage,
+> nightly, …), so each call would invalidate the credential the other
+> in-flight jobs are using. A scheduled refresher works around the
+> ~8-day rotation but not the per-call invalidation between concurrent
+> jobs. Use `OPENAI_API_KEY` instead.
 
 ## Badge
 

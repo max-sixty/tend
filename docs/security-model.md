@@ -91,6 +91,20 @@ overwritten, matching claude-code-action's behavior so review skills can
 optionally inspect what the PR changed without those files ever being
 executed.
 
+**Credential isolation (`claude-interactive` harness).** The agent runs as a
+separate non-sudo `tend-sandbox` user. The bot PAT lives only in a local
+mitmproxy that the agent reaches over `HTTPS_PROXY`; the proxy injects the
+token into requests to GitHub hosts and tunnels everything else. The agent
+holds only a dummy token, so it can't read the real one: a different UID with
+no sudo can't read the proxy's `/proc/<pid>/environ`, and the credential
+`actions/checkout` persists in `.git/config` is stripped before the workspace
+is handed over. The injection allowlist is exact-match on the connection's real
+destination, so a request to a lookalike host gets no token. This covers the
+GitHub credential only; the Claude OAuth/API token still reaches the agent's
+env, and the other two harnesses (`action.yaml`, `codex/action.yaml`) pass the
+PAT directly. The merge restriction and `tend check` remain the load-bearing
+boundaries regardless of harness.
+
 **Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort
 the run before Claude starts, catching runaway loops between workflows.
@@ -153,13 +167,21 @@ local-exec sandbox regardless.
 string matches in stdout. An attacker who gets code execution can exfiltrate
 tokens via DNS queries, HTTP requests to an external server, or encoding
 tricks that bypass the log filter. On GitHub-hosted runners, there's no way
-to restrict outbound network access.
+to restrict outbound network access. For the model auth specifically,
+Claude Code's bubblewrap sandbox would remove it from the agent's Bash tool
+entirely: a probe confirmed the sandbox's fresh `/proc` mount and `denyRead`
+rules block reading the token from the environment, `/proc`, and credential
+files. It is not deployed because the same bwrap path corrupts `!` in Bash
+commands (anthropics/claude-code#64301). See the `TODO.md` entry and #639.
 
 **Long-lived PAT exposure.** A classic PAT is valid until revoked and grants
 access to every repo the bot account can reach. A single successful
 exfiltration gives the attacker persistent, broad write access. The merge
 restriction limits what they can *do* with it, but they can still push
-branches, create PRs, and post comments indefinitely.
+branches, create PRs, and post comments indefinitely. The credential isolation
+above keeps the PAT out of the agent on the `claude-interactive` harness; it
+remains directly exposed on the other harnesses and the Claude token on all of
+them.
 
 **Prompt injection without code execution.** Even without hijacking the
 tools, an attacker who controls what Claude reads can influence its behavior.
@@ -169,5 +191,5 @@ prompts and skill instructions reduce this risk but can't eliminate it —
 Claude ultimately reasons about attacker-controlled text.
 
 Deferred hardening options (Haiku pre-screening, read-only fork PRs, network
-isolation, subprocess env scrubbing, workflow-dispatch isolation, GitHub App
-in place of PAT) live in `TODO.md`.
+isolation, the Bash sandbox, workflow-dispatch isolation, GitHub App in
+place of PAT) live in `TODO.md`.

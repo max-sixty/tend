@@ -10,8 +10,9 @@
 
    Claude emits both `claude_code_oauth_token` and `anthropic_api_key`
    unconditionally; the action validates exactly one is set and forwards both
-   to claude-code-action, which treats empty as absent. Codex follows the same
-   pattern (auth.json wins over api-key when both configured). #}
+   to claude-code-action, which treats empty as absent. Codex takes a single
+   `openai_api_key` — the subscription `auth.json` path is incompatible with
+   tend's concurrent workflows and is not exposed. #}
 {% macro agent_step(cfg, prompt_body, if_condition='') %}
 {% if cfg.harness == 'claude' %}
       - uses: max-sixty/tend@<<tend_version>>
@@ -30,7 +31,6 @@
           anthropic_api_key: ${{ secrets.<<cfg.anthropic_api_key_secret>> }}
 {% else %}
           openai_api_key: ${{ secrets.<<cfg.openai_key_secret>> }}
-          codex_auth_json: ${{ secrets.<<cfg.codex_auth_json_secret>> }}
 {% if cfg.effort %}
           effort: <<cfg.effort>>
 {% endif %}
