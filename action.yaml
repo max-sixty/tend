@@ -241,9 +241,18 @@ runs:
         plugins: |
           install-tend@tend
           tend-ci-runner@tend
+        # bypassPermissions lets the bot write any file in its ephemeral,
+        # PR-gated checkout, including Claude Code's protected paths
+        # (.devcontainer/, .github/, .husky/, .cargo/, dotfiles) that every
+        # other mode hard-denies — which blocked autonomous fixes. Safe here:
+        # the run is sandboxed and can only land via reviewed PRs.
+        # TODO: research a more hawkish posture that keeps this capability —
+        # e.g. an auto-mode classifier, or scoped overrides of specific
+        # protected paths — without reintroducing hard blocks.
         claude_args: |
           --model ${{ inputs.model }}
           --allowedTools ${{ inputs.allowed_tools }}
+          --permission-mode bypassPermissions
           --append-system-prompt "${{ steps.prompt.outputs.value }}"
 
     - name: Mark event notification read
