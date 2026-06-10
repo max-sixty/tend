@@ -420,11 +420,10 @@ runs:
         CLAUDE_CODE_REMOTE: "1"
       run: |
         # The sandbox reads the marketplace source (this action's checkout)
-        # here; setup-sandbox.sh granted it read+traverse. claude copies the
-        # marketplace and plugins into the sandbox's own ~/.claude (with native
-        # /home/tend-sandbox paths in its index), so nothing references the
-        # action checkout after this step.
-        MARKETPLACE_ROOT="$(realpath "${{ github.action_path }}/..")"
+        # here; setup-sandbox.sh granted it read+traverse and exported
+        # MARKETPLACE_ROOT. claude copies the marketplace and plugins into the
+        # sandbox's own ~/.claude (with native /home/tend-sandbox paths in its
+        # index), so nothing references the action checkout after this step.
         sudo -u "$SANDBOX" env \
           HOME="$AGENT_HOME" \
           PATH="$AGENT_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
