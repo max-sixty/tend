@@ -78,6 +78,16 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 - **Scope**: PRs, pushes, and comments on existing threads in other repos are off-limits. Filing fresh issues in other repos follows **Filing Issues in Other Repos** below.
 - **Hanging commands**: Never use `gh run watch` or `gh pr checks --watch` — both hang indefinitely. Poll with `gh pr checks` in a loop instead.
 
+## End the turn only when work is shipped
+
+Emitting `end_turn` ends the CI session — the runner is discarded, and the harness does not reliably resume it from a background-task completion. If you `end_turn` while a `run_in_background: true` Bash whose result was going to gate the deliverable is still running, the task either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `/tmp/comment-body.md` — dies with it.
+
+The session is live until the deliverable is **maintainer-visible**: pushed, posted, or opened. Local-only state — a commit nobody else can see, a comment body never sent — does not count and is not recoverable on a follow-up.
+
+Corollary: don't background anything whose output gates the deliverable. If a full test suite or comprehensive lint needs to run before push, run it synchronously and accept the time cost; if it's too slow for the session budget, push first and let CI re-run it. A session that shipped a partial result is recoverable; a session that ended mid-wait with the deliverable on a local branch is not. A targeted compile plus the tests directly exercising the change is enough local confidence to ship — leave the comprehensive matrix to CI.
+
+After push, match the polling shape to whether a follow-up is gated on the CI result — see **CI Monitoring**. When nothing is gated, end the session; the deliverable is shipped and the harness can't deliver a background-poll notification reliably enough to keep an "I'll report the result" promise. When a follow-up *is* gated (fix-on-failure, dismiss your own approval), foreground-poll synchronously so the wait and the follow-up share the same session.
+
 ## Filing Issues in Other Repos
 
 Default: file an issue in the current repo asking for permission to file in the target. On maintainer approval, file in the target.
@@ -172,12 +182,14 @@ When asked to merge the default branch into a PR branch:
 
 ## CI Monitoring
 
-After pushing, wait for CI before reporting completion.
+After pushing, decide based on whether a concrete follow-up is gated on the CI result.
 
-**Use `run_in_background: true`** for the polling loop so it does not block the session. When the background task completes you will be notified — check the result and take any follow-up action (dismiss approval, post analysis) at that point.
+**Nothing is gated on the result** — the common case after a nightly pushes a PR or a self-authored PR is reviewed silently: state CI is in flight in your final message and **end the session**. Don't foreground-wait, and don't start a background poll — its completion notification isn't reliably delivered to a CI session, so any "I'll report the result" promise won't fire. The deliverable is already shipped; the worst case is a missed follow-up, not lost work.
+
+**A follow-up is gated on the result** — fix-on-failure, dismiss your own approval, post failure analysis: poll **synchronously in the foreground** (don't use `run_in_background`) and accept the time cost. The follow-up has to run in the same session as the wait.
 
 ```bash
-# Run with Bash tool's run_in_background: true.
+# Foreground poll — invoke Bash without run_in_background.
 #
 # Poll statusCheckRollup — every check-run + status context on the commit.
 # Exit when all non-own items are terminal.
@@ -242,7 +254,7 @@ exit 1
 
 1. Poll every 60 seconds (up to ~15 minutes) until all non-own check-runs on the commit are terminal. **Filter out the current run's URL (`/runs/$GITHUB_RUN_ID/`)** — the current workflow's own check is always pending while polling and must be excluded to avoid a deadlock. **Also filter same-workflow check runs (`$GITHUB_WORKFLOW`)** — sibling runs of the same workflow on the same PR are subject to concurrency rules (queueing or cancel-in-progress) and don't represent independent CI signals. The 30s grace re-check catches late-registering omnibus checks.
 2. If a required check fails, diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, repeat.
-3. Report completion only after all required checks pass.
+3. Once checks are terminal, perform the gated follow-up.
 
 Before dismissing local test failures as "pre-existing", check main branch CI:
 
@@ -330,6 +342,8 @@ If a maintainer has already addressed the point, exit silently unless you can ad
 
 If you are responding to your own prior comment or review (not a human's reply to it), only respond if there is a distinct role boundary (e.g., you are the reviewer on your own PR and need to address review feedback). If there is no such role distinction, exit silently to avoid self-conversation loops.
 
+**Exception — bot-authored issues with no prior bot comments.** A freshly-opened issue the bot authored (nightly failure, CI report, code-quality finding) is a report to act on, not a self-conversation. Triage it normally. The Recheck Before Posting guard below still prevents duplicate triage comments if a sibling run fires on the same issue.
+
 ## Recheck Before Posting
 
 **Before posting any comment, review, or inline reply**, re-fetch the conversation and check whether the response would duplicate something already there. Two duplication paths:
@@ -412,7 +426,7 @@ When an answer rests on deeper research — citations across several files, a re
 
 Always use markdown links for files, issues, PRs, and docs. **Any link containing `#L` must use a commit SHA, never `blob/main/...#L42`** — line numbers shift silently, so the link stays valid but starts pointing at different code than the comment describes. Get the SHA with `git rev-parse HEAD` before composing the link.
 
-**GitHub URLs — read `$GITHUB_REPOSITORY` from the environment, don't hand-type the owner.** The model reliably guesses wrong — past comments have shipped with the wrong owner (e.g. `anthropics/<repo>` on a repo not owned by Anthropic). Before posting, scan the composed body for `github.com/` and confirm every owner matches `$GITHUB_REPOSITORY`.
+**GitHub URLs — read `$GITHUB_REPOSITORY` from the environment, don't hand-type the owner.** The model reliably guesses wrong — past comments have shipped with the wrong owner (e.g. `anthropics/<repo>` on a repo not owned by Anthropic). Before posting, scan the composed body for `github.com/`: confirm every owner matches `$GITHUB_REPOSITORY`, **and** every URL with a `#L<n>` anchor is SHA-pinned. A `blob/main/...#L<n>` hit is the link-rot shape — replace `main` with `$(git rev-parse HEAD)` for that link and re-scan. This catches both the wrong-owner typo and the un-pinned line-link slip in one pre-post pass.
 
 **Authoring fenced bodies with backticks.** When a body contains a fenced code block, the model often defensively escapes the inner fence (`` \`\`\`bash ``) "to prevent it from closing the outer fence early"; the same instinct can produce `` \`foo\` `` for inline spans. Those backslashes survive into the rendered body as literal `\` characters. Author with bare backticks. For nested fenced blocks, use a **longer outer fence** — four or five backticks outside, three inside — so the inner three-backtick fence renders intact without escaping. The Write tool preserves data verbatim, so the same authoring rule applies whether you compose with the Write tool or inline; Write just removes shell-quoting from the equation.
 
@@ -520,6 +534,8 @@ If you can't find source evidence for a specific detail, say so ("I'm not sure o
 **`--jq` projections must include the ID when downstream URLs cite individual items.** Composing `actions/runs/<id>`, `#issuecomment-<id>`, or `pull/<n>` URLs from `gh run list` / `gh api .../comments` / `gh pr list` results requires the ID field in the projection (`databaseId` for runs, `id` for comments, `number` for PRs/issues). If the projection kept only timestamps, titles, or bodies, the bot composes the URL from what it has and fabricates the missing ID — the link 404s. Re-query with the ID field rather than guessing.
 
 **"Likely" is a stop-sign.** If a draft contains "likely works", "probably parses as", "should behave like", or "I think" in a user-facing claim, you have two options: verify and replace the hedge with the answer, or hedge explicitly ("I haven't tested this — would appreciate if you can confirm") and don't dress up the guess as analysis. Posting an unverified guess as confident-sounding analysis is the hallucination shape that erodes trust the fastest.
+
+**Never ship literal placeholders in user-visible content.** Strings like `<PLACEHOLDER>`, `PR #PLACEHOLDER`, `<SHA>`, `TBD`, `XXX`, or `<TODO(fill)>` in an issue body, PR body, or comment are corruption: a deferred substitution that never ran. They survive into the rendered output and read as broken. When a multi-step ask references an artifact that doesn't yet exist ("file an issue that references the PR I'm about to file"), sequence the work so the referenced artifact exists before the referencing body is composed: create the PR → read its number → compose the issue with the number filled in → file the issue. If the cross-reference can't be resolved before posting (e.g. the artifact is out of scope or deferred), omit it or rephrase ("a follow-up PR will…") rather than emit a placeholder. Before any `gh issue create`, `gh pr create`, or `gh ... comment --body-file`, grep the body file for `PLACEHOLDER`, `<SHA>`, `<TODO`, `TBD`, `XXX` and refuse to post if any match. A session that times out mid-sequence leaves an unsubstituted placeholder permanently visible — pre-substitute, don't post-substitute.
 
 ### Distinguish transient incidents from durable bugs
 

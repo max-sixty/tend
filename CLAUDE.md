@@ -31,12 +31,17 @@ Four pieces:
    floating `v1`). One per harness:
    - `max-sixty/tend@X.Y.Z` (Claude) — invokes `claude-code-action` with the
      tend plugin marketplace. Inputs documented in `action.yaml`.
+   - `max-sixty/tend/interactive@X.Y.Z` (Claude interactive) — runs the
+     official `claude` binary under a PTY supervisor (`script(1)`) with a
+     Stop-hook sentinel, instead of going through the Agent SDK. Inputs
+     mirror `action.yaml` for swap-in parity. Inputs in
+     `interactive/action.yaml`.
    - `max-sixty/tend/codex@X.Y.Z` (Codex) — installs `@openai/codex` and
      shells out to `codex exec`. Skills are staged on disk and an
      `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve
      `/tend-ci-runner:NAME` slash commands. Inputs in `codex/action.yaml`.
 
-   Both actions resolve the bot's numeric ID at runtime, run security and
+   All actions resolve the bot's numeric ID at runtime, run security and
    rate-limit preflight, and upload session logs. The actions don't know
    or care about triggers, checkout, or project setup.
 3. **Generator** (`uvx tend@latest init`) — stamps workflow files into
@@ -45,8 +50,11 @@ Four pieces:
    idempotent — running `init` again overwrites all files from the
    current config.
 4. **Config** (`.config/tend.yaml`) — inputs to the generator. Overrides
-   from defaults only. `harness: claude | codex` selects the harness
-   (default `claude`). All six workflows are enabled by default.
+   from defaults only. `harness: claude | claude-interactive | codex`
+   selects the harness (default `claude`). A per-workflow `harness:`
+   override (and matching `model:`) lets an adopter trial a different
+   harness on one workflow at a time. All workflows are enabled by
+   default.
 
 Generated workflows are standalone — full `steps:` jobs, not
 `workflow_call`. The generator owns the entire file. Project setup (build
@@ -67,6 +75,8 @@ tend/
 │       ├── .codex-plugin/  # Codex plugin manifest
 │       └── scripts/      # Helper scripts (survey, run listing)
 ├── action.yaml           # Claude harness composite action
+├── interactive/
+│   └── action.yaml       # Claude interactive harness (PTY-supervised binary)
 ├── codex/
 │   ├── action.yaml       # Codex harness composite action
 │   └── agents-tail.md    # AGENTS.md appendix for Codex
