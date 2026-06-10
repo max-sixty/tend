@@ -551,6 +551,40 @@ runs:
         # routes gh/git through the proxy; non-GitHub traffic tunnels through
         # untouched. The real PAT is in none of this env. script(1) allocates
         # the PTY (GHA runners have no TTY; without it the Ink UI hangs).
+        #
+        # The `sudo env VAR=...` form replaces the environment with only
+        # what's listed, so the standard GitHub Actions context vars
+        # (GITHUB_RUN_ID, GITHUB_REPOSITORY, GITHUB_WORKFLOW, …) must be
+        # re-passed explicitly. They are public values, not secrets;
+        # skills depend on them for run-self-reference (branch names,
+        # gist headings, dedup of own check runs) and for owner-correct
+        # URL construction. Without them, recipes like
+        # `grep -qF "$GITHUB_RUN_ID"` short-circuit on an empty pattern
+        # and skill-composed `github.com/$GITHUB_REPOSITORY/...` links
+        # collapse to the wrong owner.
+        #
+        # Pass GITHUB_* through as a denylist rather than an explicit
+        # allowlist: most GITHUB_* vars are informational (GITHUB_ACTOR,
+        # GITHUB_API_URL, GITHUB_REF_NAME, GITHUB_WORKSPACE, …) and a
+        # denylist picks up future additions automatically. Exclude:
+        #   GITHUB_TOKEN — replaced by a dummy below; real PAT lives in
+        #     the proxy.
+        #   GITHUB_{ENV,PATH,OUTPUT,STATE,STEP_SUMMARY} — paths the
+        #     runner re-reads after this step exits. Appended lines land
+        #     in later steps' env / PATH / outputs / post-step state, or
+        #     are rendered as markdown in the job-summary UI. Today these
+        #     files are owned by the runner user and the sandbox UID
+        #     likely can't open them for write, but the value still points
+        #     at the path; the conservative default is not to name the
+        #     channel at all.
+        GHA_VARS=()
+        while IFS= read -r name; do
+          case "$name" in
+            GITHUB_TOKEN|GITHUB_ENV|GITHUB_PATH|GITHUB_OUTPUT|GITHUB_STATE|GITHUB_STEP_SUMMARY) continue ;;
+          esac
+          GHA_VARS+=("$name=${!name}")
+        done < <(compgen -e | grep '^GITHUB_')
+
         DUMMY_GH_TOKEN="ghp_tendproxydummy000000000000000000000"
         sudo -u "$SANDBOX" env \
           HOME="$AGENT_HOME" \
@@ -566,6 +600,8 @@ runs:
           BOT_NAME="$BOT_NAME" BOT_ID="$BOT_ID" \
           TEND_MODEL="$TEND_MODEL" TEND_ALLOWED_TOOLS="$TEND_ALLOWED_TOOLS" \
           TEND_SYSTEM_PROMPT="$TEND_SYSTEM_PROMPT" TEND_PROMPT="$TEND_PROMPT" \
+          CI="${CI:-true}" \
+          "${GHA_VARS[@]}" \
           script -qefc "$WRAPPER" "$LOG" &
         CLAUDE_PID=$!
         echo "Claude PID: $CLAUDE_PID (running as $SANDBOX)"
