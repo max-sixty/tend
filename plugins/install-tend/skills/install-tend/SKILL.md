@@ -69,7 +69,8 @@ no need to touch git remotes.
 
 ## Browser sessions
 
-Steps 6 and 8 need a browser session logged in as the bot.
+Step 6 (when the bot account must be created) and step 8's mint paths
+(8a/8b) need a browser session logged in as the bot.
 `mcp__claude-in-chrome__*` automation can drive both when available;
 otherwise, give the user URLs and wait for confirmation. Before acting
 as the bot, verify the logged-in user via the avatar menu.
@@ -558,7 +559,8 @@ serves both the install sequence and a standalone `Bot PAT`
 scope-audit remediation; in the audit case it is the whole fix, and
 you close the issue once 8c verifies. `<bot-name>` is `bot_name` in
 `.config/tend.yaml`; `$REPO` derives as in the kickoff:
-`gh repo view --json nameWithOwner --jq '.nameWithOwner'`.
+`gh repo view --json nameWithOwner --jq '.nameWithOwner'` (confirm it
+names the canonical repo, not a fork).
 
 When `GH_TOKEN` or `GITHUB_TOKEN` is set, gh defers to it: keyring
 writes (`gh auth login/refresh/switch/logout`) refuse to run ("The
@@ -591,24 +593,27 @@ code and polls until it is approved at
 Codes expire after about 15 minutes; rerun for a fresh one. Run the
 command yourself in the background, surfacing the code and URL to the
 user; the poll completes when they approve. Delegate it to the user's
-own terminal only when your shell lacks keyring access or `env -u`
-(on Windows, Git Bash takes the command as-is; PowerShell:
-`Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN; gh auth …`). The minted
-token lands wherever the login ran, so after delegating, the rest of
-the step's `gh auth token --user` reads (8c, steps 9 and 10) must run
-in that same terminal too.
+own terminal only if running it yourself fails (rare: gh falls back
+to plain-text storage when no keyring is available; on Windows the
+user translates the prefix, Git Bash taking the command as-is,
+PowerShell `Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN; gh auth …`).
+The minted token lands wherever the login ran, so after delegating,
+hand the user the rest of the step's `gh auth token --user` commands
+(8c, steps 9 and 10), fully substituted, to run in that same
+terminal.
 
 ### 8a. Refresh path (bot already in keyring)
 
 ```bash
-env -u GH_TOKEN -u GITHUB_TOKEN gh auth switch --user <bot-name>
+env -u GH_TOKEN -u GITHUB_TOKEN gh auth switch --user <bot-name> &&
 env -u GH_TOKEN -u GITHUB_TOKEN gh auth refresh --hostname github.com \
   --scopes repo,workflow,notifications,write:discussion,gist,user
 ```
 
 `gh auth refresh` operates on the active account (it has no `--user`
 flag), so switch to the bot first. Requested scopes merge with the
-token's existing ones, so none are lost. No post-hoc identity check is
+stored token's existing ones while that token is still valid (a
+revoked one yields just the six requested). No post-hoc identity check is
 needed: when the approving browser session belongs to anyone other
 than `<bot-name>`, refresh discards the token and errors with
 "received credentials for <other-user>"; have the user re-approve from
@@ -638,14 +643,15 @@ and retry. Don't proceed to 8c until this matches.
 
 8a and 8b leave the bot as gh's active account. Switch back to the
 maintainer, whose token has admin on the repo (a no-op if you skipped
-straight here; skip the command when the
-maintainer authenticates via `GH_TOKEN` rather than the keyring; the
-bot then stays gh's active keyring account, so switch away afterwards
-if the machine is also used interactively):
+straight here):
 
 ```bash
 env -u GH_TOKEN -u GITHUB_TOKEN gh auth switch --user <maintainer>
 ```
+
+When the maintainer authenticates via `GH_TOKEN` rather than the
+keyring, skip the switch: their env token keeps governing bare gh
+commands, so the bot staying keyring-active is harmless.
 
 Copy the bot's token to the repo secret (`<secret-name>` is the
 `secrets.bot_token` value from §1, default `TEND_BOT_TOKEN`; trust
