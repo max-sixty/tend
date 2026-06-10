@@ -552,45 +552,51 @@ The bot's token needs scopes `repo`, `workflow`, `notifications`,
 `write:discussion`, `gist`, and `user` (per-scope justifications in
 ${CLAUDE_SKILL_DIR}/references/tend.example.yaml).
 
-Arriving here from a `Bot PAT` scope-audit issue? This step is the
-whole remediation: mint the broader token (below), push it to the
-secret, close the issue. The secret to update is the
-`secrets.bot_token` name from `.config/tend.yaml` (default
-`TEND_BOT_TOKEN`); audit issues sometimes paraphrase the name, so go
-by the config.
+This step checks what gh already stores for the bot, mints a token
+only if needed (8a or 8b), and pushes it to the repo secret (8c). It
+serves both the install sequence and a standalone `Bot PAT`
+scope-audit remediation; in the audit case it is the whole fix, and
+you close the issue once 8c verifies. `<bot-name>` is `bot_name` in
+`.config/tend.yaml`; `$REPO` derives as in the kickoff:
+`gh repo view --json nameWithOwner --jq '.nameWithOwner'`.
 
-gh gives the `GH_TOKEN`/`GITHUB_TOKEN` env vars precedence over the
-keyring: when either is set, keyring-mutating commands
-(`gh auth login/refresh/switch/logout`) refuse to run ("The value of
-the … environment variable is being used for authentication") and
-identity reads (`gh api user`) answer as the env token's user. This
-step pins specific keyring accounts, so the keyring-mutating and
-identity-read commands below carry an
-`env -u GH_TOKEN -u GITHUB_TOKEN` prefix, which keeps the rest of the
-environment intact. `gh auth token --user` reads only
-the keyring regardless, and the `gh secret` commands just need admin
-on the repo, so those run bare.
+When `GH_TOKEN` or `GITHUB_TOKEN` is set, gh defers to it: keyring
+writes (`gh auth login/refresh/switch/logout`) refuse to run ("The
+value of the … environment variable is being used for
+authentication") and `gh api user` answers as the env token's user.
+Those commands therefore carry an `env -u GH_TOKEN -u GITHUB_TOKEN`
+prefix below. The rest are env-indifferent and run bare:
+`gh auth token --user` reads only stored credentials, and `gh secret`
+accepts any admin-capable auth (a 403 means the ambient token lacks
+admin; prefix it too).
 
-First check whether the bot is already in the gh keyring (likely on
-re-runs and scope refreshes):
+Check what's stored for the bot:
 
 ```bash
 gh auth status 2>&1 | grep -A 4 "<bot-name> (keyring)"
 ```
 
-If found, use the **refresh path** (8a); otherwise use the **login
-path** (8b). Insecure-storage entries print a file path instead of
-`(keyring)`, so they route to 8b; the re-login just overwrites them.
+Route on the output:
 
-Both paths run a device flow: gh prints a one-time code and polls
-until someone approves it at `https://github.com/login/device` in a
-browser logged in as the bot. Run the command yourself when you have
-shell and keyring access: start it in the background, surface the code
-and URL to the user, and the poll completes when they approve. Have
-the user run it in their own terminal only when you can't (no keyring
-access, or a shell where `env -u` needs translating — Git Bash takes
-it as-is; PowerShell:
-`Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN; gh auth …`).
+- `Token scopes:` already lists all six scopes → the stored token is
+  good; skip to 8c.
+- Entry found, scopes missing → **refresh path** (8a).
+- No match → **login path** (8b). Insecure-storage installs land here
+  too (they print a file path instead of `(keyring)`); the login
+  overwrites the entry.
+
+8a and 8b both run gh's device flow: the command prints a one-time
+code and polls until it is approved at
+`https://github.com/login/device` in a browser logged in as the bot.
+Codes expire after about 15 minutes; rerun for a fresh one. Run the
+command yourself in the background, surfacing the code and URL to the
+user; the poll completes when they approve. Delegate it to the user's
+own terminal only when your shell lacks keyring access or `env -u`
+(on Windows, Git Bash takes the command as-is; PowerShell:
+`Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN; gh auth …`). The minted
+token lands wherever the login ran, so after delegating, the rest of
+the step's `gh auth token --user` reads (8c, steps 9 and 10) must run
+in that same terminal too.
 
 ### 8a. Refresh path (bot already in keyring)
 
@@ -630,20 +636,28 @@ and retry. Don't proceed to 8c until this matches.
 
 ### 8c. Push token to secret
 
-Both paths leave the bot as gh's active account. Switch back to the
-maintainer, whose token has admin on the repo (skip when the
-maintainer authenticates via `GH_TOKEN` rather than the keyring):
+8a and 8b leave the bot as gh's active account. Switch back to the
+maintainer, whose token has admin on the repo (a no-op if you skipped
+straight here; skip the command when the
+maintainer authenticates via `GH_TOKEN` rather than the keyring; the
+bot then stays gh's active keyring account, so switch away afterwards
+if the machine is also used interactively):
 
 ```bash
 env -u GH_TOKEN -u GITHUB_TOKEN gh auth switch --user <maintainer>
 ```
 
 Copy the bot's token to the repo secret (`<secret-name>` is the
-`secrets.bot_token` value from §1, default `TEND_BOT_TOKEN`) and
-verify the `Updated` timestamp is fresh:
+`secrets.bot_token` value from §1, default `TEND_BOT_TOKEN`; trust
+this over any name an audit issue quotes) and verify the `Updated`
+timestamp is fresh. The emptiness guard matters:
+`gh secret set` accepts an empty body, so piping a failed keyring
+read straight in would silently blank a working secret.
 
 ```bash
-gh auth token --user <bot-name> | gh secret set <secret-name> --repo "$REPO"
+BOT_GH_TOKEN=$(gh auth token --user <bot-name>)
+[ -n "$BOT_GH_TOKEN" ]  # stop here if the keyring read failed
+gh secret set <secret-name> --repo "$REPO" --body "$BOT_GH_TOKEN"
 gh secret list --repo "$REPO"
 ```
 
