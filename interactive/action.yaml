@@ -409,18 +409,23 @@ runs:
 
     # The supervisor pattern, in three pieces:
     #   1. .claude/settings.local.json sets `permissions.defaultMode:
-    #      dontAsk` with a permissive allow list, plus Stop/StopFailure
-    #      hooks. Stop writes a success sentinel; StopFailure writes a
-    #      failure sentinel for API/rate-limit/auth errors. Adopter
-    #      project settings still apply via the layered settings system.
-    #      We avoid `--permission-mode bypassPermissions` because
-    #      interactive claude shows a one-time "I accept the risks"
-    #      disclaimer the first time bypass mode is entered, with no
-    #      documented way to pre-seed acceptance — `dontAsk` + explicit
-    #      allow is equivalent for CI's purposes.
+    #      bypassPermissions`, plus Stop/StopFailure hooks. Stop writes a
+    #      success sentinel; StopFailure writes a failure sentinel for
+    #      API/rate-limit/auth errors. Adopter project settings still apply
+    #      via the layered settings system.
+    #      We use `bypassPermissions` (not `dontAsk`) because every other mode
+    #      hard-denies writes to Claude Code's protected paths (.devcontainer/,
+    #      .github/, .husky/, .cargo/, dotfiles), which blocked the bot from
+    #      autonomous fixes. It's safe here: the run is sandboxed and can only
+    #      land via reviewed PRs. The one-time "I accept the risks" disclaimer
+    #      bypass mode shows interactively is suppressed by CLAUDE_CODE_REMOTE=1
+    #      (set below) — verify via interactive-smoke that it doesn't hang.
+    #      TODO: research a more hawkish posture that keeps this write
+    #      capability — e.g. an auto-mode classifier, or scoped overrides of
+    #      specific protected paths — without reintroducing hard blocks.
     #   2. A wrapper script invokes `claude` with `--permission-mode
-    #      dontAsk --allowedTools …` so all argv/env quoting happens in
-    #      bash, not in nested YAML strings.
+    #      bypassPermissions --allowedTools …` so all argv/env quoting happens
+    #      in bash, not in nested YAML strings.
     #   3. `script(1)` allocates a PTY (GHA runners have no TTY by
     #      default; without this the Ink-based UI degrades or hangs).
     #      The supervisor polls for either sentinel, process exit, or the
@@ -431,12 +436,11 @@ runs:
       env:
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        # Tells claude this is a remote/non-interactive context so it
-        # skips permission prompts that would otherwise block the
-        # supervisor (interactive mode shows a one-time disclaimer the
-        # first time bypass-permission tools are invoked). Belt-and-
-        # suspenders alongside the settings.local.json dontAsk allow
-        # list below.
+        # Tells claude this is a remote/non-interactive context so it skips
+        # the permission prompts (and the one-time bypass-mode "I accept the
+        # risks" disclaimer) that would otherwise block the PTY supervisor.
+        # With defaultMode=bypassPermissions this is load-bearing: it's what
+        # keeps the disclaimer from hanging the session.
         CLAUDE_CODE_REMOTE: "1"
         # Mirrors action.yaml: the Linux bwrap wrapping path corrupts `!`
         # to `\!` in Bash commands, so the sandbox stays off (`0`). The
@@ -469,11 +473,10 @@ runs:
         sudo -u "$SANDBOX" rm -f "$SENTINEL_OK" "$SENTINEL_FAIL" "$LOG"
 
         # Build the permissions allow list from the comma-separated
-        # `allowed_tools` input. defaultMode=dontAsk means anything not
-        # explicitly allowed is denied (no interactive prompt). For tools
-        # like Bash with no `(...)` suffix, the entry matches all
-        # invocations — semantically equivalent to bypassPermissions for
-        # the listed tools.
+        # `allowed_tools` input. With defaultMode=bypassPermissions the allow
+        # list is largely moot (every tool is permitted), but it's retained so
+        # the listed tools stay granted via the layered settings if an adopter
+        # overrides defaultMode to a stricter mode.
         ALLOW_JSON=$(jq -nc --arg list "$TEND_ALLOWED_TOOLS" '$list | split(",") | map(. | gsub("^\\s+|\\s+$"; ""))')
 
         # Build settings.local.json with jq, not a heredoc — jq escapes the
@@ -487,7 +490,7 @@ runs:
           --arg ok "$SENTINEL_OK" \
           --arg fail "$SENTINEL_FAIL" \
           '{
-            permissions: {defaultMode: "dontAsk", allow: $allow},
+            permissions: {defaultMode: "bypassPermissions", allow: $allow},
             hooks: {
               Stop:        [{matcher: "", hooks: [{type: "command", command: ("touch " + ($ok   | @sh))}]}],
               StopFailure: [{matcher: "", hooks: [{type: "command", command: ("touch " + ($fail | @sh))}]}]
@@ -505,7 +508,7 @@ runs:
         #!/usr/bin/env bash
         exec claude \
           --model "$TEND_MODEL" \
-          --permission-mode dontAsk \
+          --permission-mode bypassPermissions \
           --allowedTools "$TEND_ALLOWED_TOOLS" \
           --append-system-prompt "$TEND_SYSTEM_PROMPT" \
           "$TEND_PROMPT"
