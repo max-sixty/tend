@@ -341,12 +341,6 @@ runs:
     #     → skips the welcome/theme/intro flow
     #   theme=dark
     #     → fallback in case onboarding still triggers
-    #   bypassPermissionsModeAccepted=true
-    #     → skips the one-time "I accept the risks" disclaimer shown the
-    #       first time bypassPermissions mode is entered. Undocumented key;
-    #       CLAUDE_CODE_REMOTE=1 does NOT suppress this disclaimer (a smoke
-    #       run hung at the prompt until the supervisor timeout), so the
-    #       pre-seed is the only thing keeping the session from hanging.
     #   projects[$PWD].hasTrustDialogAccepted=true
     #     → skips the workspace-trust dialog
     #   projects[$PWD].hasCompletedProjectOnboarding=true
@@ -364,7 +358,6 @@ runs:
           .hasCompletedOnboarding = true
           | .lastOnboardingVersion = $v
           | .theme = (.theme // "dark")
-          | .bypassPermissionsModeAccepted = true
           | .projects[$p] = ((.projects[$p] // {}) + {
               hasTrustDialogAccepted: true,
               hasCompletedProjectOnboarding: true
@@ -425,9 +418,12 @@ runs:
     #      .github/, .husky/, .cargo/, dotfiles), which blocked the bot from
     #      autonomous fixes. It's safe here: the run is sandboxed and can only
     #      land via reviewed PRs. The one-time "I accept the risks" disclaimer
-    #      bypass mode shows interactively is pre-accepted by seeding
-    #      bypassPermissionsModeAccepted in ~/.claude.json (see "Pre-seed
-    #      Claude onboarding state" above).
+    #      bypass mode shows interactively is pre-accepted via
+    #      skipDangerousModePermissionPrompt in the same settings file.
+    #      (CLAUDE_CODE_REMOTE=1 does not suppress it, and the legacy
+    #      ~/.claude.json bypassPermissionsModeAccepted key is consumed only
+    #      by a migration, not by the dialog check — both hung the PTY in
+    #      smoke runs.)
     #      TODO: research a more hawkish posture that keeps this write
     #      capability — e.g. an auto-mode classifier, or scoped overrides of
     #      specific protected paths — without reintroducing hard blocks.
@@ -447,7 +443,7 @@ runs:
         # Tells claude this is a remote/non-interactive context so it skips
         # permission prompts that would otherwise block the PTY supervisor.
         # It does NOT suppress the bypass-mode disclaimer — that's handled by
-        # the bypassPermissionsModeAccepted pre-seed in ~/.claude.json.
+        # skipDangerousModePermissionPrompt in settings.local.json.
         CLAUDE_CODE_REMOTE: "1"
         # Mirrors action.yaml: the Linux bwrap wrapping path corrupts `!`
         # to `\!` in Bash commands, so the sandbox stays off (`0`). The
@@ -492,12 +488,18 @@ runs:
         # shell command. Settings and wrapper are written into sandbox-owned
         # locations as the sandbox user; the `< file` redirect is opened by the
         # runner shell, so tee needs no read access to the runner temp file.
+        # skipDangerousModePermissionPrompt pre-accepts the one-time bypass-
+        # mode "I accept the risks" disclaimer — it's the settings key the
+        # dialog's accept button writes, and the disclaimer check reads it
+        # from any settings layer (user/local/flag/policy), so the project
+        # settings.local.json works.
         jq -nc \
           --argjson allow "$ALLOW_JSON" \
           --arg ok "$SENTINEL_OK" \
           --arg fail "$SENTINEL_FAIL" \
           '{
             permissions: {defaultMode: "bypassPermissions", allow: $allow},
+            skipDangerousModePermissionPrompt: true,
             hooks: {
               Stop:        [{matcher: "", hooks: [{type: "command", command: ("touch " + ($ok   | @sh))}]}],
               StopFailure: [{matcher: "", hooks: [{type: "command", command: ("touch " + ($fail | @sh))}]}]
