@@ -273,17 +273,21 @@ runs:
           echo 'TEND_EOF'
         } >> "$GITHUB_OUTPUT"
 
-    # Credential isolation (gh/git): run the agent as a separate, non-sudo
-    # `tend-sandbox` user while the bot PAT lives only in a local mitmproxy
-    # that injects it into GitHub requests. The agent never holds the PAT —
-    # not in its env, and not in .git/config (the setup script strips the
-    # credential `actions/checkout` persists there). Claude's own auth
-    # (OAuth / API key) is out of scope for this cut and still reaches the
-    # agent's env. See proxy/setup-sandbox.sh and proxy/github_auth.py.
+    # Credential isolation: run the agent as a separate, non-sudo
+    # `tend-sandbox` user while the real secrets live only in a local mitmproxy
+    # that injects them per-host. The agent holds only dummies:
+    #   - GitHub PAT → injected for GitHub hosts; never in the agent's env, and
+    #     not in .git/config (the setup script strips the credential
+    #     `actions/checkout` persists there).
+    #   - Anthropic OAuth/API key → injected for api.anthropic.com; the agent
+    #     gets a dummy in the matching scheme so `claude` emits the right
+    #     headers, and the proxy swaps in the real secret. So even the model
+    #     auth never reaches the agent's env or disk.
+    # See proxy/setup-sandbox.sh and proxy/inject_credentials.py.
     #
     # Runs after "Restore sensitive config" (which needs the persisted git
-    # credential for its base fetch) and before the claude lifecycle, which
-    # from here on executes as the sandbox user.
+    # credential for its base fetch) and before the claude lifecycle — install,
+    # onboarding, plugins, and the run all execute as the sandbox user.
     # Cache the proxy's mitmproxy download (a sizeable dependency) in an
     # isolated uv cache dir, keyed on the pinned version. First run populates;
     # every run after restores in seconds instead of a cold ~20s resolve. The
@@ -298,23 +302,37 @@ runs:
       shell: bash
       env:
         TEND_GH_TOKEN: ${{ inputs.github_token }}
+        # The real Anthropic credential goes ONLY to the proxy (this runner-
+        # owned step), never to the sandbox. The proxy injects it for
+        # api.anthropic.com; the agent later gets a scheme-matched dummy.
+        TEND_ANTHROPIC_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        TEND_ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
         ACTION_PATH: ${{ github.action_path }}
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
       run: bash "${{ github.action_path }}/proxy/setup-sandbox.sh"
 
-    # Install the claude binary. Same recipe and pinned version as
-    # claude-code-base-action's install step.
-    - name: Install Claude Code
+    # Install the agent toolchain (uv + the claude binary) DIRECTLY into the
+    # sandbox user's home, so there is no ~200 MB `cp -a` from the runner. The
+    # claude binary carries absolute-path references into ~/.local/share, so it
+    # must be installed in place — installing as runner and moving breaks it.
+    # uv is the agent's own (its skills run `uvx tend@latest …`); the runner has
+    # a separate uv for the proxy. Installers fetch over the direct network (no
+    # proxy env here). Same pinned claude version as claude-code-base-action.
+    - name: Install agent toolchain (sandbox)
       shell: bash
       env:
         CLAUDE_VERSION: ${{ inputs.claude_version }}
       run: |
+        sudo -u "$SANDBOX" env HOME="$AGENT_HOME" CLAUDE_VERSION="$CLAUDE_VERSION" bash <<'EOF'
+        set -euo pipefail
+        if [ ! -x "$HOME/.local/bin/uv" ]; then
+          curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
+        fi
         # `set -o pipefail` inside the bash -c subshell is required: without it
-        # a curl failure (e.g. a 403 from the claude.ai CDN) passes empty
-        # stdin to the downstream `bash -s --`, which exits 0, so the if
-        # branch succeeds and the loop breaks after one attempt without
-        # actually retrying.
+        # a curl failure (e.g. a 403 from the claude.ai CDN) passes empty stdin
+        # to the downstream `bash -s --`, which exits 0, so the if branch
+        # succeeds and the loop breaks after one attempt without retrying.
         for i in 1 2 3; do
           if timeout 60 bash -c "set -o pipefail; curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_VERSION"; then
             break
@@ -322,12 +340,12 @@ runs:
           echo "Install attempt $i failed; retrying"
           sleep $((i * 5))
         done
-        if ! [ -x "$HOME/.local/bin/claude" ]; then
-          echo "::error::claude binary not found at $HOME/.local/bin/claude after install"
+        EOF
+        if ! sudo -u "$SANDBOX" test -x "$AGENT_HOME/.local/bin/claude"; then
+          echo "::error::claude binary not found at $AGENT_HOME/.local/bin/claude after install"
           exit 1
         fi
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-        "$HOME/.local/bin/claude" --version
+        sudo -u "$SANDBOX" "$AGENT_HOME/.local/bin/claude" --version
 
     # Interactive `claude` runs first-run onboarding on a fresh install:
     # workspace-trust dialog, theme picker, then per-project onboarding.
@@ -345,15 +363,19 @@ runs:
     #     → skips the workspace-trust dialog
     #   projects[$PWD].hasCompletedProjectOnboarding=true
     #     → skips the per-project "first time in this folder" prompt
-    - name: Pre-seed Claude onboarding state
+    - name: Pre-seed Claude onboarding state (sandbox)
       shell: bash
       env:
         CLAUDE_VERSION: ${{ inputs.claude_version }}
       run: |
-        PROJECT_PATH="$(realpath "$PWD")"
-        if [ ! -f "$HOME/.claude.json" ]; then
-          echo '{}' > "$HOME/.claude.json"
-        fi
+        # Written to the sandbox's own ~/.claude.json (the agent runs as the
+        # sandbox user). PROJECT_PATH must match the agent's cwd — the workspace,
+        # which the agent runs claude in below — so the trust dialog is skipped.
+        PROJECT_PATH="$(realpath "$GITHUB_WORKSPACE")"
+        sudo -u "$SANDBOX" env HOME="$AGENT_HOME" CLAUDE_VERSION="$CLAUDE_VERSION" PROJECT_PATH="$PROJECT_PATH" bash <<'EOF'
+        set -euo pipefail
+        F="$HOME/.claude.json"
+        [ -f "$F" ] || echo '{}' > "$F"
         jq --arg p "$PROJECT_PATH" --arg v "$CLAUDE_VERSION" '
           .hasCompletedOnboarding = true
           | .lastOnboardingVersion = $v
@@ -362,50 +384,46 @@ runs:
               hasTrustDialogAccepted: true,
               hasCompletedProjectOnboarding: true
             })
-        ' "$HOME/.claude.json" > "$HOME/.claude.json.tmp"
-        mv "$HOME/.claude.json.tmp" "$HOME/.claude.json"
-        echo "Pre-seeded onboarding for $PROJECT_PATH (claude $CLAUDE_VERSION)"
+        ' "$F" > "$F.tmp"
+        mv "$F.tmp" "$F"
+        EOF
+        echo "Pre-seeded sandbox onboarding for $PROJECT_PATH (claude $CLAUDE_VERSION)"
 
-    # Install the tend-ci-runner plugin from this action's own checkout —
-    # same approach as action.yaml's `plugin_marketplaces:
-    # ${{ github.action_path }}`. The plugin marketplace manifest at the
-    # repo root (../.claude-plugin/marketplace.json relative to this
-    # action) registers both plugins.
-    - name: Install tend plugins
-      shell: bash
-      env:
-        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        # Suppress any interactive prompts (auth confirmation, plugin
-        # install confirmation, etc.) the CLI might otherwise show.
-        CLAUDE_CODE_REMOTE: "1"
-      run: |
-        MARKETPLACE_ROOT="$(realpath "${{ github.action_path }}/..")"
-        claude plugin marketplace add "$MARKETPLACE_ROOT"
-        claude plugin install install-tend@tend
-        claude plugin install tend-ci-runner@tend
-        claude plugin list 2>/dev/null || true
-
-    # The claude binary, uv, plugins, and onboarding state were installed
-    # into the runner's home by the steps above. Copy them into the sandbox
-    # user's home so the agent — which runs as tend-sandbox from here — finds
-    # its toolchain and config natively (no CLAUDE_CONFIG_DIR guesswork). cp -a,
-    # not mv: the claude binary has absolute-path references into ~/.local/share,
-    # so moving the originals out breaks it. (The cheaper fix — installing the
-    # toolchain as the sandbox user directly — is a follow-up.) The bot PAT is in
-    # none of these paths, so the copy carries no GitHub credential into the sandbox.
-    - name: Hand off Claude toolchain to sandbox
+    # Install the tend plugins into the sandbox's own ~/.claude. The marketplace
+    # is this action's checkout; the runner copies just the manifest + plugins
+    # (a small markdown tree, NOT the toolchain) into a sandbox-owned dir so the
+    # sandbox can read it regardless of where Actions placed the action. Then the
+    # sandbox installs from there, as the sandbox user, through the proxy with a
+    # dummy Anthropic credential ($AGENT_ANTHROPIC_ENV) — if `claude` validates
+    # auth it reaches api.anthropic.com via the injecting proxy; the real secret
+    # never enters the sandbox. NODE_EXTRA_CA_CERTS trusts the proxy CA (claude
+    # is Node and ignores the system store).
+    - name: Install tend plugins (sandbox)
       shell: bash
       run: |
-        sudo mkdir -p "$AGENT_HOME/.local"
-        sudo cp -a /home/runner/.local/bin "$AGENT_HOME/.local/bin"
-        if [ -d /home/runner/.local/share ]; then
-          sudo cp -a /home/runner/.local/share "$AGENT_HOME/.local/share"
-        fi
-        sudo cp -a /home/runner/.claude "$AGENT_HOME/.claude"
-        sudo cp -a /home/runner/.claude.json "$AGENT_HOME/.claude.json"
-        sudo chown -R "${SANDBOX}:${SANDBOX}" "$AGENT_HOME"
-        sudo -u "$SANDBOX" "$AGENT_HOME/.local/bin/claude" --version
+        MARKETPLACE_SRC="$(realpath "${{ github.action_path }}/..")"
+        SANDBOX_MKT="$AGENT_HOME/tend-marketplace"
+        sudo rm -rf "$SANDBOX_MKT"
+        sudo mkdir -p "$SANDBOX_MKT"
+        sudo cp -a "$MARKETPLACE_SRC/.claude-plugin" "$MARKETPLACE_SRC/plugins" "$SANDBOX_MKT/"
+        sudo chown -R "${SANDBOX}:${SANDBOX}" "$SANDBOX_MKT"
+
+        sudo -u "$SANDBOX" env \
+          HOME="$AGENT_HOME" \
+          PATH="$AGENT_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+          HTTPS_PROXY="$PROXY_URL" HTTP_PROXY="$PROXY_URL" \
+          https_proxy="$PROXY_URL" http_proxy="$PROXY_URL" \
+          NO_PROXY="localhost,127.0.0.1" no_proxy="localhost,127.0.0.1" \
+          NODE_EXTRA_CA_CERTS="$PROXY_CA_CERT" \
+          CLAUDE_CODE_REMOTE=1 \
+          "$AGENT_ANTHROPIC_ENV" \
+          bash -c '
+            set -euo pipefail
+            claude plugin marketplace add "$1"
+            claude plugin install install-tend@tend
+            claude plugin install tend-ci-runner@tend
+            claude plugin list 2>/dev/null || true
+          ' _ "$SANDBOX_MKT"
 
     # The supervisor pattern, in three pieces:
     #   1. .claude/settings.local.json sets `permissions.defaultMode:
@@ -429,8 +447,8 @@ runs:
       id: claude
       shell: bash
       env:
-        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        # No real Anthropic credential here — the agent gets a dummy
+        # ($AGENT_ANTHROPIC_ENV) at launch and the proxy injects the real one.
         # Tells claude this is a remote/non-interactive context so it
         # skips permission prompts that would otherwise block the
         # supervisor (interactive mode shows a one-time disclaimer the
@@ -439,15 +457,13 @@ runs:
         # list below.
         CLAUDE_CODE_REMOTE: "1"
         # Mirrors action.yaml: the Linux bwrap wrapping path corrupts `!`
-        # to `\!` in Bash commands, so the sandbox stays off (`0`). The
-        # sandbox would otherwise hide the model auth from the agent;
-        # re-enable once the upstream bug lands. Reproduced through claude
-        # 2.1.159; anthropics/claude-code#64301, write-up in #639.
+        # to `\!` in Bash commands, so the sandbox stays off (`0`). bwrap's
+        # value was hiding the model auth from the agent; that is now moot —
+        # the agent's env holds only dummy GitHub + Anthropic secrets, so
+        # there is nothing sensitive left for SUBPROCESS_ENV_SCRUB to hide.
+        # Reproduced through claude 2.1.159; anthropics/claude-code#64301,
+        # write-up in #639.
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
-        # No GH_TOKEN/GITHUB_TOKEN here — the agent runs as the sandbox user
-        # with only a dummy token; the real PAT lives in the proxy. With the
-        # secrets gone from the agent's env, the SUBPROCESS_ENV_SCRUB=0
-        # quoting workaround above no longer carries any credential cost.
         BOT_NAME: ${{ inputs.bot_name }}
         BOT_ID: ${{ steps.bot.outputs.id }}
         TEND_MODEL: ${{ inputs.model }}
@@ -513,12 +529,16 @@ runs:
         sudo -u "$SANDBOX" tee "$WRAPPER" < "$RUNNER_TEMP/tend-wrapper.sh" >/dev/null
         sudo -u "$SANDBOX" chmod +x "$WRAPPER"
 
-        # Launch the agent as the non-sudo sandbox user. Its env carries a
-        # DUMMY GitHub token (gh refuses to run without one); the proxy
-        # replaces it with the real PAT for GitHub hosts only. HTTPS_PROXY
-        # routes gh/git through the proxy; non-GitHub traffic tunnels through
-        # untouched. The real PAT is in none of this env. script(1) allocates
-        # the PTY (GHA runners have no TTY; without it the Ink UI hangs).
+        # Launch the agent as the non-sudo sandbox user. Its env carries only
+        # DUMMY secrets: a dummy GitHub token (gh refuses to run without one)
+        # and a dummy Anthropic credential ($AGENT_ANTHROPIC_ENV, in the same
+        # scheme as production). The proxy replaces both with the real secrets
+        # for their hosts (GitHub hosts; api.anthropic.com). HTTPS_PROXY routes
+        # gh/git/claude through the proxy; non-allowlisted traffic tunnels
+        # through untouched. NODE_EXTRA_CA_CERTS makes claude (Node) trust the
+        # proxy CA for the intercepted api.anthropic.com TLS. No real secret is
+        # in this env. script(1) allocates the PTY (GHA runners have no TTY;
+        # without it the Ink UI hangs).
         DUMMY_GH_TOKEN="ghp_tendproxydummy000000000000000000000"
         sudo -u "$SANDBOX" env \
           HOME="$AGENT_HOME" \
@@ -526,9 +546,9 @@ runs:
           HTTPS_PROXY="$PROXY_URL" HTTP_PROXY="$PROXY_URL" \
           https_proxy="$PROXY_URL" http_proxy="$PROXY_URL" \
           NO_PROXY="localhost,127.0.0.1" no_proxy="localhost,127.0.0.1" \
+          NODE_EXTRA_CA_CERTS="$PROXY_CA_CERT" \
           GH_TOKEN="$DUMMY_GH_TOKEN" GITHUB_TOKEN="$DUMMY_GH_TOKEN" \
-          CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-          ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+          "$AGENT_ANTHROPIC_ENV" \
           CLAUDE_CODE_REMOTE="$CLAUDE_CODE_REMOTE" \
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB="$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB" \
           BOT_NAME="$BOT_NAME" BOT_ID="$BOT_ID" \
@@ -614,6 +634,18 @@ runs:
             exit 1
             ;;
         esac
+
+    # The sandbox owned the workspace during the run. Hand it back to the runner
+    # so actions/checkout's post-job credential cleanup — which runs as the
+    # runner and writes .git/config — doesn't warn on dubious ownership /
+    # permission. Always, so a failed run cleans up too.
+    - name: Restore workspace ownership for checkout cleanup
+      if: always()
+      shell: bash
+      run: |
+        if [ -n "${SANDBOX:-}" ] && [ -d "$GITHUB_WORKSPACE/.git" ]; then
+          sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+        fi
 
     - name: Mark event notification read
       if: success()

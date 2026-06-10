@@ -18,9 +18,15 @@ name: interactive-smoke
 #   4. The Stop hook fires after a turn that uses a tool, and the
 #      supervisor exits 0.
 #   5. Token usage is parseable from the session JSONL.
-#   6. Credential isolation: the agent runs as the tend-sandbox user with
-#      only a dummy GitHub token, yet `gh api user` succeeds — proving the
-#      injecting proxy attached the real PAT. A broken proxy would 401.
+#   6. GitHub isolation: the agent runs as the tend-sandbox user with only a
+#      dummy GitHub token, yet `gh api user` succeeds — proving the injecting
+#      proxy attached the real PAT. A broken proxy would 401.
+#   7. Anthropic isolation (phase 2): the agent's env holds only a DUMMY
+#      Anthropic credential (it greps for the `tendproxydummy` marker), yet the
+#      session completes turns — proving the proxy injected the real Anthropic
+#      secret for api.anthropic.com. The real model auth never reaches the agent.
+#   8. The toolchain (uv + claude + plugins) installs and runs entirely as the
+#      sandbox user — a failure here means the install-as-sandbox path broke.
 #
 # Failure modes the supervisor distinguishes (see Run Claude step in the
 # action):
@@ -48,8 +54,15 @@ on:
           3. Use the Bash tool to run: `git ls-remote origin HEAD`. This must
              succeed (not fatal): it proves the persisted-credential strip
              didn't break git and that git reaches origin through the proxy.
-          4. Reply with one line in the form:
-             "Smoke test ran at <date>; gh authenticated as <login>; git ls-remote ok".
+          4. Use the Bash tool to run this exact command, which proves your
+             Anthropic credential is a dummy (the real one lives only in the
+             proxy):
+             `if printenv CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY 2>/dev/null | grep -q tendproxydummy; then echo "anthropic-cred: dummy (isolated)"; else echo "anthropic-cred: REAL (LEAK)"; fi`
+             It must print "anthropic-cred: dummy (isolated)". That you can run
+             this turn at all proves the proxy injected the real secret for
+             inference.
+          5. Reply with one line in the form:
+             "Smoke test ran at <date>; gh authenticated as <login>; git ls-remote ok; <anthropic-cred line>".
 
           Do not push, comment, or modify files. Use only the Bash tool.
       model:

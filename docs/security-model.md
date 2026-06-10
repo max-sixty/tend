@@ -92,18 +92,21 @@ optionally inspect what the PR changed without those files ever being
 executed.
 
 **Credential isolation (`claude-interactive` harness).** The agent runs as a
-separate non-sudo `tend-sandbox` user. The bot PAT lives only in a local
-mitmproxy that the agent reaches over `HTTPS_PROXY`; the proxy injects the
-token into requests to GitHub hosts and tunnels everything else. The agent
-holds only a dummy token, so it can't read the real one: a different UID with
-no sudo can't read the proxy's `/proc/<pid>/environ`, and the credential
-`actions/checkout` persists in `.git/config` is stripped before the workspace
-is handed over. The injection allowlist is exact-match on the connection's real
-destination, so a request to a lookalike host gets no token. This covers the
-GitHub credential only; the Claude OAuth/API token still reaches the agent's
-env, and the other two harnesses (`action.yaml`, `codex/action.yaml`) pass the
-PAT directly. The merge restriction and `tend check` remain the load-bearing
-boundaries regardless of harness.
+separate non-sudo `tend-sandbox` user. Both the bot PAT and the Anthropic
+credential (OAuth token or API key) live only in a local mitmproxy that the
+agent reaches over `HTTPS_PROXY`; the proxy injects each into requests to its
+own hosts (the PAT for GitHub hosts, the Anthropic secret for
+`api.anthropic.com`) and tunnels everything else. The agent holds only dummies,
+so it can't read the real secrets: a different UID with no sudo can't read the
+proxy's `/proc/<pid>/environ`, the credential `actions/checkout` persists in
+`.git/config` is stripped before the workspace is handed over, and the model
+auth is never written to the agent's env or disk. The injection allowlist is
+exact-match on the connection's real destination, so a request to a lookalike
+host gets no token. (`claude` is Node and ignores the system trust store, so it
+trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) The other two harnesses
+(`action.yaml`, `codex/action.yaml`) still pass both the PAT and the model auth
+directly to the agent. The merge restriction and `tend check` remain the
+load-bearing boundaries regardless of harness.
 
 **Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort

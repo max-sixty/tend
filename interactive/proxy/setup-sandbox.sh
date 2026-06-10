@@ -1,30 +1,39 @@
 #!/usr/bin/env bash
-# Runner-side setup for credential isolation (gh/git cut).
+# Runner-side setup for credential isolation.
 #
 # Runs as the privileged `runner` user. Stands up everything needed to run the
 # agent as a separate, non-sudo `tend-sandbox` user whose only path to an
-# authenticated GitHub call is a local mitmproxy that holds the real token:
+# authenticated GitHub *or* Anthropic call is a local mitmproxy that holds the
+# real secrets:
 #
 #   1. Create the tend-sandbox user (no sudo, distinct UID).
 #   2. Neutralize the bot PAT actions/checkout persists for git — otherwise the
 #      sandbox reads it off disk and isolation is moot.
 #   3. Hand the checkout to tend-sandbox (and make the path traversable) so the
 #      agent can edit and commit.
-#   4. Start the injecting proxy (holds TEND_GH_TOKEN in its own memory) and
-#      system-trust its CA so the sandbox's gh/git accept the intercepted TLS.
+#   4. Start the injecting proxy (holds the real GitHub + Anthropic credentials
+#      in its own memory) and system-trust its CA so the sandbox's gh/git accept
+#      the intercepted TLS. (claude is Node and uses its own CA bundle, so the
+#      agent step also points NODE_EXTRA_CA_CERTS at the exported PROXY_CA_CERT.)
 #
 # Exports for later steps via $GITHUB_ENV: SANDBOX, AGENT_HOME, PROXY_URL,
-# TEND_RUN_DIR.
+# TEND_RUN_DIR, PROXY_CA_CERT, AGENT_ANTHROPIC_ENV.
 #
-# Inputs (env): TEND_GH_TOKEN (real PAT), ACTION_PATH (this action's checkout),
-# MITMPROXY_VERSION (pinned mitmproxy version). GITHUB_WORKSPACE / RUNNER_TEMP /
-# UV_CACHE_DIR come from Actions.
+# Inputs (env): TEND_GH_TOKEN (real PAT), TEND_ANTHROPIC_OAUTH_TOKEN and/or
+# TEND_ANTHROPIC_API_KEY (real Anthropic credential, injected for
+# api.anthropic.com), ACTION_PATH (this action's checkout), MITMPROXY_VERSION
+# (pinned mitmproxy version). GITHUB_WORKSPACE / RUNNER_TEMP / UV_CACHE_DIR come
+# from Actions.
 set -euo pipefail
 
 SANDBOX=tend-sandbox
 AGENT_HOME="/home/${SANDBOX}"
 PROXY_PORT=8899
 PROXY_URL="http://127.0.0.1:${PROXY_PORT}"
+# Public CA cert the proxy generates; system-trusted below for gh/git and
+# pointed at by NODE_EXTRA_CA_CERTS for claude. World-readable so the sandbox
+# (a different UID) can read it.
+PROXY_CA_CERT=/usr/local/share/ca-certificates/tend-proxy.crt
 # Run dir (sentinels, PTY log, wrapper) lives in the sandbox's own home so it
 # can write there freely; the runner reads it via the 0755 home path. (Under
 # RUNNER_TEMP the sandbox can't create it — that dir is runner-owned.)
@@ -35,6 +44,10 @@ log() { echo "[setup-sandbox] $*"; }
 
 if [ -z "${TEND_GH_TOKEN:-}" ]; then
   echo "::error::TEND_GH_TOKEN is unset; cannot start the credential proxy"
+  exit 1
+fi
+if [ -z "${TEND_ANTHROPIC_OAUTH_TOKEN:-}" ] && [ -z "${TEND_ANTHROPIC_API_KEY:-}" ]; then
+  echo "::error::No Anthropic credential set (TEND_ANTHROPIC_OAUTH_TOKEN or TEND_ANTHROPIC_API_KEY); cannot start the credential proxy"
   exit 1
 fi
 if [ -z "${MITMPROXY_VERSION:-}" ]; then
@@ -97,10 +110,10 @@ log "workspace handed to $SANDBOX"
 sudo -u "$SANDBOX" mkdir -p "$TEND_RUN_DIR"
 log "run dir $TEND_RUN_DIR"
 
-# 4. Start the injecting proxy. It inherits TEND_GH_TOKEN from this shell; the
-#    token never leaves this runner-owned process. confdir is 0700 runner-only
-#    so the sandbox can't read the CA private key (it only needs the public
-#    cert, added to the system trust store below).
+# 4. Start the injecting proxy. It inherits the real GitHub + Anthropic
+#    credentials from this shell; they never leave this runner-owned process.
+#    confdir is 0700 runner-only so the sandbox can't read the CA private key
+#    (it only needs the public cert, added to the system trust store below).
 mkdir -p "$CONFDIR"
 chmod 700 "$CONFDIR"
 # Warm the uvx cache first so the backgrounded launch starts immediately and
@@ -111,10 +124,10 @@ MITMPROXY="mitmproxy==${MITMPROXY_VERSION}"
 uvx --from "$MITMPROXY" mitmdump --version >/dev/null
 log "starting proxy"
 nohup uvx --from "$MITMPROXY" mitmdump \
-  -s "${ACTION_PATH}/proxy/github_auth.py" \
+  -s "${ACTION_PATH}/proxy/inject_credentials.py" \
   --listen-host 127.0.0.1 --listen-port "$PROXY_PORT" \
   --set confdir="$CONFDIR" \
-  --allow-hosts '^(api\.|codeload\.|uploads\.)?github\.com(:[0-9]+)?$' \
+  --allow-hosts '^((api\.|codeload\.|uploads\.)?github\.com|api\.anthropic\.com)(:[0-9]+)?$' \
   </dev/null >"${RUNNER_TEMP}/tend-proxy.log" 2>&1 &
 echo $! >"${RUNNER_TEMP}/tend-proxy.pid"
 disown
@@ -131,16 +144,31 @@ if [ ! -f "${CONFDIR}/mitmproxy-ca-cert.pem" ]; then
 fi
 
 # System-trust the proxy CA so the sandbox's gh (Go) and git (libcurl) accept
-# the intercepted GitHub TLS. Only the public cert is exported.
-sudo cp "${CONFDIR}/mitmproxy-ca-cert.pem" /usr/local/share/ca-certificates/tend-proxy.crt
+# the intercepted GitHub TLS. Only the public cert is exported. claude (Node)
+# ignores the system store, so the agent step points NODE_EXTRA_CA_CERTS at this
+# same cert for the intercepted api.anthropic.com TLS.
+sudo cp "${CONFDIR}/mitmproxy-ca-cert.pem" "$PROXY_CA_CERT"
 sudo update-ca-certificates >/dev/null
 log "proxy up at $PROXY_URL; CA trusted"
+
+# The agent runs `claude` in the SAME auth mode as the real credential (so it
+# emits the right headers) but with a DUMMY secret; the proxy swaps in the real
+# one for api.anthropic.com. Export the dummy as a ready-to-use `env` assignment
+# for the agent steps (single source of truth for the scheme + value). The
+# `tendproxydummy` marker lets the smoke prove the real secret never arrives.
+if [ -n "${TEND_ANTHROPIC_OAUTH_TOKEN:-}" ]; then
+  AGENT_ANTHROPIC_ENV="CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-tendproxydummy0000000000000000000000000000"
+else
+  AGENT_ANTHROPIC_ENV="ANTHROPIC_API_KEY=sk-ant-api03-tendproxydummy0000000000000000000000000000"
+fi
 
 {
   echo "SANDBOX=${SANDBOX}"
   echo "AGENT_HOME=${AGENT_HOME}"
   echo "PROXY_URL=${PROXY_URL}"
   echo "TEND_RUN_DIR=${TEND_RUN_DIR}"
+  echo "PROXY_CA_CERT=${PROXY_CA_CERT}"
+  echo "AGENT_ANTHROPIC_ENV=${AGENT_ANTHROPIC_ENV}"
 } >>"$GITHUB_ENV"
 
-log "done; agent runs as ${SANDBOX}, GitHub auth via the proxy"
+log "done; agent runs as ${SANDBOX}, GitHub + Anthropic auth via the proxy"
