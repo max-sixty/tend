@@ -280,7 +280,8 @@ if [ -n "$(git status --porcelain)" ]; then
   gh auth setup-git
   git add .
   git commit -m "chore: regenerate tend workflows (weekly integration self-heal)"
-  git push origin main
+  git push origin main \
+    || { echo "tend-integration: push to main failed; fixture not updated"; exit 1; }
 fi
 uvx tend@latest init
 [ -z "$(git status --porcelain)" ] \
