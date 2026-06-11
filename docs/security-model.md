@@ -175,16 +175,20 @@ Claude Code's bubblewrap sandbox would remove it from the agent's Bash tool
 entirely: a probe confirmed the sandbox's fresh `/proc` mount and `denyRead`
 rules block reading the token from the environment, `/proc`, and credential
 files. It is not deployed because the same bwrap path corrupts `!` in Bash
-commands (anthropics/claude-code#64301). See the `TODO.md` entry and #639.
+commands (anthropics/claude-code#64301). On the `claude-interactive` harness
+this is already moot — phase 2's credential proxy keeps the real model auth out
+of the agent's env entirely, so there is nothing for bwrap to hide; the bwrap
+benefit remains relevant only to the Agent-SDK `claude` harness. See the
+`TODO.md` entry and #639.
 
 **Long-lived PAT exposure.** A classic PAT is valid until revoked and grants
 access to every repo the bot account can reach. A single successful
 exfiltration gives the attacker persistent, broad write access. The merge
 restriction limits what they can *do* with it, but they can still push
 branches, create PRs, and post comments indefinitely. The credential isolation
-above keeps the PAT out of the agent on the `claude-interactive` harness; it
-remains directly exposed on the other harnesses and the Claude token on all of
-them.
+above keeps both the PAT and the Claude token out of the agent on the
+`claude-interactive` harness; both remain directly exposed on the other two
+harnesses.
 
 **Prompt injection without code execution.** Even without hijacking the
 tools, an attacker who controls what Claude reads can influence its behavior.
