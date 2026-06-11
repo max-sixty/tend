@@ -18,9 +18,21 @@ name: interactive-smoke
 #   4. The Stop hook fires after a turn that uses a tool, and the
 #      supervisor exits 0.
 #   5. Token usage is parseable from the session JSONL.
-#   6. Credential isolation: the agent runs as the tend-sandbox user with
-#      only a dummy GitHub token, yet `gh api user` succeeds — proving the
-#      injecting proxy attached the real PAT. A broken proxy would 401.
+#   6. GitHub isolation: the agent runs as the tend-sandbox user with only a
+#      dummy GitHub token, yet `gh api user` succeeds — proving the injecting
+#      proxy attached the real PAT. A broken proxy would 401.
+#   7. Anthropic isolation (phase 2): the agent's env holds NO real Anthropic
+#      credential — Claude Code strips its own auth vars from tool
+#      subprocesses, so the agent sees them unset, and the real secret lives
+#      only in the proxy. The agent's step-4 check fails only on a non-empty
+#      value lacking the `tendproxydummy` marker. That the session completes
+#      inference turns at all proves the proxy injected the real secret for
+#      api.anthropic.com (Claude held only a dummy in its own env). A
+#      deterministic post-run step greps the PTY log and hard-fails on a
+#      reported leak or a missing verdict; it does not rely on a human
+#      reading the transcript.
+#   8. The toolchain (uv + claude + plugins) installs and runs entirely as the
+#      sandbox user — a failure here means the install-as-sandbox path broke.
 #
 # Failure modes the supervisor distinguishes (see Run Claude step in the
 # action):
@@ -48,8 +60,28 @@ on:
           3. Use the Bash tool to run: `git ls-remote origin HEAD`. This must
              succeed (not fatal): it proves the persisted-credential strip
              didn't break git and that git reaches origin through the proxy.
-          4. Reply with one line in the form:
-             "Smoke test ran at <date>; gh authenticated as <login>; git ls-remote ok".
+          4. Use the Bash tool to run this exact script as ONE invocation.
+             Claude Code strips its own auth variables from tool subprocesses,
+             so these normally read `unset`; the check fails only if one holds
+             a NON-EMPTY value lacking the tendproxydummy marker — a real
+             secret reachable by the agent. unset / empty / dummy all mean
+             isolated:
+
+             v=isolated
+             for n in CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY; do
+               if ! val=$(printenv "$n"); then echo "envstate $n=unset"; continue; fi
+               if [ -z "$val" ]; then echo "envstate $n=empty"; continue; fi
+               if printf '%s' "$val" | grep -q tendproxydummy; then echo "envstate $n=dummy"
+               else echo "envstate $n=OTHER"; v=REAL-LEAK; fi
+             done
+             echo "anthropic-cred: $v"
+
+             It must end with the isolated verdict (not REAL-LEAK). That this
+             turn runs and completes at all is the proof the proxy injected
+             the real secret for inference — Claude authenticated to
+             api.anthropic.com holding only a dummy.
+          5. Reply with one line in the form:
+             "Smoke test ran at <date>; gh authenticated as <login>; git ls-remote ok; <the anthropic-cred output line>".
 
           Do not push, comment, or modify files. Use only the Bash tool.
       model:
@@ -95,6 +127,34 @@ jobs:
           # Short cap — the default prompt should finish in well under a
           # minute. Catching a hang here is part of the test.
           timeout_seconds: "300"
+
+      # Deterministic isolation gate: the prompt's step-4 command echoes
+      # "anthropic-cred: <verdict>" where verdict is isolated or REAL-LEAK.
+      # The joined string appears literally only in runtime output (the
+      # verdict is computed into $v), not in the command text, so grepping
+      # the PTY log is unambiguous. Match an optional space after the colon —
+      # the Ink UI collapses spaces in the raw tool output, though the agent's
+      # final reply reprints the line spaced. Fail on a reported leak, and
+      # fail if no verdict is present (agent skipped the check, or a custom
+      # -f prompt= dropped it).
+      - name: Assert credential isolation in transcript
+        if: success()
+        run: |
+          LOG="$TEND_RUN_DIR/tend-claude.log"
+          if [ ! -f "$LOG" ]; then
+            echo "::error::PTY log not found at $LOG"
+            exit 1
+          fi
+          CLEAN=$(sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$LOG" | tr -d '\r')
+          if grep -qE 'anthropic-cred:[[:space:]]*REAL-LEAK' <<<"$CLEAN"; then
+            echo "::error::Agent reported a REAL Anthropic credential reachable in the sandbox"
+            exit 1
+          fi
+          if ! grep -qE 'anthropic-cred:[[:space:]]*isolated' <<<"$CLEAN"; then
+            echo "::error::Transcript lacks an 'anthropic-cred: isolated' verdict — the isolation check did not run"
+            exit 1
+          fi
+          echo "Credential isolation verified: no real Anthropic secret reachable by the agent"
 
       # The action exits non-zero on stop-failure / exited / timeout, so a
       # successful job already implies the supervisor saw a clean Stop. This

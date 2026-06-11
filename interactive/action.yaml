@@ -145,10 +145,15 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
+    # Secrets via env:, not ${{ }} interpolation — interpolating them into the
+    # run: body would write their values into the rendered step script on disk.
     - name: Validate auth configured
       shell: bash
+      env:
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
       run: |
-        if [ -z "${{ inputs.claude_code_oauth_token }}" ] && [ -z "${{ inputs.anthropic_api_key }}" ]; then
+        if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
           echo "::error::No Claude auth configured. Set either the CLAUDE_CODE_OAUTH_TOKEN secret (subscription-funded, via \`claude setup-token\`) or the ANTHROPIC_API_KEY secret (billed per token via console.anthropic.com)."
           exit 1
         fi
@@ -273,17 +278,21 @@ runs:
           echo 'TEND_EOF'
         } >> "$GITHUB_OUTPUT"
 
-    # Credential isolation (gh/git): run the agent as a separate, non-sudo
-    # `tend-sandbox` user while the bot PAT lives only in a local mitmproxy
-    # that injects it into GitHub requests. The agent never holds the PAT —
-    # not in its env, and not in .git/config (the setup script strips the
-    # credential `actions/checkout` persists there). Claude's own auth
-    # (OAuth / API key) is out of scope for this cut and still reaches the
-    # agent's env. See proxy/setup-sandbox.sh and proxy/github_auth.py.
+    # Credential isolation: run the agent as a separate, non-sudo
+    # `tend-sandbox` user while the real secrets live only in a local mitmproxy
+    # that injects them per-host. The agent holds only dummies:
+    #   - GitHub PAT → injected for GitHub hosts; never in the agent's env, and
+    #     not in .git/config (the setup script strips the credential
+    #     `actions/checkout` persists there).
+    #   - Anthropic OAuth/API key → injected for api.anthropic.com; the agent
+    #     gets a dummy in the matching scheme so `claude` emits the right
+    #     headers, and the proxy swaps in the real secret. So even the model
+    #     auth never reaches the agent's env or disk.
+    # See proxy/setup-sandbox.sh and proxy/inject_credentials.py.
     #
     # Runs after "Restore sensitive config" (which needs the persisted git
-    # credential for its base fetch) and before the claude lifecycle, which
-    # from here on executes as the sandbox user.
+    # credential for its base fetch) and before the claude lifecycle — install,
+    # onboarding, plugins, and the run all execute as the sandbox user.
     # Cache the proxy's mitmproxy download (a sizeable dependency) in an
     # isolated uv cache dir, keyed on the pinned version. First run populates;
     # every run after restores in seconds instead of a cold ~20s resolve. The
@@ -298,77 +307,68 @@ runs:
       shell: bash
       env:
         TEND_GH_TOKEN: ${{ inputs.github_token }}
+        # The real Anthropic credential goes ONLY to the proxy (this runner-
+        # owned step), never to the sandbox. The proxy injects it for
+        # api.anthropic.com; the agent later gets a scheme-matched dummy.
+        TEND_ANTHROPIC_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        TEND_ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
         ACTION_PATH: ${{ github.action_path }}
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
       run: bash "${{ github.action_path }}/proxy/setup-sandbox.sh"
 
-    # Install the agent toolchain AS the tend-sandbox user so it lands in
-    # /home/tend-sandbox natively — no per-run `cp -a` + recursive chown of the
-    # ~200MB claude binary into the sandbox. The sandbox user already exists
-    # (created by the sandbox-setup step above). `mv` of a runner-side install
-    # was tried and failed: the claude binary embeds absolute-path refs into
-    # ~/.local/share, so relocating it breaks the launcher — installing in
-    # place as the sandbox user is the fix.
-    #
-    # No `$GITHUB_PATH` write: the sandbox can't write that runner-owned file,
-    # and the agent's PATH is set explicitly at launch (Run Claude). These
-    # installs reach claude.ai / astral.sh directly (no proxy env) — the proxy
-    # only allowlists GitHub hosts. Same recipe and pinned version as
-    # claude-code-base-action's install step.
-    - name: Install Claude Code (as sandbox user)
+    # Install the agent toolchain (uv + the claude binary) DIRECTLY into the
+    # sandbox user's home, so there is no ~200 MB `cp -a` from the runner. The
+    # claude binary carries absolute-path references into ~/.local/share, so it
+    # must be installed in place — installing as runner and moving breaks it.
+    # uv is the agent's own (its skills run `uvx tend@latest …`); the runner has
+    # a separate uv for the proxy. Installers fetch over the direct network (no
+    # proxy env here). Same pinned claude version as claude-code-base-action.
+    - name: Install agent toolchain (sandbox)
       shell: bash
       env:
         CLAUDE_VERSION: ${{ inputs.claude_version }}
       run: |
-        sudo -u "$SANDBOX" env \
-          HOME="$AGENT_HOME" \
-          CLAUDE_VERSION="$CLAUDE_VERSION" \
-          bash <<'TEND_EOF'
+        # XDG_* pinned under the sandbox home: the runner exports
+        # XDG_CONFIG_HOME=/home/runner/.config (leaks through sudo), and uv
+        # writes its receipt to $XDG_CONFIG_HOME/uv — unwritable by the
+        # sandbox UID. Pin all four base dirs so the installers (and any
+        # XDG-aware tool) land under $AGENT_HOME. Install fetches go direct
+        # (no proxy env here), so this step does not source $AGENT_ENV_FILE.
+        # UV_NO_MODIFY_PATH=1 keeps uv's installer from appending source lines
+        # to the sandbox's shell profiles — the launch env sets PATH explicitly,
+        # so a profile edit is inert noise.
+        sudo -u "$SANDBOX" env HOME="$AGENT_HOME" CLAUDE_VERSION="$CLAUDE_VERSION" \
+          XDG_CONFIG_HOME="$AGENT_HOME/.config" \
+          XDG_CACHE_HOME="$AGENT_HOME/.cache" \
+          XDG_DATA_HOME="$AGENT_HOME/.local/share" \
+          XDG_STATE_HOME="$AGENT_HOME/.local/state" \
+          UV_NO_MODIFY_PATH=1 \
+          bash <<'EOF'
         set -euo pipefail
-        # `set -o pipefail` inside the bash -c subshell is required: without it
-        # a curl failure (e.g. a 403 from the claude.ai CDN) passes empty
-        # stdin to the downstream `bash -s --`, which exits 0, so the if
-        # branch succeeds and the loop breaks after one attempt without
-        # actually retrying.
-        for i in 1 2 3; do
-          if timeout 60 bash -c "set -o pipefail; curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_VERSION"; then
-            break
-          fi
-          echo "Install attempt $i failed; retrying"
-          sleep $((i * 5))
-        done
-        if ! [ -x "$HOME/.local/bin/claude" ]; then
-          echo "::error::claude binary not found at $HOME/.local/bin/claude after install"
+        # One retry mechanism for both installer CDNs — transient 403s/5xxs
+        # are the shared failure class. The inner `set -o pipefail` is
+        # required: without it a curl failure passes empty stdin to the
+        # downstream `bash -s --`, which exits 0, masking the failure so the
+        # loop breaks after one attempt without retrying.
+        fetch_install() {
+          for i in 1 2 3; do
+            if timeout 60 bash -c "set -o pipefail; curl -fsSL $1 | bash -s -- $2"; then
+              return 0
+            fi
+            echo "Install attempt $i for $1 failed; retrying"
+            sleep $((i * 5))
+          done
+          return 1
+        }
+        fetch_install https://astral.sh/uv/install.sh --quiet
+        fetch_install https://claude.ai/install.sh "$CLAUDE_VERSION"
+        EOF
+        if ! sudo -u "$SANDBOX" test -x "$AGENT_HOME/.local/bin/claude"; then
+          echo "::error::claude binary not found at $AGENT_HOME/.local/bin/claude after install"
           exit 1
         fi
-        "$HOME/.local/bin/claude" --version
-        TEND_EOF
-
-    # The agent's skills shell out to `uvx tend@latest …` (the bundled nightly
-    # skill runs `tend check` / `init`), so the sandbox needs uv on its PATH.
-    # It used to arrive via the toolchain hand-off copy of ~/.local/bin; with
-    # that gone, install uv directly as the sandbox user. The runner's own uv
-    # ("Ensure uv is available", for the proxy) is a separate install.
-    #
-    # Pin the XDG base dirs to the sandbox home: the runner leaks
-    # XDG_CONFIG_HOME (=/home/runner/.config) through sudo, and uv writes its
-    # install receipt to $XDG_CONFIG_HOME/uv — a runner-owned path the sandbox
-    # can't create. Overriding HOME alone doesn't redirect it.
-    - name: Install uv (as sandbox user)
-      shell: bash
-      run: |
-        sudo -u "$SANDBOX" env \
-          HOME="$AGENT_HOME" \
-          XDG_CONFIG_HOME="$AGENT_HOME/.config" \
-          XDG_DATA_HOME="$AGENT_HOME/.local/share" \
-          XDG_CACHE_HOME="$AGENT_HOME/.cache" \
-          UV_NO_MODIFY_PATH=1 \
-          bash <<'TEND_EOF'
-        set -euo pipefail
-        curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
-        "$HOME/.local/bin/uvx" --version
-        TEND_EOF
+        sudo -u "$SANDBOX" "$AGENT_HOME/.local/bin/claude" --version
 
     # Interactive `claude` runs first-run onboarding on a fresh install:
     # workspace-trust dialog, theme picker, then per-project onboarding.
@@ -386,20 +386,19 @@ runs:
     #     → skips the workspace-trust dialog
     #   projects[$PWD].hasCompletedProjectOnboarding=true
     #     → skips the per-project "first time in this folder" prompt
-    - name: Pre-seed Claude onboarding state (as sandbox user)
+    - name: Pre-seed Claude onboarding state (sandbox)
       shell: bash
       env:
         CLAUDE_VERSION: ${{ inputs.claude_version }}
       run: |
-        sudo -u "$SANDBOX" env \
-          HOME="$AGENT_HOME" \
-          CLAUDE_VERSION="$CLAUDE_VERSION" \
-          bash <<'TEND_EOF'
+        # Written to the sandbox's own ~/.claude.json (the agent runs as the
+        # sandbox user). PROJECT_PATH must match the agent's cwd — the workspace,
+        # which the agent runs claude in below — so the trust dialog is skipped.
+        PROJECT_PATH="$(realpath "$GITHUB_WORKSPACE")"
+        sudo -u "$SANDBOX" env HOME="$AGENT_HOME" CLAUDE_VERSION="$CLAUDE_VERSION" PROJECT_PATH="$PROJECT_PATH" bash <<'EOF'
         set -euo pipefail
-        PROJECT_PATH="$(realpath "$PWD")"
-        if [ ! -f "$HOME/.claude.json" ]; then
-          echo '{}' > "$HOME/.claude.json"
-        fi
+        F="$HOME/.claude.json"
+        [ -f "$F" ] || echo '{}' > "$F"
         jq --arg p "$PROJECT_PATH" --arg v "$CLAUDE_VERSION" '
           .hasCompletedOnboarding = true
           | .lastOnboardingVersion = $v
@@ -408,44 +407,38 @@ runs:
               hasTrustDialogAccepted: true,
               hasCompletedProjectOnboarding: true
             })
-        ' "$HOME/.claude.json" > "$HOME/.claude.json.tmp"
-        mv "$HOME/.claude.json.tmp" "$HOME/.claude.json"
-        echo "Pre-seeded onboarding for $PROJECT_PATH (claude $CLAUDE_VERSION)"
-        TEND_EOF
+        ' "$F" > "$F.tmp"
+        mv "$F.tmp" "$F"
+        EOF
+        echo "Pre-seeded sandbox onboarding for $PROJECT_PATH (claude $CLAUDE_VERSION)"
 
-    # Install the tend-ci-runner plugin from this action's own checkout —
-    # same approach as action.yaml's `plugin_marketplaces:
-    # ${{ github.action_path }}`. The plugin marketplace manifest at the
-    # repo root (../.claude-plugin/marketplace.json relative to this
-    # action) registers both plugins.
-    - name: Install tend plugins (as sandbox user)
+    # Install the tend plugins into the sandbox's own ~/.claude. The marketplace
+    # is this action's checkout; the runner copies just the manifest + plugins
+    # (a small markdown tree, NOT the toolchain) into a sandbox-owned dir so the
+    # sandbox can read it regardless of where Actions placed the action. Then the
+    # sandbox installs from there, as the sandbox user, with the shared agent
+    # env ($AGENT_ENV_FILE: proxy routing, CA trust, dummy credentials) — if
+    # `claude` validates auth it reaches api.anthropic.com via the injecting
+    # proxy; the real secret never enters the sandbox.
+    - name: Install tend plugins (sandbox)
       shell: bash
-      env:
-        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        # Suppress any interactive prompts (auth confirmation, plugin
-        # install confirmation, etc.) the CLI might otherwise show.
-        CLAUDE_CODE_REMOTE: "1"
       run: |
-        # The sandbox reads the marketplace source (this action's checkout)
-        # here; setup-sandbox.sh granted it read+traverse and exported
-        # MARKETPLACE_ROOT. claude copies the marketplace and plugins into the
-        # sandbox's own ~/.claude (with native /home/tend-sandbox paths in its
-        # index), so nothing references the action checkout after this step.
-        sudo -u "$SANDBOX" env \
-          HOME="$AGENT_HOME" \
-          PATH="$AGENT_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
-          CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-          ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-          CLAUDE_CODE_REMOTE="$CLAUDE_CODE_REMOTE" \
-          MARKETPLACE_ROOT="$MARKETPLACE_ROOT" \
-          bash <<'TEND_EOF'
-        set -euo pipefail
-        claude plugin marketplace add "$MARKETPLACE_ROOT"
-        claude plugin install install-tend@tend
-        claude plugin install tend-ci-runner@tend
-        claude plugin list 2>/dev/null || true
-        TEND_EOF
+        MARKETPLACE_SRC="$(realpath "${{ github.action_path }}/..")"
+        SANDBOX_MKT="$AGENT_HOME/tend-marketplace"
+        sudo rm -rf "$SANDBOX_MKT"
+        sudo mkdir -p "$SANDBOX_MKT"
+        sudo cp -a "$MARKETPLACE_SRC/.claude-plugin" "$MARKETPLACE_SRC/plugins" "$SANDBOX_MKT/"
+        sudo chown -R "${SANDBOX}:${SANDBOX}" "$SANDBOX_MKT"
+
+        mapfile -t AGENT_ENV <"$AGENT_ENV_FILE"
+        sudo -u "$SANDBOX" env "${AGENT_ENV[@]}" \
+          bash -c '
+            set -euo pipefail
+            claude plugin marketplace add "$1"
+            claude plugin install install-tend@tend
+            claude plugin install tend-ci-runner@tend
+            claude plugin list 2>/dev/null || true
+          ' _ "$SANDBOX_MKT"
 
     # The supervisor pattern, in three pieces:
     #   1. .claude/settings.local.json sets `permissions.defaultMode:
@@ -478,23 +471,20 @@ runs:
       id: claude
       shell: bash
       env:
-        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        # Tells claude this is a remote/non-interactive context so it skips
-        # permission prompts that would otherwise block the PTY supervisor.
-        # It does NOT suppress the bypass-mode disclaimer — that's handled by
-        # skipDangerousModePermissionPrompt in settings.local.json.
-        CLAUDE_CODE_REMOTE: "1"
+        # No real secrets here — the agent's launch env is $AGENT_ENV_FILE
+        # (proxy routing, CA trust, dummy GitHub + Anthropic credentials,
+        # CLAUDE_CODE_REMOTE for remote/non-interactive context — note it
+        # does NOT suppress the bypass-mode disclaimer; that's handled by
+        # skipDangerousModePermissionPrompt in settings.local.json). The
+        # proxy injects the real credentials per-host.
         # Mirrors action.yaml: the Linux bwrap wrapping path corrupts `!`
-        # to `\!` in Bash commands, so the sandbox stays off (`0`). The
-        # sandbox would otherwise hide the model auth from the agent;
-        # re-enable once the upstream bug lands. Reproduced through claude
-        # 2.1.159; anthropics/claude-code#64301, write-up in #639.
+        # to `\!` in Bash commands, so the sandbox stays off (`0`). bwrap's
+        # value was hiding the model auth from the agent; that is now moot —
+        # the agent's env holds only dummy GitHub + Anthropic secrets, so
+        # there is nothing sensitive left for SUBPROCESS_ENV_SCRUB to hide.
+        # Reproduced through claude 2.1.159; anthropics/claude-code#64301,
+        # write-up in #639.
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
-        # No GH_TOKEN/GITHUB_TOKEN here — the agent runs as the sandbox user
-        # with only a dummy token; the real PAT lives in the proxy. With the
-        # secrets gone from the agent's env, the SUBPROCESS_ENV_SCRUB=0
-        # quoting workaround above no longer carries any credential cost.
         BOT_NAME: ${{ inputs.bot_name }}
         BOT_ID: ${{ steps.bot.outputs.id }}
         TEND_MODEL: ${{ inputs.model }}
@@ -565,12 +555,15 @@ runs:
         sudo -u "$SANDBOX" tee "$WRAPPER" < "$RUNNER_TEMP/tend-wrapper.sh" >/dev/null
         sudo -u "$SANDBOX" chmod +x "$WRAPPER"
 
-        # Launch the agent as the non-sudo sandbox user. Its env carries a
-        # DUMMY GitHub token (gh refuses to run without one); the proxy
-        # replaces it with the real PAT for GitHub hosts only. HTTPS_PROXY
-        # routes gh/git through the proxy; non-GitHub traffic tunnels through
-        # untouched. The real PAT is in none of this env. script(1) allocates
-        # the PTY (GHA runners have no TTY; without it the Ink UI hangs).
+        # Launch the agent as the non-sudo sandbox user. Its launch env is
+        # $AGENT_ENV_FILE (written by setup-sandbox.sh; shared with the
+        # plugin-install step so the two can't drift): proxy routing, CA
+        # trust for every client family, and DUMMY GitHub + Anthropic
+        # credentials in the production schemes — the proxy replaces them
+        # with the real secrets for their hosts (GitHub hosts;
+        # api.anthropic.com). Non-allowlisted traffic tunnels through
+        # untouched. No real secret is in this env. script(1) allocates the
+        # PTY (GHA runners have no TTY; without it the Ink UI hangs).
         #
         # The `sudo env VAR=...` form replaces the environment with only
         # what's listed, so the standard GitHub Actions context vars
@@ -587,8 +580,9 @@ runs:
         # allowlist: most GITHUB_* vars are informational (GITHUB_ACTOR,
         # GITHUB_API_URL, GITHUB_REF_NAME, GITHUB_WORKSPACE, …) and a
         # denylist picks up future additions automatically. Exclude:
-        #   GITHUB_TOKEN — replaced by a dummy below; real PAT lives in
-        #     the proxy.
+        #   GITHUB_TOKEN — the agent env file carries a dummy; the real
+        #     PAT lives in the proxy. (The file's dummy must not be
+        #     overridden, so the denylist entry is load-bearing.)
         #   GITHUB_{ENV,PATH,OUTPUT,STATE,STEP_SUMMARY} — paths the
         #     runner re-reads after this step exits. Appended lines land
         #     in later steps' env / PATH / outputs / post-step state, or
@@ -605,23 +599,9 @@ runs:
           GHA_VARS+=("$name=${!name}")
         done < <(compgen -e | grep '^GITHUB_')
 
-        DUMMY_GH_TOKEN="ghp_tendproxydummy000000000000000000000"
-        # XDG_* pinned to the sandbox home (see "Install uv"): the runner leaks
-        # XDG_CONFIG_HOME, so the agent's `uvx` would otherwise read/write its
-        # config, tools, and cache under /home/runner. HOME alone doesn't cover it.
+        mapfile -t AGENT_ENV <"$AGENT_ENV_FILE"
         sudo -u "$SANDBOX" env \
-          HOME="$AGENT_HOME" \
-          PATH="$AGENT_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
-          XDG_CONFIG_HOME="$AGENT_HOME/.config" \
-          XDG_DATA_HOME="$AGENT_HOME/.local/share" \
-          XDG_CACHE_HOME="$AGENT_HOME/.cache" \
-          HTTPS_PROXY="$PROXY_URL" HTTP_PROXY="$PROXY_URL" \
-          https_proxy="$PROXY_URL" http_proxy="$PROXY_URL" \
-          NO_PROXY="localhost,127.0.0.1" no_proxy="localhost,127.0.0.1" \
-          GH_TOKEN="$DUMMY_GH_TOKEN" GITHUB_TOKEN="$DUMMY_GH_TOKEN" \
-          CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-          ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-          CLAUDE_CODE_REMOTE="$CLAUDE_CODE_REMOTE" \
+          "${AGENT_ENV[@]}" \
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB="$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB" \
           BOT_NAME="$BOT_NAME" BOT_ID="$BOT_ID" \
           TEND_MODEL="$TEND_MODEL" TEND_ALLOWED_TOOLS="$TEND_ALLOWED_TOOLS" \
@@ -701,13 +681,31 @@ runs:
             ;;
           exited)
             echo "::error::Claude process exited before Stop hook fired (exit=$CLAUDE_EXIT)"
-            exit "${CLAUDE_EXIT:-1}"
+            # A 0 exit is still a failure here — no Stop hook means no turn
+            # completed; exiting 0 would mark the notification read and skip
+            # the outage report for a run that did nothing.
+            exit $((CLAUDE_EXIT == 0 ? 1 : CLAUDE_EXIT))
             ;;
           timeout)
             echo "::error::Claude session exceeded ${TEND_TIMEOUT_SEC}s timeout"
             exit 1
             ;;
         esac
+
+    # The sandbox owned the workspace during the run. Hand it back to the runner
+    # so actions/checkout's post-job credential cleanup — which runs as the
+    # runner and writes .git/config — doesn't warn on dubious ownership /
+    # permission. Always, so a failed run cleans up too: setup-sandbox.sh
+    # exports SANDBOX before its first fallible step, so the guard holds even
+    # when setup died mid-way (chown to self is an idempotent no-op if the
+    # handoff never happened).
+    - name: Restore workspace ownership for checkout cleanup
+      if: always()
+      shell: bash
+      run: |
+        if [ -n "${SANDBOX:-}" ]; then
+          sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+        fi
 
     - name: Mark event notification read
       if: success()
