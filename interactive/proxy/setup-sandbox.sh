@@ -86,10 +86,18 @@ fi
 # lets the smoke prove the real secrets never reach the agent.
 # CLAUDE_CODE_REMOTE suppresses interactive prompts (auth confirmation,
 # plugin-install confirmation) in every sandbox claude invocation.
+# The XDG base dirs are pinned under the sandbox home: GitHub runners export
+# XDG_CONFIG_HOME=/home/runner/.config (and may set the siblings), which leaks
+# through sudo into the sandbox — uv would then write its receipt/cache and any
+# XDG-aware tool its config under the runner's home, which the sandbox UID can't.
 AGENT_ENV_FILE="${RUNNER_TEMP}/tend-agent-env"
 cat >"$AGENT_ENV_FILE" <<EOF
 HOME=${AGENT_HOME}
 PATH=${AGENT_HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin
+XDG_CONFIG_HOME=${AGENT_HOME}/.config
+XDG_CACHE_HOME=${AGENT_HOME}/.cache
+XDG_DATA_HOME=${AGENT_HOME}/.local/share
+XDG_STATE_HOME=${AGENT_HOME}/.local/state
 HTTPS_PROXY=${PROXY_URL}
 HTTP_PROXY=${PROXY_URL}
 https_proxy=${PROXY_URL}

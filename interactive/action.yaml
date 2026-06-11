@@ -329,7 +329,18 @@ runs:
       env:
         CLAUDE_VERSION: ${{ inputs.claude_version }}
       run: |
-        sudo -u "$SANDBOX" env HOME="$AGENT_HOME" CLAUDE_VERSION="$CLAUDE_VERSION" bash <<'EOF'
+        # XDG_* pinned under the sandbox home: the runner exports
+        # XDG_CONFIG_HOME=/home/runner/.config (leaks through sudo), and uv
+        # writes its receipt to $XDG_CONFIG_HOME/uv — unwritable by the
+        # sandbox UID. Pin all four base dirs so the installers (and any
+        # XDG-aware tool) land under $AGENT_HOME. Install fetches go direct
+        # (no proxy env here), so this step does not source $AGENT_ENV_FILE.
+        sudo -u "$SANDBOX" env HOME="$AGENT_HOME" CLAUDE_VERSION="$CLAUDE_VERSION" \
+          XDG_CONFIG_HOME="$AGENT_HOME/.config" \
+          XDG_CACHE_HOME="$AGENT_HOME/.cache" \
+          XDG_DATA_HOME="$AGENT_HOME/.local/share" \
+          XDG_STATE_HOME="$AGENT_HOME/.local/state" \
+          bash <<'EOF'
         set -euo pipefail
         # One retry mechanism for both installer CDNs — transient 403s/5xxs
         # are the shared failure class. The inner `set -o pipefail` is
