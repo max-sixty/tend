@@ -303,13 +303,29 @@ runs:
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
       run: bash "${{ github.action_path }}/proxy/setup-sandbox.sh"
 
-    # Install the claude binary. Same recipe and pinned version as
+    # Install the agent toolchain AS the tend-sandbox user so it lands in
+    # /home/tend-sandbox natively — no per-run `cp -a` + recursive chown of the
+    # ~200MB claude binary into the sandbox. The sandbox user already exists
+    # (created by the sandbox-setup step above). `mv` of a runner-side install
+    # was tried and failed: the claude binary embeds absolute-path refs into
+    # ~/.local/share, so relocating it breaks the launcher — installing in
+    # place as the sandbox user is the fix.
+    #
+    # No `$GITHUB_PATH` write: the sandbox can't write that runner-owned file,
+    # and the agent's PATH is set explicitly at launch (Run Claude). These
+    # installs reach claude.ai / astral.sh directly (no proxy env) — the proxy
+    # only allowlists GitHub hosts. Same recipe and pinned version as
     # claude-code-base-action's install step.
-    - name: Install Claude Code
+    - name: Install Claude Code (as sandbox user)
       shell: bash
       env:
         CLAUDE_VERSION: ${{ inputs.claude_version }}
       run: |
+        sudo -u "$SANDBOX" env \
+          HOME="$AGENT_HOME" \
+          CLAUDE_VERSION="$CLAUDE_VERSION" \
+          bash <<'TEND_EOF'
+        set -euo pipefail
         # `set -o pipefail` inside the bash -c subshell is required: without it
         # a curl failure (e.g. a 403 from the claude.ai CDN) passes empty
         # stdin to the downstream `bash -s --`, which exits 0, so the if
@@ -326,8 +342,33 @@ runs:
           echo "::error::claude binary not found at $HOME/.local/bin/claude after install"
           exit 1
         fi
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
         "$HOME/.local/bin/claude" --version
+        TEND_EOF
+
+    # The agent's skills shell out to `uvx tend@latest …` (the bundled nightly
+    # skill runs `tend check` / `init`), so the sandbox needs uv on its PATH.
+    # It used to arrive via the toolchain hand-off copy of ~/.local/bin; with
+    # that gone, install uv directly as the sandbox user. The runner's own uv
+    # ("Ensure uv is available", for the proxy) is a separate install.
+    #
+    # Pin the XDG base dirs to the sandbox home: the runner leaks
+    # XDG_CONFIG_HOME (=/home/runner/.config) through sudo, and uv writes its
+    # install receipt to $XDG_CONFIG_HOME/uv — a runner-owned path the sandbox
+    # can't create. Overriding HOME alone doesn't redirect it.
+    - name: Install uv (as sandbox user)
+      shell: bash
+      run: |
+        sudo -u "$SANDBOX" env \
+          HOME="$AGENT_HOME" \
+          XDG_CONFIG_HOME="$AGENT_HOME/.config" \
+          XDG_DATA_HOME="$AGENT_HOME/.local/share" \
+          XDG_CACHE_HOME="$AGENT_HOME/.cache" \
+          UV_NO_MODIFY_PATH=1 \
+          bash <<'TEND_EOF'
+        set -euo pipefail
+        curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
+        "$HOME/.local/bin/uvx" --version
+        TEND_EOF
 
     # Interactive `claude` runs first-run onboarding on a fresh install:
     # workspace-trust dialog, theme picker, then per-project onboarding.
@@ -345,11 +386,16 @@ runs:
     #     → skips the workspace-trust dialog
     #   projects[$PWD].hasCompletedProjectOnboarding=true
     #     → skips the per-project "first time in this folder" prompt
-    - name: Pre-seed Claude onboarding state
+    - name: Pre-seed Claude onboarding state (as sandbox user)
       shell: bash
       env:
         CLAUDE_VERSION: ${{ inputs.claude_version }}
       run: |
+        sudo -u "$SANDBOX" env \
+          HOME="$AGENT_HOME" \
+          CLAUDE_VERSION="$CLAUDE_VERSION" \
+          bash <<'TEND_EOF'
+        set -euo pipefail
         PROJECT_PATH="$(realpath "$PWD")"
         if [ ! -f "$HOME/.claude.json" ]; then
           echo '{}' > "$HOME/.claude.json"
@@ -365,13 +411,14 @@ runs:
         ' "$HOME/.claude.json" > "$HOME/.claude.json.tmp"
         mv "$HOME/.claude.json.tmp" "$HOME/.claude.json"
         echo "Pre-seeded onboarding for $PROJECT_PATH (claude $CLAUDE_VERSION)"
+        TEND_EOF
 
     # Install the tend-ci-runner plugin from this action's own checkout —
     # same approach as action.yaml's `plugin_marketplaces:
     # ${{ github.action_path }}`. The plugin marketplace manifest at the
     # repo root (../.claude-plugin/marketplace.json relative to this
     # action) registers both plugins.
-    - name: Install tend plugins
+    - name: Install tend plugins (as sandbox user)
       shell: bash
       env:
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
@@ -380,32 +427,25 @@ runs:
         # install confirmation, etc.) the CLI might otherwise show.
         CLAUDE_CODE_REMOTE: "1"
       run: |
-        MARKETPLACE_ROOT="$(realpath "${{ github.action_path }}/..")"
+        # The sandbox reads the marketplace source (this action's checkout)
+        # here; setup-sandbox.sh granted it read+traverse and exported
+        # MARKETPLACE_ROOT. claude copies the marketplace and plugins into the
+        # sandbox's own ~/.claude (with native /home/tend-sandbox paths in its
+        # index), so nothing references the action checkout after this step.
+        sudo -u "$SANDBOX" env \
+          HOME="$AGENT_HOME" \
+          PATH="$AGENT_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+          CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+          ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+          CLAUDE_CODE_REMOTE="$CLAUDE_CODE_REMOTE" \
+          MARKETPLACE_ROOT="$MARKETPLACE_ROOT" \
+          bash <<'TEND_EOF'
+        set -euo pipefail
         claude plugin marketplace add "$MARKETPLACE_ROOT"
         claude plugin install install-tend@tend
         claude plugin install tend-ci-runner@tend
         claude plugin list 2>/dev/null || true
-
-    # The claude binary, uv, plugins, and onboarding state were installed
-    # into the runner's home by the steps above. Copy them into the sandbox
-    # user's home so the agent — which runs as tend-sandbox from here — finds
-    # its toolchain and config natively (no CLAUDE_CONFIG_DIR guesswork). cp -a,
-    # not mv: the claude binary has absolute-path references into ~/.local/share,
-    # so moving the originals out breaks it. (The cheaper fix — installing the
-    # toolchain as the sandbox user directly — is a follow-up.) The bot PAT is in
-    # none of these paths, so the copy carries no GitHub credential into the sandbox.
-    - name: Hand off Claude toolchain to sandbox
-      shell: bash
-      run: |
-        sudo mkdir -p "$AGENT_HOME/.local"
-        sudo cp -a /home/runner/.local/bin "$AGENT_HOME/.local/bin"
-        if [ -d /home/runner/.local/share ]; then
-          sudo cp -a /home/runner/.local/share "$AGENT_HOME/.local/share"
-        fi
-        sudo cp -a /home/runner/.claude "$AGENT_HOME/.claude"
-        sudo cp -a /home/runner/.claude.json "$AGENT_HOME/.claude.json"
-        sudo chown -R "${SANDBOX}:${SANDBOX}" "$AGENT_HOME"
-        sudo -u "$SANDBOX" "$AGENT_HOME/.local/bin/claude" --version
+        TEND_EOF
 
     # The supervisor pattern, in three pieces:
     #   1. .claude/settings.local.json sets `permissions.defaultMode:
@@ -566,9 +606,15 @@ runs:
         done < <(compgen -e | grep '^GITHUB_')
 
         DUMMY_GH_TOKEN="ghp_tendproxydummy000000000000000000000"
+        # XDG_* pinned to the sandbox home (see "Install uv"): the runner leaks
+        # XDG_CONFIG_HOME, so the agent's `uvx` would otherwise read/write its
+        # config, tools, and cache under /home/runner. HOME alone doesn't cover it.
         sudo -u "$SANDBOX" env \
           HOME="$AGENT_HOME" \
           PATH="$AGENT_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+          XDG_CONFIG_HOME="$AGENT_HOME/.config" \
+          XDG_DATA_HOME="$AGENT_HOME/.local/share" \
+          XDG_CACHE_HOME="$AGENT_HOME/.cache" \
           HTTPS_PROXY="$PROXY_URL" HTTP_PROXY="$PROXY_URL" \
           https_proxy="$PROXY_URL" http_proxy="$PROXY_URL" \
           NO_PROXY="localhost,127.0.0.1" no_proxy="localhost,127.0.0.1" \

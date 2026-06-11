@@ -9,12 +9,13 @@
 #   2. Neutralize the bot PAT actions/checkout persists for git — otherwise the
 #      sandbox reads it off disk and isolation is moot.
 #   3. Hand the checkout to tend-sandbox (and make the path traversable) so the
-#      agent can edit and commit.
+#      agent can edit and commit, and make the action checkout (the plugin
+#      marketplace source) readable so the install-as-sandbox steps can use it.
 #   4. Start the injecting proxy (holds TEND_GH_TOKEN in its own memory) and
 #      system-trust its CA so the sandbox's gh/git accept the intercepted TLS.
 #
 # Exports for later steps via $GITHUB_ENV: SANDBOX, AGENT_HOME, PROXY_URL,
-# TEND_RUN_DIR.
+# TEND_RUN_DIR, MARKETPLACE_ROOT.
 #
 # Inputs (env): TEND_GH_TOKEN (real PAT), ACTION_PATH (this action's checkout),
 # MITMPROXY_VERSION (pinned mitmproxy version). GITHUB_WORKSPACE / RUNNER_TEMP /
@@ -32,6 +33,18 @@ TEND_RUN_DIR="${AGENT_HOME}/run"
 CONFDIR="${RUNNER_TEMP}/tend-proxy"
 
 log() { echo "[setup-sandbox] $*"; }
+
+# Grant o+x (traversal only, not read) on every ancestor of $1 up to /, so the
+# sandbox can reach it. Derived, not hard-coded to /home/runner, so it works
+# wherever the runner places the checkout. Fine on a single-use runner.
+grant_traverse() {
+  local parent
+  parent="$(dirname "$1")"
+  while [ "$parent" != "/" ]; do
+    sudo chmod o+x "$parent" 2>/dev/null || true
+    parent="$(dirname "$parent")"
+  done
+}
 
 if [ -z "${TEND_GH_TOKEN:-}" ]; then
   echo "::error::TEND_GH_TOKEN is unset; cannot start the credential proxy"
@@ -78,18 +91,27 @@ log "neutralized persisted git credentials"
 
 # 3. Make the path to the workspace traversable by the sandbox, then hand it
 #    the checkout so the agent can edit and commit. The sandbox owns the tree,
-#    so no safe.directory entry is needed. Grant o+x (traversal only, not read)
-#    on every ancestor of the workspace — derived, not hard-coded to /home/runner,
-#    so it works wherever the runner places the checkout. Fine on a single-use runner.
-parent="$(dirname "$GITHUB_WORKSPACE")"
-while [ "$parent" != "/" ]; do
-  sudo chmod o+x "$parent" 2>/dev/null || true
-  parent="$(dirname "$parent")"
-done
+#    so no safe.directory entry is needed.
+grant_traverse "$GITHUB_WORKSPACE"
 sudo chown -R "${SANDBOX}:${SANDBOX}" "$GITHUB_WORKSPACE"
 sudo -u "$SANDBOX" test -r "$GITHUB_WORKSPACE/.git/config" \
   || { echo "::error::sandbox cannot access the workspace at $GITHUB_WORKSPACE"; exit 1; }
 log "workspace handed to $SANDBOX"
+
+# Make the action checkout (the tend plugin marketplace source) readable by the
+# sandbox, so the install-as-sandbox plugin step can run `claude plugin
+# marketplace add` against it. Exported so that step reads the same path without
+# re-deriving it. It is public repo content with no secret — the PAT lives only
+# in the proxy and the CA key in the 0700 confdir — so world-read is safe.
+# Skipped for a local `uses: ./` checkout, where the marketplace root resolves to
+# the workspace the sandbox already owns; the grant is only needed for a pinned
+# external action, whose checkout is runner-owned under _actions.
+MARKETPLACE_ROOT="$(realpath "${ACTION_PATH}/..")"
+if [ "$MARKETPLACE_ROOT" != "$(realpath "$GITHUB_WORKSPACE")" ]; then
+  grant_traverse "$MARKETPLACE_ROOT"
+  sudo chmod -R o+rX "$MARKETPLACE_ROOT" 2>/dev/null || true
+  log "marketplace source $MARKETPLACE_ROOT readable by $SANDBOX"
+fi
 
 # Shared dir the sandbox writes (sentinels, PTY log, wrapper) and the runner
 # reads. Sandbox-owned so its hooks can touch the sentinels; the runner
@@ -145,6 +167,7 @@ log "proxy up at $PROXY_URL; CA trusted"
   echo "AGENT_HOME=${AGENT_HOME}"
   echo "PROXY_URL=${PROXY_URL}"
   echo "TEND_RUN_DIR=${TEND_RUN_DIR}"
+  echo "MARKETPLACE_ROOT=${MARKETPLACE_ROOT}"
 } >>"$GITHUB_ENV"
 
 log "done; agent runs as ${SANDBOX}, GitHub auth via the proxy"
