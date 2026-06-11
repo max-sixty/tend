@@ -74,11 +74,20 @@ class CredentialInjector:
             )
 
     def request(self, flow: http.HTTPFlow) -> None:
+        # Never attach a credential to a cleartext request — a plain
+        # http:// URL to an allowlisted host would otherwise carry the real
+        # secret unencrypted (GitHub only redirects to https AFTER the header
+        # has transited).
+        if flow.request.scheme != "https":
+            return
         # Gate on `host` — the real connection target — NOT `pretty_host`,
         # which mitmproxy derives from the client-supplied Host header. A
         # sandboxed agent could otherwise send `Host: api.github.com` to an
         # attacker host and have the real token injected and forwarded there.
-        host = flow.request.host
+        # Lowercase it: clients send the hostname case-preserved on the wire,
+        # and mitmproxy's --allow-hosts matches case-insensitively, so a
+        # mixed-case `Api.GitHub.Com` is intercepted and must still match.
+        host = flow.request.host.lower()
         headers = flow.request.headers
         if host in API_HOSTS:
             headers["Authorization"] = f"token {self._gh_token}"
@@ -100,6 +109,19 @@ class CredentialInjector:
             # request exactly as the agent sent it.
             return
         logging.info("injected credential for %s %s", flow.request.method, host)
+
+    def responseheaders(self, flow: http.HTTPFlow) -> None:
+        # Stream every intercepted response straight through. Without this,
+        # mitmproxy buffers the entire body before relaying a single byte —
+        # which turns Anthropic's SSE inference responses into one blob
+        # delivered only after the full generation, so long turns hit the
+        # client's first-byte timeout (mitmproxy#4469). We never inspect
+        # response bodies, so streaming costs nothing. Do NOT reach for
+        # `--set stream_large_bodies` instead: that also streams large
+        # REQUEST bodies, whose headers are forwarded upstream before the
+        # request hook fires — silently disabling credential injection on
+        # exactly the large-context calls that need it.
+        flow.response.stream = True
 
 
 addons = [CredentialInjector()]

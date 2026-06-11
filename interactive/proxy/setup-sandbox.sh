@@ -17,7 +17,7 @@
 #      agent step also points NODE_EXTRA_CA_CERTS at the exported PROXY_CA_CERT.)
 #
 # Exports for later steps via $GITHUB_ENV: SANDBOX, AGENT_HOME, PROXY_URL,
-# TEND_RUN_DIR, PROXY_CA_CERT, AGENT_ANTHROPIC_ENV.
+# TEND_RUN_DIR, PROXY_CA_CERT, AGENT_ENV_FILE.
 #
 # Inputs (env): TEND_GH_TOKEN (real PAT), TEND_ANTHROPIC_OAUTH_TOKEN and/or
 # TEND_ANTHROPIC_API_KEY (real Anthropic credential, injected for
@@ -61,6 +61,61 @@ if ! id "$SANDBOX" >/dev/null 2>&1; then
   sudo useradd -m -s /usr/bin/bash "$SANDBOX"
 fi
 log "user $SANDBOX uid=$(id -u "$SANDBOX")"
+
+# Decide the Anthropic auth scheme ONCE, here: unset the losing variable so
+# the proxy (which inherits this shell's env) can never disagree with the
+# dummy the agent gets — the addon injects whichever scheme it sees set,
+# and only one is set. OAuth wins, matching the action's input precedence.
+if [ -n "${TEND_ANTHROPIC_OAUTH_TOKEN:-}" ]; then
+  unset TEND_ANTHROPIC_API_KEY
+  ANTHROPIC_DUMMY="CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-tendproxydummy0000000000000000000000000000"
+else
+  ANTHROPIC_DUMMY="ANTHROPIC_API_KEY=sk-ant-api03-tendproxydummy0000000000000000000000000000"
+fi
+
+# The agent's launch environment, one NAME=VALUE per line, consumed by every
+# step that runs something as the sandbox user (mapfile -t + `env "${arr[@]}"`).
+# One file so the plugin-install and Run Claude steps cannot drift. Contents:
+# the proxy routing, CA trust for every client family (system store for
+# gh/git/curl is implicit; NODE_EXTRA_CA_CERTS for claude (Node ignores the
+# system store); SSL_CERT_FILE/REQUESTS_CA_BUNDLE for uv and certifi-based
+# Python — all pointing at bundles that include the proxy CA once
+# update-ca-certificates has run below), and the DUMMY credentials the proxy
+# swaps for real ones (gh refuses to run with no token at all; claude emits
+# the auth headers for whichever scheme is set). The `tendproxydummy` marker
+# lets the smoke prove the real secrets never reach the agent.
+# CLAUDE_CODE_REMOTE suppresses interactive prompts (auth confirmation,
+# plugin-install confirmation) in every sandbox claude invocation.
+AGENT_ENV_FILE="${RUNNER_TEMP}/tend-agent-env"
+cat >"$AGENT_ENV_FILE" <<EOF
+HOME=${AGENT_HOME}
+PATH=${AGENT_HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin
+HTTPS_PROXY=${PROXY_URL}
+HTTP_PROXY=${PROXY_URL}
+https_proxy=${PROXY_URL}
+http_proxy=${PROXY_URL}
+NO_PROXY=localhost,127.0.0.1
+no_proxy=localhost,127.0.0.1
+NODE_EXTRA_CA_CERTS=${PROXY_CA_CERT}
+SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+GH_TOKEN=ghp_tendproxydummy000000000000000000000
+GITHUB_TOKEN=ghp_tendproxydummy000000000000000000000
+CLAUDE_CODE_REMOTE=1
+${ANTHROPIC_DUMMY}
+EOF
+
+# Export NOW, before any fallible step below — the if:always() ownership
+# restore in the action keys on SANDBOX, and a proxy-startup failure after
+# the workspace chown must still leave it set so the restore runs.
+{
+  echo "SANDBOX=${SANDBOX}"
+  echo "AGENT_HOME=${AGENT_HOME}"
+  echo "PROXY_URL=${PROXY_URL}"
+  echo "TEND_RUN_DIR=${TEND_RUN_DIR}"
+  echo "PROXY_CA_CERT=${PROXY_CA_CERT}"
+  echo "AGENT_ENV_FILE=${AGENT_ENV_FILE}"
+} >>"$GITHUB_ENV"
 
 # 2. Neutralize the credential actions/checkout persisted for git. Modern
 #    checkout stores it in an external file referenced by an includeIf, not as
@@ -150,25 +205,5 @@ fi
 sudo cp "${CONFDIR}/mitmproxy-ca-cert.pem" "$PROXY_CA_CERT"
 sudo update-ca-certificates >/dev/null
 log "proxy up at $PROXY_URL; CA trusted"
-
-# The agent runs `claude` in the SAME auth mode as the real credential (so it
-# emits the right headers) but with a DUMMY secret; the proxy swaps in the real
-# one for api.anthropic.com. Export the dummy as a ready-to-use `env` assignment
-# for the agent steps (single source of truth for the scheme + value). The
-# `tendproxydummy` marker lets the smoke prove the real secret never arrives.
-if [ -n "${TEND_ANTHROPIC_OAUTH_TOKEN:-}" ]; then
-  AGENT_ANTHROPIC_ENV="CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-tendproxydummy0000000000000000000000000000"
-else
-  AGENT_ANTHROPIC_ENV="ANTHROPIC_API_KEY=sk-ant-api03-tendproxydummy0000000000000000000000000000"
-fi
-
-{
-  echo "SANDBOX=${SANDBOX}"
-  echo "AGENT_HOME=${AGENT_HOME}"
-  echo "PROXY_URL=${PROXY_URL}"
-  echo "TEND_RUN_DIR=${TEND_RUN_DIR}"
-  echo "PROXY_CA_CERT=${PROXY_CA_CERT}"
-  echo "AGENT_ANTHROPIC_ENV=${AGENT_ANTHROPIC_ENV}"
-} >>"$GITHUB_ENV"
 
 log "done; agent runs as ${SANDBOX}, GitHub + Anthropic auth via the proxy"
