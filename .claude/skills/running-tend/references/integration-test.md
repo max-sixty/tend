@@ -7,7 +7,8 @@ the next week.
 ## Safety — read first
 
 This recipe issues destructive operations (close issues, close PRs,
-delete branches, overwrite secrets) against **exactly one** repo:
+delete branches, push regenerated workflows to `main`) against
+**exactly one** repo:
 `tend-agent/tend-integration`. The literal string `tend-agent/tend-integration`
 appears as `--repo` argument on every destructive call below — not a
 variable. **Do not substitute a variable**, do not rename the repo, do
@@ -16,32 +17,38 @@ not run this recipe against any other repo.
 If `tend-agent/tend-integration` does not exist yet, the §1 bootstrap
 creates it. Once it exists, subsequent weekly runs only operate on it.
 
-`$GITHUB_TOKEN` (bot PAT) is present in the agent's env, set on the
-claude step in `action.yaml`. `gh` authenticates as `tend-agent` via
-`$GITHUB_TOKEN` automatically.
+`$GITHUB_TOKEN` in the agent's env is a recognizable dummy, not the
+real PAT. The harness's credential-injecting proxy swaps in the real
+token on requests to GitHub hosts, so functional probes prove nothing:
+`gh auth status`, clones, and API calls all succeed as `tend-agent`
+even though the env value is not a working credential anywhere else.
+`$CLAUDE_CODE_OAUTH_TOKEN` is likewise unavailable (absent from this
+subprocess).
 
-`$CLAUDE_CODE_OAUTH_TOKEN` is **not** available here — empirically
-unset/empty in this subprocess despite [`action.yaml`'s `env:`
-block](../../../action.yaml) exposing it on the claude step with
-`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0`. Some layer between the action's
-env declaration and the Bash tool's subprocess strips Anthropic
-credentials; root cause is not yet pinned down. Rotation on the
-integration repo is therefore a manual maintainer task; the reseed
-below is guarded so a missing var no-ops instead of clobbering the
-stored secret.
+**Never export env credentials out of the sandbox** — in particular,
+never pipe `$GITHUB_TOKEN` or `$CLAUDE_CODE_OAUTH_TOKEN` into
+`gh secret set`. The exported value is the placeholder (or empty), and
+the receiving repo's auth breaks. The fixture's secrets are owned by
+the `integration-secrets` workflow in `max-sixty/tend`, which copies
+this repo's real secrets to the fixture, outside the sandbox. §1
+dispatches it every run.
 
-The bot PAT needs `workflow` (to push generated workflow files) but
-**does not** need `delete_repo` — the recipe never deletes the test
-repo; it resets in place.
+The bot PAT carries the `workflow` scope (so §5's self-heal push of
+generated workflow files succeeds through the proxy) but **does not**
+need `delete_repo` — the recipe never deletes the test repo; it resets
+in place.
 
 Run steps in order. If §3, §4, or §5 fails, jump to §6 (reset), then §7
 (report).
 
-## 1. Bootstrap (first run only — idempotent on subsequent runs)
+## 1. Bootstrap (first run only) and reseed (every run)
 
-Create the test repo if missing, with workflows installed on `main`,
-branch protection enabled on the default branch, and both secrets set.
-This block is a no-op once the repo exists.
+Create the test repo if missing, with workflows installed on `main`
+and branch protection enabled on the default branch; the creation
+block is a no-op once the repo exists. Then dispatch the
+`integration-secrets` workflow to seed the fixture's secrets from
+outside the sandbox (see Safety above — exporting `$GITHUB_TOKEN` from
+here would store the placeholder).
 
 ```bash
 if ! gh repo view tend-agent/tend-integration --json name >/dev/null 2>&1; then
@@ -100,21 +107,29 @@ EOF
 EOF
 fi
 
-# Reseed TEND_BOT_TOKEN every run (env var is present and rotates with
-# the parent workflow's secret).
-printf '%s' "$GITHUB_TOKEN" \
-  | gh secret set TEND_BOT_TOKEN --repo tend-agent/tend-integration
+# Reseed the fixture's secrets. Compare against the previous run ID so
+# a stale earlier run is never mistaken for this dispatch.
+PREV_ID=$(gh run list --repo max-sixty/tend --workflow integration-secrets \
+  --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+gh workflow run integration-secrets --repo max-sixty/tend
 
-# CLAUDE_CODE_OAUTH_TOKEN is empirically unset in this subprocess (see
-# §0 Safety preamble) — an unguarded reseed would pipe empty into the
-# secret and break every subsequent tend-* run on the integration repo
-# at the action's auth preflight. Only reseed if the env var actually
-# has a value; if the strip ever lifts, the recipe propagates rotations
-# automatically.
-if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-  printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" \
-    | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo tend-agent/tend-integration
-fi
+RUN_ID=""
+for _ in $(seq 1 24); do
+  RUN_ID=$(gh run list --repo max-sixty/tend --workflow integration-secrets \
+    --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+  [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_ID" ] && break
+  sleep 5
+done
+{ [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_ID" ]; } \
+  || { echo "integration-secrets: run never registered"; exit 1; }
+
+for _ in $(seq 1 30); do
+  read -r status conclusion < <(gh run view "$RUN_ID" --repo max-sixty/tend \
+    --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
+  [ "$status" = "completed" ] && break
+  sleep 10
+done
+[ "$conclusion" = "success" ] || { echo "integration-secrets: $status/$conclusion"; exit 1; }
 ```
 
 ## 2. Reset to a known-clean state
@@ -246,21 +261,31 @@ cd - >/dev/null
 rm -rf "$WORK"
 ```
 
-## 5. Verify generator drift (lightweight)
+## 5. Verify the generator (self-healing)
 
-Catch generator regressions without round-tripping through the
-install-test workflow: re-run the generator against the committed
-config and assert no diff.
+Re-run the generator against the committed config. A diff is expected
+after every tend release (the version pin moves, and the fixture
+disables nightly so this is its only regeneration path) — push the
+regenerated files to `main` rather than failing. Assertions: `init`
+succeeds against the committed config, and is idempotent.
 
 ```bash
 WORK=$(mktemp -d)
 gh repo clone tend-agent/tend-integration "$WORK"
 cd "$WORK"
 uvx tend@latest init
-if ! git diff --quiet .github/workflows/; then
-  echo "tend-integration drift: $(git diff --stat .github/workflows/)"
-  exit 1
+if [ -n "$(git status --porcelain)" ]; then
+  git config user.email "tend-agent@users.noreply.github.com"
+  git config user.name "tend-agent"
+  gh auth setup-git
+  git add .
+  git commit -m "chore: regenerate tend workflows (weekly integration self-heal)"
+  git push origin main \
+    || { echo "tend-integration: push to main failed; fixture not updated"; exit 1; }
 fi
+uvx tend@latest init
+[ -z "$(git status --porcelain)" ] \
+  || { echo "tend-integration: init not idempotent: $(git status --porcelain)"; exit 1; }
 cd - >/dev/null
 rm -rf "$WORK"
 ```
