@@ -57,22 +57,25 @@ on:
           3. Use the Bash tool to run: `git ls-remote origin HEAD`. This must
              succeed (not fatal): it proves the persisted-credential strip
              didn't break git and that git reaches origin through the proxy.
-          4. Use the Bash tool to run this exact script as ONE invocation,
-             which proves your Anthropic credential is a dummy (the real one
-             lives only in the proxy):
+          4. Use the Bash tool to run this exact script as ONE invocation. For
+             each Anthropic credential variable it reports the state — unset /
+             empty / dummy (carries the tendproxydummy marker) / OTHER (a
+             NON-EMPTY value lacking the marker = a real-secret leak) — then a
+             verdict. The real secret lives only in the proxy, so every set,
+             non-empty variable must be the dummy; unset or empty is fine:
 
-             v=dummy-isolated; ok=0
+             v=dummy-isolated; seen=0
              for n in CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY; do
-               val=$(printenv "$n") || continue
-               ok=1
-               case "$val" in *tendproxydummy*) ;; *) v=REAL-LEAK ;; esac
+               if ! val=$(printenv "$n"); then echo "envstate $n=unset"; continue; fi
+               if [ -z "$val" ]; then echo "envstate $n=empty"; continue; fi
+               if printf '%s' "$val" | grep -q tendproxydummy; then echo "envstate $n=dummy"; seen=1
+               else echo "envstate $n=OTHER"; v=REAL-LEAK; fi
              done
-             [ "$ok" = 1 ] || v=REAL-LEAK
+             [ "$seen" = 1 ] || v=REAL-LEAK
              echo "anthropic-cred: $v"
 
-             It must report dummy-isolated: every Anthropic credential in
-             your env carries the dummy marker. That you can run this turn
-             at all proves the proxy injected the real secret for inference.
+             It must report dummy-isolated. That you can run this turn at all
+             proves the proxy injected the real secret for inference.
           5. Reply with one line in the form:
              "Smoke test ran at <date>; gh authenticated as <login>; git ls-remote ok; <the anthropic-cred output line>".
 
