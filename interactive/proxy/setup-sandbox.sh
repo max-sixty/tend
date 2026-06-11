@@ -190,7 +190,7 @@ nohup uvx --from "$MITMPROXY" mitmdump \
   -s "${ACTION_PATH}/proxy/inject_credentials.py" \
   --listen-host 127.0.0.1 --listen-port "$PROXY_PORT" \
   --set confdir="$CONFDIR" \
-  --allow-hosts '^((api\.|codeload\.|uploads\.)?github\.com|api\.anthropic\.com)(:[0-9]+)?$' \
+  --allow-hosts '^((api\.|codeload\.|uploads\.)?github\.com|raw\.githubusercontent\.com|api\.anthropic\.com)(:[0-9]+)?$' \
   </dev/null >"${RUNNER_TEMP}/tend-proxy.log" 2>&1 &
 echo $! >"${RUNNER_TEMP}/tend-proxy.pid"
 disown

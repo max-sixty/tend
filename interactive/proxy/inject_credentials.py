@@ -10,8 +10,8 @@ throwaway dummies; every request it makes to an allowlisted host has its
 credential header replaced here with the real one.
 
 - **GitHub** (``TEND_GH_TOKEN``): the git smart-HTTP hosts authenticate with
-  Basic (token as the password); the REST/upload hosts take the ``token``
-  scheme.
+  Basic (token as the password); the REST, upload, and raw-content hosts take
+  the ``token`` scheme.
 - **Anthropic** (``TEND_ANTHROPIC_OAUTH_TOKEN`` or ``TEND_ANTHROPIC_API_KEY``):
   ``api.anthropic.com`` only. The agent's ``claude`` binary runs in the SAME
   auth mode with a dummy secret, so it already emits every mode-specific header
@@ -37,13 +37,22 @@ import os
 
 from mitmproxy import http
 
-# Bare hostnames (``flow.request.host`` carries no port).
+# GitHub hosts grouped by the header injected, not by role. git's smart-HTTP
+# transport authenticates with Basic (token as the password); the REST, upload,
+# and raw-content hosts take the ``token`` scheme. Bare hostnames
+# (``flow.request.host`` carries no port).
 #
-# Not covered: ``*.githubusercontent.com`` (raw content, release assets, LFS).
-# Those are served from signed/anonymous URLs in the common path; authenticated
-# private-asset fetches are out of scope for this cut.
-GIT_HOSTS = frozenset({"github.com", "codeload.github.com"})
-API_HOSTS = frozenset({"api.github.com", "uploads.github.com"})
+# raw.githubusercontent.com serves private raw file content and authenticates a
+# PAT via ``Authorization: token``, so it joins the token group. Deliberately
+# NOT covered: objects.githubusercontent.com (release assets, git-LFS objects),
+# which download from signed, time-limited URLs — git-LFS gets a short-lived
+# object credential from the batch API on github.com (already covered) — so
+# injecting the PAT there would collide with the signature and break the
+# download; that host stays an untouched tunnel.
+BASIC_HOSTS = frozenset({"github.com", "codeload.github.com"})
+TOKEN_HOSTS = frozenset(
+    {"api.github.com", "uploads.github.com", "raw.githubusercontent.com"}
+)
 ANTHROPIC_HOSTS = frozenset({"api.anthropic.com"})
 
 
@@ -89,9 +98,9 @@ class CredentialInjector:
         # mixed-case `Api.GitHub.Com` is intercepted and must still match.
         host = flow.request.host.lower()
         headers = flow.request.headers
-        if host in API_HOSTS:
+        if host in TOKEN_HOSTS:
             headers["Authorization"] = f"token {self._gh_token}"
-        elif host in GIT_HOSTS:
+        elif host in BASIC_HOSTS:
             headers["Authorization"] = self._gh_basic
         elif host in ANTHROPIC_HOSTS:
             # Normalize to exactly the active scheme so the injected credential
