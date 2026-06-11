@@ -335,11 +335,15 @@ runs:
         # sandbox UID. Pin all four base dirs so the installers (and any
         # XDG-aware tool) land under $AGENT_HOME. Install fetches go direct
         # (no proxy env here), so this step does not source $AGENT_ENV_FILE.
+        # UV_NO_MODIFY_PATH=1 keeps uv's installer from appending source lines
+        # to the sandbox's shell profiles — the launch env sets PATH explicitly,
+        # so a profile edit is inert noise.
         sudo -u "$SANDBOX" env HOME="$AGENT_HOME" CLAUDE_VERSION="$CLAUDE_VERSION" \
           XDG_CONFIG_HOME="$AGENT_HOME/.config" \
           XDG_CACHE_HOME="$AGENT_HOME/.cache" \
           XDG_DATA_HOME="$AGENT_HOME/.local/share" \
           XDG_STATE_HOME="$AGENT_HOME/.local/state" \
+          UV_NO_MODIFY_PATH=1 \
           bash <<'EOF'
         set -euo pipefail
         # One retry mechanism for both installer CDNs — transient 403s/5xxs

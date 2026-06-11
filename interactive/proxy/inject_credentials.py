@@ -49,6 +49,11 @@ from mitmproxy import http
 # object credential from the batch API on github.com (already covered) — so
 # injecting the PAT there would collide with the signature and break the
 # download; that host stays an untouched tunnel.
+#
+# These frozensets are the credential boundary. The proxy's --allow-hosts regex
+# in setup-sandbox.sh scopes TLS interception and must list the same hosts —
+# keep the two in sync (a host here but not in the regex is never intercepted,
+# so its dummy is never swapped and auth 401s).
 BASIC_HOSTS = frozenset({"github.com", "codeload.github.com"})
 TOKEN_HOSTS = frozenset(
     {"api.github.com", "uploads.github.com", "raw.githubusercontent.com"}
@@ -120,16 +125,18 @@ class CredentialInjector:
         logging.info("injected credential for %s %s", flow.request.method, host)
 
     def responseheaders(self, flow: http.HTTPFlow) -> None:
-        # Stream every intercepted response straight through. Without this,
-        # mitmproxy buffers the entire body before relaying a single byte —
-        # which turns Anthropic's SSE inference responses into one blob
-        # delivered only after the full generation, so long turns hit the
-        # client's first-byte timeout (mitmproxy#4469). We never inspect
-        # response bodies, so streaming costs nothing. Do NOT reach for
-        # `--set stream_large_bodies` instead: that also streams large
-        # REQUEST bodies, whose headers are forwarded upstream before the
-        # request hook fires — silently disabling credential injection on
-        # exactly the large-context calls that need it.
+        # Stream every intercepted response straight through — intentionally
+        # for ALL allowlisted hosts, not just Anthropic. Without this, mitmproxy
+        # buffers the entire body in memory before relaying a single byte, which
+        # breaks two cases: Anthropic's SSE inference responses arrive as one
+        # blob only after the full generation (long turns hit the client's
+        # first-byte timeout, mitmproxy#4469), and a large git packfile from a
+        # GitHub clone/fetch is held whole in proxy memory before relaying.
+        # We never inspect response bodies, so streaming is universally safe and
+        # cheaper. Do NOT reach for `--set stream_large_bodies` instead: that
+        # also streams large REQUEST bodies, whose headers are forwarded upstream
+        # before the request hook fires — silently disabling credential injection
+        # on exactly the large-context calls that need it.
         flow.response.stream = True
 
 

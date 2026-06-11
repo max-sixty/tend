@@ -46,10 +46,10 @@ if [ -z "${TEND_GH_TOKEN:-}" ]; then
   echo "::error::TEND_GH_TOKEN is unset; cannot start the credential proxy"
   exit 1
 fi
-if [ -z "${TEND_ANTHROPIC_OAUTH_TOKEN:-}" ] && [ -z "${TEND_ANTHROPIC_API_KEY:-}" ]; then
-  echo "::error::No Anthropic credential set (TEND_ANTHROPIC_OAUTH_TOKEN or TEND_ANTHROPIC_API_KEY); cannot start the credential proxy"
-  exit 1
-fi
+# The Anthropic credential is gated upstream by the action's "Validate auth
+# configured" step and enforced at the point of use by the addon constructor
+# (inject_credentials.py raises if neither scheme is set), so it is not
+# re-checked here.
 if [ -z "${MITMPROXY_VERSION:-}" ]; then
   echo "::error::MITMPROXY_VERSION is unset; the action must pin it"
   exit 1
@@ -186,6 +186,12 @@ chmod 700 "$CONFDIR"
 MITMPROXY="mitmproxy==${MITMPROXY_VERSION}"
 uvx --from "$MITMPROXY" mitmdump --version >/dev/null
 log "starting proxy"
+# The --allow-hosts regex scopes which hosts mitmproxy TLS-intercepts. It must
+# cover every host the addon injects into — keep it in sync with the
+# BASIC_HOSTS / TOKEN_HOSTS / ANTHROPIC_HOSTS frozensets in inject_credentials.py
+# (which own the credential boundary). A host in those sets but missing here is
+# never intercepted, so its dummy is never swapped for the real secret and auth
+# fails with a 401.
 nohup uvx --from "$MITMPROXY" mitmdump \
   -s "${ACTION_PATH}/proxy/inject_credentials.py" \
   --listen-host 127.0.0.1 --listen-port "$PROXY_PORT" \
