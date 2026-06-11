@@ -562,59 +562,121 @@ you close the issue once 8c verifies. `<bot-name>` is `bot_name` in
 `gh repo view --json nameWithOwner --jq '.nameWithOwner'` (confirm it
 names the canonical repo, not a fork).
 
-When `GH_TOKEN` or `GITHUB_TOKEN` is set, gh defers to it: keyring
-writes (`gh auth login/refresh/switch/logout`) refuse to run ("The
-value of the … environment variable is being used for
-authentication") and `gh api user` answers as the env token's user.
-Those commands therefore carry an `env -u GH_TOKEN -u GITHUB_TOKEN`
-prefix below. The rest are env-indifferent and run bare:
-`gh auth token --user` reads only stored credentials, and `gh secret`
-accepts any admin-capable auth (a 403 means the ambient token lacks
-admin; prefix it too).
+Bot auth state lives in a dedicated gh config dir,
+`$HOME/.config/gh-bots/<bot-name>`, selected per command with
+`GH_CONFIG_DIR` and stored with `--insecure-storage`: the token sits
+in that dir's `hosts.yml` (mode 0600), never in the OS keychain. That
+is deliberate. gh keys keychain items by account name globally, not by
+config dir, so a keychain-backed bot login shares one item with the
+maintainer's default config; a device-flow code approved by the wrong
+github.com session, or a later cleanup, would then overwrite or delete
+the maintainer's own credential. `--insecure-storage` makes each bot
+dir self-contained: nothing it does reaches the keychain, and the dir
+can be deleted and rebuilt with no side effects. The bot token is
+already stored server-side as the repo secret, so a 0600 copy on disk
+adds no exposure the secret doesn't already carry. The dir is the
+bot's durable store, not install scratch: scope audits and reinstalls
+read it to skip a fresh device flow, so it outlives the install.
 
-Check what's stored for the bot:
+The separate dir also keeps the bot out of git's reach. When gh is a
+git credential helper (`credential.helper = !gh auth git-credential`,
+a common leftover of `gh auth login --git-protocol https`), a git push
+in a shell without an env token authenticates as the *default*
+config's active account. The bot never appears there, so a push can't
+land under its identity. For the same reason, scope bot tokens to
+single commands (`GH_TOKEN=$(…) gh api …`, as below) rather than
+exporting them for the session: git's gh helper forwards an ambient
+env token too, as `x-access-token`. No install or refresh step writes
+the maintainer's default config; the lone exception is the migration
+below, which removes a legacy bot entry from it after copying the
+token into the bot dir.
+
+`gh` prefers an ambient `GH_TOKEN`/`GITHUB_TOKEN` over stored
+credentials, and `gh auth status` even reports the env token as an
+extra active account. Every command that must reflect the bot dir's
+stored state therefore carries an `env -u GH_TOKEN -u GITHUB_TOKEN`
+prefix below: `gh auth status`, `login`, `refresh`, `logout`, and
+`gh api user` (the three `auth` writes also refuse to run while the
+env var is set). `gh auth token --user` is the exception, reading only
+stored credentials regardless of the env, though it still needs
+`GH_CONFIG_DIR` to find the bot dir. Maintainer-identity commands
+(`gh secret`, the collaborator API in step 9) run bare on the
+maintainer's ambient auth; a 403 there means that auth lacks admin, so
+prefix it too.
+
+Check what the bot dir holds:
 
 ```bash
-gh auth status 2>&1 | grep -A 4 "<bot-name> (keyring)"
+env -u GH_TOKEN -u GITHUB_TOKEN \
+  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth status 2>&1
 ```
 
-Route on the output:
+A missing dir prints "not logged in", which is a routing answer, not an
+error to debug. Read the output:
 
-- `Token scopes:` already lists all six scopes → the stored token is
-  good; skip to 8c.
-- Entry found, scopes missing → **refresh path** (8a).
-- No match → **login path** (8b). Insecure-storage installs land here
-  too (they print a file path instead of `(keyring)`); the login
-  overwrites the entry.
+- Logged in as `<bot-name>` with a `Token scopes:` line listing all six
+  scopes → skip to 8c.
+- Logged in as `<bot-name>`, scopes missing → **refresh path** (8a).
+- Not logged in here → check the default config for a legacy entry with
+  `gh auth token --user <bot-name>` (it reads the default config and
+  ignores the env). A token printed → **migrate** below. Empty or an
+  error → **login path** (8b).
 
-8a and 8b both run gh's device flow: the command prints a one-time
-code and polls until it is approved at
-`https://github.com/login/device` in a browser logged in as the bot.
-Codes expire after about 15 minutes; rerun for a fresh one. Run the
-command yourself in the background, surfacing the code and URL to the
-user; the poll completes when they approve. Delegate it to the user's
-own terminal only if running it yourself fails (rare: gh falls back
-to plain-text storage when no keyring is available; on Windows the
-user translates the prefix, Git Bash taking the command as-is,
-PowerShell `Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN; gh auth …`).
-The minted token lands wherever the login ran, so after delegating,
-hand the user the rest of the step's `gh auth token --user` commands
-(8c, steps 9 and 10), fully substituted, to run in that same
-terminal.
-
-### 8a. Refresh path (bot already in keyring)
+**Migrating a legacy bot** (the last route above): copy the token into
+the bot dir, then drop it from the default config. The bot-dir login
+comes first, so if it fails the legacy entry is still intact and the
+fallback is 8b — nothing is destroyed before its replacement exists.
+`--with-token` requires `repo`, `read:org`, and `gist` at minimum;
+device-flow-minted bot tokens carry these, but a hand-minted token
+without `read:org` is rejected here, leaving the default config
+untouched (re-run as 8b).
 
 ```bash
-env -u GH_TOKEN -u GITHUB_TOKEN gh auth switch --user <bot-name> &&
-env -u GH_TOKEN -u GITHUB_TOKEN gh auth refresh --hostname github.com \
+BOT_GH_TOKEN=$(gh auth token --user <bot-name>)
+if [ -z "$BOT_GH_TOKEN" ]; then
+  echo "no legacy token in the default config — use 8b instead" >&2
+else
+  printf '%s' "$BOT_GH_TOKEN" |
+    env -u GH_TOKEN -u GITHUB_TOKEN \
+      GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" \
+      gh auth login --with-token --hostname github.com --insecure-storage &&
+  env -u GH_TOKEN -u GITHUB_TOKEN gh auth logout --user <bot-name>
+fi
+```
+
+Then re-run the status check above; it now finds the bot in the dir and
+routes to 8c or 8a by its scopes.
+
+8a and 8b both run gh's device flow: the command prints a one-time code
+and polls until it is approved at `https://github.com/login/device` in
+a browser logged in as the bot. Codes expire after about 15 minutes;
+rerun for a fresh one. Run the command yourself in the background,
+surfacing the code and URL to the user; the poll completes when they
+approve. Delegate it to the user's own terminal only if running it
+yourself fails. The minted token lands on whichever machine ran the
+login, so hand the user the rest of the step's commands (8c, steps 9
+and 10), fully substituted, to run there too. On Windows, the user
+scopes `GH_CONFIG_DIR` to each command
+(`$env:GH_CONFIG_DIR='...'; gh ...; Remove-Item Env:GH_CONFIG_DIR -ErrorAction SilentlyContinue`)
+rather than exporting it, so later commands in that window keep using
+the default config.
+
+### 8a. Refresh path (bot already in the bot dir)
+
+```bash
+env -u GH_TOKEN -u GITHUB_TOKEN \
+  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" \
+  gh auth refresh --hostname github.com --insecure-storage \
   --scopes repo,workflow,notifications,write:discussion,gist,user
 ```
 
 `gh auth refresh` operates on the active account (it has no `--user`
-flag), so switch to the bot first. Requested scopes merge with the
-stored token's existing ones while that token is still valid (a
-revoked one yields just the six requested). No post-hoc identity check is
-needed: when the approving browser session belongs to anyone other
+flag), which in the bot dir is the bot — the routing only lands here
+when the status check showed `<bot-name>` logged in. Requested
+scopes merge with the stored token's existing ones while that token
+is still valid (a revoked one yields just the six requested). No
+post-hoc identity check is needed: when the approving browser session
+belongs to anyone other
 than `<bot-name>`, refresh discards the token and errors with
 "received credentials for <other-user>"; have the user re-approve from
 the bot's session and rerun.
@@ -622,68 +684,80 @@ the bot's session and rerun.
 ### 8b. Login path (first-time setup)
 
 ```bash
-env -u GH_TOKEN -u GITHUB_TOKEN gh auth login --hostname github.com --git-protocol https --web \
+env -u GH_TOKEN -u GITHUB_TOKEN \
+  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" \
+  gh auth login --hostname github.com --git-protocol https --web \
+  --insecure-storage \
   --scopes repo,workflow,notifications,write:discussion,gist,user
 ```
 
 `gh auth login` binds to whoever was logged into github.com in the
-approving browser session, stores that token without checking, and
-makes it the active account. Verify before continuing:
+approving browser session and stores that token without checking.
+Verify before continuing:
 
 ```bash
-env -u GH_TOKEN -u GITHUB_TOKEN gh api user --jq '.login'
+env -u GH_TOKEN -u GITHUB_TOKEN \
+  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh api user --jq '.login'
 ```
 
-This must print the bot name. Anything else means the wrong account
-approved the device code — run
-`env -u GH_TOKEN -u GITHUB_TOKEN gh auth logout --user <wrong-name>`
-and retry. Don't proceed to 8c until this matches.
+This must print the bot name. Anything else means the wrong github.com
+session approved the code. Because `--insecure-storage` kept the token
+inside the bot dir and never touched the global keychain, the clean fix
+is to delete the dir and rerun 8b — no other account is affected:
+
+```bash
+rm -rf "$HOME/.config/gh-bots/<bot-name>"
+```
+
+Don't proceed to 8c until the identity matches.
 
 ### 8c. Push token to secret
-
-8a and 8b leave the bot as gh's active account. Switch back to the
-maintainer, whose token has admin on the repo (a no-op if you skipped
-straight here):
-
-```bash
-env -u GH_TOKEN -u GITHUB_TOKEN gh auth switch --user <maintainer>
-```
-
-When the maintainer authenticates via `GH_TOKEN` rather than the
-keyring, skip the switch: their env token keeps governing bare gh
-commands, so the bot staying keyring-active is harmless.
 
 Copy the bot's token to the repo secret (`<secret-name>` is the
 `secrets.bot_token` value from §1, default `TEND_BOT_TOKEN`; trust
 this over any name an audit issue quotes) and verify the `Updated`
-timestamp is fresh. The emptiness guard matters:
-`gh secret set` accepts an empty body, so piping a failed keyring
-read straight in would silently blank a working secret.
+timestamp is fresh. The emptiness guard matters: `gh secret set`
+accepts an empty body, so pushing a failed token read would silently
+blank a working secret. The guard skips the push instead of `exit`,
+since this block may be pasted into the user's own terminal.
 
 ```bash
-BOT_GH_TOKEN=$(gh auth token --user <bot-name>)
-[ -n "$BOT_GH_TOKEN" ] || { echo "bot token empty — refusing to push" >&2; exit 1; }
-gh secret set <secret-name> --repo "$REPO" --body "$BOT_GH_TOKEN"
-gh secret list --repo "$REPO"
+BOT_GH_TOKEN=$(GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token --user <bot-name>)
+if [ -z "$BOT_GH_TOKEN" ]; then
+  echo "bot token empty — not pushing (check the bot dir login)" >&2
+else
+  gh secret set <secret-name> --repo "$REPO" --body "$BOT_GH_TOKEN"
+  gh secret list --repo "$REPO"
+fi
 ```
 
 ## 9. Grant bot access
 
-All invitation acceptance in this step uses the bot's token from step 8 via
-`GH_TOKEN=$(gh auth token --user <bot-name>)` to authenticate as the bot.
+Adding the collaborator runs on the maintainer's ambient auth (it needs
+admin on the repo); accepting the resulting invitation runs as the bot,
+via its token from the bot dir. The empty-token guard matters here too:
+an empty `GH_TOKEN` makes gh fall back to the maintainer's stored auth,
+so the invitation query would list the *maintainer's* invitations and
+silently grant the bot nothing.
 
-Add the bot as a repo collaborator with write access. GitHub may grant
-access directly (204) without creating an invitation — only accept if
-one exists:
+GitHub may grant access directly (204) without creating an invitation,
+so only accept if one exists. A 403 on the PUT or the final list means
+the ambient auth lacks admin — prefix those with
+`env -u GH_TOKEN -u GITHUB_TOKEN` to use the maintainer's stored login,
+or run as a maintainer who has admin.
 
 ```bash
-BOT_GH_TOKEN=$(gh auth token --user <bot-name>)
-gh api "repos/$REPO/collaborators/<bot-name>" -X PUT -f permission=push
-INVITE_ID=$(GH_TOKEN=$BOT_GH_TOKEN gh api "user/repository_invitations" --jq ".[] | select(.repository.full_name == \"$REPO\") | .id")
-if [ -n "$INVITE_ID" ]; then
-  GH_TOKEN=$BOT_GH_TOKEN gh api "user/repository_invitations/$INVITE_ID" -X PATCH
+BOT_GH_TOKEN=$(GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token --user <bot-name>)
+if [ -z "$BOT_GH_TOKEN" ]; then
+  echo "bot token empty — cannot accept the invitation as the bot" >&2
+else
+  gh api "repos/$REPO/collaborators/<bot-name>" -X PUT -f permission=push
+  INVITE_ID=$(GH_TOKEN=$BOT_GH_TOKEN gh api "user/repository_invitations" --jq ".[] | select(.repository.full_name == \"$REPO\") | .id")
+  if [ -n "$INVITE_ID" ]; then
+    GH_TOKEN=$BOT_GH_TOKEN gh api "user/repository_invitations/$INVITE_ID" -X PATCH
+  fi
+  gh api "repos/$REPO/collaborators" --jq '.[].login'
 fi
-gh api "repos/$REPO/collaborators" --jq '.[].login'
 ```
 
 ## 10. Bot profile bio
@@ -701,16 +775,30 @@ the recommended one explicitly:
 - `tend agent for <owner>/<repo>. Feel free to ask me questions about <repo>.` (Most permissive — invites contributor questions)
 - `tend agent for <owner>/<repo>. I respond to maintainers of <repo>.` (Most restrictive — limits engagement to maintainers)
 
-Check the current bio as the bot — skip if already set to the chosen value:
+Read the token into a variable first and guard it: an empty `GH_TOKEN`
+falls back to the maintainer's stored auth, so an unguarded PATCH would
+overwrite the *maintainer's* own profile bio with the bot blurb.
+
+Check the current bio as the bot — skip the write if it already matches:
 
 ```bash
-GH_TOKEN=$(gh auth token --user <bot-name>) gh api user --jq '.bio'
+BOT_GH_TOKEN=$(GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token --user <bot-name>)
+if [ -z "$BOT_GH_TOKEN" ]; then
+  echo "bot token empty — skipping bio read" >&2
+else
+  GH_TOKEN=$BOT_GH_TOKEN gh api user --jq '.bio'
+fi
 ```
 
 Otherwise write it (requires `user` scope on the bot's token from step 8):
 
 ```bash
-GH_TOKEN=$(gh auth token --user <bot-name>) gh api user -X PATCH -f bio="<drafted bio>"
+BOT_GH_TOKEN=$(GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token --user <bot-name>)
+if [ -z "$BOT_GH_TOKEN" ]; then
+  echo "bot token empty — refusing to PATCH (would hit the maintainer's profile)" >&2
+else
+  GH_TOKEN=$BOT_GH_TOKEN gh api user -X PATCH -f bio="<drafted bio>"
+fi
 ```
 
 ## 11. Commit and push
