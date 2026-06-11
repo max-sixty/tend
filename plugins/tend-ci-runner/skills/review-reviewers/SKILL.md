@@ -209,7 +209,7 @@ TARGET_REPO=$ARGUMENTS ${CLAUDE_PLUGIN_ROOT}/scripts/list-recent-runs.sh
 
 The script discovers `tend-*` workflows by default. Pass additional prefixes as arguments to include other workflows (e.g., `review-reviewers` when analyzing tend itself).
 
-If empty, report "no runs to review" and exit.
+If empty, record the run as all-clear per "Recording below-threshold findings" above, then skip to Step 6.
 
 ## Step 2: Survey outcomes via cheap subagent
 
