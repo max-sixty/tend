@@ -14,8 +14,9 @@
 #
 # Required scopes are duplicated in prose at docs/tend.example.yaml,
 # CLAUDE.md, plugins/install-tend/skills/install-tend/SKILL.md, and
-# plugins/tend-ci-runner/skills/nightly/SKILL.md — keep in sync when adding
-# a scope. This script is the one executable reference.
+# plugins/tend-ci-runner/skills/nightly/SKILL.md — when adding a scope,
+# grep each file and update every occurrence (some files carry several).
+# This script is the one executable reference.
 #
 # Exit code: 0 when the check ran to completion (STATUS carries the result);
 # non-zero only if gh or bash itself failed.
