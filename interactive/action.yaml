@@ -350,11 +350,19 @@ runs:
     # It used to arrive via the toolchain hand-off copy of ~/.local/bin; with
     # that gone, install uv directly as the sandbox user. The runner's own uv
     # ("Ensure uv is available", for the proxy) is a separate install.
+    #
+    # Pin the XDG base dirs to the sandbox home: the runner leaks
+    # XDG_CONFIG_HOME (=/home/runner/.config) through sudo, and uv writes its
+    # install receipt to $XDG_CONFIG_HOME/uv — a runner-owned path the sandbox
+    # can't create. Overriding HOME alone doesn't redirect it.
     - name: Install uv (as sandbox user)
       shell: bash
       run: |
         sudo -u "$SANDBOX" env \
           HOME="$AGENT_HOME" \
+          XDG_CONFIG_HOME="$AGENT_HOME/.config" \
+          XDG_DATA_HOME="$AGENT_HOME/.local/share" \
+          XDG_CACHE_HOME="$AGENT_HOME/.cache" \
           UV_NO_MODIFY_PATH=1 \
           bash <<'TEND_EOF'
         set -euo pipefail
@@ -598,9 +606,15 @@ runs:
         done < <(compgen -e | grep '^GITHUB_')
 
         DUMMY_GH_TOKEN="ghp_tendproxydummy000000000000000000000"
+        # XDG_* pinned to the sandbox home (see "Install uv"): the runner leaks
+        # XDG_CONFIG_HOME, so the agent's `uvx` would otherwise read/write its
+        # config, tools, and cache under /home/runner. HOME alone doesn't cover it.
         sudo -u "$SANDBOX" env \
           HOME="$AGENT_HOME" \
           PATH="$AGENT_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+          XDG_CONFIG_HOME="$AGENT_HOME/.config" \
+          XDG_DATA_HOME="$AGENT_HOME/.local/share" \
+          XDG_CACHE_HOME="$AGENT_HOME/.cache" \
           HTTPS_PROXY="$PROXY_URL" HTTP_PROXY="$PROXY_URL" \
           https_proxy="$PROXY_URL" http_proxy="$PROXY_URL" \
           NO_PROXY="localhost,127.0.0.1" no_proxy="localhost,127.0.0.1" \
