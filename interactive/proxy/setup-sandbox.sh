@@ -110,11 +110,15 @@ chmod 700 "$CONFDIR"
 MITMPROXY="mitmproxy==${MITMPROXY_VERSION}"
 uvx --from "$MITMPROXY" mitmdump --version >/dev/null
 log "starting proxy"
+# Intercept the GitHub hosts plus raw.githubusercontent.com (private raw
+# content). objects.githubusercontent.com is deliberately not intercepted —
+# github_auth.py documents why, and owns the credential boundary; this flag
+# only scopes TLS interception.
 nohup uvx --from "$MITMPROXY" mitmdump \
   -s "${ACTION_PATH}/proxy/github_auth.py" \
   --listen-host 127.0.0.1 --listen-port "$PROXY_PORT" \
   --set confdir="$CONFDIR" \
-  --allow-hosts '^(api\.|codeload\.|uploads\.)?github\.com(:[0-9]+)?$' \
+  --allow-hosts '^(api\.|codeload\.|uploads\.)?github\.com(:[0-9]+)?$|^raw\.githubusercontent\.com(:[0-9]+)?$' \
   </dev/null >"${RUNNER_TEMP}/tend-proxy.log" 2>&1 &
 echo $! >"${RUNNER_TEMP}/tend-proxy.pid"
 disown

@@ -10,7 +10,7 @@ replaced here with the real token, so ``gh`` and ``git`` authenticate without
 the credential ever entering the sandbox.
 
 Security boundary: the injection allowlist below is exact-match. The token is
-attached to those four GitHub hosts and nothing else — a request to any other
+attached to those five GitHub hosts and nothing else — a request to any other
 host (including ``api.github.com.evil.com`` or a host mitmproxy intercepts by
 misconfiguration) is passed through untouched. The proxy's ``--allow-hosts``
 flag is a functionality optimization (don't TLS-intercept non-GitHub traffic so
@@ -28,15 +28,22 @@ import os
 
 from mitmproxy import http
 
-# git's smart-HTTP transport authenticates with Basic (token as the password);
-# the REST and upload hosts take the ``token`` scheme. These are bare hostnames
+# Grouped by the header we inject, not by role. git's smart-HTTP transport
+# authenticates with Basic (token as the password); the REST, upload, and
+# raw-content hosts take the ``token`` scheme. These are bare hostnames
 # (``flow.request.host`` carries no port).
 #
-# Not covered: ``*.githubusercontent.com`` (raw content, release assets, LFS).
-# Those are served from signed/anonymous URLs in the common path; private-asset
-# fetches that need auth are out of scope for this cut.
-GIT_HOSTS = frozenset({"github.com", "codeload.github.com"})
-API_HOSTS = frozenset({"api.github.com", "uploads.github.com"})
+# raw.githubusercontent.com serves private raw file content and authenticates a
+# PAT via ``Authorization: token``, so it joins the token group. Deliberately
+# NOT covered: objects.githubusercontent.com (release assets, git-LFS objects).
+# Those download from signed, time-limited URLs, and git-LFS gets a short-lived
+# object credential from the batch API on github.com (already covered here).
+# Injecting the PAT there would collide with the signature / batch token and
+# break the download, so that host stays an untouched tunnel.
+BASIC_HOSTS = frozenset({"github.com", "codeload.github.com"})
+TOKEN_HOSTS = frozenset(
+    {"api.github.com", "uploads.github.com", "raw.githubusercontent.com"}
+)
 
 
 class GitHubAuthInjector:
@@ -60,9 +67,9 @@ class GitHubAuthInjector:
         # agent could otherwise send `Host: api.github.com` to an attacker host
         # and have the real token injected and forwarded there.
         host = flow.request.host
-        if host in API_HOSTS:
+        if host in TOKEN_HOSTS:
             flow.request.headers["Authorization"] = f"token {self._token}"
-        elif host in GIT_HOSTS:
+        elif host in BASIC_HOSTS:
             flow.request.headers["Authorization"] = self._basic
         else:
             # Not a GitHub host — never attach the token. Leave the request
