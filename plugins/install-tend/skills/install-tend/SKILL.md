@@ -589,9 +589,11 @@ session (git's gh helper would forward it):
   on ambient auth. A 403 means that auth lacks admin — often a weak
   env token; `env -u` it to fall back to the stored login.
 
-No step writes the maintainer's default config except the migration
-below, which removes a legacy bot entry after copying it into the bot
-dir.
+No step writes the maintainer's default config — and the bot must not
+sit there either (pre-dir installs put it there). If a bare
+`gh auth token --user <bot-name>` prints a token, evict it with
+`env -u GH_TOKEN -u GITHUB_TOKEN gh auth logout --user <bot-name>`;
+workflows run on the repo secret, so nothing breaks.
 
 Check what the bot dir holds:
 
@@ -606,33 +608,7 @@ error to debug. Read the output:
 - Logged in as `<bot-name>` with a `Token scopes:` line listing all six
   scopes → skip to 8c.
 - Logged in as `<bot-name>`, scopes missing → **refresh path** (8a).
-- Not logged in here → check the default config for a legacy entry with
-  `gh auth token --user <bot-name>` (it reads the default config and
-  ignores the env). A token printed → **migrate** below. Empty or an
-  error → **login path** (8b).
-
-**Migrating a legacy bot** (the last route above): copy the token into
-the bot dir, then drop it from the default config. Login runs first, so
-a failure leaves the legacy entry intact — and `--with-token` does
-reject tokens lacking `repo`/`read:org`/`gist` (hand-minted ones often
-lack `read:org`); on failure, mint fresh via 8b. The logout carries
-`env -u` but no `GH_CONFIG_DIR`: it targets the default config.
-
-```bash
-BOT_GH_TOKEN=$(gh auth token --user <bot-name>)
-if [ -z "$BOT_GH_TOKEN" ]; then
-  echo "no legacy token in the default config — use 8b instead" >&2
-else
-  printf '%s' "$BOT_GH_TOKEN" |
-    env -u GH_TOKEN -u GITHUB_TOKEN \
-      GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" \
-      gh auth login --with-token --hostname github.com --insecure-storage &&
-  env -u GH_TOKEN -u GITHUB_TOKEN gh auth logout --user <bot-name>
-fi
-```
-
-Then re-run the status check above; it now routes to 8c or 8a by the
-bot's scopes.
+- Not logged in here → **login path** (8b).
 
 8a and 8b both run gh's device flow: the command prints a one-time code
 and polls until it is approved at `https://github.com/login/device` by
