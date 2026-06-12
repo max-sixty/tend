@@ -1,24 +1,22 @@
 # Development
 
+Tend is an autonomous CI maintainer for GitHub repos: it reviews PRs, triages
+issues, and fixes CI, powered by Claude or Codex. This repo ships the generator
+(`uvx tend@latest`) that stamps each adopter's workflow files, plus the plugins
+and composite actions those workflows run.
+
 No backward compatibility. When a config format or API changes, cut over
 completely — old formats should fail with a clear error, not silently parse.
 
 ## Commands
 
 ```bash
-wt test                                               # run pytest in generator/
-wt list statusline --format json | jq -r '.[].url'    # this worktree's dev server URL
-uvx tend@latest init                                  # regenerate workflows from .config/tend.yaml
-uvx tend@latest init --dry-run                        # preview without writing
-uvx tend@latest check                                 # verify branch protection, secrets, bot access
+wt test                            # run pytest in generator/
+uvx tend@latest init               # regenerate workflows from .config/tend.yaml
+uvx tend@latest init --dry-run     # preview without writing
+uvx tend@latest check              # verify branch protection, secrets, bot access
+pre-commit run --all-files         # lint: ruff, typos, actionlint, uv-lock
 ```
-
-The Astro dev server starts automatically per worktree via a `wt`
-post-start hook (`.config/wt.toml`) on a deterministic port derived from
-the branch name. Get the URL from
-`wt list statusline --format json | jq -r '.[].url'`; logs land in
-`.git/wt/logs/`. Do not run `npm run dev` — it duplicates the existing
-server on a different port.
 
 ## Architecture
 
@@ -117,8 +115,6 @@ tag that does not exist yet, and the workflow's `uses:` fails to resolve.
 Between a generator commit and the next release the committed workflows lag
 the in-tree generator; that is expected, and the gap closes at the next
 release (which tags `X.Y.Z` before regenerating, so the pin always resolves).
-
-Linting: `pre-commit run --all-files` (ruff, typos, actionlint, uv-lock).
 
 ## Generator vs adopter ownership
 
@@ -292,3 +288,25 @@ Codex). When adding new capability, split work along this line:
 
 Don't build deterministic YAML steps for work that happens *inside* an
 agent run. Extend the skill instead.
+
+## Live testing against real GitHub
+
+For live experiments against real GitHub behavior (environments, branch
+protection, workflow triggers, secret release), `tend-agent/tend-integration`
+is a persistent public repo we own, admin via the `tend-agent` account
+(`gh auth token --user tend-agent`). Its `main` is branch-protected with
+`enforce_admins: false`, so the owner can push directly and reset in place.
+The weekly integration test (`.claude/skills/running-tend/references/integration-test.md`)
+also drives it, so clean up any probe artifacts (extra workflows, branches,
+environments, dummy secrets) when done.
+
+## Site and worker
+
+`site/` is the Astro marketing site (tend-src.com); `worker/` is the
+Cloudflare Worker that serves its two data streams from `data/consumers.json`.
+
+The site's dev server starts automatically per worktree via a `wt` post-start
+hook (`.config/wt.toml`) on a deterministic port derived from the branch name.
+Get the URL with `wt list statusline --format json | jq -r '.[].url'`; logs
+land in `.git/wt/logs/`. Don't run `npm run dev`; it duplicates the running
+server on a different port.

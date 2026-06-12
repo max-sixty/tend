@@ -163,6 +163,23 @@ on the standard runner image anyway. The boundaries that are load-bearing
 (merge restriction, scope-limited credentials) sit outside the harness's
 local-exec sandbox regardless.
 
+**Repo write access implies secret access.** The bot PAT and the harness
+token are repo-level secrets, readable by any workflow the repo runs; unlike
+the release secrets above, they are not environment-gated. Like any GitHub
+Actions secret, a write-scoped actor (a leaked PAT, or a hijacked session that
+can push a branch) can commit a workflow that prints them and read them from
+its own run. Branch protection bounds what gets *merged*; it does not bound
+what a write-scoped run can *read*, and the merge restriction does not apply
+because nothing is merged. Forks cannot reach them: GitHub withholds secrets from
+fork-PR workflows, and the secret-bearing events (`pull_request_target`, the
+review events, `schedule`) run only the default branch's reviewed workflow
+files. Pinning these secrets to the default-branch ref with a GitHub
+Environment does not close the gap: the policy keys on `GITHUB_REF`, which
+cannot tell a legitimate `tend-mention` review event (carrying
+`refs/pull/N/merge`) from a same-repo-PR exfiltration on the same ref, so it
+would break mention's review-comment paths without gaining protection; the full
+analysis is in `TODO.md`.
+
 **Token exfiltration via side channels.** Log masking only catches exact
 string matches in stdout. An attacker who gets code execution can exfiltrate
 tokens via DNS queries, HTTP requests to an external server, or encoding
