@@ -109,6 +109,44 @@ A single bot token is safe across workflows because the merge restriction
 caps the blast radius. One token also gives consistent bot identity for
 reviews and comments and avoids the `github-actions[bot]` branding.
 
+## Bot credential storage on the maintainer's machine
+
+Install (step 8) keeps each bot's gh auth in a dedicated config dir,
+`$HOME/.config/gh-bots/<bot-name>`, selected per command with
+`GH_CONFIG_DIR`, with the token stored plaintext (mode 0600) in that
+dir's `hosts.yml` via `--insecure-storage`. Two hazards drive this:
+
+- **The OS keychain is shared.** gh keys keychain items by account name
+  globally, not per config dir, so a keychain-backed bot login would
+  share one item with the maintainer's default config. A device-flow
+  code approved by the wrong github.com session, or a later
+  `gh auth logout`, would then overwrite or delete the maintainer's own
+  credential. With `--insecure-storage` nothing the bot dir does reaches
+  the keychain; the dir can be deleted and rebuilt with no side effects.
+- **git answers as the default config.** When gh is a git credential
+  helper (`credential.helper = !gh auth git-credential`), a `git push`
+  in a shell without an env token authenticates as the *default*
+  config's active account. The bot never enters the default config, so a
+  push can't land under its identity. This is also why 8b's login omits
+  `--git-protocol https` — the flag writes gh's helper into the global
+  git config, host-wide, since git config is not scoped by
+  `GH_CONFIG_DIR` — and why bot tokens are scoped to single commands
+  rather than exported: git's gh helper forwards an ambient env token
+  too, as `x-access-token`.
+
+The plaintext copy adds no exposure: the same token is already stored
+server-side as the repo secret, and the dir is readable only by the
+maintainer's user. The dir is the bot's durable store, not install
+scratch — scope audits and reinstalls read it to skip a fresh device
+flow — so it outlives the install.
+
+The empty-token guards in 8c/9/10 exist because gh treats a set-but-empty
+`GH_TOKEN` as unset and silently falls back to stored credentials — the
+maintainer's. An unguarded block after a failed token read would blank
+the repo secret (`gh secret set` accepts an empty body), accept the
+maintainer's invitations instead of the bot's, or overwrite the
+maintainer's profile bio.
+
 ## How tokens flow through workflows
 
 Two independent authentication paths exist in every workflow:
