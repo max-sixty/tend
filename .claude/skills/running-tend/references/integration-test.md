@@ -41,6 +41,28 @@ in place.
 Run steps in order. If §3, §4, or §5 fails, jump to §6 (reset), then §7
 (report).
 
+## 0. Sandbox prerequisites
+
+§1 (bootstrap) and §5 (self-heal) shell out to `uvx tend@latest init`.
+The agent runs as `tend-sandbox` inside the harness sandbox, but the
+workflow's `astral-sh/setup-uv` step installs uv under the runner user's
+home, which the sandbox can't see. Without uv on the sandbox PATH §5
+silently no-ops — the missing-binary error is swallowed and an empty
+`git status` reads as "idempotent" — so install uv into the sandbox
+before continuing:
+
+```bash
+if ! command -v uvx >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+command -v uvx >/dev/null \
+  || { echo "uvx unavailable after install; aborting recipe"; exit 1; }
+```
+
+The installer drops uv into `$HOME/.local/bin`, which is already on the
+sandbox PATH, so no `export PATH` is needed for later sections to pick
+it up.
+
 ## 1. Bootstrap (first run only) and reseed (every run)
 
 Create the test repo if missing, with workflows installed on `main`
