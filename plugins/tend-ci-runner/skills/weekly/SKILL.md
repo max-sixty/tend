@@ -34,7 +34,7 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
    if [ "$LAST_APPROVAL_SHA" = "$HEAD_SHA" ]; then
      echo "Already approved on this commit; skipping."
    else
-     gh pr review <number> --approve --body "Automated dependency update — CI passing, no breaking changes."
+     gh pr review <number> --approve --body "<one line: package, bump type, CI status — what you checked>"
    fi
    ```
 4. If CI is failing, comment with the failure summary and skip

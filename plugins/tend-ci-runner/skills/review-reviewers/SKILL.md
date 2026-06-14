@@ -232,7 +232,7 @@ Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
 > - `tend-mention`: map run to issue/PR from triggering comment, check for bot replies
 > - `tend-ci-fix`: map run → PR via `headBranch`, check for bot commits
 >
-> **Negative outcome signals** (report these):
+> **Negative outcome signals** — report any sign the bot's output was rejected, corrected, or ignored. Common shapes (use judgment for signals not listed):
 > - Human reviewer posted CHANGES_REQUESTED after bot approved
 > - PR closed without merge shortly after bot approved
 > - Bot posted no review despite a `tend-review` run completing on an open PR

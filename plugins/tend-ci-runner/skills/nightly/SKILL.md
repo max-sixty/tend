@@ -263,7 +263,7 @@ echo "OLD=$OLD_VER NEW=$NEW_VER  compare: https://github.com/max-sixty/tend/comp
 
 Compose the PR body with the Write tool at `/tmp/tend-update-body.md` — describe the upgrade, **don't paste a file list** (the diff is just mechanical action-ref bumps):
 
-- Open with `Automated nightly regeneration of tend workflow files.`
+- Open by noting this is the automated nightly regeneration of tend's workflow files — phrase it per-run, or fold it into the version summary.
 - **Version bumped**: add a `**tend version:** OLD → NEW` line, then a short **Notable changes** list — 3–5 bullets summarizing the entries in `/tmp/tend-upstream-commits.txt`. Rewrite each `(#NNN)` ref as `max-sixty/tend#NNN` — a bare `#NNN` auto-links to this repo's own issues, not tend's. Filter to **consumer-relevant** changes only — harness/action behavior, skill updates (review, ci-fix, triage, nightly, etc.), generator output that changes the adopter's workflow files, CI-monitoring guidance. **Exclude** pure mechanics (`chore: regenerate workflows`, `chore: release`, action-pin and lockfile bumps) and **tend-internal items** that affect only tend's own development or release (e.g. release-publishing workflow, marketing site, integration-test fixtures, internal refactors with no adopter-visible effect). Close with the compare link printed above. If the commits file is empty (the compare call failed), keep just the version line and the compare link.
 - **No version bump** (same-version regen): one sentence on what the regen changed (a generator template tweak the committed workflows were lagging). No version line, no commit list.
 
