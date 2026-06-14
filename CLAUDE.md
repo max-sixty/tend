@@ -270,6 +270,13 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
   expected to drift can be dated; a one-shot incident citation should not be.
 - **Prefer recipe over narrative.** A code block plus a one-sentence framing
   beats a multi-paragraph explanation.
+- **Examples over templates; open frames over closed menus.** For text the
+  agent *produces* (comments, PR bodies, summaries), give an example labeled
+  as such rather than verbatim wording to paste — canned phrasing reproduced
+  literally reads awkwardly off-situation. For choices the agent *makes* (when
+  to respond, which cases to check), frame the goal and give examples rather
+  than a list it will read as exhaustive. Reserve mandatory exact wording for
+  fragile mechanics: dedup keys, commands, API formats.
 
 ## Agent-driven vs deterministic steps
 

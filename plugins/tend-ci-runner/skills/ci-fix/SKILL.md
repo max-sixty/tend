@@ -88,10 +88,7 @@ gh issue create --title "ci-fix: transient failure on <run-id>" --label tend-out
 gh issue close <issue-number> --reason "not planned" --comment "Transient — closing as diagnosed."
 ```
 
-Use this path when:
-- The same code path succeeded on the most recent 5 prior runs with no relevant changes between runs
-- The failure shape is filesystem/network-level, not anything the project's code does
-- An upstream status incident matches the timing and components
+Use this path only when the evidence points to ephemeral infrastructure, not anything the project's code does. Signals (examples, not a checklist): the same code path passed on recent prior runs with no relevant change; the failure shape is filesystem/network-level; an upstream status incident matches the timing and components. Weigh the evidence rather than matching the list.
 
 #### Repeat-occurrence escalation
 

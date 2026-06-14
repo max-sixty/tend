@@ -121,9 +121,9 @@ gh api notifications/threads/{thread_id} -X PATCH
 
 Cross-repo notifications skip dedup (no good signal for "already handled" across repos) — go straight to step 4b. Stop the check here: no author-association lookups, no workflow-run queries.
 
-### 4b. Respond to notifications only this skill covers
+### 4b. Respond to notifications no dedicated workflow covered
 
-The notifications skill is the **sole handler** for these categories — respond to them:
+This skill is the fallback: handle any notification no dedicated workflow picked up, subject to the Step 3 scope and security rules and the Step 4a freshness/dedup. Common cases:
 
 - **Fork PR inline comments** — `pull_request_review_comment` events don't fire for the bot on fork PRs, so no other workflow picks these up. Read the comment, the diff hunk, and respond in context.
 
@@ -135,6 +135,8 @@ The notifications skill is the **sole handler** for these categories — respond
   - For mentions/comments: read context and respond helpfully.
 
 - **`subscribed`/`comment`** on threads the bot participates in (same-repo), where the comment is directed at the bot and no dedicated workflow handled it — respond if the comment asks a question, requests changes, or replies to a concern the bot raised. If the conversation is between humans, do not respond.
+
+Shapes not listed here — a fork PR's top-level comment, a discussion thread — are what this fallback exists for; use judgment, applying the same scope and freshness rules.
 
 ### 4c. Mark as read
 
