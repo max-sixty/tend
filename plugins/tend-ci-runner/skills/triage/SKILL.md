@@ -162,7 +162,7 @@ If new comments appeared since you first read the issue, read them and adjust yo
 
 Always comment via `gh issue comment`. Keep it brief, polite, and specific. A maintainer will always review — never claim the issue is fully resolved by automation alone.
 
-**Drop the "a maintainer will review" closer when `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR`** — deferring to a maintainer reads as absurd when the reporter is one. Keep it otherwise, where it signals the action isn't authoritative.
+**Drop the maintainer-deferral closer** ("a maintainer will review", "I'll leave it for a maintainer to evaluate and prioritize", and the like) **when `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR`** — deferring to a maintainer reads as absurd when the reporter is one. Keep it otherwise, where it signals the action isn't authoritative.
 
 ```bash
 gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
@@ -170,21 +170,25 @@ gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
 
 **Stay within what you verified.** State facts you found in the codebase — don't characterize something as "known" unless you find prior issues or documentation about it. Don't speculate beyond the code you read.
 
-Choose the appropriate template:
+**Report the finding, not the search.** For a feature that plainly doesn't exist yet, "I searched the codebase and didn't find an existing implementation" only restates what the requester already knows. Lead with what they don't: the closest related code, where the change would slot in, or a tradeoff worth flagging. Mention searching only when the result is itself the news (e.g. the capability turns out to be computed internally but never surfaced).
 
-### Fix PR created
+### Reply examples
+
+These illustrate the tone and what each kind of reply should cover; they aren't text to paste. Match the situation, then write a reply that fits the actual issue — vary the wording and drop anything that doesn't apply.
+
+#### Fix PR created
 
 > Thanks for reporting this. I was able to reproduce the issue and identified the root cause: [one-sentence explanation].
 >
 > I've opened #PR_NUMBER with a fix. A maintainer will review it shortly.
 
-### Reproduction test only (no fix attempted)
+#### Reproduction test only (no fix attempted)
 
 > Thanks for reporting this. I was able to reproduce the issue — #PR_NUMBER adds a failing test that demonstrates the bug.
 >
 > Root cause appears to be [brief explanation if known, or "still under investigation"]. A maintainer will take a closer look.
 
-### Could not reproduce
+#### Could not reproduce
 
 > Thanks for reporting this. I tried to reproduce this but wasn't able to with the information provided.
 >
@@ -192,25 +196,25 @@ Choose the appropriate template:
 >
 > A maintainer will also take a look.
 
-### Bug already fixed
+#### Bug already fixed
 
 > Thanks for reporting this. I looked into this and it appears the behavior described may already be fixed on the default branch (the relevant test passes).
 >
 > Could you confirm which version you're running? If you're on an older release, updating should resolve this. A maintainer will confirm.
 
-### Feature may already exist
+#### Feature may already exist
 
 > Thanks for the suggestion. It's possible that [existing feature — specific behavior, config/flag] already does what you're looking for: [brief description of how it works].
 >
 > If that's not quite what you had in mind, could you clarify what additional behavior you're looking for? A maintainer will take a look either way.
 
-### Feature does not exist
+#### Feature does not exist
 
-> Thanks for the suggestion. I searched the codebase and didn't find an existing implementation of this. [Optionally: the closest related functionality is X, which does Y.]
+> Thanks for the suggestion. There's no [capability] for this today. The closest related functionality is [X], which [does Y].
 >
 > I'll leave it for a maintainer to evaluate and prioritize.
 
-### Question
+#### Question
 
 > Thanks for reaching out. This looks like a usage question rather than a bug report.
 >
@@ -218,14 +222,6 @@ Choose the appropriate template:
 >
 > A maintainer can provide more detail if needed.
 
-### Duplicate
+#### Duplicate
 
 > Thanks for reporting this. This appears to be related to #EXISTING_ISSUE [and/or PR #EXISTING_PR]. I'll leave it to a maintainer to confirm and link them.
-
-### Maintainer-filed request (feature example)
-
-When the filer's `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR`, drop the deferral closer and the "I'll leave it for a maintainer to evaluate and prioritize" framing — the filer already has that authority. The opener can stay or go; lead with substance either way.
-
-> Searched the codebase — no existing implementation of [feature]. The closest related functionality is [X], which does [Y].
->
-> [If a PR was opened: opened #PR_NUMBER with an implementation.]
