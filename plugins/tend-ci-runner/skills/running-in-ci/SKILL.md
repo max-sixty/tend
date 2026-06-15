@@ -220,7 +220,7 @@ After pushing, decide based on whether a concrete follow-up is gated on the CI r
 # tend-mention's `tend-mention-handle-{PR#}` group), the sibling's handle job
 # queues behind the current one — its CheckRun shows PENDING in the rollup
 # but it can't start until the current run exits. Polling for it deadlocks
-# until the 15-min cap breaks it. For workflows
+# until the loop cap breaks it. For workflows
 # with `cancel-in-progress: true`, the older sibling is cancelled and
 # wouldn't gate polling anyway, so this filter is a no-op there.
 #
@@ -238,7 +238,7 @@ pending() {
        | select(. == "IN_PROGRESS" or . == "QUEUED" or . == "PENDING" or . == "WAITING" or . == "REQUESTED" or . == "EXPECTED")
       ] | length'
 }
-for i in $(seq 1 15); do
+for i in $(seq 1 9); do
   sleep 60
   [ "$(pending)" -gt 0 ] && continue
   sleep 30
@@ -246,11 +246,13 @@ for i in $(seq 1 15); do
   gh pr checks <number>
   exit 0
 done
-echo "CI still running after 15 minutes"
+echo "CI still running after 9 minutes"
 exit 1
 ```
 
-1. Poll every 60 seconds (up to ~15 minutes) until all non-own check-runs on the commit are terminal. **Filter out the current run's URL (`/runs/$GITHUB_RUN_ID/`)** — the current workflow's own check is always pending while polling and must be excluded to avoid a deadlock. **Also filter same-workflow check runs (`$GITHUB_WORKFLOW`)** — sibling runs of the same workflow on the same PR are subject to concurrency rules (queueing or cancel-in-progress) and don't represent independent CI signals. The 30s grace re-check catches late-registering omnibus checks.
+Invoke this Bash call with `timeout: 600000` (10 min). The default 2-min Bash timeout would kill the loop early; the 9-iteration cap is sized to fit inside the harness's 10-min Bash maximum, so a longer loop would auto-background and the gated follow-up wouldn't fire.
+
+1. Poll every 60 seconds (up to ~9 minutes) until all non-own check-runs on the commit are terminal. **Filter out the current run's URL (`/runs/$GITHUB_RUN_ID/`)** — the current workflow's own check is always pending while polling and must be excluded to avoid a deadlock. **Also filter same-workflow check runs (`$GITHUB_WORKFLOW`)** — sibling runs of the same workflow on the same PR are subject to concurrency rules (queueing or cancel-in-progress) and don't represent independent CI signals. The 30s grace re-check catches late-registering omnibus checks.
 2. If a required check fails, diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, repeat.
 3. Once checks are terminal, perform the gated follow-up.
 
@@ -288,7 +290,7 @@ pending_jobs() {
   done
   echo "$n"
 }
-for i in $(seq 1 15); do
+for i in $(seq 1 9); do
   [ "$(pending_jobs)" -eq 0 ] && break
   sleep 60
 done
