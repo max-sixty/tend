@@ -296,6 +296,8 @@ for i in $(seq 1 9); do
 done
 ```
 
+As with the CI Monitoring loop above, invoke this Bash call with `timeout: 600000` (10 min) — the default 2-min Bash timeout would kill the loop early, and the 9-iteration cap is sized to fit inside the harness's 10-min Bash maximum.
+
 ## Replying to Comments
 
 Reply in context rather than creating new top-level comments:
