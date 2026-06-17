@@ -236,8 +236,7 @@ The install-tend skill offers to add this automatically during setup.
 
 MIT
 
-[^interactive]:
-    A third harness, `claude-interactive`, runs the official `claude` CLI
-    under a PTY supervisor (`script(1)` with a `Stop`-hook sentinel) instead
-    of `claude-code-action`. Auth matches the default Claude harness. Opt in
-    with `harness: claude-interactive`.
+[^interactive]: A third harness, `claude-interactive`, runs the official
+    `claude` CLI under a PTY supervisor (`script(1)` with a `Stop`-hook
+    sentinel) instead of `claude-code-action`. Auth matches the default
+    Claude harness. Opt in with `harness: claude-interactive`.
