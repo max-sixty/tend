@@ -75,38 +75,36 @@ nightly regen, as a reviewable workflow-file diff in their own repo. Adopters ex
 same way they trust any third-party action's publisher; pinning to `X.Y.Z`
 (or a commit SHA) bounds that trust to a reviewed, immutable point.
 
-**Config pinning.** `claude-code-action` restores RCE-relevant config
-(`.claude/`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`)
-from the base branch on all PRs, so a malicious PR's `SessionStart` hook
-or MCP server is silently reverted before Claude starts. The composite
-action additionally pins `CLAUDE.md` to the base branch on fork PRs as a
-prompt-injection defense.
+**Config pinning.** Both Claude harnesses (`action.yaml` and
+`interactive/action.yaml`) restore RCE-relevant config from the PR base branch
+before the agent starts: `.claude/`, `.mcp.json`, `.claude.json`,
+`.gitmodules`, `.ripgreprc`, `.husky`, plus `CLAUDE.md`/`CLAUDE.local.md` as a
+prompt-injection defense. A malicious PR's `SessionStart` hook, MCP server, or
+injected `CLAUDE.md` is reverted before Claude reads it. The restoration runs
+in shell; the path list and ordering mirror claude-code-action's
+`restore-config.ts`. The PR-authored versions of those paths are snapshotted to
+`.claude-pr/` (added to `.git/info/exclude` so they're not tracked) before being
+overwritten, so review skills can optionally inspect what the PR changed without
+those files ever being executed.
 
-The alternative `claude-interactive` harness (composite action at
-`interactive/`) does the same restoration in shell rather than via
-claude-code-action's TypeScript, with the same path list. The
-PR-authored versions of those paths are snapshotted to `.claude-pr/`
-(added to `.git/info/exclude` so they're not tracked) before being
-overwritten, matching claude-code-action's behavior so review skills can
-optionally inspect what the PR changed without those files ever being
-executed.
-
-**Credential isolation (`claude-interactive` harness).** The agent runs as a
-separate non-sudo `tend-sandbox` user. Both the bot PAT and the Anthropic
-credential (OAuth token or API key) live only in a local mitmproxy that the
-agent reaches over `HTTPS_PROXY`; the proxy injects each into requests to its
-own hosts (the PAT for GitHub hosts, the Anthropic secret for
-`api.anthropic.com`) and tunnels everything else. The agent holds only dummies,
-so it can't read the real secrets: a different UID with no sudo can't read the
-proxy's `/proc/<pid>/environ`, the credential `actions/checkout` persists in
+**Credential isolation (Claude harnesses).** Both `action.yaml` (headless
+`claude -p`) and `interactive/action.yaml` (PTY) run the agent as a separate
+non-sudo `tend-sandbox` user, sharing the proxy machinery under
+`interactive/proxy/`. Both the bot PAT and the Anthropic credential (OAuth token
+or API key) live only in a local mitmproxy that the agent reaches over
+`HTTPS_PROXY`; the proxy injects each into requests to its own hosts (the PAT for
+GitHub hosts, the Anthropic secret for `api.anthropic.com`) and tunnels
+everything else. The agent holds only dummies, so it can't read the real
+secrets: a different UID with no sudo can't read the proxy's
+`/proc/<pid>/environ`, the credential `actions/checkout` persists in
 `.git/config` is stripped before the workspace is handed over, and the model
 auth is never written to the agent's env or disk. The injection allowlist is
 exact-match on the connection's real destination, so a request to a lookalike
 host gets no token. (`claude` is Node and ignores the system trust store, so it
-trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) The other two harnesses
-(`action.yaml`, `codex/action.yaml`) still pass both the PAT and the model auth
-directly to the agent. The merge restriction and `tend check` remain the
-load-bearing boundaries regardless of harness.
+trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) The Codex harness
+(`codex/action.yaml`) still passes both the PAT and the model auth directly to
+the agent. The merge restriction and `tend check` remain the load-bearing
+boundaries regardless of harness.
 
 **Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort
@@ -192,20 +190,20 @@ Claude Code's bubblewrap sandbox would remove it from the agent's Bash tool
 entirely: a probe confirmed the sandbox's fresh `/proc` mount and `denyRead`
 rules block reading the token from the environment, `/proc`, and credential
 files. It is not deployed because the same bwrap path corrupts `!` in Bash
-commands (anthropics/claude-code#64301). On the `claude-interactive` harness
-this is already moot — phase 2's credential proxy keeps the real model auth out
-of the agent's env entirely, so there is nothing for bwrap to hide; the bwrap
-benefit remains relevant only to the Agent-SDK `claude` harness. See the
-`TODO.md` entry and #639.
+commands (anthropics/claude-code#64301). On both Claude harnesses this is now
+moot — the credential proxy keeps the real model auth out of the agent's env
+entirely, so there is nothing for bwrap to hide. The Codex harness still passes
+its model auth (an OpenAI key) directly, but runs with `sandbox:
+danger-full-access` by design (see "Claude executes attacker-controlled code"
+above). See the `TODO.md` entry and #639.
 
 **Long-lived PAT exposure.** A classic PAT is valid until revoked and grants
 access to every repo the bot account can reach. A single successful
 exfiltration gives the attacker persistent, broad write access. The merge
 restriction limits what they can *do* with it, but they can still push
 branches, create PRs, and post comments indefinitely. The credential isolation
-above keeps both the PAT and the Claude token out of the agent on the
-`claude-interactive` harness; both remain directly exposed on the other two
-harnesses.
+above keeps both the PAT and the Claude token out of the agent on both Claude
+harnesses; both remain directly exposed on the Codex harness.
 
 **Prompt injection without code execution.** Even without hijacking the
 tools, an attacker who controls what Claude reads can influence its behavior.

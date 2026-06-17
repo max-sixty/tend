@@ -27,13 +27,21 @@ Four pieces:
 2. **Composite action(s)** — the stable interface, pinned to an immutable
    release tag (`max-sixty/tend@X.Y.Z`, the generator's own version — no
    floating `v1`). One per harness:
-   - `max-sixty/tend@X.Y.Z` (Claude) — invokes `claude-code-action` with the
-     tend plugin marketplace. Inputs documented in `action.yaml`.
+   - `max-sixty/tend@X.Y.Z` (Claude) — runs the official `claude` binary
+     headless (`claude -p`) as a non-sudo sandbox user behind the
+     credential-injecting proxy; completion is the process exit code.
+     Inputs in `action.yaml`.
    - `max-sixty/tend/interactive@X.Y.Z` (Claude interactive) — runs the
-     official `claude` binary under a PTY supervisor (`script(1)`) with a
-     Stop-hook sentinel, instead of going through the Agent SDK. Inputs
-     mirror `action.yaml` for swap-in parity. Inputs in
-     `interactive/action.yaml`.
+     same `claude` binary under a PTY supervisor (`script(1)`) with a
+     Stop-hook sentinel. Inputs mirror `action.yaml` for swap-in parity.
+     Inputs in `interactive/action.yaml`.
+
+     Both Claude harnesses isolate the bot PAT and Anthropic credential in
+     the proxy (machinery under `interactive/proxy/`, shared in place). They
+     differ by billing population: `claude -p` is metered on Anthropic's
+     per-token Agent credit pool, while the interactive binary stays on the
+     flat Pro/Max subscription. Subscription users pick `claude-interactive`;
+     metered/API users pick `claude`.
    - `max-sixty/tend/codex@X.Y.Z` (Codex) — installs `@openai/codex` and
      shells out to `codex exec`. Skills are staged on disk and an
      `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve
