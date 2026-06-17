@@ -114,7 +114,7 @@ For each conflicted PR authored by `$BOT_LOGIN`, dispatch a subagent to:
 1. Check out the PR: `gh pr checkout <number>`
 2. Merge the default branch: `git merge origin/main`
 3. Resolve conflicts (read files, understand both sides), `git add`, `git commit --no-edit`
-4. Push and poll CI using the approach from `/tend-ci-runner:running-in-ci`
+4. Push, then wait for CI and own the result per **CI Monitoring** in `/tend-ci-runner:running-in-ci`: foreground-poll until the required checks are terminal, fix any red one and push again, and don't exit while CI is still in flight
 5. If conflicts are too complex, `git merge --abort` and comment explaining manual resolution is needed
 
 Run subagents in parallel. Each must work in isolation (`git worktree add /tmp/pr-<number>

@@ -157,4 +157,4 @@ Skip step 4 — there's no PR to monitor.
 
 ### 4. Monitor CI
 
-Poll CI using the approach from `running-in-ci` (loaded in step 0). If CI fails, diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and repeat.
+Wait for CI and own the result, per **CI Monitoring** in `running-in-ci` (loaded in step 0). The fix PR isn't done until the required checks on its commit are terminal: foreground-poll, and on a red required check diagnose with `gh run view <run-id> --log-failed`, fix, push, and repeat. End only once they pass or you've commented the failure on the PR. Don't open the PR and exit while CI is still in flight.
