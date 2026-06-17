@@ -193,7 +193,7 @@ Wraps
 Anthropic's official GitHub Action for running Claude Code in CI. Two
 auth modes:
 
-- **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended with an eligible Claude
+- **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended with a Claude
   subscription) — Claude Code OAuth token from `claude setup-token`,
   funded by the subscription's usage limits.
 - **`ANTHROPIC_API_KEY`** — standard API key from console.anthropic.com,
