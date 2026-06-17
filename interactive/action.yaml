@@ -4,9 +4,7 @@ description: >-
   inside a PTY (via `script(1)`) instead of going through
   `claude-code-action` / `@anthropic-ai/claude-agent-sdk`. A Stop hook
   writes a sentinel file the supervisor watches for; on fire, the session
-  is terminated cleanly. Motivation: Anthropic's June 15 2026 billing
-  split puts the Agent SDK on a metered Agent-SDK credit pool, while
-  interactive Claude Code stays on the flat Pro/Max subscription. Inputs
+  is terminated cleanly. Inputs
   overlap with `action.yaml`'s for the common ones (auth, prompt, model,
   bot_name, allowed_tools, system_prompt_append, show_full_output); inputs
   that only existed for the Agent-SDK harness (`use_sticky_comment`,
