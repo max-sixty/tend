@@ -157,4 +157,4 @@ Skip step 4 — there's no PR to monitor.
 
 ### 4. Monitor CI
 
-Poll CI using the approach from `running-in-ci` (loaded in step 0). If CI fails, diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and repeat.
+Wait for CI per **CI Monitoring** in `running-in-ci` (loaded in step 0).
