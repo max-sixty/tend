@@ -1,5 +1,4 @@
 bot_name: tend-agent
-harness: claude-interactive
 
 setup:
   - uses: astral-sh/setup-uv@v6

@@ -27,16 +27,10 @@ Before running step 1, choose the harness and lay out the plan:
 
 - Ask via `AskUserQuestion` which harness to use:
   - **Claude (Anthropic)** — uses a Claude Code OAuth token (recommended
-    for adopters with an eligible Claude subscription) or a
-    console.anthropic.com API key. Starting 2026-06-15, eligible-plan
-    `claude-code-action` runs draw from a separate monthly Agent SDK
-    credit (one-time opt-in then auto-refresh); using OAuth puts that
-    bundled allowance to work. Enable "extra usage" in the Console so
-    credit exhaustion overflows to API rates instead of hard-stopping
-    CI. API key is the alternative when the user is on an ineligible
-    plan (e.g. seat-based Enterprise Standard), has no subscription to
-    draw on, or wants a dedicated billing surface and per-key
-    revocation.
+    for adopters with a Claude subscription) or a console.anthropic.com
+    API key. OAuth draws from the subscription's usage limits; the API
+    key bills per token, which fits when the user has no subscription to
+    draw on or wants a dedicated billing surface and per-key revocation.
   - **Codex (OpenAI)** — uses an OpenAI API key (pay-per-token). The
     `auth.json` subscription path is incompatible with tend's
     concurrent workflows (per-call refresh-token invalidation) and is
@@ -78,18 +72,14 @@ as the bot, verify the logged-in user via the avatar menu.
 ## 1. Create config
 
 Create `.config/tend.yaml` with at minimum `bot_name`, plus `harness` if
-the user chose Codex or the interactive Claude harness (the default
-Claude harness via `claude-code-action` can be omitted). See README.md
-"Harnesses" for the comparison.
+the user chose Codex (the default Claude harness via `claude-code-action`
+can be omitted). See README.md "Harnesses" for the comparison.
 
 ```yaml
 bot_name: <bot-name>
 # For Codex, also:
 # harness: codex
 # effort: medium   # optional: minimal | low | medium | high
-# For the interactive Claude harness (PTY-supervised `claude` CLI;
-# opt-in, see README "Harnesses"):
-# harness: claude-interactive
 ```
 
 Check whether the repo already has a bot token secret under a non-default name:
@@ -479,14 +469,9 @@ gh secret list --repo "$REPO" --json name --jq '.[].name' \
 
 If not set, ask via `AskUserQuestion` which auth mode to use:
 
-- **OAuth token (recommended for eligible Claude subscribers)** —
-  `sk-ant-oat01-…` from `claude setup-token`. Funded by eligible
-  subscriptions; from 2026-06-15 these runs draw from a separate monthly
-  Agent SDK credit. Have the user opt in to the credit through
-  their Claude account once (Anthropic emails instructions; it
-  auto-refreshes each cycle after that), and enable "extra usage" in the
-  Console if they want credit exhaustion to overflow to API rates
-  instead of stopping CI. Token is advertised as 1-year.
+- **OAuth token (recommended for Claude subscribers)** —
+  `sk-ant-oat01-…` from `claude setup-token`. Draws from the
+  subscription's usage limits. Token is advertised as 1-year.
 - **API key** — `sk-ant-…` from
   `https://console.anthropic.com/settings/keys`. Billed per token against
   the Console org. Pick this when there's no Claude subscription, when

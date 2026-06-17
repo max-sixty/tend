@@ -61,11 +61,6 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
   - Maintainers of sizeable OSS projects [get a 20x Claude Max subscription
     for free from
     Anthropic](https://claude.com/contact-sales/claude-for-oss).
-  - From 2026-06-15, subscription-funded `claude-code-action` runs draw
-    from a separate monthly Agent SDK credit on eligible plans (Pro $20,
-    Max 5x $100, Max 20x $200, Team Standard $20, Team Premium $100,
-    Enterprise usage-based $20, Enterprise seat-based Premium $200;
-    seat-based Enterprise Standard seats are not eligible).
 - While it's built to protect important secrets, a determined attacker can
   get a) the bot's token and b) the harness auth credential (Claude OAuth
   token, OpenAI API key, or ChatGPT auth.json). They can't do that much
@@ -145,26 +140,23 @@ Full threat model: [docs/security-model.md](docs/security-model.md).
 ## Configuration
 
 `.config/tend.yaml` — only `bot_name` is required. The default harness wraps
-`claude-code-action`; `harness: codex` selects OpenAI Codex, and
-`harness: claude-interactive` runs the official `claude` CLI under a PTY
-(see [Harnesses](#harnesses) below for when each fits).
+`claude-code-action`; `harness: codex` selects OpenAI Codex (see
+[Harnesses](#harnesses) below).[^interactive]
 
 ```yaml
 bot_name: my-project-bot
 
 # Optional — defaults to "claude"
 # harness: codex
-# harness: claude-interactive
 # effort: medium   # codex only: minimal | low | medium | high
 ```
 
 Repo secrets depend on the harness:
 
-| Harness               | Required secrets                                                                                                        |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `claude`              | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription, see caveat below) or `ANTHROPIC_API_KEY` (API-billed) |
-| `claude-interactive`  | Same as `claude`.                                                                                                       |
-| `codex`               | `TEND_BOT_TOKEN` + `OPENAI_API_KEY` (pay-per-token).                                                                    |
+| Harness    | Required secrets                                                                                                         |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `claude`   | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription) or `ANTHROPIC_API_KEY` (API-billed)                   |
+| `codex`    | `TEND_BOT_TOKEN` + `OPENAI_API_KEY` (pay-per-token).                                                                    |
 
 `TEND_BOT_TOKEN` is the bot account's PAT — see
 [example config](docs/tend.example.yaml) for scopes.
@@ -190,9 +182,9 @@ workflow names `tend-ci-fix` watches, PR title conventions, label policies.
 
 ## Harnesses
 
-Tend supports three harnesses. Pick whichever fits the credentials and
-billing path that already work for you; all three run the same workflows
-and skills.
+Tend supports two harnesses. Pick whichever fits the credentials and
+billing path that already work for you; both run the same workflows and
+skills.[^interactive]
 
 ### Claude (default)
 
@@ -202,10 +194,8 @@ Anthropic's official GitHub Action for running Claude Code in CI. Two
 auth modes:
 
 - **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended with an eligible Claude
-  subscription) — Claude Code OAuth token from `claude setup-token`.
-  Funded by the subscription; from 2026-06-15 eligible-plan runs draw
-  from a separate monthly Agent SDK credit — see caveat below for the
-  per-plan breakdown and the seat-based Enterprise Standard exclusion.
+  subscription) — Claude Code OAuth token from `claude setup-token`,
+  funded by the subscription's usage limits.
 - **`ANTHROPIC_API_KEY`** — standard API key from console.anthropic.com,
   billed per token against the Console org. Pick this when there's no
   Claude subscription, when the bot should bill against a dedicated
@@ -214,34 +204,6 @@ auth modes:
 Whichever you set is used exactly as it would be in any
 claude-code-action workflow — tend adds the framework (workflows, skills,
 prompts) around it but never sees the token itself.
-
-Caveat: starting **2026-06-15**, subscription-funded `claude-code-action`
-runs draw from a separate monthly Agent SDK credit rather than the plan's
-interactive usage limits. The credit is a one-time opt-in through the
-user's Claude account and then refreshes automatically each billing
-cycle; once exhausted, runs stop unless "extra usage" is enabled (in
-which case overage bills at API rates). OAuth tokens continue to
-authenticate; billing just shifts buckets. See Anthropic's
-[authentication page](https://code.claude.com/docs/en/authentication)
-and the
-[Agent SDK plan article](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
-for the canonical statements.
-
-### Claude (interactive)
-
-Runs the official `claude` CLI inside a PTY (via `script(1)`) instead of
-through `claude-code-action`. End-of-turn detection comes from a `Stop`
-hook that writes a sentinel file the supervisor polls for.
-
-Auth matches the default Claude harness (`CLAUDE_CODE_OAUTH_TOKEN` or
-`ANTHROPIC_API_KEY`).
-
-From 2026-06-15, subscription-funded `claude-code-action` runs draw from
-the separate metered Agent SDK credit pool described in the caveat above;
-the interactive `claude` CLI continues to draw from the flat Pro/Max
-subscription.
-
-Opt-in: `harness: claude-interactive`.
 
 ### Codex (alternative)
 
@@ -273,3 +235,9 @@ The install-tend skill offers to add this automatically during setup.
 ## License
 
 MIT
+
+[^interactive]:
+    A third harness, `claude-interactive`, runs the official `claude` CLI
+    under a PTY supervisor (`script(1)` with a `Stop`-hook sentinel) instead
+    of `claude-code-action`. Auth matches the default Claude harness. Opt in
+    with `harness: claude-interactive`.
