@@ -128,7 +128,7 @@ Step 3's duplicate check catches identical fixes. It misses the *same root cause
    ---
    Closes #<issue-number> — automated triage"
    ```
-4. Wait for CI and own the result, per **CI Monitoring** in `/tend-ci-runner:running-in-ci`. A pushed fix isn't done until the required checks on its commit are terminal: foreground-poll, fix any red required check and push again, and end only once they pass or you've commented on the PR why they don't. Don't open the PR and exit while CI is still in flight.
+4. Wait for CI per **CI Monitoring** in `/tend-ci-runner:running-in-ci`.
 
 ### If reproduction test works but fix is not confident
 

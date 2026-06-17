@@ -86,7 +86,7 @@ The session is live until the deliverable is **maintainer-visible**: pushed, pos
 
 Corollary: don't background anything whose output gates the deliverable. If a full test suite or comprehensive lint needs to run before push, run it synchronously and accept the time cost; if it's too slow for the session budget, push first and let CI re-run it. A session that shipped a partial result is recoverable; a session that ended mid-wait with the deliverable on a local branch is not. A targeted compile plus the tests directly exercising the change is enough local confidence to ship — leave the comprehensive matrix to CI.
 
-After a push, whether to wait is set by whether a red CI result would create a follow-up for this session — see **CI Monitoring**. A pushed fix always creates one (fix-on-failure), so foreground-poll until the required checks on its commit are terminal, fix any red result, and end only once they pass or you've reported why they don't. When nothing this session did depends on the CI result, end once the visible work is posted. Either way, don't background the wait — a background-poll completion notification isn't reliably delivered to a CI session, so the wait and any fix must share this session.
+A pushed fix isn't done until its required checks are terminal — see **CI Monitoring**.
 
 ## Filing Issues in Other Repos
 
@@ -180,11 +180,11 @@ When asked to merge the default branch into a PR branch:
 
 ## CI Monitoring
 
-After pushing, decide based on whether a red CI result would create a follow-up for this session.
+After pushing, what to do depends on whether a red result creates a follow-up.
 
-**A follow-up is gated on the result** — poll **synchronously in the foreground** (don't use `run_in_background`) until the required checks on the commit are terminal, then do it. A pushed fix is always in this case: a triage fix, a CI fix, or a code change a reviewer asked for owns its CI, because a failing required check is a fix-on-failure follow-up. Diagnose, fix, push, and repeat; if you genuinely can't fix it, comment the failure on the PR so the maintainer sees it instead of a silent red. Approving a PR is also gated — a later red result means dismissing your own approval. Don't pre-judge a fresh push as ungated: the red result *is* the follow-up, and no other tend run fixes a PR branch's CI for you (`tend-ci-fix` watches only the default branch).
+**A pushed fix is always gated** (triage fix, CI fix, requested change): you own its CI, so don't pre-judge a fresh push as ungated — no other tend run fixes a PR branch's CI (`tend-ci-fix` watches only the default branch). Approving a PR is also gated: dismiss it on red.
 
-**Nothing is gated** — a review that only commented, a mention you answered without changes, a no-op: nothing this session did depends on the CI result. State anything still in flight in your final message and **end the session**. Don't start a background poll — its completion notification isn't reliably delivered to a CI session, so any "I'll report the result" promise won't fire.
+**Nothing gated** (review-only, a reply, a no-op): end, stating anything still in flight. Don't background-poll — the completion notification isn't reliably delivered to a CI session.
 
 ```bash
 # Foreground poll — invoke Bash without run_in_background.
@@ -252,8 +252,8 @@ exit 1
 
 1. Poll every 60 seconds (up to ~15 minutes) until all non-own check-runs on the commit are terminal. **Filter out the current run's URL (`/runs/$GITHUB_RUN_ID/`)** — the current workflow's own check is always pending while polling and must be excluded to avoid a deadlock. **Also filter same-workflow check runs (`$GITHUB_WORKFLOW`)** — sibling runs of the same workflow on the same PR are subject to concurrency rules (queueing or cancel-in-progress) and don't represent independent CI signals. The 30s grace re-check catches late-registering omnibus checks.
 2. If a required check fails, diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, repeat.
-3. Once the required checks are terminal, perform the gated follow-up: finish a green fix, comment an unresolved failure on the PR, or dismiss your approval on red.
-4. If the poll hits its cap with required checks still running, don't treat that as done — that just relocates an unwatched red to after you've left. Comment on the PR naming the still-pending checks and that the result is unverified, so a later failure lands where the maintainer sees it, then end.
+3. Once terminal, do the follow-up: ship a green fix, comment an unresolved failure, or dismiss your approval on red.
+4. If the cap hits with checks still running, comment the still-pending checks as unverified before ending — don't exit as if done.
 
 Before dismissing local test failures as "pre-existing", check main branch CI:
 
@@ -679,7 +679,7 @@ When the correction identifies a gap or bug in a **bundled** skill — the same 
    git worktree remove "/tmp/skill-fix" --force
    ```
 4. **Open as a separate PR.** Follow the repo's PR title conventions (conventional commits, Jira prefix, or whatever the repo uses — check recent merged PRs or `CONTRIBUTING.md`). The body quotes the triggering feedback and links the thread (PR/issue/comment URL).
-5. **Open and exit — don't merge, don't wait.** The PR itself is the review request; a maintainer lands it (or doesn't) in their own time. Don't post a separate comment pinging for review, and don't block the session waiting. This open-and-exit is specific to skill proposals, where a human is the gate; a code fix owns its CI and follows **CI Monitoring** instead.
+5. **Open and exit — don't merge, don't wait.** The PR itself is the review request; a maintainer lands it (or doesn't) in their own time. Don't post a separate comment pinging for review, and don't block the session waiting. This open-and-exit is for skill proposals only; a code fix follows **CI Monitoring**.
 
 ## Tone
 
