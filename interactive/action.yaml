@@ -323,7 +323,7 @@ runs:
     # must be installed in place — installing as runner and moving breaks it.
     # uv is the agent's own (its skills run `uvx tend@latest …`); the runner has
     # a separate uv for the proxy. Installers fetch over the direct network (no
-    # proxy env here). Same pinned claude version as claude-code-base-action.
+    # proxy env here).
     - name: Install agent toolchain (sandbox)
       shell: bash
       env:
