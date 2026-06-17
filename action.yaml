@@ -53,11 +53,11 @@ inputs:
     default: "true"
     description: Include the rendered Claude transcript in the workflow step summary.
   claude_version:
-    default: "2.1.150"
+    default: "2.1.179"
     description: >-
       Version of the `claude` binary to install via
-      `https://claude.ai/install.sh`. Matches the version the interactive
-      harness installs.
+      `https://claude.ai/install.sh`, pinned to a specific
+      claude-code release. Kept in step with the interactive harness's pin.
   timeout_seconds:
     default: "3600"
     description: >-
