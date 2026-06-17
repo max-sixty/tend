@@ -173,12 +173,14 @@ Skip runs without artifacts. Trace decision chains: what did tend decide, what e
 
 ## Step 4: Cross-check outcomes
 
-For each analyzed run, compare what the bot did against what happened next:
+For each analyzed run, compare what the bot did against what happened next. The same "did it stick?" question applies to every tend workflow — ask it of whatever ran. For example:
 
-- **Review runs**: Did subsequent commits undo something the bot approved? Did human reviewers flag issues the bot missed?
-- **Triage runs**: Was the bot's classification correct? Did the issue get relabeled?
-- **Nightly runs**: Did the bot's PRs get merged, or were they closed as unhelpful?
-- **CI-fix runs**: Did the fix actually resolve the CI failure?
+- **Review**: did subsequent commits undo something the bot approved? Did human reviewers flag issues it missed?
+- **Triage**: was the classification correct? Did the issue get relabeled?
+- **Nightly**: did the bot's PRs merge, or get closed as unhelpful?
+- **CI-fix**: did the fix actually resolve the failure?
+
+mention, notifications, weekly, and review-reviewers runs get the same treatment: find the bot's output and check whether it was accepted.
 
 ```bash
 # Example: check if a bot PR was merged or closed

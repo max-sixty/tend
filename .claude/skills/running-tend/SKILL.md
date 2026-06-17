@@ -123,6 +123,35 @@ is empty — `git diff --quiet` returns 0 for untracked paths, so the
 first-run case would no-op. Code search is 10 req/min — one call covers
 the whole list.
 
+## Weekly: bump pinned agent binaries
+
+The Claude-interactive and Codex harness actions install a pinned agent
+binary (`claude_version` in `interactive/action.yaml`, `codex_version` in
+`codex/action.yaml`). The SDK harness (`action.yaml`) floats on
+`anthropics/claude-code-action@v1` and tracks new releases itself; these
+two pins are static strings nothing else moves, so they drift behind and
+the harness resolves `--model opus`/`sonnet` to a stale alias target (an
+old binary maps `opus` to a superseded Opus version).
+
+```bash
+# Claude: pinned default vs latest release
+rg -A1 'claude_version:' interactive/action.yaml
+npm view @anthropic-ai/claude-code dist-tags.latest
+```
+
+If `latest` is newer, bump the `default:` in `interactive/action.yaml` to
+it and open a PR titled `chore: bump claude_version to <latest>`. Skim the
+claude-code CHANGELOG between the two versions for anything touching the
+PTY-supervised path (first-run onboarding, `--model` alias resolution,
+Stop-hook behavior) and note it in the PR.
+
+Codex pins a prerelease on purpose (`codex_version`) and its catalog
+churns, so bump it only to a release confirmed to still run under
+`codex exec`, not blindly to the newest npm tag.
+
+The bump reaches adopters at the next tend release, since their workflows
+pin `max-sixty/tend@X.Y.Z`; tend's own workflows pick it up the same way.
+
 ## Weekly: integration test
 
 End-to-end check that a fresh install completes and the generated workflows
