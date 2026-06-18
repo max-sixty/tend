@@ -212,12 +212,7 @@ Improvements target **repo-local** files by default:
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
-The checkout's `.claude/` directory is bind-mounted read-only under the sandbox (protecting bots from modifying their own skills in place), so edits to `.claude/skills/` files fail with `OSError: [Errno 30] Read-only file system`. Do the edit, commit, and push from a git worktree under `/tmp`, which is writable. (Don't write `$TMPDIR/...` — GitHub Actions runners leave `$TMPDIR` unset, so the path expands to `/review-runs-fix`, which the runner user can't create.)
-
-Claude Code's harness adds a second restriction on top of the read-only mount: `Edit`, `Write`, and Bash commands with `.claude/skills/` as a write-target argument are denied regardless of filesystem permissions ([anthropics/claude-code#37157](https://github.com/anthropics/claude-code/issues/37157)). The guard checks argument text, so `Write(/tmp/…)` and `Bash(mv /tmp/… SKILL.md)` both pass — the second because `SKILL.md` is a bare filename inside the `cd`'d directory.
-
-<!-- TODO(anthropics/claude-code#37157): once the harness exempts .claude/skills/
-     as documented, replace the /tmp-then-mv dance below with direct `Write` to the worktree path. -->
+Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see **Learning from Feedback** in `/tend-ci-runner:running-in-ci`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place):
 
 
 ```bash

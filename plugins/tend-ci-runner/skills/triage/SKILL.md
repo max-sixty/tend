@@ -152,13 +152,7 @@ Note the PR number for the comment.
 
 ## Step 7: Comment on the issue
 
-**Recheck before posting.** Triage can take several minutes. Before posting, re-fetch the conversation to check for new comments:
-
-```bash
-gh issue view $ARGUMENTS --json comments --jq '.comments | length'
-```
-
-If new comments appeared since you first read the issue, read them and adjust your response — someone may have answered, provided more context, or closed the issue. If your comment is now redundant, skip it.
+**Recheck before posting** per **Recheck Before Posting** in `/tend-ci-runner:running-in-ci` — triage can take minutes, so re-fetch the issue and skip any point a new human comment or a sibling tend workflow already covered.
 
 Always comment via `gh issue comment`. Keep it brief, polite, and specific. A maintainer will always review — never claim the issue is fully resolved by automation alone.
 
