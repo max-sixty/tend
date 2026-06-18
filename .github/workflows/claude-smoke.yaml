@@ -7,10 +7,10 @@ name: claude-smoke
 # version; the in-tree action is unreleased until the next `pypi-release`
 # run).
 #
-# Runs automatically on any PR that touches the harness (action.yaml or the
-# shared proxy), and manually via `workflow_dispatch`. The `prompt`/`model`
-# inputs override the defaults on a manual run; the standard prompt lives in
-# .github/claude-smoke-prompt.md so both triggers share one source.
+# Manual only — dispatch it to validate the harness, e.g. on a branch that
+# changes action.yaml or the shared proxy. The standard prompt lives in
+# .github/claude-smoke-prompt.md; `-f prompt=` overrides it and `-f model=`
+# picks the model.
 #   gh workflow run claude-smoke.yaml --ref <branch> -f model=opus
 #
 # What we're validating:
@@ -40,12 +40,6 @@ name: claude-smoke
 #   timeout           → exceeded timeout_seconds
 
 on:
-  pull_request:
-    paths:
-      - action.yaml
-      - interactive/proxy/**
-      - .github/claude-smoke-prompt.md
-      - .github/workflows/claude-smoke.yaml
   workflow_dispatch:
     inputs:
       prompt:
@@ -67,12 +61,9 @@ permissions:
 
 jobs:
   smoke:
-    # Fork guard: secrets are withheld from fork PRs and unavailable to forks
-    # generally, so run only on this repo's own dispatch or a same-repo PR.
-    if: >-
-      github.repository_owner == 'max-sixty' &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
+    # Fork guard: secrets aren't available to forks, so a fork dispatch would
+    # fail noisily.
+    if: github.repository_owner == 'max-sixty'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -111,7 +102,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           bot_name: tend-agent
           prompt: ${{ steps.prompt.outputs.value }}
-          model: ${{ inputs.model || 'sonnet' }}
+          model: ${{ inputs.model }}
           # Short cap — the default prompt should finish in well under a
           # minute. Catching a hang here is part of the test.
           timeout_seconds: "300"
