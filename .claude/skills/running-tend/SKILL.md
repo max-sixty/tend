@@ -126,25 +126,25 @@ the whole list.
 
 ## Weekly: bump pinned agent binaries
 
-The Claude-interactive and Codex harness actions install a pinned agent
-binary (`claude_version` in `interactive/action.yaml`, `codex_version` in
-`codex/action.yaml`). The SDK harness (`action.yaml`) floats on
-`anthropics/claude-code-action@v1` and tracks new releases itself; these
-two pins are static strings nothing else moves, so they drift behind and
-the harness resolves `--model opus`/`sonnet` to a stale alias target (an
-old binary maps `opus` to a superseded Opus version).
+Every harness action installs a pinned agent binary: `claude_version` in
+both `action.yaml` (headless `claude -p`) and `interactive/action.yaml`
+(PTY), and `codex_version` in `codex/action.yaml`. These pins are static
+strings nothing else moves, so they drift behind and the harness resolves
+`--model opus`/`sonnet` to a stale alias target (an old binary maps `opus`
+to a superseded Opus version).
 
 ```bash
-# Claude: pinned default vs latest release
-rg -A1 'claude_version:' interactive/action.yaml
+# Claude: pinned defaults vs latest release
+rg -A1 'claude_version:' action.yaml interactive/action.yaml
 npm view @anthropic-ai/claude-code dist-tags.latest
 ```
 
-If `latest` is newer, bump the `default:` in `interactive/action.yaml` to
-it and open a PR titled `chore: bump claude_version to <latest>`. Skim the
-claude-code CHANGELOG between the two versions for anything touching the
-PTY-supervised path (first-run onboarding, `--model` alias resolution,
-Stop-hook behavior) and note it in the PR.
+If `latest` is newer, bump the `default:` in **both** `action.yaml` and
+`interactive/action.yaml` (keep the two Claude pins in step) and open a PR
+titled `chore: bump claude_version to <latest>`. Skim the claude-code
+CHANGELOG between the two versions for anything touching the agent paths
+(first-run onboarding, `--model` alias resolution, headless `-p` result
+events, Stop-hook behavior) and note it in the PR.
 
 Codex pins a prerelease on purpose (`codex_version`) and its catalog
 churns, so bump it only to a release confirmed to still run under

@@ -13,10 +13,10 @@ bot_name: my-project-bot
 
 # ## Harness
 #
-# Which agent runtime to use. Defaults to "claude" (wraps
-# anthropics/claude-code-action). "codex" runs OpenAI Codex via
-# `codex exec`. (A third harness, "claude-interactive", runs the official
-# `claude` CLI under a PTY; see README "Harnesses".)
+# Which agent runtime to use. Defaults to "claude" (the official `claude`
+# binary run headless behind a credential-injecting proxy). "codex" runs
+# OpenAI Codex via `codex exec`. (A third harness, "claude-interactive",
+# runs the same binary under a PTY; see README "Harnesses".)
 #
 # harness: codex
 

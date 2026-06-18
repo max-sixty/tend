@@ -27,18 +27,26 @@ Four pieces:
 2. **Composite action(s)** — the stable interface, pinned to the generator's
    own immutable release version (`@X.Y.Z` — no floating `v1`). Each harness is
    a named subpath:
-   - `max-sixty/tend/claude@X.Y.Z` (Claude SDK) — invokes `claude-code-action`
-     with the tend plugin marketplace. This is the canonical Claude ref the
-     generator emits; `max-sixty/tend@X.Y.Z` (no subpath) is a retained alias
-     for adopters pinned before the subpath existed. The definition lives once,
-     at the root `action.yaml`; `claude/` re-exposes it via symlinks (a
-     composite action can't delegate to a sibling local action through a
-     relative `uses:`). Inputs in `action.yaml`.
+   - `max-sixty/tend/claude@X.Y.Z` (Claude SDK) — runs the official `claude`
+     binary headless (`claude -p`) as a non-sudo sandbox user behind the
+     credential-injecting proxy; completion is the process exit code. This is
+     the canonical Claude ref the generator emits; `max-sixty/tend@X.Y.Z` (no
+     subpath) is a retained alias for adopters pinned before the subpath
+     existed. The definition lives once, at the root `action.yaml`; `claude/`
+     re-exposes it via symlinks (a composite action can't delegate to a
+     sibling local action through a relative `uses:`). Inputs in `action.yaml`.
    - `max-sixty/tend/interactive@X.Y.Z` (Claude interactive) — runs the
-     official `claude` binary under a PTY supervisor (`script(1)`) with a
-     Stop-hook sentinel, instead of going through the Agent SDK. Inputs
-     mirror `action.yaml` for swap-in parity. Inputs in
-     `interactive/action.yaml`.
+     same `claude` binary under a PTY supervisor (`script(1)`) with a
+     Stop-hook sentinel. Inputs mirror `action.yaml` for swap-in parity.
+     Inputs in `interactive/action.yaml`.
+
+     Both Claude harnesses run the same binary behind the shared proxy
+     (machinery under `interactive/proxy/`); they differ only in how
+     completion is supervised — headless `-p` exit code vs the PTY Stop-hook
+     sentinel. `claude` is the default and recommended path (simpler, no
+     PTY); `claude-interactive` is a footnoted variant. Both bill against
+     the Claude subscription — the 2026-06-15 per-token metering that once
+     distinguished them is paused.
    - `max-sixty/tend/codex@X.Y.Z` (Codex) — installs `@openai/codex` and
      shells out to `codex exec`. Skills are staged on disk and an
      `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve

@@ -196,13 +196,13 @@ implemented yet:
   the same bwrap path corrupts `!` to `\!` in Bash commands (breaks `jq
   !=`, `feat!:` titles), so both actions pin `=0`. Reproduced through
   claude 2.1.159 and filed as anthropics/claude-code#64301; re-enable
-  once that lands. Superseded for the **claude-interactive** harness: its
-  credential proxy now injects the Anthropic secret for api.anthropic.com,
-  so the agent's env holds only a dummy and there is no model auth left to
-  hide there. Still relevant only for the **claude** (Agent-SDK) harness,
-  which doesn't run behind the proxy. The GitHub token (already isolated in
-  the interactive harness) still needs the short-lived GitHub App token in
-  the Agent-SDK harness (see "Auth: GitHub App alternatives to PAT").
+  once that lands. Superseded for both Claude harnesses: the credential
+  proxy injects the Anthropic secret for api.anthropic.com, so the agent's
+  env holds only a dummy and there is no model auth left to hide there. The
+  GitHub token is likewise isolated in both Claude harnesses via the proxy.
+  The **codex** harness still passes the model auth (an OpenAI key) and the
+  PAT directly, but it's a different engine with its own sandbox story (see
+  "Auth: GitHub App alternatives to PAT").
 - **Workflow dispatch isolation.** Split each workflow into an analysis
   job (`GITHUB_TOKEN` only, reads the diff, produces a plan) and a push
   job (bot token, separate workflow triggered by `workflow_run`). The bot

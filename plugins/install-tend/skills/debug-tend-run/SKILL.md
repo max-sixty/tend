@@ -38,7 +38,7 @@ gh run list -R "$REPO" --branch "$HEAD" --limit 10 \
 
 The artifact name identifies the harness:
 
-- `claude-session-logs*` — Claude harness (`claude-code-action` wraps tend)
+- `claude-session-logs*` — Claude harness (headless `claude -p` behind the proxy)
 - `claude-interactive-session-logs*` — Claude interactive harness (PTY-supervised binary)
 - `codex-session-logs-*` — Codex harness (`max-sixty/tend/codex`)
 
