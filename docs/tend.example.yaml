@@ -14,21 +14,18 @@ bot_name: my-project-bot
 # ## Harness
 #
 # Which agent runtime to use. Defaults to "claude" (wraps
-# anthropics/claude-code-action). Alternatives: "codex" runs OpenAI
-# Codex via `codex exec`; "claude-interactive" runs the official `claude`
-# CLI under a PTY (opt-in, see README "Harnesses" for the billing-path
-# motivation).
+# anthropics/claude-code-action). "codex" runs OpenAI Codex via
+# `codex exec`. (A third harness, "claude-interactive", runs the official
+# `claude` CLI under a PTY; see README "Harnesses".)
 #
 # harness: codex
-# harness: claude-interactive
 
 # ## Model
 #
 # Model to use for all workflows. Valid values depend on the harness:
 #
-# - harness: claude              — opus (default), sonnet, haiku
-# - harness: claude-interactive  — opus (default), sonnet, haiku
-# - harness: codex               — gpt-5.5 (default); any string Codex CLI accepts
+# - harness: claude  — opus (default), sonnet, haiku
+# - harness: codex   — gpt-5.5 (default); any string Codex CLI accepts
 #
 # model: opus
 
@@ -52,11 +49,10 @@ bot_name: my-project-bot
 #
 # Repo secrets, by harness:
 #
-# | Harness               | Required                                                                  |
-# |-----------------------|---------------------------------------------------------------------------|
-# | `claude`              | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` |
-# | `claude-interactive`  | Same as `claude`.                                                          |
-# | `codex`               | `TEND_BOT_TOKEN` + `OPENAI_API_KEY`                                        |
+# | Harness    | Required                                                                  |
+# |------------|---------------------------------------------------------------------------|
+# | `claude`   | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` |
+# | `codex`    | `TEND_BOT_TOKEN` + `OPENAI_API_KEY`                                        |
 #
 # `TEND_BOT_TOKEN` is the bot account's PAT (scopes below).
 # `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token` (PKCE).
@@ -86,8 +82,8 @@ bot_name: my-project-bot
 #
 # secrets:
 #   bot_token: MY_BOT_PAT
-#   claude_token: MY_CLAUDE_TOKEN        # claude / claude-interactive (OAuth)
-#   anthropic_api_key: MY_ANTHROPIC_KEY  # claude / claude-interactive (API key)
+#   claude_token: MY_CLAUDE_TOKEN        # claude (OAuth)
+#   anthropic_api_key: MY_ANTHROPIC_KEY  # claude (API key)
 #   openai_key: MY_OPENAI_KEY            # codex
 #
 # `tend check` flags repo-level secrets not in an explicit allowlist. Repos with

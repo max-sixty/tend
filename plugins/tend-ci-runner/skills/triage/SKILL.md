@@ -128,7 +128,7 @@ Step 3's duplicate check catches identical fixes. It misses the *same root cause
    ---
    Closes #<issue-number> — automated triage"
    ```
-4. Monitor CI using the approach from /tend-ci-runner:running-in-ci.
+4. Wait for CI per **CI Monitoring** in `/tend-ci-runner:running-in-ci`.
 
 ### If reproduction test works but fix is not confident
 
