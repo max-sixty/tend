@@ -76,8 +76,8 @@ jobs:
           # prompt asserts the strip didn't break git.
           persist-credentials: true
 
-      # One prompt source for both triggers: a manual `-f prompt=` override,
-      # else the standard isolation prompt checked in alongside this workflow.
+      # Prompt source: a manual `-f prompt=` override, else the standard
+      # isolation prompt checked in alongside this workflow.
       - name: Compose smoke prompt
         id: prompt
         env:
