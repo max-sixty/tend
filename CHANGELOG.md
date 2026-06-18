@@ -6,6 +6,17 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.1.6
+
+### Improved
+
+- **The default `claude` harness runs the official binary headless behind the credential proxy.** The root `action.yaml` was rewritten to run `claude -p` as a non-sudo `tend-sandbox` user behind the same credential-injecting mitmproxy the interactive harness uses, replacing the `anthropics/claude-code-action@v1` wrapper that handed the bot PAT and the Anthropic credential to the agent directly. Both credentials now live only in the proxy and never enter the agent's environment or disk; completion is the `claude -p` exit code. The action gains `claude_version`, `timeout_seconds`, and `mitmproxy_version` inputs and drops the unused claude-code-action passthroughs. ([#704](https://github.com/max-sixty/tend/pull/704))
+
+### Internal
+
+- Bundled skills replace guidance duplicated from `running-in-ci` — triage's recheck-before-posting and review-runs' read-only-mount workaround — with references to the canonical sections. ([#703](https://github.com/max-sixty/tend/pull/703))
+- The `claude-smoke` workflow that exercises the headless harness end-to-end becomes `workflow_dispatch`-only, matching `interactive-smoke`. ([#706](https://github.com/max-sixty/tend/pull/706))
+
 ## 0.1.5
 
 ### Improved
