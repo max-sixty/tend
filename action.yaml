@@ -5,10 +5,9 @@ description: >-
   in headless print mode (`claude -p`) as a separate, non-sudo sandbox user
   behind a local credential-injecting proxy: the bot PAT and the Anthropic
   credential live only in the proxy, never in the agent's environment. This
-  is the metered/API-billed Claude harness — `claude -p` is on Anthropic's
-  per-token Agent credit pool — while the subscription-billed variant is
-  `interactive/action.yaml` (the PTY-supervised binary). Inputs mirror that
-  action for swap-in parity; the two share the proxy machinery under
+  is tend's default, recommended Claude harness. `interactive/action.yaml`
+  is a PTY-supervised variant of the same binary; inputs mirror this action
+  for swap-in parity, and the two share the proxy machinery under
   `interactive/proxy/`.
 
 inputs:

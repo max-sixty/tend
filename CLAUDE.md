@@ -36,12 +36,13 @@ Four pieces:
      Stop-hook sentinel. Inputs mirror `action.yaml` for swap-in parity.
      Inputs in `interactive/action.yaml`.
 
-     Both Claude harnesses isolate the bot PAT and Anthropic credential in
-     the proxy (machinery under `interactive/proxy/`, shared in place). They
-     differ by billing population: `claude -p` is metered on Anthropic's
-     per-token Agent credit pool, while the interactive binary stays on the
-     flat Pro/Max subscription. Subscription users pick `claude-interactive`;
-     metered/API users pick `claude`.
+     Both Claude harnesses run the same binary behind the shared proxy
+     (machinery under `interactive/proxy/`); they differ only in how
+     completion is supervised — headless `-p` exit code vs the PTY Stop-hook
+     sentinel. `claude` is the default and recommended path (simpler, no
+     PTY); `claude-interactive` is a footnoted variant. Both bill against
+     the Claude subscription — the 2026-06-15 per-token metering that once
+     distinguished them is paused.
    - `max-sixty/tend/codex@X.Y.Z` (Codex) — installs `@openai/codex` and
      shells out to `codex exec`. Skills are staged on disk and an
      `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve

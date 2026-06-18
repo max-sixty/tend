@@ -72,8 +72,8 @@ as the bot, verify the logged-in user via the avatar menu.
 ## 1. Create config
 
 Create `.config/tend.yaml` with at minimum `bot_name`, plus `harness` if
-the user chose Codex (the default Claude harness via `claude-code-action`
-can be omitted). See README.md "Harnesses" for the comparison.
+the user chose Codex (the default Claude harness can be omitted). See
+README.md "Harnesses" for the comparison.
 
 ```yaml
 bot_name: <bot-name>
