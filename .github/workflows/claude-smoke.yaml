@@ -5,8 +5,7 @@ name: claude-smoke
 # credential-injecting proxy. Runs the in-tree action via `uses: ./` so we
 # don't need a release tag (release tags are pinned to the generator's own
 # version; the in-tree action is unreleased until the next `pypi-release`
-# run). A second job (`alias-integrity`) asserts the `claude/` subpath alias
-# resolves to this same action.
+# run).
 #
 # Runs automatically on any PR that touches the harness (action.yaml or the
 # shared proxy), and manually via `workflow_dispatch`. The `prompt`/`model`
@@ -44,7 +43,6 @@ on:
   pull_request:
     paths:
       - action.yaml
-      - claude/**
       - interactive/proxy/**
       - .github/claude-smoke-prompt.md
       - .github/workflows/claude-smoke.yaml
@@ -162,34 +160,3 @@ jobs:
           if [ "$TURNS" -eq 0 ]; then
             echo "::warning::token_usage reports 0 turns — session may not have completed any assistant response"
           fi
-
-  # The /claude subpath re-exposes this same action via symlinks. The action
-  # body is byte-identical to the root ref's; only github.action_path-relative
-  # resolution differs, so the agent `smoke` job above already covers execution.
-  # Assert the alias's path resolution deterministically here — a broken or
-  # missing symlink fails at this cheap, secret-free job instead of only at a
-  # release-pinned `max-sixty/tend/claude@` run.
-  alias-integrity:
-    if: github.repository_owner == 'max-sixty'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-      - name: Assert claude/ alias resolves to the root action
-        run: |
-          set -euo pipefail
-          # The alias points at the canonical root action.
-          [ "$(realpath claude/action.yaml)" = "$(realpath action.yaml)" ]
-          # Resources the action reaches via github.action_path resolve through
-          # the alias's symlinks.
-          [ -f claude/shared/system-prompt.md ]
-          [ -f claude/interactive/proxy/setup-sandbox.sh ]
-          [ -f claude/.claude-plugin/marketplace.json ]
-          # The sandbox marketplace step resolves <action_path>/.claude-plugin/..
-          # under the alias that must land on the real repo root so cp copies
-          # real dirs, not dangling symlinks.
-          [ "$(realpath claude/.claude-plugin/..)" = "$(realpath .)" ]
-          echo "claude/ alias resolves to the root action and its resources"
