@@ -155,7 +155,7 @@ bot_name: my-project-bot
 
 # Optional — defaults to "claude"
 # harness: codex
-# effort: medium   # codex only: minimal | low | medium | high
+# effort: medium   # codex only: low | medium | high | xhigh
 ```
 
 Repo secrets depend on the harness:

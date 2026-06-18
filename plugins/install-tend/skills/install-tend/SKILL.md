@@ -79,7 +79,7 @@ README.md "Harnesses" for the comparison.
 bot_name: <bot-name>
 # For Codex, also:
 # harness: codex
-# effort: medium   # optional: minimal | low | medium | high
+# effort: medium   # optional: low | medium | high | xhigh
 ```
 
 Check whether the repo already has a bot token secret under a non-default name:
