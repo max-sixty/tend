@@ -61,8 +61,8 @@ Everything else in this section is defense in depth: useful, but not
 load-bearing.
 
 **Action distribution integrity.** Generated workflows pin the composite
-action to the generator's own release version (`max-sixty/tend@X.Y.Z`), never
-a floating ref. Release-tag immutability is the boundary this relies on: a
+action to the generator's own release version (`max-sixty/tend/claude@X.Y.Z`),
+never a floating ref. Release-tag immutability is the boundary this relies on: a
 `tag` ruleset on `max-sixty/tend` restricts `update` and `deletion` (leaving
 `creation` open so the release can push a new `X.Y.Z`), with no bypass for
 write-access actors. That ruleset is applied out of band; until it is in

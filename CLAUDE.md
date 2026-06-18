@@ -24,11 +24,16 @@ Four pieces:
 
 1. **Plugins** — `install-tend` (user-facing setup) and `tend-ci-runner` (CI
    skills). Both ship from the same marketplace.
-2. **Composite action(s)** — the stable interface, pinned to an immutable
-   release tag (`max-sixty/tend@X.Y.Z`, the generator's own version — no
-   floating `v1`). One per harness:
-   - `max-sixty/tend@X.Y.Z` (Claude) — invokes `claude-code-action` with the
-     tend plugin marketplace. Inputs documented in `action.yaml`.
+2. **Composite action(s)** — the stable interface, pinned to the generator's
+   own immutable release version (`@X.Y.Z` — no floating `v1`). Each harness is
+   a named subpath:
+   - `max-sixty/tend/claude@X.Y.Z` (Claude SDK) — invokes `claude-code-action`
+     with the tend plugin marketplace. This is the canonical Claude ref the
+     generator emits; `max-sixty/tend@X.Y.Z` (no subpath) is a retained alias
+     for adopters pinned before the subpath existed. The definition lives once,
+     at the root `action.yaml`; `claude/` re-exposes it via symlinks (a
+     composite action can't delegate to a sibling local action through a
+     relative `uses:`). Inputs in `action.yaml`.
    - `max-sixty/tend/interactive@X.Y.Z` (Claude interactive) — runs the
      official `claude` binary under a PTY supervisor (`script(1)`) with a
      Stop-hook sentinel, instead of going through the Agent SDK. Inputs
@@ -72,7 +77,8 @@ tend/
 │   └── tend-ci-runner/   # CI plugin (review, triage, ci-fix, etc.)
 │       ├── .codex-plugin/  # Codex plugin manifest
 │       └── scripts/      # Helper scripts (survey, run listing)
-├── action.yaml           # Claude harness composite action
+├── action.yaml           # Claude SDK harness composite action (canonical)
+├── claude/               # Symlink alias → root action.yaml (max-sixty/tend/claude)
 ├── interactive/
 │   └── action.yaml       # Claude interactive harness (PTY-supervised binary)
 ├── codex/
@@ -110,8 +116,8 @@ Tend's own `tend-*.yaml` workflows track the latest published release. They
 update each night via `uvx tend@latest init`. Updating earlier to the latest
 release (e.g., during a release commit) is fine. Never regenerate them with
 the in-tree generator: the action ref is pinned to the generator's own
-version (`max-sixty/tend@X.Y.Z`), so an unreleased in-tree version stamps a
-tag that does not exist yet, and the workflow's `uses:` fails to resolve.
+version (`max-sixty/tend/claude@X.Y.Z`), so an unreleased in-tree version stamps
+a tag that does not exist yet, and the workflow's `uses:` fails to resolve.
 Between a generator commit and the next release the committed workflows lag
 the in-tree generator; that is expected, and the gap closes at the next
 release (which tags `X.Y.Z` before regenerating, so the pin always resolves).
@@ -281,8 +287,8 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 ## Agent-driven vs deterministic steps
 
 Tend's workflows invoke the agent through the harness-specific composite
-action (`max-sixty/tend@X.Y.Z` for Claude, `max-sixty/tend/codex@X.Y.Z` for
-Codex). When adding new capability, split work along this line:
+action (`max-sixty/tend/claude@X.Y.Z` for Claude, `max-sixty/tend/codex@X.Y.Z`
+for Codex). When adding new capability, split work along this line:
 
 - **The agent drives diagnostics and remediation.** Once the action is
   running, put logic into the relevant skill (or a script the skill calls —

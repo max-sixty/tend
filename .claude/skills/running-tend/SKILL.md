@@ -91,9 +91,10 @@ because the workflow files are public.
 
 ```bash
 # 1. Discover consumer repos via code search. Generated workflows pin a
-#    version tag (`max-sixty/tend@X.Y.Z`, or `/codex@X.Y.Z`), so search the
+#    version tag (`max-sixty/tend/claude@X.Y.Z`, `/codex@X.Y.Z`, or the older
+#    bare `max-sixty/tend@X.Y.Z`), so search the
 #    bare `max-sixty/tend` token (version-agnostic; GitHub code search does
-#    not index `@` or `/`, so this matches both the Claude and Codex refs).
+#    not index `@` or `/`, so this matches every harness ref).
 #    `--extension yaml` is required: without it, README/CLAUDE.md/TODO.md
 #    hits on `max-sixty/tend` itself crowd out tend's own workflow files
 #    past the 100-result cap, dropping tend from its own consumers.json.
@@ -150,7 +151,7 @@ churns, so bump it only to a release confirmed to still run under
 `codex exec`, not blindly to the newest npm tag.
 
 The bump reaches adopters at the next tend release, since their workflows
-pin `max-sixty/tend@X.Y.Z`; tend's own workflows pick it up the same way.
+pin a tend release tag (`@X.Y.Z`); tend's own workflows pick it up the same way.
 
 ## Weekly: integration test
 
