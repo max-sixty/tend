@@ -100,12 +100,13 @@ for the configured harness, pinned to the released generator version
 The nightly regen restamps a newer tag when a new tend version ships.
 
 Both actions run the same security and rate-limit preflight checks and
-resolve bot identity; they differ only in which model runs the prompt:
+resolve bot identity. They differ in how the agent runs:
 
-- **Claude harness** — invokes
-  [claude-code-action](https://github.com/anthropics/claude-code-action)
-  with the tend plugin. Each workflow's prompt is a slash command
-  (`/tend-ci-runner:review`) that loads the matching skill.
+- **Claude harness** — runs the official `claude` binary headless
+  (`claude -p`) as a non-sudo sandbox user behind a local
+  credential-injecting proxy, so the bot token and Anthropic credential
+  never enter the agent's environment. Each workflow's prompt is a slash
+  command (`/tend-ci-runner:review`) that loads the matching skill.
 - **Codex harness** — installs the `@openai/codex` CLI on the runner and
   shells out to `codex exec`. An AGENTS.md staged into `$CODEX_HOME`
   teaches Codex to resolve `/tend-ci-runner:NAME` references to the
@@ -116,17 +117,23 @@ on every `tend@latest init`.
 
 ## Security
 
-Tend gives Claude write access to a repository. The security model has four
+Tend gives Claude write access to a repository. The security model has five
 layers:
 
 **Merge restriction** is the primary boundary. A GitHub ruleset prevents the
 bot from merging to protected branches — bot-authored PRs require human
 approval. `tend check` verifies this; `tend check --fix` creates the ruleset.
 
-**Config pinning** — `claude-code-action` restores `.claude/`, `.mcp.json`,
-`.claude.json`, `.gitmodules`, and `.ripgreprc` from the base branch on all
-PRs (preventing startup-time code execution). Tend additionally pins
-`CLAUDE.md` on fork PRs to block prompt injection from untrusted sources.
+**Credential isolation** — the Claude harness runs the agent as a separate
+non-sudo user and keeps the bot token and Anthropic credential in a local
+proxy that injects them per host. The agent holds only dummies, so code
+running in the session can't read the real secrets. The Codex harness passes
+them directly.
+
+**Config pinning** — the action restores `.claude/`, `.mcp.json`,
+`.claude.json`, `.gitmodules`, `.ripgreprc`, and `CLAUDE.md` from the base
+branch before the agent starts, blocking both startup-time code execution and
+prompt injection from a PR's own copy of those files.
 
 **Rate limiting** — Burst detection (10 PRs and 10 issues per 20 minutes,
 checked independently) and daily spike detection halt the bot before runaway
@@ -139,8 +146,8 @@ Full threat model: [docs/security-model.md](docs/security-model.md).
 
 ## Configuration
 
-`.config/tend.yaml` — only `bot_name` is required. The default harness wraps
-`claude-code-action`; `harness: codex` selects OpenAI Codex (see
+`.config/tend.yaml` — only `bot_name` is required. The default harness runs
+Claude; `harness: codex` selects OpenAI Codex (see
 [Harnesses](#harnesses) below).[^interactive]
 
 ```yaml
@@ -188,10 +195,10 @@ skills.[^interactive]
 
 ### Claude (default)
 
-Wraps
-[`claude-code-action`](https://github.com/anthropics/claude-code-action),
-Anthropic's official GitHub Action for running Claude Code in CI. Two
-auth modes:
+Runs the official `claude` binary headless (`claude -p`) as a non-sudo
+sandbox user behind a local credential-injecting proxy: the bot token and
+the Anthropic credential live only in the proxy, never in the agent's
+environment. Two auth modes:
 
 - **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended with a Claude
   subscription) — Claude Code OAuth token from `claude setup-token`,
@@ -201,9 +208,8 @@ auth modes:
   Claude subscription, when the bot should bill against a dedicated
   Console org, or when per-key revocation matters.
 
-Whichever you set is used exactly as it would be in any
-claude-code-action workflow — tend adds the framework (workflows, skills,
-prompts) around it but never sees the token itself.
+The proxy injects whichever you set into requests to api.anthropic.com; the
+agent itself only ever holds a dummy.
 
 ### Codex (alternative)
 
@@ -236,7 +242,7 @@ The install-tend skill offers to add this automatically during setup.
 
 MIT
 
-[^interactive]: A third harness, `claude-interactive`, runs the official
-    `claude` CLI under a PTY supervisor (`script(1)` with a `Stop`-hook
-    sentinel) instead of `claude-code-action`. Auth matches the default
-    Claude harness. Opt in with `harness: claude-interactive`.
+[^interactive]: A third harness, `claude-interactive`, runs the same
+    `claude` binary under a PTY supervisor (`script(1)` with a `Stop`-hook
+    sentinel) instead of headless `-p`. Same proxy isolation and auth as the
+    default Claude harness. Opt in with `harness: claude-interactive`.

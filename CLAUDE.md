@@ -27,13 +27,22 @@ Four pieces:
 2. **Composite action(s)** — the stable interface, pinned to an immutable
    release tag (`max-sixty/tend@X.Y.Z`, the generator's own version — no
    floating `v1`). One per harness:
-   - `max-sixty/tend@X.Y.Z` (Claude) — invokes `claude-code-action` with the
-     tend plugin marketplace. Inputs documented in `action.yaml`.
+   - `max-sixty/tend@X.Y.Z` (Claude) — runs the official `claude` binary
+     headless (`claude -p`) as a non-sudo sandbox user behind the
+     credential-injecting proxy; completion is the process exit code.
+     Inputs in `action.yaml`.
    - `max-sixty/tend/interactive@X.Y.Z` (Claude interactive) — runs the
-     official `claude` binary under a PTY supervisor (`script(1)`) with a
-     Stop-hook sentinel, instead of going through the Agent SDK. Inputs
-     mirror `action.yaml` for swap-in parity. Inputs in
-     `interactive/action.yaml`.
+     same `claude` binary under a PTY supervisor (`script(1)`) with a
+     Stop-hook sentinel. Inputs mirror `action.yaml` for swap-in parity.
+     Inputs in `interactive/action.yaml`.
+
+     Both Claude harnesses run the same binary behind the shared proxy
+     (machinery under `interactive/proxy/`); they differ only in how
+     completion is supervised — headless `-p` exit code vs the PTY Stop-hook
+     sentinel. `claude` is the default and recommended path (simpler, no
+     PTY); `claude-interactive` is a footnoted variant. Both bill against
+     the Claude subscription — the 2026-06-15 per-token metering that once
+     distinguished them is paused.
    - `max-sixty/tend/codex@X.Y.Z` (Codex) — installs `@openai/codex` and
      shells out to `codex exec`. Skills are staged on disk and an
      `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve
