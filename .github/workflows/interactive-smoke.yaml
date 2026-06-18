@@ -1,8 +1,8 @@
 name: interactive-smoke
 
-# Smoke test for `interactive/action.yaml` — the supervised-tmux/script
+# Smoke test for `claude-interactive/action.yaml` — the supervised-tmux/script
 # alternative to the Agent-SDK-based claude-code-action wrapper. Runs the
-# in-tree action via `uses: ./interactive` so we don't need a release tag
+# in-tree action via `uses: ./claude-interactive` so we don't need a release tag
 # (release tags are pinned to the generator's own version; the in-tree
 # action is unreleased until the next `pypi-release` run).
 #
@@ -117,7 +117,7 @@ jobs:
 
       - name: Run interactive harness
         id: claude
-        uses: ./interactive
+        uses: ./claude-interactive
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

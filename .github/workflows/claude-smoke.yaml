@@ -1,14 +1,16 @@
 name: claude-smoke
 
-# Smoke test for the root `action.yaml` — the default headless `claude -p`
+# Smoke test for `claude/action.yaml` — the default headless `claude -p`
 # harness that runs the official `claude` binary behind the
-# credential-injecting proxy. Runs the in-tree action via `uses: ./` so we
-# don't need a release tag (release tags are pinned to the generator's own
+# credential-injecting proxy. Runs the in-tree action via `uses: ./claude` so
+# we don't need a release tag (release tags are pinned to the generator's own
 # version; the in-tree action is unreleased until the next `pypi-release`
-# run).
+# run). Because it runs the local checkout, github.action_path resolves into
+# this branch, so the shared scripts under shared/steps/ and proxy/ that the
+# action calls are the branch's — this validates branch changes to them too.
 #
 # Manual only — dispatch it to validate the harness, e.g. on a branch that
-# changes action.yaml or the shared proxy. The standard prompt lives in
+# changes claude/action.yaml, shared/steps/, or proxy/. The standard prompt lives in
 # .github/claude-smoke-prompt.md; `-f prompt=` overrides it and `-f model=`
 # picks the model.
 #   gh workflow run claude-smoke.yaml --ref <branch> -f model=opus
@@ -96,7 +98,7 @@ jobs:
 
       - name: Run headless harness
         id: claude
-        uses: ./
+        uses: ./claude
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

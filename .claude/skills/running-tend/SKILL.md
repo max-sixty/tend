@@ -126,20 +126,20 @@ the whole list.
 ## Weekly: bump pinned agent binaries
 
 Every harness action installs a pinned agent binary: `claude_version` in
-both `action.yaml` (headless `claude -p`) and `interactive/action.yaml`
-(PTY), and `codex_version` in `codex/action.yaml`. These pins are static
-strings nothing else moves, so they drift behind and the harness resolves
-`--model opus`/`sonnet` to a stale alias target (an old binary maps `opus`
-to a superseded Opus version).
+both `claude/action.yaml` (headless `claude -p`) and
+`claude-interactive/action.yaml` (PTY), and `codex_version` in
+`codex/action.yaml`. These pins are static strings nothing else moves, so
+they drift behind and the harness resolves `--model opus`/`sonnet` to a stale
+alias target (an old binary maps `opus` to a superseded Opus version).
 
 ```bash
 # Claude: pinned defaults vs latest release
-rg -A1 'claude_version:' action.yaml interactive/action.yaml
+rg -A1 'claude_version:' claude/action.yaml claude-interactive/action.yaml
 npm view @anthropic-ai/claude-code dist-tags.latest
 ```
 
-If `latest` is newer, bump the `default:` in **both** `action.yaml` and
-`interactive/action.yaml` (keep the two Claude pins in step) and open a PR
+If `latest` is newer, bump the `default:` in **both** `claude/action.yaml` and
+`claude-interactive/action.yaml` (keep the two Claude pins in step) and open a PR
 titled `chore: bump claude_version to <latest>`. Skim the claude-code
 CHANGELOG between the two versions for anything touching the agent paths
 (first-run onboarding, `--model` alias resolution, headless `-p` result

@@ -64,7 +64,7 @@ in the adopter's repo.
 - uses: actions/checkout@v6
   with:
     token: ${{ steps.auth.outputs.token }}
-- uses: max-sixty/tend@X.Y.Z
+- uses: max-sixty/tend/claude@X.Y.Z
   with:
     github_token: ${{ steps.auth.outputs.token }}
     claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

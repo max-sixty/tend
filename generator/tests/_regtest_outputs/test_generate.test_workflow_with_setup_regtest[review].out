@@ -50,7 +50,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
-      - uses: max-sixty/tend@X.Y.Z
+      - uses: max-sixty/tend/claude@X.Y.Z
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

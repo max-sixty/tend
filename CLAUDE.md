@@ -25,19 +25,21 @@ Four pieces:
 1. **Plugins** — `install-tend` (user-facing setup) and `tend-ci-runner` (CI
    skills). Both ship from the same marketplace.
 2. **Composite action(s)** — the stable interface, pinned to an immutable
-   release tag (`max-sixty/tend@X.Y.Z`, the generator's own version — no
-   floating `v1`). One per harness:
-   - `max-sixty/tend@X.Y.Z` (Claude) — runs the official `claude` binary
-     headless (`claude -p`) as a non-sudo sandbox user behind the
+   release tag (`max-sixty/tend/<harness>@X.Y.Z`, the generator's own version
+   — no floating `v1`). Every harness lives under a harness-named path; there
+   is no bare-root default. One per harness:
+   - `max-sixty/tend/claude@X.Y.Z` (Claude) — runs the official `claude`
+     binary headless (`claude -p`) as a non-sudo sandbox user behind the
      credential-injecting proxy; completion is the process exit code.
-     Inputs in `action.yaml`.
-   - `max-sixty/tend/interactive@X.Y.Z` (Claude interactive) — runs the
+     Inputs in `claude/action.yaml`.
+   - `max-sixty/tend/claude-interactive@X.Y.Z` (Claude interactive) — runs the
      same `claude` binary under a PTY supervisor (`script(1)`) with a
-     Stop-hook sentinel. Inputs mirror `action.yaml` for swap-in parity.
-     Inputs in `interactive/action.yaml`.
+     Stop-hook sentinel. Inputs mirror `claude/action.yaml` for swap-in
+     parity. Inputs in `claude-interactive/action.yaml`.
 
      Both Claude harnesses run the same binary behind the shared proxy
-     (machinery under `interactive/proxy/`); they differ only in how
+     (machinery under the top-level `proxy/`) and share their preflight/setup
+     step bodies as scripts under `shared/steps/`; they differ only in how
      completion is supervised — headless `-p` exit code vs the PTY Stop-hook
      sentinel. `claude` is the default and recommended path (simpler, no
      PTY); `claude-interactive` is a footnoted variant. Both bill against
@@ -47,6 +49,7 @@ Four pieces:
      shells out to `codex exec`. Skills are staged on disk and an
      `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve
      `/tend-ci-runner:NAME` slash commands. Inputs in `codex/action.yaml`.
+     Shares the cross-harness preflight/teardown scripts under `shared/steps/`.
 
    All actions resolve the bot's numeric ID at runtime, run security and
    rate-limit preflight, and upload session logs. The actions don't know
@@ -81,12 +84,17 @@ tend/
 │   └── tend-ci-runner/   # CI plugin (review, triage, ci-fix, etc.)
 │       ├── .codex-plugin/  # Codex plugin manifest
 │       └── scripts/      # Helper scripts (survey, run listing)
-├── action.yaml           # Claude harness composite action
-├── interactive/
+├── claude/
+│   └── action.yaml       # Claude harness composite action (default, headless)
+├── claude-interactive/
 │   └── action.yaml       # Claude interactive harness (PTY-supervised binary)
 ├── codex/
 │   ├── action.yaml       # Codex harness composite action
 │   └── agents-tail.md    # AGENTS.md appendix for Codex
+├── shared/
+│   ├── steps/            # Shared composite-action step bodies (bash scripts)
+│   └── system-prompt.md  # Harness-neutral system prompt base
+├── proxy/                # Credential-injection proxy (setup-sandbox.sh, addon)
 ├── generator/            # Python package (uvx tend@latest), uv_build backend
 │   ├── src/tend/
 │   │   ├── config.py     # Reads .config/tend.yaml
@@ -119,8 +127,8 @@ Tend's own `tend-*.yaml` workflows track the latest published release. They
 update each night via `uvx tend@latest init`. Updating earlier to the latest
 release (e.g., during a release commit) is fine. Never regenerate them with
 the in-tree generator: the action ref is pinned to the generator's own
-version (`max-sixty/tend@X.Y.Z`), so an unreleased in-tree version stamps a
-tag that does not exist yet, and the workflow's `uses:` fails to resolve.
+version (`max-sixty/tend/<harness>@X.Y.Z`), so an unreleased in-tree version
+stamps a tag that does not exist yet, and the workflow's `uses:` fails to resolve.
 Between a generator commit and the next release the committed workflows lag
 the in-tree generator; that is expected, and the gap closes at the next
 release (which tags `X.Y.Z` before regenerating, so the pin always resolves).
@@ -290,8 +298,8 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 ## Agent-driven vs deterministic steps
 
 Tend's workflows invoke the agent through the harness-specific composite
-action (`max-sixty/tend@X.Y.Z` for Claude, `max-sixty/tend/codex@X.Y.Z` for
-Codex). When adding new capability, split work along this line:
+action (`max-sixty/tend/claude@X.Y.Z` for Claude, `max-sixty/tend/codex@X.Y.Z`
+for Codex). When adding new capability, split work along this line:
 
 - **The agent drives diagnostics and remediation.** Once the action is
   running, put logic into the relevant skill (or a script the skill calls —

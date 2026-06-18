@@ -61,8 +61,8 @@ Everything else in this section is defense in depth: useful, but not
 load-bearing.
 
 **Action distribution integrity.** Generated workflows pin the composite
-action to the generator's own release version (`max-sixty/tend@X.Y.Z`), never
-a floating ref. Release-tag immutability is the boundary this relies on: a
+action to the generator's own release version
+(`max-sixty/tend/<harness>@X.Y.Z`), never a floating ref. Release-tag immutability is the boundary this relies on: a
 `tag` ruleset on `max-sixty/tend` restricts `update` and `deletion` (leaving
 `creation` open so the release can push a new `X.Y.Z`), with no bypass for
 write-access actors. That ruleset is applied out of band; until it is in
@@ -75,8 +75,8 @@ nightly regen, as a reviewable workflow-file diff in their own repo. Adopters ex
 same way they trust any third-party action's publisher; pinning to `X.Y.Z`
 (or a commit SHA) bounds that trust to a reviewed, immutable point.
 
-**Config pinning.** Both Claude harnesses (`action.yaml` and
-`interactive/action.yaml`) restore RCE-relevant config from the PR base branch
+**Config pinning.** Both Claude harnesses (`claude/action.yaml` and
+`claude-interactive/action.yaml`) restore RCE-relevant config from the PR base branch
 before the agent starts: `.claude/`, `.mcp.json`, `.claude.json`,
 `.gitmodules`, `.ripgreprc`, `.husky`, plus `CLAUDE.md`/`CLAUDE.local.md` as a
 prompt-injection defense. A malicious PR's `SessionStart` hook, MCP server, or
@@ -87,10 +87,10 @@ in shell; the path list and ordering mirror claude-code-action's
 overwritten, so review skills can optionally inspect what the PR changed without
 those files ever being executed.
 
-**Credential isolation (Claude harnesses).** Both `action.yaml` (headless
-`claude -p`) and `interactive/action.yaml` (PTY) run the agent as a separate
-non-sudo `tend-sandbox` user, sharing the proxy machinery under
-`interactive/proxy/`. Both the bot PAT and the Anthropic credential (OAuth token
+**Credential isolation (Claude harnesses).** Both `claude/action.yaml` (headless
+`claude -p`) and `claude-interactive/action.yaml` (PTY) run the agent as a separate
+non-sudo `tend-sandbox` user, sharing the proxy machinery under the top-level
+`proxy/`. Both the bot PAT and the Anthropic credential (OAuth token
 or API key) live only in a local mitmproxy that the agent reaches over
 `HTTPS_PROXY`; the proxy injects each into requests to its own hosts (the PAT for
 GitHub hosts, the Anthropic secret for `api.anthropic.com`) and tunnels
@@ -110,7 +110,8 @@ boundaries regardless of harness.
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort
 the run before Claude starts, catching runaway loops between workflows.
 The check runs as a shell step, so a prompt-injection attack inside the
-Claude session cannot skip it. Concrete limits live in `action.yaml`.
+Claude session cannot skip it. Concrete limits live in
+`shared/steps/rate-limit-preflight.sh`.
 
 **Fixed prompts and marketplace skills.** The prompt and skill set come from
 the composite action and the tend marketplace, not from the PR. An attacker

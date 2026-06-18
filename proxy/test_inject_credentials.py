@@ -1,6 +1,6 @@
 """Tests for the credential-injection addon (GitHub + Anthropic).
 
-Run: ``uv run --with mitmproxy --with pytest python -m pytest interactive/proxy``
+Run: ``uv run --with mitmproxy --with pytest python -m pytest proxy``
 """
 
 from __future__ import annotations

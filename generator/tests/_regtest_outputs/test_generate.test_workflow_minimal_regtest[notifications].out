@@ -33,8 +33,8 @@ jobs:
           fi
 
           # --- Layer B: drop notifications shadowed by recent dedicated runs ---
-          # Event workflows mark their own notifications read via action.yaml's
-          # post-step on success; this sweeps the case where Claude failed
+          # Event workflows mark their own notifications read via the harness
+          # action's post-step on success; this sweeps the case where Claude failed
           # (post-step is gated by `if: success()`) so the notification still
           # gets cleared without burning Claude turns to rediscover it.
           SINCE=$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
@@ -95,7 +95,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           token: ${{ secrets.TEND_BOT_TOKEN }}
-      - uses: max-sixty/tend@X.Y.Z
+      - uses: max-sixty/tend/claude@X.Y.Z
         if: steps.check.outputs.count != '0' || github.event_name == 'workflow_dispatch'
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}

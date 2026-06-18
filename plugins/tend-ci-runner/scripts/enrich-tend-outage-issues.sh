@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Enriches open tend-outage issues with failure details from referenced runs.
 #
-# action.yaml's "Report failure" step records only the workflow run link —
+# The harness action's "Report failure" step records only the workflow run link —
 # error annotations and job logs are not reliably available while the job is
 # in_progress, so the action can't extract them at the time of failure.
 #
