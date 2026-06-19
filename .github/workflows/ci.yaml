@@ -15,18 +15,18 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv run pytest
 
-  # Tests for the claude-interactive credential-injection proxy addon. Run
-  # standalone (no project) with mitmproxy + pytest pulled in ad hoc, since the
-  # proxy isn't part of the generator package.
+  # Tests for the shared credential-injection proxy addon. Run standalone (no
+  # project) with mitmproxy + pytest pulled in ad hoc, since the proxy isn't
+  # part of the generator package.
   test-proxy:
     runs-on: ubuntu-24.04
     defaults:
       run:
-        working-directory: interactive/proxy
+        working-directory: proxy
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
-      # Pin to match interactive/action.yaml's mitmproxy_version default so the
+      # Pin to match the Claude actions' mitmproxy_version default so the
       # test exercises the same version the production proxy runs — the addon
       # imports mitmproxy.test (an internal helper), so version skew could green
       # the test while production breaks.

@@ -6,7 +6,7 @@
 # A human-readable summary is printed to stderr.
 #
 # Reads the token-usage.json file from each run's session log artifact
-# (produced by the "Token usage" step in action.yaml).
+# (produced by the "Token usage" step in each harness action).
 #
 # Usage: ./token-report.sh [HOURS] [PREFIX ...]
 #   HOURS: lookback period in hours (default: 168 = 7 days)

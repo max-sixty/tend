@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# File or append to a `tend-outage` issue when a run fails, so outages are
+# tracked until resolved. Shared verbatim by all three harness actions; the
+# caller gates it on the agent step having failed.
+#
+# Just records the run link. Error annotations and logs are not reliably
+# available while the job is in_progress, so the nightly skill enriches these
+# issues after the fact, when the run has completed and the APIs return stable
+# data.
+#
+# Inputs (env): GITHUB_TOKEN (for gh), GITHUB_SERVER_URL, GITHUB_REPOSITORY,
+# GITHUB_RUN_ID, GITHUB_EVENT_NAME, GITHUB_EVENT_PATH (from Actions).
+set -eo pipefail
+
+LABEL="tend-outage"
+TITLE="Bot temporarily unavailable"
+RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+# Build a one-line reference to the triggering context
+REF=""
+if [ "$GITHUB_EVENT_NAME" = "pull_request_target" ] || [ "$GITHUB_EVENT_NAME" = "pull_request_review" ] || [ "$GITHUB_EVENT_NAME" = "pull_request_review_comment" ]; then
+  PR_NUM=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
+  REF="#${PR_NUM}"
+elif [ "$GITHUB_EVENT_NAME" = "issues" ] || [ "$GITHUB_EVENT_NAME" = "issue_comment" ]; then
+  ISSUE_NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
+  REF="#${ISSUE_NUM}"
+elif [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+  REF="CI fix for workflow run"
+fi
+
+TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+gh label create "$LABEL" --description "Tracks bot outage incidents" --color "d93f0b" 2>/dev/null || true
+printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
+  "The bot failed to process a request. This issue tracks failures until the underlying cause is resolved." \
+  "| When | Run | Trigger |" \
+  "|------|-----|---------|" \
+  "| ${TIMESTAMP} | [workflow run](${RUN_URL}) | ${REF:-N/A} |" \
+  "This issue was created automatically. Close it once the outage is resolved." > /tmp/body.md
+
+# Jittered backoff before the check-then-act narrows the race window
+# when a matrix workflow's legs fail at near-identical times (e.g.
+# model-API 5xx responses exhausting the retry budget across every leg
+# within a few seconds). Without this, every leg reads $EXISTING as empty
+# in parallel and each files its own outage issue.
+sleep $((RANDOM % 30))
+EXISTING=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
+
+if [ -n "$EXISTING" ]; then
+  printf 'Failed run at %s: [workflow run](%s)%s\n' \
+    "$TIMESTAMP" "$RUN_URL" "${REF:+ (triggered by ${REF})}" > /tmp/comment.md
+  gh issue comment "$EXISTING" -F /tmp/comment.md
+else
+  gh issue create --title "$TITLE" --label "$LABEL" -F /tmp/body.md
+fi

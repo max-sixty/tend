@@ -80,61 +80,20 @@ outputs:
 runs:
   using: composite
   steps:
+    # Preflight/teardown step bodies are shared with the Claude actions via
+    # ../shared/steps; codex's auth, prompt staging, and run path are its own.
     - name: Security preflight
       shell: bash
-      run: |
-        DEFAULT_BRANCH=$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.default_branch')
-        PROTECTED=$(gh api "repos/${GITHUB_REPOSITORY}/branches/${DEFAULT_BRANCH}" --jq '.protected')
-        if [ "$PROTECTED" != "true" ]; then
-          echo "::error::Default branch '${DEFAULT_BRANCH}' is NOT protected. Without branch protection, the bot can merge PRs without review. Add a branch protection rule or ruleset before using Tend. See docs/security-model.md in the Tend repo."
-          exit 1
-        fi
-        echo "Security preflight passed: default branch '${DEFAULT_BRANCH}' is protected"
+      run: bash "${{ github.action_path }}/../shared/steps/security-preflight.sh"
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
     - name: Rate limit preflight
       shell: bash
-      run: |
-        REPO="${GITHUB_REPOSITORY}"
-        BOT="${{ inputs.bot_name }}"
-        TWENTY_MIN_AGO=$(date -u -d '20 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
-        TODAY=$(date -u +%Y-%m-%d)
-        YESTERDAY=$(date -u -d 'yesterday' +%Y-%m-%d)
-        SIX_DAYS_AGO=$(date -u -d '6 days ago' +%Y-%m-%d)
-
-        RECENT_PRS=$(gh api "repos/$REPO/pulls?state=all&sort=created&direction=desc&per_page=30" \
-          --jq "[.[] | select(.user.login == \"$BOT\" and .created_at > \"$TWENTY_MIN_AGO\")] | length" || echo 0)
-        RECENT_ISSUES=$(gh api "repos/$REPO/issues?creator=$BOT&state=all&sort=created&direction=desc&per_page=30" \
-          --jq "[.[] | select(.pull_request == null and .created_at > \"$TWENTY_MIN_AGO\")] | length" || echo 0)
-
-        TODAY_POSTS=$(gh api "search/issues?q=author:${BOT}+repo:${REPO}+created:${TODAY}" \
-          --jq '.total_count' || echo 0)
-        PAST_POSTS=$(gh api "search/issues?q=author:${BOT}+repo:${REPO}+created:${SIX_DAYS_AGO}..${YESTERDAY}" \
-          --jq '.total_count' || echo 0)
-        SPIKE_LIMIT=$((10 + PAST_POSTS / 3))
-
-        echo "Rate limit: burst=${RECENT_PRS} PRs, ${RECENT_ISSUES} issues (20min); today=${TODAY_POSTS} (limit: ${SPIKE_LIMIT})"
-
-        ABORT=false
-        if [ "$RECENT_PRS" -gt 10 ]; then
-          echo "::error::Rate limit: bot created ${RECENT_PRS} PRs in the last 20 minutes (limit: 10)"
-          ABORT=true
-        fi
-        if [ "$RECENT_ISSUES" -gt 10 ]; then
-          echo "::error::Rate limit: bot created ${RECENT_ISSUES} issues in the last 20 minutes (limit: 10)"
-          ABORT=true
-        fi
-        if [ "$TODAY_POSTS" -gt "$SPIKE_LIMIT" ]; then
-          echo "::error::Rate limit: bot created ${TODAY_POSTS} items today, above spike limit of ${SPIKE_LIMIT} (baseline: ${PAST_POSTS} over past 6 days)"
-          ABORT=true
-        fi
-        if [ "$ABORT" = true ]; then
-          exit 1
-        fi
-        echo "Rate limit check passed"
+      run: bash "${{ github.action_path }}/../shared/steps/rate-limit-preflight.sh"
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
+        BOT_NAME: ${{ inputs.bot_name }}
 
     - name: Resolve bot ID
       id: bot
@@ -153,14 +112,7 @@ runs:
 
     - name: Ensure uv is available
       shell: bash
-      run: |
-        if command -v uvx >/dev/null 2>&1; then
-          echo "uvx already available at $(command -v uvx)"
-          exit 0
-        fi
-        echo "uvx not found; installing uv"
-        curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      run: bash "${{ github.action_path }}/../shared/steps/ensure-uv.sh"
 
     # Install the Codex CLI from npm. `@openai/codex` ships a prebuilt
     # per-platform binary, so this is ~3 s with no Rust toolchain. We pin
@@ -377,86 +329,14 @@ runs:
     - name: Mark event notification read
       if: success()
       shell: bash
-      run: |
-        case "$GITHUB_EVENT_NAME" in
-          pull_request_target|pull_request_review|pull_request_review_comment)
-            NUM=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
-            SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${NUM}"
-            ;;
-          issue_comment)
-            NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
-            if [ "$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")" != "" ]; then
-              SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${NUM}"
-            else
-              SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${NUM}"
-            fi
-            ;;
-          issues)
-            NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
-            SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${NUM}"
-            ;;
-          *)
-            exit 0
-            ;;
-        esac
-
-        RUN_STARTED_AT=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-          --jq '.run_started_at')
-
-        (gh api notifications \
-          | jq -r --arg url "$SUBJECT_URL" --arg started "$RUN_STARTED_AT" \
-              '.[] | select(.subject.url == $url and .updated_at <= $started) | .id' \
-          | while read -r tid; do
-              [ -n "$tid" ] || continue
-              gh api "notifications/threads/$tid" -X PATCH || true
-            done) || echo "::warning::Failed to mark notification as read (non-fatal)"
+      run: bash "${{ github.action_path }}/../shared/steps/mark-notification-read.sh"
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
     - name: Report failure
       if: failure() && steps.codex.outcome == 'failure'
       shell: bash
-      run: |
-        LABEL="tend-outage"
-        TITLE="Bot temporarily unavailable"
-        RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-
-        REF=""
-        if [ "$GITHUB_EVENT_NAME" = "pull_request_target" ] || [ "$GITHUB_EVENT_NAME" = "pull_request_review" ] || [ "$GITHUB_EVENT_NAME" = "pull_request_review_comment" ]; then
-          PR_NUM=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
-          REF="#${PR_NUM}"
-        elif [ "$GITHUB_EVENT_NAME" = "issues" ] || [ "$GITHUB_EVENT_NAME" = "issue_comment" ]; then
-          ISSUE_NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
-          REF="#${ISSUE_NUM}"
-        elif [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
-          REF="CI fix for workflow run"
-        fi
-
-        TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-        gh label create "$LABEL" --description "Tracks bot outage incidents" --color "d93f0b" 2>/dev/null || true
-        printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
-          "The bot failed to process a request. This issue tracks failures until the underlying cause is resolved." \
-          "| When | Run | Trigger |" \
-          "|------|-----|---------|" \
-          "| ${TIMESTAMP} | [workflow run](${RUN_URL}) | ${REF:-N/A} |" \
-          "This issue was created automatically. Close it once the outage is resolved." > /tmp/body.md
-
-        # Jittered backoff before the check-then-act narrows the race window
-        # when a matrix workflow's legs fail at near-identical times (e.g.
-        # API outages exhausting the retry budget across every leg within
-        # a few seconds). Without this, every leg reads $EXISTING as empty
-        # in parallel and each files its own outage issue.
-        sleep $((RANDOM % 30))
-        EXISTING=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
-
-        if [ -n "$EXISTING" ]; then
-          printf 'Failed run at %s: [workflow run](%s)%s\n' \
-            "$TIMESTAMP" "$RUN_URL" "${REF:+ (triggered by ${REF})}" > /tmp/comment.md
-          gh issue comment "$EXISTING" -F /tmp/comment.md
-        else
-          gh issue create --title "$TITLE" --label "$LABEL" -F /tmp/body.md
-        fi
+      run: bash "${{ github.action_path }}/../shared/steps/report-failure.sh"
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 

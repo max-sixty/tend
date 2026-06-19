@@ -379,7 +379,9 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
 
     # Prompt includes review-specific branches
     tend_step = next(
-        s for s in handle_steps if s.get("uses", "").startswith("max-sixty/tend@")
+        s
+        for s in handle_steps
+        if s.get("uses", "").startswith("max-sixty/tend/claude@")
     )
     prompt = tend_step["with"]["prompt"]
     assert "github.event.review.html_url" in prompt
@@ -572,7 +574,7 @@ def test_mention_handle_has_queue_delay(tmp_path: Path) -> None:
     )
     # Delay step must come before the tend action (output must be available)
     delay_idx = mention.content.index("Compute queue delay")
-    tend_idx = mention.content.index(f"max-sixty/tend@{ACTION_VERSION}")
+    tend_idx = mention.content.index(f"max-sixty/tend/claude@{ACTION_VERSION}")
     assert delay_idx < tend_idx, "delay step must precede tend action"
 
 
@@ -602,7 +604,7 @@ def test_mention_prompt_omits_delay_when_empty(tmp_path: Path) -> None:
     tend_step = next(
         s
         for s in data["jobs"]["handle"]["steps"]
-        if s.get("uses", "").startswith("max-sixty/tend@")
+        if s.get("uses", "").startswith("max-sixty/tend/claude@")
     )
     prompt = tend_step["with"]["prompt"]
     # The delay text must be inside a format() conditional, not hardcoded
@@ -1099,7 +1101,7 @@ def test_codex_action_ref(tmp_path: Path) -> None:
         assert f"max-sixty/tend/codex@{ACTION_VERSION}" in wf.content, (
             f"{wf.filename} missing codex action ref"
         )
-        assert f"max-sixty/tend@{ACTION_VERSION}" not in wf.content, (
+        assert f"max-sixty/tend/claude@{ACTION_VERSION}" not in wf.content, (
             f"{wf.filename} should not reference the claude action ref"
         )
 
@@ -1158,11 +1160,11 @@ def test_unknown_engine_rejected(tmp_path: Path) -> None:
 def test_claude_interactive_action_ref(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path, "harness: claude-interactive"))
     for wf in generate_all(cfg):
-        assert f"max-sixty/tend/interactive@{ACTION_VERSION}" in wf.content, (
+        assert f"max-sixty/tend/claude-interactive@{ACTION_VERSION}" in wf.content, (
             f"{wf.filename} missing interactive action ref"
         )
-        assert f"max-sixty/tend@{ACTION_VERSION}" not in wf.content, (
-            f"{wf.filename} should not reference the bare claude action ref"
+        assert f"max-sixty/tend/claude@{ACTION_VERSION}" not in wf.content, (
+            f"{wf.filename} should not reference the claude action ref"
         )
         assert f"max-sixty/tend/codex@{ACTION_VERSION}" not in wf.content, (
             f"{wf.filename} should not reference the codex action ref"
@@ -1213,13 +1215,13 @@ def test_per_workflow_harness_override_targets_only_named_workflow(
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
 
     nightly = workflows["tend-nightly.yaml"]
-    assert f"max-sixty/tend/interactive@{ACTION_VERSION}" in nightly.content
-    assert f"max-sixty/tend@{ACTION_VERSION}" not in nightly.content
+    assert f"max-sixty/tend/claude-interactive@{ACTION_VERSION}" in nightly.content
+    assert f"max-sixty/tend/claude@{ACTION_VERSION}" not in nightly.content
 
     # Sibling workflows still use the top-level claude harness.
     review = workflows["tend-review.yaml"]
-    assert f"max-sixty/tend@{ACTION_VERSION}" in review.content
-    assert f"max-sixty/tend/interactive@{ACTION_VERSION}" not in review.content
+    assert f"max-sixty/tend/claude@{ACTION_VERSION}" in review.content
+    assert f"max-sixty/tend/claude-interactive@{ACTION_VERSION}" not in review.content
 
 
 def test_per_workflow_harness_unknown_rejected(tmp_path: Path) -> None:
@@ -1292,7 +1294,7 @@ def test_per_workflow_model_override_unblocks_cross_family(tmp_path: Path) -> No
     assert "model: gpt-5.5" in nightly.content
     # Sibling workflows still on claude with opus
     review = workflows["tend-review.yaml"]
-    assert f"max-sixty/tend@{ACTION_VERSION}" in review.content
+    assert f"max-sixty/tend/claude@{ACTION_VERSION}" in review.content
     assert "model: opus" in review.content
 
 

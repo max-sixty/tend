@@ -72,7 +72,7 @@ def test_init_creates_correct_files_with_valid_yaml(
         assert "name" in data, f"{path.name} missing 'name'"
         assert "jobs" in data, f"{path.name} missing 'jobs'"
         # Every workflow references the tend composite action
-        assert f"max-sixty/tend@{ACTION_VERSION}" in path.read_text(), (
+        assert f"max-sixty/tend/claude@{ACTION_VERSION}" in path.read_text(), (
             f"{path.name} missing action reference"
         )
 
@@ -680,7 +680,9 @@ def test_init_bot_name_in_workflow_content(
         for job in data["jobs"].values():
             steps = job.get("steps", [])
             tend_steps = [
-                s for s in steps if s.get("uses", "").startswith("max-sixty/tend@")
+                s
+                for s in steps
+                if s.get("uses", "").startswith("max-sixty/tend/claude@")
             ]
             for step in tend_steps:
                 assert step["with"]["bot_name"] == "my-custom-bot"

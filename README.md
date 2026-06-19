@@ -96,7 +96,7 @@ workflows:
 files into `.github/workflows/`. Each workflow handles triggers, skip
 conditions, concurrency, and permissions — then calls the composite action
 for the configured harness, pinned to the released generator version
-(`max-sixty/tend@X.Y.Z` for Claude, `max-sixty/tend/codex@X.Y.Z` for Codex).
+(`max-sixty/tend/claude@X.Y.Z` for Claude, `max-sixty/tend/codex@X.Y.Z` for Codex).
 The nightly regen restamps a newer tag when a new tend version ships.
 
 Both actions run the same security and rate-limit preflight checks and

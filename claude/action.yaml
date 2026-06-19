@@ -5,10 +5,10 @@ description: >-
   in headless print mode (`claude -p`) as a separate, non-sudo sandbox user
   behind a local credential-injecting proxy: the bot PAT and the Anthropic
   credential live only in the proxy, never in the agent's environment. This
-  is tend's default, recommended Claude harness. `interactive/action.yaml`
+  is tend's default, recommended Claude harness. `claude-interactive/action.yaml`
   is a PTY-supervised variant of the same binary; inputs mirror this action
-  for swap-in parity, and the two share the proxy machinery under
-  `interactive/proxy/`.
+  for swap-in parity, and the two share the proxy machinery under the
+  top-level `proxy/` and the step scripts under `shared/steps/`.
 
 inputs:
   github_token:
@@ -80,68 +80,24 @@ outputs:
 runs:
   using: composite
   steps:
-    # Preflight steps mirror interactive/action.yaml. Kept in lockstep so that
-    # swapping `uses:` between the two actions is a true apples-to-apples swap.
+    # Shared step bodies live in the top-level shared/steps/ so the three
+    # harness actions can't drift; each wrapper below passes inputs via env
+    # and runs the script (reached via ../shared/steps, since this action is
+    # one level deep). The two Claude actions are swap-in compatible — keep
+    # their input surfaces in sync (enforced by the claude-action-input-parity
+    # pre-commit hook).
     - name: Security preflight
       shell: bash
-      run: |
-        DEFAULT_BRANCH=$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.default_branch')
-        PROTECTED=$(gh api "repos/${GITHUB_REPOSITORY}/branches/${DEFAULT_BRANCH}" --jq '.protected')
-        if [ "$PROTECTED" != "true" ]; then
-          echo "::error::Default branch '${DEFAULT_BRANCH}' is NOT protected. Without branch protection, the bot can merge PRs without review. Add a branch protection rule or ruleset before using Tend. See docs/security-model.md in the Tend repo."
-          exit 1
-        fi
-        echo "Security preflight passed: default branch '${DEFAULT_BRANCH}' is protected"
+      run: bash "${{ github.action_path }}/../shared/steps/security-preflight.sh"
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
     - name: Rate limit preflight
       shell: bash
-      run: |
-        REPO="${GITHUB_REPOSITORY}"
-        BOT="${{ inputs.bot_name }}"
-        # GNU date — runs on Ubuntu (GitHub Actions runners)
-        TWENTY_MIN_AGO=$(date -u -d '20 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
-        TODAY=$(date -u +%Y-%m-%d)
-        YESTERDAY=$(date -u -d 'yesterday' +%Y-%m-%d)
-        SIX_DAYS_AGO=$(date -u -d '6 days ago' +%Y-%m-%d)
-
-        # Burst check: too many in the last 20 minutes
-        RECENT_PRS=$(gh api "repos/$REPO/pulls?state=all&sort=created&direction=desc&per_page=30" \
-          --jq "[.[] | select(.user.login == \"$BOT\" and .created_at > \"$TWENTY_MIN_AGO\")] | length" || echo 0)
-        RECENT_ISSUES=$(gh api "repos/$REPO/issues?creator=$BOT&state=all&sort=created&direction=desc&per_page=30" \
-          --jq "[.[] | select(.pull_request == null and .created_at > \"$TWENTY_MIN_AGO\")] | length" || echo 0)
-
-        # Spike check: abnormal daily volume vs 6-day baseline
-        # search/issues covers both issues and PRs
-        TODAY_POSTS=$(gh api "search/issues?q=author:${BOT}+repo:${REPO}+created:${TODAY}" \
-          --jq '.total_count' || echo 0)
-        PAST_POSTS=$(gh api "search/issues?q=author:${BOT}+repo:${REPO}+created:${SIX_DAYS_AGO}..${YESTERDAY}" \
-          --jq '.total_count' || echo 0)
-        # spike_limit = 10 + 2 * daily_avg = 10 + 2 * (past_posts / 6) = 10 + past_posts / 3
-        SPIKE_LIMIT=$((10 + PAST_POSTS / 3))
-
-        echo "Rate limit: burst=${RECENT_PRS} PRs, ${RECENT_ISSUES} issues (20min); today=${TODAY_POSTS} (limit: ${SPIKE_LIMIT})"
-
-        ABORT=false
-        if [ "$RECENT_PRS" -gt 10 ]; then
-          echo "::error::Rate limit: bot created ${RECENT_PRS} PRs in the last 20 minutes (limit: 10)"
-          ABORT=true
-        fi
-        if [ "$RECENT_ISSUES" -gt 10 ]; then
-          echo "::error::Rate limit: bot created ${RECENT_ISSUES} issues in the last 20 minutes (limit: 10)"
-          ABORT=true
-        fi
-        if [ "$TODAY_POSTS" -gt "$SPIKE_LIMIT" ]; then
-          echo "::error::Rate limit: bot created ${TODAY_POSTS} items today, above spike limit of ${SPIKE_LIMIT} (baseline: ${PAST_POSTS} over past 6 days)"
-          ABORT=true
-        fi
-        if [ "$ABORT" = true ]; then
-          exit 1
-        fi
-        echo "Rate limit check passed"
+      run: bash "${{ github.action_path }}/../shared/steps/rate-limit-preflight.sh"
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
+        BOT_NAME: ${{ inputs.bot_name }}
 
     - name: Resolve bot ID
       id: bot
@@ -154,143 +110,37 @@ runs:
     # run: body would write their values into the rendered step script on disk.
     - name: Validate auth configured
       shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/validate-claude-auth.sh"
       env:
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-      run: |
-        if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
-          echo "::error::No Claude auth configured. Set either the CLAUDE_CODE_OAUTH_TOKEN secret (subscription-funded, via \`claude setup-token\`) or the ANTHROPIC_API_KEY secret (billed per token via console.anthropic.com)."
-          exit 1
-        fi
 
-    # The runner's own uv runs the mitmproxy that backs credential isolation
-    # (setup-sandbox.sh does `uvx --from mitmproxy …`). The agent gets a
-    # separate uv installed into its sandbox home below.
     - name: Ensure uv is available
       shell: bash
-      run: |
-        if command -v uvx >/dev/null 2>&1; then
-          echo "uvx already available at $(command -v uvx)"
-          exit 0
-        fi
-        echo "uvx not found; installing uv"
-        curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      run: bash "${{ github.action_path }}/../shared/steps/ensure-uv.sh"
 
-    # On a PR, the head checkout contains attacker-controlled files that
-    # the CLI reads at startup BEFORE any permission gating — SessionStart
-    # hooks, env-var overrides (NODE_OPTIONS, LD_PRELOAD, PATH), MCP
-    # servers, apiKeyHelper shell commands. Restore from the PR base
-    # branch, which a maintainer has reviewed and merged.
-    #
-    # Path list and ordering mirror claude-code-action's restore-config.ts
-    # (src/github/operations/restore-config.ts). Snapshot PR-authored
-    # versions to .claude-pr/ first (excluded from git via info/exclude)
-    # so review skills can optionally inspect what the PR changed without
-    # those files ever being executed. Then delete (so an attacker-
-    # controlled .gitmodules can't stall the fetch on credential prompts),
-    # then fetch base, then check out each path, then unstage so the
-    # revert doesn't silently leak into commits Claude makes later.
-    #
-    # Known limitation: a PR that legitimately edits .claude/ or CLAUDE.md
-    # will have those edits reverted for the duration of this run. Same
-    # tradeoff claude-code-action makes — narrow UX cost for closing the
-    # RCE surface.
-    #
-    # Runs before the credential-isolation handoff: it needs the git
-    # credential actions/checkout persisted, which setup-sandbox.sh strips.
+    # Restore PR-authored sensitive config (.claude, CLAUDE.md, …) from the
+    # reviewed base branch to close the startup-RCE surface. Runs before the
+    # credential handoff — it needs the git credential actions/checkout
+    # persisted, which setup-sandbox.sh strips. Full rationale in the script.
     - name: Restore sensitive config from base branch (PRs)
       shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/restore-sensitive-config.sh"
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
-      run: |
-        SENSITIVE=(.claude .mcp.json .claude.json .gitmodules .ripgreprc CLAUDE.md CLAUDE.local.md .husky)
 
-        case "$GITHUB_EVENT_NAME" in
-          pull_request_target|pull_request_review|pull_request_review_comment)
-            BASE_REF=$(jq -r '.pull_request.base.ref' "$GITHUB_EVENT_PATH")
-            ;;
-          issue_comment)
-            PR_URL=$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")
-            if [ -z "$PR_URL" ]; then
-              echo "issue_comment on issue (not PR); nothing to restore"
-              exit 0
-            fi
-            BASE_REF=$(gh api "${PR_URL#https://api.github.com/}" --jq '.base.ref')
-            ;;
-          *)
-            echo "Event $GITHUB_EVENT_NAME is not a PR event; nothing to restore"
-            exit 0
-            ;;
-        esac
-
-        if [ -z "$BASE_REF" ] || [ "$BASE_REF" = "null" ]; then
-          echo "::warning::Could not determine base ref; skipping config restoration"
-          exit 0
-        fi
-
-        echo "Restoring ${SENSITIVE[*]} from origin/$BASE_REF"
-
-        # Snapshot PR-authored versions to .claude-pr/ for optional review
-        rm -rf .claude-pr
-        for p in "${SENSITIVE[@]}"; do
-          if [ -e "$p" ]; then
-            mkdir -p ".claude-pr/$(dirname "$p")"
-            cp -aL "$p" ".claude-pr/$p" 2>/dev/null || true
-          fi
-        done
-        if [ -d .claude-pr ]; then
-          EXCLUDE_FILE="$(git rev-parse --git-path info/exclude)"
-          mkdir -p "$(dirname "$EXCLUDE_FILE")"
-          if ! grep -qxF '/.claude-pr/' "$EXCLUDE_FILE" 2>/dev/null; then
-            [ -s "$EXCLUDE_FILE" ] && [ "$(tail -c1 "$EXCLUDE_FILE" | wc -l)" -eq 0 ] && echo "" >> "$EXCLUDE_FILE"
-            echo '/.claude-pr/' >> "$EXCLUDE_FILE"
-          fi
-        fi
-
-        # Delete BEFORE fetch so attacker-controlled .gitmodules can't stall on
-        # credential prompts (git's default fetch.recurseSubmodules=on-demand).
-        for p in "${SENSITIVE[@]}"; do
-          rm -rf "$p"
-        done
-
-        git fetch origin "$BASE_REF" --depth=1 --no-recurse-submodules
-
-        for p in "${SENSITIVE[@]}"; do
-          git checkout "origin/$BASE_REF" -- "$p" 2>/dev/null || true
-        done
-
-        # Unstage — `git checkout <ref> -- <path>` stages restored files.
-        git reset -- "${SENSITIVE[@]}" 2>/dev/null || true
-
-        echo "Restored from origin/$BASE_REF"
-
-    # Compose the system prompt from shared/system-prompt.md (harness-neutral
-    # bulk: conduct, scope, precedence) plus a Claude-specific skill-loading
-    # directive and a CI-autonomy directive, then append the adopter's
-    # `system_prompt_append` input if non-empty. Same recipe as
-    # interactive/action.yaml. Codex consumes the same shared file from
-    # codex/action.yaml — keep edits to it in sync across both engines.
+    # Compose the system prompt (shared/system-prompt.md + Claude directives +
+    # the adopter's system_prompt_append). SYSTEM_PROMPT_FILE is passed in so
+    # the script is path-agnostic; this action lives under claude/, so the
+    # shared file is one level up.
     - name: Compose system prompt
       id: prompt
       shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/compose-system-prompt.sh"
       env:
+        SYSTEM_PROMPT_FILE: ${{ github.action_path }}/../shared/system-prompt.md
         BOT_NAME: ${{ inputs.bot_name }}
         EXTRA: ${{ inputs.system_prompt_append }}
-      run: |
-        SHARED="${{ github.action_path }}/shared/system-prompt.md"
-        CLAUDE_DIRECTIVE="Use /tend-ci-runner:running-in-ci before starting work."
-        AUTONOMY_DIRECTIVE="You are running in CI; no human is available to answer questions. Never prompt for clarification or approval. When uncertain, make the best reasonable choice from the available evidence and proceed. Permissions are pre-approved; tool calls execute without confirmation."
-        BASE=$(BOT_NAME="$BOT_NAME" envsubst '$BOT_NAME' < "$SHARED")
-        FULL="${CLAUDE_DIRECTIVE}"$'\n\n'"${AUTONOMY_DIRECTIVE}"$'\n\n'"${BASE}"
-        if [ -n "$EXTRA" ]; then
-          FULL="${FULL}"$'\n\n'"${EXTRA}"
-        fi
-        {
-          echo 'value<<TEND_EOF'
-          printf '%s\n' "$FULL"
-          echo 'TEND_EOF'
-        } >> "$GITHUB_OUTPUT"
 
     # Credential isolation: run the agent as a separate, non-sudo
     # `tend-sandbox` user while the real secrets live only in a local mitmproxy
@@ -302,10 +152,11 @@ runs:
     #     gets a dummy in the matching scheme so `claude` emits the right
     #     headers, and the proxy swaps in the real secret. So even the model
     #     auth never reaches the agent's env or disk.
-    # The proxy machinery is shared with interactive/action.yaml and lives at
-    # interactive/proxy/ — reused in place, not duplicated. ACTION_PATH points
-    # at interactive/ so setup-sandbox.sh's proxy-relative paths resolve.
-    # See interactive/proxy/setup-sandbox.sh and inject_credentials.py.
+    # The proxy machinery is shared with claude-interactive/action.yaml and
+    # lives at the top-level proxy/ — reused in place, not duplicated.
+    # ACTION_PATH points at the repo root so setup-sandbox.sh's
+    # `${ACTION_PATH}/proxy/inject_credentials.py` resolves.
+    # See ../proxy/setup-sandbox.sh and ../proxy/inject_credentials.py.
     #
     # Runs after "Restore sensitive config" (which needs the persisted git
     # credential for its base fetch) and before the claude lifecycle — install,
@@ -329,97 +180,30 @@ runs:
         # api.anthropic.com; the agent later gets a scheme-matched dummy.
         TEND_ANTHROPIC_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
         TEND_ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        # Point ACTION_PATH at the interactive/ subtree so the script's
-        # `${ACTION_PATH}/proxy/inject_credentials.py` resolves to the shared
-        # proxy addon under interactive/proxy/.
-        ACTION_PATH: ${{ github.action_path }}/interactive
+        # Point ACTION_PATH at the repo root (one level up from this action's
+        # claude/ dir) so the script's `${ACTION_PATH}/proxy/inject_credentials.py`
+        # resolves to the shared proxy addon at the top-level proxy/.
+        ACTION_PATH: ${{ github.action_path }}/..
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
-      run: bash "${{ github.action_path }}/interactive/proxy/setup-sandbox.sh"
+      run: bash "${{ github.action_path }}/../proxy/setup-sandbox.sh"
 
-    # Install the agent toolchain (uv + the claude binary) DIRECTLY into the
-    # sandbox user's home, so there is no ~200 MB `cp -a` from the runner. The
-    # claude binary carries absolute-path references into ~/.local/share, so it
-    # must be installed in place — installing as runner and moving breaks it.
-    # uv is the agent's own (its skills run `uvx tend@latest …`); the runner has
-    # a separate uv for the proxy. Installers fetch over the direct network (no
-    # proxy env here).
+    # Install the agent toolchain (uv + the claude binary) into the sandbox
+    # user's home. SANDBOX/AGENT_HOME come from setup-sandbox.sh via $GITHUB_ENV.
     - name: Install agent toolchain (sandbox)
       shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/install-agent-toolchain.sh"
       env:
         CLAUDE_VERSION: ${{ inputs.claude_version }}
-      run: |
-        # XDG_* pinned under the sandbox home: the runner exports
-        # XDG_CONFIG_HOME=/home/runner/.config (leaks through sudo), and uv
-        # writes its receipt to $XDG_CONFIG_HOME/uv — unwritable by the
-        # sandbox UID. Pin all four base dirs so the installers (and any
-        # XDG-aware tool) land under $AGENT_HOME. Install fetches go direct
-        # (no proxy env here), so this step does not source $AGENT_ENV_FILE.
-        # UV_NO_MODIFY_PATH=1 keeps uv's installer from appending source lines
-        # to the sandbox's shell profiles — the launch env sets PATH explicitly,
-        # so a profile edit is inert noise.
-        sudo -u "$SANDBOX" env HOME="$AGENT_HOME" CLAUDE_VERSION="$CLAUDE_VERSION" \
-          XDG_CONFIG_HOME="$AGENT_HOME/.config" \
-          XDG_CACHE_HOME="$AGENT_HOME/.cache" \
-          XDG_DATA_HOME="$AGENT_HOME/.local/share" \
-          XDG_STATE_HOME="$AGENT_HOME/.local/state" \
-          UV_NO_MODIFY_PATH=1 \
-          bash <<'EOF'
-        set -euo pipefail
-        # One retry mechanism for both installer CDNs — transient 403s/5xxs
-        # are the shared failure class. The inner `set -o pipefail` is
-        # required: without it a curl failure passes empty stdin to the
-        # downstream `bash -s --`, which exits 0, masking the failure so the
-        # loop breaks after one attempt without retrying.
-        fetch_install() {
-          for i in 1 2 3; do
-            if timeout 60 bash -c "set -o pipefail; curl -fsSL $1 | bash -s -- $2"; then
-              return 0
-            fi
-            echo "Install attempt $i for $1 failed; retrying"
-            sleep $((i * 5))
-          done
-          return 1
-        }
-        fetch_install https://astral.sh/uv/install.sh --quiet
-        fetch_install https://claude.ai/install.sh "$CLAUDE_VERSION"
-        EOF
-        if ! sudo -u "$SANDBOX" test -x "$AGENT_HOME/.local/bin/claude"; then
-          echo "::error::claude binary not found at $AGENT_HOME/.local/bin/claude after install"
-          exit 1
-        fi
-        sudo -u "$SANDBOX" "$AGENT_HOME/.local/bin/claude" --version
 
-    # Install the tend plugins into the sandbox's own ~/.claude. The marketplace
-    # is this action's checkout; the runner copies just the manifest + plugins
-    # (a small markdown tree, NOT the toolchain) into a sandbox-owned dir so the
-    # sandbox can read it regardless of where Actions placed the action. Then the
-    # sandbox installs from there, as the sandbox user, with the shared agent
-    # env ($AGENT_ENV_FILE: proxy routing, CA trust, dummy credentials) — if
-    # `claude` validates auth it reaches api.anthropic.com via the injecting
-    # proxy; the real secret never enters the sandbox. `claude plugin install`
-    # is a non-interactive subcommand (CLAUDE_CODE_REMOTE=1 suppresses prompts),
-    # so it needs no onboarding pre-seed — and `claude -p` below skips first-run
-    # onboarding (trust/theme) on its own.
+    # Install the tend plugins into the sandbox's own ~/.claude. MARKETPLACE_ROOT
+    # is the dir holding .claude-plugin/ and plugins/; for this root action
+    # that's the action checkout itself.
     - name: Install tend plugins (sandbox)
       shell: bash
-      run: |
-        MARKETPLACE_SRC="$(realpath "${{ github.action_path }}")"
-        SANDBOX_MKT="$AGENT_HOME/tend-marketplace"
-        sudo rm -rf "$SANDBOX_MKT"
-        sudo mkdir -p "$SANDBOX_MKT"
-        sudo cp -a "$MARKETPLACE_SRC/.claude-plugin" "$MARKETPLACE_SRC/plugins" "$SANDBOX_MKT/"
-        sudo chown -R "${SANDBOX}:${SANDBOX}" "$SANDBOX_MKT"
-
-        mapfile -t AGENT_ENV <"$AGENT_ENV_FILE"
-        sudo -u "$SANDBOX" env "${AGENT_ENV[@]}" \
-          bash -c '
-            set -euo pipefail
-            claude plugin marketplace add "$1"
-            claude plugin install install-tend@tend
-            claude plugin install tend-ci-runner@tend
-            claude plugin list 2>/dev/null || true
-          ' _ "$SANDBOX_MKT"
+      run: bash "${{ github.action_path }}/../shared/steps/install-tend-plugins.sh"
+      env:
+        MARKETPLACE_ROOT: ${{ github.action_path }}/..
 
     # Run the agent headless. `claude -p` (print mode) runs one turn to
     # completion and exits — no Ink UI, no TTY, no first-run onboarding — so
@@ -680,49 +464,7 @@ runs:
     - name: Mark event notification read
       if: success()
       shell: bash
-      run: |
-        # Mark the GitHub notification thread for the triggering event as read
-        # so the scheduled tend-notifications poll doesn't burn tokens
-        # rediscovering it. The thread is only marked when its updated_at
-        # predates this run's start — newer activity stays unread for the next
-        # workflow run to handle.
-        case "$GITHUB_EVENT_NAME" in
-          pull_request_target|pull_request_review|pull_request_review_comment)
-            NUM=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
-            SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${NUM}"
-            ;;
-          issue_comment)
-            # issue_comment fires for both issues AND PR conversation comments,
-            # but PR notifications always use /pulls/N in subject.url. Detect
-            # via the issue's pull_request field.
-            NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
-            if [ "$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")" != "" ]; then
-              SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${NUM}"
-            else
-              SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${NUM}"
-            fi
-            ;;
-          issues)
-            NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
-            SUBJECT_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${NUM}"
-            ;;
-          *)
-            exit 0
-            ;;
-        esac
-
-        RUN_STARTED_AT=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-          --jq '.run_started_at')
-
-        # Wrap in a subshell — a transient API error (non-JSON response)
-        # must not fail the composite action.
-        (gh api notifications \
-          | jq -r --arg url "$SUBJECT_URL" --arg started "$RUN_STARTED_AT" \
-              '.[] | select(.subject.url == $url and .updated_at <= $started) | .id' \
-          | while read -r tid; do
-              [ -n "$tid" ] || continue
-              gh api "notifications/threads/$tid" -X PATCH || true
-            done) || echo "::warning::Failed to mark notification as read (non-fatal)"
+      run: bash "${{ github.action_path }}/../shared/steps/mark-notification-read.sh"
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
@@ -818,52 +560,7 @@ runs:
     - name: Report failure
       if: failure() && steps.claude.outcome == 'failure'
       shell: bash
-      run: |
-        LABEL="tend-outage"
-        TITLE="Bot temporarily unavailable"
-        RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-
-        # Build a one-line reference to the triggering context
-        REF=""
-        if [ "$GITHUB_EVENT_NAME" = "pull_request_target" ] || [ "$GITHUB_EVENT_NAME" = "pull_request_review" ] || [ "$GITHUB_EVENT_NAME" = "pull_request_review_comment" ]; then
-          PR_NUM=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
-          REF="#${PR_NUM}"
-        elif [ "$GITHUB_EVENT_NAME" = "issues" ] || [ "$GITHUB_EVENT_NAME" = "issue_comment" ]; then
-          ISSUE_NUM=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
-          REF="#${ISSUE_NUM}"
-        elif [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
-          REF="CI fix for workflow run"
-        fi
-
-        TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-        # Just record the run link. Error annotations and logs are not
-        # reliably available while the job is in_progress, so the nightly
-        # skill enriches these issues after the fact, when the run has
-        # completed and the APIs return stable data.
-        gh label create "$LABEL" --description "Tracks bot outage incidents" --color "d93f0b" 2>/dev/null || true
-        printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
-          "The bot failed to process a request. This issue tracks failures until the underlying cause is resolved." \
-          "| When | Run | Trigger |" \
-          "|------|-----|---------|" \
-          "| ${TIMESTAMP} | [workflow run](${RUN_URL}) | ${REF:-N/A} |" \
-          "This issue was created automatically. Close it once the outage is resolved." > /tmp/body.md
-
-        # Jittered backoff before the check-then-act narrows the race window
-        # when a matrix workflow's legs fail at near-identical times (e.g.
-        # Anthropic 529s exhausting the retry budget across every leg within
-        # a few seconds). Without this, every leg reads $EXISTING as empty
-        # in parallel and each files its own outage issue.
-        sleep $((RANDOM % 30))
-        EXISTING=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
-
-        if [ -n "$EXISTING" ]; then
-          printf 'Failed run at %s: [workflow run](%s)%s\n' \
-            "$TIMESTAMP" "$RUN_URL" "${REF:+ (triggered by ${REF})}" > /tmp/comment.md
-          gh issue comment "$EXISTING" -F /tmp/comment.md
-        else
-          gh issue create --title "$TITLE" --label "$LABEL" -F /tmp/body.md
-        fi
+      run: bash "${{ github.action_path }}/../shared/steps/report-failure.sh"
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
