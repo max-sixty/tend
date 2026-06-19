@@ -231,8 +231,10 @@ NON_STAMP_DIFF=$(git diff --no-color .github/workflows .config \
   | wc -l)
 ```
 
-If `git status` shows no changes, or `NON_STAMP_DIFF` is `0`, clean up
-and skip the PR:
+**Action-ref downgrade skip.** Dependabot may bump an action ref inside the committed `tend-*.yaml` files (e.g. `actions/checkout@v6` → `@v7`) between tend releases, leaving them ahead of what the generator emits. Regen then produces a diff that *downgrades* the ref back to tend's pin, and `NON_STAMP_DIFF` counts it as substantive. If the only non-stamp diff is such downgrades — the regenerated (`+`) ref is older than the committed (`-`) ref — skip the PR: it would revert a maintainer-merged dependency bump, and tend catches up to the newer ref in a later release. Direction matters: a diff where the regenerated ref is *newer* than committed is a real upgrade tend is shipping — open the PR normally.
+
+If `git status` shows no changes, or `NON_STAMP_DIFF` is `0` (or the only
+remaining diff is action-ref downgrades, per above), clean up and skip the PR:
 
 ```bash
 cd -
