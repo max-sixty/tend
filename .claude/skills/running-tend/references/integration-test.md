@@ -165,6 +165,11 @@ assert the bot commented.
 
 ```bash
 TS=$(date -u +%Y%m%d-%H%M%S)
+# Baseline the latest existing run BEFORE the trigger so a prior
+# week's run is never mistaken for this one (mirrors §1).
+PREV_RUN=$(gh run list --repo tend-agent/tend-integration \
+  --workflow tend-triage --limit 1 \
+  --json databaseId --jq '.[0].databaseId // empty')
 ISSUE_URL=$(gh issue create --repo tend-agent/tend-integration \
   --title "integration-test triage $TS" \
   --body "Automated weekly integration test. The bot's reply confirms tend-triage is working; the reset step will close this.")
@@ -175,10 +180,11 @@ for _ in $(seq 1 24); do
   RUN_ID=$(gh run list --repo tend-agent/tend-integration \
     --workflow tend-triage --limit 1 \
     --json databaseId --jq '.[0].databaseId // empty')
-  [ -n "$RUN_ID" ] && break
+  [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ] && break
   sleep 5
 done
-[ -n "$RUN_ID" ] || { echo "tend-triage: workflow run never registered"; exit 1; }
+{ [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ]; } \
+  || { echo "tend-triage: workflow run never registered"; exit 1; }
 
 for _ in $(seq 1 60); do
   read -r status conclusion < <(gh run view "$RUN_ID" \
@@ -224,6 +230,11 @@ git commit -m "chore: integration-test trivial edit"
 gh auth setup-git
 git push -u origin "$BRANCH"
 
+# Baseline the latest existing run BEFORE the trigger so a prior
+# week's run is never mistaken for this one (mirrors §1).
+PREV_RUN=$(gh run list --repo tend-agent/tend-integration \
+  --workflow tend-review --limit 1 \
+  --json databaseId --jq '.[0].databaseId // empty')
 PR_URL=$(gh pr create --repo tend-agent/tend-integration \
   --title "integration-test review $TS" \
   --body "Automated weekly integration test. The bot's review confirms tend-review is working; the reset step will close this." \
@@ -235,10 +246,11 @@ for _ in $(seq 1 24); do
   RUN_ID=$(gh run list --repo tend-agent/tend-integration \
     --workflow tend-review --limit 1 \
     --json databaseId --jq '.[0].databaseId // empty')
-  [ -n "$RUN_ID" ] && break
+  [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ] && break
   sleep 5
 done
-[ -n "$RUN_ID" ] || { echo "tend-review: workflow run never registered"; exit 1; }
+{ [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ]; } \
+  || { echo "tend-review: workflow run never registered"; exit 1; }
 
 for _ in $(seq 1 60); do
   read -r status conclusion < <(gh run view "$RUN_ID" \
