@@ -119,7 +119,7 @@ Surface the blocker on the triggering thread and offer the maintainer both:
 1. **Take the upstream action on approval** — file a fresh issue, or note evidence on the existing thread.
 2. **Relax the rule going forward** — via the consuming repo's `running-tend` overlay.
 
-Record their choice per **Learning from Feedback** below. Applies to any negotiable, blocking restriction, not just scope.
+Record their choice per **Learning from Feedback** below.
 
 ## PR Creation
 
