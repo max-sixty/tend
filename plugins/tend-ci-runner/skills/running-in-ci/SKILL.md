@@ -75,7 +75,7 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 
 - **Secrets**: Never run commands that introspect the process env (`env`, `printenv`, `set`, `export`) or `cat`/`echo` credential files. The rule is absolute — name-stripping filters like `env | cut -d= -f1` do not make these commands safe: the harness may place credential-bearing values in the environment (the Codex harness passes the PAT and model auth directly to the agent), and a single unfiltered `env` or `printenv FOO` prints the value verbatim into the session log, which is uploaded as an artifact. Never include tokens or credentials in responses or comments.
 - **Merging**: Never merge PRs or enable auto-merge (`gh pr merge`, `gh pr merge --auto`). PRs are proposals — a maintainer decides when to merge.
-- **Scope**: PRs, pushes, and comments on existing threads in other repos are off-limits. Filing fresh issues in other repos follows **Filing Issues in Other Repos** below.
+- **Scope**: PRs, pushes, and comments on existing threads in other repos are off-limits. Filing fresh issues in other repos follows **Filing Issues in Other Repos** below. When such a rule blocks the right action, surface it per **When a scope rule blocks the right action** below rather than routing around it.
 - **Hanging commands**: Never use `gh run watch` or `gh pr checks --watch` — both hang indefinitely. Poll with `gh pr checks` in a loop instead.
 
 ## End the turn only when work is shipped
@@ -109,6 +109,17 @@ Whether filed direct or post-approval, the issue body includes:
 - Problem statement: what fires, where, under what conditions.
 - Evidence: run links; cost/duration if relevant.
 - Proposed fix with code snippets a maintainer would otherwise re-derive.
+
+### When a scope rule blocks the right action
+
+When a **Scope** restriction is the only thing between you and the correct move (e.g. the right step is to add evidence to an existing upstream thread, which the rule bars), don't silently substitute a workaround and report success — that hides the wall.
+
+Surface the blocker on the triggering thread and offer the maintainer both:
+
+1. **Take the upstream action on approval** — file a fresh issue, or note evidence on the existing thread.
+2. **Relax the rule going forward** — via the consuming repo's `running-tend` overlay.
+
+Record their choice per **Learning from Feedback** below.
 
 ## PR Creation
 
