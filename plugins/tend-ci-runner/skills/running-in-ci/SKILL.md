@@ -75,7 +75,7 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 
 - **Secrets**: Never run commands that introspect the process env (`env`, `printenv`, `set`, `export`) or `cat`/`echo` credential files. The rule is absolute — name-stripping filters like `env | cut -d= -f1` do not make these commands safe: the harness may place credential-bearing values in the environment (the Codex harness passes the PAT and model auth directly to the agent), and a single unfiltered `env` or `printenv FOO` prints the value verbatim into the session log, which is uploaded as an artifact. Never include tokens or credentials in responses or comments.
 - **Merging**: Never merge PRs or enable auto-merge (`gh pr merge`, `gh pr merge --auto`). PRs are proposals — a maintainer decides when to merge.
-- **Scope**: PRs, pushes, and comments on existing threads in other repos are off-limits. Filing fresh issues in other repos follows **Filing Issues in Other Repos** below. When such a rule is the only thing standing between you and the correct action, don't quietly route around it — surface it per **When a scope rule blocks the right action** below.
+- **Scope**: PRs, pushes, and comments on existing threads in other repos are off-limits. Filing fresh issues in other repos follows **Filing Issues in Other Repos** below. When such a rule blocks the right action, surface it per **When a scope rule blocks the right action** below rather than routing around it.
 - **Hanging commands**: Never use `gh run watch` or `gh pr checks --watch` — both hang indefinitely. Poll with `gh pr checks` in a loop instead.
 
 ## End the turn only when work is shipped
@@ -112,14 +112,14 @@ Whether filed direct or post-approval, the issue body includes:
 
 ### When a scope rule blocks the right action
 
-Sometimes a **Scope** restriction is itself the only thing between you and the correct move — e.g. the relevant upstream artifact already exists and the right step is to add evidence to that existing thread, which the scope rule bars. When a restriction is the blocker, do **not** silently substitute a second-best workaround (a consuming-repo override, a narrower local patch) and report success. That hides the wall: the session ships *a* deliverable, reports `success`, and never signals it routed around a restriction — a maintainer only catches it by reading the rationale.
+When a **Scope** restriction is the only thing between you and the correct move (e.g. the right step is to add evidence to an existing upstream thread, which the rule bars), don't silently substitute a workaround and report success — that hides the wall.
 
-Instead, surface the blocker on the triggering thread and ask the maintainer, offering both:
+Surface the blocker on the triggering thread and offer the maintainer both:
 
-1. **Take the upstream action on approval** — file a fresh issue (per the rule above), or, where the upstream artifact already exists, note the evidence on that existing thread.
-2. **Relax the rule going forward** — adjust the consuming repo's `running-tend` overlay to permit the action in future.
+1. **Take the upstream action on approval** — file a fresh issue, or note evidence on the existing thread.
+2. **Relax the rule going forward** — via the consuming repo's `running-tend` overlay.
 
-Record whichever they choose per **Learning from Feedback** below. This applies to any restriction that turns out to be negotiable and blocking, not just the other-repo scope rule.
+Record their choice per **Learning from Feedback** below. Applies to any negotiable, blocking restriction, not just scope.
 
 ## PR Creation
 
