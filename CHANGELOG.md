@@ -6,6 +6,27 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.1.7
+
+### Improved
+
+- **Generated workflows pin `actions/checkout` to v7.** All generated workflows (and tend's own) move from checkout v6 to v7. The review workflow opts into v7's fork-PR checkout guard (`allow-unsafe-pr-checkout: true`), which otherwise refuses to check out a fork's `refs/pull/N/{merge,head}` under `pull_request_target` (the "pwn request" guard), so fork-PR reviews keep running. ([#725](https://github.com/max-sixty/tend/pull/725))
+- **Both Claude harnesses update to claude-code 2.1.185.** ([#719](https://github.com/max-sixty/tend/pull/719))
+- **The bot surfaces a blocking scope rule instead of silently routing around it.** When a `running-in-ci` scope restriction blocks the right action — e.g. engaging an existing upstream thread in another repo — the bot now surfaces the blocker on the triggering thread and offers either to take the upstream action on approval or to relax the rule via the consuming repo's `running-tend` overlay, rather than substituting a second-best local workaround without signaling it hit a wall. ([#717](https://github.com/max-sixty/tend/pull/717))
+
+### Fixed
+
+- **CI-poll loops fit the Bash tool's 10-minute cap.** The bundled `running-in-ci` poll recipes cap their `sleep` loops at 9 iterations and call the Bash step with `timeout: 600000`, so the harness no longer auto-backgrounds a longer loop and strands the gated follow-up (dismissing a stale approval, posting failure analysis). ([#695](https://github.com/max-sixty/tend/pull/695))
+
+### Documentation
+
+- The codex `effort` value list in the README and the install-tend skill is corrected to `low | medium | high | xhigh`. ([#710](https://github.com/max-sixty/tend/pull/710))
+
+### Internal
+
+- Composite-action step bodies are de-duplicated into scripts under `shared/steps/`, and each harness action lives under a harness-named path. Generated workflows now invoke `max-sixty/tend/claude@X.Y.Z` (and `claude-interactive`) rather than the bare-root default; existing pinned refs keep resolving and the nightly regen stamps the new path automatically. ([#712](https://github.com/max-sixty/tend/pull/712))
+- `review-reviewers` documents the `pull_request_review` self-trigger as expected (non-)behavior, and the `worker-deploy` comment corrects the live-stream count to two. ([#707](https://github.com/max-sixty/tend/pull/707), [#711](https://github.com/max-sixty/tend/pull/711))
+
 ## 0.1.6
 
 ### Improved
