@@ -9,9 +9,9 @@ metadata:
 
 ## Steps
 
-1. **Run tests and lints**: `wt test` and `pre-commit run --all-files`
+1. **Sync the release branch, then run tests and lints**: The `release` branch is long-lived and may sit behind `main` (or carry leftover state) when a cycle starts. Basing the changelog on a stale branch silently drops any commit merged to `main` after the branch was last realigned — `git log <last-version>..HEAD` won't show it. Bring it current first: `git fetch origin && git merge origin/main` (resolve any conflicts; if `release` has no commits of its own, `git reset --hard origin/main` instead). Then `wt test` and `pre-commit run --all-files`.
 2. **Check current version**: Read `version` in `generator/pyproject.toml`
-3. **Review commits**: `git log <last-version>..HEAD --oneline` to understand scope
+3. **Review commits**: `git log <last-version>..origin/main --oneline` to understand scope — against `origin/main` (not `HEAD`), so the range is the full set of commits this release ships even if step 1 was skipped
 4. **Confirm version with user**: Present changes summary and proposed version
 5. **Bump version**: Edit `version` in `generator/pyproject.toml`, then `cd generator && uv lock`
 6. **Update CHANGELOG**: Add a `## X.Y.Z` section at the top of `CHANGELOG.md` (see "CHANGELOG" below). The release workflow publishes this section verbatim as the GitHub Release notes and **fails the GitHub Release job if the section is missing** (PyPI publish has already happened by then; recovery is a manual `gh release create`), so it must land in the release commit — before the tag.
@@ -25,7 +25,7 @@ metadata:
 
 `CHANGELOG.md` holds one `## X.Y.Z` section per release, newest first. The header must be exactly `## X.Y.Z` — the release workflow matches it literally to extract the notes.
 
-Draft the section from the commits since the last release (`git log <last-version>..HEAD --oneline`):
+Draft the section from the commits since the last release (`git log <last-version>..origin/main --oneline`):
 
 - **Group by section**, in order, omitting empty ones: **Improved**, **Fixed**, **Documentation**, **Internal**. Internal is for selected notable internals, not everything.
 - **Combine related PRs** into one bullet; cite them all in a trailing `([#a](url), [#b](url))` list. Use full `https://github.com/max-sixty/tend/pull/N` URLs so links resolve from the GitHub Release page.
