@@ -17,6 +17,7 @@ https://github.com/max-sixty/tend/compare for their history.
 ### Fixed
 
 - **CI-poll loops fit the Bash tool's 10-minute cap.** The bundled `running-in-ci` poll recipes cap their `sleep` loops at 9 iterations and call the Bash step with `timeout: 600000`, so the harness no longer auto-backgrounds a longer loop and strands the gated follow-up (dismissing a stale approval, posting failure analysis). ([#695](https://github.com/max-sixty/tend/pull/695))
+- **Nightly workflow-regen bases its worktree on an open PR, not branch-ref existence.** The `nightly` skill's regen step now bases on the `tend/update-workflows` branch only when an open PR rides it, and otherwise bases on `HEAD` and drops any leftover remote branch. A PR previously closed without merge no longer leaves a stale branch that inflates the diff, produces an inaccurate PR body, or defeats the no-value skip. ([#721](https://github.com/max-sixty/tend/pull/721))
 
 ### Documentation
 
