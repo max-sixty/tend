@@ -32,6 +32,6 @@ jobs:
             echo "ref=refs/pull/$PR/head" >> "$GITHUB_OUTPUT"
             echo "::notice::refs/pull/$PR/merge unavailable (likely merge conflict); falling back to /head"
           fi
-<<checkout(cfg, ref='${{ steps.pr_ref.outputs.ref }}')>>
+<<checkout(cfg, ref='${{ steps.pr_ref.outputs.ref }}', allow_unsafe_pr_checkout=True)>>
 <<setup>>
 <<agent_step(cfg, prompt_body)>>

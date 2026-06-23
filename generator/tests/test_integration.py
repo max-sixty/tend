@@ -622,7 +622,7 @@ def test_install_test_workflow_shape(
     assert "astral-sh/setup-uv@v6" in content
 
     # Default-branch probe: must not use `git remote set-head origin --auto`,
-    # which errors on the default shallow `actions/checkout@v6` (only the PR
+    # which errors on the default shallow `actions/checkout@v7` (only the PR
     # head ref is fetched, so `refs/remotes/origin/<default>` doesn't exist
     # locally). Query the API and fetch the default branch instead. See #582.
     assert "git remote set-head" not in content
