@@ -314,7 +314,7 @@ def test_review_probes_merge_ref_and_falls_back_to_head(tmp_path: Path) -> None:
     steps = data["jobs"]["review"]["steps"]
     probe_idx = next(i for i, s in enumerate(steps) if s.get("id") == "pr_ref")
     checkout_idx = next(
-        i for i, s in enumerate(steps) if s.get("uses") == "actions/checkout@v6"
+        i for i, s in enumerate(steps) if s.get("uses") == "actions/checkout@v7"
     )
     assert probe_idx < checkout_idx
     probe = steps[probe_idx]
@@ -330,7 +330,7 @@ def test_setup_after_checkout_in_review(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     review = workflows["tend-review.yaml"]
-    checkout_idx = review.content.index("actions/checkout@v6")
+    checkout_idx = review.content.index("actions/checkout@v7")
     setup_idx = review.content.index("./.github/actions/my-setup")
     assert setup_idx > checkout_idx, "Setup must come after checkout"
 
@@ -552,7 +552,7 @@ def test_setup_before_pr_checkout_in_mention(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     mention = workflows["tend-mention.yaml"]
-    initial_checkout_idx = mention.content.index("actions/checkout@v6")
+    initial_checkout_idx = mention.content.index("actions/checkout@v7")
     setup_idx = mention.content.index("./.github/actions/my-setup")
     pr_checkout_idx = mention.content.index("Check out PR branch")
     assert initial_checkout_idx < setup_idx < pr_checkout_idx, (

@@ -73,18 +73,27 @@
 {% if cfg.repo_owner %}github.repository_owner == '<<cfg.repo_owner|replace("'", "''")>>' && {% endif %}
 {%- endmacro %}
 
-{# Shared `actions/checkout@v6` step. `ref` defaults to the configured default
+{# Shared `actions/checkout@v7` step. `ref` defaults to the configured default
    branch; pass `None` to omit (mention reuses the runner's default checkout
    ref), or any GHA expression for review's pr_ref dispatch. `if_condition`
-   gates the step (used by notifications' skip_condition). #}
-{% macro checkout(cfg, ref=None, if_condition='') %}
-      - uses: actions/checkout@v6
+   gates the step (used by notifications' skip_condition).
+
+   `allow_unsafe_pr_checkout` opts into checkout's fork-PR guard: v7 refuses to
+   check out a fork's `refs/pull/N/{merge,head}` under `pull_request_target`
+   (the "pwn request" guard) unless this input is set. Only review feeds a fork
+   ref straight to the action, so only it sets this; mention checks out the base
+   repo then `gh pr checkout`s, never handing the action a fork ref. #}
+{% macro checkout(cfg, ref=None, if_condition='', allow_unsafe_pr_checkout=False) %}
+      - uses: actions/checkout@v7
 {% if if_condition %}
         if: <<if_condition>>
 {% endif %}
         with:
 {% if ref %}
           ref: <<ref>>
+{% endif %}
+{% if allow_unsafe_pr_checkout %}
+          allow-unsafe-pr-checkout: true
 {% endif %}
           fetch-depth: 0
           fetch-tags: true
