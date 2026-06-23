@@ -193,12 +193,24 @@ Used by both Step 4 (applied to recent diffs) and Step 6 (applied to full files)
 Regenerate the tend workflow files and open a PR if anything changed. The checkout's `.github/` directory may be mounted read-only under the sandbox (protecting bots from modifying their own workflows in place), so do the regeneration in a git worktree under `/tmp`, which is writable. Use the literal path `/tmp/tend-update-workflows` — GitHub Actions runners leave `$TMPDIR` unset, so a `$TMPDIR/...` path expands to an unwritable root path.
 
 ```bash
-# Base the worktree on the open update-workflows PR if one exists, so the
-# regen produces only the incremental delta. Falls back to HEAD when no PR
-# is open (first regen, or after the prior PR merged). `-B` resets a stale
-# local branch from a prior failed attempt rather than rejecting it.
+# Base the worktree on the update-workflows branch only when an **open PR**
+# rides it, so the regen produces only the incremental delta. Otherwise base
+# on HEAD. Gate on the open PR, not on branch-ref existence: a PR closed without
+# merge leaves the branch behind, and basing on that stale branch carries the
+# closed PR's content on top of main — inflating the diff and producing an
+# inaccurate PR body, and defeating the no-value skip below (its "only
+# non-stamp diff" test only holds when the diff is computed against the
+# true base, not a stale branch's accumulated content).
+# When no open PR exists, drop any leftover remote branch so the push starts
+# fresh from HEAD. `-B` resets a stale local branch from a prior failed
+# attempt rather than rejecting it.
 git fetch origin tend/update-workflows 2>/dev/null || true
-BASE=$(git rev-parse --verify origin/tend/update-workflows 2>/dev/null || git rev-parse HEAD)
+if gh pr list --head tend/update-workflows --state open --json number --jq '.[0].number' | grep -q .; then
+  BASE=$(git rev-parse origin/tend/update-workflows)
+else
+  git push origin --delete tend/update-workflows 2>/dev/null || true
+  BASE=$(git rev-parse HEAD)
+fi
 git worktree add "/tmp/tend-update-workflows" -B tend/update-workflows "$BASE"
 cd "/tmp/tend-update-workflows"
 
