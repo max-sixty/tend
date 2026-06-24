@@ -284,6 +284,12 @@ Then ship it:
 ```bash
 TITLE=$(cat "/tmp/tend-pr-title")
 git add -A .github/workflows .config
+# A fresh /tmp worktree has no git identity; without this the commit fails with
+# `Author identity unknown` and an empty branch gets pushed. Idempotent — see
+# "Configure git identity before the first commit" in /tend-ci-runner:running-in-ci.
+BOT_LOGIN=$(gh api user --jq '.login'); BOT_ID=$(gh api user --jq '.id')
+git config --global user.name "$BOT_LOGIN"
+git config --global user.email "${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
 git commit -m "$TITLE"
 git push -u origin tend/update-workflows
 gh pr create --title "$TITLE" --body-file "/tmp/tend-update-body.md"
