@@ -6,6 +6,12 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.1.8
+
+### Fixed
+
+- **Bundled skills configure a git identity before committing in fresh worktrees.** The `nightly`, `running-in-ci`, and `review-runs` skills now set `git config --global user.name/email` (to the bot's noreply identity) before the bot's first commit. A `/tmp` worktree inherits no identity, so `git commit` previously failed with `Author identity unknown`, pushed an empty branch, and left `gh pr create` to error with `No commits between main and <branch>`. ([#730](https://github.com/max-sixty/tend/pull/730))
+
 ## 0.1.7
 
 ### Improved
