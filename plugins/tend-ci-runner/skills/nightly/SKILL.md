@@ -109,6 +109,14 @@ Do not check out or rebase manually — the bot owns the branch and will overwri
 
 ### Bot-authored PRs: resolve manually
 
+Set the git identity once in the main session **before dispatching** — the subagents below `git commit --no-edit` in fresh worktrees, and as separate invocations they don't reliably load `running-in-ci`. `--global` writes to the runner's shared `~/.gitconfig`, so the subagents inherit it and don't fail with `Author identity unknown`. See "Configure git identity before the first commit" in `/tend-ci-runner:running-in-ci`.
+
+```bash
+BOT_LOGIN=$(gh api user --jq '.login'); BOT_ID=$(gh api user --jq '.id')
+git config --global user.name "$BOT_LOGIN"
+git config --global user.email "${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
+```
+
 For each conflicted PR authored by `$BOT_LOGIN`, dispatch a subagent to:
 
 1. Check out the PR: `gh pr checkout <number>`
@@ -284,6 +292,12 @@ Then ship it:
 ```bash
 TITLE=$(cat "/tmp/tend-pr-title")
 git add -A .github/workflows .config
+# A fresh /tmp worktree has no git identity; without this the commit fails with
+# `Author identity unknown` and an empty branch gets pushed. Idempotent — see
+# "Configure git identity before the first commit" in /tend-ci-runner:running-in-ci.
+BOT_LOGIN=$(gh api user --jq '.login'); BOT_ID=$(gh api user --jq '.id')
+git config --global user.name "$BOT_LOGIN"
+git config --global user.email "${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
 git commit -m "$TITLE"
 git push -u origin tend/update-workflows
 gh pr create --title "$TITLE" --body-file "/tmp/tend-update-body.md"
