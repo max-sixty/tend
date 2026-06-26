@@ -42,16 +42,17 @@ LAST_REVIEW_SHA=$(gh pr view <number> --json reviews \
 
 If `LAST_REVIEW_SHA == HEAD_SHA`, this commit has already been reviewed — exit silently. Two exceptions: an unanswered conversation question directed at the bot (check below), or `EVENT_ACTION == "ready_for_review"` (the PR just transitioned out of draft, so any prior review was a draft-mode review and the author is now asking for a full one — proceed).
 
-If the bot reviewed a previous commit (`LAST_REVIEW_SHA` exists but differs from `HEAD_SHA`), judge what was pushed since. The diff to read is always the PR's three-dot surface — `gh pr diff <number>` (merge-base→head, the same diff step 3 uses); base-merge commits never enter it. List the commits added since the last review to see the new work:
+If the bot reviewed a previous commit (`LAST_REVIEW_SHA` exists but differs from `HEAD_SHA`), judge what was pushed since. Read two signals, both leak-free against base-merges:
+
+- The PR's three-dot diff — `gh pr diff <number>` (merge-base→head, the same diff step 3 uses) — for the current state. Base-merge commits never enter it.
+- The **accurate incremental** — commits authored since the last review, with per-file line counts — for the trivial-skip decision below.
 
 ```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-# List only the commits added since the last review — judge triviality from
-# these plus the three-dot `gh pr diff`. Don't read this compare's `.files`
-# totals: the `A...B` symmetric-difference range folds in any base-merge's
-# churn (code the PR never authored), which skews the line counts.
-gh api "repos/$REPO/compare/$LAST_REVIEW_SHA...$HEAD_SHA" \
-  --jq '.commits[] | "\(.sha[0:9]) \(.commit.message | split("\n")[0])"'
+# Commits + per-file line counts authored since the last review. --no-merges
+# drops any base-merge commit, so its churn (code the PR never authored) never
+# counts — overlapping files (touched by the PR *and* a base-merge) are counted
+# correctly too. The review checkout is fetch-depth: 0, so the range is local.
+git log --no-merges --numstat --format='%h %s' "$LAST_REVIEW_SHA..$HEAD_SHA"
 ```
 
 If the incremental changes are trivial, skip the full review — go directly to step 7 to resolve any bot threads addressed by the new changes. After resolving threads: if the most recent bot review was a COMMENT that flagged issues, and those issues are now addressed, submit an APPROVE with an empty body so the PR isn't left in limbo. Otherwise do not submit a new review — the existing one stands. Do NOT proceed to steps 2–6. Rough heuristic: changes under ~20 added+deleted lines that don't introduce new functions, types, or control flow are typically trivial.
