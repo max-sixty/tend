@@ -48,11 +48,20 @@ If the bot reviewed a previous commit (`LAST_REVIEW_SHA` exists but differs from
 - The **accurate incremental** — commits authored since the last review, with per-file line counts — for the trivial-skip decision below.
 
 ```bash
-# Commits + per-file line counts authored since the last review. --no-merges
-# drops any base-merge commit, so its churn (code the PR never authored) never
-# counts — overlapping files (touched by the PR *and* a base-merge) are counted
-# correctly too. The review checkout is fetch-depth: 0, so the range is local.
-git log --no-merges --numstat --format='%h %s' "$LAST_REVIEW_SHA..$HEAD_SHA"
+# Commits + per-file line counts authored since the last review.
+#
+# --no-merges alone is NOT enough: it drops the merge *commit*, but a base
+# merge also pulls in the base branch's own non-merge commits, which are
+# reachable from $HEAD_SHA but not from $LAST_REVIEW_SHA — so they sit in the
+# A..B range and their churn gets summed as if it were the new push. Exclude
+# everything reachable from the base tip with `--not "$BASE_SHA"`: base churn
+# is always an ancestor of the base tip, while the PR's own commits are not,
+# so this isolates exactly the authored incremental (overlapping files
+# included). The review checkout is fetch-depth: 0; fetch the base tip in case
+# the /head conflict-fallback checkout didn't materialize it.
+BASE_SHA=$(gh pr view <number> --json baseRefOid --jq '.baseRefOid')
+git fetch --no-tags --quiet origin "$BASE_SHA" 2>/dev/null || true
+git log --no-merges --numstat --format='%h %s' "$LAST_REVIEW_SHA..$HEAD_SHA" --not "$BASE_SHA"
 ```
 
 If the incremental changes are trivial, skip the full review — go directly to step 7 to resolve any bot threads addressed by the new changes. After resolving threads: if the most recent bot review was a COMMENT that flagged issues, and those issues are now addressed, submit an APPROVE with an empty body so the PR isn't left in limbo. Otherwise do not submit a new review — the existing one stands. Do NOT proceed to steps 2–6. Rough heuristic: changes under ~20 added+deleted lines that don't introduce new functions, types, or control flow are typically trivial.
