@@ -42,12 +42,26 @@ LAST_REVIEW_SHA=$(gh pr view <number> --json reviews \
 
 If `LAST_REVIEW_SHA == HEAD_SHA`, this commit has already been reviewed — exit silently. Two exceptions: an unanswered conversation question directed at the bot (check below), or `EVENT_ACTION == "ready_for_review"` (the PR just transitioned out of draft, so any prior review was a draft-mode review and the author is now asking for a full one — proceed).
 
-If the bot reviewed a previous commit (`LAST_REVIEW_SHA` exists but differs from `HEAD_SHA`), check the incremental changes:
+If the bot reviewed a previous commit (`LAST_REVIEW_SHA` exists but differs from `HEAD_SHA`), judge what was pushed since. Read two signals, both leak-free against base-merges:
+
+- The PR's three-dot diff — `gh pr diff <number>` (merge-base→head, the same diff step 3 uses) — for the current state. Base-merge commits never enter it.
+- The **accurate incremental** — commits authored since the last review, with per-file line counts — for the trivial-skip decision below.
 
 ```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-gh api "repos/$REPO/compare/$LAST_REVIEW_SHA...$HEAD_SHA" \
-  --jq '{total: ([.files[] | .additions + .deletions] | add), files: [.files[] | "\(.filename)\t+\(.additions)/-\(.deletions)"]}'
+# Commits + per-file line counts authored since the last review.
+#
+# --no-merges alone is NOT enough: it drops the merge *commit*, but a base
+# merge also pulls in the base branch's own non-merge commits, which are
+# reachable from $HEAD_SHA but not from $LAST_REVIEW_SHA — so they sit in the
+# A..B range and their churn gets summed as if it were the new push. Exclude
+# everything reachable from the base tip with `--not "$BASE_SHA"`: base churn
+# is always an ancestor of the base tip, while the PR's own commits are not,
+# so this isolates exactly the authored incremental (overlapping files
+# included). The review checkout is fetch-depth: 0; fetch the base tip in case
+# the /head conflict-fallback checkout didn't materialize it.
+BASE_SHA=$(gh pr view <number> --json baseRefOid --jq '.baseRefOid')
+git fetch --no-tags --quiet origin "$BASE_SHA" 2>/dev/null || true
+git log --no-merges --numstat --format='%h %s' "$LAST_REVIEW_SHA..$HEAD_SHA" --not "$BASE_SHA"
 ```
 
 If the incremental changes are trivial, skip the full review — go directly to step 7 to resolve any bot threads addressed by the new changes. After resolving threads: if the most recent bot review was a COMMENT that flagged issues, and those issues are now addressed, submit an APPROVE with an empty body so the PR isn't left in limbo. Otherwise do not submit a new review — the existing one stands. Do NOT proceed to steps 2–6. Rough heuristic: changes under ~20 added+deleted lines that don't introduce new functions, types, or control flow are typically trivial.
