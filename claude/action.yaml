@@ -58,11 +58,12 @@ inputs:
       `https://claude.ai/install.sh`, pinned to a specific
       claude-code release. Kept in step with the interactive harness's pin.
   timeout_seconds:
-    default: "3600"
+    default: "10800"
     description: >-
       Maximum time the headless Claude run is allowed to take before the
-      supervisor kills it. Defaults to 60 minutes — well above any single
-      turn we have today.
+      supervisor kills it. Defaults to 3 hours — long-running sessions
+      (e.g. ci-fix stress-testing a flaky failure) routinely need more
+      than an hour, and short tasks finish well before the cap regardless.
   mitmproxy_version:
     default: "12.2.1"
     description: >-
