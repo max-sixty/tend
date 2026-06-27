@@ -274,12 +274,14 @@ runs:
         # skipDangerousModePermissionPrompt in settings.local.json). The
         # proxy injects the real credentials per-host.
         # Mirrors action.yaml: the Linux bwrap wrapping path corrupts `!`
-        # to `\!` in Bash commands, so the sandbox stays off (`0`). bwrap's
-        # value was hiding the model auth from the agent; that is now moot —
-        # the agent's env holds only dummy GitHub + Anthropic secrets, so
-        # there is nothing sensitive left for SUBPROCESS_ENV_SCRUB to hide.
+        # to `\!` in Bash commands, so the subprocess sandbox stays off (`0`).
         # Reproduced through claude 2.1.159; anthropics/claude-code#64301,
-        # write-up in #639.
+        # write-up in #639. Turning it off costs no credential hiding: the
+        # agent's env holds only dummy GitHub + Anthropic secrets (the proxy
+        # injects the real ones per-host), so SUBPROCESS_ENV_SCRUB has nothing
+        # sensitive to scrub. #637 separately found the model auth already
+        # absent from Bash-tool subprocesses with the scrub off, so the strip
+        # never depended on it.
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
         BOT_NAME: ${{ inputs.bot_name }}
         BOT_ID: ${{ steps.bot.outputs.id }}
