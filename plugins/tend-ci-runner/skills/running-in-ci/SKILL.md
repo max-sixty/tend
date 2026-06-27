@@ -391,6 +391,8 @@ If any prior entry — from a human or another tend workflow — already address
 
 If the author resolved the issue, acknowledge it rather than post stale analysis. If new information contradicts the findings, update before posting.
 
+**A new entry may be a directive, not a duplicate.** The re-fetch above guards against redundant posts, but a comment that arrived while you worked can also be a maintainer follow-up that *changes the work* — a second instruction, a correction, a narrowed scope. The window is widest after a long edit→commit→push sequence: minutes pass between the session-start read and the post, and that gap is exactly when a maintainer adds to the thread. So the re-fetch isn't only a dedup check — read what landed, and if it's a new directive, fold it into the same run rather than shipping a reply (or a commit) against the stale instruction. Treating the task as done is itself a kind of post: re-fetch before ending the turn, not only before commenting.
+
 ### Dedup check for inline review comment replies
 
 A single PR review can fire both `pull_request_review` and `pull_request_review_comment` events, triggering separate workflow runs (serialized by the concurrency group, not truly concurrent). Before replying to an inline review comment, check whether the bot already replied:
