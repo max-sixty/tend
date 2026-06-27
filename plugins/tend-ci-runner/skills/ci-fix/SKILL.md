@@ -47,8 +47,6 @@ gh issue list --state open --author "$BOT_LOGIN" --search "ci-fix: in:title" \
 4. Reproduce locally using test commands from the project's CLAUDE.md
 5. Fix at the right level (shared helper > per-file fix)
 
-**Budget-box local validation.** The harness kills the session at a hard timeout (~1h), and a killed session ships nothing — no PR, no issue, and any root cause you found dies with it. Validating a fix for a timing-sensitive or flaky failure means re-running the test many times under load, which drains the budget fast. If repeated stress-validation isn't converging on a green fix and you've already pinned the root cause, stop iterating and take the 3b durable-diagnosis path **while the session is still alive** — a posted diagnosis (offending commit, mechanism, candidate fix direction) that a maintainer or a later run can act on beats grinding to the timeout with nothing to show.
-
 ### 3. Create PR
 
 Re-check for existing fix PRs (one may have been created while you worked).
