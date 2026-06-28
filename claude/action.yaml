@@ -234,11 +234,10 @@ runs:
         # CLAUDE_CODE_REMOTE for remote/non-interactive context). The proxy
         # injects the real credentials per-host.
         # The Linux bwrap wrapping path corrupts `!` to `\!` in Bash commands,
-        # so the sandbox stays off (`0`). bwrap's value was hiding the model
-        # auth from the agent; that is now moot — the agent's env holds only
-        # dummy GitHub + Anthropic secrets, so there is nothing sensitive left
-        # for SUBPROCESS_ENV_SCRUB to hide. Reproduced through claude 2.1.159;
-        # anthropics/claude-code#64301, write-up in #639.
+        # so the subprocess sandbox stays off (`0`). Reproduced through claude
+        # 2.1.159; anthropics/claude-code#64301, write-up in #639. Off leaks
+        # nothing: the agent's env holds only dummy secrets, and the proxy
+        # injects the real ones per-host.
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
         BOT_NAME: ${{ inputs.bot_name }}
         BOT_ID: ${{ steps.bot.outputs.id }}
