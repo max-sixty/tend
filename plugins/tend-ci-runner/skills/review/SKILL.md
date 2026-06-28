@@ -153,6 +153,17 @@ Two search strategies, both required:
 
 Flag duplicates — reuse is almost always better than a parallel implementation.
 
+**`/code-review` pass (Claude harness only):**
+
+Run a `/code-review` over the diff, a Claude Code built-in that reviews the working-tree diff (here, the PR's merged tree) for correctness bugs and cleanups. Match the effort tier to how core the change is:
+
+- Peripheral or mechanical (docs, config, dependency bumps, test-only): `/code-review low` or `medium`.
+- The project's core logic: `/code-review high` or `max`.
+
+What counts as core is repo-specific; let the project's own guidance (CLAUDE.md, a repo review skill) or your judgment decide. Skip `ultra` (the human-triggered cloud pass). Fold its findings into the review you submit next; don't pass `--comment` or `--fix`, which act outside the dedup and single-review path.
+
+Other harnesses (Codex) lack this command; skip the pass.
+
 ### 5. Submit
 
 **If there are no issues, approve with an empty body — silence means correct.**
