@@ -6,6 +6,23 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.1.9
+
+### Improved
+
+- **PR review runs a `/code-review` pass alongside its manual checks.** The bundled `review` skill now pairs its manual read with a `/code-review` over the diff, with the effort tier scaled to how core the change is — peripheral or mechanical changes (docs, config, dependency bumps, test-only) get `low`/`medium`, core-logic changes get `high`/`max`. The "core" definition is left to each adopter's own guidance, so the bundled skill hardcodes no one project's components. ([#741](https://github.com/max-sixty/tend/pull/741))
+- **The default harness timeout rises from 60 minutes to 3 hours.** Both Claude harness actions (`claude` headless and `claude-interactive` PTY) bump `timeout_seconds` from `3600` to `10800`, so genuinely long sessions finish instead of hitting the cap and surfacing as "Bot temporarily unavailable"; short tasks are unaffected. Codex has no harness-level timeout and is unchanged. ([#739](https://github.com/max-sixty/tend/pull/739))
+- **The Recheck-Before-Posting guard catches a new directive, not just a duplicate.** The bundled `running-in-ci` skill now treats a comment that arrived mid-session as a possible maintainer follow-up — a correction or narrowed scope to fold into the same run — rather than only checking for redundant posts, and runs the re-fetch before ending the turn, not only before commenting. ([#738](https://github.com/max-sixty/tend/pull/738))
+- **Both Claude harnesses update to claude-code 2.1.195.** ([#740](https://github.com/max-sixty/tend/pull/740))
+
+### Fixed
+
+- **Incremental PR review no longer leaks the base-merge delta.** The `review` skill's "what changed since my last review" pre-flight switched from a two-endpoint `A...B` compare to a three-dot diff with `git log --no-merges`, so a `Merge branch '<default>'` landing between review points no longer drags the entire merged-in base delta into the diff and makes the bot critique code the PR never authored. ([#735](https://github.com/max-sixty/tend/pull/735))
+
+### Documentation
+
+- **A composite-action comment drops a disproved security claim.** The surviving `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` comment no longer asserts that bubblewrap / the scrub knob "was hiding the model auth from the agent" — the evidence in [#637](https://github.com/max-sixty/tend/pull/637) showed Claude Code strips its own Anthropic credentials from bash subprocesses regardless of the knob. ([#737](https://github.com/max-sixty/tend/pull/737))
+
 ## 0.1.8
 
 ### Fixed
