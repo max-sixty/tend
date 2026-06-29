@@ -95,15 +95,20 @@ jobs:
             exit 0
           fi
 
-          # The bot's own APPROVED review is terminal — nothing to act on. The
-          # engagement heuristic below counts this very review (BOT_REVIEWS > 0)
-          # and would spin up a no-op session. Gate on review *state*, not just
-          # author: bot self-reviews carrying suggestions on the bot's own PR
-          # still need to fire. review.state arrives lowercase in the webhook
-          # payload (REST returns uppercase), hence "approved".
+          # The bot's own empty-body APPROVED review is terminal — nothing to
+          # act on. The engagement heuristic below counts this very review
+          # (BOT_REVIEWS > 0) and would spin up a no-op session. Gate on three
+          # things, not just author: review *state* (an approval is terminal; a
+          # bot CHANGES_REQUESTED/COMMENTED review keeps actionable signal) and
+          # an empty *body* (an approval carrying nits in its body may warrant
+          # follow-up changes, so let it fire). Together these preserve #166's
+          # actionable bot self-reviews. review.state arrives lowercase in the
+          # webhook payload (REST returns uppercase), hence "approved".
+          # COMMENT_BODY holds review.body for a pull_request_review event.
           if [ "$EVENT_NAME" = "pull_request_review" ] \
              && [ "$REVIEW_AUTHOR" = "<<cfg.bot_name>>" ] \
-             && [ "$REVIEW_STATE" = "approved" ]; then
+             && [ "$REVIEW_STATE" = "approved" ] \
+             && [ -z "$COMMENT_BODY" ]; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
