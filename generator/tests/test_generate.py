@@ -613,6 +613,31 @@ def test_mention_prompt_omits_delay_when_empty(tmp_path: Path) -> None:
     assert "Before acting" in prompt
 
 
+def test_mention_skips_bot_approved_review(tmp_path: Path) -> None:
+    """A bot-authored APPROVED review is terminal — there is nothing to act
+    on. The verify gate must short-circuit it to should_run=false instead of
+    counting it as engagement (BOT_REVIEWS > 0) and spinning up a no-op
+    session (issue #747). The skip is gated on review *state*, not just
+    author, so bot self-reviews carrying suggestions still fire (#166)."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    wf = generate_mention(cfg)
+    data = yaml.safe_load(wf.content)
+    check_step = next(
+        s for s in data["jobs"]["verify"]["steps"] if s.get("id") == "check"
+    )
+    script = check_step["run"]
+    # Gate on the (lowercase, per the webhook payload) approved state.
+    assert "REVIEW_STATE" in script
+    assert "approved" in script
+    # The skip must precede the BOT_REVIEWS heuristic query that would
+    # otherwise count the just-submitted review and return should_run=true.
+    assert script.index("REVIEW_STATE") < script.index("BOT_REVIEWS=$(")
+    # REVIEW_STATE/REVIEW_AUTHOR must be wired into the env block.
+    env = check_step["env"]
+    assert "REVIEW_STATE" in env
+    assert "REVIEW_AUTHOR" in env
+
+
 # ---------------------------------------------------------------------------
 # Fork guard
 # ---------------------------------------------------------------------------
