@@ -30,13 +30,15 @@ fi
 
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-gh label create "$LABEL" --description "Tracks bot outage incidents" --color "d93f0b" 2>/dev/null || true
-printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
-  "The bot failed to process a request. This issue tracks failures until the underlying cause is resolved." \
+# One row per failure, in the same table format whether it seeds the issue
+# body (first failure) or is appended as a comment (every later failure), so
+# both render identically.
+TABLE=$(printf '%s\n%s\n%s' \
   "| When | Run | Trigger |" \
   "|------|-----|---------|" \
-  "| ${TIMESTAMP} | [workflow run](${RUN_URL}) | ${REF:-N/A} |" \
-  "This issue was created automatically. Close it once the outage is resolved." > /tmp/body.md
+  "| ${TIMESTAMP} | [workflow run](${RUN_URL}) | ${REF:-N/A} |")
+
+gh label create "$LABEL" --description "Tracks bot outage incidents" --color "d93f0b" 2>/dev/null || true
 
 # Jittered backoff before the check-then-act narrows the race window
 # when a matrix workflow's legs fail at near-identical times (e.g.
@@ -47,9 +49,12 @@ sleep $((RANDOM % 30))
 EXISTING=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
 
 if [ -n "$EXISTING" ]; then
-  printf 'Failed run at %s: [workflow run](%s)%s\n' \
-    "$TIMESTAMP" "$RUN_URL" "${REF:+ (triggered by ${REF})}" > /tmp/comment.md
+  printf '%s\n' "$TABLE" > /tmp/comment.md
   gh issue comment "$EXISTING" -F /tmp/comment.md
 else
+  printf '%s\n\n%s\n\n%s\n' \
+    "The bot failed to process a request. This issue tracks failures until the underlying cause is resolved." \
+    "$TABLE" \
+    "This issue was created automatically. Close it once the outage is resolved." > /tmp/body.md
   gh issue create --title "$TITLE" --label "$LABEL" -F /tmp/body.md
 fi
