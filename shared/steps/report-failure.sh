@@ -52,4 +52,21 @@ if [ -n "$EXISTING" ]; then
   gh issue comment "$EXISTING" -F /tmp/comment.md
 else
   gh issue create --title "$TITLE" --label "$LABEL" -F /tmp/body.md
+
+  # The jitter above only narrows the create-create race; it can't close it.
+  # Two legs can still both read $EXISTING empty (jitter collision within the
+  # few-second window the list index takes to reflect a fresh create), so each
+  # files its own issue. Reconcile after creating: settle for the index, list
+  # every open tend-outage issue, keep the lowest-numbered, and close the rest
+  # as duplicates. Idempotent and convergent — every racing leg computes the
+  # same keeper, so a second leg closing an already-closed dup is a no-op.
+  sleep 5
+  OPEN=$(gh issue list --label "$LABEL" --state open --json number --jq 'sort_by(.number) | .[].number')
+  KEEP=$(echo "$OPEN" | head -1)
+  echo "$OPEN" | tail -n +2 | while read -r DUP; do
+    [ -z "$DUP" ] && continue
+    gh issue close "$DUP" \
+      --comment "Duplicate of #${KEEP} (concurrent matrix-leg failure); consolidating outage tracking there." \
+      2>/dev/null || true
+  done
 fi
