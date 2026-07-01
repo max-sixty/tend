@@ -511,6 +511,49 @@ def test_mention_verify_skips_bot_comments_without_mention(tmp_path: Path) -> No
     )
 
 
+def test_mention_verify_skips_self_authored_comments(tmp_path: Path) -> None:
+    """The bot's own comments must not spin up a handle session.
+
+    The Bot-type check only catches GitHub App / Bot accounts. Tend's own bot
+    is a PAT-based User account, so its comments fall through to the engagement
+    heuristics (bot-authored issue, or "bot has prior comments") and reach the
+    handle job, which exits silently via the prompt's self-loop guard — pure
+    waste. This recurs on the monthly tracking-issue rollover (review-reviewers
+    posts evidence-gist links on its own issue) and on duplicate-tracking
+    notices. Skip self-authored `issue_comment` events at the gate."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    mention = workflows["tend-mention.yaml"]
+    data = yaml.safe_load(mention.content)
+    check_step = next(
+        s for s in data["jobs"]["verify"]["steps"] if s.get("id") == "check"
+    )
+    run = check_step["run"]
+
+    assert check_step["env"].get("COMMENT_AUTHOR") == (
+        "${{ github.event.comment.user.login }}"
+    ), (
+        "verify must wire github.event.comment.user.login so the script can "
+        "recognize the bot's own (User-type) comments"
+    )
+
+    assert '"$COMMENT_AUTHOR" = "test-bot"' in run, (
+        "verify must short-circuit issue_comment events authored by the bot "
+        "itself — its User-type account is missed by the Bot-type check"
+    )
+
+    # The self-authored guard must run after the @-mention check (so a
+    # self-summons is still honored) and before the bot-authored-issue
+    # short-circuit that would otherwise spin up the no-op session.
+    mention_idx = run.index("grep -qF '@test-bot'")
+    self_guard_idx = run.index('"$COMMENT_AUTHOR" = "test-bot"')
+    issue_author_idx = run.index('"$ISSUE_AUTHOR" = "test-bot"')
+    assert mention_idx < self_guard_idx < issue_author_idx, (
+        "self-authored comment guard must run after the @-mention check and "
+        "before the bot-authored-issue short-circuit"
+    )
+
+
 def test_mention_verify_no_concurrency(tmp_path: Path) -> None:
     """verify job must not have concurrency — a non-mention comment can cancel
     an explicit @bot mention if both arrive on the same PR within seconds (#93)."""
