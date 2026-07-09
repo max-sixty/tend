@@ -54,9 +54,7 @@ Re-check for existing fix PRs (one may have been created while you worked).
 ```bash
 git checkout -b fix/ci-<run-id>
 git add <files>
-git commit -m "fix: <description>
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
+git commit -m "fix: <description>"
 git push -u origin fix/ci-<run-id>
 ```
 

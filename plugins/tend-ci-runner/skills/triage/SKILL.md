@@ -112,9 +112,7 @@ Step 3's duplicate check catches identical fixes. It misses the *same root cause
    git add -A
    git commit -m "fix: <description>
 
-   Closes #$ARGUMENTS
-
-   Co-Authored-By: Claude <noreply@anthropic.com>"
+   Closes #$ARGUMENTS"
    git push -u origin fix/issue-$ARGUMENTS
    gh pr create --title "fix: <description>" --body "## Problem
    [What the issue reported and the root cause]
@@ -137,9 +135,7 @@ Commit just the failing test on a reproduction branch and open a PR:
 ```bash
 git checkout -b repro/issue-$ARGUMENTS
 git add -A
-git commit -m "test: add reproduction for #$ARGUMENTS
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
+git commit -m "test: add reproduction for #$ARGUMENTS"
 git push -u origin repro/issue-$ARGUMENTS
 gh pr create --title "test: reproduction for #$ARGUMENTS" --body "## Context
 Adds a failing test that reproduces #$ARGUMENTS. The fix is not yet included — this PR captures the reproduction so a maintainer can investigate.

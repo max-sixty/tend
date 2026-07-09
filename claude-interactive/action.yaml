@@ -325,6 +325,7 @@ runs:
           '{
             permissions: {defaultMode: "bypassPermissions", allow: $allow},
             skipDangerousModePermissionPrompt: true,
+            attribution: {commit: "", pr: ""},
             hooks: {
               Stop:        [{matcher: "", hooks: [{type: "command", command: ("touch " + ($ok   | @sh))}]}],
               StopFailure: [{matcher: "", hooks: [{type: "command", command: ("touch " + ($fail | @sh))}]}]
