@@ -403,8 +403,6 @@ Outdated comments (null line) are best-effort — skip if the original context c
 ```bash
 gh pr checkout <number>
 git add <files>
-git commit -m "fix: <description>
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
+git commit -m "fix: <description>"
 git push
 ```

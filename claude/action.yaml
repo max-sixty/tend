@@ -273,10 +273,15 @@ runs:
         # the settings key the dialog's accept button writes, read from any
         # settings layer. No Stop/StopFailure hooks — headless detects
         # completion from the process exit plus the result-event verdict below.
+        # attribution: {commit: "", pr: ""} empties Claude Code's auto-added
+        # `Co-Authored-By: Claude` commit trailer and `Generated with Claude
+        # Code` PR footer, so bot commits and PRs are attributed solely to the
+        # tend bot. (`attribution` supersedes the deprecated `includeCoAuthoredBy`.)
         jq -nc --argjson allow "$ALLOW_JSON" \
           '{
             permissions: {defaultMode: "bypassPermissions", allow: $allow},
-            skipDangerousModePermissionPrompt: true
+            skipDangerousModePermissionPrompt: true,
+            attribution: {commit: "", pr: ""}
           }' > "$RUNNER_TEMP/tend-settings.json"
         sudo -u "$SANDBOX" mkdir -p "$GITHUB_WORKSPACE/.claude"
         sudo -u "$SANDBOX" tee "$GITHUB_WORKSPACE/.claude/settings.local.json" \
