@@ -1,0 +1,3 @@
+# Runtime artifact written by the harness composite action at CI time
+# (claude/action.yaml, claude-interactive/action.yaml). Never commit it.
+.claude/settings.local.json

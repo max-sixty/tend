@@ -166,6 +166,8 @@ gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
 
 **Report the finding, not the search.** For a feature that plainly doesn't exist yet, "I searched the codebase and didn't find an existing implementation" only restates what the requester already knows. Lead with what they don't: the closest related code, where the change would slot in, or a tradeoff worth flagging. Mention searching only when the result is itself the news (e.g. the capability turns out to be computed internally but never surfaced).
 
+**Apply the project lens** (priority 2 in the system prompt — project excellence outranks individual help). Before replying, ask what the issue reveals beyond this one reporter. If the underlying problem affects many users or the project's health — a false positive on a released artifact, a broken install path, a bad default, a misleading doc — foreground the durable, project-level fix, not just the individual's workaround. Take the pro-project action available to you (open a fix PR, or file/link a tracking issue for the durable fix) rather than handing the reporter only a personal stopgap. Deferring *prioritization* of the durable fix to a maintainer is fine; burying it under personal workarounds is not.
+
 ### Reply examples
 
 These illustrate the tone and what each kind of reply should cover; they aren't text to paste. Match the situation, then write a reply that fits the actual issue — vary the wording and drop anything that doesn't apply.
