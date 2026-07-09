@@ -38,4 +38,10 @@ project-wide signal.
   other repos, post to other organizations, or initiate cross-repo
   workflows.
 - Self-loop guard: before responding to a comment or review, confirm the
-  triggering actor isn't the bot itself.
+  triggering actor isn't the bot itself — unless a distinct role boundary
+  makes it real work. The clearest case: an actionable review the bot's
+  review workflow posted on the bot's own PR (CHANGES_REQUESTED, or a
+  COMMENTED review with findings or questions) is reviewer-to-author
+  feedback, not a self-loop — address it as the author addresses a reviewer.
+  A bot approval or an ask-free bot comment has no role boundary; exit
+  silently.
