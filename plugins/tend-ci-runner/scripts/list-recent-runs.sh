@@ -13,8 +13,11 @@
 # exactly: [intended-1h, intended], then [intended, intended+1h]. Without
 # this, GHA scheduler delay (20-40 min during peak hours) shifts each
 # cycle's window relative to actual start time and drops runs that finished
-# in the slack between consecutive actual starts. For non-schedule events
-# or non-hourly crons, falls back to a now-anchored 1h window.
+# in the slack between consecutive actual starts. When GHA *drops* a tick
+# entirely (not just delays it), the window's floor is instead pulled back to
+# the previous actual run's intended tick so the orphaned hour still gets
+# analyzed. For non-schedule events or non-hourly crons, falls back to a
+# now-anchored 1h window.
 #
 # Environment variables:
 #   TARGET_REPO - Query a different repo (default: current repo)
@@ -63,8 +66,43 @@ if [ -n "$cron_minute" ]; then
   else
     intended=$this_hour_tick
   fi
+  # Default floor: one cron period back. Consecutive ticks tile exactly.
   COMPLETED_AFTER=$((intended - 3600))
-  CREATED_SINCE=$(date -u -d "@$((intended - 10800))" +%Y-%m-%dT%H:%M:%S)
+
+  # Dropped-tick recovery. GHA doesn't only *delay* scheduled ticks, it also
+  # *drops* them: a tick that fires zero times leaves that hour's completions
+  # in the gap between the previous and next cycle's windows (the skipped-tick
+  # case #526 deferred as acceptable). Rather than assume the previous tick
+  # fired, resume from where the previous *actual* completed run of this
+  # workflow left off: recover that run's intended tick and floor the window
+  # there. When every tick fires, the previous run's intended tick == the
+  # default (intended - 3600), so this is a byte-identical no-op — still no
+  # overlap between consecutive cycles. When a tick was dropped, it reaches
+  # back to cover the orphaned hour. Capped at 6h so a sustained outage can't
+  # create an unbounded window. The analyzing workflow runs on the current
+  # repo, so this query omits TARGET_REPO's -R.
+  if [ -n "${GITHUB_WORKFLOW:-}" ]; then
+    prev_start=$(gh run list --workflow "$GITHUB_WORKFLOW" --status completed \
+      --limit 10 --json databaseId,createdAt \
+      --jq "[.[] | select(.databaseId != (${GITHUB_RUN_ID:-0}))] | .[0].createdAt // empty" \
+      2>/dev/null || true)
+    if [ -n "$prev_start" ]; then
+      prev_ts=$(date -u -d "$prev_start" +%s 2>/dev/null || echo "")
+      if [ -n "$prev_ts" ]; then
+        prev_hour_tick=$(date -u -d "$(date -u -d "@$prev_ts" +%Y-%m-%dT%H:00:00) $cron_minute minutes" +%s)
+        if [ "$prev_ts" -ge "$prev_hour_tick" ]; then
+          prev_intended=$prev_hour_tick
+        else
+          prev_intended=$((prev_hour_tick - 3600))
+        fi
+        floor_cap=$((intended - 21600))   # never reach back more than 6h
+        [ "$prev_intended" -lt "$floor_cap" ] && prev_intended=$floor_cap
+        [ "$prev_intended" -lt "$COMPLETED_AFTER" ] && COMPLETED_AFTER=$prev_intended
+      fi
+    fi
+  fi
+
+  CREATED_SINCE=$(date -u -d "@$((COMPLETED_AFTER - 7200))" +%Y-%m-%dT%H:%M:%S)
 else
   CREATED_SINCE=$(date -d '3 hours ago' +%Y-%m-%dT%H:%M:%S)
   COMPLETED_AFTER=$(date -d '1 hour ago' +%s)
