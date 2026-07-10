@@ -6,6 +6,19 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.1.10
+
+### Improved
+
+- **The system prompt gains an explicit priority ordering.** A new `Priorities` section in the shared system prompt, loaded by every harness, ranks (1) being pro-social, (2) making the project excellent, and (3) helping individual users — so when an individual's workaround and the durable project-level fix pull apart, the bot foregrounds the durable fix. The triage skill adds a matching "apply the project lens" step before replying. ([#758](https://github.com/max-sixty/tend/pull/758))
+- **The `tend-outage` failure reporter renders every entry as one table.** Follow-up failures on an open outage issue now append the same one-row `When | Run | Trigger` table the issue body uses, instead of a bespoke one-liner, so a single outage issue reads uniformly. ([#748](https://github.com/max-sixty/tend/pull/748))
+- **Both Claude harnesses update to claude-code 2.1.201.** ([#755](https://github.com/max-sixty/tend/pull/755))
+
+### Fixed
+
+- **Bot commits and PRs are attributed solely to the tend bot.** Both Claude harness actions now set `attribution: {commit: "", pr: ""}` in the agent's settings, emptying Claude Code's auto-added `Co-Authored-By` commit trailer and "Generated with Claude Code" PR footer, and the triage, ci-fix, and review skill templates drop their hard-coded `Co-Authored-By` lines. ([#760](https://github.com/max-sixty/tend/pull/760))
+- **`tend-mention` no longer runs a no-op session on the bot's own APPROVED review.** The bot's empty-body approval is terminal, but its `pull_request_review` event passed the engagement check (which counts that very review) and spun up a session with nothing to do. The verify job now skips when the review is the bot's own approval with an empty body — a bot review requesting changes, commenting, or approving with body text still fires. ([#749](https://github.com/max-sixty/tend/pull/749))
+
 ## 0.1.9
 
 ### Improved
