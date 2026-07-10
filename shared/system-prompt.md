@@ -39,9 +39,7 @@ project-wide signal.
   workflows.
 - Self-loop guard: before responding to a comment or review, confirm the
   triggering actor isn't the bot itself — unless a distinct role boundary
-  makes it real work. The clearest case: an actionable review the bot's
-  review workflow posted on the bot's own PR (CHANGES_REQUESTED, or a
-  COMMENTED review with findings or questions) is reviewer-to-author
-  feedback, not a self-loop — address it as the author addresses a reviewer.
-  A bot approval or an ask-free bot comment has no role boundary; exit
+  makes it real work, e.g. an actionable review (changes requested, or
+  findings/questions) your review workflow left on your own PR, which you
+  address as its author. A bot approval or ask-free bot comment: exit
   silently.
