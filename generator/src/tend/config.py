@@ -34,6 +34,9 @@ KNOWN_TOP_LEVEL = {
     "protected_branches",
     "secrets",
     "setup",
+    "sandbox_setup",
+    "sandbox_env",
+    "sandbox_path",
     "workflows",
 }
 KNOWN_HARNESSES = {"claude", "claude-interactive", "codex"}
@@ -53,6 +56,38 @@ KNOWN_SECRETS_KEYS = {
     "allowed",
 }
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
+# POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Env names an adopter's `sandbox_env` may NOT set. These carry the sandbox's
+# credential isolation and routing — letting an adopter override them (via a
+# committed config, but also as a defense against a hand-edited workflow) could
+# redirect the agent's traffic off the injecting proxy or clobber the dummy
+# credentials the proxy swaps for the real secrets. `PATH` is reserved too:
+# use `sandbox_path` (which prepends to the fixed base) instead of replacing it.
+# Kept in sync with the AGENT_ENV_FILE heredoc in proxy/setup-sandbox.sh.
+RESERVED_SANDBOX_ENV = {
+    "HOME",
+    "PATH",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "https_proxy",
+    "http_proxy",
+    "NO_PROXY",
+    "no_proxy",
+    "NODE_EXTRA_CA_CERTS",
+    "SSL_CERT_FILE",
+    "REQUESTS_CA_BUNDLE",
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "CLAUDE_CODE_REMOTE",
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+}
 
 
 ALLOWED_STEP_FIELDS = {
@@ -148,6 +183,15 @@ class Config:
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
+    # Adopter levers that reach *inside* the Claude-family sandbox, before the
+    # agent launches (runner-side `setup:` doesn't — it runs as the runner user
+    # around the composite action). `sandbox_path` prepends dirs to the sandbox
+    # PATH; `sandbox_env` adds NAME=VALUE pairs to the agent's launch env;
+    # `sandbox_setup` runs shell commands as the sandbox user. Inert for the
+    # codex harness, whose agent already runs on the runner and sees `setup:`.
+    sandbox_path: list[str] = field(default_factory=list)
+    sandbox_env: dict[str, str] = field(default_factory=dict)
+    sandbox_setup: list[str] = field(default_factory=list)
 
     def default_prompt(self, skill: str, args: str = "") -> str:
         """Default prompt invoking a tend-ci-runner skill in harness-native syntax.
@@ -271,6 +315,62 @@ class Config:
                     raise click.ClickException(f"setup[{i}]: `{k}` must be a mapping")
             setup.append(SetupStep(fields=dict(entry)))
 
+        sandbox_path = raw.get("sandbox_path", []) or []
+        if not isinstance(sandbox_path, list) or not all(
+            isinstance(d, str) and d for d in sandbox_path
+        ):
+            raise click.ClickException(
+                "sandbox_path must be a list of non-empty strings "
+                '(e.g. sandbox_path: ["~/.cargo/bin"]); '
+                "`~` expands to the sandbox home"
+            )
+
+        sandbox_env_raw = raw.get("sandbox_env", {}) or {}
+        if not isinstance(sandbox_env_raw, dict):
+            raise click.ClickException(
+                "sandbox_env must be a mapping of NAME: VALUE "
+                '(e.g. sandbox_env: {RUST_BACKTRACE: "1"})'
+            )
+        sandbox_env: dict[str, str] = {}
+        for name, value in sandbox_env_raw.items():
+            if not isinstance(name, str) or not _ENV_NAME.match(name):
+                raise click.ClickException(
+                    f"sandbox_env key '{name}' is not a valid environment "
+                    "variable name (letters, digits, underscore; not starting "
+                    "with a digit)"
+                )
+            if name in RESERVED_SANDBOX_ENV:
+                hint = (
+                    " Use `sandbox_path` to extend PATH."
+                    if name == "PATH"
+                    else " It carries the sandbox's credential isolation and "
+                    "cannot be overridden."
+                )
+                raise click.ClickException(
+                    f"sandbox_env may not set reserved key '{name}'.{hint}"
+                )
+            # Coerce scalars (a YAML `1` or `true`) to their string form so the
+            # value renders as a plain NAME=VALUE line in the agent env file.
+            sandbox_env[name] = value if isinstance(value, str) else str(value)
+
+        sandbox_setup = raw.get("sandbox_setup", []) or []
+        if not isinstance(sandbox_setup, list) or not all(
+            isinstance(c, str) and c.strip() for c in sandbox_setup
+        ):
+            raise click.ClickException(
+                "sandbox_setup must be a list of non-empty shell command strings "
+                '(e.g. sandbox_setup: ["rustup component add clippy"])'
+            )
+
+        if harness == "codex" and (sandbox_path or sandbox_env or sandbox_setup):
+            click.echo(
+                "Warning: sandbox_path/sandbox_env/sandbox_setup apply only to "
+                "the Claude-family harnesses (the proxy sandbox). The codex "
+                "harness runs the agent on the runner, where the `setup:` "
+                "section already reaches its environment.",
+                err=True,
+            )
+
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in (raw.get("workflows") or {}).items():
             if name == "renovate":
@@ -393,6 +493,9 @@ class Config:
             model=model,
             effort=effort,
             setup=setup,
+            sandbox_path=sandbox_path,
+            sandbox_env=sandbox_env,
+            sandbox_setup=sandbox_setup,
             workflows=workflows,
             allowed_repo_secrets=allowed,
         )

@@ -39,6 +39,26 @@
 {% endif %}
           bot_name: <<cfg.bot_name>>
           model: <<cfg.model>>
+{% if cfg.harness in ('claude', 'claude-interactive') %}
+{% if cfg.sandbox_path %}
+          sandbox_path: |
+{% for dir in cfg.sandbox_path %}
+            <<dir>>
+{% endfor %}
+{% endif %}
+{% if cfg.sandbox_env %}
+          sandbox_env: |
+{% for name, value in cfg.sandbox_env.items() %}
+            <<name>>=<<value>>
+{% endfor %}
+{% endif %}
+{% if cfg.sandbox_setup %}
+          sandbox_setup: |
+{% for cmd in cfg.sandbox_setup %}
+            <<cmd|indent(12)>>
+{% endfor %}
+{% endif %}
+{% endif %}
           <<prompt_body>>
 {%- endmacro %}
 

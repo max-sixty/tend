@@ -797,3 +797,116 @@ def test_workflow_extra_delete_with_null(tmp_path: Path) -> None:
     # issues was deleted; the other permissions survive
     assert "issues" not in perms
     assert perms["contents"] == "write"
+
+
+# ---------------------------------------------------------------------------
+# Sandbox levers (sandbox_path / sandbox_env / sandbox_setup)
+# ---------------------------------------------------------------------------
+
+
+def test_sandbox_levers_parsed(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        sandbox_path:
+          - ~/.cargo/bin
+        sandbox_env:
+          RUST_BACKTRACE: "1"
+          CARGO_TERM_COLOR: always
+        sandbox_setup:
+          - rustup component add clippy
+    """),
+    )
+    cfg = Config.load(path)
+    assert cfg.sandbox_path == ["~/.cargo/bin"]
+    # Scalar `1` coerces to its string form for the NAME=VALUE env line.
+    assert cfg.sandbox_env == {"RUST_BACKTRACE": "1", "CARGO_TERM_COLOR": "always"}
+    assert cfg.sandbox_setup == ["rustup component add clippy"]
+
+
+def test_sandbox_env_coerces_scalar_value(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        sandbox_env:
+          RUST_BACKTRACE: 1
+    """),
+    )
+    cfg = Config.load(path)
+    assert cfg.sandbox_env == {"RUST_BACKTRACE": "1"}
+
+
+def test_sandbox_env_reserved_key_rejected(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        sandbox_env:
+          HTTPS_PROXY: http://evil
+    """),
+    )
+    with pytest.raises(ClickException, match="reserved key 'HTTPS_PROXY'"):
+        Config.load(path)
+
+
+def test_sandbox_env_path_rejected_points_to_sandbox_path(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        sandbox_env:
+          PATH: /whatever
+    """),
+    )
+    with pytest.raises(ClickException, match="sandbox_path"):
+        Config.load(path)
+
+
+def test_sandbox_env_invalid_name_rejected(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        sandbox_env:
+          "1BAD": x
+    """),
+    )
+    with pytest.raises(ClickException, match="not a valid environment"):
+        Config.load(path)
+
+
+def test_sandbox_path_non_list_rejected(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        "bot_name: my-bot\nsandbox_path: ~/.cargo/bin\n",
+    )
+    with pytest.raises(ClickException, match="sandbox_path must be a list"):
+        Config.load(path)
+
+
+def test_sandbox_setup_non_list_rejected(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        "bot_name: my-bot\nsandbox_setup: echo hi\n",
+    )
+    with pytest.raises(ClickException, match="sandbox_setup must be a list"):
+        Config.load(path)
+
+
+def test_sandbox_levers_warn_on_codex(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        harness: codex
+        model: gpt-5.5
+        sandbox_setup:
+          - echo hi
+    """),
+    )
+    Config.load(path)
+    assert "apply only to the Claude-family" in capsys.readouterr().err
