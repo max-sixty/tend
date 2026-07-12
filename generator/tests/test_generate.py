@@ -81,6 +81,55 @@ def test_setup_steps_rendered(tmp_path: Path) -> None:
         )
 
 
+def test_sandbox_levers_rendered_for_claude(tmp_path: Path) -> None:
+    """sandbox_path/sandbox_env/sandbox_setup render as action inputs and the
+    workflow still parses; the values land under the agent step's `with:`."""
+    extra = dedent("""\
+        sandbox_path:
+          - ~/.cargo/bin
+        sandbox_env:
+          RUST_BACKTRACE: "1"
+        sandbox_setup:
+          - rustup component add clippy
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    wf = generate_mention(cfg)
+    data = yaml.safe_load(wf.content)
+    with_blocks = [
+        s["with"]
+        for job in data["jobs"].values()
+        for s in job.get("steps", [])
+        if "sandbox_path" in s.get("with", {})
+    ]
+    assert len(with_blocks) == 1
+    with_block = with_blocks[0]
+    assert with_block["sandbox_path"].strip() == "~/.cargo/bin"
+    assert with_block["sandbox_env"].strip() == "RUST_BACKTRACE=1"
+    assert with_block["sandbox_setup"].strip() == "rustup component add clippy"
+
+
+def test_sandbox_levers_absent_by_default(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path))
+    for wf in generate_all(cfg):
+        assert "sandbox_path:" not in wf.content
+        assert "sandbox_env:" not in wf.content
+        assert "sandbox_setup:" not in wf.content
+
+
+def test_sandbox_levers_not_rendered_for_codex(tmp_path: Path) -> None:
+    """Codex runs on the runner (no proxy sandbox), so the sandbox_* inputs are
+    not threaded — a codex adopter uses `setup:` instead."""
+    extra = dedent("""\
+        harness: codex
+        model: gpt-5.5
+        sandbox_path:
+          - ~/.cargo/bin
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    for wf in generate_all(cfg):
+        assert "sandbox_path:" not in wf.content
+
+
 def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
     """A `uses` setup step with `with:` parameters must still receive the
     `if:` guard in the notifications workflow.
@@ -1046,6 +1095,24 @@ def test_workflow_with_setup_regtest(
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = GENERATORS[name](cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_sandbox_levers_regtest(regtest: object, tmp_path: Path) -> None:
+    """Snapshot the rendered agent step with all three sandbox levers set, to
+    lock the block-scalar shape threaded to the composite action."""
+    extra = dedent("""\
+        sandbox_path:
+          - ~/.cargo/bin
+          - /opt/tools/bin
+        sandbox_env:
+          RUST_BACKTRACE: "1"
+          CARGO_TERM_COLOR: always
+        sandbox_setup:
+          - rustup component add clippy
+          - cargo fetch --locked
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    print(generate_mention(cfg).content, end="", file=regtest)  # type: ignore[arg-type]
 
 
 def test_extras_apply_path_regtest(regtest: object, tmp_path: Path) -> None:

@@ -170,3 +170,60 @@ repos:
                 )
                 sys.exit(1)
         pass_filenames: false
+
+      # The set of env names an adopter's `sandbox_env:` may NOT set lives in
+      # two places: RESERVED_SANDBOX_ENV in generator/src/tend/config.py (fails
+      # at `init`) and the `case "$name"` guard in proxy/setup-sandbox.sh
+      # (re-checks a hand-edited workflow). The shell re-check is the actual
+      # security boundary; if it drifts below the config set, an adopter's
+      # sandbox_env can override a routing/credential var past it. Kept in sync
+      # by comments alone this rots — this guard fails the commit if the two
+      # sets diverge.
+      - id: sandbox-env-reserved-parity
+        name: reserved sandbox_env set stays in sync
+        language: system
+        files: ^(generator/src/tend/config\.py|proxy/setup-sandbox\.sh)$
+        entry: python3
+        args:
+          - -c
+          - |
+            import re, sys
+
+            py = open("generator/src/tend/config.py").read()
+            block = re.search(r"RESERVED_SANDBOX_ENV = \{(.*?)\}", py, re.S).group(1)
+            config_set = set(re.findall(r'"([^"]+)"', block))
+
+            sh = open("proxy/setup-sandbox.sh").read()
+            case = re.search(r'case "\$name" in\s*(.*?)\)', sh, re.S).group(1)
+            case = case.replace("\\\n", "").replace("\n", "")
+            shell_set = {n.strip() for n in case.split("|") if n.strip()}
+
+            # The invariant that matters: every key written to AGENT_ENV_FILE is
+            # reserved, so an adopter's sandbox_env can't shadow it. Extract the
+            # heredoc keys and the ${ANTHROPIC_DUMMY} scheme keys (either arm may
+            # be written at runtime) and assert they're a subset of the reserved
+            # set — so a future routing/cred var added to the heredoc without
+            # updating the reserved set fails the commit.
+            heredoc = re.search(r'cat >"\$AGENT_ENV_FILE" <<EOF\n(.*?)\nEOF', sh, re.S).group(1)
+            heredoc_keys = set(re.findall(r'^([A-Za-z_][A-Za-z0-9_]*)=', heredoc, re.M))
+            heredoc_keys |= set(re.findall(r'ANTHROPIC_DUMMY="([A-Za-z_][A-Za-z0-9_]*)=', sh))
+
+            problems = []
+            for name in sorted(config_set - shell_set):
+                problems.append(f"'{name}' is reserved in config.py but NOT guarded in setup-sandbox.sh")
+            for name in sorted(shell_set - config_set):
+                problems.append(f"'{name}' is guarded in setup-sandbox.sh but NOT reserved in config.py")
+            for name in sorted(heredoc_keys - config_set):
+                problems.append(f"'{name}' is written to AGENT_ENV_FILE but NOT reserved in config.py — an adopter's sandbox_env could shadow it")
+
+            for p in problems:
+                print(p)
+            if problems:
+                print(
+                    "\nERROR: the reserved sandbox_env set drifted between "
+                    "config.py, setup-sandbox.sh, and the AGENT_ENV_FILE "
+                    "heredoc. The shell case is the security boundary; keep "
+                    "every env-file key reserved and the two sets aligned."
+                )
+                sys.exit(1)
+        pass_filenames: false
