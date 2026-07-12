@@ -65,7 +65,8 @@ _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # redirect the agent's traffic off the injecting proxy or clobber the dummy
 # credentials the proxy swaps for the real secrets. `PATH` is reserved too:
 # use `sandbox_path` (which prepends to the fixed base) instead of replacing it.
-# Kept in sync with the AGENT_ENV_FILE heredoc in proxy/setup-sandbox.sh.
+# Kept in sync with the `case "$name"` guard in proxy/setup-sandbox.sh — the
+# `sandbox-env-reserved-parity` pre-commit hook fails the commit on drift.
 RESERVED_SANDBOX_ENV = {
     "HOME",
     "PATH",
@@ -349,9 +350,18 @@ class Config:
                 raise click.ClickException(
                     f"sandbox_env may not set reserved key '{name}'.{hint}"
                 )
-            # Coerce scalars (a YAML `1` or `true`) to their string form so the
-            # value renders as a plain NAME=VALUE line in the agent env file.
-            sandbox_env[name] = value if isinstance(value, str) else str(value)
+            # Coerce a YAML scalar (1, true) to its string form; reject a
+            # non-scalar (a list/dict would otherwise str() into a Python repr
+            # and silently smuggle garbage into the agent env line).
+            if isinstance(value, str):
+                sandbox_env[name] = value
+            elif isinstance(value, (int, float)):
+                sandbox_env[name] = str(value)
+            else:
+                raise click.ClickException(
+                    f"sandbox_env value for '{name}' must be a scalar "
+                    "(string, number, or boolean)"
+                )
 
         sandbox_setup = raw.get("sandbox_setup", []) or []
         if not isinstance(sandbox_setup, list) or not all(

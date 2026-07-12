@@ -838,6 +838,19 @@ def test_sandbox_env_coerces_scalar_value(tmp_path: Path) -> None:
     assert cfg.sandbox_env == {"RUST_BACKTRACE": "1"}
 
 
+def test_sandbox_env_non_scalar_value_rejected(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        sandbox_env:
+          FOO: [a, b]
+    """),
+    )
+    with pytest.raises(ClickException, match="must be a scalar"):
+        Config.load(path)
+
+
 def test_sandbox_env_reserved_key_rejected(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,

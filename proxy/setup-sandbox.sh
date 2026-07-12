@@ -141,8 +141,9 @@ EOF
 # (later duplicates win under `env "${arr[@]}"`). The generator already rejects
 # reserved names (proxy routing, CA trust, dummy credentials) at `init`; this
 # re-checks them here so a hand-edited workflow can't smuggle a routing/cred
-# override past the security boundary. Keep the reserved set in sync with the
-# heredoc above and RESERVED_SANDBOX_ENV in generator/src/tend/config.py.
+# override past the security boundary. Keep this case in sync with
+# RESERVED_SANDBOX_ENV in generator/src/tend/config.py — the
+# `sandbox-env-reserved-parity` pre-commit hook fails the commit on drift.
 if [ -n "${TEND_SANDBOX_ENV:-}" ]; then
   while IFS= read -r line; do
     [ -n "$line" ] || continue
