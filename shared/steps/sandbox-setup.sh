@@ -20,11 +20,12 @@ set -euo pipefail
 
 [ -n "${TEND_SANDBOX_SETUP:-}" ] || exit 0
 
-# Run as the sandbox user with the agent's launch env. The script text is piped
-# on stdin (read by `bash -s`) rather than via a temp file, so no sandbox-side
-# read permission on a runner-owned path is needed. `set -e` inside so a failing
-# setup command fails the step loudly rather than silently proceeding to the run.
+# Run as the sandbox user with the agent's launch env. The commands go through
+# `bash -c`'s argument: no temp file (so no sandbox-side read permission on a
+# runner-owned path), and not stdin (so a setup command that reads stdin — an
+# installer prompt, `read` — can't swallow the remaining lines and exit 0). `-e`
+# inside so a failing setup command fails the step loudly rather than silently
+# proceeding to the run.
 mapfile -t AGENT_ENV <"$AGENT_ENV_FILE"
-printf '%s\n' "$TEND_SANDBOX_SETUP" \
-  | sudo -u "$SANDBOX" env "${AGENT_ENV[@]}" bash -eo pipefail -s
+sudo -u "$SANDBOX" env "${AGENT_ENV[@]}" bash -eo pipefail -c "$TEND_SANDBOX_SETUP"
 echo "[sandbox-setup] ran adopter sandbox_setup commands as $SANDBOX"

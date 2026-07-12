@@ -325,6 +325,13 @@ class Config:
                 '(e.g. sandbox_path: ["~/.cargo/bin"]); '
                 "`~` expands to the sandbox home"
             )
+        # A newline in a dir would drop an un-indented continuation line into
+        # the rendered `|` block scalar (which has no indent() filter),
+        # terminating it and breaking the workflow — fail at `init` instead.
+        if any("\n" in d for d in sandbox_path):
+            raise click.ClickException(
+                "sandbox_path entries must each be a single line"
+            )
 
         sandbox_env_raw = raw.get("sandbox_env", {}) or {}
         if not isinstance(sandbox_env_raw, dict):
@@ -352,16 +359,28 @@ class Config:
                 )
             # Coerce a YAML scalar (1, true) to its string form; reject a
             # non-scalar (a list/dict would otherwise str() into a Python repr
-            # and silently smuggle garbage into the agent env line).
-            if isinstance(value, str):
-                sandbox_env[name] = value
+            # and silently smuggle garbage into the agent env line). `bool` is
+            # an `int` subclass, so handle it first and emit the shell-
+            # conventional lowercase rather than Python's `True`/`False`.
+            if isinstance(value, bool):
+                coerced = "true" if value else "false"
+            elif isinstance(value, str):
+                coerced = value
             elif isinstance(value, (int, float)):
-                sandbox_env[name] = str(value)
+                coerced = str(value)
             else:
                 raise click.ClickException(
                     f"sandbox_env value for '{name}' must be a scalar "
                     "(string, number, or boolean)"
                 )
+            # A newline would drop an un-indented continuation line into the
+            # rendered `|` block scalar, terminating it and producing a
+            # workflow GitHub Actions later refuses to load — fail at `init`.
+            if "\n" in coerced:
+                raise click.ClickException(
+                    f"sandbox_env value for '{name}' must be a single line"
+                )
+            sandbox_env[name] = coerced
 
         sandbox_setup = raw.get("sandbox_setup", []) or []
         if not isinstance(sandbox_setup, list) or not all(
@@ -370,15 +389,6 @@ class Config:
             raise click.ClickException(
                 "sandbox_setup must be a list of non-empty shell command strings "
                 '(e.g. sandbox_setup: ["rustup component add clippy"])'
-            )
-
-        if harness == "codex" and (sandbox_path or sandbox_env or sandbox_setup):
-            click.echo(
-                "Warning: sandbox_path/sandbox_env/sandbox_setup apply only to "
-                "the Claude-family harnesses (the proxy sandbox). The codex "
-                "harness runs the agent on the runner, where the `setup:` "
-                "section already reaches its environment.",
-                err=True,
             )
 
         workflows: dict[str, WorkflowConfig] = {}
@@ -479,6 +489,28 @@ class Config:
                 )
             else:
                 workflows[name] = WorkflowConfig(enabled=bool(wf_raw))
+
+        # The sandbox_* levers reach inside the Claude-family proxy sandbox and
+        # no-op under codex (whose agent runs on the runner, already reachable
+        # via `setup:`). Warn only when they'd be fully inert — i.e. no enabled
+        # workflow's *effective* harness is Claude-family. This mirrors the
+        # render gate (macros.yaml.j2 emits them per effective harness): a
+        # top-level `codex` with a per-workflow `claude` override does apply
+        # them, so don't warn there.
+        if sandbox_path or sandbox_env or sandbox_setup:
+            effective_harnesses = {harness} | {
+                wf.harness
+                for wf in workflows.values()
+                if wf.enabled and wf.harness is not None
+            }
+            if not (effective_harnesses & CLAUDE_FAMILY_HARNESSES):
+                click.echo(
+                    "Warning: sandbox_path/sandbox_env/sandbox_setup apply only "
+                    "to the Claude-family harnesses (the proxy sandbox). The "
+                    "codex harness runs the agent on the runner, where the "
+                    "`setup:` section already reaches its environment.",
+                    err=True,
+                )
 
         allowed = secrets.get("allowed", [])
         if not isinstance(allowed, list) or not all(

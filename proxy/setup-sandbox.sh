@@ -147,6 +147,18 @@ EOF
 if [ -n "${TEND_SANDBOX_ENV:-}" ]; then
   while IFS= read -r line; do
     [ -n "$line" ] || continue
+    # Reject a line with no `=`: `${line%%=*}` would yield the whole token as
+    # `name`, pass the reserved case, and get appended verbatim — `env` then
+    # treats the assignment-less token as the command to exec and the agent
+    # never launches. The generator only emits NAME=VALUE lines; this defends
+    # a hand-edited workflow.
+    case "$line" in
+      *=*) ;;
+      *)
+        echo "::error::sandbox_env line is not NAME=VALUE: '$line'"
+        exit 1
+        ;;
+    esac
     name="${line%%=*}"
     case "$name" in
       HOME|PATH|XDG_CONFIG_HOME|XDG_CACHE_HOME|XDG_DATA_HOME|XDG_STATE_HOME|\

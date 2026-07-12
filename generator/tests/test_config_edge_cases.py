@@ -838,6 +838,48 @@ def test_sandbox_env_coerces_scalar_value(tmp_path: Path) -> None:
     assert cfg.sandbox_env == {"RUST_BACKTRACE": "1"}
 
 
+def test_sandbox_env_coerces_boolean_lowercase(tmp_path: Path) -> None:
+    # `bool` is an `int` subclass; emit shell-conventional lowercase, not
+    # Python's `True`/`False`.
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        sandbox_env:
+          DEBUG: true
+          QUIET: false
+    """),
+    )
+    cfg = Config.load(path)
+    assert cfg.sandbox_env == {"DEBUG": "true", "QUIET": "false"}
+
+
+def test_sandbox_env_newline_value_rejected(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        sandbox_env:
+          FOO: "a\\nb"
+    """),
+    )
+    with pytest.raises(ClickException, match="must be a single line"):
+        Config.load(path)
+
+
+def test_sandbox_path_newline_rejected(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        sandbox_path:
+          - "~/.cargo/bin\\n~/evil"
+    """),
+    )
+    with pytest.raises(ClickException, match="single line"):
+        Config.load(path)
+
+
 def test_sandbox_env_non_scalar_value_rejected(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,
@@ -923,3 +965,27 @@ def test_sandbox_levers_warn_on_codex(
     )
     Config.load(path)
     assert "apply only to the Claude-family" in capsys.readouterr().err
+
+
+def test_sandbox_levers_no_warn_with_claude_override(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Top-level codex, but a per-workflow claude override means the levers
+    # DO apply to that workflow (macros render per effective harness), so the
+    # inert-under-codex warning must not fire.
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        harness: codex
+        model: gpt-5.5
+        sandbox_setup:
+          - echo hi
+        workflows:
+          review:
+            harness: claude
+            model: opus
+    """),
+    )
+    Config.load(path)
+    assert "apply only to the Claude-family" not in capsys.readouterr().err
