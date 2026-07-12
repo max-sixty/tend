@@ -8,7 +8,9 @@ Each JSONL line has a top-level `type` of `session_meta`, `turn_context`,
 `response_item.payload`, with the variant in `.payload.type`:
 
 - `message` — initial input from `user` or `developer` (system prompt,
-  AGENTS.md, skill listings); text at `.payload.content[].input_text.text`
+  AGENTS.md, skill listings); each content item is internally tagged
+  `{type: "input_text", text}`, so text is at
+  `.payload.content[] | select(.type == "input_text") | .text`
 - `agent_message` — text emitted by the model during the turn
   (`.payload.message`)
 - `function_call` — tool invocation; `.payload.name` plus
