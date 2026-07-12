@@ -75,7 +75,7 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 
 - **Secrets**: Never run commands that introspect the process env (`env`, `printenv`, `set`, `export`) or `cat`/`echo` credential files. The rule is absolute — name-stripping filters like `env | cut -d= -f1` do not make these commands safe: the harness may place credential-bearing values in the environment (the Codex harness passes the PAT and model auth directly to the agent), and a single unfiltered `env` or `printenv FOO` prints the value verbatim into the session log, which is uploaded as an artifact. Never include tokens or credentials in responses or comments.
 - **Merging**: Never merge PRs or enable auto-merge (`gh pr merge`, `gh pr merge --auto`). PRs are proposals — a maintainer decides when to merge.
-- **Scope**: PRs, pushes, and comments on existing threads in other repos are off-limits. Filing fresh issues in other repos follows **Filing Issues in Other Repos** below. When such a rule blocks the right action, surface it per **When a scope rule blocks the right action** below rather than routing around it.
+- **Scope**: By default, PRs, pushes, and comments on existing threads in other repos are off-limits — the point is to never *spam* repos outside the bot's area of ownership. The exception is an **explicitly invited** contribution: when a maintainer of the target repo asks for it in-thread, or the target's published contributing policy welcomes it, AND the contribution helps the repo the bot maintains (e.g. upstreaming a fix for a dependency bug the bot is working around), the bot may open a PR or comment on that thread — see **Contributing to Other Repos on Invitation** below. Filing fresh issues follows **Filing Issues in Other Repos** below. Absent an explicit invitation, the default holds — surface the blocker per **When a scope rule blocks the right action** below rather than routing around it.
 - **Hanging commands**: Never use `gh run watch` or `gh pr checks --watch` — both hang indefinitely. Poll with `gh pr checks` in a loop instead.
 
 ## End the turn only when work is shipped
@@ -109,6 +109,15 @@ Whether filed direct or post-approval, the issue body includes:
 - Problem statement: what fires, where, under what conditions.
 - Evidence: run links; cost/duration if relevant.
 - Proposed fix with code snippets a maintainer would otherwise re-derive.
+
+### Contributing to Other Repos on Invitation
+
+The Scope default bars *unsolicited* PRs/comments in other repos. It does not bar an *invited* one. When BOTH hold, the bot may open a PR or comment on an existing thread in the target repo:
+
+- **Explicit invitation** — a maintainer of the target repo asked for the contribution in-thread (e.g. "do you want to open the PR?"), or the target's published contributing policy welcomes outside contributions of this kind. Inferred welcome (agent signals, an open "help wanted" label without a direct ask) is not enough — that reverts to the default.
+- **Serves the home repo** — the contribution advances the repo the bot maintains, most often upstreaming a fix for a dependency bug the bot is currently working around locally, so the workaround can later be dropped.
+
+Keep it to the invited scope: the specific PR or comment asked for, attributed to the bot account, with the same evidence bar as any other output (repro, traced mechanism, verified fix). Don't expand into unrelated upstream work. If the invitation is ambiguous, treat it as absent and surface it to the home maintainer per **When a scope rule blocks the right action** below.
 
 ### When a scope rule blocks the right action
 
@@ -464,7 +473,7 @@ Always use markdown links for files, issues, PRs, and docs. **Any link containin
 - **Issues/PRs**: `#123` shorthand
 - **External**: `[text](url)` format
 
-Don't add job links or footers — `claude-code-action` adds these automatically.
+Don't add job links, footers, or authorship sign-offs (e.g. `> _Written by Claude Code on behalf of @maintainer_`) — the bot account already conveys authorship, and `claude-code-action` adds any needed footer automatically. This covers PR and issue bodies too, not just comments.
 
 ## Keeping PR Titles and Descriptions Current
 

@@ -227,12 +227,22 @@ jobs:
         env:
           EVENT_TS: ${{ github.event.comment.updated_at || github.event.review.submitted_at || github.event.issue.updated_at }}
 
-      - uses: max-sixty/tend/codex@X.Y.Z
+      - uses: max-sixty/tend/claude@X.Y.Z
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
-          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           bot_name: test-bot
-          model: gpt-5.5
+          model: opus
+          sandbox_path: |
+            ~/.cargo/bin
+            /opt/tools/bin
+          sandbox_env: |
+            RUST_BACKTRACE=1
+            CARGO_TERM_COLOR=always
+          sandbox_setup: |
+            rustup component add clippy
+            cargo fetch --locked
           prompt: >-
             ${{ steps.delay.outputs.seconds
             && format('This job started {0}s after the triggering event (over ~40s means it was queued). ',

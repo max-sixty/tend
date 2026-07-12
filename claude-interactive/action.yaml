@@ -50,7 +50,7 @@ inputs:
     default: "true"
     description: Include the full Claude transcript in the workflow step summary.
   claude_version:
-    default: "2.1.201"
+    default: "2.1.207"
     description: >-
       Version of the `claude` binary to install via
       `https://claude.ai/install.sh`, pinned to a specific
@@ -67,6 +67,25 @@ inputs:
     description: >-
       Pinned `mitmproxy` version for the credential-injection proxy. Pinned
       so the uv download cache key is stable; bump to upgrade.
+  sandbox_path:
+    default: ""
+    description: >-
+      Newline-separated directories prepended to the sandbox agent's PATH,
+      before the agent launches. A leading `~` expands to the sandbox home.
+      Runner-side `setup:` steps can't reach the sandbox env; this can.
+  sandbox_env:
+    default: ""
+    description: >-
+      Newline-separated NAME=VALUE pairs added to the sandbox agent's launch
+      environment. Reserved keys (proxy routing, CA trust, dummy credentials,
+      PATH) are rejected — use `sandbox_path` to extend PATH.
+  sandbox_setup:
+    default: ""
+    description: >-
+      Shell commands run as the sandbox user after the toolchain and plugins
+      install and before the agent runs, with the agent's launch env and the
+      workspace as cwd. For on-disk setup (installing a tool, warming a cache);
+      env-only tweaks don't persist — use sandbox_path/sandbox_env for those.
 
 outputs:
   token_usage:
@@ -176,6 +195,10 @@ runs:
         ACTION_PATH: ${{ github.action_path }}/..
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
+        # Adopter sandbox levers: PATH prepends and env additions, baked into
+        # the agent env file. sandbox_setup (commands) runs in a later step.
+        TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
+        TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
       run: bash "${{ github.action_path }}/../proxy/setup-sandbox.sh"
 
     # Install the agent toolchain (uv + the claude binary) into the sandbox
@@ -236,6 +259,15 @@ runs:
       run: bash "${{ github.action_path }}/../shared/steps/install-tend-plugins.sh"
       env:
         MARKETPLACE_ROOT: ${{ github.action_path }}/..
+
+    # Run the adopter's `sandbox_setup:` commands inside the sandbox, as the
+    # sandbox user, after the toolchain + plugins are in place and before the
+    # agent launches. No-op when the input is empty.
+    - name: Run adopter sandbox setup
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/sandbox-setup.sh"
+      env:
+        TEND_SANDBOX_SETUP: ${{ inputs.sandbox_setup }}
 
     # The supervisor pattern, in three pieces:
     #   1. .claude/settings.local.json sets `permissions.defaultMode:

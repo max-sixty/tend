@@ -161,6 +161,39 @@ bot_name: my-project-bot
 #     #     env:
 #     #       RUSTFLAGS: -D warnings
 
+# ## Sandbox setup (Claude-family harnesses)
+#
+# `setup:` above runs as the RUNNER user, around the composite action — it
+# does not reach the agent's environment. The `claude` and `claude-interactive`
+# harnesses run the agent as a separate, non-sudo sandbox user with a fixed
+# env allowlist, so runner-side PATH/env changes don't carry in. These three
+# keys reach INSIDE that sandbox, before the agent launches:
+#
+# - `sandbox_path`: directories prepended to the sandbox PATH. A leading `~`
+#   expands to the sandbox home. This is the fix for a toolchain installed in
+#   the sandbox home but off PATH (e.g. rustup's shims):
+#
+#     sandbox_path:
+#       - ~/.cargo/bin
+#
+# - `sandbox_env`: NAME: VALUE pairs added to the agent's launch env. Reserved
+#   keys (proxy routing, CA trust, dummy credentials, PATH) are rejected — use
+#   `sandbox_path` for PATH:
+#
+#     sandbox_env:
+#       RUST_BACKTRACE: "1"
+#
+# - `sandbox_setup`: shell commands run as the sandbox user after the toolchain
+#   and plugins install and before the agent runs, with the workspace as cwd.
+#   For on-disk effects (installing a tool, warming a cache); env-only tweaks
+#   don't persist across the command's shell — use sandbox_path/sandbox_env:
+#
+#     sandbox_setup:
+#       - rustup component add clippy
+#
+# The codex harness runs the agent on the runner, so its `setup:` section
+# already reaches the agent env; these keys are inert (and warn) under codex.
+
 # ## Workflows
 #
 # All workflows are enabled by default except ci-fix (requires

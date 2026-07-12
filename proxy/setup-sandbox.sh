@@ -23,7 +23,11 @@
 # TEND_ANTHROPIC_API_KEY (real Anthropic credential, injected for
 # api.anthropic.com), ACTION_PATH (this action's checkout), MITMPROXY_VERSION
 # (pinned mitmproxy version). GITHUB_WORKSPACE / RUNNER_TEMP / UV_CACHE_DIR come
-# from Actions.
+# from Actions. Optional adopter levers (from .config/tend.yaml): TEND_SANDBOX_PATH
+# (newline-separated dirs prepended to the sandbox PATH) and TEND_SANDBOX_ENV
+# (newline-separated NAME=VALUE pairs added to the agent env; reserved keys
+# rejected). TEND_SANDBOX_SETUP (commands) is consumed by the separate
+# shared/steps/sandbox-setup.sh step, not here.
 set -euo pipefail
 
 SANDBOX=tend-sandbox
@@ -90,6 +94,26 @@ fi
 # XDG_CONFIG_HOME=/home/runner/.config (and may set the siblings), which leaks
 # through sudo into the sandbox — uv would then write its receipt/cache and any
 # XDG-aware tool its config under the runner's home, which the sandbox UID can't.
+# Adopter PATH additions (`sandbox_path:` in .config/tend.yaml, threaded in as
+# TEND_SANDBOX_PATH — one dir per line). These are the adopter's explicit opt-in
+# and are prepended ahead of the auto-derived toolchains below (so their tools
+# win), with a leading `~` expanded to the sandbox home (the adopter doesn't
+# know the sandbox username). This is the durable lever for tools an adopter
+# installs at runtime in a `setup:` step (e.g. `cargo-nextest`): those land in
+# the runner's home, aren't seeded into /etc/skel, so the auto-derivation below
+# can't reach them — `sandbox_path: ["~/.cargo/bin"]` covers them.
+declare -a _extra_path=()
+if [ -n "${TEND_SANDBOX_PATH:-}" ]; then
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    # Expand a leading literal `~` to the sandbox home (the case globs match the
+    # tilde literally; they are not shell tilde expansion). SC2088 misreads this.
+    # shellcheck disable=SC2088
+    case "$dir" in "~") dir="$AGENT_HOME" ;; "~/"*) dir="${AGENT_HOME}/${dir#\~/}" ;; esac
+    _extra_path+=("$dir")
+  done <<<"$TEND_SANDBOX_PATH"
+fi
+
 AGENT_ENV_FILE="${RUNNER_TEMP}/tend-agent-env"
 # Derive the sandbox PATH from the runner's own PATH rather than hardcoding a
 # base set. setup-sandbox.sh runs as the privileged `runner` user, so $PATH
@@ -113,12 +137,20 @@ AGENT_ENV_FILE="${RUNNER_TEMP}/tend-agent-env"
 #
 # (Tools an adopter installs at runtime in a `setup:` step land in the runner's
 # home, not /etc/skel, so they're absent from the sandbox home and this rewrite
-# finds nothing to point at — reaching those still needs the sandbox-setup lever
-# tracked in #766.)
+# finds nothing to point at — reaching those is what the `sandbox_path:` lever
+# above is for.)
 runner_home="${HOME:-/home/runner}"
 declare -A _seen_path=()
 declare -a _agent_path=("${AGENT_HOME}/.local/bin")
 _seen_path["${AGENT_HOME}/.local/bin"]=1
+# Adopter-declared dirs win over the auto-derived toolchains: prepend them
+# verbatim (trusted opt-in, so not existence-tested like the derived entries
+# below — the dir may be populated by a later `setup:` step).
+for _d in ${_extra_path[@]+"${_extra_path[@]}"}; do
+  [ -n "${_seen_path[${_d}]:-}" ] && continue
+  _agent_path+=("${_d}")
+  _seen_path["${_d}"]=1
+done
 IFS=: read -ra _runner_path <<<"${PATH}"
 for _d in "${_runner_path[@]}"; do
   [ -n "${_d}" ] || continue
@@ -162,6 +194,43 @@ GITHUB_TOKEN=ghp_tendproxydummy000000000000000000000
 CLAUDE_CODE_REMOTE=1
 ${ANTHROPIC_DUMMY}
 EOF
+
+# Adopter env additions (`sandbox_env:` in .config/tend.yaml, threaded in as
+# TEND_SANDBOX_ENV — one NAME=VALUE per line). Appended after the fixed block
+# (later duplicates win under `env "${arr[@]}"`). The generator already rejects
+# reserved names (proxy routing, CA trust, dummy credentials) at `init`; this
+# re-checks them here so a hand-edited workflow can't smuggle a routing/cred
+# override past the security boundary. Keep this case in sync with
+# RESERVED_SANDBOX_ENV in generator/src/tend/config.py — the
+# `sandbox-env-reserved-parity` pre-commit hook fails the commit on drift.
+if [ -n "${TEND_SANDBOX_ENV:-}" ]; then
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    # Reject a line with no `=`: `${line%%=*}` would yield the whole token as
+    # `name`, pass the reserved case, and get appended verbatim — `env` then
+    # treats the assignment-less token as the command to exec and the agent
+    # never launches. The generator only emits NAME=VALUE lines; this defends
+    # a hand-edited workflow.
+    case "$line" in
+      *=*) ;;
+      *)
+        echo "::error::sandbox_env line is not NAME=VALUE: '$line'"
+        exit 1
+        ;;
+    esac
+    name="${line%%=*}"
+    case "$name" in
+      HOME|PATH|XDG_CONFIG_HOME|XDG_CACHE_HOME|XDG_DATA_HOME|XDG_STATE_HOME|\
+      HTTPS_PROXY|HTTP_PROXY|https_proxy|http_proxy|NO_PROXY|no_proxy|\
+      NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|REQUESTS_CA_BUNDLE|\
+      GH_TOKEN|GITHUB_TOKEN|CLAUDE_CODE_REMOTE|ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)
+        echo "::error::sandbox_env may not set reserved key '$name'"
+        exit 1
+        ;;
+    esac
+    printf '%s\n' "$line" >>"$AGENT_ENV_FILE"
+  done <<<"$TEND_SANDBOX_ENV"
+fi
 
 # Export NOW, before any fallible step below — the if:always() ownership
 # restore in the action keys on SANDBOX, and a proxy-startup failure after
