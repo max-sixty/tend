@@ -128,12 +128,15 @@ AGENT_ENV_FILE="${RUNNER_TEMP}/tend-agent-env"
 # composer all arrive on the same rule, so there is no per-language allowlist to
 # grow.
 #
-# Security boundary: we only ever rewrite runner-home prefixes to the sandbox's
-# own copies and never keep a /home/runner path on the sandbox PATH — the runner
-# home is where the real credentials live, so the sandbox must not traverse it.
-# A bare ${runner_home} entry is dropped, and every kept dir is re-tested with
-# `sudo -u "$SANDBOX" test -x` so an un-rewritten runner-home path (which the
-# sandbox UID can't enter) can never survive.
+# Security boundary: the `case` rewrite below is the SOLE credential boundary. It
+# maps every runner-home prefix to the sandbox's own copy and drops the bare
+# runner-home root, so no /home/runner path ever reaches the sandbox PATH — and
+# the runner home is where the real credentials live. Do NOT relax that rewrite
+# trusting the `sudo -u "$SANDBOX" test -x` below as a backstop: it is not one.
+# Step 3 grants o+x on every ancestor of $GITHUB_WORKSPACE (which lives under the
+# runner home), so the sandbox UID can traverse /home/runner and `test -x` passes
+# for any world-executable dir beneath it. That test only filters nonexistent or
+# non-traversable dirs; an un-rewritten runner-home path would sail through it.
 #
 # (Tools an adopter installs at runtime in a `setup:` step land in the runner's
 # home, not /etc/skel, so they're absent from the sandbox home and this rewrite
@@ -141,25 +144,28 @@ AGENT_ENV_FILE="${RUNNER_TEMP}/tend-agent-env"
 # above is for.)
 runner_home="${HOME:-/home/runner}"
 declare -A _seen_path=()
-declare -a _agent_path=("${AGENT_HOME}/.local/bin")
-_seen_path["${AGENT_HOME}/.local/bin"]=1
-# Adopter-declared dirs win over the auto-derived toolchains: prepend them
-# verbatim (trusted opt-in, so not existence-tested like the derived entries
-# below — the dir may be populated by a later `setup:` step).
+declare -a _agent_path=()
+# Adopter-declared dirs win over everything, .local/bin included: prepend them
+# first and verbatim (trusted opt-in, so not existence-tested like the derived
+# entries below — the dir may be populated by a later `setup:` step) so an
+# adopter dir can shadow a same-named binary in .local/bin.
 for _d in ${_extra_path[@]+"${_extra_path[@]}"}; do
   [ -n "${_seen_path[${_d}]:-}" ] && continue
   _agent_path+=("${_d}")
   _seen_path["${_d}"]=1
 done
+# .local/bin next, ahead of the auto-derived toolchains below.
+if [ -z "${_seen_path["${AGENT_HOME}/.local/bin"]:-}" ]; then
+  _agent_path+=("${AGENT_HOME}/.local/bin")
+  _seen_path["${AGENT_HOME}/.local/bin"]=1
+fi
 IFS=: read -ra _runner_path <<<"${PATH}"
 for _d in "${_runner_path[@]}"; do
   [ -n "${_d}" ] || continue
-  if [ -n "${runner_home}" ]; then
-    case "${_d}" in
-      "${runner_home}") continue ;;                                     # never expose the runner home root
-      "${runner_home}"/*) _d="${AGENT_HOME}/${_d#"${runner_home}"/}" ;; # rewrite to the sandbox's own copy
-    esac
-  fi
+  case "${_d}" in
+    "${runner_home}") continue ;;                                     # never expose the runner home root
+    "${runner_home}"/*) _d="${AGENT_HOME}/${_d#"${runner_home}"/}" ;; # rewrite to the sandbox's own copy
+  esac
   [ -n "${_seen_path[${_d}]:-}" ] && continue                           # dedup
   if [ -d "${_d}" ] && sudo -u "${SANDBOX}" test -x "${_d}"; then
     _agent_path+=("${_d}")
