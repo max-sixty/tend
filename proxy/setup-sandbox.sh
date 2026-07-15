@@ -95,12 +95,14 @@ fi
 # through sudo into the sandbox — uv would then write its receipt/cache and any
 # XDG-aware tool its config under the runner's home, which the sandbox UID can't.
 # Adopter PATH additions (`sandbox_path:` in .config/tend.yaml, threaded in as
-# TEND_SANDBOX_PATH — one dir per line). Prepended to the fixed base so the
-# adopter's tools win, with a leading `~` expanded to the sandbox home (the
-# adopter doesn't know the sandbox username). This is the durable fix for the
-# cargo-off-PATH case: `sandbox_path: ["~/.cargo/bin"]`.
-BASE_PATH="${AGENT_HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin"
-EXTRA_PATH=""
+# TEND_SANDBOX_PATH — one dir per line). These are the adopter's explicit opt-in
+# and are prepended ahead of the auto-derived toolchains below (so their tools
+# win), with a leading `~` expanded to the sandbox home (the adopter doesn't
+# know the sandbox username). This is the durable lever for tools an adopter
+# installs at runtime in a `setup:` step (e.g. `cargo-nextest`): those land in
+# the runner's home, aren't seeded into /etc/skel, so the auto-derivation below
+# can't reach them — `sandbox_path: ["~/.cargo/bin"]` covers them.
+declare -a _extra_path=()
 if [ -n "${TEND_SANDBOX_PATH:-}" ]; then
   while IFS= read -r dir; do
     [ -n "$dir" ] || continue
@@ -108,15 +110,78 @@ if [ -n "${TEND_SANDBOX_PATH:-}" ]; then
     # tilde literally; they are not shell tilde expansion). SC2088 misreads this.
     # shellcheck disable=SC2088
     case "$dir" in "~") dir="$AGENT_HOME" ;; "~/"*) dir="${AGENT_HOME}/${dir#\~/}" ;; esac
-    EXTRA_PATH="${EXTRA_PATH:+$EXTRA_PATH:}$dir"
+    _extra_path+=("$dir")
   done <<<"$TEND_SANDBOX_PATH"
 fi
-FULL_PATH="${EXTRA_PATH:+$EXTRA_PATH:}$BASE_PATH"
 
 AGENT_ENV_FILE="${RUNNER_TEMP}/tend-agent-env"
+# Derive the sandbox PATH from the runner's own PATH rather than hardcoding a
+# base set. setup-sandbox.sh runs as the privileged `runner` user, so $PATH
+# here already holds every toolchain dir the runner image put on PATH — the
+# /etc/skel-seeded language homes (.cargo/bin, .dotnet/tools, .config/composer/
+# vendor/bin, …) plus system dirs (/opt/pipx_bin, /usr/local/.ghcup/bin,
+# /usr/bin, …). `useradd -m` copied /etc/skel into the sandbox's OWN home, so
+# each runner-home toolchain has a sibling under ${AGENT_HOME}. We translate by
+# rewriting a leading ${runner_home} -> ${AGENT_HOME} and keeping the entry only
+# when it now exists and the sandbox UID can traverse it. This pulls every
+# seeded toolchain across with zero per-language code — cargo, dotnet, ghcup,
+# composer all arrive on the same rule, so there is no per-language allowlist to
+# grow.
+#
+# Security boundary: the `case` rewrite below is the SOLE credential boundary. It
+# maps every runner-home prefix to the sandbox's own copy and drops the bare
+# runner-home root, so no /home/runner path ever reaches the sandbox PATH — and
+# the runner home is where the real credentials live. Do NOT relax that rewrite
+# trusting the `sudo -u "$SANDBOX" test -x` below as a backstop: it is not one.
+# Step 3 grants o+x on every ancestor of $GITHUB_WORKSPACE (which lives under the
+# runner home), so the sandbox UID can traverse /home/runner and `test -x` passes
+# for any world-executable dir beneath it. That test only filters nonexistent or
+# non-traversable dirs; an un-rewritten runner-home path would sail through it.
+#
+# (Tools an adopter installs at runtime in a `setup:` step land in the runner's
+# home, not /etc/skel, so they're absent from the sandbox home and this rewrite
+# finds nothing to point at — reaching those is what the `sandbox_path:` lever
+# above is for.)
+runner_home="${HOME:-/home/runner}"
+declare -A _seen_path=()
+declare -a _agent_path=()
+# Adopter-declared dirs win over everything, .local/bin included: prepend them
+# first and verbatim (trusted opt-in, so not existence-tested like the derived
+# entries below — the dir may be populated by a later `setup:` step) so an
+# adopter dir can shadow a same-named binary in .local/bin.
+for _d in ${_extra_path[@]+"${_extra_path[@]}"}; do
+  [ -n "${_seen_path[${_d}]:-}" ] && continue
+  _agent_path+=("${_d}")
+  _seen_path["${_d}"]=1
+done
+# .local/bin next, ahead of the auto-derived toolchains below.
+if [ -z "${_seen_path["${AGENT_HOME}/.local/bin"]:-}" ]; then
+  _agent_path+=("${AGENT_HOME}/.local/bin")
+  _seen_path["${AGENT_HOME}/.local/bin"]=1
+fi
+IFS=: read -ra _runner_path <<<"${PATH}"
+for _d in "${_runner_path[@]}"; do
+  [ -n "${_d}" ] || continue
+  case "${_d}" in
+    "${runner_home}") continue ;;                                     # never expose the runner home root
+    "${runner_home}"/*) _d="${AGENT_HOME}/${_d#"${runner_home}"/}" ;; # rewrite to the sandbox's own copy
+  esac
+  [ -n "${_seen_path[${_d}]:-}" ] && continue                           # dedup
+  if [ -d "${_d}" ] && sudo -u "${SANDBOX}" test -x "${_d}"; then
+    _agent_path+=("${_d}")
+    _seen_path["${_d}"]=1
+  fi
+done
+# Guarantee the base system dirs even if the runner PATH somehow lacks them.
+for _d in /usr/local/bin /usr/bin /bin; do
+  [ -n "${_seen_path[${_d}]:-}" ] && continue
+  _agent_path+=("${_d}")
+  _seen_path["${_d}"]=1
+done
+AGENT_PATH="$(IFS=:; printf '%s' "${_agent_path[*]}")"
 cat >"$AGENT_ENV_FILE" <<EOF
 HOME=${AGENT_HOME}
-PATH=${FULL_PATH}
+PATH=${AGENT_PATH}
 XDG_CONFIG_HOME=${AGENT_HOME}/.config
 XDG_CACHE_HOME=${AGENT_HOME}/.cache
 XDG_DATA_HOME=${AGENT_HOME}/.local/share
