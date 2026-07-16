@@ -73,7 +73,12 @@ jobs:
           # so this runs *before* the mention check. Covers issue_comment and
           # pull_request_review_comment (both carry comment.user.login). Fires
           # on, e.g., the monthly tracking-issue rollover where the bot posts
-          # evidence-gist links on its own issue.
+          # evidence-gist links on its own issue. Scoped to comments on
+          # purpose: the pull_request_review *submission* event is deliberately
+          # left out, since a review the bot leaves on its own PR is its
+          # reviewer role (the prompt is told to action it), not a self-loop.
+          # The only self-review skip is the terminal empty-body APPROVED gate
+          # below.
           if { [ "$EVENT_NAME" = "issue_comment" ] || [ "$EVENT_NAME" = "pull_request_review_comment" ]; } \
              && [ "$COMMENT_AUTHOR" = "test-bot" ]; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
