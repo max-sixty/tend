@@ -560,6 +560,63 @@ def test_mention_verify_skips_bot_comments_without_mention(tmp_path: Path) -> No
     )
 
 
+def test_mention_verify_skips_self_authored_comments(tmp_path: Path) -> None:
+    """The bot's own comments must not spin up a handle session.
+
+    The Bot-type check only catches GitHub App / Bot accounts. Tend's own bot
+    is a PAT-based User account, so its comments fall through to the engagement
+    heuristics (bot-authored issue, or "bot has prior comments") and reach the
+    handle job, which exits silently via the prompt's self-loop guard — pure
+    waste. This recurs on the monthly tracking-issue rollover (review-reviewers
+    posts evidence-gist links on its own issue) and on duplicate-tracking
+    notices. Skip self-authored `issue_comment` and `pull_request_review_comment`
+    events at the gate, before the @-mention check — a bot comment quoting a
+    prior @-mention would otherwise re-match the mention check and escape the
+    guard, and there is no legitimate self-summons."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    mention = workflows["tend-mention.yaml"]
+    data = yaml.safe_load(mention.content)
+    check_step = next(
+        s for s in data["jobs"]["verify"]["steps"] if s.get("id") == "check"
+    )
+    run = check_step["run"]
+
+    assert check_step["env"].get("COMMENT_AUTHOR") == (
+        "${{ github.event.comment.user.login }}"
+    ), (
+        "verify must wire github.event.comment.user.login so the script can "
+        "recognize the bot's own (User-type) comments"
+    )
+
+    assert '"$COMMENT_AUTHOR" = "test-bot"' in run, (
+        "verify must short-circuit comment events authored by the bot "
+        "itself — its User-type account is missed by the Bot-type check"
+    )
+
+    # The guard must cover both comment event types that take the engagement
+    # path: issue_comment and pull_request_review_comment (subscribed for
+    # `edited`), both of which carry github.event.comment.user.login.
+    assert '"$EVENT_NAME" = "issue_comment"' in run
+    assert '"$EVENT_NAME" = "pull_request_review_comment"' in run, (
+        "self-authored guard must also cover pull_request_review_comment — it "
+        "takes the same engagement-heuristic path"
+    )
+
+    # The self-authored guard must run *before* the @-mention check: a bot
+    # comment that quotes a prior @-mention would re-match the mention check and
+    # escape an after-placed guard, and there is no legitimate self-summons. It
+    # must also precede the bot-authored-issue short-circuit that would
+    # otherwise spin up the no-op session.
+    mention_idx = run.index("grep -qF '@test-bot'")
+    self_guard_idx = run.index('"$COMMENT_AUTHOR" = "test-bot"')
+    issue_author_idx = run.index('"$ISSUE_AUTHOR" = "test-bot"')
+    assert self_guard_idx < mention_idx < issue_author_idx, (
+        "self-authored comment guard must run before the @-mention check and "
+        "before the bot-authored-issue short-circuit"
+    )
+
+
 def test_mention_verify_no_concurrency(tmp_path: Path) -> None:
     """verify job must not have concurrency — a non-mention comment can cancel
     an explicit @bot mention if both arrive on the same PR within seconds (#93)."""
@@ -690,6 +747,62 @@ def test_mention_skips_bot_approved_review(tmp_path: Path) -> None:
     env = check_step["env"]
     assert "REVIEW_STATE" in env
     assert "REVIEW_AUTHOR" in env
+
+
+def test_mention_self_comment_skip_spares_review_submissions(
+    tmp_path: Path,
+) -> None:
+    """The self-authored-comment skip must not swallow the bot's own reviews.
+
+    A review the bot's review workflow leaves on its own PR is its reviewer
+    role speaking, not a self-loop — the prompt is told to action it. That
+    signal arrives as a `pull_request_review` submission event, distinct from
+    the `pull_request_review_comment` inline-comment event the skip covers, so
+    it must still reach the actionable path. The only self-review that is
+    skipped is the terminal empty-body APPROVED case (see
+    test_mention_skips_bot_approved_review).
+
+    This pins the boundary against a later "skip self-authored reviews too, for
+    consistency" edit that would silently break the review -> fix loop: the
+    self-authored guard is scoped to the two comment events and must never
+    extend to the review submission, and a COMMENTED / non-empty-body bot
+    self-review must fall through to should_run=true."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    wf = generate_mention(cfg)
+    data = yaml.safe_load(wf.content)
+    check_step = next(
+        s for s in data["jobs"]["verify"]["steps"] if s.get("id") == "check"
+    )
+    run = check_step["run"]
+
+    # Isolate the self-authored-comment guard, from its opening condition to the
+    # @-mention check that follows it.
+    guard = run[
+        run.index('if { [ "$EVENT_NAME" = "issue_comment"') : run.index(
+            "grep -qF '@test-bot'"
+        )
+    ]
+    # The skip keys on the bot as commenter over the two comment events; the
+    # review *submission* event (a bare pull_request_review equality, distinct
+    # from pull_request_review_comment) is deliberately absent, so a bot
+    # self-review is never short-circuited here.
+    assert '[ "$COMMENT_AUTHOR" = "test-bot" ]' in guard
+    assert '[ "$EVENT_NAME" = "pull_request_review_comment" ]' in guard
+    assert '[ "$EVENT_NAME" = "pull_request_review" ]' not in guard, (
+        "self-authored-comment skip must not extend to the pull_request_review "
+        "submission event — a bot self-review is actionable reviewer signal"
+    )
+
+    # The sole author-keyed skip for a review submission is the terminal
+    # empty-body APPROVED gate; a COMMENTED / non-empty-body bot self-review
+    # falls through to the actionable PR_AUTHOR == bot short-circuit.
+    review_skip = run[run.index('[ "$EVENT_NAME" = "pull_request_review" ]') :]
+    assert '[ "$REVIEW_STATE" = "approved" ]' in review_skip
+    assert '[ -z "$COMMENT_BODY" ]' in review_skip
+    assert '[ "$PR_AUTHOR" = "test-bot" ]' in run, (
+        "a bot self-review that isn't the terminal empty approval must reach "
+        "the actionable PR_AUTHOR == bot short-circuit"
+    )
 
 
 # ---------------------------------------------------------------------------

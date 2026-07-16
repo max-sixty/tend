@@ -62,6 +62,29 @@ jobs:
             exit 0
           fi
 
+          # Skip the bot's own comments before anything else. The Bot-type
+          # check below only catches GitHub App / Bot accounts; our own bot is a
+          # PAT-based User account, so its comments would otherwise fall through
+          # to the engagement heuristics (bot-authored issue, "bot has prior
+          # comments") and spin up a handle job the prompt's self-loop guard
+          # then exits silently ? pure waste. There is no legitimate
+          # self-summons: a bot comment that quotes a prior @-mention would
+          # re-match the mention check below and escape an after-placed guard,
+          # so this runs *before* the mention check. Covers issue_comment and
+          # pull_request_review_comment (both carry comment.user.login). Fires
+          # on, e.g., the monthly tracking-issue rollover where the bot posts
+          # evidence-gist links on its own issue. Scoped to comments on
+          # purpose: the pull_request_review *submission* event is deliberately
+          # left out, since a review the bot leaves on its own PR is its
+          # reviewer role (the prompt is told to action it), not a self-loop.
+          # The only self-review skip is the terminal empty-body APPROVED gate
+          # below.
+          if { [ "$EVENT_NAME" = "issue_comment" ] || [ "$EVENT_NAME" = "pull_request_review_comment" ]; } \
+             && [ "$COMMENT_AUTHOR" = "test-bot" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ -n "$COMMENT_BODY" ] && printf '%s\n' "$COMMENT_BODY" | grep -qF '@test-bot'; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -156,6 +179,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body || github.event.review.body }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
           COMMENT_AUTHOR_TYPE: ${{ github.event.comment.user.type }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_OR_PR_NUMBER: ${{ github.event.issue.number }}
