@@ -256,8 +256,8 @@ bot_name: my-project-bot
 
 # ### weekly
 #
-# Weekly (default Sunday 09:17 UTC). Reviews dependency PRs, auto-merges safe
-# patch and minor updates.
+# Weekly (default Sunday 09:17 UTC). Reviews dependency PRs, approves safe
+# patch and minor updates (a maintainer merges — the bot never merges).
 #
 # workflows:
 #   weekly:
