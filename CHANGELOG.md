@@ -6,6 +6,31 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.1.11
+
+### Improved
+
+- **Adopters get levers to reach inside the Claude-family sandbox before the agent launches.** New top-level `.config/tend.yaml` keys — `sandbox_path` (dirs prepended to the sandbox `PATH`), `sandbox_env` (extra launch-env vars, reserved keys rejected), and `sandbox_setup` (commands run as the sandbox user before the agent starts) — cover cases runner-side `setup:` can't reach, e.g. `sandbox_path: ["~/.cargo/bin"]` for a cargo toolchain installed off the sandbox's fixed `PATH`. Claude-only; Codex already runs `setup:` directly on the runner. ([#768](https://github.com/max-sixty/tend/pull/768))
+- **The sandbox `PATH` is derived from the runner's own `PATH`.** `setup-sandbox.sh` now translates each runner-home toolchain dir (`.cargo/bin`, `.dotnet/tools`, `composer/vendor/bin`, …) to its sandbox-home sibling and keeps it only if it exists and the sandbox UID can traverse it, replacing a hardcoded base `PATH` — so `/etc/skel`-seeded toolchains reach the agent automatically, with no per-language allowlist to grow. ([#767](https://github.com/max-sixty/tend/pull/767))
+- **The bot may contribute to other repos on explicit invitation.** The `running-in-ci` skill's scope restriction now carves out an exception when a maintainer of the target repo asks for the contribution in-thread (or its published contributing policy welcomes it) and the contribution serves the bot's home repo — e.g. upstreaming a fix for a dependency bug it's working around. Inferred welcome (agent signals, an open "help wanted" label) isn't enough; the unsolicited-contribution default still holds otherwise. ([#770](https://github.com/max-sixty/tend/pull/770))
+
+### Fixed
+
+- **`tend-mention` skips the no-op session it used to spin up on the bot's own comments.** The bot's own PAT-based account isn't caught by the existing GitHub-App/Bot-account check, so its comments (e.g. gist-link updates on its own tracking issue) fell through to the engagement heuristics and spun up a session the self-loop guard could only exit after the fact. ([#751](https://github.com/max-sixty/tend/pull/751))
+- **The bot now responds to actionable content in a review it left on its own PR**, instead of treating every self-authored review as a self-loop to exit silently — only a plain approval or a review between other participants still exits without acting. ([#762](https://github.com/max-sixty/tend/pull/762), [#775](https://github.com/max-sixty/tend/pull/775))
+- **Duplicate `tend-outage` issues from a wide, concurrent-leg outage now self-heal.** When several matrix legs fail within the same jitter window, `report-failure.sh` settles briefly after creating an issue, lists every open `tend-outage` issue, keeps the lowest-numbered, and closes the rest as duplicates — convergent even when several legs race the same reconciliation. ([#744](https://github.com/max-sixty/tend/pull/744))
+- **`list-recent-runs.sh` recovers completions from a dropped cron tick**, not just a delayed one, by anchoring its window to the previous *actually completed* run instead of assuming every scheduled tick fired — a dropped tick previously left that hour's runs unaudited with no visible error. ([#753](https://github.com/max-sixty/tend/pull/753))
+- **The bot no longer appends a self-authored attribution sign-off** to PR/issue bodies or comments — the bot account already conveys authorship, and the harness action adds any needed footer automatically. ([#773](https://github.com/max-sixty/tend/pull/773))
+
+### Documentation
+
+- **The `weekly` workflow's example config now says it approves, not auto-merges, dependency updates** — a maintainer merges; the bot never does. ([#776](https://github.com/max-sixty/tend/pull/776))
+- **Fixed the Codex session-log jq recipe for message content items**, which pointed at a stale `.payload.content[].input_text.text` path instead of selecting the `input_text`-typed item. ([#771](https://github.com/max-sixty/tend/pull/771))
+
+### Internal
+
+- Bumped pinned `claude_version` to 2.1.207. ([#774](https://github.com/max-sixty/tend/pull/774))
+
 ## 0.1.10
 
 ### Improved
