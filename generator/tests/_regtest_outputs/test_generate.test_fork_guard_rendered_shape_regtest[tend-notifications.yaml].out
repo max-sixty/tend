@@ -42,7 +42,14 @@ jobs:
           done
           if [ -z "$NOTIFS" ]; then
             echo "count=0" >> "$GITHUB_OUTPUT"
-            echo "notifications fetch failed transiently ? skipping this cycle"
+            echo "notifications fetch failed after retries ? skipping this cycle"
+            # Surface the HTTP status + body head so a *persistent* failure
+            # (a real problem, not a transient blip) stays diagnosable instead
+            # of being silently swallowed. `gh api -i` prepends the status line
+            # and headers; on an error status it exits non-zero, hence `|| true`.
+            echo "--- last response (status + body head) ---"
+            gh api notifications -i 2>&1 | head -c 800 || true
+            echo
             exit 0
           fi
 
