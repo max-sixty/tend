@@ -447,6 +447,62 @@ def test_init_notifications_has_precheck(
         assert "workflow_dispatch" in step["if"]
 
 
+def test_notifications_precheck_tolerates_transient_non_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pre-check must not fail the build when `gh api notifications`
+    transiently returns a non-JSON (HTML) body — a routine GitHub API blip.
+    The step runs under `bash -e`; an untolerated fetch aborts the whole job
+    red. The correct disposition is to skip this cycle (count=0, exit 0); the
+    next scheduled cycle picks up anything missed."""
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+    _run_init()
+
+    data = yaml.safe_load(
+        (_workflow_dir(tmp_path) / "tend-notifications.yaml").read_text()
+    )
+    script = data["jobs"]["notifications"]["steps"][0]["run"]
+
+    # Fake `gh` mimics a transient GitHub blip: bare `gh api notifications`
+    # returns a 200 with an HTML body (exit 0, non-JSON output); the same call
+    # with `--jq` fails because gh runs jq internally and jq can't parse HTML.
+    bindir = tmp_path / "fakebin"
+    bindir.mkdir()
+    gh = bindir / "gh"
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        'for a in "$@"; do [ "$a" = "--jq" ] && exit 4; done\n'
+        'echo "<html><body>error</body></html>"\n'
+        "exit 0\n"
+    )
+    gh.chmod(0o755)
+    # No-op sleep so the retry loop's backoff doesn't slow the test.
+    sleep = bindir / "sleep"
+    sleep.write_text("#!/usr/bin/env bash\nexit 0\n")
+    sleep.chmod(0o755)
+
+    output_file = tmp_path / "gh_output"
+    output_file.write_text("")
+    env = {
+        "PATH": f"{bindir}:/usr/bin:/bin",
+        "GITHUB_OUTPUT": str(output_file),
+        "GITHUB_REPOSITORY": "owner/repo",
+    }
+    result = subprocess.run(
+        ["bash", "-e", "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, (
+        f"pre-check aborted on a transient non-JSON response "
+        f"(exit {result.returncode}); stderr:\n{result.stderr}"
+    )
+    assert "count=0" in output_file.read_text()
+
+
 # ---------------------------------------------------------------------------
 # Bot name flows into workflow content
 # ---------------------------------------------------------------------------
