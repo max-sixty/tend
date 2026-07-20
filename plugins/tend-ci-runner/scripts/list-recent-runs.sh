@@ -44,7 +44,10 @@ gh_retry() {
       printf '%s' "$out"
       return 0
     fi
-    sleep $((attempt * 3))
+    # Don't sleep after the final attempt — the whole point of this script is
+    # to fail loud and fast during an incident, so a trailing backoff before
+    # the caller's `exit 1` is wasted delay.
+    [ "$attempt" -lt 3 ] && sleep $((attempt * 3))
   done
   return 1
 }
