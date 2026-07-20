@@ -29,6 +29,26 @@ set -euo pipefail
 # Prevent gh from emitting ANSI color codes in non-TTY contexts.
 export NO_COLOR=1
 
+# Retry a command up to 3 times on failure, echoing its stdout on success.
+# Transient GitHub API errors (e.g. HTTP 503 during an Actions incident) would
+# otherwise slip past `set -euo pipefail` at the call sites below — a process
+# substitution's failure is invisible to `set -e`, and a `|| echo "[]"` fallback
+# silently turns an errored fetch into an empty result. Either way the script
+# would report zero runs when runs exist, and the calling skill records a false
+# "all-clear" that permanently skips that window. Retry here, and let the caller
+# fail loud if every attempt fails rather than swallow the error.
+gh_retry() {
+  local out attempt
+  for attempt in 1 2 3; do
+    if out=$("$@" 2>/dev/null); then
+      printf '%s' "$out"
+      return 0
+    fi
+    sleep $((attempt * 3))
+  done
+  return 1
+}
+
 repo_args=()
 if [ -n "${TARGET_REPO:-}" ]; then
   repo_args=(-R "$TARGET_REPO")
@@ -42,9 +62,14 @@ else
   PREFIXES=("$@")
 fi
 
+if ! wf_json=$(gh_retry gh workflow list "${repo_args[@]}" --json name); then
+  echo "ERROR: 'gh workflow list' failed after retries (transient API error?) — refusing to report an empty run list that would read as a false all-clear" >&2
+  exit 1
+fi
+
 WORKFLOWS=()
 for prefix in "${PREFIXES[@]}"; do
-  mapfile -t matches < <(gh workflow list "${repo_args[@]}" --json name --jq ".[].name | select(startswith(\"$prefix\"))")
+  mapfile -t matches < <(printf '%s' "$wf_json" | jq -r ".[].name | select(startswith(\"$prefix\"))")
   WORKFLOWS+=("${matches[@]}")
 done
 
@@ -111,12 +136,15 @@ fi
 all_runs="[]"
 
 for wf in "${WORKFLOWS[@]}"; do
-  runs=$(gh run list \
+  if ! runs=$(gh_retry gh run list \
     "${repo_args[@]}" \
     --workflow "${wf}" \
     --created ">=${CREATED_SINCE}" \
     --json databaseId,conclusion,createdAt,updatedAt \
-    --limit 50 2>/dev/null || echo "[]")
+    --limit 50); then
+    echo "ERROR: 'gh run list' for workflow '$wf' failed after retries — refusing to report a partial run list" >&2
+    exit 1
+  fi
   all_runs=$(echo "$all_runs" "$runs" | jq -s 'add')
 done
 
