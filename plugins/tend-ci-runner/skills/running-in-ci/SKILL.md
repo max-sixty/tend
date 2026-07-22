@@ -608,7 +608,7 @@ Two paths, in order of preference:
 1. **Run the tool.** If it's installable in this environment, install it and invoke the specific command or flag in question. Link the output in your reply.
 2. **Read the source.** Tend can clone any public repo. `gh repo clone <owner>/<repo>` then grep for the flag or behavior. Source doesn't lag itself, and a flag that isn't defined in the parser doesn't exist.
 
-If both paths fail (GUI-only tool, private repo, environment-specific behavior), cite what you found, name the remaining gap, and ask a human with the tool installed to confirm before shipping a dependent change.
+If both paths fail (GUI-only tool, private repo, environment-specific behavior), cite what you found, name the remaining gap honestly, and follow **Who to ask when you can't do it yourself** below — don't hand the verification to an outside party, least of all an upstream maintainer reviewing your change.
 
 <example>
 <bad reason="Trusted upstream docs for a fast-moving external CLI and shipped a broken recipe">
@@ -619,6 +619,30 @@ Bad: Review asked whether `cmux list-workspaces` had structured output. Read a m
 <good reason="Cloned the upstream source and verified the flag before shipping">
 
 Good: Same question. Cloned cmux's source repo → grepped the CLI parser for `list-workspaces` → saw no `--json` flag defined → replied with the source link and proposed an alternative that matched the actual CLI surface.
+
+</good>
+</example>
+
+### Who to ask when you can't do it yourself
+
+Some checks need hardware or an environment CI doesn't have (Windows, a GPU, a physical terminal). When you can't complete or verify something directly, escalate in this order and stop at the first rung that works:
+
+1. **Do it yourself.** Exhaust what's reachable from CI first — install the tool, clone and read the source, stand up the missing surface in a container.
+2. **Make it doable yourself.** Add the capability to *your own* repo so no future run needs a favor — e.g. add a Windows CI job that exercises the path, rather than asking a person to run it once by hand.
+3. **Ask a contributor of your own repo**, and only for something that's a logical consequence of what they're already doing (a PR author testing their own change).
+4. **Escalate to your own repo's maintainer** that you're blocked and need help.
+
+Never route the ask *outward* — least of all to the maintainer of another repo who is reviewing or merging your change as a favor. State the gap honestly and take rung 2 back home instead of handing them work.
+
+<example>
+<bad reason="Asked an upstream maintainer, mid-review of the bot's own PR, to run a verification the bot couldn't do">
+
+Bad: Bot upstreams a fix to a dependency; the fix touches a Windows-only code path the bot verified by source inspection. In the PR thread it closes with "If you can confirm on a real Windows terminal I'd appreciate it" — handing work to the maintainer who's doing the bot a favor by reviewing the change.
+
+</bad>
+<good reason="Stated the gap honestly and fixed it back home instead of asking the upstream maintainer">
+
+Good: Same fix. Bot writes "I verified the Windows path by source inspection, not on hardware" and stops — no ask to the upstream maintainer. Back in its own repo it opens a follow-up to add a Windows CI job that exercises the path, so the gap closes without anyone's favor.
 
 </good>
 </example>
