@@ -6,6 +6,22 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.1.12
+
+### Improved
+
+- **The default harness timeout rises from 3 hours (10800s) to 5h50m (21000s)** in both Claude harnesses (`claude/action.yaml` headless, `claude-interactive/action.yaml` PTY), leaving a 10-minute buffer under GitHub Actions' hard 6-hour job cap instead of cutting long sessions off at 3 hours. ([#790](https://github.com/max-sixty/tend/pull/790))
+
+### Fixed
+
+- **The bot no longer asks an upstream maintainer to do verification work it couldn't do itself.** When a check needs hardware or an environment CI doesn't have, the `running-in-ci` skill now escalates in order — do it yourself, add the capability to your own repo, ask a contributor, ask your own maintainer — and never hands the ask outward to someone reviewing the bot's change as a favor. ([#789](https://github.com/max-sixty/tend/pull/789))
+- **`list-recent-runs.sh` fails loud on a transient `gh` API error instead of silently reporting zero runs.** A dropped `gh workflow list`/`gh run list` call previously read as a false all-clear that permanently skipped that window; it now retries with backoff and exits non-zero if every attempt fails. ([#784](https://github.com/max-sixty/tend/pull/784))
+- **The notifications workflow tolerates a transient non-JSON response from the GitHub API** instead of failing the step outright. ([#780](https://github.com/max-sixty/tend/pull/780))
+
+### Internal
+
+- Bumped pinned `claude_version` to 2.1.215. ([#782](https://github.com/max-sixty/tend/pull/782))
+
 ## 0.1.11
 
 ### Improved
