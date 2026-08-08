@@ -631,6 +631,15 @@ Good: Same question. Cloned cmux's source repo → grepped the CLI parser for `l
 </good>
 </example>
 
+**Path 1 runs against the live repo.** Verifying a skill's own recipe is the common case, and those recipes write: `gh issue close`, `gh pr comment`, `git push`. Never extract a block programmatically to run it — not by position (`awk` on the Nth fence, `sed` on a line range), and not by anchor either: both hand you a block you haven't read, and the ordinal additionally moves with every edit to the file, so what runs isn't even the block you meant to test. Read the file, then run the commands directly. Run the read half and stop before the pipe into the write:
+
+```bash
+gh issue list --state open --author '@me' --search '"..." in:title' --json number --jq '.[].number'
+# ...and read that, rather than piping it into `xargs gh issue close`.
+```
+
+If the write is the part in question, point it at a scratch object you own. A wrong write is only partly recoverable: reopening an issue leaves the close in its timeline, and a deleted comment has already fired its `issue_comment` event, so any workflow it triggered ran and is still in the run list.
+
 ### Who to ask when you can't do it yourself
 
 Some checks need hardware or an environment CI doesn't have (Windows, a GPU, a physical terminal). When you can't complete or verify something directly, escalate in this order and stop at the first rung that works:
