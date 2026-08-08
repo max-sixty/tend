@@ -252,6 +252,21 @@ Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
 >
 > The comment endpoints cover conversation and inline-review comments only; neither returns review submissions, and an empty-body `APPROVE` is `tend-review`'s most common output. Without the fourth count an approvals-only window reports `0, 0` and satisfies the gate below with two zeros carrying no signal. Report all four numbers at the top of your summary. If the sweep found in-window rows your per-run walk did not reach, the walk is wrong — re-map from the PR numbers the sweep found rather than reporting those runs as silent.
 >
+> **Acceptance needs a non-bot actor — name it.** For every acceptance or rejection signal, report the login that produced it: who merged, who reviewed, who replied, who pushed the follow-up. `$BOT_LOGIN` reviewing, replying to, or pushing to its own PR is the bot talking to itself, not acceptance. A non-bot merge *is* acceptance even when every commenter is the bot — the most common shape here is a maintainer merging a bot PR without ever posting. Reserve `bot-only — no human signal` for threads where `$BOT_LOGIN` is the only login across every surface. One `gh pr view` covers them all — merge actor, reviews, inline comments, conversation comments, commits:
+>
+> ```bash
+> gh -R $ARGUMENTS pr view <pr> --json number,state,author,mergedBy,reviews,comments,commits --jq '{
+>   pr: .number, state, author: .author.login, merged_by: .mergedBy.login,
+>   reviews: [.reviews[] | {login: .author.login, state}],
+>   logins: ([.mergedBy.login, .reviews[].author.login, .comments[].author.login,
+>             .commits[].authors[].login] | map(select(. != null and . != "")) | unique)
+> }'
+> ```
+>
+> `logins` is the bot-only test: `["$BOT_LOGIN"]` or empty means no human touched the thread. Anything else, name that login and say which surface it came from. Every inline review comment belongs to a review record — including a standalone reply posted through the replies endpoint — so `reviews` covers inline commenters as well as submitted reviews, and its `state` gives the accept/reject direction. `comments` and `reviews` paginate in full. `commits` does not: `gh pr view` selects `commits(first: 100)` and never fetches a second page, oldest-first, so past 100 commits the newest drop out — exactly where a human follow-up push sits. On a PR that long, read the authors from `gh api "repos/$ARGUMENTS/pulls/<pr>/commits" --paginate` (itself capped at 250) before calling the thread bot-only.
+>
+> A comments-only check is not enough on its own: it misses both a silent maintainer merge (`mergedBy` set, nobody commenting) and a human `CHANGES_REQUESTED` that carries no inline comments.
+>
 > **How to map runs to outputs:**
 > - `tend-review`: `gh -R $ARGUMENTS run view <run-id> --json headBranch` → find PR via
 >   `gh -R $ARGUMENTS pr list --head <branch> --state all` → check bot reviews via
@@ -318,10 +333,13 @@ Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
 > - <run-id>: <workflow> — <reason> (e.g., "no artifacts", "notification no-op")
 >
 > ## Runs with accepted output
-> - <run-id>: <workflow> on PR #N — bot reviewed, PR merged
+> - <run-id>: <workflow> on PR #N — bot reviewed, PR merged by <login>
+>
+> ## Runs with bot-only threads (no human signal)
+> - <run-id>: <workflow> on PR #N — participants: [<login>, ...]
 >
 > ## Runs with concerning output
-> - <run-id>: <workflow> on PR #N — <signal> (e.g., "human posted CHANGES_REQUESTED")
+> - <run-id>: <workflow> on PR #N — <signal> by <login> (e.g., "human posted CHANGES_REQUESTED")
 >
 > ## Sanity check
 > <note if zero bot activity found across all runs — may indicate systemic failure>
@@ -329,7 +347,7 @@ Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
 
 A report of little or no bot output is only usable if it carries the repo-wide sweep counts — without them, run the sweep block yourself before believing it, because a silent window and a broken per-run walk produce the same summary. Absence is not a finding on its own either: don't reason from it toward a conclusion the sweep would contradict.
 
-Review the subagent's summary. If all outputs are accepted and no sanity-check flags, skip to Step 6 (summary). If concerning outcomes exist, continue to Step 3.
+Review the subagent's summary, and verify any actor attribution before it enters a finding — a survey that credits the bot's own reply to a human turns a self-conversation into a false all-clear. Route on the buckets: if concerning outcomes exist, continue to Step 3. Otherwise judge the bot-only threads on their content — a self-review chain that went wrong is a finding even with no human in it, and one that read fine is not — and if nothing there concerns you and there are no sanity-check flags, skip to Step 6 (summary).
 
 ## Step 3: Investigate concerning outcomes via cheap subagent
 
