@@ -88,6 +88,92 @@ def test_setup_steps_rendered(tmp_path: Path) -> None:
         )
 
 
+def _restore_step_index(steps: list[dict[str, object]]) -> int | None:
+    """Index of the step that puts the loaded tree's local setup actions back."""
+    for i, step in enumerate(steps):
+        run = str(step.get("run", ""))
+        if "git checkout" in run and "$GITHUB_SHA" in run:
+            return i
+    return None
+
+
+@pytest.mark.parametrize(
+    ("name", "job", "switch"),
+    [
+        (
+            "review",
+            "review",
+            lambda s: s.get("uses", "").startswith("actions/checkout")
+            and "ref" in s.get("with", {}),
+        ),
+        ("mention", "handle", lambda s: "gh pr checkout" in str(s.get("run", ""))),
+    ],
+)
+def test_local_setup_action_restored_for_post_cleanup(
+    tmp_path: Path,
+    name: str,
+    job: str,
+    switch: object,
+) -> None:
+    """review and mention land the PR's tree over the workspace a local `setup:`
+    composite was loaded from. To dispatch the POST steps of the actions nested
+    inside it the runner re-reads that file and matches it against the step list
+    it cached at load time, so a PR that resizes or deletes the file fails
+    cleanup (actions/runner#2816). Put the loaded version back before the POST
+    chain walks."""
+    extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    steps = yaml.safe_load(GENERATORS[name](cfg).content)["jobs"][job]["steps"]
+
+    idx = _restore_step_index(steps)
+    assert idx is not None, f"{name}: nothing restores the local setup action"
+    assert ".github/actions/tend-setup" in str(steps[idx]["run"])
+    assert steps[idx].get("if") == "always()", (
+        f"{name}: the restore has to run even when the session fails"
+    )
+    switch_idx = next(i for i, s in enumerate(steps) if switch(s))  # type: ignore[operator]
+    assert idx > switch_idx, f"{name}: the restore has to follow the tree switch"
+
+
+def test_restore_step_quotes_the_setup_path(tmp_path: Path) -> None:
+    """The path reaches both the `git` operand and the warning text through a
+    shell variable, so a `$` can't expand and a `"` can't end the string early
+    and fail the one step whose job is to never turn a working run red."""
+    extra = "setup:\n  - uses: './weird/$HOME\"; rm -rf /; echo \"'\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    steps = yaml.safe_load(generate_mention(cfg).content)["jobs"]["handle"]["steps"]
+    run = str(steps[_restore_step_index(steps)]["run"])
+
+    assert """dir='weird/$HOME"; rm -rf /; echo "'""" in run
+    assert 'git checkout "$GITHUB_SHA" -- "$dir"' in run
+    # Nothing but the single-quoted assignment carries the raw path.
+    assert run.count("rm -rf /") == 1
+
+
+def test_no_restore_step_without_a_local_setup_action(tmp_path: Path) -> None:
+    """A remote `uses:` resolves from the action cache, not the workspace, so
+    there is nothing to put back."""
+    extra = "setup:\n  - uses: astral-sh/setup-uv@v6\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    for wf in generate_all(cfg):
+        for job in yaml.safe_load(wf.content)["jobs"].values():
+            assert _restore_step_index(job.get("steps", [])) is None, wf.filename
+
+
+@pytest.mark.parametrize(
+    "extra", ["", "setup:\n  - uses: ./.github/actions/tend-setup\n"]
+)
+def test_generated_workflows_end_with_exactly_one_newline(
+    tmp_path: Path, extra: str
+) -> None:
+    """A trailing blank line is pure churn in the adopter's regen diff, and the
+    repo's end-of-file-fixer rejects it in the snapshots."""
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    for wf in generate_all(cfg):
+        assert wf.content.endswith("\n"), f"{wf.filename}: no trailing newline"
+        assert not wf.content.endswith("\n\n"), f"{wf.filename}: trailing blank line"
+
+
 def test_sandbox_levers_rendered_for_claude(tmp_path: Path) -> None:
     """sandbox_path/sandbox_env/sandbox_setup render as action inputs and the
     workflow still parses; the values land under the agent step's `with:`."""
@@ -1420,6 +1506,19 @@ def test_workflow_with_setup_regtest(
     extra_cfg = _extra_for(name)
     if extra_cfg:
         extra += extra_cfg
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    wf = GENERATORS[name](cfg)
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("name", ["review", "mention"])
+def test_workflow_with_local_setup_regtest(
+    regtest: object, tmp_path: Path, name: str
+) -> None:
+    """Snapshot the two workflows that swap the workspace tree after `setup:`,
+    with a local composite in it — locks the restore step the POST chain needs
+    (actions/runner#2816)."""
+    extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = GENERATORS[name](cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
