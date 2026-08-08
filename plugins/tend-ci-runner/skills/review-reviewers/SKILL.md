@@ -1,6 +1,6 @@
 ---
 name: review-reviewers
-description: Hourly outcome-based analysis of tend's CI behavior — checks whether tend's outputs were accepted or rejected, escalating to session logs only when outcomes look wrong.
+description: Scheduled outcome-based analysis of tend's CI behavior — checks whether tend's outputs were accepted or rejected, escalating to session logs only when outcomes look wrong.
 argument-hint: "<owner/repo>"
 metadata:
   internal: true
@@ -8,7 +8,7 @@ metadata:
 
 # Review Reviewers
 
-Analyze tend's CI behavior on the target repo over the past hour. Focus on **outcomes** — what the bot produced publicly and whether it was accepted — rather than internal session mechanics. Create PRs or issues on tend when outcomes reveal behavioral problems.
+Analyze tend's CI behavior on the target repo over the analysis window — the run list in Step 1 is anchored to the workflow's cron period, so take its span as the window rather than assuming any fixed number of hours. Focus on **outcomes** — what the bot produced publicly and whether it was accepted — rather than internal session mechanics. Create PRs or issues on tend when outcomes reveal behavioral problems.
 
 ## First steps
 
@@ -213,6 +213,8 @@ TARGET_REPO=$ARGUMENTS ${CLAUDE_PLUGIN_ROOT}/scripts/list-recent-runs.sh
 
 The script discovers `tend-*` workflows by default. Pass additional prefixes as arguments to include other workflows (e.g., `review-reviewers` when analyzing tend itself).
 
+It prints `Completion window: >= <timestamp>` on stderr. **Note that timestamp — it is the analysis window's floor**, and Step 2 needs it both for the survey prompt and for the corruption scan's `--jq` filters; nothing downstream can reconstruct it from the run list. The window is normally one cron period wide on a scheduled run — wider when the script recovers a dropped tick — but only one hour on any other event (a manual `workflow_dispatch` takes that path), so on a dispatched run expect it to cover less than a full period.
+
 If empty, record the run as all-clear per "Recording below-threshold findings" above, then skip to Step 6.
 
 ## Step 2: Survey outcomes via cheap subagent
@@ -222,7 +224,9 @@ Spawn a cheap subagent to check outcomes across all runs from Step 1. The subage
 Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
 
 > Survey bot outcomes on `$ARGUMENTS` for the following runs: [run IDs from Step 1].
-> The bot's login is `$BOT_LOGIN`.
+> The bot's login is `$BOT_LOGIN`. The analysis window starts at [completion-window
+> floor from Step 1] and runs to now — substitute that timestamp everywhere
+> `<window-start>` appears below.
 >
 > For each run, determine:
 > 1. Did the bot produce visible output (review, comment, issue action, commit)?
@@ -256,7 +260,7 @@ Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
 > - `tend-review`: `gh -R $ARGUMENTS run view <run-id> --json headBranch` → find PR via
 >   `gh -R $ARGUMENTS pr list --head <branch> --state all` → check bot reviews via
 >   `gh api repos/$ARGUMENTS/pulls/<pr>/reviews`
-> - `tend-notifications`: check for recent bot comments/issue-close events in the past hour
+> - `tend-notifications`: check for bot comments/issue-close events since the window start above (this mapping has no run-scoped anchor, so it reconstructs outcomes from the window alone — don't substitute a fixed hour for it)
 > - `tend-mention`: map run to issue/PR from triggering comment, check for bot replies
 > - `tend-ci-fix`: map run → PR via `headBranch`, check for bot commits
 >
@@ -382,7 +386,7 @@ Search titles AND bodies for related keywords. Only comment on existing issues i
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
-- **PR** (default): Branch `hourly/review-$GITHUB_RUN_ID-<target-repo-name>-<topic-slug>`, fix, commit, push, create with label `claude-behavior`. `$GITHUB_RUN_ID` alone is not a unique branch name: every matrix leg of a tick carries the same one, and a single leg may open two PRs (see the 2-PR limit below). The target's repo name (the part after the `/`) keeps two legs from racing the same ref; the topic slug keeps one leg's two PRs from doing the same. Put full analysis in PR description (run ID, outcome evidence, root cause, **gate assessment** including historical evidence count). Don't also create a separate issue.
+- **PR** (default): Branch `review-reviewers/review-$GITHUB_RUN_ID-<target-repo-name>-<topic-slug>`, fix, commit, push, create with label `claude-behavior`. `$GITHUB_RUN_ID` alone is not a unique branch name: every matrix leg of a tick carries the same one, and a single leg may open two PRs (see the 2-PR limit below). The target's repo name (the part after the `/`) keeps two legs from racing the same ref; the topic slug keeps one leg's two PRs from doing the same. Put full analysis in PR description (run ID, outcome evidence, root cause, **gate assessment** including historical evidence count). Don't also create a separate issue.
 - **Issue** (fallback): Only for problems too large or ambiguous to fix directly. Include run ID, outcome evidence, root cause analysis.
 
 Group multiple findings by broad theme. **Limit to at most 2 PRs per run** — if you have more findings, pick the highest-confidence ones and record the rest in the evidence gist.
