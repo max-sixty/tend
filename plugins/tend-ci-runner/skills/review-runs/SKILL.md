@@ -200,10 +200,31 @@ For each analyzed run, compare what the bot did against what happened next. The 
 mention, notifications, weekly, and review-reviewers runs get the same treatment: find the bot's output and check whether it was accepted.
 
 ```bash
-# Example: check if a bot PR was merged or closed
+# Bot PR dispositions — merged or closed in the window
 gh pr list --author "$BOT_LOGIN" --state all --json number,title,state,closedAt \
   --jq '.[] | select(.closedAt > "'$SINCE'")'
 ```
+
+Dispositions — merged, closed, relabeled, reverted — are only half the signal. A maintainer replying in-thread that a bot claim was wrong, leaving labels and state untouched, is equally a correction, and on an issue-heavy repo it is the most common one. No disposition query can see it. Read the threads where the bot commented in the window and count a contradiction as a finding:
+
+```bash
+# Human replies in the window, on any issue or PR thread. Both endpoints are
+# repo-wide and take `since`, so this is two calls regardless of thread count.
+# `--paginate` is required, not cosmetic: the response is ascending by
+# `created_at`, so a single 100-item page drops the *newest* comments — the
+# ones a fresh correction sits in. The bot's own comments consume that budget
+# before the filter runs, so a busy day truncates with nothing in the output
+# to say so.
+for endpoint in issues pulls; do
+  gh api --paginate "repos/$REPO/$endpoint/comments?since=$SINCE&per_page=100" \
+    --jq '.[] | select(.user.login != "'"$BOT_LOGIN"'")
+          | {created: .created_at, updated: .updated_at, url: .html_url, body: .body[0:300]}'
+done
+```
+
+`since` filters on `updated_at`, not `created_at`, so results include older comments edited inside the window — a comment created days before `$SINCE` is a real hit, not a broken filter. That is worth having (an edited claim is still a correction); the projection reports both timestamps so the reason a row qualified is visible.
+
+Write "no maintainer corrections" into the tracking issue only after that query ran — future runs read the phrase as ground truth when counting occurrences under Gate 1, so an unchecked all-clear suppresses the evidence it exists to accumulate.
 
 ## Step 5: Deduplicate
 
