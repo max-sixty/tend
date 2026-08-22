@@ -332,6 +332,10 @@ runs:
             skipDangerousModePermissionPrompt: true,
             attribution: {commit: "", pr: ""}
           }' > "$RUNNER_TEMP/tend-settings.json"
+        # The file below lands in the adopter's checkout untracked, next to the
+        # `.claude/skills/` they do track. setup-sandbox.sh's global gitignore
+        # for the sandbox user keeps a broad `git add -A` from committing
+        # `bypassPermissions` into the PR the session opens.
         sudo -u "$SANDBOX" mkdir -p "$GITHUB_WORKSPACE/.claude"
         sudo -u "$SANDBOX" tee "$GITHUB_WORKSPACE/.claude/settings.local.json" \
           < "$RUNNER_TEMP/tend-settings.json" >/dev/null
