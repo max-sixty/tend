@@ -6,6 +6,61 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.1.24
+
+### Fixed
+
+- **Generated notifications workflows pass actionlint.** The literal GraphQL `$q` variable now carries a scoped ShellCheck directive, avoiding SC2016 without allowing the shell to expand it. ([#1112](https://github.com/max-sixty/tend/pull/1112))
+
+## 0.1.23
+
+### Improved
+
+- **Claude runs can opt into persistent auto memory.** The experimental `memory_gist: true` setting restores and saves Claude Code's model-authored memory through a bot-owned secret Gist for public repositories. Gist ownership, repository binding, file shapes, signed baselines, and remote conflicts are checked; synchronization failures remain warnings. ([#1110](https://github.com/max-sixty/tend/pull/1110))
+- **The 15-minute notifications poll repairs conflicts on bot-authored PRs.** It boots for possible conflicts even with an empty inbox, verifies each merge locally, and either pushes against an exact head lease or leaves a per-head deferral for the nightly retry. ([#1108](https://github.com/max-sixty/tend/pull/1108))
+- **Both harnesses provide a pinned `uv` fallback to agent sessions.** Project-installed `uv` stays ahead on `PATH`, while Claude's credential proxy keeps its isolated copy. ([#1109](https://github.com/max-sixty/tend/pull/1109))
+
+### Fixed
+
+- **Review conclusions are bound to the current PR state.** A required independent code-review pass and a final tested preflight gate every post and edit, safely retarget descendant pushes, reject duplicates, and withhold approval when the author says the PR is not ready to merge. ([#1080](https://github.com/max-sixty/tend/pull/1080), [#1087](https://github.com/max-sixty/tend/pull/1087), [#1104](https://github.com/max-sixty/tend/pull/1104), [#1107](https://github.com/max-sixty/tend/pull/1107))
+- **Generated workflow overrides remain valid through rendering and prechecks.** Multi-line prompts and sandbox inputs preserve their indentation, adopter setup conditions narrow Tend's precheck guard, and `init` merges a scoped actionlint ignore for the supported `concurrency.queue` syntax. ([#1095](https://github.com/max-sixty/tend/pull/1095), [#1103](https://github.com/max-sixty/tend/pull/1103), [#1106](https://github.com/max-sixty/tend/pull/1106))
+- **Claude OAuth setup reports TUI failures immediately.** It distinguishes the normal localhost callback from the paste fallback and surfaces rejected codes instead of waiting for the full approval window. ([#1105](https://github.com/max-sixty/tend/pull/1105))
+
+### Internal
+
+- The consumer review matrix covers every tracked adopter, and the weekly refresh retains known repositories that code search misses. ([#1093](https://github.com/max-sixty/tend/pull/1093), [#1096](https://github.com/max-sixty/tend/pull/1096))
+- Claude Code moves to 2.1.251, Codex to 0.151.0, uv to 0.12.7, Ruff to 0.16.5, and Astro to 7.2.9; repo-local action pins move with them. ([#1097](https://github.com/max-sixty/tend/pull/1097), [#1098](https://github.com/max-sixty/tend/pull/1098), [#1099](https://github.com/max-sixty/tend/pull/1099), [#1100](https://github.com/max-sixty/tend/pull/1100), [#1101](https://github.com/max-sixty/tend/pull/1101), [#1102](https://github.com/max-sixty/tend/pull/1102))
+
+## 0.1.22
+
+### Fixed
+
+- **Generated workflows no longer carry whitespace an adopter's pre-commit rewrites.** A multi-line `prompt:` padded its blank lines out to the block scalar's indent, so a repo running the `trailing-whitespace` or `end-of-file-fixer` hooks could never commit a file matching `init` output — and the nightly regeneration opened a PR over that difference which failed its own lint job. `tend-notifications` was the first workflow to reach it. ([#1090](https://github.com/max-sixty/tend/pull/1090))
+
+## 0.1.21
+
+### Improved
+
+- **A review survives a push that lands while it runs.** The session re-targets its findings onto the new head and posts there, instead of discarding the review and leaving the queued run to redo it. Every posted review now pins `commit_id` to the commit it read, so the anchor names code the session actually saw and the queued run recognises that head as reviewed. ([#1082](https://github.com/max-sixty/tend/pull/1082))
+- **Review runs are less visible, and Claude transcripts are now opt-in everywhere.** A review no longer adds a PR-scoped commit status, so it stays out of a reviewed commit's check list. Rendering the transcript into the job summary became opt-in for *every* Claude workflow, not just review — `show_full_output` on the action now defaults to `false`. Raw session artifacts remain for deliberate diagnosis. The same change removed `tend-review`'s pre-boot pre-check, which read that commit status: `setup:` steps now run on every review event, and a redundant queued run boots the agent to exit early rather than skipping. ([#1078](https://github.com/max-sixty/tend/pull/1078))
+- **Spend groups by subject without a hand-rolled join.** `token-usage.json` records `repo`, `workflow`, `run_id`, `run_attempt`, `event`, the PR or issue number, and `head_sha` beside the counts. `token-report.sh` leads with cost and adds a per-subject table. ([#1081](https://github.com/max-sixty/tend/pull/1081))
+- **Notification work missed while the bot was unsubscribed is recoverable.** Installation and every poll enable repository watching, and the poll captures every unread page before its cutoff rather than the first. ([#1074](https://github.com/max-sixty/tend/pull/1074))
+- **`review-runs` reads the run census as a second input** when draining stranded triggers. ([#1073](https://github.com/max-sixty/tend/pull/1073))
+
+### Fixed
+
+- **A malformed `watched_workflows` or `branches` fails at `init`, not at runtime.** Both are validated as lists of strings, so a scalar or a nested list produces a clear error instead of a broken workflow. ([#1076](https://github.com/max-sixty/tend/pull/1076))
+- **`poll-pr-checks.sh` no longer waits on itself.** A pending `tend-review` can't gate its own poll, and an unresolvable commit fails fast instead of polling a SHA that does not exist. ([#1053](https://github.com/max-sixty/tend/pull/1053), [#1055](https://github.com/max-sixty/tend/pull/1055))
+- **`ci-fix` checks the default branch for an already-landed fix** before opening a PR. ([#1070](https://github.com/max-sixty/tend/pull/1070))
+
+### Documentation
+
+- **The README names `.husky` among the config paths restored from the base branch.** It held git hooks — a code-execution path on a fork PR — and the action had always pinned it; only the README's list was short. A test now asserts the script's `SENSITIVE` array, the README, and `docs/security-model.md` agree. ([#1077](https://github.com/max-sixty/tend/pull/1077))
+
+### Internal
+
+- Event-payload readers move to `shared/steps/_common.py`, so the outage-issue row and the usage record resolve a trigger the same way. ([#1081](https://github.com/max-sixty/tend/pull/1081))
+
 ## 0.1.20
 
 ### Fixed
