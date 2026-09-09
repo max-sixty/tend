@@ -6,6 +6,12 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.2.5
+
+### Improved
+
+- **Codex sessions receive Tend's setup and diagnostic skills alongside the CI runner.** Shared guidance now uses harness-neutral model and tool language, the repository exposes the same local skills and agent instructions to both harnesses, and Codex log diagnostics match the current rollout event schema. ([#1188](https://github.com/max-sixty/tend/pull/1188))
+
 ## 0.2.4
 
 ### Fixed
