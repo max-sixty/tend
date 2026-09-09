@@ -85,8 +85,8 @@ def test_prepare_persists_every_value_the_agent_and_ship_need(
     def json_call(*args: str, **_: object) -> object:
         if args[:2] == ("pr", "list"):
             return []
-        if args[:2] == ("repo", "view"):
-            return {"defaultBranchRef": {"name": "main"}}
+        if args == ("api", "repos/owner/repo"):
+            return {"default_branch": "main"}
         if args[:2] == ("api", "repos/max-sixty/tend/compare/1.2.3...1.2.4"):
             return {"commits": [{"commit": {"message": "Fix the runner\n\nBody"}}]}
         raise AssertionError(args)
@@ -311,8 +311,8 @@ def test_prepare_bases_a_fresh_branch_on_the_fetched_default_branch(
     def json_call(*args: str, **_: object) -> object:
         if args[:2] == ("pr", "list"):
             return []
-        if args[:2] == ("repo", "view"):
-            return {"defaultBranchRef": {"name": "trunk"}}
+        if args == ("api", "repos/owner/repo"):
+            return {"default_branch": "trunk"}
         raise AssertionError(args)
 
     monkeypatch.setattr(nightly, "_run", run)
