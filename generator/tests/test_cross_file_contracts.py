@@ -62,6 +62,9 @@ def test_codex_log_guidance_matches_the_current_custom_tool_schema() -> None:
 
     assert "custom_tool_call_output" in reference
     assert '.type == "input_text"' in reference
+    assert 'payload.type == "agent_message"' not in reference
+    assert '.payload.item.type == "AgentMessage"' in reference
+    assert ".payload.item.content[]?.text" in reference
 
 
 def test_install_skill_links_both_project_instruction_names() -> None:

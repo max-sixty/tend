@@ -11,8 +11,6 @@ Each JSONL line has a top-level `type` of `session_meta`, `turn_context`,
   AGENTS.md, skill listings); each content item is internally tagged
   `{type: "input_text", text}`, so text is at
   `.payload.content[] | select(.type == "input_text") | .text`
-- `agent_message` — text emitted by the model during the turn
-  (`.payload.message`)
 - `custom_tool_call` — tool invocation; `.payload.name` plus the tool's
   string input at `.payload.input`
 - `custom_tool_call_output` — paired result; `.payload.call_id` plus text
@@ -20,8 +18,10 @@ Each JSONL line has a top-level `type` of `session_meta`, `turn_context`,
 - `reasoning` — opaque encrypted blob; skip
 
 Lifecycle metadata such as `task_started`, `task_complete`, and `token_count`
-sits under `event_msg.payload`. `task_complete.last_agent_message` carries the
-final reply.
+sits under `event_msg.payload`, as does the model's visible narrative —
+`item_completed` entries whose `.payload.item.type` is `AgentMessage`, with the
+text at `.payload.item.content[].text`. `task_complete.last_agent_message`
+carries the final reply.
 
 The bot drives shell through the `exec` tool. Its `.payload.input` is
 JavaScript that calls nested tools such as `tools.exec_command({...})` and
@@ -44,8 +44,9 @@ jq -r 'select(.payload.type == "task_complete") | .payload.last_agent_message' "
 jq -r 'select(.payload.type == "custom_tool_call") |
   "\(.payload.name): \(.payload.input | .[0:160])"' "$FILE"
 
-# Interim model narrative (its visible reasoning; the encrypted blob is opaque)
-jq -r 'select(.payload.type == "agent_message") | .payload.message' "$FILE"
+# Interim model narrative (its visible commentary; the reasoning blob is opaque)
+jq -r 'select(.payload.type == "item_completed" and .payload.item.type == "AgentMessage") |
+  .payload.item.content[]?.text' "$FILE"
 ```
 
 ## Targeted queries
@@ -81,7 +82,8 @@ jq -r 'select(.payload.type == "message" and (.payload.role == "user" or .payloa
 
 ```bash
 # Model text mentioning a keyword
-jq -r 'select(.payload.type == "agent_message") | .payload.message |
+jq -r 'select(.payload.type == "item_completed" and .payload.item.type == "AgentMessage") |
+  .payload.item.content[]?.text |
   select(test("KEYWORD"; "i"))' "$FILE"
 
 # Commands mentioning a keyword
