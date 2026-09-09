@@ -456,3 +456,30 @@ def test_nightly_regen_stages_every_path_init_writes(
         f"`tend init` writes paths the nightly regeneration never stages: {uncovered}. "
         "Widen Step 7's `git add -A` pathspecs so the regeneration PR carries them."
     )
+
+
+def test_restamp_check_sees_every_action_ref_the_workflows_pin() -> None:
+    """The overlay's drift check must match every `max-sixty/tend/...` pin.
+
+    Its regex is what decides whether a hand-maintained workflow's ref is
+    reported as stale, so a nested action path (`codex/refresh`) that the
+    character class cannot spell is a pin the nightly never restamps.
+    """
+    skill = _read(".claude", "skills", "running-tend", "SKILL.md")
+    block = next(
+        block
+        for block in _bash_blocks(skill)
+        if "max-sixty/tend/" in block and ".github/workflows/" in block
+    )
+    match = re.search(r"'(max-sixty/tend/[^']+)'", block)
+    assert match
+    pattern = match.group(1)
+
+    refs = {
+        ref
+        for path in (REPO_ROOT / ".github" / "workflows").glob("*.yaml")
+        for ref in re.findall(r"max-sixty/tend/[\w./-]+@[0-9.]+", path.read_text())
+    }
+    assert refs
+    unmatched = sorted(ref for ref in refs if not re.fullmatch(pattern, ref))
+    assert not unmatched, f"{pattern} does not match {unmatched}"
