@@ -468,7 +468,7 @@ def test_every_workflow_pins_the_same_tend_release() -> None:
     """
     refs = {
         ref
-        for path in (REPO_ROOT / ".github" / "workflows").glob("*.yaml")
+        for path in (REPO_ROOT / ".github" / "workflows").glob("*.y*ml")
         for ref in re.findall(r"max-sixty/tend/[\w./-]+@[^\s\"']+", path.read_text())
     }
     assert refs
