@@ -54,6 +54,7 @@ def configure(
         "RUNNER_TEMP": str(runner_temp),
         "GITHUB_OUTPUT": str(output),
         "TEND_RUN_DIR": str(run_dir),
+        "TEND_AGENT_TMP_DIR": str(agent_tmp),
         "AGENT_ENV_FILE": str(agent_env),
         "NODE_BIN": "/trusted/node",
         "TEND_HARNESS": harness,

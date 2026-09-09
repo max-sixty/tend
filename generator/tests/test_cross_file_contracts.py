@@ -110,6 +110,25 @@ def test_bundled_runner_guidance_has_no_unscoped_tmp_paths() -> None:
     guidance = _read("plugins", "tend-ci-runner", "skills", "running-in-ci", "SKILL.md")
     assert "`$TMPDIR` to `/home/tend-sandbox/tmp`" in guidance
 
+    debug = _read("plugins", "install-tend", "skills", "debug-tend-run", "SKILL.md")
+    assert "DEST=${TMPDIR:-/tmp}/session-logs/$RUN_ID" in debug
+    integration = _read(
+        ".claude", "skills", "running-tend", "references", "integration-test.md"
+    )
+    assert integration.count('"$TMPDIR/integration-failure.md"') == 2
+
+
+def test_step_summary_uses_the_exported_agent_temp_directory() -> None:
+    setup = _read("proxy", "setup_sandbox.py")
+    launcher = _read("shared", "steps", "launch_sandbox_runtime.py")
+    runtime = _read("shared", "steps", "sandbox_runtime.mjs")
+
+    assert '"TEND_AGENT_TMP_DIR": str(AGENT_TMP_DIR)' in setup
+    assert 'Path(required("TEND_AGENT_TMP_DIR"))' in launcher
+    assert 'Path(required("AGENT_HOME")) / "tmp"' not in launcher
+    assert 'const agentTmpDir = absolute("TMPDIR")' in runtime
+    assert "process.env.CLAUDE_CODE_TMPDIR = agentTmpDir" in runtime
+
 
 def test_notification_skill_uses_one_paginated_cutoff_snapshot() -> None:
     skill = _read("plugins", "tend-ci-runner", "skills", "notifications", "SKILL.md")

@@ -348,6 +348,7 @@ def write_agent_environment(
         "PROXY_URL": PROXY_URL,
         "TEND_PROXY_PORT": str(PROXY_PORT),
         "TEND_RUN_DIR": str(TEND_RUN_DIR),
+        "TEND_AGENT_TMP_DIR": str(AGENT_TMP_DIR),
         "PROXY_CA_CERT": str(PROXY_CA_CERT),
         "AGENT_ENV_FILE": str(paths.agent_env_file),
         "TEND_RUNNER_HOME": str(paths.runner_home),

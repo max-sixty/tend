@@ -43,7 +43,7 @@ The artifact name identifies the harness:
 
 ```bash
 RUN_ID=<run-id>
-DEST=/tmp/session-logs/$RUN_ID
+DEST=${TMPDIR:-/tmp}/session-logs/$RUN_ID
 gh run download "$RUN_ID" -R "$REPO" --pattern '*session-logs*' --dir "$DEST"
 ls "$DEST"  # confirm claude- or codex-
 FILE=$(find "$DEST" -name '*.jsonl' | head -1)
