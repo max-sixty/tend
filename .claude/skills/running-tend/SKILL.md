@@ -101,6 +101,25 @@ have recent activity on GitHub — that localizes the fault to the Worker. The
 bot can't rotate the Worker's Cloudflare-side secret itself, so leave the
 diagnosis to a maintainer; `worker/README.md` covers the Worker's setup.
 
+## Nightly: don't duplicate the release's regeneration PR
+
+The `release` skill's deploy step opens `chore: regenerate workflows with tend
+X.Y.Z` from the `release` branch and leaves it open through CI and review. A
+nightly firing in that window still sees the committed workflows on the old
+version, so `prepare` reports a change and Step 7 ships a second PR for the
+same regeneration. Before shipping it:
+
+```bash
+gh pr list --state open --limit 100 --json number,title,headRefName \
+  --jq '.[] | select(.title | test("regenerate workflows with tend"))'
+```
+
+If one is open, diff its head against the prepared worktree. Where it already
+carries the same regenerated files, skip the PR, name the covering PR in the
+run summary, and remove the worktree (`git worktree remove <path> --force`).
+Ship anything it is missing on its own branch — the release skill asks for the
+restamp below in the release commit, so usually there is nothing to ship.
+
 ## Nightly: restamp the hand-maintained workflow refs
 
 `init` rewrites only the generated `tend-*.yaml` files, so the workflows under
