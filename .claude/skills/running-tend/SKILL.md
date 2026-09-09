@@ -114,17 +114,16 @@ Run this after the regen step, whether or not it produced a PR:
 rg -o --no-filename 'max-sixty/tend/[a-z/-]+@[0-9.]+' .github/workflows/ | sort -u
 ```
 
-The character class must admit the `/` in a nested action path, or a stale
-`codex/refresh` pin never appears in the output at all.
-
 Several action paths are pinned at once (`claude`, `codex`, `codex/refresh`),
-so several lines is the normal case. Compare the versions instead — pipe the
-same output through `sed 's/.*@//' | sort -u` and expect exactly one. Two or
-more, restamp the hand-maintained files onto the generated files' ref and fold
-it into the regen PR — same worktree, same commit. A hand-maintained file
-naming a different *harness* from the generated ones is the worse case: a
-config change reached the generated workflows and stopped there, so check what
-else that change was supposed to carry.
+so several lines is the normal case — as are two harnesses, while
+`.config/tend.yaml` overrides one workflow to `codex`. The check is on the
+versions: pipe the same output through `sed 's/.*@//' | sort -u` and expect
+exactly one. Two or more, restamp the hand-maintained files onto the generated
+files' ref and fold it into the regen PR — same worktree, same commit. Whether
+a hand-maintained file names the right *harness* is a separate question the
+listing cannot answer; compare it against the harness `.config/tend.yaml`
+configures, and on a mismatch check what else that config change was supposed
+to carry.
 
 ## Weekly: refresh `data/consumers.json`
 
