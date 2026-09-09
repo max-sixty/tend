@@ -96,6 +96,40 @@ def test_tend_skills_avoid_harness_specific_tool_and_model_vocabulary() -> None:
     assert "Bash tool" not in install
 
 
+def test_bundled_runner_guidance_has_no_unscoped_tmp_paths() -> None:
+    runner = REPO_ROOT / "plugins" / "tend-ci-runner"
+    unscoped_tmp = re.compile(r"(?<![\w-])/tmp(?:/|\b)")
+    offenders = [
+        path.relative_to(REPO_ROOT)
+        for path in runner.rglob("*")
+        if path.suffix in {".md", ".py", ".sh"}
+        and unscoped_tmp.search(path.read_text())
+    ]
+
+    assert offenders == []
+    guidance = _read("plugins", "tend-ci-runner", "skills", "running-in-ci", "SKILL.md")
+    assert "`$TMPDIR` to `/home/tend-sandbox/tmp`" in guidance
+
+    debug = _read("plugins", "install-tend", "skills", "debug-tend-run", "SKILL.md")
+    assert "DEST=${TMPDIR:-/tmp}/session-logs/$RUN_ID" in debug
+    integration = _read(
+        ".claude", "skills", "running-tend", "references", "integration-test.md"
+    )
+    assert integration.count('"$TMPDIR/integration-failure.md"') == 2
+
+
+def test_step_summary_uses_the_exported_agent_temp_directory() -> None:
+    setup = _read("proxy", "setup_sandbox.py")
+    launcher = _read("shared", "steps", "launch_sandbox_runtime.py")
+    runtime = _read("shared", "steps", "sandbox_runtime.mjs")
+
+    assert '"TEND_AGENT_TMP_DIR": str(AGENT_TMP_DIR)' in setup
+    assert 'Path(required("TEND_AGENT_TMP_DIR"))' in launcher
+    assert 'Path(required("AGENT_HOME")) / "tmp"' not in launcher
+    assert 'const agentTmpDir = absolute("TMPDIR")' in runtime
+    assert "process.env.CLAUDE_CODE_TMPDIR = agentTmpDir" in runtime
+
+
 def test_notification_skill_uses_one_paginated_cutoff_snapshot() -> None:
     skill = _read("plugins", "tend-ci-runner", "skills", "notifications", "SKILL.md")
 
@@ -167,10 +201,10 @@ def test_review_runs_pins_current_state_recovery() -> None:
     assert "--state open --label tend-outage --author @me" in skill
     assert "| sort | .[0] // empty" in skill
     assert "if ! gh issue list" in skill
-    assert "> /tmp/review-runs-outage-number; then" in skill
+    assert '> "$TMPDIR/review-runs-outage-number"; then' in skill
     assert "--json body,comments --jq '.body, .comments[].body'" in skill
     close_block = (
-        "OUTAGE=$(cat /tmp/review-runs-outage-number)\n"
+        'OUTAGE=$(cat "$TMPDIR/review-runs-outage-number")\n'
         '[ -n "$OUTAGE" ] && gh issue close "$OUTAGE" --reason completed'
     )
     assert close_block in skill
@@ -229,14 +263,11 @@ def test_review_skill_retargets_a_moved_head_rather_than_discarding_it() -> None
 
     # Written by the initial snapshot and rewritten where the head moves.
     assert '"start"' in preflight
-    assert (
-        'Path(os.environ.get("REVIEWED_HEAD_FILE", "/tmp/reviewed-head"))' in preflight
-    )
-    assert '"REVIEWED_HEAD_FILE", "/tmp/reviewed-head"' in preflight
+    assert preflight.count('str(TEMP_DIR / "reviewed-head")') == 2
     # Read back by both posting recipes, and read *before* the POST: inlined as
     # `$(cat ...)` a missing file substitutes the empty string and the request
     # still goes out, which is the unpinned review the pin exists to prevent.
-    assert skill.count("REVIEWED=$(cat /tmp/reviewed-head) || exit 0") == 2
+    assert skill.count('REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0') == 2
     assert '-f commit_id="$REVIEWED"' in skill
     assert '--arg sha "$REVIEWED"' in skill
     assert skill.count('review_preflight.py" post <number> --') == 3
@@ -279,7 +310,7 @@ def test_weekly_approval_pins_the_commit_it_checked() -> None:
     assert "prepare-approval <number>" in weekly
     assert "pin.unlink(missing_ok=True)" in state_script
     assert 'pin.write_text(f"{head_sha}\\n")' in state_script
-    assert "CHECKED=$(cat /tmp/checked-head-<number>) || exit 0" in weekly
+    assert 'CHECKED=$(cat "$TMPDIR/checked-head-<number>") || exit 0' in weekly
     assert '-f commit_id="$CHECKED"' in weekly
 
     # `gh pr review --approve` cannot pin a commit; both skills post through
@@ -389,7 +420,7 @@ def test_every_documented_run_listing_selects_a_profile() -> None:
 def test_nightly_regen_pins_its_poll_to_the_commit_it_pushed() -> None:
     """Step 7 must stash the pushed OID before it removes the regen worktree.
 
-    The commit is made on `tend/update-workflows` inside `/tmp`, and the block
+    The commit is made on `tend/update-workflows` inside `$TMPDIR`, and the block
     destroys that worktree on the way out. Afterwards the main checkout's
     `git rev-parse HEAD` — the derivation **CI Monitoring** prescribes "after
     your own push" — resolves to the default branch, a different commit on a
@@ -404,7 +435,7 @@ def test_nightly_regen_pins_its_poll_to_the_commit_it_pushed() -> None:
     capture = script.index('sha_path.write_text(f"{sha}\\n")')
     cleanup = script.index('"git", "worktree", "remove"', capture)
     assert commit < capture < cleanup
-    assert 'poll <pr-number> "$(cat /tmp/tend-update-sha)"' in skill
+    assert 'poll <pr-number> "$(cat "$TMPDIR/tend-update-sha")"' in skill
 
 
 def test_nightly_regen_stages_every_path_init_writes(

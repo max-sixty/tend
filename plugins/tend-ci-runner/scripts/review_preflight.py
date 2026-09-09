@@ -38,6 +38,7 @@ import bot_review_state
 import github_cli
 
 SHA_RE = re.compile(r"[0-9a-f]{40}")
+TEMP_DIR = Path(tempfile.gettempdir())
 
 
 def _error(message: str) -> int:
@@ -193,9 +194,9 @@ def _start(pr: str) -> int:
     }
     if not _emit_json(context):
         return 1
-    Path(os.environ.get("REVIEWED_HEAD_FILE", "/tmp/reviewed-head")).write_text(
-        f"{head_sha}\n"
-    )
+    Path(
+        os.environ.get("REVIEWED_HEAD_FILE", str(TEMP_DIR / "reviewed-head"))
+    ).write_text(f"{head_sha}\n")
     return 0
 
 
@@ -237,7 +238,9 @@ def _post(args: list[str]) -> int:
     pr, edit_review, command = parsed
 
     repo = github_cli.repository()
-    pin_file = Path(os.environ.get("REVIEWED_HEAD_FILE", "/tmp/reviewed-head"))
+    pin_file = Path(
+        os.environ.get("REVIEWED_HEAD_FILE", str(TEMP_DIR / "reviewed-head"))
+    )
     try:
         reviewed = pin_file.read_text().strip()
     except OSError:

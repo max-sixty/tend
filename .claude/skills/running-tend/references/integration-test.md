@@ -419,7 +419,7 @@ gh label create integration-test-failure --color B60205 \
   --repo max-sixty/tend 2>/dev/null || true
 
 export RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-envsubst '$RUN_URL' > /tmp/integration-failure.md <<'EOF'
+envsubst '$RUN_URL' > "$TMPDIR/integration-failure.md" <<'EOF'
 Run: $RUN_URL
 
 Failed at <step>. Captured output:
@@ -433,7 +433,7 @@ EOF
 gh issue create --repo max-sixty/tend \
   --title "Weekly integration test failed" \
   --label integration-test-failure \
-  --body-file /tmp/integration-failure.md
+  --body-file "$TMPDIR/integration-failure.md"
 ````
 
 Include the test repo's failing workflow run URL in the body when

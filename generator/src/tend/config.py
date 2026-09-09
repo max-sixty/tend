@@ -146,6 +146,7 @@ RESERVED_SANDBOX_ENV = {
     "CODEX_API_KEY",
     "CODEX_AUTH_JSON",
     "CODEX_HOME",
+    "TMPDIR",
 }
 
 

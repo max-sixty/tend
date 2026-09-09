@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     if len(args) != 1 or not args[0]:
         print(
             f"usage: {sys.argv[0]} <since>   # RFC3339, e.g. "
-            "$(cat /tmp/review-runs-since)",
+            '$(cat "$TMPDIR/review-runs-since")',
             file=sys.stderr,
         )
         return 2

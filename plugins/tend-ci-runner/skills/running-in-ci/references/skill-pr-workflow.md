@@ -98,17 +98,16 @@ workaround, since bundled skills live under `plugins/` rather than
    `.claude/skills/` as a write-target argument are denied regardless of
    filesystem permissions
    ([anthropics/claude-code#37157](https://github.com/anthropics/claude-code/issues/37157)).
-   The guard checks argument text, so `Write(/tmp/…)` and
-   `Bash(mv /tmp/… SKILL.md)` both pass — the second because `SKILL.md` is a
+   The guard checks argument text, so `Write(/home/tend-sandbox/tmp/…)` and
+   `Bash(mv $TMPDIR/… SKILL.md)` both pass — the second because `SKILL.md` is a
    bare filename inside the `cd`'d directory.
 
-   Do the edit, commit, and push from a git worktree under `/tmp`, which is
+   Do the edit, commit, and push from a git worktree under `$TMPDIR`, which is
    writable and sits outside the harness's `.claude/skills/` write-guard.
-   (Don't write `$TMPDIR/...` — GitHub Actions runners leave `$TMPDIR` unset,
-   so the path expands to `/skill-fix`, which the runner user can't create.)
+   Tend sets `$TMPDIR` before the agent starts.
 
    <!-- TODO(anthropics/claude-code#37157): once the harness exempts .claude/skills/ as
-        documented, replace the /tmp-then-mv dance below with direct `Write` to the worktree path. -->
+        documented, replace the TMPDIR-then-mv dance below with direct `Write` to the worktree path. -->
 
    Base the skill branch on the repo's default branch, **not `HEAD`**. When
    this runs from `tend-mention` on a PR, the workflow has already done
@@ -120,16 +119,16 @@ workaround, since bundled skills live under `plugins/` rather than
    ```bash
    DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
    git fetch origin "$DEFAULT_BRANCH"
-   git worktree add "/tmp/skill-fix" -b "skills/<topic>-$GITHUB_RUN_ID" "origin/$DEFAULT_BRANCH"
+   git worktree add "$TMPDIR/skill-fix" -b "skills/<topic>-$GITHUB_RUN_ID" "origin/$DEFAULT_BRANCH"
 
-   # Author the new skill file at /tmp/running-tend-new.md.
+   # Author the new skill file at $TMPDIR/running-tend-new.md.
    # Then move it into place from inside the worktree. mkdir -p covers the
    # new-skill case where .claude/skills/<name>/ doesn't yet exist in the
    # default branch:
-   mkdir -p "/tmp/skill-fix/.claude/skills/running-tend"
-   cd "/tmp/skill-fix/.claude/skills/running-tend" && mv /tmp/running-tend-new.md SKILL.md
+   mkdir -p "$TMPDIR/skill-fix/.claude/skills/running-tend"
+   cd "$TMPDIR/skill-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend-new.md" SKILL.md
 
-   cd "/tmp/skill-fix"
+   cd "$TMPDIR/skill-fix"
    git add .claude/skills/
    # Set git identity first if you haven't already this session — see
    # "Configure git identity before the first commit" in SKILL.md. A fresh
@@ -137,9 +136,9 @@ workaround, since bundled skills live under `plugins/` rather than
    # identity unknown`.
    git commit -m "skills(running-tend): ..."
    git push -u origin skills/<topic>-$GITHUB_RUN_ID
-   gh pr create --title "..." --body-file /tmp/pr-body.md --head skills/<topic>-$GITHUB_RUN_ID
+   gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head skills/<topic>-$GITHUB_RUN_ID
    cd -
-   git worktree remove "/tmp/skill-fix" --force
+   git worktree remove "$TMPDIR/skill-fix" --force
    ```
 
 4. **Open as a separate PR.** Follow the repo's PR title conventions

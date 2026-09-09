@@ -119,7 +119,7 @@ Step 3's duplicate check catches identical fixes. It misses the *same root cause
    Closes #$ARGUMENTS"
    git push -u origin fix/issue-$ARGUMENTS
    ```
-   Compose the body at `/tmp/pr-body.md`. Write for a maintainer deciding whether the current fix resolves the issue: explain the causal finding, the resulting behavior change, and the reproduction test that now passes. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`, and end with `Closes #$ARGUMENTS — automated triage` so merging closes the issue.
+   Compose the body at `$TMPDIR/pr-body.md`. Write for a maintainer deciding whether the current fix resolves the issue: explain the causal finding, the resulting behavior change, and the reproduction test that now passes. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`, and end with `Closes #$ARGUMENTS — automated triage` so merging closes the issue.
 
    The headings below are one possible shape when they help a reviewer scan the case. They are not a required outline; choose the structure that fits the change.
 
@@ -161,7 +161,7 @@ Step 3's duplicate check catches identical fixes. It misses the *same root cause
    </example>
 
    ```bash
-   gh pr create --title "fix: <description>" --body-file /tmp/pr-body.md
+   gh pr create --title "fix: <description>" --body-file "$TMPDIR/pr-body.md"
    ```
 4. Wait for CI per **CI Monitoring** in `/tend-ci-runner:running-in-ci`.
 
@@ -176,10 +176,10 @@ git commit -m "test: add reproduction for #$ARGUMENTS"
 git push -u origin repro/issue-$ARGUMENTS
 ```
 
-Compose the body at `/tmp/pr-body.md`. Make clear that the PR deliberately adds a failing reproduction without a fix, what behavior it captures, and any causal boundary already established so a maintainer knows what remains to decide. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`, and end with `Automated triage for #$ARGUMENTS`.
+Compose the body at `$TMPDIR/pr-body.md`. Make clear that the PR deliberately adds a failing reproduction without a fix, what behavior it captures, and any causal boundary already established so a maintainer knows what remains to decide. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`, and end with `Automated triage for #$ARGUMENTS`.
 
 ```bash
-gh pr create --title "test: reproduction for #$ARGUMENTS" --body-file /tmp/pr-body.md
+gh pr create --title "test: reproduction for #$ARGUMENTS" --body-file "$TMPDIR/pr-body.md"
 ```
 
 Note the PR number for the comment.

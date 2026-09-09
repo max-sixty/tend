@@ -186,6 +186,8 @@ verify() {
   test "$(sudo -u "$SANDBOX" env "${agent_env[@]}" tend-workspace-path)" = workspace-path
   sudo -u "$SANDBOX" test -x "$TEND_AGENT_UV_DIR/uv"
   grep -q "^PATH=.*:${TEND_AGENT_UV_DIR}$" "$AGENT_ENV_FILE"
+  grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$AGENT_ENV_FILE"
+  sudo -u "$SANDBOX" test -w /home/tend-sandbox/tmp
   test "$(sudo -u "$SANDBOX" env "${agent_env[@]}" uv --version)" = adopter-uv
 }
 
@@ -320,6 +322,8 @@ PY
     'chmod +x ~/.local/bin/tend-probe' \
     'tend-probe > .tend-setup-tool' \
     'test -z "${GITHUB_ENV:-}"' \
+    'if touch /tmp/tend-unscoped 2>/dev/null; then exit 91; fi' \
+    'touch "$TMPDIR/tend-scratch-probe"' \
     "test \"\$GITHUB_TOKEN\" = \"$dummy_token\"")
 
   rm -rf -- "$RUNNER_TEMP/tend-agent-export"
@@ -351,6 +355,8 @@ PY
   test -n "$setup_proxy"
   test "$setup_proxy" != 'http://127.0.0.1:8899'
   sudo -u "$SANDBOX" grep -qxF "HTTP_PROXY=$setup_proxy" "$claude_env"
+  sudo -u "$SANDBOX" grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$claude_env"
+  sudo -u "$SANDBOX" test -f /home/tend-sandbox/tmp/tend-scratch-probe
   sudo -u "$SANDBOX" grep -qxF "GITHUB_TOKEN=$dummy_token" "$claude_env"
   if sudo -u "$SANDBOX" grep -q '^GITHUB_ENV=' "$claude_env"; then
     echo "::error::runner command-file path crossed into Claude"
@@ -395,6 +401,7 @@ PY
   test "$(sudo -u "$SANDBOX" cat "$TEND_AGENT_WORKSPACE/.tend-codex-local-network")" = \
     'tend-srt-local-ok'
   sudo -u "$SANDBOX" grep -qxF "HTTP_PROXY=$setup_proxy" "$codex_env"
+  sudo -u "$SANDBOX" grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$codex_env"
   sudo -u "$SANDBOX" grep -qx 'NO_PROXY=' "$codex_env"
   sudo -u "$SANDBOX" grep -qx 'no_proxy=' "$codex_env"
   sudo -u "$SANDBOX" grep -q '^shell_environment_policy.set.NO_PROXY=".*127.0.0.1' \

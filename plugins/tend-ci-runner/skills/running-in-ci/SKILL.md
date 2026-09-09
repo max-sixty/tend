@@ -17,6 +17,10 @@ Invoke repo-local skills by their unprefixed name — `running-tend`, not `tend-
 
 If you are going to propose a code fix for a bug, load `/tend-ci-runner:triage` first — it contains reproduction and testing gates that apply to all fix attempts, not just initial triage.
 
+## Temporary Files
+
+Tend sets `$TMPDIR` to `/home/tend-sandbox/tmp`, the writable scratch directory. Shell commands expand `$TMPDIR`; file-writing tools need the absolute path.
+
 ## Conduct
 
 Follow the project's code of conduct. Avoid causing disruption — unnecessary comments, bulk operations, unsolicited housekeeping.
@@ -72,7 +76,7 @@ Before the session starts, both harnesses restore `CLAUDE.md`, `CLAUDE.local.md`
 
 - The working tree holds the **base** content — grepping it reports the PR's additions as absent, and the repo-local skills loaded into this session are the base versions too. Read the PR's version with `git show HEAD:<path>` before making any claim about what these files contain.
 - `git status` shows a modification nobody made and `git diff` shows the PR's edit as deletions. Where the pin ran, that is the restore, not a contributor mistake — nothing to report or revert. On an unpinned event it is a real modification, worth reading.
-- **Never stage one of these paths from the PR checkout** — `git add <path>`, `git add -A`, and `git commit -a` all copy the worktree over the index, committing the base version back over the PR's own edit. Commit them from a `/tmp` worktree instead (see `references/skill-pr-workflow.md`).
+- **Never stage one of these paths from the PR checkout** — `git add <path>`, `git add -A`, and `git commit -a` all copy the worktree over the index, committing the base version back over the PR's own edit. Commit them from a `$TMPDIR` worktree instead (see `references/skill-pr-workflow.md`).
 
 ### Triggering issue/PR already closed
 
@@ -98,7 +102,7 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 
 ## End the turn only when work is shipped
 
-Returning the final response ends the CI session — the runner is discarded, and the harness does not reliably resume it when a background task completes. If you return while a background command whose result was going to gate the deliverable is still running, the task either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `/tmp/comment-body.md` — dies with it.
+Returning the final response ends the CI session — the runner is discarded, and the harness does not reliably resume it when a background task completes. If you return while a background command whose result was going to gate the deliverable is still running, the task either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `$TMPDIR/comment-body.md` — dies with it.
 
 The session is live until the deliverable is **maintainer-visible**: pushed, posted, or opened. Local-only state — a commit nobody else can see, a comment body never sent — does not count and is not recoverable on a follow-up.
 
@@ -158,7 +162,7 @@ If an existing PR addresses the same problem, work on that PR instead.
 
 ### Configure git identity before the first commit
 
-Runners don't always pre-seed a git identity, and a fresh `git worktree` never inherits one. Without it `git commit` fails with `Author identity unknown`, the branch gets pushed with **no commit**, and `gh pr create` then fails with `No commits between main and <branch>`. Set it once before your first commit — `--global` covers the main checkout and every `/tmp` worktree in one shot, and it's idempotent, so re-running is safe:
+Runners don't always pre-seed a git identity, and a fresh `git worktree` never inherits one. Without it `git commit` fails with `Author identity unknown`, the branch gets pushed with **no commit**, and `gh pr create` then fails with `No commits between main and <branch>`. Set it once before your first commit — `--global` covers the main checkout and every `$TMPDIR` worktree in one shot, and it's idempotent, so re-running is safe:
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
@@ -289,8 +293,8 @@ PINNED_SHA=$(git rev-parse HEAD)
 # In a review session, HEAD is the ephemeral refs/pull/N/merge commit, which
 # carries no rollup at all; pin the PR head instead:
 #   PINNED_SHA=$(gh pr view <number> --json headRefOid --jq '.headRefOid')
-# When the push happened in a /tmp worktree the recipe then removes, capture
-# the OID there — `git rev-parse HEAD > /tmp/<name>-sha` — before the removal.
+# When the push happened in a $TMPDIR worktree the recipe then removes, capture
+# the OID there — `git rev-parse HEAD > "$TMPDIR/<name>-sha"` — before the removal.
 # Back in the main checkout HEAD is the default branch, not what you pushed.
 uv run --script \
   "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" poll <number> "$PINNED_SHA"
@@ -338,11 +342,11 @@ Reply in context rather than creating new top-level comments:
   ```
   To reply:
   ```bash
-  cat > /tmp/reply.md << 'EOF'
+  cat > "$TMPDIR/reply.md" << 'EOF'
   Your response here
   EOF
   gh api repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies \
-    -F body=@/tmp/reply.md
+    -F body=@"$TMPDIR/reply.md"
   ```
 
 - **Review events with inline comments** (review ID in prompt): A review may include inline comments. Fetch them by review ID and reply to each individually:
@@ -448,11 +452,11 @@ For example, supporting material may use this shape when it helps the next reade
 
 ### Mechanics
 
-**Write bodies to a file, then post with `--body-file`.** The composed file is reviewable before it ships, quoting and escaping are non-issues, and line wrapping is just file content. The bot writes to `/tmp/` constantly — one more file is cheap. `--body "…"` is fine only for a one-line body containing no backtick, `$`, or `\`. Inside double quotes bash runs a backticked span as a command and substitutes its output, so a markdown inline-code span is silently deleted from the posted comment: `` --body "`some-check` now passes" `` ships as ` now passes`. Inline code appears in nearly every body the bot writes, and single-quoting instead breaks on any apostrophe, so reach for `--body-file` whenever the text is anything but plain prose.
+**Write bodies to a file, then post with `--body-file`.** The composed file is reviewable before it ships, quoting and escaping are non-issues, and line wrapping is just file content. Put the file under `$TMPDIR`. `--body "…"` is fine only for a one-line body containing no backtick, `$`, or `\`. Inside double quotes bash runs a backticked span as a command and substitutes its output, so a markdown inline-code span is silently deleted from the posted comment: `` --body "`some-check` now passes" `` ships as ` now passes`. Inline code appears in nearly every body the bot writes, and single-quoting instead breaks on any apostrophe, so reach for `--body-file` whenever the text is anything but plain prose.
 
 ```bash
-# After writing /tmp/comment-body.md:
-gh issue comment "$ISSUE" --body-file /tmp/comment-body.md
+# After writing $TMPDIR/comment-body.md:
+gh issue comment "$ISSUE" --body-file "$TMPDIR/comment-body.md"
 ```
 
 **Line wrapping:** GitHub renders newlines literally in issue bodies, PR descriptions, and comments — a line break in the source becomes a `<br>` in the output, so a paragraph hard-wrapped at ~72 chars ships with mid-sentence breaks. Write each paragraph as a single long line and let the browser reflow. Code blocks, bullet lists, and tables keep their newlines as-is.
@@ -465,7 +469,7 @@ Always use markdown links for files, issues, PRs, and docs. **Any link containin
 
 ```bash
 uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/check_body_links.py" /tmp/comment-body.md
+  "${CLAUDE_PLUGIN_ROOT}/scripts/check_body_links.py" "$TMPDIR/comment-body.md"
 ```
 
 It resolves every 40-hex SHA in the body against the API and reports any `#L` anchor pinned to a branch or an abbreviation. Resolving is the part a scan by eye cannot do: a hand-typed OID is well-formed whether or not the commit exists, so a fabricated SHA — the model extending an abbreviation it saw in `git log` instead of running `git rev-parse HEAD` — reads as correctly pinned and ships a permalink that 404s. Run it after the push when the body cites a commit from this session; before the push that commit is unreachable and reports as dead, correctly.
@@ -487,7 +491,7 @@ When review changes the approach, recompose the title and description around the
 
 ```bash
 gh api repos/{owner}/{repo}/pulls/{number} -X PATCH \
-  -f title="new title" -F body=@/tmp/updated-body.md
+  -f title="new title" -F body=@"$TMPDIR/updated-body.md"
 ```
 
 **A description describes the whole PR, not the increment this run reviewed.** It presents the current result coherently; prior attempts and review rounds stay in the thread unless they remain relevant to the merge decision. Scope every behavior claim in it to the PR's merge base — not `last_review_sha`, and not whatever range this run happened to diff:
@@ -527,7 +531,7 @@ Download a chosen run's log and parse it with the recipes in `/install-tend:debu
 
 ```bash
 RUN_ID=<chosen run>
-DEST="/tmp/thread-history/$RUN_ID"
+DEST="$TMPDIR/thread-history/$RUN_ID"
 gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" --pattern '*session-logs*' --dir "$DEST"
 find "$DEST" -name '*.jsonl'
 ```

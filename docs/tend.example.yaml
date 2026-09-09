@@ -236,7 +236,7 @@ bot_name: my-project-bot
 #     `OPENAI_API_KEY`, `CODEX_API_KEY`, `CODEX_AUTH_JSON`, `CODEX_HOME`
 #   - the disposable checkout identity — `GITHUB_WORKSPACE`
 #   - prompt suppression — `CLAUDE_CODE_REMOTE`
-#   - the sandbox's own locations — `HOME`, `PATH`, `XDG_CONFIG_HOME`,
+#   - the sandbox's own locations — `HOME`, `PATH`, `TMPDIR`, `XDG_CONFIG_HOME`,
 #     `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`
 #
 #     sandbox_env:

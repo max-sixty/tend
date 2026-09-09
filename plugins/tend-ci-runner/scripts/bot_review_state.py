@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -214,7 +215,9 @@ def prepare_approval(pr: str) -> dict[str, Any]:
     """Pin the live head unless the bot already approved that exact commit."""
     state = fetch_review_state(pr)
     head_sha = str(state["head_sha"])
-    pin = Path(os.environ.get("CHECKED_HEAD_DIR", "/tmp")) / f"checked-head-{pr}"
+    pin = Path(os.environ.get("CHECKED_HEAD_DIR", tempfile.gettempdir())) / (
+        f"checked-head-{pr}"
+    )
     pin.unlink(missing_ok=True)
     already_approved = state.get("fresh_approval_sha") == head_sha
     result = {"head_sha": head_sha, "already_approved": already_approved}
