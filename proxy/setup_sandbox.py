@@ -33,7 +33,7 @@ PROXY_PORT = 8899
 PROXY_URL = f"http://127.0.0.1:{PROXY_PORT}"
 PROXY_CA_CERT = Path("/usr/local/share/ca-certificates/tend-proxy.crt")
 TEND_RUN_DIR = AGENT_HOME / "run"
-TEND_STEP_SUMMARY_DIR = Path("/tmp/claude")
+AGENT_TMP_DIR = AGENT_HOME / "tmp"
 TEND_AGENT_UV_DIR = AGENT_HOME / ".tend-uv/bin"
 ALLOW_HOSTS = (
     r"^((api\.|codeload\.|uploads\.)?github\.com|raw\.githubusercontent\.com|"
@@ -68,6 +68,7 @@ RESERVED_SANDBOX_ENV = {
     "CODEX_API_KEY",
     "CODEX_AUTH_JSON",
     "CODEX_HOME",
+    "TMPDIR",
 }
 BLOCKED_COMMAND = """#!/bin/sh
 printf "tend: %s came from the runner home and is unavailable; install it into ~/.local/bin with sandbox_setup, or point sandbox_path at a copy outside the runner home\n" "${0##*/}" >&2
@@ -309,6 +310,7 @@ def base_agent_env(
         "GITHUB_TOKEN": GITHUB_DUMMY,
         "GITHUB_WORKSPACE": str(workspace),
         "CLAUDE_CODE_REMOTE": "1",
+        "TMPDIR": str(AGENT_TMP_DIR),
     }
     if anthropic_dummy:
         values[anthropic_dummy[0]] = anthropic_dummy[1]
@@ -346,7 +348,6 @@ def write_agent_environment(
         "PROXY_URL": PROXY_URL,
         "TEND_PROXY_PORT": str(PROXY_PORT),
         "TEND_RUN_DIR": str(TEND_RUN_DIR),
-        "TEND_STEP_SUMMARY_DIR": str(TEND_STEP_SUMMARY_DIR),
         "PROXY_CA_CERT": str(PROXY_CA_CERT),
         "AGENT_ENV_FILE": str(paths.agent_env_file),
         "TEND_RUNNER_HOME": str(paths.runner_home),
@@ -474,7 +475,7 @@ def handoff_workspace(paths: Paths) -> bool:
         return False
     log(f"workspace handed to {SANDBOX}")
     sudo("/usr/bin/mkdir", "-p", str(TEND_RUN_DIR), user=SANDBOX)
-    sudo("/usr/bin/mkdir", "-p", str(TEND_STEP_SUMMARY_DIR), user=SANDBOX)
+    sudo("/usr/bin/mkdir", "-p", str(AGENT_TMP_DIR), user=SANDBOX)
     log(f"run dir {TEND_RUN_DIR}")
     return True
 

@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -23,14 +24,17 @@ BODY = """Monthly tracking issue for below-threshold findings. Each run appends 
 **Do not close manually** — a new issue is created each month, and prior months are closed automatically.
 """
 EVIDENCE_HEADING = re.compile(r"(^|\n)## Run [0-9]")
+TEMP_DIR = Path(tempfile.gettempdir())
 
 
 def _state_path() -> Path:
-    return Path(os.environ.get("REVIEW_RUNS_STATE", "/tmp/review-runs-state.json"))
+    return Path(
+        os.environ.get("REVIEW_RUNS_STATE", str(TEMP_DIR / "review-runs-state.json"))
+    )
 
 
 def _findings_path() -> Path:
-    return Path(os.environ.get("REVIEW_RUNS_FINDINGS", "/tmp/findings.md"))
+    return Path(os.environ.get("REVIEW_RUNS_FINDINGS", str(TEMP_DIR / "findings.md")))
 
 
 def _issue_number(url: str) -> int:

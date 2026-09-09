@@ -30,7 +30,11 @@ def configure(
     runner_temp.mkdir()
     run_dir.mkdir(parents=True)
     agent_env = runner_temp / "agent-env"
-    agent_env.write_text("HOME=/home/tend-sandbox\nGITHUB_TOKEN=dummy\n")
+    agent_tmp = run_dir.parent / "tmp"
+    agent_tmp.mkdir()
+    agent_env.write_text(
+        f"HOME=/home/tend-sandbox\nTMPDIR={agent_tmp}\nGITHUB_TOKEN=dummy\n"
+    )
     output = runner_temp / "github-output"
     output.touch()
     summary = runner_temp / "step-summary"
@@ -54,7 +58,6 @@ def configure(
         "NODE_BIN": "/trusted/node",
         "TEND_HARNESS": harness,
         "AGENT_HOME": str(run_dir.parent),
-        "TEND_STEP_SUMMARY_DIR": str(run_dir.parent),
         "GITHUB_STEP_SUMMARY": str(summary),
         "TEND_RUNTIME_ROOT": str(runtime_root),
         "ACTION_PATH": str(action),
@@ -88,7 +91,7 @@ def fake_runtime(
             else:
                 (run_dir / "codex-final-message.md").write_bytes(b"finished\n")
             if write_summary:
-                (run_dir.parent / "step-summary.md").write_bytes(b"skill result\n")
+                (run_dir.parent / "tmp/step-summary.md").write_bytes(b"skill result\n")
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(subprocess, "run", run)
@@ -121,7 +124,8 @@ def test_claude_exports_only_fixed_runner_owned_files(
     assert not any("runner-token-must-not-cross" in arg for arg in runtime)
     assert not any("runner-key-must-not-cross" in arg for arg in runtime)
     assert not any(arg.startswith("GITHUB_OUTPUT=") for arg in runtime)
-    assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'step-summary.md'}" in runtime
+    assert f"TMPDIR={run_dir.parent / 'tmp'}" in runtime
+    assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'tmp/step-summary.md'}" in runtime
 
 
 def test_codex_base64_encodes_the_fixed_final_message(
@@ -164,7 +168,7 @@ def test_agent_step_summary_symlink_is_not_followed(
     run_dir, _output, summary = configure(tmp_path, monkeypatch, harness="codex")
     secret = tmp_path / "runner-secret"
     secret.write_text("must not cross\n")
-    (run_dir.parent / "step-summary.md").symlink_to(secret)
+    (run_dir.parent / "tmp/step-summary.md").symlink_to(secret)
     fake_runtime(monkeypatch, run_dir, harness="codex", write_summary=False)
 
     assert launch.main() == 0

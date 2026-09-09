@@ -71,7 +71,7 @@ The command finds or creates both index and gist, announces a new gist once,
 persists their ids, and prints both evidence windows.
 
 After applying the gates, write this run's findings in the format from
-`@review-gates.md` to `/tmp/findings.md`. Append a `## Run
+`@review-gates.md` to `$TMPDIR/findings.md`. Append a `## Run
 $GITHUB_RUN_ID` heading every run, including an all-clear window; the heading
 is the audit trail future runs use. Then append it:
 
@@ -201,24 +201,24 @@ Use a smaller, cheaper model for the subagent and a prompt like:
 > **Corruption-scan recipe.** Save bot bodies to a file, then scan with `grep`:
 >
 > ```bash
-> mkdir -p /tmp/bot-output && : > /tmp/bot-output/all.txt
+> mkdir -p "$TMPDIR/bot-output" && : > "$TMPDIR/bot-output/all.txt"
 > # Issue/PR comments (issue_comment endpoint)
 > for n in <pr-or-issue-numbers>; do
 >   gh api "repos/$ARGUMENTS/issues/$n/comments?per_page=100" \
 >     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== #$n issue-comment \(.id) ===\n\(.body)\n\"" \
->     >> /tmp/bot-output/all.txt
+>     >> "$TMPDIR/bot-output/all.txt"
 > done
 > # Issue bodies (when bot opened the issue this window)
 > for n in <bot-opened-issues>; do
 >   gh api "repos/$ARGUMENTS/issues/$n" \
 >     --jq "select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== ISSUE #$n body ===\n\(.body)\n\"" \
->     >> /tmp/bot-output/all.txt
+>     >> "$TMPDIR/bot-output/all.txt"
 > done
 > # PR bodies (only when bot opened the PR this window)
 > for n in <bot-opened-prs>; do
 >   gh api "repos/$ARGUMENTS/pulls/$n" \
 >     --jq "select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== PR #$n body ===\n\(.body)\n\"" \
->     >> /tmp/bot-output/all.txt
+>     >> "$TMPDIR/bot-output/all.txt"
 > done
 > # PR reviews + inline review comments — any PR the bot reviewed/commented on, not just
 > # bot-opened. tend-review's output ships on human-authored PRs (the most common surface)
@@ -226,16 +226,16 @@ Use a smaller, cheaper model for the subagent and a prompt like:
 > for n in <pr-numbers-bot-reviewed>; do
 >   gh api "repos/$ARGUMENTS/pulls/$n/reviews" \
 >     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .submitted_at > \"<window-start>\") | \"=== PR #$n review \(.id) state=\(.state) ===\n\(.body)\n\"" \
->     >> /tmp/bot-output/all.txt
+>     >> "$TMPDIR/bot-output/all.txt"
 >   gh api "repos/$ARGUMENTS/pulls/$n/comments?per_page=100" \
 >     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== PR #$n inline-comment \(.id) ===\n\(.body)\n\"" \
->     >> /tmp/bot-output/all.txt
+>     >> "$TMPDIR/bot-output/all.txt"
 > done
-> grep -nF '${' /tmp/bot-output/all.txt        # literal ${...} interpolation failure
-> grep -nP '\\!' /tmp/bot-output/all.txt       # backslash-bang corruption
-> grep -nP '\\`' /tmp/bot-output/all.txt       # backslash-backtick corruption
-> grep -nE 'blob/main/.*#L[0-9]' /tmp/bot-output/all.txt  # un-pinned line links
-> grep -nF 'anthropics/' /tmp/bot-output/all.txt         # wrong-owner URL
+> grep -nF '${' "$TMPDIR/bot-output/all.txt"        # literal ${...} interpolation failure
+> grep -nP '\\!' "$TMPDIR/bot-output/all.txt"       # backslash-bang corruption
+> grep -nP '\\`' "$TMPDIR/bot-output/all.txt"       # backslash-backtick corruption
+> grep -nE 'blob/main/.*#L[0-9]' "$TMPDIR/bot-output/all.txt"  # un-pinned line links
+> grep -nF 'anthropics/' "$TMPDIR/bot-output/all.txt"         # wrong-owner URL
 > ```
 >
 > Cover all four bot-output surfaces: issue comments, issue bodies, PR bodies, and reviews/inline review comments. Comments-only scans miss corruption that ships in a survey-issue or PR body.
@@ -274,12 +274,12 @@ Grep for the write *shape*, not the endpoint — `/comments` and `/reviews` are 
 WRITES='gh (pr|issue) (comment|review|create|edit)|--method (POST|PATCH|PUT)|-X (POST|PATCH|PUT)|comments/[0-9]+/replies|git push|resolveReviewThread'
 
 # Claude logs
-for f in $(find /tmp/session-logs/<run-id> -name '*.jsonl'); do
+for f in $(find "$TMPDIR/session-logs/<run-id>" -name '*.jsonl'); do
   jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | "\(.name): \(.input | tostring)"' "$f"
 done | grep -E "$WRITES"
 
 # Codex logs — same idea against the rollout schema (/install-tend:debug-tend-run)
-for f in $(find /tmp/session-logs/<run-id> -name '*.jsonl'); do
+for f in $(find "$TMPDIR/session-logs/<run-id>" -name '*.jsonl'); do
   jq -r 'select(.payload.type == "custom_tool_call") | "\(.payload.name): \(.payload.input)"' "$f"
 done | grep -E "$WRITES"
 ```
@@ -290,7 +290,7 @@ Use a smaller, cheaper model for the subagent and a prompt like:
 
 > Investigate session logs for run <run-id> on `$ARGUMENTS`.
 >
-> Download: `gh run download <run-id> -R $ARGUMENTS --pattern 'claude-session-logs*' --pattern 'codex-session-logs*' --dir /tmp/session-logs/<run-id>/` (both patterns are passed because the artifact prefix depends on the target repo's harness — Claude uploads `claude-session-logs*`, Codex uploads `codex-session-logs*`)
+> Download: `gh run download <run-id> -R $ARGUMENTS --pattern 'claude-session-logs*' --pattern 'codex-session-logs*' --dir "$TMPDIR/session-logs/<run-id>/"` (both patterns are passed because the artifact prefix depends on the target repo's harness — Claude uploads `claude-session-logs*`, Codex uploads `codex-session-logs*`)
 >
 > The concerning outcome was: <signal from Step 2>.
 >
@@ -339,11 +339,10 @@ PR/issue bodies should link to the evidence gist (`$GIST_URL`) so reviewers can 
 
 ## Step 6: Summary
 
-Report results in the conversation log and save a markdown summary to `/tmp/claude/step-summary.md` (a later workflow step copies this into the GitHub Actions step summary). Include `$GIST_URL` at the top so maintainers viewing the run page can click through to the full evidence log:
+Report results in the conversation log and save a markdown summary to `$GITHUB_STEP_SUMMARY` (a later workflow step copies this into the GitHub Actions step summary). Include `$GIST_URL` at the top so maintainers viewing the run page can click through to the full evidence log:
 
 ```bash
-mkdir -p /tmp/claude
-# Then author /tmp/claude/step-summary.md, starting:
+# Author $GITHUB_STEP_SUMMARY, starting:
 #
 #   ## Review-reviewers summary
 #

@@ -37,7 +37,7 @@ The command creates this month's tracker when needed, closes older open
 trackers, persists the current issue id, and prints both evidence windows.
 
 After analysis, write the new findings in the format from `@review-gates.md`
-to `/tmp/findings.md`. Include a literal `## Run $GITHUB_RUN_ID` heading.
+to `$TMPDIR/findings.md`. Include a literal `## Run $GITHUB_RUN_ID` heading.
 Then append them:
 
 ```bash
@@ -105,7 +105,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
     --jq '.workflow_runs[0] | {name, conclusion, created_at}'
   ```
 
-  Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `/tmp/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The page reaches back weeks, so most rows are already fixed and the closure call is what separates them. What it cannot close stays live: Dependabot's security updates have no workflow file, and each run's `name` carries a per-update ID that never recurs, so those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the page reached.
+  Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `$TMPDIR/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The page reaches back weeks, so most rows are already fixed and the closure call is what separates them. What it cannot close stays live: Dependabot's security updates have no workflow file, and each run's `name` carries a per-update ID that never recurs, so those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the page reached.
 
 Handle live work through the normal triage, review, or CI-fix guidance. Keep
 failed runs in the report as diagnostic evidence.
@@ -119,11 +119,11 @@ tracker:
 if ! gh issue list --state open --label tend-outage --author @me \
   --limit 100 --json number,title \
   --jq '[.[] | select(.title == "Bot temporarily unavailable") | .number]
-    | sort | .[0] // empty' > /tmp/review-runs-outage-number; then
+    | sort | .[0] // empty' > "$TMPDIR/review-runs-outage-number"; then
   echo "Could not read the outage tracker" >&2
   exit 1
 fi
-OUTAGE=$(cat /tmp/review-runs-outage-number)
+OUTAGE=$(cat "$TMPDIR/review-runs-outage-number")
 if [ -n "$OUTAGE" ]; then
   gh issue view "$OUTAGE" --json body,comments --jq '.body, .comments[].body'
 fi
@@ -134,7 +134,7 @@ handle any applicable current work. If a tracker was found, close the exact
 issue number returned above:
 
 ```bash
-OUTAGE=$(cat /tmp/review-runs-outage-number)
+OUTAGE=$(cat "$TMPDIR/review-runs-outage-number")
 [ -n "$OUTAGE" ] && gh issue close "$OUTAGE" --reason completed
 ```
 
@@ -146,11 +146,11 @@ Run the token report script to get per-run token counts:
 # Whole hours back to Step 1's anchor, rounded up so the whole band is priced.
 # A literal `24` reopens the gap Step 1 closed. The `cat` isn't optional: an
 # unset `$SINCE` makes `date -d ""` today's midnight, not an error.
-SINCE=$(cat /tmp/review-runs-since)
+SINCE=$(cat "$TMPDIR/review-runs-since")
 HOURS=$(( ( $(date -u +%s) - $(date -u -d "$SINCE" +%s) + 3599 ) / 3600 ))
 uv run --script \
   "${CLAUDE_PLUGIN_ROOT}/scripts/token_report.py" "$HOURS" \
-  > /tmp/token-report.json
+  > "$TMPDIR/token-report.json"
 ```
 
 Pass the same extra prefixes Step 1 censuses (after `$HOURS`, which the script reads as its first positional arg), so the two steps agree on what the fleet is — the repo's `running-tend` skill is the source for both (e.g. `review-` for a `review-reviewers` workflow that uses the tend action but isn't named `tend-*`).
@@ -179,7 +179,7 @@ Dispositions — merged, closed, relabeled, reverted — are only half the signa
 ```bash
 uv run --script \
   "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs_corrections.py" \
-  "$(cat /tmp/review-runs-since)"
+  "$(cat "$TMPDIR/review-runs-since")"
 ```
 
 Read every row: a correction is a maintainer contradicting a bot claim, not merely replying. Comment rows carry both timestamps because the window filters on `updated_at` — a `created` before the anchor is an older comment edited inside the window, a real hit rather than a broken filter. Empty `dispositions`, `comments`, and `reviews` is the all-clear.
@@ -221,23 +221,23 @@ Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted 
 
 
 ```bash
-git worktree add "/tmp/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID HEAD
+git worktree add "$TMPDIR/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID HEAD
 
-# Author each edited skill file at /tmp/<name>.md.
+# Author each edited skill file at $TMPDIR/<name>.md.
 # Then move the files into place:
-cd "/tmp/review-runs-fix/.claude/skills/running-tend" && mv /tmp/running-tend.md SKILL.md
+cd "$TMPDIR/review-runs-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend.md" SKILL.md
 # Repeat per skill file being updated.
 
-cd "/tmp/review-runs-fix"
+cd "$TMPDIR/review-runs-fix"
 git add .claude/skills/
 # Set git identity first if not already done this session — a fresh worktree has
 # none and the commit fails with `Author identity unknown`. See "Configure git
 # identity before the first commit" in /tend-ci-runner:running-in-ci.
 git commit -m "skills(running-tend): ..."
 git push -u origin daily/review-runs-$GITHUB_RUN_ID
-gh pr create --title "..." --body-file /tmp/pr-body.md --head daily/review-runs-$GITHUB_RUN_ID
+gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head daily/review-runs-$GITHUB_RUN_ID
 cd -
-git worktree remove "/tmp/review-runs-fix" --force
+git worktree remove "$TMPDIR/review-runs-fix" --force
 ```
 
 `.config/tend.yaml` and project instruction files are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.
@@ -251,11 +251,10 @@ git worktree remove "/tmp/review-runs-fix" --force
 
 If no problems found (or none passed the gates), report "all clear" with: runs analyzed, sessions reviewed, brief quality assessment, and any below-threshold findings recorded in the tracking issue.
 
-Save the summary to `/tmp/claude/step-summary.md` (a later workflow step copies this into the GitHub Actions step summary):
+Save the summary to `$GITHUB_STEP_SUMMARY` (a later workflow step copies this into the GitHub Actions step summary):
 
 ```bash
-mkdir -p /tmp/claude
-cat > /tmp/claude/step-summary.md << 'EOF'
+cat > "$GITHUB_STEP_SUMMARY" << 'EOF'
 ## Review-runs summary
 ...
 EOF

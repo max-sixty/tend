@@ -36,7 +36,7 @@ Run `tend check` to verify this repo's tend setup (branch protection, bot
 permission, and where credentials live):
 
 ```bash
-uv tool run tend@latest check 2>&1 | tee /tmp/tend-check.txt
+uv tool run tend@latest check 2>&1 | tee "$TMPDIR/tend-check.txt"
 ```
 
 If **every** check line is `PASS` (no `FAIL` *and* no `SKIP`), close any
@@ -177,7 +177,7 @@ moving this session's cwd:
 ( cd "<worktree from prepare output>" && uv tool run tend@latest init )
 ```
 
-Compose the PR body at `/tmp/tend-update-body.md`. Its
+Compose the PR body at `$TMPDIR/tend-update-body.md`. Its
 reader is deciding whether to adopt the regenerated workflows, so explain the
 consumer-visible effect of the upgrade rather than inventorying changed files
 or commits. When the version changed, state the old and new versions,
@@ -206,7 +206,7 @@ exact commit per **CI Monitoring** in `/tend-ci-runner:running-in-ci` — foregr
 ```bash
 uv run --script \
   "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \
-  poll <pr-number> "$(cat /tmp/tend-update-sha)"
+  poll <pr-number> "$(cat "$TMPDIR/tend-update-sha")"
 ```
 
 ## Step 8: Fix findings

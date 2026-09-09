@@ -54,7 +54,6 @@ PASSTHROUGH = {
     "TEND_SANDBOX_SETUP",
     "TEND_SRT_ENTRY",
     "TEND_SRT_SECCOMP",
-    "TEND_STEP_SUMMARY_DIR",
     "TEND_SYSTEM_PROMPT",
     "TEND_TIMEOUT_SEC",
 }
@@ -177,7 +176,7 @@ def main() -> int:
     export_dir = runner_temp / "tend-agent-export"
     export_dir.mkdir(mode=0o700)
     run_dir = Path(required("TEND_RUN_DIR"))
-    step_summary_dir = Path(required("TEND_STEP_SUMMARY_DIR"))
+    step_summary_dir = Path(required("AGENT_HOME")) / "tmp"
     runtime_root = Path(required("TEND_RUNTIME_ROOT")).resolve(strict=True)
     bundle_root, lifecycle, codex_runner = stage_runtime_bundle(runtime_root)
 

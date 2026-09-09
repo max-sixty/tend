@@ -30,7 +30,6 @@ async function main() {
   const agentWorkspace = absolute("TEND_AGENT_WORKSPACE");
   const runnerWorkspace = absolute("TEND_RUNNER_WORKSPACE");
   const agentHome = absolute("AGENT_HOME");
-  const stepSummaryDir = absolute("TEND_STEP_SUMMARY_DIR");
   const runnerHome = absolute("TEND_RUNNER_HOME");
   const actionPath = absolute("ACTION_PATH");
   const eventPath = absolute("GITHUB_EVENT_PATH");
@@ -66,7 +65,6 @@ async function main() {
         actionPath,
         agentWorkspace,
         agentHome,
-        stepSummaryDir,
         eventPath,
         agentEnv,
         seccomp,
@@ -76,7 +74,6 @@ async function main() {
       allowWrite: [
         agentWorkspace,
         agentHome,
-        stepSummaryDir,
         ...(autoMemory ? [autoMemory] : []),
       ],
       denyWrite: [],
