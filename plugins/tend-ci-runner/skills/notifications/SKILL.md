@@ -18,10 +18,10 @@ Fetch every page once and work oldest first:
 ```bash
 CUTOFF=<notification snapshot cutoff from the prompt>
 gh api "notifications?before=$CUTOFF&per_page=100" --paginate --slurp \
-  | jq 'add // [] | sort_by(.updated_at)' > /tmp/tend-notifications.json
+  | jq 'add // [] | sort_by(.updated_at)' > "$TMPDIR/tend-notifications.json"
 jq '.[] | {id, reason, repo: .repository.full_name, updated_at,
   subject_type: .subject.type, subject_title: .subject.title,
-  subject_url: .subject.url}' /tmp/tend-notifications.json
+  subject_url: .subject.url}' "$TMPDIR/tend-notifications.json"
 ```
 
 A thread's `updated_at` can be later than the cutoff. `before` is documented as filtering on `updated_at`, but threads bumped after they became unread — including by the bot's own activity, which bumps a thread without re-notifying — have been observed in snapshots taken minutes after the bump. Take the snapshot's membership as the run's scope rather than re-deriving it: whatever came back is this run's to handle, so do not filter it back out on `updated_at`.

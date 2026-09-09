@@ -6,7 +6,7 @@
 
 The shared SRT supervisor owns the execution lifetime; Tend's proxies own
 credentials. This module owns only Codex-specific mechanics that benefit from
-argv construction and file handling: installing the runner plugin, staging the
+argv construction and file handling: installing Tend's plugins, staging the
 global instructions, and writing the fixed final-message file around
 ``codex exec``.
 """
@@ -68,7 +68,7 @@ def _sandbox_command(*args: str) -> list[str]:
 
 
 def install_plugin() -> int:
-    """Install tend-ci-runner and export its root for skill scripts."""
+    """Install Tend's plugins and export the runner root for skill scripts."""
     sandbox = os.environ.get("SANDBOX", "")
     if not sandbox:
         raise ValueError("SANDBOX is unset")
@@ -99,6 +99,7 @@ def install_plugin() -> int:
     )
     codex = str(_required_path("CODEX_BIN"))
     _run(_sandbox_command(codex, "plugin", "marketplace", "add", str(marketplace_root)))
+    _run(_sandbox_command(codex, "plugin", "add", "install-tend@tend"))
     installed = _run(
         _sandbox_command(codex, "plugin", "add", "tend-ci-runner@tend"),
         capture=True,
@@ -206,12 +207,12 @@ def run_codex() -> int:
         raise ValueError(f"unknown AUTH_MODE: {auth_mode or '<unset>'}")
     output_file = _required_path("TEND_RUN_DIR") / "codex-final-message.md"
     _run(["/usr/bin/rm", "-f", "--", str(output_file)])
+    model = os.environ.get("MODEL", "")
     args = [
         codex,
         "exec",
         *(arg for arg in os.environ.get("EXTRA_ARGS", "").splitlines() if arg),
-        "--model",
-        os.environ.get("MODEL", ""),
+        *(["--model", model] if model else []),
         # SRT is the sole execution sandbox. A nested Codex sandbox creates a
         # second, divergent policy surface and is deliberately not selected.
         "--dangerously-bypass-approvals-and-sandbox",

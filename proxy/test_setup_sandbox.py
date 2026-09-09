@@ -94,6 +94,7 @@ def test_agent_uv_fallback_trails_adopter_paths_and_needs_no_blocker(
     ("raw", "message"),
     [
         ("PATH=/tmp/bin", "reserved key 'PATH'"),
+        ("TMPDIR=/somewhere", "reserved key 'TMPDIR'"),
         ("NOT_AN_ASSIGNMENT", "not NAME=VALUE"),
     ],
 )
@@ -113,6 +114,7 @@ def test_every_fixed_agent_assignment_is_reserved() -> None:
     assert {line.split("=", 1)[0] for line in assignments} <= (
         setup_sandbox.RESERVED_SANDBOX_ENV
     )
+    assert f"TMPDIR={setup_sandbox.AGENT_TMP_DIR}" in assignments
 
 
 def test_github_only_agent_environment_has_no_model_credential() -> None:

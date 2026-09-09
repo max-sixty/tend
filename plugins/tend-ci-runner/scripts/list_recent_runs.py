@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -113,7 +114,10 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     created_since = (completed_after - cushion).strftime("%Y-%m-%dT%H:%M:%S")
     if profile == "review-runs":
         Path(
-            os.environ.get("REVIEW_RUNS_SINCE_FILE", "/tmp/review-runs-since")
+            os.environ.get(
+                "REVIEW_RUNS_SINCE_FILE",
+                str(Path(tempfile.gettempdir()) / "review-runs-since"),
+            )
         ).write_text(f"{_stamp(completed_after)}\n")
     runs_by_id: dict[int, dict[str, Any]] = {}
     for workflow in workflows:

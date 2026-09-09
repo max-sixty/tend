@@ -7,9 +7,10 @@ description: Sets up tend — an autonomous junior maintainer for a GitHub repo,
 
 Set up tend on the current repo, or change an installation it already has.
 
-When asking the user questions during these steps, use the `AskUserQuestion`
-tool — present concrete options when there are clear choices (e.g.
-secret-migration confirmation, registry token route).
+When asking the user questions during these steps, batch known questions into
+one interaction where the client supports it, and present concrete options
+when there are clear choices (e.g. secret-migration confirmation, registry
+token route).
 
 When a question requires the user to do something off-screen (visit a URL,
 run a command, paste a value back), spell the next step out in the question
@@ -77,7 +78,7 @@ minutes of the user's hands-on time (browser logins, OAuth approvals,
 occasional copy-paste) — the agent drives the rest, ending at a local
 commit (pushing waits for their go-ahead, step 11).
 
-Then one `AskUserQuestion` call with three questions. Answering it is the
+Then ask these three questions together. Answering them is the
 go-ahead — no separate "ready to start?" confirmation. Drop any question the
 user's request or an existing config already answers (a supplied bot name, a
 chosen harness; the auth mode a config-settled harness leaves open is asked
@@ -91,9 +92,10 @@ itself the go-ahead.
    - **Claude — API key** — a console.anthropic.com key, billed per token.
      Fits when there's no subscription to draw on, or the user wants a
      dedicated billing surface and per-key revocation.
-   - **Codex — Plus/Pro subscription** — experimental. Concurrent jobs receive
-     an access-only token; one serialized weekly workflow owns renewal. It
-     depends on Codex's internal auth mode; detail in
+   - **Codex — Plus/Pro subscription** — experimental. It needs two browser
+     handoffs: a Codex device approval and a repo-scoped GitHub token form.
+     Concurrent jobs receive an access-only token; one serialized weekly
+     workflow owns renewal. It depends on Codex's internal auth mode; detail in
      ${CLAUDE_SKILL_DIR}/references/security-model.md.
    - **Codex — OpenAI API key** — standard pay-per-token path.
 2. **Bot name** — the available candidates, recommended first. "Other"
@@ -109,9 +111,9 @@ itself the go-ahead.
      this skill.
    - **Customize…** — pick the areas in a follow-up question.
 
-A **Customize…** answer gets one more `AskUserQuestion`
-(`multiSelect: true`): which areas to change, defaults applying to
-whatever is left unselected (an empty submission included), each option
+A **Customize…** answer gets one more multi-select question: which areas to
+change, defaults applying to whatever is left unselected (an empty submission
+included), each option
 naming its default in its description. Both the defaults description
 and this follow-up list only the areas still open — drop an area the
 user's request settles (the request, not the default, governs its step:
@@ -139,15 +141,17 @@ prerequisite before acting.
 
 ## Browser sessions
 
-Step 6 (when the bot account must be created) and step 8's mint paths
-(8a/8b) need a browser session logged in as the bot. Check whether
+Step 6 (when the bot account must be created), step 7b's Codex subscription
+setup, and step 8's mint paths (8a/8b) need a browser session. Check whether
 `mcp__claude-in-chrome__*` is connected (`tabs_context_mcp`) before the
 first browser step, or any question that would offer one as an option.
 When it is, drive the browser steps yourself rather than offering a
 hand-off choice: hand the user only the prompts automation can't cross
 (a signup CAPTCHA, a 2FA or password reauth), and resume once they
-complete the prompt in the open tab. When it isn't, give the user URLs
-and wait for confirmation.
+complete the prompt in the open tab. When it isn't but the runtime can open
+a URL in the user's browser, open each URL as soon as it appears and hand over
+the exact prompt or code. Otherwise, give the user the URL and wait for
+confirmation.
 
 Driving uses the user's real Chrome profile, so logging in as the bot
 displaces their own github.com session until they sign back in — tell
@@ -164,9 +168,13 @@ README.md "Harnesses" for the comparison.
 bot_name: <bot-name>
 # For Codex:
 # harness: codex
+# model: gpt-5.6-sol
 # Both harnesses optionally accept:
 # effort: medium   # low | medium | high | xhigh; Claude Opus/Sonnet also accept max
 ```
+
+Write the Codex model into the config. It is the installation's reviewed pin;
+the raw action deliberately has no model default.
 
 List the secrets the repo already holds:
 
@@ -206,7 +214,7 @@ place. Classify each remaining secret and act now — don't defer:
   rather than passing silently.
 
   Migrate the secret: recreate it on the Environment, delete the
-  repo-level copy (confirm via `AskUserQuestion` first), and set
+  repo-level copy (confirm with the user first), and set
   `environment: <name>` on the publishing job.
 
   Configure the deployment policy. Allow whichever ref classes the
@@ -252,7 +260,7 @@ place. Classify each remaining secret and act now — don't defer:
   is then the only control on that path.
 
   The original repo-level secret value isn't readable (GitHub secrets are
-  write-only), so a fresh token is needed. Ask the user via `AskUserQuestion`
+  write-only), so a fresh token is needed. Ask the user
   how to obtain it; recommend whichever fits the registry:
 
   - **CLI** — if the registry has a token-issuing CLI (e.g., `npm token create`),
@@ -304,8 +312,8 @@ workflows:
 If no CI workflows exist, either skip ci-fix (`enabled: false`) or help the
 user create one first.
 
-If the user picked workflow config at Kickoff, ask via `AskUserQuestion`
-(`multiSelect: true`) which overrides to set — otherwise set none:
+If the user picked workflow config at Kickoff, ask which overrides to set in
+a multi-select question — otherwise set none:
 
 - Setup steps and env vars (system deps, language version, pre-build
   hooks, top-level env vars)
@@ -538,10 +546,22 @@ guidance, opening with the frontmatter below so discovery lists it by
 description rather than by its first heading. An existing overlay without
 frontmatter needs it added in place.
 
-**Do NOT duplicate CLAUDE.md** and **do NOT invent project conventions.**
+**Do not create a second independent copy of project instructions** and **do
+not invent project conventions.** If the repo has only one of `CLAUDE.md` or
+`AGENTS.md`, create a relative symlink at the other name so both harnesses read
+the same content. Preserve both when both already exist, and create neither
+when neither exists:
 
-If the user picked the overlay at Kickoff, ask via `AskUserQuestion`
-(`multiSelect: true`) which tend-specific preferences to capture:
+```bash
+if [ -f CLAUDE.md ] && [ ! -e AGENTS.md ] && [ ! -L AGENTS.md ]; then
+  ln -s CLAUDE.md AGENTS.md
+elif [ -f AGENTS.md ] && [ ! -e CLAUDE.md ] && [ ! -L CLAUDE.md ]; then
+  ln -s AGENTS.md CLAUDE.md
+fi
+```
+
+If the user picked the overlay at Kickoff, ask which tend-specific
+preferences to capture in a multi-select question:
 
 - PR conventions (title format — e.g., conventional commits, Jira ticket
   prefix — and labels the bot should apply)
@@ -560,11 +580,13 @@ description: Project-specific guidance for tend workflows running on this repo.
 ---
 
 No project-specific tend preferences yet. Add guidance here as
-needed — this file is loaded by tend workflows alongside CLAUDE.md.
+needed — this file is loaded by tend workflows alongside the project's
+instruction file.
 ```
 
-Build commands, test commands, code style, and project structure belong
-in CLAUDE.md — tend reads it like any other Claude session.
+Build commands, test commands, code style, and project structure belong in
+the project's `CLAUDE.md` or `AGENTS.md`; Tend reads the applicable project
+instructions like any other agent session.
 
 ## 5. README badge
 
@@ -663,8 +685,8 @@ gh secret list --repo "$REPO" --env tend --json name --jq '.[].name' \
 
 If not set, mint per the auth mode chosen at Kickoff. Absent a Kickoff
 answer — the config records the harness, never the auth mode, so a change
-flow or a resumed install lands here without one — first ask which mode
-via `AskUserQuestion`: the two Claude options from Kickoff question 1.
+flow or a resumed install lands here without one — first ask the user to choose
+between the two Claude options from Kickoff question 1.
 
 For **OAuth token** (`sk-ant-oat01-…` from `claude setup-token`; advertised
 as 1-year), two mint paths, routed by environment rather than asked:
@@ -676,8 +698,8 @@ as 1-year), two mint paths, routed by environment rather than asked:
   `claude setup-token` (OAuth 2.0 PKCE) and prints only the token to
   stdout, so piping straight into `gh` keeps it out of the transcript.
 
-  Launch the command below with the Bash tool's `run_in_background: true`
-  — a foreground call sits blocked with the URL trapped in its pending
+  Launch the command below as a background task — a foreground call sits
+  blocked with the URL trapped in its pending
   result, and times out before the user has anything to click. Start it
   only once the user says they are at the browser: the wrapper prints the
   authorize URL within seconds, then waits — up to 15 minutes — for their
@@ -770,52 +792,43 @@ depends on Codex's internal auth mode. Use an isolated Codex login: the weekly
 workflow will rotate its refresh-token chain, so copying the user's ordinary
 `~/.codex/auth.json` would eventually break their local Codex login.
 
-Run `codex login --device-auth` with a fresh temporary `CODEX_HOME`, then verify
-that it produced a normal refreshable ChatGPT bundle without displaying it:
+Run the bundled provisioner yourself. The user approves the device login in
+their browser; they do not run commands or handle the resulting Codex
+credentials. Start it in the background, surface the URL and one-time code from
+its output, and keep reading until it exits:
 
 ```bash
-TEND_CODEX_HOME=$(mktemp -d)
-CODEX_HOME="$TEND_CODEX_HOME" codex \
-  -c 'cli_auth_credentials_store="file"' login --device-auth
-jq -e '
-  .auth_mode == "chatgpt" and
-  ([.tokens.access_token, .tokens.refresh_token, .tokens.id_token, .tokens.account_id]
-   | all(type == "string" and length > 0))
-' "$TEND_CODEX_HOME/auth.json" >/dev/null
+python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" provision --repo "$REPO"
 ```
 
-If `codex` is not installed, use `npx -y @openai/codex@latest -c
-'cli_auth_credentials_store="file"' login --device-auth` with the same
-`CODEX_HOME` assignment.
+The provisioner uses `codex`, or `npx -y @openai/codex@latest` when the CLI is
+absent. It validates and splits the login, stores both GitHub secrets without
+printing them, verifies the secret names, and removes its temporary Codex home.
 
-Store the full bundle first, then its access-only projection:
+The serialized refresh workflow also needs a fine-grained PAT scoped only to
+`$REPO`, with repository permission **Environments: Read and write**;
+`GITHUB_TOKEN` cannot replace environment secrets. GitHub does not provide an
+API for minting this PAT. Open a prefilled token form, then select **Only select
+repositories** and `$REPO`; the user handles any password or 2FA prompt and
+clicks **Generate token**, then **Copy**:
 
 ```bash
-gh secret set CODEX_REFRESH_AUTH_JSON --repo "$REPO" --env tend < "$TEND_CODEX_HOME/auth.json"
-jq -c '
-  .auth_mode = "chatgptAuthTokens" |
-  .OPENAI_API_KEY = null |
-  .tokens.refresh_token = ""
-' "$TEND_CODEX_HOME/auth.json" |
-  gh secret set CODEX_AUTH_JSON --repo "$REPO" --env tend
+python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" pat-url --repo "$REPO"
 ```
 
-The user creates a fine-grained PAT scoped only to `$REPO`, with repository
-permission **Environments: Read and write**, then runs this themselves and
-pastes it at the prompt. It lets the scheduled workflow replace the two
-environment secrets; `GITHUB_TOKEN` cannot do that.
+When the browser and shell share a clipboard, pipe the copied token to the
+provisioner without displaying it. Use the host's clipboard reader; on macOS:
 
 ```bash
-gh secret set CODEX_REFRESH_PAT --repo "$REPO" --env tend
+pbpaste | python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" store-pat --repo "$REPO"
 ```
 
-After all three secret names appear in the listing, tell the user the temporary
-directory printed by the following command still contains the refresh token
-and should be deleted when they no longer need it locally:
-
-```bash
-printf '%s\n' "$TEND_CODEX_HOME"
-```
+The provisioner validates the fine-grained-token prefix, stores the secret,
+and verifies all three subscription secret names. If no shared clipboard is
+available, have the user run `gh secret set
+CODEX_REFRESH_PAT --repo "$REPO" --env tend` in their own terminal and paste
+the token at its hidden prompt. Never ask them to paste it into chat. Finish
+only after all three secret names appear in the environment's secret listing.
 
 For **API key**, the user takes a key from
 `https://platform.openai.com/api-keys` and runs this themselves, pasting it at
@@ -990,11 +1003,10 @@ bot to do, then reflect that stance in the bot's profile bio (≤160 chars)
 so it's discoverable on the bot's user page. This is advisory — the bot
 doesn't gate behavior on it.
 
-Use the recommended stance below unless the user picked the bio at Kickoff
-or there was no Kickoff round (a change flow) — then ask via
-`AskUserQuestion` which applies. Substitute
-`<owner>/<repo>`. Order options recommended-first and mark the recommended
-one explicitly:
+Use the recommended stance below unless the user picked the bio at Kickoff or
+there was no Kickoff round (a change flow) — then ask which applies. Substitute
+`<owner>/<repo>`. Order options recommended-first and mark the recommended one
+explicitly:
 
 - `tend agent for <owner>/<repo>. I triage issues and help maintain <repo>.` (Recommended — invites issue/PR engagement without inviting open-ended Q&A)
 - `tend agent for <owner>/<repo>. Feel free to ask me questions about <repo>.` (Most permissive — invites contributor questions)
@@ -1059,6 +1071,7 @@ line picks the row that matches the chosen harness):
 - [ ] Immutable releases: enabled before the next release
 - [ ] Release/deploy secrets: environment-protected; the environment's deployment-branch-policies list only the admin-gated refs from §3 (default branch and/or all tags)
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
+- [ ] Project instructions: `CLAUDE.md` and `AGENTS.md` share one source when only one existed before install
 - [ ] Badge: added to README (unless skipped, or no README)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set

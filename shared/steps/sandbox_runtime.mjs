@@ -30,7 +30,7 @@ async function main() {
   const agentWorkspace = absolute("TEND_AGENT_WORKSPACE");
   const runnerWorkspace = absolute("TEND_RUNNER_WORKSPACE");
   const agentHome = absolute("AGENT_HOME");
-  const stepSummaryDir = absolute("TEND_STEP_SUMMARY_DIR");
+  const agentTmpDir = absolute("TMPDIR");
   const runnerHome = absolute("TEND_RUNNER_HOME");
   const actionPath = absolute("ACTION_PATH");
   const eventPath = absolute("GITHUB_EVENT_PATH");
@@ -49,6 +49,10 @@ async function main() {
   }
 
   const { SandboxManager } = await import(`file://${entry}`);
+  // SRT otherwise replaces TMPDIR with its default /tmp/claude path when
+  // filesystem isolation is enabled. Keep its generated child environment on
+  // Tend's already-writable scratch directory.
+  process.env.CLAUDE_CODE_TMPDIR = agentTmpDir;
   const command = `/usr/bin/python3 -E -s ${quote(lifecycle)}`;
   const config = {
     network: {
@@ -66,7 +70,6 @@ async function main() {
         actionPath,
         agentWorkspace,
         agentHome,
-        stepSummaryDir,
         eventPath,
         agentEnv,
         seccomp,
@@ -76,7 +79,6 @@ async function main() {
       allowWrite: [
         agentWorkspace,
         agentHome,
-        stepSummaryDir,
         ...(autoMemory ? [autoMemory] : []),
       ],
       denyWrite: [],

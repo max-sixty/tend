@@ -74,7 +74,7 @@ def test_install_plugin_exports_the_single_sandbox_root(
         str(marketplace),
     ]
     codex_calls = [args for args, _ in calls if "/opt/codex/bin/codex" in args]
-    assert len(codex_calls) == 3
+    assert len(codex_calls) == 4
     assert all(
         args[:5]
         == ["/usr/bin/sudo", "-u", "tend-sandbox", "/usr/bin/env", f"HOME={agent_home}"]
@@ -87,6 +87,8 @@ def test_install_plugin_exports_the_single_sandbox_root(
         "add",
         str(marketplace),
     ]
+    assert codex_calls[1][-3:] == ["plugin", "add", "install-tend@tend"]
+    assert codex_calls[2][-3:] == ["plugin", "add", "tend-ci-runner@tend"]
 
 
 def test_install_plugin_rejects_a_root_outside_the_sandbox_home(
@@ -258,7 +260,7 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
     run_dir = agent_home / "run"
     run_dir.mkdir()
     monkeypatch.setenv("TEND_RUN_DIR", str(run_dir))
-    monkeypatch.setenv("MODEL", "gpt-test")
+    monkeypatch.delenv("MODEL", raising=False)
     monkeypatch.setenv("PROMPT", "Review this")
     monkeypatch.setenv("AUTH_MODE", "subscription")
     monkeypatch.setenv("TEND_INSIDE_SANDBOX", "1")
@@ -287,8 +289,6 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
     assert launch[codex_at:] == [
         "/opt/codex/bin/codex",
         "exec",
-        "--model",
-        "gpt-test",
         "--dangerously-bypass-approvals-and-sandbox",
         "--output-last-message",
         str(run_dir / "codex-final-message.md"),

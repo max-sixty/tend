@@ -12,6 +12,15 @@ from typing import Any
 import launch_sandbox_runtime as launch
 import pytest
 
+RUNTIME_STEP_FILES = (
+    "_common.py",
+    "_sandbox.py",
+    "agent_lifecycle.py",
+    "run_claude.py",
+    "sandbox_runtime.mjs",
+    "sandbox_setup.py",
+)
+
 
 def configure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, harness: str
@@ -21,23 +30,43 @@ def configure(
     runner_temp.mkdir()
     run_dir.mkdir(parents=True)
     agent_env = runner_temp / "agent-env"
-    agent_env.write_text("HOME=/home/tend-sandbox\nGITHUB_TOKEN=dummy\n")
+    agent_tmp = run_dir.parent / "tmp"
+    agent_tmp.mkdir()
+    agent_env.write_text(
+        f"HOME=/home/tend-sandbox\nTMPDIR={agent_tmp}\nGITHUB_TOKEN=dummy\n"
+    )
     output = runner_temp / "github-output"
     output.touch()
     summary = runner_temp / "step-summary"
     summary.touch()
-    for name, value in {
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    action = tmp_path / "private/action"
+    steps = action / "shared/steps"
+    steps.mkdir(parents=True)
+    for name in RUNTIME_STEP_FILES:
+        (steps / name).write_text(f"{name}\n")
+    codex = action / "codex/runner.py"
+    codex.parent.mkdir()
+    codex.write_text("runner\n")
+    environment = {
         "SANDBOX": "tend-sandbox",
         "RUNNER_TEMP": str(runner_temp),
         "GITHUB_OUTPUT": str(output),
         "TEND_RUN_DIR": str(run_dir),
+        "TEND_AGENT_TMP_DIR": str(agent_tmp),
         "AGENT_ENV_FILE": str(agent_env),
         "NODE_BIN": "/trusted/node",
         "TEND_HARNESS": harness,
         "AGENT_HOME": str(run_dir.parent),
-        "TEND_STEP_SUMMARY_DIR": str(run_dir.parent),
         "GITHUB_STEP_SUMMARY": str(summary),
-    }.items():
+        "TEND_RUNTIME_ROOT": str(runtime_root),
+        "ACTION_PATH": str(action),
+        "TEND_LIFECYCLE": str(steps / "agent_lifecycle.py"),
+    }
+    if harness == "codex":
+        environment["TEND_CODEX_RUNNER"] = str(codex)
+    for name, value in environment.items():
         monkeypatch.setenv(name, value)
     return run_dir, output, summary
 
@@ -63,7 +92,7 @@ def fake_runtime(
             else:
                 (run_dir / "codex-final-message.md").write_bytes(b"finished\n")
             if write_summary:
-                (run_dir.parent / "step-summary.md").write_bytes(b"skill result\n")
+                (run_dir.parent / "tmp/step-summary.md").write_bytes(b"skill result\n")
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(subprocess, "run", run)
@@ -96,7 +125,8 @@ def test_claude_exports_only_fixed_runner_owned_files(
     assert not any("runner-token-must-not-cross" in arg for arg in runtime)
     assert not any("runner-key-must-not-cross" in arg for arg in runtime)
     assert not any(arg.startswith("GITHUB_OUTPUT=") for arg in runtime)
-    assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'step-summary.md'}" in runtime
+    assert f"TMPDIR={run_dir.parent / 'tmp'}" in runtime
+    assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'tmp/step-summary.md'}" in runtime
 
 
 def test_codex_base64_encodes_the_fixed_final_message(
@@ -113,13 +143,33 @@ def test_codex_base64_encodes_the_fixed_final_message(
     assert summary.read_bytes() == b"skill result\n\n"
 
 
+def test_runtime_bundle_is_staged_outside_the_private_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, _output, _summary = configure(tmp_path, monkeypatch, harness="codex")
+    calls = fake_runtime(monkeypatch, run_dir, harness="codex")
+
+    assert launch.main() == 0
+
+    runtime = next(args for args in calls if "sandbox_runtime.mjs" in args[-1])
+    bundle = tmp_path / "runtime/action"
+    assert runtime[-1] == str(bundle / "shared/steps/sandbox_runtime.mjs")
+    assert f"ACTION_PATH={bundle}" in runtime
+    assert f"TEND_LIFECYCLE={bundle / 'shared/steps/agent_lifecycle.py'}" in runtime
+    assert f"TEND_CODEX_RUNNER={bundle / 'codex/runner.py'}" in runtime
+    assert (bundle / "shared/steps/sandbox_setup.py").read_text() == (
+        "sandbox_setup.py\n"
+    )
+    assert (bundle / "shared/steps").stat().st_mode & 0o777 == 0o755
+
+
 def test_agent_step_summary_symlink_is_not_followed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_dir, _output, summary = configure(tmp_path, monkeypatch, harness="codex")
     secret = tmp_path / "runner-secret"
     secret.write_text("must not cross\n")
-    (run_dir.parent / "step-summary.md").symlink_to(secret)
+    (run_dir.parent / "tmp/step-summary.md").symlink_to(secret)
     fake_runtime(monkeypatch, run_dir, harness="codex", write_summary=False)
 
     assert launch.main() == 0

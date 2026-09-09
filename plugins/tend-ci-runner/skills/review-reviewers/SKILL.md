@@ -14,15 +14,15 @@ Analyze tend's CI behavior on the target repo over the window Step 1 returns. Fo
 
 Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, PR/comment formatting (line wrapping, heredoc hazards), and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply.
 
-## Cost discipline: cheap subagents for exploration
+## Cost discipline: smaller, cheaper models for exploration
 
-Session log parsing and outcome checking are token-heavy. Delegate all broad exploration to a **cheap subagent** (e.g. Haiku / gpt-mini). Keep the main agent for judgment: evaluating findings against gates, deciding whether to act, and drafting PRs.
+Session log parsing and outcome checking are token-heavy. Delegate all broad exploration to a **smaller, cheaper model**. Keep the main agent for judgment: evaluating findings against gates, deciding whether to act, and drafting PRs.
 
 Pattern:
 1. Main agent sets up context (bot identity, repo guidance, run list)
-2. Main agent spawns cheap subagent to survey outcomes across all runs → receives structured summary
+2. Main agent delegates the run survey to a subagent using a smaller, cheaper model → receives structured summary
 3. Main agent evaluates the summary against gates
-4. If needed, main agent spawns another cheap subagent to investigate specific session logs → receives diagnosis
+4. If needed, main agent delegates specific session logs to another subagent using a smaller, cheaper model → receives diagnosis
 5. Main agent drafts fix PR if warranted
 
 ## Core principle: outcomes over internals
@@ -71,7 +71,7 @@ The command finds or creates both index and gist, announces a new gist once,
 persists their ids, and prints both evidence windows.
 
 After applying the gates, write this run's findings in the format from
-`@review-gates.md` to `/tmp/findings.md`. Append a `## Run
+`@review-gates.md` to `$TMPDIR/findings.md`. Append a `## Run
 $GITHUB_RUN_ID` heading every run, including an all-clear window; the heading
 is the audit trail future runs use. Then append it:
 
@@ -105,7 +105,7 @@ gh api "repos/$ARGUMENTS/contents/.claude/skills/running-tend/SKILL.md" \
   --jq '.content' | base64 -d
 ```
 
-If the file doesn't exist, try common alternatives (`.claude/skills/running-tend.md`, `.claude/CLAUDE.md`). Understanding the repo's guidance is essential context for evaluating outcomes — without it, you'll misjudge authorized behavior as a violation.
+If the file doesn't exist, try the legacy overlay paths and the repo's root project instructions (`.claude/skills/running-tend.md`, `.claude/CLAUDE.md`, `CLAUDE.md`, `AGENTS.md`). Understanding the repo's guidance is essential context for evaluating outcomes — without it, you'll misjudge authorized behavior as a violation.
 
 Then list recently completed tend CI runs on the target repo:
 
@@ -122,11 +122,11 @@ If the script printed a `WARNING:` on stderr, the list is known-incomplete — t
 
 **State the window you analyzed.** Its floor is the previous successful run of this workflow, or 6h back when that is older. This workflow is dispatch-only, so runs sit further apart than a cron's and the floor moves accordingly: scope every claim to it — "no problems since 08:12Z", never "no problems" — and say plainly when the run was dispatched to check on something that landed before it.
 
-## Step 2: Survey outcomes via cheap subagent
+## Step 2: Survey outcomes via a smaller, cheaper model
 
-Spawn a cheap subagent to check outcomes across all runs from Step 1. The subagent does the token-heavy work of mapping runs to PRs/issues and checking acceptance signals.
+Spawn a subagent using a smaller, cheaper model to check outcomes across all runs from Step 1. The subagent does the token-heavy work of mapping runs to PRs/issues and checking acceptance signals.
 
-Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
+Use a smaller, cheaper model for the subagent and a prompt like:
 
 > Survey bot outcomes on `$ARGUMENTS` for the following runs: [run IDs from Step 1].
 > The bot's login is `$BOT_LOGIN`.
@@ -201,24 +201,24 @@ Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
 > **Corruption-scan recipe.** Save bot bodies to a file, then scan with `grep`:
 >
 > ```bash
-> mkdir -p /tmp/bot-output && : > /tmp/bot-output/all.txt
+> mkdir -p "$TMPDIR/bot-output" && : > "$TMPDIR/bot-output/all.txt"
 > # Issue/PR comments (issue_comment endpoint)
 > for n in <pr-or-issue-numbers>; do
 >   gh api "repos/$ARGUMENTS/issues/$n/comments?per_page=100" \
 >     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== #$n issue-comment \(.id) ===\n\(.body)\n\"" \
->     >> /tmp/bot-output/all.txt
+>     >> "$TMPDIR/bot-output/all.txt"
 > done
 > # Issue bodies (when bot opened the issue this window)
 > for n in <bot-opened-issues>; do
 >   gh api "repos/$ARGUMENTS/issues/$n" \
 >     --jq "select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== ISSUE #$n body ===\n\(.body)\n\"" \
->     >> /tmp/bot-output/all.txt
+>     >> "$TMPDIR/bot-output/all.txt"
 > done
 > # PR bodies (only when bot opened the PR this window)
 > for n in <bot-opened-prs>; do
 >   gh api "repos/$ARGUMENTS/pulls/$n" \
 >     --jq "select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== PR #$n body ===\n\(.body)\n\"" \
->     >> /tmp/bot-output/all.txt
+>     >> "$TMPDIR/bot-output/all.txt"
 > done
 > # PR reviews + inline review comments — any PR the bot reviewed/commented on, not just
 > # bot-opened. tend-review's output ships on human-authored PRs (the most common surface)
@@ -226,16 +226,16 @@ Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
 > for n in <pr-numbers-bot-reviewed>; do
 >   gh api "repos/$ARGUMENTS/pulls/$n/reviews" \
 >     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .submitted_at > \"<window-start>\") | \"=== PR #$n review \(.id) state=\(.state) ===\n\(.body)\n\"" \
->     >> /tmp/bot-output/all.txt
+>     >> "$TMPDIR/bot-output/all.txt"
 >   gh api "repos/$ARGUMENTS/pulls/$n/comments?per_page=100" \
 >     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== PR #$n inline-comment \(.id) ===\n\(.body)\n\"" \
->     >> /tmp/bot-output/all.txt
+>     >> "$TMPDIR/bot-output/all.txt"
 > done
-> grep -nF '${' /tmp/bot-output/all.txt        # literal ${...} interpolation failure
-> grep -nP '\\!' /tmp/bot-output/all.txt       # backslash-bang corruption
-> grep -nP '\\`' /tmp/bot-output/all.txt       # backslash-backtick corruption
-> grep -nE 'blob/main/.*#L[0-9]' /tmp/bot-output/all.txt  # un-pinned line links
-> grep -nF 'anthropics/' /tmp/bot-output/all.txt         # wrong-owner URL
+> grep -nF '${' "$TMPDIR/bot-output/all.txt"        # literal ${...} interpolation failure
+> grep -nP '\\!' "$TMPDIR/bot-output/all.txt"       # backslash-bang corruption
+> grep -nP '\\`' "$TMPDIR/bot-output/all.txt"       # backslash-backtick corruption
+> grep -nE 'blob/main/.*#L[0-9]' "$TMPDIR/bot-output/all.txt"  # un-pinned line links
+> grep -nF 'anthropics/' "$TMPDIR/bot-output/all.txt"         # wrong-owner URL
 > ```
 >
 > Cover all four bot-output surfaces: issue comments, issue bodies, PR bodies, and reviews/inline review comments. Comments-only scans miss corruption that ships in a survey-issue or PR body.
@@ -262,9 +262,9 @@ A report of little or no bot output is only usable if it carries the repo-wide s
 
 Review the subagent's summary, and verify any actor attribution before it enters a finding — a survey that credits the bot's own reply to a human turns a self-conversation into a false all-clear. Route on the buckets: if concerning outcomes exist, continue to Step 3. Otherwise judge the bot-only threads on their content — a self-review chain that went wrong is a finding even with no human in it, and one that read fine is not — and if nothing there concerns you and there are no sanity-check flags, skip to Step 6 (summary).
 
-## Step 3: Investigate concerning outcomes via cheap subagent
+## Step 3: Investigate concerning outcomes via a smaller, cheaper model
 
-For runs with negative outcome signals (or suspicious lack of output), spawn another cheap subagent to download and inspect the specific session logs.
+For runs with negative outcome signals (or suspicious lack of output), spawn another subagent using a smaller, cheaper model to download and inspect the specific session logs.
 
 **Also escalate whenever a finding will name *which run* produced an output.** A timestamp falling inside a run's start/end span does not attribute the output to it: several runs are live at once — a long scheduled run that opened the PR, the event-triggered handle answering a review on it, a racing sibling — and any of them can post. Attributing by wall-clock inclusion credits the wrong run, and the run ID then ships in a public comment. Confirm from the posting run's own log before a run ID enters a finding.
 
@@ -274,37 +274,30 @@ Grep for the write *shape*, not the endpoint — `/comments` and `/reviews` are 
 WRITES='gh (pr|issue) (comment|review|create|edit)|--method (POST|PATCH|PUT)|-X (POST|PATCH|PUT)|comments/[0-9]+/replies|git push|resolveReviewThread'
 
 # Claude logs
-for f in $(find /tmp/session-logs/<run-id> -name '*.jsonl'); do
+for f in $(find "$TMPDIR/session-logs/<run-id>" -name '*.jsonl'); do
   jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | "\(.name): \(.input | tostring)"' "$f"
 done | grep -E "$WRITES"
 
 # Codex logs — same idea against the rollout schema (/install-tend:debug-tend-run)
-for f in $(find /tmp/session-logs/<run-id> -name '*.jsonl'); do
-  jq -r 'select(.payload.type == "function_call") | "\(.payload.name): \(.payload.arguments)"' "$f"
+for f in $(find "$TMPDIR/session-logs/<run-id>" -name '*.jsonl'); do
+  jq -r 'select(.payload.type == "custom_tool_call") | "\(.payload.name): \(.payload.input)"' "$f"
 done | grep -E "$WRITES"
 ```
 
 The run whose log contains the posting call is the author. Presence is the strong signal; before concluding a run posted *nothing*, confirm you ran the variant matching the artifact you downloaded — the wrong one returns empty regardless of what the run did — and that the write you're chasing has a shape `WRITES` covers.
 
-Use a cheap subagent (e.g. Haiku / gpt-mini) and a prompt like:
+Use a smaller, cheaper model for the subagent and a prompt like:
 
 > Investigate session logs for run <run-id> on `$ARGUMENTS`.
 >
-> Download: `gh run download <run-id> -R $ARGUMENTS --pattern 'claude-session-logs*' --pattern 'codex-session-logs*' --dir /tmp/session-logs/<run-id>/` (both patterns are passed because the artifact prefix depends on the target repo's harness — Claude uploads `claude-session-logs*`, Codex uploads `codex-session-logs*`)
+> Download: `gh run download <run-id> -R $ARGUMENTS --pattern 'claude-session-logs*' --pattern 'codex-session-logs*' --dir "$TMPDIR/session-logs/<run-id>/"` (both patterns are passed because the artifact prefix depends on the target repo's harness — Claude uploads `claude-session-logs*`, Codex uploads `codex-session-logs*`)
 >
 > The concerning outcome was: <signal from Step 2>.
 >
 > If your answer will name **which run produced an output**, say which output and confirm it from the log before answering — run <paste the `WRITES` recipe above> over every `*.jsonl` under the download directory, and quote the matching tool call verbatim rather than summarising it. Don't use the truncated query below for this: the write often sits hundreds of characters into a longer command.
 >
-> **JSONL parsing** — each line has a `type` field (`user`, `assistant`, `system`). Key queries:
-> ```
-> # Tool calls in order
-> jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | "\(.name): \(.input | tostring | .[0:120])"' FILE
-> # Assistant reasoning
-> jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text' FILE
-> # Bash commands executed
-> jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "tool_use" and .name == "Bash") | .input.command' FILE
-> ```
+> Load `/install-tend:debug-tend-run` and use the parsing reference that
+> matches the downloaded artifact's harness.
 >
 > Focus narrowly: what decision did the bot make that led to this bad outcome? Trace the decision
 > chain in the JSONL for the specific problematic action. Don't parse the entire session.
@@ -346,11 +339,10 @@ PR/issue bodies should link to the evidence gist (`$GIST_URL`) so reviewers can 
 
 ## Step 6: Summary
 
-Report results in the conversation log and save a markdown summary to `/tmp/claude/step-summary.md` (a post-Claude step copies this into the GitHub Actions step summary). Use the Write tool. Include `$GIST_URL` at the top so maintainers viewing the run page can click through to the full evidence log:
+Report results in the conversation log and save a markdown summary to `$GITHUB_STEP_SUMMARY` (a later workflow step copies this into the GitHub Actions step summary). Include `$GIST_URL` at the top so maintainers viewing the run page can click through to the full evidence log:
 
 ```bash
-mkdir -p /tmp/claude
-# Then use the Write tool to author /tmp/claude/step-summary.md, starting:
+# Author $GITHUB_STEP_SUMMARY, starting:
 #
 #   ## Review-reviewers summary
 #

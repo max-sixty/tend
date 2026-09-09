@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -21,16 +22,21 @@ TRACKING_BODY = """Monthly tracking issue for `review-reviewers`. Per-target evi
 
 **Do not close manually** — a new issue is created each month.
 """
+TEMP_DIR = Path(tempfile.gettempdir())
 
 
 def _state_path() -> Path:
     return Path(
-        os.environ.get("REVIEW_REVIEWERS_STATE", "/tmp/review-reviewers-state.json")
+        os.environ.get(
+            "REVIEW_REVIEWERS_STATE", str(TEMP_DIR / "review-reviewers-state.json")
+        )
     )
 
 
 def _findings_path() -> Path:
-    return Path(os.environ.get("REVIEW_REVIEWERS_FINDINGS", "/tmp/findings.md"))
+    return Path(
+        os.environ.get("REVIEW_REVIEWERS_FINDINGS", str(TEMP_DIR / "findings.md"))
+    )
 
 
 def _issue_number(url: str) -> int:
