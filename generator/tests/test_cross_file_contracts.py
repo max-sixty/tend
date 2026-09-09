@@ -487,3 +487,24 @@ def test_nightly_regen_stages_every_path_init_writes(
         f"`tend init` writes paths the nightly regeneration never stages: {uncovered}. "
         "Widen Step 7's `git add -A` pathspecs so the regeneration PR carries them."
     )
+
+
+def test_every_workflow_pins_the_same_tend_release() -> None:
+    """`init` rewrites only the generated `tend-*.yaml` files.
+
+    Every other workflow keeps whatever `max-sixty/tend/...` ref it was last
+    given by hand, so each release leaves it a version behind until someone
+    restamps it. The nightly sweep does the restamping; this is what decides
+    whether it is needed.
+    """
+    refs = {
+        ref
+        for path in (REPO_ROOT / ".github" / "workflows").glob("*.y*ml")
+        for ref in re.findall(r"max-sixty/tend/[\w./-]+@[^\s\"']+", path.read_text())
+    }
+    assert refs
+
+    assert len({ref.split("@")[1] for ref in refs}) == 1, (
+        f"workflows pin more than one tend release: {sorted(refs)}. "
+        "Restamp the hand-maintained workflows onto the generated files' ref."
+    )
