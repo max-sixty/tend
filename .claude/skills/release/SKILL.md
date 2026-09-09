@@ -32,7 +32,7 @@ metadata:
 11. **Deploy the release to tend**: Stay on the `release` branch. Fetch and `git reset --hard origin/main`, then regenerate with the exact published package: `uvx tend@X.Y.Z init`. Follow `running-tend`'s **Nightly: restamp the hand-maintained workflow refs** in the same commit. Push and open a PR titled `chore: regenerate workflows with tend X.Y.Z`; wait for CI and review, then squash-merge it. Opening the PR is not deployment.
 12. **Exercise changed integration surfaces**: If the release changes an action, harness, authentication, model selection, plugin installation, or generated workflow behavior, dispatch a representative workflow for every affected harness from the updated `main`. Inspect the run, not just its conclusion: verify it invokes `@X.Y.Z`, exhibits the intended configuration, and completes a real agent task. The release is complete only after publication, the deployment PR merge, and these required live checks.
 
-If deployment or live validation finds a code defect, fix it on `main` and release the next patch from step 1. The published version remains a completed bootstrap only for the behavior it actually contains; keep any later fix and the original release target open until a tag containing them passes step 12.
+If deployment or live validation finds a code defect, fix it on `main` and release the next patch from step 1. When step 11's PR is still open, revert the regeneration commit on `release` and reuse that PR for the patch release; a second PR cannot use the same head branch. The published version remains a completed bootstrap only for the behavior it actually contains; keep any later fix and the original release target open until a tag containing them passes step 12.
 
 ## CHANGELOG
 
