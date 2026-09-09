@@ -115,9 +115,10 @@ gh pr list --state open --limit 100 --json number,title,headRefName \
 ```
 
 If one is open, diff its head against the prepared worktree. Where it already
-carries the same regenerated files, remove the worktree (`git worktree remove
-<path> --force`), skip the PR, and name the covering PR in the run summary.
-Ship only what it is missing — most often the restamp below.
+carries the same regenerated files, skip the PR, name the covering PR in the
+run summary, and remove the worktree (`git worktree remove <path> --force`).
+Ship anything it is missing on its own branch — the release skill asks for the
+restamp below in the release commit, so usually there is nothing to ship.
 
 ## Nightly: restamp the hand-maintained workflow refs
 
