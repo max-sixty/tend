@@ -110,7 +110,9 @@ def _prepare() -> int:
         base = _run("git", "rev-parse", f"origin/{BRANCH}").stdout.strip()
     else:
         _run("git", "push", "origin", "--delete", BRANCH, check=False)
-        base = _run("git", "rev-parse", "HEAD").stdout.strip()
+        default = github_cli.json_call("api", f"repos/{repo}")["default_branch"]
+        _run("git", "fetch", "origin", default)
+        base = _run("git", "rev-parse", "FETCH_HEAD").stdout.strip()
 
     _run("git", "worktree", "add", str(worktree), "-B", BRANCH, base)
     old_version = _version(worktree)
