@@ -319,19 +319,18 @@ rm -rf "$WORK"
 ## 6. Verify tend-mention (review events)
 
 Submit a comment review on the §5 PR that names the bot, and assert the
-bot replied to *that* review. Naming the bot is what makes the review
-actionable: a review the bot writes otherwise starts no session, since the
-review workflow applies its own findings. That is how the single bot
-identity drives the full chain: review submitted → tend-mention → reply.
-On current tend the chain includes the secretless relay hop (the review
-event re-posted as a `repository_dispatch`), but the reply is the
-assertion either way; the individual legs are visible in the run list when
-this fails.
+dispatched session ran. The chain is review submitted → relay (the review
+event re-posted as a `repository_dispatch`) → verify → handle. A review the
+bot writes otherwise starts no session, since the review workflow applies
+its own findings; naming the bot is the gate's mention-wins rule, and it is
+the only event the single bot identity can produce that reaches handle.
 
-The assertion is a nonce the reply must quote, not "a bot comment appeared
-after this timestamp". Every tend workflow posts as the same account, so a
-sibling run's comment landing in the same window would satisfy a
-timestamp-only check with the mention path completely broken.
+The assertion stops at the session, as §5's does. The session that boots
+is the bot reading its own review, and the self-loop guard tells it to exit
+silently — so a reply would assert the behaviour the guard forbids, and
+outbound posting is already §4's assertion. The session-log artifact on the
+dispatch run proves verify said yes and the harness invoked the session;
+the individual legs are visible in the run list when this fails.
 
 ```bash
 # Self-contained: after §3's reset the only open PR is §5's, so §6 does
@@ -340,45 +339,41 @@ PR=$(gh pr list --repo tend-agent/tend-integration --state open \
   --json number,title \
   --jq '[.[] | select(.title | startswith("integration-test review"))][0].number')
 [ -n "$PR" ] || { echo "tend-mention: no integration-test PR open"; exit 1; }
-NONCE="mention-$(date -u +%Y%m%d-%H%M%S)"
 
+# The relay leg registers its own tend-mention run on the review event; the
+# dispatch run is the one that carries verify and handle, so key on the
+# event rather than on the newest run of the workflow.
 PREV_RUN=$(gh run list --repo tend-agent/tend-integration \
-  --workflow tend-mention --limit 1 \
+  --workflow tend-mention --event repository_dispatch --limit 1 \
   --json databaseId --jq '.[0].databaseId // empty')
 gh pr review "$PR" --repo tend-agent/tend-integration --comment \
-  --body "@tend-agent integration test: post a PR comment quoting this token verbatim: $NONCE"
+  --body "@tend-agent integration test: this review exists to exercise the mention path; no reply is expected."
 
-# A new tend-mention run registering distinguishes "trigger never fired"
-# from "fired but no reply" when the reply assertion below fails.
 RUN_ID=""
 for _ in $(seq 1 24); do
   RUN_ID=$(gh run list --repo tend-agent/tend-integration \
-    --workflow tend-mention --limit 1 \
+    --workflow tend-mention --event repository_dispatch --limit 1 \
     --json databaseId --jq '.[0].databaseId // empty')
   [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ] && break
   sleep 5
 done
 { [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ]; } \
-  || { echo "tend-mention: workflow run never registered"; exit 1; }
+  || { echo "tend-mention: dispatch run never registered"; exit 1; }
 
-# The nonce is the end-to-end assertion: event → (relay → dispatch →)
-# verify → handle → reply. Comments only, deliberately: the seeding review
-# above is itself authored by the bot and contains the nonce, so counting
-# reviews counts the prompt and passes with the whole path broken. Asking
-# for a comment and asserting on comments keeps the two apart without
-# comparing ids across APIs — `gh pr view` reports a review's GraphQL node
-# id, the REST list a numeric one, and they never match.
-REPLIES=0
 for _ in $(seq 1 60); do
-  REPLIES=$(gh pr view "$PR" --repo tend-agent/tend-integration --json comments \
-    --jq "[.comments[]
-           | select(.author.login == \"tend-agent\" and (.body | contains(\"$NONCE\")))]
-          | length")
-  [ "$REPLIES" -ge 1 ] && break
+  read -r status conclusion < <(gh run view "$RUN_ID" \
+    --repo tend-agent/tend-integration \
+    --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
+  [ "$status" = "completed" ] && break
   sleep 10
 done
-[ "$REPLIES" -ge 1 ] \
-  || { echo "tend-mention: no bot comment quoting $NONCE on PR #$PR"; exit 1; }
+[ "$conclusion" = "success" ] || { echo "tend-mention: $status/$conclusion"; exit 1; }
+
+# A skipped handle job also concludes success, so the artifact is the
+# assertion: it exists only when verify dispatched and the session ran.
+ARTIFACTS=$(gh api "repos/tend-agent/tend-integration/actions/runs/$RUN_ID/artifacts" \
+  --jq '[.artifacts[] | select(.name | startswith("claude-session-logs"))] | length')
+[ "$ARTIFACTS" -ge 1 ] || { echo "tend-mention: no session-log artifact on run $RUN_ID"; exit 1; }
 ```
 
 ## 7. Reset (always — even on failure)
