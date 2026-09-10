@@ -334,12 +334,12 @@ verify said yes and the harness invoked the session: `Token usage` writes
 it `if: always()`, so any run that reached the action uploads one, however
 short the session.
 
-Which run carries it is not knowable in advance. `relay` has no authorship
-gate, so §5's own `tend-review` review also produces a dispatch run — one
-where verify says no, handle is skipped, and the run concludes success with
-no artifact — and it can register on either side of the snapshot below. So
-scan every dispatch run that is new since the snapshot rather than latching
-onto the newest one.
+The match is set-wise: any session-log artifact belonging to a dispatch
+run created after the seeding review. `relay` has no authorship gate, so
+§5's own `tend-review` review also yields a dispatch run — verify says no,
+handle is skipped, success with no artifact — and it may register before or
+after the seed; either way it is a run without an artifact, which the match
+ignores.
 
 ```bash
 # Self-contained: after §3's reset the only open PR is §5's, so §6 does
@@ -349,34 +349,29 @@ PR=$(gh pr list --repo tend-agent/tend-integration --state open \
   --jq '[.[] | select(.title | startswith("integration-test review"))][0].number')
 [ -n "$PR" ] || { echo "tend-mention: no integration-test PR open"; exit 1; }
 
-BEFORE=$(gh run list --repo tend-agent/tend-integration \
-  --workflow tend-mention --event repository_dispatch --limit 30 \
-  --json databaseId --jq '.[].databaseId' | sort)
-gh pr review "$PR" --repo tend-agent/tend-integration --comment \
-  --body "@tend-agent integration test: this review exists to exercise the mention path; no reply is expected."
+# Seed through the API so the cutoff is GitHub's clock, not the runner's.
+SEEDED=$(gh api --method POST "repos/tend-agent/tend-integration/pulls/$PR/reviews" \
+  -f event=COMMENT \
+  -f body="@tend-agent integration test: this review exists to exercise the mention path; no reply is expected." \
+  --jq .submitted_at)
 
-# Two failures kept apart: no dispatch run at all (the relay leg never
-# fired, or never got a runner) versus dispatch runs that all skipped the
-# session. The relay → dispatch hop is seconds with runners free and
-# minutes without, so the budget covers registration and the session.
-REGISTERED=0
+# The relay → dispatch hop is seconds with runners free and minutes
+# without, so one budget covers registration and the session.
+RUNS="[]"
 FOUND=0
 for _ in $(seq 1 60); do
-  NEW=$(gh run list --repo tend-agent/tend-integration \
-    --workflow tend-mention --event repository_dispatch --limit 30 \
-    --json databaseId --jq '.[].databaseId' \
-    | sort | comm -13 <(printf '%s\n' "$BEFORE") -)
-  for RUN_ID in $NEW; do
-    REGISTERED=1
-    ARTIFACTS=$(gh api "repos/tend-agent/tend-integration/actions/runs/$RUN_ID/artifacts" \
-      --jq '[.artifacts[] | select(.name | startswith("claude-session-logs"))] | length')
-    [ "$ARTIFACTS" -ge 1 ] && FOUND=1
-  done
-  [ "$FOUND" = 1 ] && break
+  RUNS=$(gh run list --repo tend-agent/tend-integration \
+    --workflow tend-mention --event repository_dispatch \
+    --created ">=$SEEDED" --limit 30 --json databaseId --jq '[.[].databaseId]')
+  FOUND=$(gh api "repos/tend-agent/tend-integration/actions/artifacts?per_page=100" \
+    | jq --argjson runs "$RUNS" \
+        '[.artifacts[] | select((.name | startswith("claude-session-logs"))
+                                and (.workflow_run.id | IN($runs[])))] | length')
+  [ "$FOUND" -ge 1 ] && break
   sleep 10
 done
-[ "$REGISTERED" = 1 ] || { echo "tend-mention: dispatch run never registered"; exit 1; }
-[ "$FOUND" = 1 ] || { echo "tend-mention: no dispatched session ran"; exit 1; }
+[ "$RUNS" != "[]" ] || { echo "tend-mention: dispatch run never registered"; exit 1; }
+[ "$FOUND" -ge 1 ] || { echo "tend-mention: no dispatched session ran"; exit 1; }
 ```
 
 ## 7. Reset (always — even on failure)
