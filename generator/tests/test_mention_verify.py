@@ -419,7 +419,7 @@ def test_the_bots_review_on_someone_elses_pr_is_dropped(env: dict[str, str]) -> 
 def test_the_bots_review_that_names_the_bot_still_runs(env: dict[str, str]) -> None:
     """A summons by name is judged before authorship, and the weekly
     integration test rides on that order: the bot account is the only identity
-    it has to drive the review → dispatch → reply chain with."""
+    it has to drive the review → dispatch → session chain with."""
     _review(env, user={"login": BOT}, body=f"@{BOT} quote this token: abc123")
 
     assert _verdict(env) == ("true", "mention")

@@ -318,19 +318,28 @@ rm -rf "$WORK"
 
 ## 6. Verify tend-mention (review events)
 
-Submit a comment review on the §5 PR that names the bot, and assert the
-dispatched session ran. The chain is review submitted → relay (the review
-event re-posted as a `repository_dispatch`) → verify → handle. A review the
-bot writes otherwise starts no session, since the review workflow applies
-its own findings; naming the bot is the gate's mention-wins rule, and it is
-the only event the single bot identity can produce that reaches handle.
+Submit a comment review on the §5 PR that names the bot, and assert that
+a dispatched session ran. The chain is review submitted → relay (the
+review event re-posted as a `repository_dispatch`) → verify → handle. A
+review the bot writes otherwise starts no session, since the review
+workflow applies its own findings; naming the bot is the gate's
+mention-wins rule, and it is the only event the single bot identity can
+produce that reaches handle.
 
 The assertion stops at the session, as §5's does. The session that boots
 is the bot reading its own review, and the self-loop guard tells it to exit
 silently — so a reply would assert the behaviour the guard forbids, and
-outbound posting is already §4's assertion. The session-log artifact on the
-dispatch run proves verify said yes and the harness invoked the session;
-the individual legs are visible in the run list when this fails.
+outbound posting is already §4's assertion. The session-log artifact proves
+verify said yes and the harness invoked the session: `Token usage` writes
+it `if: always()`, so any run that reached the action uploads one, however
+short the session.
+
+Which run carries it is not knowable in advance. `relay` has no authorship
+gate, so §5's own `tend-review` review also produces a dispatch run — one
+where verify says no, handle is skipped, and the run concludes success with
+no artifact — and it can register on either side of the snapshot below. So
+scan every dispatch run that is new since the snapshot rather than latching
+onto the newest one.
 
 ```bash
 # Self-contained: after §3's reset the only open PR is §5's, so §6 does
@@ -340,40 +349,35 @@ PR=$(gh pr list --repo tend-agent/tend-integration --state open \
   --jq '[.[] | select(.title | startswith("integration-test review"))][0].number')
 [ -n "$PR" ] || { echo "tend-mention: no integration-test PR open"; exit 1; }
 
-# The relay leg registers its own tend-mention run on the review event; the
-# dispatch run is the one that carries verify and handle, so key on the
-# event rather than on the newest run of the workflow.
-PREV_RUN=$(gh run list --repo tend-agent/tend-integration \
-  --workflow tend-mention --event repository_dispatch --limit 1 \
-  --json databaseId --jq '.[0].databaseId // empty')
+BEFORE=$(gh run list --repo tend-agent/tend-integration \
+  --workflow tend-mention --event repository_dispatch --limit 30 \
+  --json databaseId --jq '.[].databaseId' | sort)
 gh pr review "$PR" --repo tend-agent/tend-integration --comment \
   --body "@tend-agent integration test: this review exists to exercise the mention path; no reply is expected."
 
-RUN_ID=""
-for _ in $(seq 1 24); do
-  RUN_ID=$(gh run list --repo tend-agent/tend-integration \
-    --workflow tend-mention --event repository_dispatch --limit 1 \
-    --json databaseId --jq '.[0].databaseId // empty')
-  [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ] && break
-  sleep 5
-done
-{ [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ]; } \
-  || { echo "tend-mention: dispatch run never registered"; exit 1; }
-
+# Two failures kept apart: no dispatch run at all (the relay leg never
+# fired, or never got a runner) versus dispatch runs that all skipped the
+# session. The relay → dispatch hop is seconds with runners free and
+# minutes without, so the budget covers registration and the session.
+REGISTERED=0
+FOUND=0
 for _ in $(seq 1 60); do
-  read -r status conclusion < <(gh run view "$RUN_ID" \
-    --repo tend-agent/tend-integration \
-    --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
-  [ "$status" = "completed" ] && break
+  NEW=$(gh run list --repo tend-agent/tend-integration \
+    --workflow tend-mention --event repository_dispatch --limit 30 \
+    --json databaseId,status \
+    --jq '.[] | select(.status == "completed") | .databaseId' \
+    | sort | comm -13 <(printf '%s\n' "$BEFORE") -)
+  for RUN_ID in $NEW; do
+    REGISTERED=1
+    ARTIFACTS=$(gh api "repos/tend-agent/tend-integration/actions/runs/$RUN_ID/artifacts" \
+      --jq '[.artifacts[] | select(.name | startswith("claude-session-logs"))] | length')
+    [ "$ARTIFACTS" -ge 1 ] && FOUND=1
+  done
+  [ "$FOUND" = 1 ] && break
   sleep 10
 done
-[ "$conclusion" = "success" ] || { echo "tend-mention: $status/$conclusion"; exit 1; }
-
-# A skipped handle job also concludes success, so the artifact is the
-# assertion: it exists only when verify dispatched and the session ran.
-ARTIFACTS=$(gh api "repos/tend-agent/tend-integration/actions/runs/$RUN_ID/artifacts" \
-  --jq '[.artifacts[] | select(.name | startswith("claude-session-logs"))] | length')
-[ "$ARTIFACTS" -ge 1 ] || { echo "tend-mention: no session-log artifact on run $RUN_ID"; exit 1; }
+[ "$REGISTERED" = 1 ] || { echo "tend-mention: dispatch run never registered"; exit 1; }
+[ "$FOUND" = 1 ] || { echo "tend-mention: no dispatched session ran"; exit 1; }
 ```
 
 ## 7. Reset (always — even on failure)
