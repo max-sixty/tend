@@ -354,6 +354,7 @@ SEEDED=$(gh api --method POST "repos/tend-agent/tend-integration/pulls/$PR/revie
   -f event=COMMENT \
   -f body="@tend-agent integration test: this review exists to exercise the mention path; no reply is expected." \
   --jq .submitted_at)
+[ -n "$SEEDED" ] || { echo "tend-mention: seeding review not submitted"; exit 1; }
 
 # The relay → dispatch hop is seconds with runners free and minutes
 # without, so one budget covers registration and the session.
