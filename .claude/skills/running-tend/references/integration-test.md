@@ -318,19 +318,19 @@ rm -rf "$WORK"
 
 ## 6. Verify tend-mention (review events)
 
-Submit a comment review on the §5 PR that mentions the bot, and assert
-the bot replied to *that* review. A review the bot leaves on its own PR is
-deliberately actionable — its reviewer role speaking — so the single bot
-identity can drive the full chain: review submitted → tend-mention →
-reply. On current tend the chain includes the secretless relay hop (the
-review event re-posted as a `repository_dispatch`), but the reply is the
+Submit a comment review on the §5 PR that names the bot, and assert the
+bot replied to *that* review. Naming the bot is what makes the review
+actionable: a review the bot writes otherwise starts no session, since the
+review workflow applies its own findings. That is how the single bot
+identity drives the full chain: review submitted → tend-mention → reply.
+On current tend the chain includes the secretless relay hop (the review
+event re-posted as a `repository_dispatch`), but the reply is the
 assertion either way; the individual legs are visible in the run list when
 this fails.
 
 The assertion is a nonce the reply must quote, not "a bot comment appeared
-after this timestamp". §5's own `tend-review` usually posts a COMMENTED
-review, which is itself an actionable review event: it starts a second
-tend-mention run whose reply lands in the same window and would satisfy a
+after this timestamp". Every tend workflow posts as the same account, so a
+sibling run's comment landing in the same window would satisfy a
 timestamp-only check with the mention path completely broken.
 
 ```bash

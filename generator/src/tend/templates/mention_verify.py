@@ -76,7 +76,6 @@ def main() -> int:
     review_author = ""
     review_state = ""
     inline: list[dict[str, Any]] = []
-    fresh_inline = 0
 
     if kind == "repository_dispatch":
         kind = env.get("PAYLOAD_KIND", "")
@@ -138,7 +137,11 @@ def main() -> int:
         )
         if any(f"@{bot}" in (comment.get("body") or "") for comment in inline):
             return verdict(True, "mention")
-        fresh_inline = sum(comment.get("in_reply_to_id") is None for comment in inline)
+        # A review the bot wrote hands work to nobody: the review session
+        # applies the findings it raised. The mention checks run first, so
+        # naming the bot in a review still summons a session.
+        if review_author == bot:
+            return verdict(False)
         if review_state == "approved" and not comment_body and not inline:
             return verdict(False)
 
@@ -157,10 +160,6 @@ def main() -> int:
 
     pr = gh_json("pr", "view", pr_number, "--repo", repo, "--json", "author")
     pr_author = actor_login(pr.get("author"))
-    if kind == "pull_request_review" and review_author == bot:
-        if pr_author == bot and (comment_body or fresh_inline > 0):
-            return verdict(True, "participation")
-        return verdict(False)
     if pr_author == bot:
         return verdict(True, "participation")
 

@@ -176,9 +176,7 @@ def _inline(env: dict[str, str], *comments: dict[str, object]) -> None:
 
 
 def _fresh(body: str = "a note") -> dict[str, object]:
-    """An inline comment as GitHub serves a fresh one: no `in_reply_to_id` key
-    at all — absent rather than null, which is what the gate's object
-    construction has to normalize."""
+    """An inline comment as GitHub serves a fresh one: no `in_reply_to_id`."""
     return {"body": body, "id": 10}
 
 
@@ -394,41 +392,17 @@ def test_another_bot_that_names_us_still_runs(env: dict[str, str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The bot's own review: reviewer role handing work to author role
+# The bot's own review hands work to nobody
 # ---------------------------------------------------------------------------
 
 
-def test_the_bots_review_on_its_own_pr_with_a_body_runs(env: dict[str, str]) -> None:
-    """tend-review leaving a critique on a tend-authored PR is the reviewer
-    role handing work to the author role, not a self-loop."""
+def test_the_bots_review_on_its_own_pr_is_dropped(env: dict[str, str]) -> None:
+    """The review session applies the findings it raised, so booting a second
+    session to re-derive them from cold buys nothing. Findings in the body and
+    a fresh inline comment together: neither shape is a hand-off."""
     _review(env, user={"login": BOT}, body="This needs a test.")
     _write(env, "PR_AUTHOR_JSON", {"author": {"login": BOT}})
-
-    assert _verdict(env) == ("true", "participation")
-
-
-def test_the_bots_review_on_its_own_pr_with_a_fresh_inline_comment_runs(
-    env: dict[str, str],
-) -> None:
-    """An empty-body review owning a non-reply inline comment still carries
-    actionable signal. `in_reply_to_id` is absent rather than null on a fresh
-    comment, so the count depends on the gate normalizing the two shapes."""
-    _review(env, user={"login": BOT})
-    _write(env, "PR_AUTHOR_JSON", {"author": {"login": BOT}})
     _inline(env, _fresh())
-
-    assert _verdict(env) == ("true", "participation")
-
-
-def test_the_bots_reply_container_on_its_own_pr_is_dropped(
-    env: dict[str, str],
-) -> None:
-    """GitHub wraps an inline reply in a synthetic zero-body review. The bot's
-    own reply arriving that way is the comment its `pull_request_review_comment`
-    path already drops."""
-    _review(env, user={"login": BOT})
-    _write(env, "PR_AUTHOR_JSON", {"author": {"login": BOT}})
-    _inline(env, _reply())
 
     assert _verdict(env) == ("false", "")
 
@@ -440,6 +414,24 @@ def test_the_bots_review_on_someone_elses_pr_is_dropped(env: dict[str, str]) -> 
     _review(env, user={"login": BOT}, state="APPROVED", body="Looks good, but see #4.")
 
     assert _verdict(env) == ("false", "")
+
+
+def test_the_bots_review_that_names_the_bot_still_runs(env: dict[str, str]) -> None:
+    """A summons by name is judged before authorship, and the weekly
+    integration test rides on that order: the bot account is the only identity
+    it has to drive the review → dispatch → reply chain with."""
+    _review(env, user={"login": BOT}, body=f"@{BOT} quote this token: abc123")
+
+    assert _verdict(env) == ("true", "mention")
+
+
+def test_a_human_review_with_findings_on_a_bot_pr_runs(env: dict[str, str]) -> None:
+    """The bot is the author here and nothing else will act — a maintainer's
+    critique of a tend-opened PR is the case the author session exists for."""
+    _review(env, body="This needs a test.")
+    _write(env, "PR_AUTHOR_JSON", {"author": {"login": BOT}})
+
+    assert _verdict(env) == ("true", "participation")
 
 
 def test_a_humans_reply_container_on_a_bot_pr_still_runs(env: dict[str, str]) -> None:
