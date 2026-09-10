@@ -6,6 +6,21 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.2.6
+
+### Improved
+
+- **The review session applies its own findings on PRs the bot authored.** As on Dependabot and renovate PRs, the review run submits its review, pushes the fixes in one batch, and polls CI to green. The queued `synchronize` run then reviews the pushed head. A review the bot wrote no longer dispatches a `tend-mention` author session. Human-authored PRs are unchanged. ([#1203](https://github.com/max-sixty/tend/pull/1203))
+
+### Fixed
+
+- **Sandboxed agents get a writable `TMPDIR` under the sandbox home.** Bundled scripts and skill recipes use it instead of `/tmp/claude`, and root `/tmp` stays read-only. `TMPDIR` is now a reserved `sandbox_env` key. ([#1199](https://github.com/max-sixty/tend/pull/1199))
+- **Nightly bases its workflow-regeneration branch on the fetched default branch** rather than the checkout's current `HEAD`, so a regeneration PR opened after the sweep's survey PR no longer stacks on it. ([#1201](https://github.com/max-sixty/tend/pull/1201))
+
+### Documentation
+
+- The `authorAssociation` reference shows the field nested on comment and review objects in `gh --json` output, with the REST form for the issue or PR author's own tier. ([#1178](https://github.com/max-sixty/tend/pull/1178))
+
 ## 0.2.5
 
 ### Improved
