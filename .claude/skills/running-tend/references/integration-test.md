@@ -364,8 +364,7 @@ FOUND=0
 for _ in $(seq 1 60); do
   NEW=$(gh run list --repo tend-agent/tend-integration \
     --workflow tend-mention --event repository_dispatch --limit 30 \
-    --json databaseId,status \
-    --jq '.[] | select(.status == "completed") | .databaseId' \
+    --json databaseId --jq '.[].databaseId' \
     | sort | comm -13 <(printf '%s\n' "$BEFORE") -)
   for RUN_ID in $NEW; do
     REGISTERED=1
