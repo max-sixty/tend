@@ -133,16 +133,19 @@ Run this after the regen step, whether or not it produced a PR:
 rg -o --no-filename 'max-sixty/tend/[a-z/-]+@[0-9.]+' .github/workflows/ | sort -u
 ```
 
-Several action paths are pinned at once (`claude`, `codex`, `codex/refresh`),
-so several lines is the normal case — as are two harnesses, while
-`.config/tend.yaml` overrides one workflow to `codex`. The check is on the
-versions: pipe the same output through `sed 's/.*@//' | sort -u` and expect
-exactly one. Two or more, restamp the hand-maintained files onto the generated
-files' ref and fold it into the regen PR — same worktree, same commit. Whether
-a hand-maintained file names the right *harness* is a separate question the
-listing cannot answer; compare it against the harness `.config/tend.yaml`
-configures, and on a mismatch check what else that config change was supposed
-to carry.
+The check is on the versions rather than the line count: pipe the same output
+through `sed 's/.*@//' | sort -u` and expect exactly one. Two or more, restamp
+the hand-maintained files onto the generated files' ref and fold it into the
+regen PR — same worktree, same commit.
+
+How many lines the listing prints follows from the harnesses
+`.config/tend.yaml` selects, so read it against the current config rather than
+a remembered count. With every workflow on the default harness there is one
+`claude` path; overriding a workflow to `codex` adds `codex` and
+`codex/refresh`. Whether a hand-maintained file names the right *harness* is a
+separate question the listing cannot answer; compare it against the harness
+`.config/tend.yaml` configures, and on a mismatch check what else that config
+change was supposed to carry.
 
 ## Weekly: refresh `data/consumers.json`
 
