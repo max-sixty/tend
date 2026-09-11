@@ -202,6 +202,41 @@ def test_init_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert first_run == second_run
 
 
+def test_init_writes_only_under_the_two_directories_it_owns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The nightly regeneration stages `.github` and `.config` and nothing else.
+
+    A file `init` newly creates outside those two is invisible to that
+    staging, so the regeneration PR ships without it — which is how
+    `.github/actionlint.yaml` once left adopters who lint workflows red, and
+    left the file untracked again every night.
+    """
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+
+    assert _run_init().exit_code == 0
+
+    written = {
+        path.relative_to(tmp_path).as_posix()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+    assert ".github/actionlint.yaml" in written, "review no longer writes the ignore"
+
+    staged = [".github", ".config"]
+    uncovered = sorted(
+        path
+        for path in written
+        if not any(path == spec or path.startswith(f"{spec}/") for spec in staged)
+    )
+    assert not uncovered, (
+        f"`tend init` writes paths the nightly regeneration never stages: {uncovered}. "
+        "Widen the nightly recipe's `git add -A` pathspecs so the regeneration "
+        "PR carries them."
+    )
+
+
 # ---------------------------------------------------------------------------
 # actionlint config
 # ---------------------------------------------------------------------------
