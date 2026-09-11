@@ -127,23 +127,31 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
 
 
 def test_codex_action_drives_its_stateful_phases_through_the_runner() -> None:
-    """The action's own steps are the only callers of these two commands.
+    """The action is the only thing that reaches `runner.py`, three ways.
 
-    `runner.py` dispatches on an exact argv, and nothing runs a composite
-    action in CI, so a command renamed on one side fails its step in an
-    adopter's job rather than here. What the commands then do is covered by
-    test_codex_runner.py.
+    Two steps invoke it directly, and `Run Codex` names it in `TEND_CODEX_RUNNER`
+    for the third command, which `agent_lifecycle` issues from inside the
+    sandbox. `runner.py` dispatches on an exact argv and indexes that variable,
+    and nothing runs a composite action in CI, so a rename or a dropped
+    variable first fails in an adopter's job. What the commands then do is
+    covered by test_codex_runner.py and test_agent_lifecycle.py.
     """
     action = YAML(typ="safe", pure=True).load(
         (REPO_ROOT / "codex" / "action.yaml").read_text()
     )
+    steps = action["runs"]["steps"]
     invoked = {
         step["run"].rsplit('"', 1)[-1].strip()
-        for step in action["runs"]["steps"]
+        for step in steps
         if "runner.py" in step.get("run", "")
     }
 
     assert {"install-plugin", "stage-agents"} <= invoked
+
+    # launch_sandbox_runtime.py gates the passthrough on this being set, and
+    # agent_lifecycle.py then indexes it — unset, the codex turn raises KeyError.
+    run_codex = next(step for step in steps if step["name"] == "Run Codex")
+    assert run_codex["env"]["TEND_CODEX_RUNNER"].endswith("/runner.py")
 
 
 def test_codex_marketplace_declares_the_plugins_the_runner_installs() -> None:
