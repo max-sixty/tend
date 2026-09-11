@@ -107,7 +107,7 @@ gh api repos/{owner}/{repo}/pulls/{number} -X PATCH \
   -f title="new title" -F body=@"$TMPDIR/updated-body.md"
 ```
 
-**A description describes the whole PR, not the increment this run reviewed.** It presents the current result coherently; prior attempts and review rounds stay in the thread unless they remain relevant to the merge decision. Scope every behavior claim in it to the PR's merge base — not `last_review_sha`, and not whatever range this run happened to diff:
+**A description describes the whole PR, not the increment this run reviewed.** It presents the current result coherently; prior attempts and review rounds stay in the thread unless they remain relevant to the merge decision. Scope every behavior claim in it to the PR's merge base, not whatever range this run happened to diff:
 
 ```bash
 gh pr diff <number>   # merge-base→head, whatever this session has checked out

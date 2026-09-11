@@ -34,40 +34,26 @@ Before reading the diff, run the initial snapshot. It pins the open head, resolv
   "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" start <number>
 ```
 
-On `skip`, finish. The JSON fields replace the shell variables named below;
-`incremental_path` is either null or a file containing the commits and per-file
-line counts authored since the last review, excluding base-branch churn.
-
-When `force_full_review` is true, bypass both the already-reviewed and trivial-
-increment shortcuts: becoming ready asks for a full non-draft review.
-
-If `force_pushed_since` is `true`, the commit the bot reviewed was rewritten away: ignore `last_review_sha` entirely and review `head_sha` in full. The incremental can't run either — `last_review_sha` now names the current head rather than anything the bot read, so the range is empty and every trivial-skip heuristic keyed on it under-reports. A prior `APPROVED` is re-anchored onto the rewritten head too, so it reads as an approval of code nothing reviewed — **Submit**'s dismissal rule clears it, along with the ordinary-push case below.
-
-Otherwise, if `last_review_sha == head_sha` and `force_full_review` is false, this commit has already been reviewed — finish without posting. An unanswered conversation question directed at the bot (check below) is the exception: proceed so the review can answer it.
-
-If the bot reviewed a previous commit (`last_review_sha` exists but differs from `head_sha`), judge what was pushed since. Read two signals, both leak-free against base-merges:
-
-- The PR's three-dot diff — `gh pr diff <number>` (merge-base→head, the same diff **Read and understand the change** uses) — for the current state. Base-merge commits never enter it.
-- The **accurate incremental** in `incremental_path` — read the whole file for the trivial-skip decision below. The script excludes everything reachable from the base tip, so a base merge's own commits are not counted as new PR work.
-
-The incremental scopes the *review*, not anything this run writes about the PR as a whole: if you also edit the PR description, scope its claims to the merge base per **Keeping PR titles and descriptions current** in `/tend-ci-runner:running-in-ci`'s `references/pr-creation.md`.
-
-If `force_full_review` is false and the incremental changes are trivial, skip the full review — go directly to **Resolve handled suggestions** for any bot threads addressed by the new changes. After resolving threads: if the most recent bot review was a COMMENT that flagged issues, and those issues are now addressed, submit an APPROVE with an empty body so the PR isn't left in limbo — and the author-readiness gate under **Submit** applies here too, since these are the bot's own findings closing out rather than the author's. Use the recipe under **Submit**, which pins the commit read here. Otherwise do not submit a new review — the existing one stands. Do NOT proceed to steps 2–7; finish. Rough heuristic: changes under ~20 added+deleted lines that don't introduce new functions, types, or control flow are typically trivial.
-
-**Commit and PR authorship do not affect review behavior.** Apply the same trivial-vs-substantive heuristic regardless of who pushed the new commits. When `tend-notifications` or `tend-ci-fix` pushes a fix to a human-authored PR, reviewing (and re-approving) the updated state is expected — the reviewer role is independent of commit authorship.
-
-Then read all previous bot feedback and conversation:
+On `skip`, finish. Otherwise read every previous bot review and the conversation:
 
 ```bash
 uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
   feedback <number>
 ```
 
+These snapshot fields decide how much of the workflow runs:
+
+- **`already_reviewed`** — a bot review already stands on this exact commit. Finish without posting, unless the conversation holds an unanswered question directed at the bot; then proceed so the review can answer it.
+- **`is_draft`** — follow `references/draft-mode.md`: a lighter review submitted as COMMENT only, carrying the hidden draft marker, with no CI polling and no pushes.
+- **`incremental_path`** — the bot reviewed an earlier commit on this PR, and the file named holds the commits and per-file line counts pushed since. Read the whole file, and judge what was pushed from it and from the PR's three-dot diff (`gh pr diff <number>`, merge-base→head, the same diff **Read and understand the change** uses). Neither leaks base-branch churn: the incremental excludes everything reachable from the base tip, so a base merge's own commits are not counted as new PR work, and base-merge commits never enter the three-dot diff.
+
+The incremental scopes the *review*, not anything this run writes about the PR as a whole: if you also edit the PR description, scope its claims to the merge base per **Keeping PR titles and descriptions current** in `/tend-ci-runner:running-in-ci`'s `references/pr-creation.md`.
+
+If the incremental changes are trivial, skip the full review — go directly to **Resolve handled suggestions** for any bot threads addressed by the new changes. After resolving threads: if the most recent bot review was a COMMENT that flagged issues, and those issues are now addressed, submit an APPROVE with an empty body so the PR isn't left in limbo — and the author-readiness gate under **Submit** applies here too, since these are the bot's own findings closing out rather than the author's. Use the recipe under **Submit**, which pins the commit read here. Otherwise do not submit a new review — the existing one stands. Do NOT proceed to steps 2–7; finish. Rough heuristic: changes under ~20 added+deleted lines that don't introduce new functions, types, or control flow are typically trivial.
+
+**Commit and PR authorship do not affect review behavior.** Apply the same trivial-vs-substantive heuristic regardless of who pushed the new commits. When `tend-notifications` or `tend-ci-fix` pushes a fix to a human-authored PR, reviewing (and re-approving) the updated state is expected — the reviewer role is independent of commit authorship.
+
 **Apply the sibling-workflow dedup rule from `/tend-ci-runner:running-in-ci`'s `references/posting.md`** to both the review body and inline comments. If a prior bot comment in the conversation already covers a point — a previous review on this or an earlier commit, a `tend-mention` reply, a `tend-triage` post, anything from a tend workflow — omit it from this review and stick to diff-grounded findings. If that leaves no new diff-grounded finding on the incremental changes and the only outstanding concern is a still-unresolved thread from an earlier bot review, do not post a new review: that thread already blocks the PR, and restating "the prior thread still applies" on every push is noise. Resolve any bot threads the new commits addressed (**Resolve handled suggestions**), then finish without posting. A fresh review is warranted only when the incremental diff introduces a new finding, or resolves the last open one (then approve with an empty body — the author-readiness gate under **Submit** applies here too, since these are the bot's own findings closing out rather than the author's). When concurrent runs race (a new push while the first run is still responding), both see the same unanswered question — check whether a bot reply exists after the question's timestamp before answering. Address remaining unanswered questions in the review body (not via `gh pr comment`).
-
-#### Draft mode
-
-If `is_draft` is true, follow `references/draft-mode.md`: a lighter review submitted as COMMENT only, carrying the hidden draft marker, with no CI polling and no pushes.
 
 ### 2. Check for overlapping PRs
 
@@ -153,8 +139,6 @@ REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0
     -f event=APPROVE -f commit_id="$REVIEWED" -f body=""
 ```
 
-`$TMPDIR/reviewed-head` holds the commit this session reviewed — written by **Pre-flight checks**, rewritten by the posting preflight if HEAD moved. Every path that posts a review reads it back; see **Pin every review to the commit you read**.
-
 If there are actionable findings, submit them as a review with inline suggestions for concrete fixes. The review is a decision surface for the author, not a record of the reviewer's work: publish only distinct points that require a change or decision, with enough mechanism and evidence to make each credible and actionable. Correct paths, unaffected behavior, verification inventory, and search history stay in the session. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci` for any supporting detail.
 
 Don't explain what the code does — the author wrote it. Don't nitpick formatting — that's what linters are for. Explain why the consequence warrants a change.
@@ -195,7 +179,7 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
 
 **Attribute a withheld approval to whatever actually decided it.** Cite repo guidance as the reason only when you can name the file and heading that guidance lives in. When the call is your own judgment, identify the risky consequence and the human decision it needs; judgment is sufficient authority without inventing a repository policy.
 
-**Self-authored PRs** (`author == bot_login` in the pre-flight JSON — compare the literal bot login string, not "authored by someone senior" or "by the repo owner"): Complete steps 2–5 — self-review catches real issues (lint failures, edge cases) and is intentionally valuable. Do NOT attempt an APPROVE — GitHub rejects self-approvals. That covers the pre-flight close-out approvals too: on a self-authored PR the threads are the only thing to close out. Submit as COMMENT when there are concerns, or stay silent and skip to **Monitor CI**. The self-review exists to find concerns, not to publish a clean-path verdict or proof that earlier findings were resolved. Always post a current CI failure as a COMMENT because it is itself a concern.
+**Self-authored PRs** (`self_authored` in the pre-flight JSON): Complete steps 2–5 — self-review catches real issues (lint failures, edge cases) and is intentionally valuable. Do NOT attempt an APPROVE — GitHub rejects self-approvals. That covers the pre-flight close-out approvals too: on a self-authored PR the threads are the only thing to close out. Submit as COMMENT when there are concerns, or stay silent and skip to **Monitor CI**. The self-review exists to find concerns, not to publish a clean-path verdict or proof that earlier findings were resolved. Always post a current CI failure as a COMMENT because it is itself a concern.
 
 **Not confident enough to approve** (unfamiliar module, subtle logic): Add a `+1` reaction instead — no review needed unless there are specific observations.
 
@@ -222,11 +206,11 @@ was attempted; handle that command's failure directly. For a review POST that
 returns 422, use the recovery procedure in `references/inline-suggestions.md` instead of blindly
 rerunning the preflight.
 
-Every review POST passes its `gh api` command to the preflight after `--`. In that mode the preflight does not re-target: it runs the command only when two live snapshots and `bot_review_state.py` agree that the pinned head is open and unreviewed. This keeps the final check beside the outward action.
+Every review POST passes its `gh api` command to the preflight after `--`, which runs it only if the pinned head is still open and unreviewed. In that mode the preflight does not re-target.
 
-**Pin every review to the commit you read** — `commit_id` in every posting recipe, read back from `$TMPDIR/reviewed-head`. Two things depend on the pin. GitHub otherwise anchors the review at whatever is live when the POST lands, so the review claims code this session never saw. And the anchor is what **Pre-flight checks** reports as `last_review_sha`: pinned to the head you re-targeted onto, the queued run finds that head already reviewed and finishes without posting a second review of the same code.
+**Pin every review to the commit you read** — `commit_id` in every posting recipe, read back from `$TMPDIR/reviewed-head`, which **Pre-flight checks** wrote and the posting preflight rewrites if HEAD moved. Two things depend on the pin. GitHub otherwise anchors the review at whatever is live when the POST lands, so the review claims code this session never saw. And the anchor is what the next run's pre-flight reads as `already_reviewed`: pinned to the head you re-targeted onto, the queued run finds that head already reviewed and finishes without posting a second review of the same code.
 
-**Before APPROVE specifically**, run the settled-rollup check in `references/approving.md`: it requires the snapshot's `head_sha` to equal `$TMPDIR/reviewed-head`, no terminal `FAILURE` on the reduced rollup, and the author-readiness gate re-checked. A head mismatch or a real red withholds the approval.
+**Before APPROVE specifically**, run the settled-rollup check in `references/approving.md` — a head mismatch, a real red, or an author-stated blocker withholds the approval.
 
 Post at most one review per run. Give a verdict (**approve** or **comment**, never "request changes") when this pass has something to say: a new diff-grounded finding, or an approval because the last open concern is now resolved. If the dedup rule above left nothing new and a prior unresolved bot thread still stands, post nothing; the earlier review remains the active verdict. Post reviews through the reviews endpoint, not `gh pr comment`. Note: a COMMENT review requires a non-empty body — if there's nothing to say and no prior concern stands, use the approve-with-empty-body pattern.
 

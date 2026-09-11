@@ -161,6 +161,10 @@ def _start(pr: str) -> int:
     force_full_review = _event_forces_review()
     force_pushed = bool(review_state.get("force_pushed_since"))
     last_review_sha = str((review_state.get("last_substantive") or {}).get("sha") or "")
+    # `at_head`, not `last_review_sha == head_sha`: a force push re-points an
+    # earlier review's `.commit_id` at the rewritten head, so the raw comparison
+    # reports a commit as reviewed that nothing read.
+    already_reviewed = review_state.get("at_head") is not None and not force_full_review
     incremental_path: str | None = None
     if (
         last_review_sha
@@ -184,12 +188,9 @@ def _start(pr: str) -> int:
 
     context = {
         "head_sha": head_sha,
-        "author": str(author["login"]),
-        "bot_login": str(review_state["bot_login"]),
+        "self_authored": str(author["login"]) == str(review_state["bot_login"]),
         "is_draft": bool(initial["isDraft"]),
-        "force_full_review": force_full_review,
-        "last_review_sha": last_review_sha,
-        "force_pushed_since": force_pushed,
+        "already_reviewed": already_reviewed,
         "incremental_path": incremental_path,
     }
     if not _emit_json(context):

@@ -772,11 +772,8 @@ def test_review_skill_preserves_the_status_free_queue_contract() -> None:
         'if state != "OPEN"'
         in BOT_REVIEW_STATE.with_name("review_preflight.py").read_text()
     )
-    assert "force_full_review" in skill
-    assert (
-        "If `force_full_review` is false and the incremental changes are trivial"
-        in skill
-    )
+    assert "**`already_reviewed`**" in skill
+    assert "If the incremental changes are trivial" in skill
     assert f"Include the exact hidden marker `{DRAFT_REVIEW_MARKER}`" in skill
     assert "Open the review body with this exact line" not in skill
     assert "Post at most one review per run." in skill
