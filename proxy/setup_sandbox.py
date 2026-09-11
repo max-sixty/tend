@@ -69,6 +69,7 @@ RESERVED_SANDBOX_ENV = {
     "CODEX_AUTH_JSON",
     "CODEX_HOME",
     "TMPDIR",
+    "TMPPREFIX",
 }
 BLOCKED_COMMAND = """#!/bin/sh
 printf "tend: %s came from the runner home and is unavailable; install it into ~/.local/bin with sandbox_setup, or point sandbox_path at a copy outside the runner home\n" "${0##*/}" >&2
@@ -311,6 +312,10 @@ def base_agent_env(
         "GITHUB_WORKSPACE": str(workspace),
         "CLAUDE_CODE_REMOTE": "1",
         "TMPDIR": str(AGENT_TMP_DIR),
+        # zsh names here-document temp files from TMPPREFIX, not TMPDIR, and
+        # its default sits in the read-only root /tmp. A prefix needs only its
+        # directory to exist, which AGENT_TMP_DIR already does.
+        "TMPPREFIX": str(AGENT_TMP_DIR / "zsh"),
     }
     if anthropic_dummy:
         values[anthropic_dummy[0]] = anthropic_dummy[1]
