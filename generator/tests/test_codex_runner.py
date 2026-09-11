@@ -40,6 +40,11 @@ def _set_sandbox_env(
     monkeypatch.setenv("AGENT_ENV_FILE", str(agent_env))
     monkeypatch.setenv("SANDBOX", "tend-sandbox")
     monkeypatch.setenv("CODEX_BIN", "/opt/codex/bin/codex")
+    # The two the runner refuses to start without, cleared rather than set: a
+    # test that wants them sets them itself, and the suite run inside a tend
+    # session would otherwise inherit the live lifecycle's own values.
+    monkeypatch.delenv("TEND_INSIDE_SANDBOX", raising=False)
+    monkeypatch.delenv("AUTH_MODE", raising=False)
     return action, agent_home, agent_env
 
 
@@ -301,6 +306,11 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
 def test_run_refuses_to_create_a_second_execution_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Seeded because `_set_sandbox_env` clears them below: with them set the
+    # runner would proceed past the refusal, so that clearing is what the
+    # assertion tests — absent the seeds it is vacuous on a bare runner.
+    monkeypatch.setenv("TEND_INSIDE_SANDBOX", "1")
+    monkeypatch.setenv("AUTH_MODE", "api-key")
     _set_sandbox_env(tmp_path, monkeypatch)
 
     with pytest.raises(RuntimeError, match="only inside the SRT lifecycle"):

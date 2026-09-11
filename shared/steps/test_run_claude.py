@@ -466,6 +466,10 @@ def launch(
             "TEND_SYSTEM_PROMPT": "tend directives",
             "TEND_PROMPT": "review the PR",
             "TEND_TIMEOUT_SEC": "900",
+            # Empty, not absent: a suite run inside a tend session inherits the
+            # live run's settings file otherwise, and every argv assertion here
+            # grows the auto-memory flags it never asked for.
+            "TEND_AUTO_MEMORY_SETTINGS": "",
             "SHOW_FULL_OUTPUT": "false",
             "BOT_NAME": "tend-bot",
             "BOT_ID": "42",
@@ -580,8 +584,13 @@ def test_launch_adds_the_restored_auto_memory_settings(
 
 def test_launch_only_adds_harness_names_inside_srt(
     launch: Launcher,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The curated and SRT-adjusted environment is inherited, not replayed."""
+    # The auto-memory settings path of whatever tend run is hosting this suite.
+    # The fixture has to overwrite it, or the crossing below carries that run's
+    # flags into a launch the test never configured for them.
+    monkeypatch.setenv("TEND_AUTO_MEMORY_SETTINGS", "/host-run/.tend-settings.json")
     result = launch(stream=_ev_result())
     argv = result.command("claude").argv
     crossing = argv[1 : argv.index("claude")]

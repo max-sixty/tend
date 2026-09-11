@@ -43,6 +43,11 @@ shellcheck alone) skips ten of the thirteen hooks, including the three
 `repo: local` guards — the bang-backtick check, the install-tend mirror sync,
 and the `sandbox_env` reserved-set parity check.
 
+Inside a tend session the sandbox has no DNS, so the two tests in
+`generator/tests/test_refresh_consumers.py` fail: they drive the script
+through `uv run --script`, which resolves its dependencies from PyPI. Nothing
+else in the suite reaches the network, so a third failure is a real one.
+
 ## Architecture
 
 Four pieces:
