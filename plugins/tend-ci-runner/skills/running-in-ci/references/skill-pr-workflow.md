@@ -1,5 +1,7 @@
 # Opening a skill PR from CI
 
+Depth behind `/tend-ci-runner:running-in-ci`'s **Learning from Feedback** section: read when a maintainer's correction should become durable guidance.
+
 Turning a maintainer's correction into durable guidance: whether it clears the
 bar, whether it lands upstream in tend or in the consuming repo's
 `.claude/skills/running-tend/SKILL.md`, and the mechanics of proposing it.
@@ -131,7 +133,7 @@ workaround, since bundled skills live under `plugins/` rather than
    cd "$TMPDIR/skill-fix"
    git add .claude/skills/
    # Set git identity first if you haven't already this session — see
-   # "Configure git identity before the first commit" in SKILL.md. A fresh
+   # "Configure git identity before the first commit" in pr-creation.md. A fresh
    # worktree has no identity and the commit below fails with `Author
    # identity unknown`.
    git commit -m "skills(running-tend): ..."
@@ -151,4 +153,4 @@ workaround, since bundled skills live under `plugins/` rather than
    request; a maintainer lands it (or doesn't) in their own time. Don't post
    a separate comment pinging for review, and don't block the session
    waiting. This open-and-exit is for skill proposals only; a code fix
-   follows **CI Monitoring** in SKILL.md.
+   follows `references/ci-monitoring.md`.

@@ -1,6 +1,6 @@
 # Acting in other repos
 
-Depth behind `running-in-ci`'s **Other Repos** section.
+Depth behind `/tend-ci-runner:running-in-ci`'s **Other Repos** section: read before filing or commenting in a repo other than this one.
 
 - [Filing issues](#filing-issues)
 - [Contributing on invitation](#contributing-on-invitation)

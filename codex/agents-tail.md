@@ -14,6 +14,10 @@ sections carry load-bearing security, dedup, and CI-polling rules. A
 prefix read silently drops those and produces wrong behavior. This
 overrides any general "read only enough" guidance for tend skills.
 
+A skill's **References** list names `references/` files to read before
+particular actions — posting, pushing, opening a PR, approving. Read the
+named file in full, with `cat`, before taking that action.
+
 ALWAYS read `$running-in-ci` first (in full) when handling any
 workflow. It covers CI security rules, polling conventions, and
 comment-formatting guidance. Other skills depend on it.

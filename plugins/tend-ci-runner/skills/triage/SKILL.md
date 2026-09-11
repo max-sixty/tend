@@ -163,7 +163,7 @@ Step 3's duplicate check catches identical fixes. It misses the *same root cause
    ```bash
    gh pr create --title "fix: <description>" --body-file "$TMPDIR/pr-body.md"
    ```
-4. Wait for CI per **CI Monitoring** in `/tend-ci-runner:running-in-ci`.
+4. Wait for CI per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci`.
 
 ### If reproduction test works but fix is not confident
 
@@ -186,7 +186,7 @@ Note the PR number for the comment.
 
 ## Step 7: Comment on the issue
 
-**Recheck before posting** per **Recheck Before Posting** in `/tend-ci-runner:running-in-ci` — triage can take minutes, so re-fetch the issue and skip any point a new human comment or a sibling tend workflow already covered.
+**Recheck before posting** per **Recheck Before Posting** in `/tend-ci-runner:running-in-ci`'s `references/posting.md` — triage can take minutes, so re-fetch the issue and skip any point a new human comment or a sibling tend workflow already covered.
 
 Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`; do not restate the report or narrate the investigation. Never claim the issue is fully resolved by automation alone — an opened fix still needs maintainer review and landing. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
 

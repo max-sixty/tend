@@ -1,6 +1,6 @@
 # Grounded analysis
 
-Depth behind `running-in-ci`'s **Grounded Analysis** section: how to establish
+Depth behind `/tend-ci-runner:running-in-ci`'s **Grounded Analysis** section: how to establish
 that a claim is true before a permanent public comment carries it.
 
 - [Source evidence for user-facing claims](#source-evidence-for-user-facing-claims)

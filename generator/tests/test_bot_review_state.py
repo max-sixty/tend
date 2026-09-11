@@ -29,6 +29,13 @@ RUNNING_IN_CI_SKILL = (
     BOT_REVIEW_STATE.parent.parent / "skills" / "running-in-ci" / "SKILL.md"
 )
 
+
+def _skill_text(skill_md: Path) -> str:
+    """A skill with its references, which carry the recipes most sessions skip."""
+    parts = [skill_md, *sorted(skill_md.parent.glob("references/*.md"))]
+    return "\n".join(part.read_text() for part in parts)
+
+
 BOT = "tend-bot"
 HEAD = "head000"
 DRAFT_REVIEW_MARKER = "<!-- tend:draft-review -->"
@@ -756,7 +763,7 @@ def test_the_repo_is_named_explicitly_on_every_call(env: dict[str, str]) -> None
 
 def test_review_skill_preserves_the_status_free_queue_contract() -> None:
     """Reading and posting use the same review-state definition."""
-    skill = REVIEW_SKILL.read_text()
+    skill = _skill_text(REVIEW_SKILL)
 
     assert "repos/$REPO/statuses/$HEAD_SHA" not in skill
     assert "tend-review/<number>" not in skill
@@ -782,7 +789,7 @@ def test_review_skill_dismisses_a_standing_approval_when_it_posts_findings() -> 
     """The rule sits at the posting site, not in one push-shape's branch: the
     force-push and ordinary-push paths fail identically, and a rule stated for
     only one of them merges findings under a bot APPROVED."""
-    skill = REVIEW_SKILL.read_text()
+    skill = _skill_text(REVIEW_SKILL)
 
     assert "bot_review_state.py" in skill
     assert "dismiss <number>" in skill
@@ -795,7 +802,7 @@ def test_review_skill_defines_every_id_its_dismissal_recipes_use() -> None:
     """Step 7's CI-failure dismissal read `$REVIEW_ID`, which step 1 was the
     only site to name. With that sentence gone the path collapsed to
     `reviews//dismissals`, leaving an approval standing over a red check."""
-    skill = REVIEW_SKILL.read_text()
+    skill = _skill_text(REVIEW_SKILL)
 
     assert "$REVIEW_ID" not in skill
     # Both dismissal sites invoke the same command, so there is one mechanism.
@@ -808,7 +815,7 @@ def test_review_skill_spares_the_approval_when_the_comment_withholds_nothing() -
     approval already covers. A trigger keyed on any COMMENT dismisses there,
     withdrawing a verdict the code still earns and leaving the PR with none —
     the next run hits the already-reviewed shortcut and posts nothing."""
-    skill = REVIEW_SKILL.read_text()
+    skill = _skill_text(REVIEW_SKILL)
 
     assert "posts a COMMENT that withholds the verdict" in skill
     assert "A COMMENT that withholds nothing does not qualify" in skill
@@ -823,7 +830,7 @@ def test_a_dismissal_path_exists_for_an_invalidation_that_is_not_an_event() -> N
     which every skill that can reach that conclusion loads, and it fires on the
     conclusion rather than on a post — the dedup rules routinely (and rightly)
     suppress the comment that would otherwise carry it."""
-    skill = RUNNING_IN_CI_SKILL.read_text()
+    skill = _skill_text(RUNNING_IN_CI_SKILL)
 
     assert "bot_review_state.py" in skill
     assert "dismiss <number>" in skill

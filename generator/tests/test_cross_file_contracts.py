@@ -21,6 +21,13 @@ def _read(*parts: str) -> str:
     return REPO_ROOT.joinpath(*parts).read_text()
 
 
+def _skill(name: str) -> str:
+    """A runner skill with its references, which carry the recipes most sessions skip."""
+    skill_dir = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills" / name
+    parts = [skill_dir / "SKILL.md", *sorted(skill_dir.glob("references/*.md"))]
+    return "\n".join(part.read_text() for part in parts)
+
+
 def test_codex_ci_installs_the_diagnostic_plugin_its_runner_skills_use() -> None:
     marketplace = json.loads(_read(".agents", "plugins", "marketplace.json"))
     plugins = {plugin["name"]: plugin for plugin in marketplace["plugins"]}
@@ -37,7 +44,7 @@ def test_codex_ci_installs_the_diagnostic_plugin_its_runner_skills_use() -> None
     assert manifest["skills"] == "./skills/"
 
     for skill_name in ("running-in-ci", "review-runs", "review-reviewers"):
-        skill = _read("plugins", "tend-ci-runner", "skills", skill_name, "SKILL.md")
+        skill = _skill(skill_name)
         assert "/install-tend:debug-tend-run" in skill
 
 
@@ -266,7 +273,7 @@ def test_review_skill_retargets_a_moved_head_rather_than_discarding_it() -> None
     other way — the agent composes the body between reading the head and
     posting, and shell state does not survive a tool call.
     """
-    skill = _read("plugins", "tend-ci-runner", "skills", "review", "SKILL.md")
+    skill = _skill("review")
     preflight = _read("plugins", "tend-ci-runner", "scripts", "review_preflight.py")
 
     assert "HEAD moved — leaving" not in skill
@@ -325,7 +332,7 @@ def test_weekly_approval_pins_the_commit_it_checked() -> None:
 
     # `gh pr review --approve` cannot pin a commit; both skills post through
     # the reviews endpoint instead.
-    skill = _read("plugins", "tend-ci-runner", "skills", "review", "SKILL.md")
+    skill = _skill("review")
     for content in (skill, weekly):
         assert "gh pr review --approve" not in content
 
@@ -338,7 +345,7 @@ def test_review_approval_gates_on_author_stated_readiness() -> None:
     dedup rule's "resolves the last open one" approve — has to reach the gate,
     so each carries a pointer to it.
     """
-    skill = _read("plugins", "tend-ci-runner", "skills", "review", "SKILL.md")
+    skill = _skill("review")
 
     # Stated once, under step 6, where every approving path is sent for the
     # POST recipe.
@@ -369,14 +376,17 @@ def test_review_approval_gates_on_author_stated_readiness() -> None:
 def test_review_second_pass_is_a_submit_precondition() -> None:
     """A full review cannot quietly skip the standalone second pass, including
     after a safe re-target; both step-1 close-out paths remain exempt."""
-    skill = _read("plugins", "tend-ci-runner", "skills", "review", "SKILL.md")
+    skill = _skill("review")
 
     second_pass = skill.index("### 5. Second pass")
     submit = skill.index("### 6. Submit")
     assert second_pass < submit
-    assert "For a review that reached step 5, before submitting" in skill
-    assert "Step 1's trivial-increment and dedup close-out paths" in skill
-    assert "Run step 5 again over the updated merged tree" in skill
+    assert "For a review that reached the second pass, before submitting" in skill
+    assert (
+        "The trivial-increment and dedup close-out paths under **Pre-flight checks**"
+        in skill
+    )
+    assert "Run **Second pass** again over the updated merged tree" in skill
 
 
 def test_review_reviewers_matrix_covers_consumers() -> None:
