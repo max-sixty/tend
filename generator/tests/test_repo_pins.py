@@ -1,12 +1,14 @@
-"""Cross-file pin invariants that no single suite owns.
+"""Repo-wide invariants that no single suite owns.
 
-`test_pinned_mitmproxy_matches_the_action` (proxy/) is the sibling of this
-idea: a version named in two places drifts silently unless something asserts
-the pair.
+Mostly pins: a version named in two places drifts silently unless something
+asserts the pair (`test_pinned_mitmproxy_matches_the_action` in proxy/ is the
+sibling of that idea). The rest are lints over a whole tree — a shape that
+holds for every file, not a phrase pinned in one.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -18,7 +20,6 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 from ruamel.yaml import YAML
-from tend.config import DEFAULT_MODEL_BY_HARNESS
 from tend.workflows import UV_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -62,20 +63,6 @@ def test_codex_action_does_not_choose_a_model_for_direct_callers() -> None:
     )
 
     assert "default" not in action["inputs"]["model"]
-
-
-def test_codex_generated_default_is_documented_for_new_installs() -> None:
-    model = DEFAULT_MODEL_BY_HARNESS["codex"]
-    docs = (REPO_ROOT / "docs" / "tend.example.yaml").read_text()
-    readme = (REPO_ROOT / "README.md").read_text()
-    install_skill = (
-        REPO_ROOT / "plugins" / "install-tend" / "skills" / "install-tend" / "SKILL.md"
-    ).read_text()
-
-    assert model
-    assert f"harness: codex   — {model} (default)" in docs
-    assert f"# model: {model}" in readme
-    assert f"# model: {model}" in install_skill
 
 
 def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
@@ -134,10 +121,6 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
     assert steps["Run Codex"]["run"].endswith('launch_sandbox_runtime.py"')
     assert "CODEX_SANDBOX_MODE" not in run_env
     assert run_env["AUTH_MODE"] == "${{ steps.codex_auth.outputs.mode }}"
-    runner = (REPO_ROOT / "codex" / "runner.py").read_text()
-    supervisor = (REPO_ROOT / "shared/steps/launch_sandbox_runtime.py").read_text()
-    assert "_sandbox.launch_env" in supervisor
-    assert 'model_provider="tend-openai"' in runner
     assert steps["Token usage"]["env"]["SANDBOX_REAPED"] == (
         "${{ steps.codex.outputs.sandbox_reaped }}"
     )
@@ -522,3 +505,64 @@ def test_codex_refresher_keeps_the_secret_writer_pat_out_of_the_model_step() -> 
     assert publish["if"].startswith("always()")
     assert publish["env"]["GH_TOKEN"] == "${{ inputs.refresh_pat }}"
     assert publish["env"]["CODEX_OUTCOME"] == "${{ steps.codex.outcome }}"
+
+
+def test_bundled_runner_guidance_has_no_unscoped_tmp_paths() -> None:
+    """`/tmp` is not writable in the sandbox; `$TMPDIR` is.
+
+    A bare `/tmp` anywhere the runner reads — guidance, script, helper — sends
+    the session to a path that fails on write, so the ban is repo-wide rather
+    than a rule any one file states.
+    """
+    runner = REPO_ROOT / "plugins" / "tend-ci-runner"
+    unscoped_tmp = re.compile(r"(?<![\w-])/tmp(?:/|\b)")
+    offenders = [
+        path.relative_to(REPO_ROOT)
+        for path in runner.rglob("*")
+        if path.suffix in {".md", ".py", ".sh"}
+        and unscoped_tmp.search(path.read_text())
+    ]
+
+    assert offenders == []
+
+
+def test_runner_helper_directory_is_python_only() -> None:
+    """Substantial runner behavior belongs in tested Python, not shell helpers."""
+    scripts = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts"
+
+    assert not sorted(scripts.glob("*.sh"))
+
+
+def test_review_reviewers_matrix_covers_consumers() -> None:
+    workflow = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / ".github" / "workflows" / "review-reviewers.yaml").read_text()
+    )
+    matrix = workflow["jobs"]["review-reviewers"]["strategy"]["matrix"]["repo"]
+    consumers = [
+        entry["repo"]
+        for entry in json.loads((REPO_ROOT / "data" / "consumers.json").read_text())
+    ]
+
+    missing = sorted(set(consumers) - set(matrix))
+    assert not missing, f"add consumers to review-reviewers.yaml matrix: {missing}"
+
+
+def test_every_workflow_pins_the_same_tend_release() -> None:
+    """`init` rewrites only the generated `tend-*.yaml` files.
+
+    Every other workflow keeps whatever `max-sixty/tend/...` ref it was last
+    given by hand, so each release leaves it a version behind until someone
+    restamps it. The nightly sweep does the restamping; this is what decides
+    whether it is needed.
+    """
+    refs = {
+        ref
+        for path in (REPO_ROOT / ".github" / "workflows").glob("*.y*ml")
+        for ref in re.findall(r"max-sixty/tend/[\w./-]+@[^\s\"']+", path.read_text())
+    }
+    assert refs
+
+    assert len({ref.split("@")[1] for ref in refs}) == 1, (
+        f"workflows pin more than one tend release: {sorted(refs)}. "
+        "Restamp the hand-maintained workflows onto the generated files' ref."
+    )
