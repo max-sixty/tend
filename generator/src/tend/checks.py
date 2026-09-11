@@ -275,15 +275,15 @@ def check_branch_protection(
                 "and deletion rules could not be verified.",
             )
         unrestricted = [
-            rule_type
-            for rule_type, value in lifecycle.items()
-            if value in {"absent", "always"}
+            verb
+            for rule_type, verb in (("creation", "create"), ("deletion", "delete"))
+            if lifecycle[rule_type] in {"absent", "always"}
         ]
         if unrestricted:
             return CheckResult(
                 name,
                 False,
-                f"Branch '{branch}' lets the bot {', '.join(unrestricted)} the "
+                f"Branch '{branch}' lets the bot {' or '.join(unrestricted)} the "
                 "ref. Tend protects creation, update, and deletion as one "
                 "lifecycle.",
             )

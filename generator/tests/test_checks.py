@@ -510,7 +510,7 @@ def test_protected_branch_requires_creation_and_deletion_rules() -> None:
         result = check_branch_protection("owner/repo", "release", "my-bot")
 
     assert result.passed is False
-    assert "creation, deletion" in result.message
+    assert "lets the bot create or delete the ref" in result.message
 
 
 def test_control_plane_codeowners_requires_generated_block_last() -> None:
