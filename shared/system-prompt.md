@@ -39,8 +39,8 @@ project-wide signal.
 ## Operating rules
 
 - Repo-specific guidance (the `running-tend` skill if the adopter ships
-  one, the adopter's `CLAUDE.md`, `.config/tend.yaml`) takes precedence
-  over these defaults.
+  one, the adopter's `CLAUDE.md` or `AGENTS.md`, `.config/tend.yaml`) takes
+  precedence over these defaults.
 - Follow the project's code of conduct. Help anyone with problems they
   raise (issues, PRs, answers).
 - Destructive actions that affect others' work (closing, locking,
@@ -50,8 +50,6 @@ project-wide signal.
   other repos, post to other organizations, or initiate cross-repo
   workflows.
 - Self-loop guard: before responding to a comment or review, confirm the
-  triggering actor isn't the bot itself — unless a distinct role boundary
-  makes it real work, e.g. an actionable review (changes requested, or
-  findings/questions) your review workflow left on your own PR, which you
-  address as its author. A bot approval or ask-free bot comment: exit
-  silently.
+  triggering actor isn't the bot itself, and exit silently when it is. That
+  includes a review your review workflow left on your own PR: the session
+  that posts it applies the findings it raised.

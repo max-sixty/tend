@@ -11,11 +11,15 @@ metadata:
 
 Tend's bundled skills provide defaults; the consuming repo's `running-tend` skill overlays them. **Where the two conflict, the repo wins** — repo guidance takes precedence over bundled guidance across every skill, not just this one.
 
-If a `running-tend` skill is listed in your available skills, load it with the Skill tool before doing anything else. It typically carries PR title conventions, label policies, custom workflows to watch, and other repo-specific context. It can also define extra tasks for the job you're running — additional nightly or weekly maintenance, repo-specific health checks — which you perform as part of that job, not just keep in mind.
+If a `running-tend` skill is listed in your available skills, read it before doing anything else. It typically carries PR title conventions, label policies, custom workflows to watch, and other repo-specific context. It can also define extra tasks for the job you're running — additional nightly or weekly maintenance, repo-specific health checks — which you perform as part of that job, not just keep in mind.
 
-Repo-local skills are invoked by their unprefixed name — `Skill: running-tend`, not `Skill: tend-ci-runner:running-tend` (that prefix is reserved for this plugin's own skills, and trying it returns `Unknown skill`).
+Invoke repo-local skills by their unprefixed name — `running-tend`, not `tend-ci-runner:running-tend` (that prefix is reserved for this plugin's own skills).
 
 If you are going to propose a code fix for a bug, load `/tend-ci-runner:triage` first — it contains reproduction and testing gates that apply to all fix attempts, not just initial triage.
+
+## Temporary Files
+
+Tend sets `$TMPDIR` to `/home/tend-sandbox/tmp`, the writable scratch directory. Shell commands expand `$TMPDIR`; file-writing tools need the absolute path.
 
 ## Conduct
 
@@ -72,7 +76,7 @@ Before the session starts, both harnesses restore `CLAUDE.md`, `CLAUDE.local.md`
 
 - The working tree holds the **base** content — grepping it reports the PR's additions as absent, and the repo-local skills loaded into this session are the base versions too. Read the PR's version with `git show HEAD:<path>` before making any claim about what these files contain.
 - `git status` shows a modification nobody made and `git diff` shows the PR's edit as deletions. Where the pin ran, that is the restore, not a contributor mistake — nothing to report or revert. On an unpinned event it is a real modification, worth reading.
-- **Never stage one of these paths from the PR checkout** — `git add <path>`, `git add -A`, and `git commit -a` all copy the worktree over the index, committing the base version back over the PR's own edit. Commit them from a `/tmp` worktree instead (see `references/skill-pr-workflow.md`).
+- **Never stage one of these paths from the PR checkout** — `git add <path>`, `git add -A`, and `git commit -a` all copy the worktree over the index, committing the base version back over the PR's own edit. Commit them from a `$TMPDIR` worktree instead (see `references/skill-pr-workflow.md`).
 
 ### Triggering issue/PR already closed
 
@@ -90,15 +94,15 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 
 ## Restrictions
 
-- **Secrets**: Never print a process's environment or command line, your own or another process's, and never print a credential from anywhere else. Reading is fine where the output doesn't carry the value: `pgrep -f pytest` is allowed but `pgrep -af pytest` is not, and `set -euo pipefail`, `export FOO=bar`, and `env FOO=bar cmd` are fine where bare `set`, `export`, and `env` are not. Commands that do print, among others: `printenv`, `ps aux`, `ps -ef`, `pgrep -a`, `cat /proc/<pid>/environ`, `cat /proc/<pid>/cmdline`, `gh auth token`, and `cat`/`echo` on a credential file. Filtering buys no exception, because you can't tell the output is value-free without reading the values: continuation lines of a multi-line value carry no `=`, so `env | cut -d= -f1` prints them verbatim. The session log is uploaded as an artifact, so one printed value is enough. Both harnesses run as the non-sudo sandbox user with a dummy PAT; a runner-owned proxy injects the real PAT only for exact GitHub hosts and checkout removes its persisted credential before handing over the workspace. Claude gets dummy model auth through the same proxy. Codex API-key sessions use a narrow Responses proxy, while subscription sessions receive an expiring access-only token but never the refresh credential. The supervising `sudo` still keeps the sandbox launch environment in its argv, so `ps` exposes every dummy and adopter-supplied value. Narrow a legitimate check rather than skipping it: `ps -eo pid,etime,comm` answers "is it still running?" with no argv in the output. Never include tokens or credentials in responses or comments.
+- **Secrets**: Never print a process's environment or command line, your own or another process's, and never print a credential from anywhere else. Reading is fine where the output doesn't carry the value: `pgrep -f pytest` is allowed but `pgrep -af pytest` is not, and `set -euo pipefail`, `export FOO=bar`, and `env FOO=bar cmd` are fine where bare `set`, `export`, and `env` are not. Commands that do print, among others: `printenv`, `ps aux`, `ps -ef`, `pgrep -a`, `cat /proc/<pid>/environ`, `cat /proc/<pid>/cmdline`, `gh auth token`, and `cat`/`echo` on a credential file. Filtering buys no exception, because you can't tell the output is value-free without reading the values: continuation lines of a multi-line value carry no `=`, so `env | cut -d= -f1` prints them verbatim. The session log is uploaded as an artifact, so one printed value is enough. Both harnesses run the agent as a separate non-sudo sandbox user. Runner-owned proxies hold the bot PAT and API-key or OAuth model credentials. The sandbox gets dummies or a local model endpoint; subscription-mode Codex receives an expiring access token. The outer `sudo env` launch carries the agent's environment in its argv, so process listings still expose dummies and any adopter-supplied value. Narrow a legitimate check rather than skipping it: `ps -eo pid,etime,comm` answers "is it still running?" with no argv in the output. Never include tokens or credentials in responses or comments.
 - **Merging**: Follow the system prompt's merge mode. Never enable auto-merge. Under `yolo`, merge only through the pull-request API with the current head SHA; if GitHub refuses it, leave the PR open.
 - **Scope**: By default, PRs, pushes, and comments on existing threads in other repos are off-limits — the point is to never *spam* repos outside the bot's area of ownership. The exception is an **explicitly invited** contribution: when a maintainer of the target repo asks for it in-thread, or the target's published contributing policy welcomes it, AND the contribution helps the repo the bot maintains (e.g. upstreaming a fix for a dependency bug the bot is working around), the bot may open a PR or comment on that thread. Absent one, the default holds — surface the blocker rather than routing around it. **Other Repos** below carries all three cases.
 - **Hanging commands**: Never use `gh run watch` or `gh pr checks --watch` — both hang indefinitely. Poll with `gh pr checks` in a loop instead.
-- **Privileges**: Under either harness you run as a non-sudo sandbox user, so `sudo` fails and no installer that escalates can work from inside the session. Maintainer mode may use runner-side `setup:` shell steps before the agent starts; action steps (`uses:`) are refused in both modes because their POST phase runs after the agent, and yolo refuses all runner-side setup. Use `sandbox_path:` for an omitted shared directory and `sandbox_setup:` for a home-scoped install or version change that needs commands or repository manifests. A missing gate tool is reported, not worked around: propose the appropriate config entry and say the gate went unrun rather than substituting a weaker command that turns it into a silently green run.
+- **Privileges**: Under both harnesses you run as a non-sudo sandbox user, so `sudo` fails and no installer that escalates can work from inside the session. A tool that needs root belongs in the repo's `setup:` steps in `.config/tend.yaml`, which run as `runner` — with sudo — before the agent starts; yolo mode refuses runner-side `setup:` entirely. When a tool you need requires root, propose that `setup:` entry under maintainer mode rather than working around its absence. The sandbox's PATH includes shared system/toolcache locations and independently seeded sandbox-home tools, but never the runner's home itself: use `sandbox_path:` for an omitted shared directory and `sandbox_setup:` for a later home-scoped install or version change. A missing gate tool is reported, not worked around: propose the appropriate config entry and say the gate went unrun rather than substituting a weaker command that turns it into a silently green run.
 
 ## End the turn only when work is shipped
 
-Emitting `end_turn` ends the CI session — the runner is discarded, and the harness does not reliably resume it from a background-task completion. If you `end_turn` while a `run_in_background: true` Bash whose result was going to gate the deliverable is still running, the task either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `/tmp/comment-body.md` — dies with it.
+Returning the final response ends the CI session — the runner is discarded, and the harness does not reliably resume it when a background task completes. If you return while a background command whose result was going to gate the deliverable is still running, the task either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `$TMPDIR/comment-body.md` — dies with it.
 
 The session is live until the deliverable is **maintainer-visible**: pushed, posted, or opened. Local-only state — a commit nobody else can see, a comment body never sent — does not count and is not recoverable on a follow-up.
 
@@ -158,7 +162,7 @@ If an existing PR addresses the same problem, work on that PR instead.
 
 ### Configure git identity before the first commit
 
-Runners don't always pre-seed a git identity, and a fresh `git worktree` never inherits one. Without it `git commit` fails with `Author identity unknown`, the branch gets pushed with **no commit**, and `gh pr create` then fails with `No commits between main and <branch>`. Set it once before your first commit — `--global` covers the main checkout and every `/tmp` worktree in one shot, and it's idempotent, so re-running is safe:
+Runners don't always pre-seed a git identity, and a fresh `git worktree` never inherits one. Without it `git commit` fails with `Author identity unknown`, the branch gets pushed with **no commit**, and `gh pr create` then fails with `No commits between main and <branch>`. Set it once before your first commit — `--global` covers the main checkout and every `$TMPDIR` worktree in one shot, and it's idempotent, so re-running is safe:
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
@@ -289,14 +293,14 @@ PINNED_SHA=$(git rev-parse HEAD)
 # In a review session, HEAD is the ephemeral refs/pull/N/merge commit, which
 # carries no rollup at all; pin the PR head instead:
 #   PINNED_SHA=$(gh pr view <number> --json headRefOid --jq '.headRefOid')
-# When the push happened in a /tmp worktree the recipe then removes, capture
-# the OID there — `git rev-parse HEAD > /tmp/<name>-sha` — before the removal.
+# When the push happened in a $TMPDIR worktree the recipe then removes, capture
+# the OID there — `git rev-parse HEAD > "$TMPDIR/<name>-sha"` — before the removal.
 # Back in the main checkout HEAD is the default branch, not what you pushed.
 uv run --script \
   "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" poll <number> "$PINNED_SHA"
 ```
 
-Invoke this Bash call in the foreground (no `run_in_background`) with `timeout: 600000` (10 min) — the poll runs up to ~9.5 minutes, and the default 2-min Bash timeout would kill it early.
+Run this command in the foreground and allow at least 10 minutes — the poll runs up to ~9.5 minutes, and a shorter command timeout would kill it early.
 
 Exit 0 is green, judged on the latest run of each check — where one workflow ran twice *independently* on the same SHA, read the earlier run's own conclusion before relying on it. Exit 1 is red, with the failing checks and their run URLs: diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and poll the new commit. Any other exit is **unverified, not green** — the script prints why. The cap is the whole poll budget — the pending count includes advisory jobs (an hourly benchmark matrix never reaches zero), so don't re-enter the loop; report the still-pending checks as unverified, marking each required or advisory (`gh pr checks <number> --required` lists the required contexts already registered on the commit; an omnibus that hasn't registered yet is required too).
 
@@ -322,11 +326,11 @@ If you cannot verify, say "I haven't confirmed whether these failures are pre-ex
 
 ### A review that lands while you poll is not yours to action
 
-`tend-review` fires on any PR you open, so its review often arrives while you are still polling that PR's checks. Don't act on it. `tend-mention` is dispatched on `pull_request_review` for every PR the bot authored, and that dispatch runs whether or not you also respond — so a session that starts editing is racing a run already making the same edits and running the same suite. The loser only finds out at `git push`, discards its commit, and the whole fix-and-verify cycle is paid twice for one review.
+`tend-review` fires on any PR you open, so its review often arrives while you are still polling that PR's checks. Don't act on it. That review session applies the findings it raised itself, so a session that starts editing is racing a run already making the same edits and running the same suite. The loser only finds out at `git push`, discards its commit, and the whole fix-and-verify cycle is paid twice for one review.
 
 Poll your checks to terminal, do the follow-up you were gated on, and exit; name the outstanding review in your summary. This covers a review that arrives *while* you work — a session dispatched to answer a specific review owns that review and actions it normally.
 
-**On a fork PR the premise fails — nothing succeeds you.** `tend-mention`'s relay job is gated on `head.repo.full_name == github.repository`, so a review on a fork PR dispatches nothing, and the notifications poll named as that filter's fallback can't see it either: GitHub doesn't notify an actor of their own activity, so the bot's own review is invisible there by construction. Findings left for a successor session strand until a human happens to comment. So if you pushed the commits under a maintainer directive you are the de-facto author — action your own review's findings before ending. If you pushed them without one, name them in your closing comment as unaddressed and unowned, so the thread shows someone has to pick them up. A review on commits the contributor pushed already reached them — leave it.
+**On a fork PR the premise fails — nothing succeeds you.** The review session applies its own findings only where the PR has no human author, and a fork PR is the contributor's — so the review posts them and stops. The notifications poll can't pick them up either: GitHub doesn't notify an actor of their own activity, so the bot's own review is invisible there by construction. Findings left for a successor session strand until a human happens to comment. So if you pushed the commits under a maintainer directive you are the de-facto author — action your own review's findings before ending. If you pushed them without one, name them in your closing comment as unaddressed and unowned, so the thread shows someone has to pick them up. A review on commits the contributor pushed already reached them — leave it.
 
 ### Rerunning failed jobs
 
@@ -349,11 +353,11 @@ Reply in context rather than creating new top-level comments:
   ```
   To reply:
   ```bash
-  cat > /tmp/reply.md << 'EOF'
+  cat > "$TMPDIR/reply.md" << 'EOF'
   Your response here
   EOF
   gh api repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies \
-    -F body=@/tmp/reply.md
+    -F body=@"$TMPDIR/reply.md"
   ```
 
 - **Review events with inline comments** (review ID in prompt): A review may include inline comments. Fetch them by review ID and reply to each individually:
@@ -383,7 +387,7 @@ If a maintainer has already addressed the point, exit silently unless you can ad
 
 ## Self-conversation Guard
 
-If you are responding to your own prior comment or review (not a human's reply to it), only respond if there is a distinct role boundary (e.g., you are the reviewer on your own PR and need to address review feedback). If there is no such role distinction, exit silently to avoid self-conversation loops.
+If you are responding to your own prior comment or review (not a human's reply to it), exit silently to avoid self-conversation loops.
 
 **Exception — bot-authored issues with no prior bot comments.** A freshly-opened issue the bot authored (nightly failure, CI report, code-quality finding) is a report to act on, not a self-conversation. Triage it normally. The Recheck Before Posting guard below still prevents duplicate triage comments if a sibling run fires on the same issue.
 
@@ -459,11 +463,11 @@ For example, supporting material may use this shape when it helps the next reade
 
 ### Mechanics
 
-**Compose bodies with the Write tool, then post with `--body-file`.** The composed file is reviewable before it ships, quoting and escaping are non-issues, and line wrapping is just file content. The bot writes to `/tmp/` constantly — one more file is cheap. `--body "…"` is fine only for a one-line body containing no backtick, `$`, or `\`. Inside double quotes bash runs a backticked span as a command and substitutes its output, so a markdown inline-code span is silently deleted from the posted comment: `` --body "`some-check` now passes" `` ships as ` now passes`. Inline code appears in nearly every body the bot writes, and single-quoting instead breaks on any apostrophe, so reach for `--body-file` whenever the text is anything but plain prose.
+**Write bodies to a file, then post with `--body-file`.** The composed file is reviewable before it ships, quoting and escaping are non-issues, and line wrapping is just file content. Put the file under `$TMPDIR`. `--body "…"` is fine only for a one-line body containing no backtick, `$`, or `\`. Inside double quotes bash runs a backticked span as a command and substitutes its output, so a markdown inline-code span is silently deleted from the posted comment: `` --body "`some-check` now passes" `` ships as ` now passes`. Inline code appears in nearly every body the bot writes, and single-quoting instead breaks on any apostrophe, so reach for `--body-file` whenever the text is anything but plain prose.
 
 ```bash
-# After writing /tmp/comment-body.md with the Write tool:
-gh issue comment "$ISSUE" --body-file /tmp/comment-body.md
+# After writing $TMPDIR/comment-body.md:
+gh issue comment "$ISSUE" --body-file "$TMPDIR/comment-body.md"
 ```
 
 **Line wrapping:** GitHub renders newlines literally in issue bodies, PR descriptions, and comments — a line break in the source becomes a `<br>` in the output, so a paragraph hard-wrapped at ~72 chars ships with mid-sentence breaks. Write each paragraph as a single long line and let the browser reflow. Code blocks, bullet lists, and tables keep their newlines as-is.
@@ -476,21 +480,21 @@ Always use markdown links for files, issues, PRs, and docs. **Any link containin
 
 ```bash
 uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/check_body_links.py" /tmp/comment-body.md
+  "${CLAUDE_PLUGIN_ROOT}/scripts/check_body_links.py" "$TMPDIR/comment-body.md"
 ```
 
 It resolves every 40-hex SHA in the body against the API and reports any `#L` anchor pinned to a branch or an abbreviation. Resolving is the part a scan by eye cannot do: a hand-typed OID is well-formed whether or not the commit exists, so a fabricated SHA — the model extending an abbreviation it saw in `git log` instead of running `git rev-parse HEAD` — reads as correctly pinned and ships a permalink that 404s. Run it after the push when the body cites a commit from this session; before the push that commit is unreachable and reports as dead, correctly.
 
 **Owners it cannot check — read `$GITHUB_REPOSITORY` from the environment, don't hand-type the owner.** The model reliably guesses wrong — past comments have shipped with the wrong owner (e.g. `anthropics/<repo>` on a repo not owned by Anthropic). The script catches a wrong owner on a SHA-pinned link, because that URL does not resolve either; on every other link, scan the body's `github.com/` hits and confirm each owner is either `$GITHUB_REPOSITORY` or a repo the text genuinely means.
 
-**Authoring fenced bodies with backticks.** When a body contains a fenced code block, the model often defensively escapes the inner fence (`` \`\`\`bash ``) "to prevent it from closing the outer fence early"; the same instinct can produce `` \`foo\` `` for inline spans. Those backslashes survive into the rendered body as literal `\` characters. Author with bare backticks. For nested fenced blocks, use a **longer outer fence** — four or five backticks outside, three inside — so the inner three-backtick fence renders intact without escaping. The Write tool preserves data verbatim, so the same authoring rule applies whether you compose with the Write tool or inline; Write just removes shell-quoting from the equation.
+**Authoring fenced bodies with backticks.** When a body contains a fenced code block, the model often defensively escapes the inner fence (`` \`\`\`bash ``) "to prevent it from closing the outer fence early"; the same instinct can produce `` \`foo\` `` for inline spans. Those backslashes survive into the rendered body as literal `\` characters. Author with bare backticks. For nested fenced blocks, use a **longer outer fence** — four or five backticks outside, three inside — so the inner three-backtick fence renders intact without escaping. Writing the body to a file preserves data verbatim and removes shell quoting from the equation.
 
 - **File-level link (no `#L` anchor)**: `blob/main/src/foo.rs` is fine
 - **Line reference**: `blob/<sha>/src/foo.rs#L42` — commit SHA required, never `blob/main/...#L42`
 - **Issues/PRs**: `#123` shorthand
 - **External**: `[text](url)` format
 
-Don't add job links, footers, or authorship sign-offs (e.g. `> _Written by Claude Code on behalf of @maintainer_`) — the bot account already conveys authorship, and the harness suppresses the default Claude Code footer. This covers PR and issue bodies too, not just comments.
+Don't add job links, footers, or authorship sign-offs (e.g. `> _Written by an agent on behalf of @maintainer_`) — the bot account already conveys authorship, and the harness suppresses the client's default footer. This covers PR and issue bodies too, not just comments.
 
 ## Keeping PR Titles and Descriptions Current
 
@@ -498,7 +502,7 @@ When review changes the approach, recompose the title and description around the
 
 ```bash
 gh api repos/{owner}/{repo}/pulls/{number} -X PATCH \
-  -f title="new title" -F body=@/tmp/updated-body.md
+  -f title="new title" -F body=@"$TMPDIR/updated-body.md"
 ```
 
 **A description describes the whole PR, not the increment this run reviewed.** It presents the current result coherently; prior attempts and review rounds stay in the thread unless they remain relevant to the merge decision. Scope every behavior claim in it to the PR's merge base — not `last_review_sha`, and not whatever range this run happened to diff:
@@ -517,7 +521,7 @@ Split unrelated changes into separate PRs — one concern per PR. If one change 
 
 Load `/install-tend:debug-tend-run` for session log download, JSONL parsing queries, and diagnostic workflow. The primary evidence for diagnosing bot behavior is the session log artifact — not console output.
 
-Review-response runs triggered by `pull_request_review` or `pull_request_review_comment` events sometimes produce no artifact when the session is very short.
+A run triggered by `pull_request_review` or `pull_request_review_comment` executes only the `relay` job and never carries a session or an artifact. The session for a review event runs under the `repository_dispatch` run the relay creates — look there.
 
 ## Recalling Prior Context on This Thread
 
@@ -538,7 +542,7 @@ Download a chosen run's log and parse it with the recipes in `/install-tend:debu
 
 ```bash
 RUN_ID=<chosen run>
-DEST="/tmp/thread-history/$RUN_ID"
+DEST="$TMPDIR/thread-history/$RUN_ID"
 gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" --pattern '*session-logs*' --dir "$DEST"
 find "$DEST" -name '*.jsonl'
 ```

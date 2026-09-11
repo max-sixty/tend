@@ -34,8 +34,8 @@ RESTORE_SENSITIVE_CONFIG = (
 # fork can give an instruction path — a rewrite, a move, a directory's name
 # pointed outside the checkout (so a write or delete through it would land
 # there), a directory swapped for a file and a file for a directory, and files
-# or a `.claude` / `.agents` symlink planted where the base has none. Both
-# harnesses' pin scripts run against it and are held to the same end state.
+# or a `.claude` / `.agents` symlink planted where the base has none. The shared
+# restoration step is held to the resulting exact end state.
 _BASE = {
     "README.md": "base readme\n",
     "CLAUDE.md": "root guidance\n",
@@ -196,21 +196,29 @@ _PINNED = {
 
 
 def _pin(
-    script: Path,
     repo: Path,
     event: Path,
-    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    env = {
-        "PATH": tool_path(),
-        "GITHUB_EVENT_NAME": "pull_request_target",
-        "GITHUB_EVENT_PATH": str(event),
-    }
-    env.update(extra_env or {})
-    return subprocess.run(
-        [BASH, str(script)],
+    payload = json.loads(event.read_text())
+    base_ref = payload.get("pull_request", {}).get("base", {}).get("ref", "")
+    base = subprocess.run(
+        ["git", "rev-parse", f"origin/{base_ref}"],
         cwd=repo,
-        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return subprocess.run(
+        [BASH, str(RESTORE_SENSITIVE_CONFIG)],
+        cwd=repo,
+        env={
+            "PATH": tool_path(),
+            "GITHUB_EVENT_NAME": "pull_request_target",
+            "GITHUB_EVENT_PATH": str(event),
+            "TEND_CONFIG_BASE_SHA": (
+                base.stdout.strip() if base.returncode == 0 else "0" * 40
+            ),
+        },
         capture_output=True,
         text=True,
         check=False,
@@ -227,7 +235,7 @@ def test_restore_sensitive_config_matches_base_for_every_instruction_path(
     symlinks."""
     repo, outside, event = _tampered_checkout(tmp_path)
 
-    result = _pin(RESTORE_SENSITIVE_CONFIG, repo, event)
+    result = _pin(repo, event)
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert _tree(repo) == _PINNED
@@ -242,26 +250,33 @@ def test_restore_sensitive_config_matches_base_for_every_instruction_path(
     assert staged.stdout == "", staged.stdout
 
 
-def test_restore_sensitive_config_pins_relayed_pr_event(
+def test_restore_sensitive_config_pins_relayed_review_dispatch(
     tmp_path: Path,
 ) -> None:
+    """A relayed review uses the base commit chosen by content ingress."""
     repo, outside, event = _tampered_checkout(tmp_path)
-    event.write_text(json.dumps({"client_payload": {"pr": 42}}))
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_gh = fake_bin / "gh"
-    fake_gh.write_text("#!/bin/sh\nprintf 'main\\n'\n")
-    fake_gh.chmod(0o755)
+    event.write_text(json.dumps({"client_payload": {"pr": 7}}))
+    base = subprocess.run(
+        ["git", "rev-parse", "origin/main"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
-    result = _pin(
-        RESTORE_SENSITIVE_CONFIG,
-        repo,
-        event,
-        {
-            "PATH": f"{fake_bin}:{tool_path()}",
+    result = subprocess.run(
+        [BASH, str(RESTORE_SENSITIVE_CONFIG)],
+        cwd=repo,
+        env={
+            "PATH": tool_path(),
             "GITHUB_EVENT_NAME": "repository_dispatch",
+            "GITHUB_EVENT_PATH": str(event),
             "GITHUB_REPOSITORY": "owner/repo",
+            "TEND_CONFIG_BASE_SHA": base,
         },
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -280,7 +295,7 @@ def test_pinning_leaves_a_pr_that_touches_no_instruction_path_alone(
         lambda repo: _write(repo / "README.md", "fork readme\n"),
     )
 
-    result = _pin(RESTORE_SENSITIVE_CONFIG, repo, event)
+    result = _pin(repo, event)
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert _tree(repo) == {"README.md": "fork readme\n"}
@@ -299,7 +314,7 @@ def test_pinning_fails_when_the_base_ref_is_missing(
         base_ref="missing",
     )
 
-    result = _pin(RESTORE_SENSITIVE_CONFIG, repo, event)
+    result = _pin(repo, event)
 
     assert result.returncode != 0, result.stdout + result.stderr
 

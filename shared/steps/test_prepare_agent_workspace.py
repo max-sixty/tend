@@ -1,0 +1,334 @@
+"""Event-topology contracts for the disposable agent checkout."""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import urllib.error
+from pathlib import Path
+
+import prepare_agent_workspace as prepare
+import pytest
+
+
+def command(*args: str, cwd: Path) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=True, text=True, capture_output=True
+    ).stdout.strip()
+
+
+def repository(tmp_path: Path) -> tuple[Path, Path, str, str]:
+    origin = tmp_path / "origin.git"
+    command("init", "--bare", "--initial-branch=main", str(origin), cwd=tmp_path)
+    runner = tmp_path / "runner"
+    command("init", "--initial-branch=main", str(runner), cwd=tmp_path)
+    command("config", "user.email", "test@example.com", cwd=runner)
+    command("config", "user.name", "Test", cwd=runner)
+    (runner / "file").write_text("base\n")
+    command("add", "file", cwd=runner)
+    command("commit", "-m", "base", cwd=runner)
+    base = command("rev-parse", "HEAD", cwd=runner)
+    command("remote", "add", "origin", str(origin), cwd=runner)
+    command("push", "-u", "origin", "main", cwd=runner)
+    command("checkout", "-b", "feature", cwd=runner)
+    (runner / "file").write_text("feature\n")
+    command("commit", "-am", "feature", cwd=runner)
+    head = command("rev-parse", "HEAD", cwd=runner)
+    command("push", "origin", "feature", cwd=runner)
+    command("push", "origin", f"{head}:refs/pull/7/head", cwd=runner)
+    command("checkout", "main", cwd=runner)
+    return origin, runner, base, head
+
+
+def test_clone_is_independent_and_review_falls_back_to_head(tmp_path: Path) -> None:
+    origin, runner, base, _head = repository(tmp_path)
+    destination = tmp_path / "agent"
+
+    assert (
+        prepare.clone_workspace(
+            runner_workspace=runner,
+            destination=destination,
+            repository="owner/repo",
+            token="unused",
+            remote_url=str(origin),
+        )
+        == base
+    )
+    assert not (destination / ".git/objects/info/alternates").exists()
+    assert prepare.checkout_review(destination, 7) == "PR #7 head ref"
+    assert (destination / "file").read_text() == "feature\n"
+    assert (
+        subprocess.run(
+            ["git", "symbolic-ref", "-q", "HEAD"], cwd=destination, check=False
+        ).returncode
+        == 1
+    )
+
+
+def test_review_checkout_does_not_inherit_runner_git_filters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    origin, runner, _base, _head = repository(tmp_path)
+    command("checkout", "feature", cwd=runner)
+    (runner / ".gitattributes").write_text("file filter=runner-hook\n")
+    command("add", ".gitattributes", cwd=runner)
+    command("commit", "-m", "attributes", cwd=runner)
+    head = command("rev-parse", "HEAD", cwd=runner)
+    command("push", "--force", "origin", f"{head}:refs/pull/7/head", cwd=runner)
+    hook = tmp_path / "runner-filter"
+    hook.write_text('#!/bin/sh\ncat\n: > "$0.ran"\n')
+    hook.chmod(0o755)
+    runner_config = tmp_path / "runner.gitconfig"
+    command(
+        "config",
+        "--file",
+        str(runner_config),
+        "filter.runner-hook.smudge",
+        str(hook),
+        cwd=tmp_path,
+    )
+    command(
+        "config",
+        "--file",
+        str(runner_config),
+        "filter.runner-hook.required",
+        "true",
+        cwd=tmp_path,
+    )
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(runner_config))
+    destination = tmp_path / "agent"
+
+    prepare.clone_workspace(
+        runner_workspace=runner,
+        destination=destination,
+        repository="owner/repo",
+        token="unused",
+        remote_url=str(origin),
+    )
+    assert prepare.checkout_review(destination, 7) == "PR #7 head ref"
+
+    assert not Path(f"{hook}.ran").exists()
+    assert (destination / "file").read_text() == "feature\n"
+
+
+def test_sensitive_config_restore_stays_in_the_isolated_git_ingress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "agent"
+    command("init", "--initial-branch=main", str(repo), cwd=tmp_path)
+    command("config", "user.email", "test@example.com", cwd=repo)
+    command("config", "user.name", "Test", cwd=repo)
+    (repo / "CLAUDE.md").write_text("reviewed guidance\n")
+    command("add", "CLAUDE.md", cwd=repo)
+    command("commit", "-m", "base", cwd=repo)
+    base = command("rev-parse", "HEAD", cwd=repo)
+    (repo / "CLAUDE.md").write_text("event guidance\n")
+    (repo / ".gitattributes").write_text("CLAUDE.md filter=runner-hook\n")
+    command("add", "CLAUDE.md", ".gitattributes", cwd=repo)
+    command("commit", "-m", "event", cwd=repo)
+
+    hook = tmp_path / "runner-filter"
+    hook.write_text('#!/bin/sh\ncat\n: > "$0.ran"\n')
+    hook.chmod(0o755)
+    runner_config = tmp_path / "runner.gitconfig"
+    command(
+        "config",
+        "--file",
+        str(runner_config),
+        "filter.runner-hook.smudge",
+        str(hook),
+        cwd=tmp_path,
+    )
+    command(
+        "config",
+        "--file",
+        str(runner_config),
+        "filter.runner-hook.required",
+        "true",
+        cwd=tmp_path,
+    )
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(runner_config))
+    monkeypatch.setattr(prepare, "BASH", Path(shutil.which("bash") or "/bin/bash"))
+
+    prepare.restore_sensitive_config(repo, base)
+
+    assert (repo / "CLAUDE.md").read_text() == "reviewed guidance\n"
+    assert not Path(f"{hook}.ran").exists()
+
+
+def test_mention_checks_out_the_api_head_with_a_push_upstream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    origin, runner, base, head = repository(tmp_path)
+    destination = tmp_path / "agent"
+    prepare.clone_workspace(
+        runner_workspace=runner,
+        destination=destination,
+        repository="owner/repo",
+        token="unused",
+        remote_url=str(origin),
+    )
+    monkeypatch.setattr(
+        prepare,
+        "api_json",
+        lambda _path, _token: {
+            "state": "open",
+            "base": {"sha": base},
+            "head": {
+                "ref": "feature",
+                "sha": head,
+                "repo": {"clone_url": str(origin), "full_name": "fork/repo"},
+            },
+        },
+    )
+
+    selected, config_base = prepare.checkout_mention(
+        destination,
+        repository="owner/repo",
+        number=7,
+        token="unused",
+        base_branch="main",
+        base_sha=base,
+    )
+
+    assert selected == f"open PR #7 head fork/repo:feature at {head}"
+    assert config_base == base
+    assert command("rev-parse", "HEAD", cwd=destination) == head
+    assert command("rev-parse", "@{upstream}", cwd=destination) == head
+
+
+@pytest.mark.parametrize("sha", ["", "main", "-" * 40, "a" * 39, "a" * 41])
+def test_pull_base_requires_an_exact_object_id(sha: str) -> None:
+    with pytest.raises(ValueError, match="exact Git object ID"):
+        prepare.pull_base_sha({"base": {"sha": sha}}, 7)
+
+
+@pytest.mark.parametrize(
+    ("payload", "number"),
+    [
+        ({"number": 1}, 1),
+        ({"issue": {"number": 2}}, 2),
+        ({"client_payload": {"pr": "3"}}, 3),
+    ],
+)
+def test_event_number(payload: dict[str, object], number: int) -> None:
+    assert prepare.event_number(payload) == number
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"issue": {"number": 1}}, False),
+        ({"issue": {"number": 1, "pull_request": {"url": "example"}}}, True),
+        ({"client_payload": {"pr": "3"}}, True),
+        ({}, False),
+    ],
+)
+def test_event_targets_pull_request(payload: dict[str, object], expected: bool) -> None:
+    assert prepare.event_targets_pull_request(payload) is expected
+
+
+def test_mention_on_a_closed_pr_keeps_the_default_branch_instructions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A closed PR's base commit must not pin the default branch's own tree.
+
+    The fallback checks out the default branch, which is reviewed code. Pinning
+    it to the base the PR opened against reverts every `CLAUDE.md`, `AGENTS.md`
+    and `.claude/**` the branch has gained since — so the session runs on stale
+    repo guidance, and the revert is staged by any later `git add -A`.
+    """
+    origin, runner, base, _head = repository(tmp_path)
+    (runner / "CLAUDE.md").write_text("current guidance\n")
+    command("add", "CLAUDE.md", cwd=runner)
+    command("commit", "-m", "guidance", cwd=runner)
+    tip = command("rev-parse", "HEAD", cwd=runner)
+    command("push", "origin", "main", cwd=runner)
+
+    destination = tmp_path / "agent"
+    prepare.clone_workspace(
+        runner_workspace=runner,
+        destination=destination,
+        repository="owner/repo",
+        token="unused",
+        remote_url=str(origin),
+    )
+    monkeypatch.setattr(
+        prepare,
+        "api_json",
+        lambda _path, _token: {"state": "closed", "base": {"sha": base}},
+    )
+    selected, config_base = prepare.checkout_mention(
+        destination,
+        repository="owner/repo",
+        number=7,
+        token="unused",
+        base_branch="main",
+        base_sha=tip,
+    )
+
+    assert selected == f"base branch main at {tip}"
+    assert config_base == ""
+    prepare.restore_sensitive_config(destination, config_base)
+    assert (destination / "CLAUDE.md").read_text() == "current guidance\n"
+    assert command("status", "--porcelain", cwd=destination) == ""
+
+
+def test_a_mention_on_an_issue_never_asks_the_pull_request_endpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An `issues` event names an issue, and `/pulls/{number}` 404s on one.
+
+    The handle job runs one mention checkout for every mention event it
+    admits, `issues: edited` among them, so an issue number reaching the PR
+    endpoint fails the step before the agent starts — losing every mention
+    added by editing an issue body, silently from the thread's side.
+    """
+    origin, runner, base, _head = repository(tmp_path)
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"action": "edited", "issue": {"number": 7}}))
+    github_env = tmp_path / "github.env"
+    github_env.write_text("")
+
+    def refuse(path: str, _token: str) -> dict[str, object]:
+        raise urllib.error.HTTPError(path, 404, "Not Found", {}, None)
+
+    clone_workspace = prepare.clone_workspace
+    # The step roots the agent workspace at the runner's own /tmp, which a
+    # suite run inside a tend session cannot write to. Keep the real call and
+    # move only its parent, so the assertions below still read a real clone.
+    mkdtemp = prepare.tempfile.mkdtemp
+    monkeypatch.setattr(prepare, "api_json", refuse)
+    monkeypatch.setattr(
+        prepare.tempfile,
+        "mkdtemp",
+        lambda **arguments: mkdtemp(**{**arguments, "dir": tmp_path}),
+    )
+    monkeypatch.setattr(
+        prepare,
+        "clone_workspace",
+        lambda **arguments: clone_workspace(**arguments, remote_url=str(origin)),
+    )
+    for name, value in {
+        "GITHUB_WORKSPACE": str(runner),
+        "GITHUB_REPOSITORY": "owner/repo",
+        "GITHUB_TOKEN": "unused",
+        "GITHUB_ENV": str(github_env),
+        "GITHUB_EVENT_PATH": str(event),
+        "GITHUB_EVENT_NAME": "issues",
+        "TEND_CHECKOUT_MODE": "mention",
+        "TEND_BASE_BRANCH": "main",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+    assert prepare.main() == 0
+
+    exported = dict(line.split("=", 1) for line in github_env.read_text().splitlines())
+    workspace = Path(exported["TEND_AGENT_WORKSPACE"])
+    assert workspace.is_relative_to(tmp_path)
+    try:
+        assert command("rev-parse", "HEAD", cwd=workspace) == base
+        assert command("rev-parse", "--abbrev-ref", "HEAD", cwd=workspace) == "main"
+    finally:
+        shutil.rmtree(workspace.parent)

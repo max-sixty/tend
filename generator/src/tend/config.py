@@ -142,6 +142,7 @@ RESERVED_SANDBOX_ENV = {
     "REQUESTS_CA_BUNDLE",
     "GH_TOKEN",
     "GITHUB_TOKEN",
+    "GITHUB_WORKSPACE",
     "CLAUDE_CODE_REMOTE",
     "ANTHROPIC_API_KEY",
     "CLAUDE_CODE_OAUTH_TOKEN",
@@ -149,6 +150,8 @@ RESERVED_SANDBOX_ENV = {
     "CODEX_API_KEY",
     "CODEX_AUTH_JSON",
     "CODEX_HOME",
+    "TMPDIR",
+    "TMPPREFIX",
 }
 
 
@@ -170,15 +173,14 @@ DICT_STEP_FIELDS = {"with", "env"}
 
 @dataclass
 class SetupStep:
-    """A single runner-side shell setup step.
+    """A single trusted runner-side setup step.
 
-    `run` plus any of `env`, `name`, `id`, `shell`, `working-directory`,
-    `continue-on-error`, `timeout-minutes`, `if`. In workflows that pre-check
-    whether the agent needs to boot, the renderer adds that check to every
-    step's `if:`. A step's own condition narrows the check. For multi-step
-    setup, add multiple entries to the `setup:` list. Action steps are refused
-    because their POST phase runs after the agent and can consume state it
-    controlled.
+    Exactly one of `uses` or `run`, plus any of `with`, `env`, `name`, `id`,
+    `shell`, `working-directory`, `continue-on-error`, `timeout-minutes`, `if`.
+    In workflows that pre-check whether the agent needs to boot, the renderer
+    adds that check to every step's `if:`. A step's own condition narrows the
+    check. For multi-step setup, add multiple entries to the `setup:` list or
+    reference a local composite action with `uses`.
     """
 
     fields: dict
@@ -220,9 +222,8 @@ class WorkflowConfig:
     # a single workflow (e.g. `codex` on nightly only) before flipping the
     # whole bot. None means inherit from top-level `harness`.
     harness: str | None = None
-    # Per-workflow model override. Pairs with `harness` for cross-family
-    # overrides — top-level `model` may not be valid for the new harness.
-    # None means inherit from top-level `model`.
+    # Per-workflow model override. None inherits the top-level model when the
+    # harness is unchanged, or uses the target harness's default when it changes.
     model: str | None = None
     # Per-workflow effort and CLI argument overrides. None means inherit from
     # the top level; an empty args list clears top-level arguments.
@@ -242,8 +243,24 @@ KNOWN_MODELS_BY_HARNESS = {
 }
 DEFAULT_MODEL_BY_HARNESS = {
     "claude": "opus",
-    "codex": "gpt-5.5",
+    "codex": "gpt-5.6-sol",
 }
+
+
+def _effective_model(
+    harness: str,
+    model: str,
+    workflow_harness: str | None,
+    workflow_model: str | None,
+) -> str:
+    """Resolve a workflow's model, resetting defaults when its harness changes."""
+    if workflow_model is not None:
+        return workflow_model
+    if workflow_harness is not None and workflow_harness != harness:
+        return DEFAULT_MODEL_BY_HARNESS[workflow_harness]
+    return model
+
+
 # Empty string leaves effort at the harness CLI's model-specific default.
 KNOWN_EFFORTS_BY_HARNESS = {
     "claude": {"", "low", "medium", "high", "xhigh", "max"},
@@ -441,8 +458,8 @@ class Config:
             if "raw" in entry:
                 raise click.ClickException(
                     f"setup[{i}]: `raw` was removed. Split into multiple "
-                    "setup entries, or move repository-controlled commands "
-                    "into sandbox_setup."
+                    "setup entries, or move the YAML into a local "
+                    "composite action and reference it with `uses`."
                 )
             unknown = set(entry.keys()) - ALLOWED_STEP_FIELDS
             if unknown:
@@ -455,16 +472,9 @@ class Config:
                 raise click.ClickException(
                     f"setup[{i}] must have exactly one of `uses` or `run`"
                 )
-            if "uses" in entry:
+            if "with" in entry and "run" in entry:
                 raise click.ClickException(
-                    f"setup[{i}]: action steps are not supported because their "
-                    "POST phase runs after the agent. Use a `run` step, or move "
-                    "repository-controlled setup into sandbox_setup."
-                )
-            if "with" in entry:
-                raise click.ClickException(
-                    f"setup[{i}]: `with` is only valid for action steps, which "
-                    "setup does not support"
+                    f"setup[{i}]: `with` is only valid for action steps"
                 )
             for k in DICT_STEP_FIELDS:
                 if k in entry and not isinstance(entry[k], dict):
@@ -646,36 +656,23 @@ class Config:
                         f"workflows.{name}.harness '{wf_harness}' is not recognized "
                         f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
                     )
+                eff_harness = wf_harness or harness
+                eff_model = _effective_model(harness, model, wf_harness, wf_model)
                 wf_effort = (
                     _parse_effort(
                         wf_raw["effort"],
-                        wf_harness or harness,
-                        wf_model or model,
+                        eff_harness,
+                        eff_model,
                         f"workflows.{name}.effort",
                     )
                     if "effort" in wf_raw
                     else None
                 )
-                # Validate the effective (harness, model) pair this workflow
-                # will run with. Three cases to cover, all gated on "the
-                # user overrode something at the workflow level":
-                #
-                #   (A) wf_model set, eff_harness has an allowlist, eff_model
-                #       not in it: fail. Covers `model: opus-99` typo with no
-                #       harness override (top-level claude harness).
-                #   (B) wf_harness flips into a harness with an allowlist
-                #       (e.g. codex → claude) and the effective model isn't
-                #       in it: fail.
-                #   (C) wf_harness flips OUT of a harness with an allowlist
-                #       (claude → codex) without a per-workflow model: fail
-                #       (effective model is opus, codex won't accept).
+                # Validate an explicit per-workflow model against the effective
+                # harness. A harness change without one uses that harness's
+                # default instead of carrying a model across families.
                 if wf_harness is not None or wf_model is not None:
-                    eff_harness = wf_harness or harness
-                    eff_model = wf_model or model
                     eff_known = KNOWN_MODELS_BY_HARNESS.get(eff_harness)
-
-                    # Cases A and B collapse: effective model isn't valid for
-                    # the effective harness's allowlist.
                     if eff_known is not None and eff_model not in eff_known:
                         raise click.ClickException(
                             f"workflows.{name} harness '{eff_harness}' is incompatible "
@@ -685,28 +682,9 @@ class Config:
                             "`model:`) to a valid value for this harness."
                         )
 
-                    # Case C: cross-family flip AWAY from an allowlist harness
-                    # without an explicit model. eff_harness has no allowlist
-                    # to catch it, so check the source.
-                if (
-                    wf_harness is not None
-                    and wf_harness != harness
-                    and KNOWN_MODELS_BY_HARNESS.get(harness) is not None
-                    and KNOWN_MODELS_BY_HARNESS.get(wf_harness) is None
-                    and wf_model is None
-                ):
-                    raise click.ClickException(
-                        f"workflows.{name} crosses harness families "
-                        f"({harness} → {wf_harness}) without a model override. "
-                        f"The top-level model '{model}' is from the {harness} "
-                        f"allowlist and likely won't apply to {wf_harness}. "
-                        f"Set `workflows.{name}.model:` to a valid {wf_harness} model."
-                    )
                 if wf_effort is None and (
                     wf_harness is not None or wf_model is not None
                 ):
-                    eff_harness = wf_harness or harness
-                    eff_model = wf_model or model
                     _parse_effort(
                         effort,
                         eff_harness,

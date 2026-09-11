@@ -21,6 +21,115 @@ def _read(*parts: str) -> str:
     return REPO_ROOT.joinpath(*parts).read_text()
 
 
+def test_codex_ci_installs_the_diagnostic_plugin_its_runner_skills_use() -> None:
+    marketplace = json.loads(_read(".agents", "plugins", "marketplace.json"))
+    plugins = {plugin["name"]: plugin for plugin in marketplace["plugins"]}
+
+    assert {"install-tend", "tend-ci-runner"} <= set(plugins)
+    assert plugins["install-tend"]["source"] == {
+        "source": "local",
+        "path": "./plugins/install-tend",
+    }
+    manifest = json.loads(
+        _read("plugins", "install-tend", ".codex-plugin", "plugin.json")
+    )
+    assert manifest["name"] == "install-tend"
+    assert manifest["skills"] == "./skills/"
+
+    for skill_name in ("running-in-ci", "review-runs", "review-reviewers"):
+        skill = _read("plugins", "tend-ci-runner", "skills", skill_name, "SKILL.md")
+        assert "/install-tend:debug-tend-run" in skill
+
+
+def test_codex_log_guidance_matches_the_current_custom_tool_schema() -> None:
+    reference = _read(
+        "plugins",
+        "install-tend",
+        "skills",
+        "debug-tend-run",
+        "references",
+        "codex-logs.md",
+    )
+    reviewer = _read(
+        "plugins", "tend-ci-runner", "skills", "review-reviewers", "SKILL.md"
+    )
+
+    for text in (reference, reviewer):
+        assert "custom_tool_call" in text
+        assert ".payload.input" in text
+        assert 'payload.type == "function_call"' not in text
+        assert ".payload.arguments" not in text
+
+    assert "custom_tool_call_output" in reference
+    assert '.type == "input_text"' in reference
+    assert 'payload.type == "agent_message"' not in reference
+    assert '.payload.item.type == "AgentMessage"' in reference
+    assert ".payload.item.content[]?.text" in reference
+
+
+def test_install_skill_links_both_project_instruction_names() -> None:
+    install = _read("plugins", "install-tend", "skills", "install-tend", "SKILL.md")
+    prompt = _read("shared", "system-prompt.md")
+
+    assert "ln -s CLAUDE.md AGENTS.md" in install
+    assert "ln -s AGENTS.md CLAUDE.md" in install
+    assert "`CLAUDE.md` or `AGENTS.md`" in prompt
+
+
+def test_tend_skills_avoid_harness_specific_tool_and_model_vocabulary() -> None:
+    skill_root = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
+    text = "\n".join(path.read_text() for path in skill_root.rglob("*.md"))
+
+    for phrase in (
+        "Skill tool",
+        "Write tool",
+        "run_in_background",
+        "end_turn",
+        "Haiku / gpt-mini",
+        "`Task`/`Agent`",
+        "ReportFindings tool",
+    ):
+        assert phrase not in text
+
+    install = _read("plugins", "install-tend", "skills", "install-tend", "SKILL.md")
+    assert "AskUserQuestion" not in install
+    assert "Bash tool" not in install
+
+
+def test_bundled_runner_guidance_has_no_unscoped_tmp_paths() -> None:
+    runner = REPO_ROOT / "plugins" / "tend-ci-runner"
+    unscoped_tmp = re.compile(r"(?<![\w-])/tmp(?:/|\b)")
+    offenders = [
+        path.relative_to(REPO_ROOT)
+        for path in runner.rglob("*")
+        if path.suffix in {".md", ".py", ".sh"}
+        and unscoped_tmp.search(path.read_text())
+    ]
+
+    assert offenders == []
+    guidance = _read("plugins", "tend-ci-runner", "skills", "running-in-ci", "SKILL.md")
+    assert "`$TMPDIR` to `/home/tend-sandbox/tmp`" in guidance
+
+    debug = _read("plugins", "install-tend", "skills", "debug-tend-run", "SKILL.md")
+    assert "DEST=${TMPDIR:-/tmp}/session-logs/$RUN_ID" in debug
+    integration = _read(
+        ".claude", "skills", "running-tend", "references", "integration-test.md"
+    )
+    assert integration.count('"$TMPDIR/integration-failure.md"') == 2
+
+
+def test_step_summary_uses_the_exported_agent_temp_directory() -> None:
+    setup = _read("proxy", "setup_sandbox.py")
+    launcher = _read("shared", "steps", "launch_sandbox_runtime.py")
+    runtime = _read("shared", "steps", "sandbox_runtime.mjs")
+
+    assert '"TEND_AGENT_TMP_DIR": str(AGENT_TMP_DIR)' in setup
+    assert 'Path(required("TEND_AGENT_TMP_DIR"))' in launcher
+    assert 'Path(required("AGENT_HOME")) / "tmp"' not in launcher
+    assert 'const agentTmpDir = absolute("TMPDIR")' in runtime
+    assert "process.env.CLAUDE_CODE_TMPDIR = agentTmpDir" in runtime
+
+
 def test_notification_skill_uses_one_paginated_cutoff_snapshot() -> None:
     skill = _read("plugins", "tend-ci-runner", "skills", "notifications", "SKILL.md")
 
@@ -92,10 +201,10 @@ def test_review_runs_pins_current_state_recovery() -> None:
     assert "--state open --label tend-outage --author @me" in skill
     assert "| sort | .[0] // empty" in skill
     assert "if ! gh issue list" in skill
-    assert "> /tmp/review-runs-outage-number; then" in skill
+    assert '> "$TMPDIR/review-runs-outage-number"; then' in skill
     assert "--json body,comments --jq '.body, .comments[].body'" in skill
     close_block = (
-        "OUTAGE=$(cat /tmp/review-runs-outage-number)\n"
+        'OUTAGE=$(cat "$TMPDIR/review-runs-outage-number")\n'
         '[ -n "$OUTAGE" ] && gh issue close "$OUTAGE" --reason completed'
     )
     assert close_block in skill
@@ -104,6 +213,16 @@ def test_review_runs_pins_current_state_recovery() -> None:
     assert "an open issue with no bot response to the latest human activity" in skill
     assert "whose live head has no bot review" in skill
     assert "failing default-branch CI with no bot fix in progress" in skill
+
+
+def test_review_runs_rechecks_a_stale_closure_read() -> None:
+    skill = _read("plugins", "tend-ci-runner", "skills", "review-runs", "SKILL.md")
+
+    assert (
+        "# Can serve a stale row; re-query once before reporting a path as still red."
+        in skill
+    )
+    assert "re-run its closure call once and take the newer answer" in skill
 
 
 def test_outage_tracker_title_stays_in_sync() -> None:
@@ -154,14 +273,11 @@ def test_review_skill_retargets_a_moved_head_rather_than_discarding_it() -> None
 
     # Written by the initial snapshot and rewritten where the head moves.
     assert '"start"' in preflight
-    assert (
-        'Path(os.environ.get("REVIEWED_HEAD_FILE", "/tmp/reviewed-head"))' in preflight
-    )
-    assert '"REVIEWED_HEAD_FILE", "/tmp/reviewed-head"' in preflight
+    assert preflight.count('str(TEMP_DIR / "reviewed-head")') == 2
     # Read back by both posting recipes, and read *before* the POST: inlined as
     # `$(cat ...)` a missing file substitutes the empty string and the request
     # still goes out, which is the unpinned review the pin exists to prevent.
-    assert skill.count("REVIEWED=$(cat /tmp/reviewed-head) || exit 0") == 2
+    assert skill.count('REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0') == 2
     assert '-f commit_id="$REVIEWED"' in skill
     assert '--arg sha "$REVIEWED"' in skill
     assert skill.count('review_preflight.py" post <number> --') == 3
@@ -204,7 +320,7 @@ def test_weekly_approval_pins_the_commit_it_checked() -> None:
     assert "prepare-approval <number>" in weekly
     assert "pin.unlink(missing_ok=True)" in state_script
     assert 'pin.write_text(f"{head_sha}\\n")' in state_script
-    assert "CHECKED=$(cat /tmp/checked-head-<number>) || exit 0" in weekly
+    assert 'CHECKED=$(cat "$TMPDIR/checked-head-<number>") || exit 0' in weekly
     assert '-f commit_id="$CHECKED"' in weekly
 
     # `gh pr review --approve` cannot pin a commit; both skills post through
@@ -286,9 +402,12 @@ def test_runner_helper_directory_is_python_only() -> None:
 def test_codex_harness_delegates_stateful_phases_to_its_runner() -> None:
     """Keep CLI parsing and cross-step files out of action-inline Bash."""
     action = _read("codex", "action.yaml")
+    lifecycle = _read("shared", "steps", "agent_lifecycle.py")
 
-    for command in ("install-plugin", "stage-agents", "run"):
+    for command in ("install-plugin", "stage-agents"):
         assert f'runner.py" {command}' in action
+    assert "TEND_CODEX_RUNNER" in action
+    assert '["/usr/bin/python3", "-E", "-s", str(runner), "run"]' in lifecycle
     assert "awk" not in action
 
 
@@ -311,7 +430,7 @@ def test_every_documented_run_listing_selects_a_profile() -> None:
 def test_nightly_regen_pins_its_poll_to_the_commit_it_pushed() -> None:
     """Step 7 must stash the pushed OID before it removes the regen worktree.
 
-    The commit is made on `tend/update-workflows` inside `/tmp`, and the block
+    The commit is made on `tend/update-workflows` inside `$TMPDIR`, and the block
     destroys that worktree on the way out. Afterwards the main checkout's
     `git rev-parse HEAD` — the derivation **CI Monitoring** prescribes "after
     your own push" — resolves to the default branch, a different commit on a
@@ -326,7 +445,7 @@ def test_nightly_regen_pins_its_poll_to_the_commit_it_pushed() -> None:
     capture = script.index('sha_path.write_text(f"{sha}\\n")')
     cleanup = script.index('"git", "worktree", "remove"', capture)
     assert commit < capture < cleanup
-    assert 'poll <pr-number> "$(cat /tmp/tend-update-sha)"' in skill
+    assert 'poll <pr-number> "$(cat "$TMPDIR/tend-update-sha")"' in skill
 
 
 def test_nightly_regen_stages_every_path_init_writes(
@@ -377,4 +496,25 @@ def test_nightly_regen_stages_every_path_init_writes(
     assert not uncovered, (
         f"`tend init` writes paths the nightly regeneration never stages: {uncovered}. "
         "Widen Step 7's `git add -A` pathspecs so the regeneration PR carries them."
+    )
+
+
+def test_every_workflow_pins_the_same_tend_release() -> None:
+    """`init` rewrites only the generated `tend-*.yaml` files.
+
+    Every other workflow keeps whatever `max-sixty/tend/...` ref it was last
+    given by hand, so each release leaves it a version behind until someone
+    restamps it. The nightly sweep does the restamping; this is what decides
+    whether it is needed.
+    """
+    refs = {
+        ref
+        for path in (REPO_ROOT / ".github" / "workflows").glob("*.y*ml")
+        for ref in re.findall(r"max-sixty/tend/[\w./-]+@[^\s\"']+", path.read_text())
+    }
+    assert refs
+
+    assert len({ref.split("@")[1] for ref in refs}) == 1, (
+        f"workflows pin more than one tend release: {sorted(refs)}. "
+        "Restamp the hand-maintained workflows onto the generated files' ref."
     )

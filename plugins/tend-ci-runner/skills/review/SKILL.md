@@ -88,7 +88,7 @@ Before reading the diff, scan other open PRs for file overlap. If another PR tou
 
 Scale depth to the change. A docs-only PR or a mechanical rename needs a skim for correctness, not the full checklist. A new algorithm or state-management change needs trace analysis. Don't over-analyze trivial changes.
 
-Check the project's CLAUDE.md for language-specific review criteria and conventions. Load any project-specific review skill if available.
+Check the project's instruction files for language-specific review criteria and conventions. Load any project-specific review skill if available.
 
 **Code quality:**
 
@@ -137,7 +137,7 @@ Scale its depth to how core the change is:
 - Peripheral or mechanical (config, dependency bumps, test-only, docs that don't assert how the code behaves): tell it the change is peripheral, so it runs the short angle set in one pass.
 - The project's core logic, or prose asserting how it behaves: tell it the change is core, so it fans the angles out and sweeps for gaps. Prose is checked by reading the code it describes, so a one-line Markdown diff can still be core.
 
-What counts as core is repo-specific; let the project's own guidance (CLAUDE.md, a repo review skill) or your judgment decide. Both passes feed one verdict: fold its findings into the review you submit in step 6. It only reports back — it never posts a review, comment, or commit of its own, so the dedup and single-review path is preserved. Its findings are not the review: when it returns, continue to step 6.
+What counts as core is repo-specific; let the project's own instruction files, a repo review skill, or your judgment decide. Both passes feed one verdict: fold its findings into the review you submit in step 6. It only reports back — it never posts a review, comment, or commit of its own, so the dedup and single-review path is preserved. Its findings are not the review: when it returns, continue to step 6.
 
 ### 6. Submit
 
@@ -152,13 +152,13 @@ REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 # Read the sha first and bail if it isn't there: inlined as `$(cat ...)` a
 # missing file substitutes the empty string and the POST still runs, which is
 # the unpinned review this pins against.
-REVIEWED=$(cat /tmp/reviewed-head) || exit 0
+REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0
 /usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> -- \
   gh api "repos/$REPO/pulls/<number>/reviews" --method POST \
     -f event=APPROVE -f commit_id="$REVIEWED" -f body=""
 ```
 
-`/tmp/reviewed-head` holds the commit this session reviewed — written in step 1, rewritten by **Posting mechanics** if HEAD moved. Every path that posts a review reads it back; see **Pin every review to the commit you read**.
+`$TMPDIR/reviewed-head` holds the commit this session reviewed — written in step 1, rewritten by **Posting mechanics** if HEAD moved. Every path that posts a review reads it back; see **Pin every review to the commit you read**.
 
 If there are actionable findings, submit them as a review with inline suggestions for concrete fixes. The review is a decision surface for the author, not a record of the reviewer's work: publish only distinct points that require a change or decision, with enough mechanism and evidence to make each credible and actionable. Correct paths, unaffected behavior, verification inventory, and search history stay in the session. Follow **Reader-facing prose** in `running-in-ci` for any supporting detail.
 
@@ -200,7 +200,7 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
 
 **Attribute a withheld approval to whatever actually decided it.** Cite repo guidance as the reason only when you can name the file and heading that guidance lives in. When the call is your own judgment, identify the risky consequence and the human decision it needs; judgment is sufficient authority without inventing a repository policy.
 
-**Self-authored PRs** (`author == bot_login` in step 1's JSON — compare the literal bot login string, not "authored by someone senior" or "by the repo owner"): Complete steps 2–5 — self-review catches real issues (lint failures, edge cases) and is intentionally valuable. Do NOT attempt an APPROVE — GitHub rejects self-approvals. Submit as COMMENT when there are concerns, or stay silent and skip to step 7. The self-review exists to find concerns, not to publish a clean-path verdict or proof that earlier findings were resolved. Always post a current CI failure as a COMMENT because it is itself a concern.
+**Self-authored PRs** (`author == bot_login` in step 1's JSON — compare the literal bot login string, not "authored by someone senior" or "by the repo owner"): Complete steps 2–5 — self-review catches real issues (lint failures, edge cases) and is intentionally valuable. Do NOT attempt an APPROVE — GitHub rejects self-approvals. That covers step 1's close-out approvals too: on a self-authored PR the threads are the only thing to close out. Submit as COMMENT when there are concerns, or stay silent and skip to step 7. The self-review exists to find concerns, not to publish a clean-path verdict or proof that earlier findings were resolved. Always post a current CI failure as a COMMENT because it is itself a concern.
 
 **Not confident enough to approve** (unfamiliar module, subtle logic): Add a `+1` reaction instead — no review needed unless there are specific observations.
 
@@ -218,7 +218,7 @@ Before composing the final payload, run the preflight without a command. It chec
   "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number>
 ```
 
-On `skip`, post nothing and finish. A re-targeted result also prints `delta: <path>` and updates `/tmp/reviewed-head`. Read that entire file in chunks, update the review without dropping the draft marker when one is present, then run the preflight again. Do not post from the re-targeting pass.
+On `skip`, post nothing and finish. A re-targeted result also prints `delta: <path>` and updates `$TMPDIR/reviewed-head`. Read that entire file in chunks, update the review without dropping the draft marker when one is present, then run the preflight again. Do not post from the re-targeting pass.
 
 A non-zero exit from this commandless check means nothing was decided. Fix the
 error and re-run it. In command mode below, `post:` means the outward command
@@ -238,11 +238,11 @@ Every review POST below passes its `gh api` command to the preflight after `--`.
 - Inline comments resolve against the commit the review pins, so re-verify each one against the current `gh pr diff`, which now returns the new head's. On a file the delta didn't touch, the line is unchanged and the comment stands. On one it did, move the comment to the line the code sits on now; where the line no longer falls inside a hunk, put the finding in the review body as a fenced quote with its path, as under **Recovering from inline comment 422 errors**.
 - **Read both halves of the delta file as a pair.** It contains two logs in sequence: the scoped one is the author's new code; the `base merge:` lines are base merges, and are the only place they appear. The two together distinguish an empty delta from an "Update branch" click. When a `base merge:` line appears, re-verify every inline comment against the new `gh pr diff` even if the scoped log printed nothing — the merge re-scopes hunks in files the scoped delta cannot show, so the "file the delta didn't touch" shortcut above does not hold.
 - **Also read `git show --cc <merge sha>` on a base merge**, for what the merge itself changed. Where it conflicted, the author's resolution is committed *inside* the merge, and both logs miss it: the scoped log excludes merge commits, and the merges line says a merge happened, not what it changed. A finding the resolution already fixed must drop out. `--cc` prints only hunks differing from every parent, so a resolution that took the base side prints nothing at all — it tells you what a merge changed, never that a merge changed nothing, which is why re-verification above is unconditional.
-- Re-compose every `suggestion` block after re-targeting, reading the new content with `git show "$(cat /tmp/reviewed-head)":<path>` — the workspace still holds the tree you reviewed, so disk gives you the old lines. A suggestion carried over unchanged can revert the author's newest edit or base-merged content.
+- Re-compose every `suggestion` block after re-targeting, reading the new content with `git show "$(cat "$TMPDIR/reviewed-head")":<path>` — the workspace still holds the tree you reviewed, so disk gives you the old lines. A suggestion carried over unchanged can revert the author's newest edit or base-merged content.
 
-**Pin every review to the commit you read** — `commit_id` in every posting recipe, read back from `/tmp/reviewed-head`. Two things depend on the pin. GitHub otherwise anchors the review at whatever is live when the POST lands, so the review claims code this session never saw. And the anchor is what step 1 reports as `last_review_sha`: pinned to the head you re-targeted onto, the queued run finds that head already reviewed and finishes without posting a second review of the same code.
+**Pin every review to the commit you read** — `commit_id` in every posting recipe, read back from `$TMPDIR/reviewed-head`. Two things depend on the pin. GitHub otherwise anchors the review at whatever is live when the POST lands, so the review claims code this session never saw. And the anchor is what step 1 reports as `last_review_sha`: pinned to the head you re-targeted onto, the queued run finds that head already reviewed and finishes without posting a second review of the same code.
 
-**Before APPROVE specifically**, run the snapshot below and require its `head_sha` to equal `/tmp/reviewed-head`. The rollup is pinned to `/tmp/reviewed-head`; a head mismatch means it does not cover the live head, so post findings if you have them, otherwise finish and leave the approval to the queued run. Then inspect that rollup: if any check has reached terminal `FAILURE`, do not emit an empty-body APPROVE — the close-out reads as the bot rubber-stamping over the visibly red signal. Re-check the author-readiness gate on the same pass — a comment withholding merge readiness can land after the review began, and the conversation you read in step 1 is by now stale.
+**Before APPROVE specifically**, run the snapshot below and require its `head_sha` to equal `$TMPDIR/reviewed-head`. The rollup is pinned to `$TMPDIR/reviewed-head`; a head mismatch means it does not cover the live head, so post findings if you have them, otherwise finish and leave the approval to the queued run. Then inspect that rollup: if any check has reached terminal `FAILURE`, do not emit an empty-body APPROVE — the close-out reads as the bot rubber-stamping over the visibly red signal. Re-check the author-readiness gate on the same pass — a comment withholding merge readiness can land after the review began, and the conversation you read in step 1 is by now stale.
 
 An approval you post at a re-targeted head is yours to stand behind: the queued run reads that head as reviewed and finishes, so no successor session dismisses the approval if a check goes red. Step 7's poll is the whole net — run it to terminal before ending the session.
 
@@ -250,7 +250,7 @@ Reduce the rollup to the **latest entry per check name and workflow** before rea
 
 ```bash
 uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \
-  snapshot <number> "$(cat /tmp/reviewed-head)"
+  snapshot <number> "$(cat "$TMPDIR/reviewed-head")"
 ```
 
 The JSON reports `head_sha`, `pending`, and `failed` for the pinned commit after
@@ -286,10 +286,10 @@ Post at most one review per run. Give a verdict (**approve** or **comment**, nev
 
 For fixes targeting lines outside the diff, offer to push a fix commit instead.
 
-Post inline suggestions via the review API. First compose `/tmp/review-body.md` according to this step's review goal, then build the payload:
+Post inline suggestions via the review API. First compose `$TMPDIR/review-body.md` according to this step's review goal, then build the payload:
 
 `````bash
-cat > /tmp/review-payload.json << 'ENDJSON'
+cat > "$TMPDIR/review-payload.json" << 'ENDJSON'
 {
   "event": "COMMENT",
   "comments": [
@@ -302,16 +302,16 @@ cat > /tmp/review-payload.json << 'ENDJSON'
 }
 ENDJSON
 
-BODY=$(cat /tmp/review-body.md) || exit 0
-REVIEWED=$(cat /tmp/reviewed-head) || exit 0
+BODY=$(cat "$TMPDIR/review-body.md") || exit 0
+REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 jq --arg body "$BODY" --arg sha "$REVIEWED" \
-  '.body = $body | .commit_id = $sha' /tmp/review-payload.json > /tmp/review-final.json
+  '.body = $body | .commit_id = $sha' "$TMPDIR/review-payload.json" > "$TMPDIR/review-final.json"
 
 /usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> -- \
   gh api "repos/$REPO/pulls/<number>/reviews" \
     --method POST \
-    --input /tmp/review-final.json
+    --input "$TMPDIR/review-final.json"
 `````
 
 **Do not** use `-f 'comments[0][path]=...'` flag syntax — `gh api` converts array indices to object keys, which GitHub rejects.
@@ -358,17 +358,17 @@ preserving the hidden marker when this is a draft review, and:
   /usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> \
     --edit-review <orphan-id> -- \
     gh api "repos/$REPO/pulls/<number>/reviews/<orphan-id>" \
-      -X PUT -F body=@/tmp/updated-review-body.md
+      -X PUT -F body=@"$TMPDIR/updated-review-body.md"
   ```
   If the edit itself fails, **do not post another review** — the body-only review is sufficient.
 
 - **If `ORPHAN_ID` is empty (case b)**: retry the `POST` with `comments` omitted (body-only), since no duplicate is possible.
   ```bash
-  jq 'del(.comments)' /tmp/review-final.json > /tmp/review-body-only.json
+  jq 'del(.comments)' "$TMPDIR/review-final.json" > "$TMPDIR/review-body-only.json"
   REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
   /usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> -- \
     gh api "repos/$REPO/pulls/<number>/reviews" \
-      --method POST --input /tmp/review-body-only.json
+      --method POST --input "$TMPDIR/review-body-only.json"
   ```
 
 Prevention: before writing any inline comment, verify the target line falls inside one of the PR's diff hunks. For fixes outside the diff, use the "push a fix commit" path instead of an inline suggestion (see above).
@@ -377,7 +377,7 @@ Prevention: before writing any inline comment, verify the target line falls insi
 
 If you **stayed silent** (no review posted, nothing to dismiss), finish — there's no follow-up gated on the CI result. Don't background-poll: per `/tend-ci-runner:running-in-ci` under "End the turn only when work is shipped", the completion notification isn't reliably delivered to a CI session.
 
-If you **approved**, the dismissal-on-failure is a gated follow-up. Foreground-poll using the recipe in `/tend-ci-runner:running-in-ci` under "CI Monitoring" (don't use `run_in_background`). If the PR head moves while polling, stop polling the stale commit; the queued review handles the new HEAD.
+If you **approved**, the dismissal-on-failure is a gated follow-up. Poll in the foreground using the recipe in `/tend-ci-runner:running-in-ci` under "CI Monitoring". If the PR head moves while polling, stop polling the stale commit; the queued review handles the new HEAD.
 
 Then handle the outcome:
 
@@ -387,7 +387,7 @@ Then handle the outcome:
   uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
     dismiss <number> "CI failed — <reason>"
   ```
-  On **human-authored PRs**, do not push fixes — post the analysis and offer to fix, then wait for the author to accept. On **third-party bot PRs** (Dependabot, renovate, etc.), don't stop at analysis: apply the fix per step 9 so the PR can go green, since no author will act on the offer. On PRs this bot authored, step 9's rule holds: the follow-up COMMENT review dispatches the author session, which applies the fix.
+  On **human-authored PRs**, do not push fixes — post the analysis and offer to fix, then wait for the author to accept. On **PRs with no human author** (this bot's own, Dependabot, renovate), don't stop at analysis: apply the fix per step 9 so the PR can go green, since no author will act on the offer.
 - **A check was cancelled** (conclusion `cancelled`) -> do nothing. Cancellations are almost always caused by concurrency groups — a new workflow run (often triggered by your own approval event) replaces the in-progress one. The replacement run will cover the cancelled checks. **Do not re-run cancelled jobs** — that creates another run that gets cancelled again, wasting time in a loop.
 - **A check failed** (conclusion `failure`, not `cancelled`) and it's a transient flake (unrelated to the PR changes) ->
   1. **Re-run the failed jobs:**
@@ -416,11 +416,11 @@ Outdated comments (null line) are best-effort — skip if the original context c
 
 ### 9. Push fixes
 
-Pushing to the branch under review fires `synchronize`, which queues another run behind this session rather than cancelling it. Submit the review (step 6) and resolve threads (step 8) before pushing, so the review documents the code the fix responds to. Poll the pushed fix's CI to green per `running-in-ci`'s "a pushed fix is always gated" before ending the session; the queued run reviews the new HEAD.
+Pushing to the branch under review fires `synchronize`, which queues another run behind this session rather than cancelling it. Submit the review (step 6) and resolve threads (step 8) before pushing, so the review documents the code the fix responds to. Batch every fix into a single push; each push costs another review round. Poll the pushed fix's CI to green per `running-in-ci`'s "a pushed fix is always gated" before ending the session; the queued run reviews the new HEAD.
 
-**Third-party bot PRs** (Dependabot, renovate, etc.): There is no author of any kind to act on feedback, so a review that only describes the fix leaves the PR red and pushes the work onto a maintainer — the opposite of the point. If you can articulate the fix, apply it: commit and push it to the PR branch. "Not a one-token change" and "more than one syntactically valid form exists" are **not** reasons to defer — pick the option most consistent with the surrounding code and the repo's existing conventions, push it, and note any alternative in the review. The only bar for deferring is that *no defensible default exists*: a genuine semantic ambiguity that needs maintainer intent, not merely a fix that took thought to derive. If the review already worked out the answer, that answer is pushable. Rebase onto the latest target branch first if the branch is behind.
+Leave the review pinned to the head you reviewed. Step 6's re-targeting is for pushes by others during the review; re-target onto your own fix and the queued run reads that head as already reviewed, then finishes without looking at the fix. Reaching a clean pass is that run's job: it reviews the pushed head, resolves the threads the fix addressed, and fixes whatever it finds new, until a pass finds nothing.
 
-**PRs this bot authored**: submitting a review with a body or a fresh inline comment dispatches `tend-mention`, which boots as the author and is told to action the review. It boots whether or not you also push, so pushing the fix yourself only makes it boot to find the work already landed. Let the author session act — unless the repo doesn't run `tend-mention`, where no successor exists and the paragraph above applies.
+**PRs with no human author** (this bot's own, and third-party bot PRs like Dependabot or renovate): Nobody else will act on the feedback — a third-party bot doesn't read it, and on your own PR you are the author. A review that only describes the fix leaves the PR red and pushes the work onto a maintainer — the opposite of the point. If you can articulate the fix, apply it: commit and push it to the PR branch. "Not a one-token change" and "more than one syntactically valid form exists" are **not** reasons to defer — pick the option most consistent with the surrounding code and the repo's existing conventions, push it, and note any alternative in the review. The only bar for deferring is that *no defensible default exists*: a genuine semantic ambiguity that needs maintainer intent, not merely a fix that took thought to derive. If the review already worked out the answer, that answer is pushable. Rebase onto the latest target branch first if the branch is behind.
 
 **Human PRs**: Post inline suggestions first. Additionally, offer to push a commit when the fixes are mechanical and correctness is obvious. Only push after the author accepts.
 

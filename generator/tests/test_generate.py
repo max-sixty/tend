@@ -292,12 +292,14 @@ def test_runtime_enabled_check_rejects_yaml_merge_keys(tmp_path: Path) -> None:
 def test_setup_steps_rendered(tmp_path: Path) -> None:
     extra = dedent("""\
         setup:
-          - run: python --version
+          - uses: ./.github/actions/my-setup
           - run: echo FOO=bar >> $GITHUB_ENV
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     for wf in generate_all(cfg):
-        assert "python --version" in wf.content, f"{wf.filename} missing first run step"
+        assert "./.github/actions/my-setup" in wf.content, (
+            f"{wf.filename} missing uses step"
+        )
         assert "echo FOO=bar >> $GITHUB_ENV" in wf.content, (
             f"{wf.filename} missing run step"
         )
@@ -308,23 +310,33 @@ def _eyes_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:
     return [s for s in steps if "content=eyes" in str(s.get("run", ""))]
 
 
-@pytest.mark.parametrize(
-    "action",
-    [
-        "./.github/actions/tend-setup",
-        "actions/setup-python@v6",
-        "Swatinem/rust-cache@v2",
-    ],
-)
-def test_setup_actions_are_rejected(tmp_path: Path, action: str) -> None:
-    """Any action may defer runner-side code until after the agent exits."""
-    extra = f"setup:\n  - uses: {action}\n"
-    with pytest.raises(click.ClickException, match="action steps are not supported"):
-        Config.load(_minimal_config(tmp_path, extra))
+@pytest.mark.parametrize(("name", "job"), [("review", "review"), ("mention", "handle")])
+def test_local_setup_action_keeps_runner_checkout_stable(
+    tmp_path: Path, name: str, job: str
+) -> None:
+    """PR topology is selected only inside the harness's disposable clone."""
+    extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    steps = yaml.safe_load(GENERATORS[name](cfg).content)["jobs"][job]["steps"]
+    checkouts = [
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/checkout")
+    ]
+    assert len(checkouts) == 1
+    assert all("gh pr checkout" not in str(step.get("run", "")) for step in steps)
+    agent = next(
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("max-sixty/tend/")
+    )
+    assert agent["with"]["checkout_mode"] == name
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
-@pytest.mark.parametrize("extra", [""])
+@pytest.mark.parametrize(
+    "extra", ["", "setup:\n  - uses: ./.github/actions/tend-setup\n"]
+)
 def test_generated_workflows_survive_the_whitespace_hooks(
     tmp_path: Path, extra: str, harness: str
 ) -> None:
@@ -475,15 +487,21 @@ def test_sandbox_levers_rendered_for_codex(tmp_path: Path) -> None:
             assert "sandbox_path" in inputs
 
 
-def test_setup_action_with_parameters_is_rejected(tmp_path: Path) -> None:
+def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
+    """An action setup step keeps its inputs and the no-work guard."""
     extra = dedent("""\
         setup:
           - uses: actions/setup-node@v4
             with:
               node-version-file: .node-version
     """)
-    with pytest.raises(click.ClickException, match="action steps are not supported"):
-        Config.load(_minimal_config(tmp_path, extra))
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    notifications = yaml.safe_load(workflows["tend-notifications.yaml"].content)
+    steps = notifications["jobs"]["notifications"]["steps"]
+    setup_node = next(s for s in steps if s.get("uses") == "actions/setup-node@v4")
+    assert setup_node["with"] == {"node-version-file": ".node-version"}
+    assert "if" in setup_node
 
 
 def test_setup_run_step_rejects_action_inputs(tmp_path: Path) -> None:
@@ -503,6 +521,12 @@ def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
     """
     extra = dedent("""\
         setup:
+          - uses: actions/setup-node@v4
+            name: Setup Node
+            with:
+              node-version-file: .node-version
+            env:
+              FORCE_COLOR: "1"
           - run: cargo build --release
             name: Build release
             shell: bash
@@ -516,6 +540,11 @@ def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
     data = yaml.safe_load(review.content)
 
     steps = data["jobs"]["review"]["steps"]
+    node = next(s for s in steps if s.get("uses") == "actions/setup-node@v4")
+    assert node["name"] == "Setup Node"
+    assert node["with"] == {"node-version-file": ".node-version"}
+    assert node["env"] == {"FORCE_COLOR": "1"}
+
     build = next(s for s in steps if s.get("run") == "cargo build --release")
     assert build["name"] == "Build release"
     assert build["shell"] == "bash"
@@ -957,48 +986,22 @@ def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert len(list(wf_dir.glob("tend-*.yaml"))) == 7
 
 
-def test_review_probes_merge_ref_and_falls_back_to_head(tmp_path: Path) -> None:
-    """tend-review must probe refs/pull/N/merge and fall back to /head on 404.
-
-    GitHub only materializes the merge ref for mergeable PRs, so without a
-    fallback the checkout 404s on every conflicting PR and the whole review
-    job cascades as skipped. The probe step wires its output into checkout's
-    `ref:` so review always runs.
-    """
+def test_review_delegates_pr_topology_to_disposable_clone(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
     steps = data["jobs"]["review"]["steps"]
-    probe_idx = next(i for i, s in enumerate(steps) if s.get("id") == "pr_ref")
-    checkout_idx = _pr_tree_checkout_idx(steps)
-    assert probe_idx < checkout_idx
-    probe = steps[probe_idx]
-    assert "gh api" in probe["run"]
-    assert "refs/pull/$PR/merge" in probe["run"]
-    assert "refs/pull/$PR/head" in probe["run"]
-    assert steps[checkout_idx]["with"]["ref"] == "${{ steps.pr_ref.outputs.ref }}"
-
-
-def _pr_tree_checkout_idx(steps: list[dict]) -> int:
-    """Index of review's second checkout — the one carrying the fork PR ref."""
-    return next(
-        i
-        for i, s in enumerate(steps)
-        if s.get("uses") == "actions/checkout@v7" and "ref" in s.get("with", {})
+    assert sum(s.get("uses") == "actions/checkout@v7" for s in steps) == 1
+    assert all(s.get("id") != "pr_ref" for s in steps)
+    agent = next(
+        s for s in steps if str(s.get("uses", "")).startswith("max-sixty/tend/")
     )
+    assert agent["with"]["checkout_mode"] == "review"
+    assert agent["with"]["base_branch"] == "${{ github.event.pull_request.base.ref }}"
 
 
-def test_setup_runs_on_base_tree_in_review(tmp_path: Path) -> None:
-    """Review checks out the base tree, runs `setup:`, then lands the PR tree.
-
-    `setup:` runs as the runner user, outside the sandbox the harness builds
-    and before it strips the checkout PAT from `.git/config`. Against the PR
-    tree it would execute a contributor's build backend, dependencies, and
-    local `uses: ./` actions with that access, which is the boundary the
-    sandbox exists to draw. The PR checkout keeps `clean: false` so it does
-    not delete what setup wrote into the workspace.
-    """
-    extra = "setup:\n  - run: python --version\n"
+def test_setup_runs_on_stable_base_tree_in_review(tmp_path: Path) -> None:
+    extra = "setup:\n  - uses: ./.github/actions/my-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
@@ -1008,24 +1011,23 @@ def test_setup_runs_on_base_tree_in_review(tmp_path: Path) -> None:
         i for i, s in enumerate(steps) if s.get("uses") == "actions/checkout@v7"
     )
     setup_idx = next(
-        i for i, s in enumerate(steps) if s.get("run") == "python --version"
+        i for i, s in enumerate(steps) if s.get("uses") == "./.github/actions/my-setup"
     )
-    pr_idx = _pr_tree_checkout_idx(steps)
+    agent_idx = next(
+        i
+        for i, s in enumerate(steps)
+        if str(s.get("uses", "")).startswith("max-sixty/tend/")
+    )
 
-    assert base_idx < setup_idx < pr_idx
+    assert base_idx < setup_idx < agent_idx
+    assert sum(s.get("uses") == "actions/checkout@v7" for s in steps) == 1
     assert "ref" not in steps[base_idx].get("with", {}), (
         "the pre-setup checkout must take the event's base ref, not a fork ref"
     )
-    assert steps[pr_idx]["with"]["clean"] is False
 
 
 def test_review_without_setup_checks_out_once(tmp_path: Path) -> None:
-    """The base checkout is setup's, so it renders only alongside setup.
-
-    With nothing to run against the base tree, a second full-history clone is
-    pure overhead. `clean` goes with it — the action consults it only when it
-    finds an existing repo, which a lone checkout never does.
-    """
+    """The one runner checkout is always the trusted base tree."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
@@ -1033,7 +1035,7 @@ def test_review_without_setup_checks_out_once(tmp_path: Path) -> None:
 
     checkouts = [s for s in steps if s.get("uses") == "actions/checkout@v7"]
     assert len(checkouts) == 1
-    assert checkouts[0]["with"]["ref"] == "${{ steps.pr_ref.outputs.ref }}"
+    assert "ref" not in checkouts[0]["with"]
     assert "clean" not in checkouts[0]["with"]
 
 
@@ -1137,7 +1139,7 @@ def test_setup_raw_rejected_with_migration_hint(tmp_path: Path) -> None:
                 with:
                   save-if: false
     """)
-    with pytest.raises(click.ClickException, match="sandbox_setup"):
+    with pytest.raises(click.ClickException, match="composite action"):
         Config.load(_minimal_config(tmp_path, extra))
 
 
@@ -1180,12 +1182,8 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     assert "repository_dispatch" in verify_if
     assert "pull_request_review" not in verify_if
 
-    # Handle job checks out PR branch for this event
+    # The harness selects the PR branch only in its disposable clone.
     handle_steps = data["jobs"]["handle"]["steps"]
-    checkout_step = next(
-        s for s in handle_steps if s.get("name") == "Check out PR branch"
-    )
-    assert "repository_dispatch" in checkout_step["if"]
 
     # Prompt keeps the review-kind and mention/participation branches apart,
     # keyed on the payload's kind and verify's judged reason — never on a
@@ -1195,6 +1193,8 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
         for s in handle_steps
         if s.get("uses", "").startswith("max-sixty/tend/claude@")
     )
+    assert tend_step["with"]["checkout_mode"] == "mention"
+    assert all(s.get("name") != "Check out PR branch" for s in handle_steps)
     prompt = tend_step["with"]["prompt"]
     assert "needs.verify.outputs.reason == 'mention'" in prompt
     assert "needs.verify.outputs.url" in prompt
@@ -1305,23 +1305,16 @@ def test_mention_handle_job_queues_not_cancels(tmp_path: Path) -> None:
 
 
 def test_setup_before_pr_checkout_in_mention(tmp_path: Path) -> None:
-    """Setup runs against the default branch, before switching to the PR branch.
-
-    A PR opened before a referenced local composite action existed (and never
-    rebased) carries a tree without that action; running setup after
-    `gh pr checkout` would 404 with `Can't find 'action.yml'` and drop the
-    maintainer's mention silently.
-    """
-    extra = "setup:\n  - run: python --version\n"
+    """Setup and POST remain on the default-branch runner checkout."""
+    extra = "setup:\n  - uses: ./.github/actions/my-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     mention = workflows["tend-mention.yaml"]
     initial_checkout_idx = mention.content.index("actions/checkout@v7")
-    setup_idx = mention.content.index("python --version")
-    pr_checkout_idx = mention.content.index("Check out PR branch")
-    assert initial_checkout_idx < setup_idx < pr_checkout_idx, (
-        "Setup must run after the initial checkout and before PR-branch switch"
-    )
+    setup_idx = mention.content.index("./.github/actions/my-setup")
+    agent_idx = mention.content.index(f"max-sixty/tend/claude@{ACTION_VERSION}")
+    assert initial_checkout_idx < setup_idx < agent_idx
+    assert "Check out PR branch" not in mention.content
 
 
 def test_mention_handle_has_queue_delay(tmp_path: Path) -> None:
@@ -1778,10 +1771,21 @@ def test_workflow_with_setup_regtest(
     regtest: object, tmp_path: Path, name: str
 ) -> None:
     """Snapshot each workflow's full YAML with a setup step."""
-    extra = "setup:\n  - run: uv --version\n"
+    extra = "setup:\n  - uses: astral-sh/setup-uv@v6\n"
     extra_cfg = _extra_for(name)
     if extra_cfg:
         extra += extra_cfg
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    wf = GENERATORS[name](cfg)
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("name", ["review", "mention"])
+def test_workflow_with_local_setup_regtest(
+    regtest: object, tmp_path: Path, name: str
+) -> None:
+    """Local setup composites keep one stable runner checkout through POST."""
+    extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = GENERATORS[name](cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
@@ -2052,11 +2056,11 @@ def test_args_render_as_exact_action_arguments(tmp_path: Path, harness: str) -> 
 
 
 def test_codex_default_model(tmp_path: Path) -> None:
-    """Engine = codex without explicit model picks gpt-5.5."""
+    """Generated Codex workflows pin Tend's current Sol-tier default."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
-    assert cfg.model == "gpt-5.5"
+    assert cfg.model == "gpt-5.6-sol"
     wf = next(w for w in generate_all(cfg) if w.filename == "tend-triage.yaml")
-    assert "model: gpt-5.5" in wf.content
+    assert "model: gpt-5.6-sol" in wf.content
 
 
 def test_unknown_engine_rejected(tmp_path: Path) -> None:
@@ -2080,7 +2084,6 @@ def test_per_workflow_harness_override_targets_only_named_workflow(
         workflows:
           nightly:
             harness: codex
-            model: gpt-5.5
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -2091,6 +2094,7 @@ def test_per_workflow_harness_override_targets_only_named_workflow(
     # The override carries the harness's own secret shape, not the top level's.
     assert "openai_api_key" in nightly.content
     assert "claude_code_oauth_token" not in nightly.content
+    assert "model: gpt-5.6-sol" in nightly.content
 
     # Sibling workflows still use the top-level claude harness.
     review = workflows["tend-review.yaml"]
@@ -2113,14 +2117,13 @@ def test_per_workflow_harness_unknown_rejected(tmp_path: Path) -> None:
 def test_per_workflow_harness_incompatible_model_rejected_codex_target(
     tmp_path: Path,
 ) -> None:
-    """codex (gpt-5.5) → claude per-workflow: top-level model 'gpt-5.5' isn't
-    in claude's allowlist. Fail at config load."""
+    """An explicit per-workflow model must fit its effective harness."""
     extra = dedent("""\
         harness: codex
-        model: gpt-5.5
         workflows:
           nightly:
             harness: claude
+            model: gpt-5.5
     """)
     with pytest.raises(
         click.ClickException,
@@ -2129,27 +2132,37 @@ def test_per_workflow_harness_incompatible_model_rejected_codex_target(
         Config.load(_minimal_config(tmp_path, extra))
 
 
-def test_per_workflow_harness_incompatible_model_rejected_codex_source(
+def test_per_workflow_harness_change_uses_target_default_model(
     tmp_path: Path,
 ) -> None:
-    """Symmetric case: claude (opus) → codex per-workflow without a model
-    override. codex doesn't accept 'opus' but has no allowlist, so the
-    cross-family-source check catches it instead of the target-allowlist
-    check. Reviewer-flagged asymmetry in #612.
-
-    Without this guard, the renderer would emit `model: opus` on a codex
-    action step that codex would reject at runtime."""
+    """A harness change does not carry the other harness's model with it."""
     extra = dedent("""\
         harness: claude
         workflows:
           nightly:
             harness: codex
     """)
-    with pytest.raises(
-        click.ClickException,
-        match=r"workflows.nightly crosses harness families \(claude → codex\)",
-    ):
-        Config.load(_minimal_config(tmp_path, extra))
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    nightly = workflows["tend-nightly.yaml"]
+    assert f"max-sixty/tend/codex@{ACTION_VERSION}" in nightly.content
+    assert "model: gpt-5.6-sol" in nightly.content
+
+
+def test_per_workflow_harness_change_uses_claude_default_model(
+    tmp_path: Path,
+) -> None:
+    extra = dedent("""\
+        harness: codex
+        workflows:
+          nightly:
+            harness: claude
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    nightly = workflows["tend-nightly.yaml"]
+    assert f"max-sixty/tend/claude@{ACTION_VERSION}" in nightly.content
+    assert "model: opus" in nightly.content
 
 
 def test_per_workflow_model_override_unblocks_cross_family(tmp_path: Path) -> None:

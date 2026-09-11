@@ -54,8 +54,8 @@ orders of magnitude and look plausible doing it.
 
 Both files record each assistant message roughly twice, hence the dedupe by
 ``message.id``. ``<session-id>/subagents/agent-*.jsonl`` is skipped: every
-``Task`` subagent gets its own transcript there and the ``cp -a`` of
-``.claude/projects/.`` brings the subtree along, but the ``result`` event path
+``Task`` subagent gets its own transcript there and the bounded tree export
+brings the subtree along, but the ``result`` event path
 2 stands in for counts only the main loop — slurping the subagents alongside it
 inflates every field (turns roughly doubles) and makes partial runs
 incomparable with complete ones.
@@ -66,12 +66,13 @@ have. A ``0`` there would repeat the bug the fallback exists to fix, one field
 down; ``partial`` is what keeps a reconstructed total distinguishable from a
 run that really cost nothing.
 
-Codex has one path: consolidate the sandbox user's rollouts, then sum
-``sessions/**/rollout-*.jsonl``. That schema isn't versioned, so a
-missing field counts as zero — and no rollouts at all is the same computation
-over no events, which yields the all-zero record on its own. Cost stays 0: the
-Codex CLI doesn't surface API list prices and computing them here would mean
-maintaining a price table.
+Codex has one path: consolidate the sandbox user's rollouts, then take the last
+cumulative token count from each ``sessions/**/rollout-*.jsonl``. That schema
+isn't versioned, so a missing field counts as zero — and no rollouts at all is
+the same computation over no events, which yields the all-zero record on its
+own. Codex includes cached tokens in ``input_tokens``; ``cached_input_tokens``
+is the subset served from cache. Cost stays 0: the Codex CLI doesn't surface
+API list prices and computing them here would mean maintaining a price table.
 """
 
 from __future__ import annotations
@@ -81,11 +82,13 @@ import json
 import os
 import stat
 import subprocess
+import sys
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
 import _common
+from _safe_files import open_directory_nofollow
 
 # Row order is the rendered table's; the two harnesses report different metrics
 # under the same heading, so neither list is a subset of the other.
@@ -103,9 +106,9 @@ CLAUDE_TABLE = (
 CODEX_TABLE = (
     "## Token Usage (Codex)",
     (
-        ("Input", "input_tokens"),
+        ("Total input", "input_tokens"),
         ("Output", "output_tokens"),
-        ("Cached input", "cached_input_tokens"),
+        ("Cached input (included in total)", "cached_input_tokens"),
         ("Turns", "turns"),
         ("Model", "model"),
     ),
@@ -121,9 +124,21 @@ LIST_PRICE_NOTE = (
     "Claude Code subscriptions.*"
 )
 CODEX_COST_NOTE = "*Cost is not reported — Codex CLI does not surface API list prices.*"
+EXPORT_MAX_FILES = 20_000
+EXPORT_MAX_FILE_BYTES = 64 * 1024 * 1024
+EXPORT_MAX_TOTAL_BYTES = 512 * 1024 * 1024
 
 
 def main() -> int:
+    if len(sys.argv) == 6 and sys.argv[1] == "--copy-tree":
+        if os.geteuid() != 0:
+            raise SystemExit("--copy-tree requires root")
+        return privileged_copy(
+            Path(sys.argv[2]),
+            Path(sys.argv[3]),
+            uid=int(sys.argv[4]),
+            gid=int(sys.argv[5]),
+        )
     parser = argparse.ArgumentParser(description="Account a run's token usage.")
     parser.add_argument("--harness", choices=("claude", "codex"), required=True)
     harness = parser.parse_args().harness
@@ -139,6 +154,89 @@ def main() -> int:
     (logs_dir / "token-usage.json").write_text(payload + "\n", encoding="utf-8")
     _common.set_output("usage", payload)
     _common.append_summary(render_summary(usage, harness=harness))
+    return 0
+
+
+def privileged_copy(source: Path, destination: Path, *, uid: int, gid: int) -> int:
+    """Descriptor-relative, bounded copy used only through the root helper."""
+    source_fd = open_directory_nofollow(source)
+    destination.mkdir(parents=True, exist_ok=True)
+    destination_fd = open_directory_nofollow(destination)
+    os.fchown(destination_fd, uid, gid)
+    files = 0
+    total = 0
+
+    def copy_dir(src_fd: int, dst_fd: int) -> None:
+        nonlocal files, total
+        with os.scandir(src_fd) as entries:
+            for entry in entries:
+                mode = entry.stat(follow_symlinks=False).st_mode
+                if stat.S_ISDIR(mode):
+                    os.mkdir(entry.name, mode=0o700, dir_fd=dst_fd)
+                    os.chown(
+                        entry.name,
+                        uid,
+                        gid,
+                        dir_fd=dst_fd,
+                        follow_symlinks=False,
+                    )
+                    child_src = os.open(
+                        entry.name,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=src_fd,
+                    )
+                    child_dst = os.open(
+                        entry.name,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=dst_fd,
+                    )
+                    try:
+                        copy_dir(child_src, child_dst)
+                    finally:
+                        os.close(child_src)
+                        os.close(child_dst)
+                    continue
+                if not stat.S_ISREG(mode):
+                    continue
+                size = entry.stat(follow_symlinks=False).st_size
+                files += 1
+                total += size
+                if files > EXPORT_MAX_FILES:
+                    raise ValueError("session export exceeded file-count limit")
+                if size > EXPORT_MAX_FILE_BYTES or total > EXPORT_MAX_TOTAL_BYTES:
+                    raise ValueError("session export exceeded byte limit")
+                src = os.open(entry.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=src_fd)
+                try:
+                    if not stat.S_ISREG(os.fstat(src).st_mode):
+                        continue
+                    dst = os.open(
+                        entry.name,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        0o600,
+                        dir_fd=dst_fd,
+                    )
+                    try:
+                        os.fchown(dst, uid, gid)
+                        remaining = size
+                        while remaining:
+                            chunk = os.read(src, min(1024 * 1024, remaining))
+                            if not chunk:
+                                break
+                            view = memoryview(chunk)
+                            while view:
+                                view = view[os.write(dst, view) :]
+                            remaining -= len(chunk)
+                    finally:
+                        os.close(dst)
+                finally:
+                    os.close(src)
+
+    try:
+        copy_dir(source_fd, destination_fd)
+    finally:
+        os.close(source_fd)
+        os.close(destination_fd)
+
     return 0
 
 
@@ -201,18 +299,18 @@ def codex_step(model: str) -> tuple[dict[str, Any], Path]:
     if os.environ.get("SANDBOX_REAPED") == "true":
         copy_agent_tree(agent_home / ".codex" / "sessions", logs_dir / "sessions")
     rollouts = sorted((logs_dir / "sessions").rglob("rollout-*.jsonl"))
-    return codex_usage(read_all(rollouts), model), logs_dir
+    return codex_usage(
+        (_common.read_ndjson(path) for path in rollouts), model
+    ), logs_dir
 
 
 def consolidate_logs(logs_dir: Path, runner_temp: Path) -> None:
     """Copy the agent's session JSONL and stderr log into a runner-owned dir.
 
     The copy waits on ``SANDBOX_REAPED``, the supervisor's record that every
-    sandbox process is dead. :func:`copy_agent_tree` checks the tree it is about
-    to read, and a surviving agent could swap a session dir for a symlink
-    between that check and the root copy that follows. The memory save keys on
-    the same output for the same reason, and that read is unprivileged where
-    this one runs as root.
+    sandbox process is dead. :func:`copy_agent_tree` then walks through
+    no-follow descriptors, so path checks and reads are one operation rather
+    than a check followed by a privileged pathname traversal.
 
     It is set from a ``finally``, so only a supervisor killed outright — a
     second signal during an escalating cancel — leaves it unset. That run
@@ -230,90 +328,26 @@ def consolidate_logs(logs_dir: Path, runner_temp: Path) -> None:
 
 
 def copy_agent_tree(source: Path, destination: Path) -> None:
-    """Copy a reaped agent's session dir out of the sandbox home, as root.
+    """Copy a quiescent agent tree through one bounded root helper.
 
-    The sandbox user owns ``source`` and its parent, so the agent picks what a
-    privileged command here lands on. Three things close that:
-
-    - **Copy, don't grant.** Reading the tree as root and chowning the copy to
-      the runner needs no permission change on the agent's side. The
-      ``chmod -R a+rX`` this replaces was an escalation primitive: aimed
-      through a symlink it opened up any tree the agent named.
-    - **No symlink at either boundary.** ``cp -a`` follows a symlinked
-      *argument*, so the session dir and the dot-dir holding it are both
-      checked; see :func:`safe_agent_directory`.
-    - **Only regular files inside.** ``cp -a`` reproduces a nested symlink or
-      FIFO as one, and both are removed before anything reads the copy; see
-      :func:`drop_non_regular_files`.
-      ``cp -a`` also preserves the agent's directory modes and ``chown`` leaves
-      them alone, so the modes are normalised too: unlinking needs write on the
-      parent, and a ``0555`` directory would keep what it holds (and raise), a
-      ``0000`` one hide it. That chmod is nothing like the one this replaces —
-      it lands on a destination the runner made and now owns, so there is
-      nothing for the agent to aim it at.
-
-    A boundary that fails the check copies nothing: an empty artifact, the same
-    thing a run whose agent never started leaves behind. Telling the two apart
-    is not worth failing an ``if: always()`` step over a directory the runner
-    may simply be unable to see.
+    The helper opens every directory and file relative to an already-open
+    descriptor with ``O_NOFOLLOW``. Symlinks, devices and FIFOs are skipped;
+    file count, per-file bytes and total bytes are bounded before upload.
     """
-    for boundary in (source.parent, source):
-        if not safe_agent_directory(boundary):
-            return
     destination.mkdir(parents=True, exist_ok=True)
-    best_effort("sudo", "cp", "-a", f"{source}/.", f"{destination}/")
-    best_effort("sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", str(destination))
-    best_effort("sudo", "chmod", "-R", "u+rwX", str(destination))
-    drop_non_regular_files(destination)
-
-
-def safe_agent_directory(path: Path) -> bool:
-    """Whether *path* is a real directory rather than a symlink or absent.
-
-    The runner cannot always stat inside the sandbox home — the agent may
-    ``chmod`` its own dot-dir shut — and ``Path.is_symlink`` answers ``False``
-    for a path it cannot reach, which waves a symlink through the check meant
-    to catch it. So the ``lstat`` is raw, and the one question the runner
-    cannot answer is re-asked as root, which can always see. An unreachable
-    answer, root included, reads as unsafe.
-    """
-    try:
-        return stat.S_ISDIR(os.lstat(path).st_mode)
-    except FileNotFoundError:
-        return False
-    except OSError:
-        return root_test("-d", path) and not root_test("-L", path)
-
-
-def root_test(flag: str, path: Path) -> bool:
-    """``test <flag> <path>`` as root, for a path the runner cannot stat."""
-    return (
-        subprocess.run(
-            ["sudo", "test", flag, str(path)],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        ).returncode
-        == 0
+    best_effort(
+        "/usr/bin/sudo",
+        "-n",
+        "/usr/bin/python3",
+        "-E",
+        "-s",
+        str(Path(__file__).resolve()),
+        "--copy-tree",
+        str(source),
+        str(destination),
+        str(os.getuid()),
+        str(os.getgid()),
     )
-
-
-def drop_non_regular_files(logs_dir: Path) -> None:
-    """Remove everything but files and directories from the dir to be uploaded.
-
-    The agent writes only regular files here, so anything else is it reaching
-    for something other than its own session log, and ``cp -a`` reproduces
-    whatever it finds. A symlink stays a symlink, and ``upload-artifact``
-    resolves it as the runner — which can read the proxy's CA private key and
-    its own ``/proc/<pid>/environ``. A FIFO stays a FIFO, and the upload
-    streams every entry that isn't a directory, so opening one with no writer
-    blocks until the job times out. One test on the mode covers both.
-    """
-    for path in list(logs_dir.rglob("*")):
-        mode = path.lstat().st_mode
-        if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
-            path.unlink()
 
 
 def best_effort(*argv: str) -> None:
@@ -453,18 +487,48 @@ def session_usage(
     )
 
 
-def codex_usage(events: Iterable[dict[str, Any]], model: str) -> dict[str, Any]:
-    """Sum a Codex run's rollout events; no events is the all-zero record."""
-    events = list(events)
+def codex_usage(
+    rollouts: Iterable[Iterable[dict[str, Any]]], model: str
+) -> dict[str, Any]:
+    """Account Codex's cumulative usage events across independent rollouts."""
+    final_usage: list[dict[str, Any]] = []
+    turns = 0
+    for rollout in rollouts:
+        last_usage: dict[str, Any] = {}
+        for event in rollout:
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            if event.get("type") == "turn_context" and not model:
+                value = payload.get("model")
+                if isinstance(value, str) and value:
+                    model = value
+            if (
+                event.get("type") == "event_msg"
+                and payload.get("type") == "token_count"
+            ):
+                info = payload.get("info")
+                usage = (
+                    info.get("total_token_usage") if isinstance(info, dict) else None
+                )
+                if isinstance(usage, dict):
+                    last_usage = usage
+            if (
+                event.get("type") == "response_item"
+                and payload.get("type") == "message"
+                and payload.get("role") == "assistant"
+            ):
+                turns += 1
+        final_usage.append(last_usage)
 
     def total(field: str) -> float:
-        return sum(number(event.get("token_count"), field) for event in events)
+        return sum(number(usage, field) for usage in final_usage)
 
     return {
         "input_tokens": total("input_tokens"),
         "output_tokens": total("output_tokens"),
         "cached_input_tokens": total("cached_input_tokens"),
-        "turns": sum(1 for event in events if event.get("type") == "agent_message"),
+        "turns": turns,
         "model": model,
         "cost_usd": 0,
     }

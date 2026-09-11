@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,23 @@ def _assistant(msg_id: str, usage: dict[str, int], *, final: bool) -> dict[str, 
     }
 
 
+def _codex_token_count(**usage: int) -> dict[str, object]:
+    return {
+        "type": "event_msg",
+        "payload": {
+            "type": "token_count",
+            "info": {"total_token_usage": usage},
+        },
+    }
+
+
+def _codex_message() -> dict[str, object]:
+    return {
+        "type": "response_item",
+        "payload": {"type": "message", "role": "assistant"},
+    }
+
+
 def _ndjson(path: Path, lines: list[dict[str, object]]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(line) + "\n" for line in lines))
@@ -84,8 +102,8 @@ def _session_jsonl(logs_dir: Path) -> Path:
     """A cancelled session's JSONL: real usage, each message duplicated.
 
     Writes the subagent transcript beside it too — ``<session>/subagents/`` is
-    how Claude Code lays a ``Task`` out on disk, and the consolidating
-    ``cp -a .../projects/.`` copies the subtree into the log dir.
+    how Claude Code lays a ``Task`` out on disk, and the bounded tree exporter
+    preserves the subtree in the log dir.
     """
     project = logs_dir / "-home-runner-work-repo-repo"
     lines: list[dict[str, object]] = [{"type": "user"}]
@@ -131,6 +149,20 @@ def reaped(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SANDBOX_REAPED", "true")
 
 
+def _run_without_sudo(run_command: Callable[..., None], *argv: str) -> None:
+    if argv[:2] == ("/usr/bin/sudo", "-n") and "--copy-tree" in argv:
+        start = argv.index("--copy-tree") + 1
+        source, destination, uid, gid = argv[start:]
+        try:
+            token_usage.privileged_copy(
+                Path(source), Path(destination), uid=int(uid), gid=int(gid)
+            )
+        except (OSError, ValueError):
+            pass
+        return
+    run_command(*argv)
+
+
 @pytest.fixture
 def sudoless(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the consolidating copy's commands unprivileged, as themselves.
@@ -142,7 +174,7 @@ def sudoless(monkeypatch: pytest.MonkeyPatch) -> None:
     run_command = token_usage.best_effort
 
     def run_without_sudo(*argv: str) -> None:
-        run_command(*(argv[1:] if argv[:1] == ("sudo",) else argv))
+        _run_without_sudo(run_command, *argv)
 
     monkeypatch.setattr(token_usage, "best_effort", run_without_sudo)
 
@@ -316,30 +348,26 @@ def test_reports_zero_when_the_agent_never_ran(logs_dir: Path) -> None:
     assert usage["partial"] is False
 
 
-def test_codex_sums_token_counts_across_rollouts(tmp_path: Path) -> None:
-    """Codex accounting is the sum over every rollout, turns being its messages."""
-    sessions = tmp_path / "sessions"
-    _ndjson(
-        sessions / "2026" / "08" / "25" / "rollout-a.jsonl",
-        [
-            {"type": "agent_message", "token_count": {"input_tokens": 100}},
-            {
-                "type": "token_count",
-                "token_count": {
-                    "input_tokens": 20,
-                    "output_tokens": 30,
-                    "cached_input_tokens": 90,
-                },
-            },
-        ],
-    )
-    _ndjson(
-        sessions / "2026" / "08" / "26" / "rollout-b.jsonl",
-        [{"type": "agent_message", "token_count": {"output_tokens": 7}}],
-    )
-
+def test_codex_sums_final_cumulative_counts_across_rollouts() -> None:
+    """Each rollout's last count is cumulative; independent rollouts are additive."""
     usage = token_usage.codex_usage(
-        token_usage.read_all(sorted(sessions.rglob("rollout-*.jsonl"))), "gpt-5"
+        [
+            [
+                {"type": "turn_context", "payload": {"model": "gpt-recommended"}},
+                _codex_token_count(
+                    input_tokens=20, output_tokens=5, cached_input_tokens=10
+                ),
+                _codex_message(),
+                _codex_token_count(
+                    input_tokens=100, output_tokens=30, cached_input_tokens=90
+                ),
+            ],
+            [
+                _codex_message(),
+                _codex_token_count(input_tokens=20, output_tokens=7),
+            ],
+        ],
+        "",
     )
 
     assert usage == {
@@ -347,7 +375,7 @@ def test_codex_sums_token_counts_across_rollouts(tmp_path: Path) -> None:
         "output_tokens": 37,
         "cached_input_tokens": 90,
         "turns": 2,
-        "model": "gpt-5",
+        "model": "gpt-recommended",
         "cost_usd": 0,
     }
 
@@ -361,18 +389,26 @@ def test_codex_counts_an_absent_token_count_as_zero() -> None:
     """
     usage = token_usage.codex_usage(
         [
-            {"type": "agent_message"},
-            {"type": "event_msg", "token_count": None},
-            {"type": "turn_context", "token_count": {"input_tokens": None}},
-            {"type": "token_count", "token_count": {"input_tokens": 42}},
+            [
+                {"type": "response_item", "payload": {"type": "reasoning"}},
+                {"type": "event_msg", "payload": {"type": "token_count"}},
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {"total_token_usage": {"input_tokens": None}},
+                    },
+                },
+                {"type": "turn_context", "payload": {"model": "gpt-ignored"}},
+            ]
         ],
         "gpt-5",
     )
 
-    assert usage["input_tokens"] == 42
+    assert usage["input_tokens"] == 0
     assert usage["output_tokens"] == 0
     assert usage["cached_input_tokens"] == 0
-    assert usage["turns"] == 1
+    assert usage["turns"] == 0
 
 
 def test_claude_main_publishes_the_record_three_ways(
@@ -455,8 +491,8 @@ def test_codex_main_publishes_the_record_three_ways(
     _ndjson(
         home / ".codex" / "sessions" / "2026" / "08" / "25" / "rollout-a.jsonl",
         [
-            {"type": "agent_message", "token_count": {"input_tokens": 100}},
-            {"type": "token_count", "token_count": {"output_tokens": 30}},
+            _codex_message(),
+            _codex_token_count(input_tokens=100, output_tokens=30),
         ],
     )
     monkeypatch.setenv("AGENT_HOME", str(home))
@@ -468,7 +504,7 @@ def test_codex_main_publishes_the_record_three_ways(
     run_command = token_usage.best_effort
 
     def run_without_sudo(*argv: str) -> None:
-        run_command(*(argv[1:] if argv[:1] == ("sudo",) else argv))
+        _run_without_sudo(run_command, *argv)
 
     monkeypatch.setattr(token_usage, "best_effort", run_without_sudo)
 
@@ -496,9 +532,9 @@ def test_codex_main_publishes_the_record_three_ways(
         "## Token Usage (Codex)\n"
         "| Metric | Value |\n"
         "|--------|-------|\n"
-        "| Input | 100 |\n"
+        "| Total input | 100 |\n"
         "| Output | 30 |\n"
-        "| Cached input | 0 |\n"
+        "| Cached input (included in total) | 0 |\n"
         "| Turns | 1 |\n"
         "| Model | gpt-5-codex |\n"
         "\n"
@@ -535,7 +571,7 @@ def test_agent_log_copy_drops_nested_symlinks(
     run_command = token_usage.best_effort
 
     def run_without_sudo(*argv: str) -> None:
-        run_command(*(argv[1:] if argv[:1] == ("sudo",) else argv))
+        _run_without_sudo(run_command, *argv)
 
     monkeypatch.setattr(token_usage, "best_effort", run_without_sudo)
     token_usage.copy_agent_tree(source, destination)
@@ -544,9 +580,7 @@ def test_agent_log_copy_drops_nested_symlinks(
     assert not (destination / "escape").exists()
 
 
-def test_agent_log_copy_refuses_symlink_source(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_agent_log_copy_refuses_symlink_source(tmp_path: Path, sudoless: None) -> None:
     real = tmp_path / "real"
     real.mkdir()
     source = tmp_path / "agent" / ".codex" / "sessions"
@@ -554,14 +588,9 @@ def test_agent_log_copy_refuses_symlink_source(
     source.symlink_to(real, target_is_directory=True)
     destination = tmp_path / "logs"
 
-    monkeypatch.setattr(
-        token_usage,
-        "best_effort",
-        lambda *_argv: pytest.fail("a symlink source must not be copied"),
-    )
     token_usage.copy_agent_tree(source, destination)
 
-    assert not destination.exists()
+    assert list(destination.iterdir()) == []
 
 
 def test_cost_renders_to_the_cent_and_says_so_when_unknown() -> None:
@@ -572,9 +601,12 @@ def test_cost_renders_to_the_cent_and_says_so_when_unknown() -> None:
 
 
 def test_consolidation_refuses_a_symlinked_session_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reaped: None
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sudoless: None,
+    reaped: None,
 ) -> None:
-    """`cp -a` follows a symlinked argument, so the sandbox must not aim it.
+    """The root helper refuses a symlink at the session-tree boundary.
 
     The agent owns the parent of `.claude/projects`, so it chooses what the
     runner's root-privileged copy reads. Pointing it at a tree of the agent's
@@ -587,16 +619,16 @@ def test_consolidation_refuses_a_symlinked_session_dir(
     (elsewhere / "ca-key.pem").write_text("PRIVATE KEY\n")
     (agent_home / ".claude" / "projects").symlink_to(elsewhere)
     monkeypatch.setenv("AGENT_HOME", str(agent_home))
-    commands = _record_commands(monkeypatch)
-
     token_usage.consolidate_logs(tmp_path / "logs", tmp_path / "runner-temp")
 
-    assert _aimed_inside(commands, agent_home, elsewhere) == []
     assert list((tmp_path / "logs").iterdir()) == []
 
 
 def test_consolidation_refuses_a_symlinked_dot_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reaped: None
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sudoless: None,
+    reaped: None,
 ) -> None:
     """The dot-dir the session dir sits in is a boundary too.
 
@@ -611,59 +643,16 @@ def test_consolidation_refuses_a_symlinked_dot_directory(
     (elsewhere / "projects" / "session.jsonl").write_text("{}\n")
     (agent_home / ".claude").symlink_to(elsewhere, target_is_directory=True)
     monkeypatch.setenv("AGENT_HOME", str(agent_home))
-    commands = _record_commands(monkeypatch)
-
     token_usage.consolidate_logs(tmp_path / "logs", tmp_path / "runner-temp")
 
-    assert _aimed_inside(commands, agent_home, elsewhere) == []
-    assert list((tmp_path / "logs").iterdir()) == []
-
-
-@pytest.mark.skipif(os.geteuid() == 0, reason="root is never denied the lstat")
-def test_consolidation_asks_root_about_a_path_it_cannot_stat(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reaped: None
-) -> None:
-    """A dot-dir the agent has closed must not answer the symlink check `False`.
-
-    The sandbox home is the agent's, so it can `chmod` `.claude` shut at will —
-    and `Path.is_symlink` reports an unreachable path as "not a symlink", which
-    waves the link straight past the check meant to catch it. The question goes
-    to root instead, which can always see.
-    """
-    agent_home = tmp_path / "agent-home"
-    (agent_home / ".claude").mkdir(parents=True)
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    projects = agent_home / ".claude" / "projects"
-    projects.symlink_to(elsewhere, target_is_directory=True)
-    # `sudo test` is out of reach here, so root's answers are read off the
-    # link while the test can still see it, and served back from this table.
-    root_sees = {"-d": projects.is_dir(), "-L": projects.is_symlink()}
-    monkeypatch.setenv("AGENT_HOME", str(agent_home))
-    commands = _record_commands(monkeypatch)
-
-    asked: list[str] = []
-
-    def as_root(flag: str, path: Path) -> bool:
-        asked.append(flag)
-        assert path == projects
-        return root_sees[flag]
-
-    monkeypatch.setattr(token_usage, "root_test", as_root)
-
-    (agent_home / ".claude").chmod(0o600)
-    try:
-        token_usage.consolidate_logs(tmp_path / "logs", tmp_path / "runner-temp")
-    finally:
-        (agent_home / ".claude").chmod(0o700)
-
-    assert asked == ["-d", "-L"], "the unreadable boundary was never re-asked"
-    assert _aimed_inside(commands, agent_home, elsewhere) == []
     assert list((tmp_path / "logs").iterdir()) == []
 
 
 def test_consolidation_copies_nothing_when_the_agent_never_wrote_logs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reaped: None
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sudoless: None,
+    reaped: None,
 ) -> None:
     """`AGENT_HOME` is unset when sandbox setup died before exporting it.
 
@@ -672,18 +661,15 @@ def test_consolidation_copies_nothing_when_the_agent_never_wrote_logs(
     command run against a path that isn't there.
     """
     monkeypatch.delenv("AGENT_HOME", raising=False)
-    commands = _record_commands(monkeypatch)
-
     token_usage.consolidate_logs(tmp_path / "logs", tmp_path / "runner-temp")
 
-    assert _aimed_inside(commands, Path("/nonexistent")) == []
     assert list((tmp_path / "logs").iterdir()) == []
 
 
 def test_consolidation_drops_symlinks_from_the_uploaded_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sudoless: None, reaped: None
 ) -> None:
-    """`cp -a` preserves links and upload-artifact resolves them as the runner.
+    """The bounded exporter omits links before upload-artifact sees the tree.
 
     A link the agent plants in its session dir would otherwise publish whatever
     the runner can read — the proxy's CA private key, its own
@@ -733,7 +719,7 @@ def test_consolidation_waits_for_the_sandbox_to_be_reaped(
 def test_consolidation_drops_a_symlink_a_directory_mode_would_shield(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sudoless: None, reaped: None
 ) -> None:
-    """`cp -a` preserves the agent's directory modes, and `chown` leaves them.
+    """The bounded exporter creates normal runner-owned directory modes.
 
     Unlinking needs write on the parent, so a link the agent leaves in a `0555`
     directory outlives the sweep and takes the `if: always()` step down
@@ -765,7 +751,7 @@ def test_consolidation_drops_a_symlink_a_directory_mode_would_shield(
 def test_consolidation_drops_a_fifo_the_agent_planted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sudoless: None, reaped: None
 ) -> None:
-    """`cp -a` reproduces a FIFO as a FIFO, and the upload streams it.
+    """The bounded exporter omits a FIFO before the upload walks the tree.
 
     `upload-artifact` reads every entry that isn't a directory, and opening a
     FIFO with no writer blocks — so one left in the session dir hangs an

@@ -4,14 +4,16 @@
 # ///
 """Run the three stateful phases of Tend's Codex harness.
 
-The composite action remains the lifecycle and secret boundary. This module
-owns the Codex-specific mechanics that benefit from argv construction, output
-parsing, and file handling: installing the runner plugin, staging the global
-instructions, and preserving the final message around ``codex exec``.
+The shared SRT supervisor owns the execution lifetime; Tend's proxies own
+credentials. This module owns only Codex-specific mechanics that benefit from
+argv construction and file handling: installing Tend's plugins, staging the
+global instructions, and writing the fixed final-message file around
+``codex exec``.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -52,12 +54,9 @@ def _append_agent_environment(name: str, value: str) -> None:
         stream.write(f"{name}={value}\n")
 
 
-def _sandbox_command(*args: str, github_context: bool = False) -> list[str]:
-    environment = (
-        _sandbox.launch_env(_required_path("AGENT_ENV_FILE"))
-        if github_context
-        else _sandbox.agent_env(_required_path("AGENT_ENV_FILE"))
-    )
+def _sandbox_command(*args: str) -> list[str]:
+    """Run a preparation command as the agent uid before SRT starts."""
+    environment = _sandbox.agent_env(_required_path("AGENT_ENV_FILE"))
     return [
         "/usr/bin/sudo",
         "-u",
@@ -69,7 +68,7 @@ def _sandbox_command(*args: str, github_context: bool = False) -> list[str]:
 
 
 def install_plugin() -> int:
-    """Install tend-ci-runner and export its root for skill scripts."""
+    """Install Tend's plugins and export the runner root for skill scripts."""
     sandbox = os.environ.get("SANDBOX", "")
     if not sandbox:
         raise ValueError("SANDBOX is unset")
@@ -100,6 +99,7 @@ def install_plugin() -> int:
     )
     codex = str(_required_path("CODEX_BIN"))
     _run(_sandbox_command(codex, "plugin", "marketplace", "add", str(marketplace_root)))
+    _run(_sandbox_command(codex, "plugin", "add", "install-tend@tend"))
     installed = _run(
         _sandbox_command(codex, "plugin", "add", "tend-ci-runner@tend"),
         capture=True,
@@ -181,9 +181,8 @@ def stage_agents() -> int:
 
 def run_codex() -> int:
     """Run Codex and export its final message even when the process fails."""
-    sandbox = os.environ.get("SANDBOX", "")
-    if not sandbox:
-        raise ValueError("SANDBOX is unset")
+    if os.environ.get("TEND_INSIDE_SANDBOX") != "1":
+        raise RuntimeError("Codex may run only inside the SRT lifecycle")
     codex = str(_required_path("CODEX_BIN"))
     auth_mode = os.environ.get("AUTH_MODE", "")
     auth_args: list[str]
@@ -191,6 +190,8 @@ def run_codex() -> int:
         proxy_url = os.environ.get("CODEX_PROXY_URL", "")
         if not proxy_url:
             raise ValueError("CODEX_PROXY_URL is unset")
+        tool_no_proxy = os.environ.get("NO_PROXY", "")
+        tool_no_proxy_lower = os.environ.get("no_proxy", "")
         auth_args = [
             "--config",
             (
@@ -199,21 +200,30 @@ def run_codex() -> int:
             ),
             "--config",
             'model_provider="tend-openai"',
+            # Only Codex's own model client must cross SRT's HTTP broker to
+            # reach the runner-owned Responses proxy. Restore SRT's loopback
+            # exclusions for shell tools so sandbox-local test servers remain
+            # local to the sandbox.
+            "--config",
+            f"shell_environment_policy.set.NO_PROXY={json.dumps(tool_no_proxy)}",
+            "--config",
+            f"shell_environment_policy.set.no_proxy={json.dumps(tool_no_proxy_lower)}",
         ]
     elif auth_mode == "subscription":
         auth_args = []
     else:
         raise ValueError(f"unknown AUTH_MODE: {auth_mode or '<unset>'}")
     output_file = _required_path("TEND_RUN_DIR") / "codex-final-message.md"
-    _run(["/usr/bin/sudo", "-u", sandbox, "/usr/bin/rm", "-f", "--", str(output_file)])
+    _run(["/usr/bin/rm", "-f", "--", str(output_file)])
+    model = os.environ.get("MODEL", "")
     args = [
         codex,
         "exec",
         *(arg for arg in os.environ.get("EXTRA_ARGS", "").splitlines() if arg),
-        "--model",
-        os.environ.get("MODEL", ""),
-        "--sandbox",
-        os.environ.get("CODEX_SANDBOX_MODE", ""),
+        *(["--model", model] if model else []),
+        # SRT is the sole execution sandbox. A nested Codex sandbox creates a
+        # second, divergent policy surface and is deliberately not selected.
+        "--dangerously-bypass-approvals-and-sandbox",
         "--output-last-message",
         str(output_file),
         *auth_args,
@@ -224,10 +234,13 @@ def run_codex() -> int:
     if effort:
         args.extend(["--config", f'model_reasoning_effort="{effort}"'])
     args.append(os.environ.get("PROMPT", ""))
-    launch = _sandbox_command(
-        *args,
-        github_context=True,
-    )
+    launch = ["/usr/bin/env"]
+    if auth_mode == "api-key":
+        # SRT owns the effective proxy variables. Its NO_PROXY includes
+        # loopback, but the runner-owned Responses proxy lives on host
+        # loopback, so only Codex's API client bypasses those exclusions.
+        launch.extend(["NO_PROXY=", "no_proxy="])
+    launch.extend(args)
     insert_at = launch.index(codex)
     launch[insert_at:insert_at] = [
         f"BOT_NAME={os.environ.get('BOT_NAME', '')}",
@@ -235,35 +248,6 @@ def run_codex() -> int:
         f"CI={os.environ.get('CI') or 'true'}",
     ]
     result = _run(launch, check=False)
-
-    exists = _run(
-        [
-            "/usr/bin/sudo",
-            "-u",
-            sandbox,
-            "/usr/bin/test",
-            "-f",
-            str(output_file),
-        ],
-        check=False,
-    )
-    encoded = None
-    if exists.returncode == 0:
-        encoded = _run(
-            [
-                "/usr/bin/sudo",
-                "-u",
-                sandbox,
-                "/usr/bin/base64",
-                "-w0",
-                str(output_file),
-            ],
-            capture=True,
-            check=False,
-        )
-    if encoded and encoded.returncode == 0:
-        with _required_path("GITHUB_OUTPUT").open("a", encoding="utf-8") as stream:
-            stream.write(f"final_message={encoded.stdout or ''}\n")
     return result.returncode
 
 
@@ -282,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, ValueError) as error:
+    except (OSError, RuntimeError, ValueError) as error:
         print(f"codex runner: {error}", file=sys.stderr)
         raise SystemExit(1) from None
     except subprocess.CalledProcessError as error:

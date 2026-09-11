@@ -49,7 +49,7 @@ gh issue list --state open --author "$BOT_LOGIN" --search "ci-fix: in:title" \
    to diagnose, not a log fetch.
 4. Identify the root cause — don't just fix the symptom
 5. Search for the same pattern elsewhere in the codebase
-6. Reproduce locally using test commands from the project's CLAUDE.md
+6. Reproduce locally using test commands from the project's instruction files
 7. Fix at the right level (shared helper > per-file fix)
 
 A cancellation takes this same diagnostic path; do not presume it is transient
@@ -103,7 +103,7 @@ If the failure stays classified transient, open an issue with the diagnosis and 
 
 ```bash
 gh label create tend-outage --description "Tracks bot outage incidents" --color "d93f0b" 2>/dev/null || true
-gh issue create --title "ci-fix: transient failure on <run-id>" --label tend-outage --body-file /tmp/diagnosis.md
+gh issue create --title "ci-fix: transient failure on <run-id>" --label tend-outage --body-file "$TMPDIR/diagnosis.md"
 gh issue close <issue-number> --reason "not planned" --comment "Transient — closing as diagnosed."
 ```
 
@@ -126,7 +126,7 @@ gh issue list --state open --author "$BOT_LOGIN" --search "ci-fix: in:title" \
 If an open tracking issue matches:
 
 ```bash
-gh issue comment <issue-number> --body-file /tmp/recurrence.md
+gh issue comment <issue-number> --body-file "$TMPDIR/recurrence.md"
 ```
 
 Otherwise, open a new tracking issue. Use a title prefix that future runs can search on (`ci-fix: <workflow-name> failing`) with a short root-cause suffix for human readability:
@@ -134,10 +134,10 @@ Otherwise, open a new tracking issue. Use a title prefix that future runs can se
 ```bash
 gh issue create \
   --title "ci-fix: <workflow-name> failing — <short root cause>" \
-  --body-file /tmp/diagnosis.md
+  --body-file "$TMPDIR/diagnosis.md"
 ```
 
-Compose `/tmp/diagnosis.md` as a durable account for a maintainer deciding what happens next. Include the failed workflow and run, the root cause and mechanism, why no safe automated fix was produced, and the current blocker or decision. Follow **Reader-facing prose** in `running-in-ci`; the issue should preserve the conclusion, not the diagnostic transcript.
+Compose `$TMPDIR/diagnosis.md` as a durable account for a maintainer deciding what happens next. Include the failed workflow and run, the root cause and mechanism, why no safe automated fix was produced, and the current blocker or decision. Follow **Reader-facing prose** in `running-in-ci`; the issue should preserve the conclusion, not the diagnostic transcript.
 
 Skip step 4 — there's no PR to monitor.
 

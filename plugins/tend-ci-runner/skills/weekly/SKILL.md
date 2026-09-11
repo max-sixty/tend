@@ -31,7 +31,7 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
    ```
 
    **If `already_approved` is true, this PR is done — move to the next one.**
-   Otherwise compose `/tmp/review-body.md` with the Write tool. Give the
+   Otherwise compose `$TMPDIR/review-body.md`. Give the
    reviewer the context for the approval: the upgrade's scope and the evidence
    relevant to its safety. Keep it concise and omit the inspection chronology.
    Use a file rather than an inline `--body` because a
@@ -46,10 +46,10 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
    # sha first and bail if it isn't there: inlined as `$(cat ...)` a missing
    # file substitutes the empty string and the POST still runs, which is the
    # unpinned approval this pins against.
-   CHECKED=$(cat /tmp/checked-head-<number>) || exit 0
+   CHECKED=$(cat "$TMPDIR/checked-head-<number>") || exit 0
    REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
    gh api "repos/$REPO/pulls/<number>/reviews" --method POST \
-     -f event=APPROVE -f commit_id="$CHECKED" -F body=@/tmp/review-body.md
+     -f event=APPROVE -f commit_id="$CHECKED" -F body=@"$TMPDIR/review-body.md"
    ```
 4. If CI is failing, comment with the failure summary and skip
 5. If a major version bump, comment noting it needs manual review and skip

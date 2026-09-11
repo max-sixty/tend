@@ -43,6 +43,11 @@ shellcheck alone) skips ten of the thirteen hooks, including the three
 `repo: local` guards — the bang-backtick check, the install-tend mirror sync,
 and the `sandbox_env` reserved-set parity check.
 
+Inside a tend session the sandbox has no DNS, so the two tests in
+`generator/tests/test_refresh_consumers.py` fail: they drive the script
+through `uv run --script`, which resolves its dependencies from PyPI. Nothing
+else in the suite reaches the network, so a third failure is a real one.
+
 ## Architecture
 
 Four pieces:
@@ -54,18 +59,21 @@ Four pieces:
    — no floating `v1`). Every action lives under a harness-named path; there
    is no bare-root default. The two harness runners are:
    - `max-sixty/tend/claude@X.Y.Z` (Claude) — runs the official `claude`
-     binary headless (`claude -p`) as a non-sudo sandbox user behind the
-     credential-injecting proxy; completion is the process exit code.
+     binary headless (`claude -p`) inside the shared Anthropic Sandbox Runtime
+     boundary; completion is the process exit code plus result event.
      Inputs in `claude/action.yaml`.
    - `max-sixty/tend/codex@X.Y.Z` (Codex) — installs `@openai/codex` and
      shells out to `codex exec`. Skills are staged on disk and an
      `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve
      `/tend-ci-runner:NAME` slash commands. Inputs in `codex/action.yaml`.
-     Shares the cross-harness preflight/teardown scripts under `shared/steps/`.
+     Shares the cross-harness workspace, SRT lifecycle, preflight, and teardown
+     scripts under `shared/steps/`.
 
    Both harness runners resolve the bot's numeric ID at runtime, run security
-   and rate-limit preflight, and upload session logs. They don't know or care
-   about triggers, checkout, or project setup.
+   and rate-limit preflight, prepare an independent event checkout, run
+   `sandbox_setup:` and the complete agent turn in one SRT process tree, reap
+   it, and upload bounded session logs. The generated workflow's checkout stays
+   runner-owned on reviewed code for setup and local-action POST chains.
 
    `max-sixty/tend/codex/refresh@X.Y.Z` is the Codex support action. A generated
    serialized workflow runs it weekly to rotate Plus/Pro credentials and
@@ -94,10 +102,9 @@ Four pieces:
    runtime.
 
 Generated workflows are standalone — full `steps:` jobs, not
-`workflow_call`. The generator owns the entire file. Runner-side project setup
-is defined as shell commands in the `setup:` section of the config and rendered
-into each workflow; action steps are refused because their POST phase would run
-after the agent.
+`workflow_call`. The generator owns the entire file. Trusted runner setup
+(system tools and Actions caches) is defined in `setup:`; dependency setup
+against the event tree is defined in `sandbox_setup:` and runs inside SRT.
 
 ## Structure
 
@@ -106,7 +113,7 @@ tend/
 ├── .claude-plugin/
 │   └── marketplace.json  # Claude Code marketplace — lists both plugins
 ├── .agents/plugins/
-│   └── marketplace.json  # Codex marketplace — lists tend-ci-runner
+│   └── marketplace.json  # Codex marketplace — lists both Tend plugins
 ├── plugins/
 │   ├── install-tend/     # User-facing plugin (setup skill)
 │   └── tend-ci-runner/   # CI plugin (review, triage, ci-fix, etc.)
@@ -183,7 +190,8 @@ session runs the pin.
 | Permissions | Generator | generated workflow |
 | Checkout | Generator | generated workflow |
 | Composite action call | Generator | generated workflow |
-| Project setup commands | Adopter | `setup:` in `.config/tend.yaml` |
+| Runner setup (system tools, Actions cache) | Adopter | `setup:` in `.config/tend.yaml` |
+| Event-tree setup (dependencies, generated files) | Adopter | `sandbox_setup:` in `.config/tend.yaml` |
 | Bot identity, auth config | Adopter | `.config/tend.yaml` |
 | Skills (generic) | Tend | `tend` plugin (marketplace) |
 | Skills (project-specific) | Adopter | `.claude/skills/` in their repo |
@@ -219,10 +227,11 @@ workflows:
 ```
 
 Workflow-level (`workflow_extra`) and job-level (`jobs.<name>`) overrides
-are supported in maintainer merge mode; step-level is not — `setup:` injects
-runner-side `run` steps only. Yolo refuses both override forms and all
-runner-side `setup:` so credential-bearing jobs retain their audited shape.
-No allowlist of override keys; unknown job names produce a warning.
+are supported in maintainer merge mode; step-level is not — `setup:` handles
+trusted runner steps and `sandbox_setup:` handles event-workspace commands.
+Yolo refuses both override forms and all runner-side `setup:` so
+credential-bearing jobs retain their audited shape. No allowlist of override
+keys; unknown job names produce a warning.
 
 When overrides are present, the generator renders the base template,
 parses it, merges the overrides, and re-serializes. Output YAML formatting

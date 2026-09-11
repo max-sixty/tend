@@ -30,7 +30,7 @@ ${{ github.event_name == 'issue_comment'
               || (github.event.client_payload.kind == 'pull_request_review' && needs.verify.outputs.reason == 'mention'
                 && format('A review was submitted on PR #{0} that mentions you ({1}, review ID {2}). Read the review and full context, then respond. If changes were requested, make them, commit, and push.', github.event.client_payload.pr, needs.verify.outputs.url, github.event.client_payload.id))
               || (github.event.client_payload.kind == 'pull_request_review'
-                && format('A review was submitted on a PR where you previously participated (PR #{0}, {1}, review ID {2}). Read the review and full context. If it requests changes or asks questions, respond appropriately — including when you authored the review: a review your review workflow left on your own PR is your reviewer role speaking, not a self-loop, so action it. Exit silently for a plain approval, a review with no actionable content, or one between other participants.', github.event.client_payload.pr, needs.verify.outputs.url, github.event.client_payload.id))
+                && format('A review was submitted on a PR where you previously participated (PR #{0}, {1}, review ID {2}). Read the review and full context. If it requests changes or asks questions, respond appropriately. Exit silently for a plain approval, a review with no actionable content, or one between other participants.', github.event.client_payload.pr, needs.verify.outputs.url, github.event.client_payload.id))
               || (contains(github.event.comment.body, '@<<cfg.bot_name>>')
                 && format('You were mentioned in a comment ({0}). Read the full context and respond. If changes are requested, make them, commit, and push.', github.event.comment.html_url))
               || format('A user commented on an issue/PR where you previously participated ({0}). Read the full context. Only respond if the comment is directed at you, asks a question you can help with, or requests changes you can make. If the conversation is between other participants, exit silently.', github.event.comment.html_url)
@@ -201,22 +201,6 @@ jobs:
 
 <<checkout(cfg, if_condition=tend_enabled_condition)>>
 <<setup>>
-      - name: Check out PR branch
-        if: |
-          steps.tend_enabled.outputs.enabled == 'true' &&
-          ((github.event_name == 'issue_comment' && github.event.issue.pull_request.url != '') ||
-          github.event_name == 'repository_dispatch')
-        run: |
-          PR_STATE=$(gh pr view "$PR_NUMBER" --json state --jq '.state')
-          if [ "$PR_STATE" = "OPEN" ]; then
-            gh pr checkout "$PR_NUMBER"
-          else
-            echo "::warning::PR is $PR_STATE — staying on default branch"
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}
-          PR_NUMBER: ${{ github.event_name == 'issue_comment' && github.event.issue.number || github.event.client_payload.pr }}
-
       - name: Compute queue delay
         id: delay
         if: <<tend_enabled_condition>>
@@ -232,6 +216,6 @@ jobs:
           # the API record — the dispatch payload never carries one to spoof.
           EVENT_TS: ${{ github.event.comment.updated_at || needs.verify.outputs.ts || github.event.issue.updated_at }}
 
-<<agent_step(cfg, prompt_body, if_condition=tend_enabled_condition)>>
+<<agent_step(cfg, prompt_body, if_condition=tend_enabled_condition, checkout_mode='mention')>>
 
 <<unreact_eyes(cfg, reaction_target, if_condition="always()\n&& (" ~ tend_enabled_condition ~ ")\n&& (" ~ summoned(cfg.bot_name, 'needs.verify.outputs.reason') ~ ")")>>
