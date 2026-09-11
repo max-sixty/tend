@@ -9,6 +9,20 @@ import pytest
 import sandbox_setup
 
 
+@pytest.fixture(autouse=True)
+def contained_sandbox_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`main` exports TEND_INSIDE_SANDBOX on the real environment.
+
+    That is the point in production — `run_claude` reads it in-process and the
+    runner's children inherit it — but every module guarding on it would then
+    take the inside-sandbox branch for the rest of the pytest process, and this
+    file sorts first in the directory. Registering the name here is what makes
+    monkeypatch delete it on teardown; `delenv(raising=False)` registers
+    nothing when the variable is absent, which it is.
+    """
+    monkeypatch.setenv("TEND_INSIDE_SANDBOX", "")
+
+
 @pytest.fixture
 def past_setup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Both gates `main` clears before it reaches the harness branch."""
