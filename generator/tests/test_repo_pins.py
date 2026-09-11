@@ -126,6 +126,45 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
     )
 
 
+def test_codex_action_drives_its_stateful_phases_through_the_runner() -> None:
+    """The action's own steps are the only callers of these two commands.
+
+    `runner.py` dispatches on an exact argv, and nothing runs a composite
+    action in CI, so a command renamed on one side fails its step in an
+    adopter's job rather than here. What the commands then do is covered by
+    test_codex_runner.py.
+    """
+    action = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / "codex" / "action.yaml").read_text()
+    )
+    invoked = {
+        step["run"].rsplit('"', 1)[-1].strip()
+        for step in action["runs"]["steps"]
+        if "runner.py" in step.get("run", "")
+    }
+
+    assert {"install-plugin", "stage-agents"} <= invoked
+
+
+def test_codex_marketplace_declares_the_plugins_the_runner_installs() -> None:
+    """`runner.py` copies this manifest into the sandbox and installs both
+    plugins by name (`plugin add <name>@tend`, pinned in test_codex_runner.py).
+    A rename here surfaces only as a failed Codex run.
+    """
+    marketplace = json.loads(
+        (REPO_ROOT / ".agents" / "plugins" / "marketplace.json").read_text()
+    )
+    sources = {plugin["name"]: plugin["source"] for plugin in marketplace["plugins"]}
+
+    assert {"install-tend", "tend-ci-runner"} <= set(sources)
+    missing = sorted(
+        name
+        for name, source in sources.items()
+        if not (REPO_ROOT / source["path"]).is_dir()
+    )
+    assert not missing, f"marketplace points at no directory for: {missing}"
+
+
 def test_sandbox_runtime_pin_is_identical_in_actions_and_hosted_probe() -> None:
     yaml = YAML(typ="safe", pure=True)
     versions = {
