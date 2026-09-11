@@ -306,9 +306,9 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
 def test_run_refuses_to_create_a_second_execution_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Seeded rather than left absent: these are the values a suite run inside a
-    # tend session inherits from the live lifecycle, and the refusal has to
-    # hold against them the same way it holds on a bare runner.
+    # Seeded because `_set_sandbox_env` clears them below: with them set the
+    # runner would proceed past the refusal, so that clearing is what the
+    # assertion tests — absent the seeds it is vacuous on a bare runner.
     monkeypatch.setenv("TEND_INSIDE_SANDBOX", "1")
     monkeypatch.setenv("AUTH_MODE", "api-key")
     _set_sandbox_env(tmp_path, monkeypatch)
