@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Must cover data/consumers.json; test_cross_file_contracts.py enforces it.
+        # Must cover data/consumers.json; test_repo_pins.py enforces it.
         repo:
           - PRQL/prql
           - diffplug/dormouse
@@ -88,7 +88,7 @@ jobs:
           fetch-tags: true
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
-      - uses: max-sixty/tend/claude@0.2.5
+      - uses: max-sixty/tend/claude@0.2.6
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

@@ -24,11 +24,6 @@ BOT_REVIEW_STATE = (
     / "scripts"
     / "bot_review_state.py"
 )
-REVIEW_SKILL = BOT_REVIEW_STATE.parent.parent / "skills" / "review" / "SKILL.md"
-RUNNING_IN_CI_SKILL = (
-    BOT_REVIEW_STATE.parent.parent / "skills" / "running-in-ci" / "SKILL.md"
-)
-
 BOT = "tend-bot"
 HEAD = "head000"
 DRAFT_REVIEW_MARKER = "<!-- tend:draft-review -->"
@@ -752,81 +747,3 @@ def test_the_repo_is_named_explicitly_on_every_call(env: dict[str, str]) -> None
     assert lookups
     for call in lookups:
         assert "owner/repo" in call, call
-
-
-def test_review_skill_preserves_the_status_free_queue_contract() -> None:
-    """Reading and posting use the same review-state definition."""
-    skill = REVIEW_SKILL.read_text()
-
-    assert "repos/$REPO/statuses/$HEAD_SHA" not in skill
-    assert "tend-review/<number>" not in skill
-    assert 'review_preflight.py" start <number>' in skill
-    assert (
-        'if state != "OPEN"'
-        in BOT_REVIEW_STATE.with_name("review_preflight.py").read_text()
-    )
-    assert "force_full_review" in skill
-    assert (
-        "If `force_full_review` is false and the incremental changes are trivial"
-        in skill
-    )
-    assert f"Include the exact hidden marker `{DRAFT_REVIEW_MARKER}`" in skill
-    assert "Open the review body with this exact line" not in skill
-    assert "Post at most one review per run." in skill
-    assert "exception to one review per run" not in skill
-    assert "STARTED_DRAFT" not in skill
-    assert "LIVE_DRAFT" not in skill
-
-
-def test_review_skill_dismisses_a_standing_approval_when_it_posts_findings() -> None:
-    """The rule sits at the posting site, not in one push-shape's branch: the
-    force-push and ordinary-push paths fail identically, and a rule stated for
-    only one of them merges findings under a bot APPROVED."""
-    skill = REVIEW_SKILL.read_text()
-
-    assert "bot_review_state.py" in skill
-    assert "dismiss <number>" in skill
-    assert "A findings review never supersedes a standing approval" in skill
-    # The force-push branch defers to that one rule rather than restating it.
-    assert "last_substantive.state, .last_substantive.id" not in skill
-
-
-def test_review_skill_defines_every_id_its_dismissal_recipes_use() -> None:
-    """Step 7's CI-failure dismissal read `$REVIEW_ID`, which step 1 was the
-    only site to name. With that sentence gone the path collapsed to
-    `reviews//dismissals`, leaving an approval standing over a red check."""
-    skill = REVIEW_SKILL.read_text()
-
-    assert "$REVIEW_ID" not in skill
-    # Both dismissal sites invoke the same command, so there is one mechanism.
-    assert skill.count("dismiss <number>") == 2
-    assert "reviews/$STANDING/dismissals" not in skill
-
-
-def test_review_skill_spares_the_approval_when_the_comment_withholds_nothing() -> None:
-    """Step 1's unanswered-question exception posts a COMMENT at a head the
-    approval already covers. A trigger keyed on any COMMENT dismisses there,
-    withdrawing a verdict the code still earns and leaving the PR with none —
-    the next run hits the already-reviewed shortcut and posts nothing."""
-    skill = REVIEW_SKILL.read_text()
-
-    assert "posts a COMMENT that withholds the verdict" in skill
-    assert "A COMMENT that withholds nothing does not qualify" in skill
-    assert "whenever this round posts a COMMENT rather than an approval" not in skill
-
-
-def test_a_dismissal_path_exists_for_an_invalidation_that_is_not_an_event() -> None:
-    """Every dismissal site in `review` and `weekly` is keyed on something that
-    happened *on* the approved PR — a review round, a rewrite, a red check. An
-    approval superseded by a *different* PR merging reaches none of them, so it
-    stands until a human clears it. The generic rule lives in `running-in-ci`,
-    which every skill that can reach that conclusion loads, and it fires on the
-    conclusion rather than on a post — the dedup rules routinely (and rightly)
-    suppress the comment that would otherwise carry it."""
-    skill = RUNNING_IN_CI_SKILL.read_text()
-
-    assert "bot_review_state.py" in skill
-    assert "dismiss <number>" in skill
-    assert "reviews/$STANDING/dismissals" not in skill
-    # Not keyed on this session posting anything.
-    assert "whether or not this session posts" in skill

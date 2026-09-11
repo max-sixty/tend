@@ -315,11 +315,11 @@ If you cannot verify, say "I haven't confirmed whether these failures are pre-ex
 
 ### A review that lands while you poll is not yours to action
 
-`tend-review` fires on any PR you open, so its review often arrives while you are still polling that PR's checks. Don't act on it. `tend-mention` is dispatched on `pull_request_review` for every PR the bot authored, and that dispatch runs whether or not you also respond — so a session that starts editing is racing a run already making the same edits and running the same suite. The loser only finds out at `git push`, discards its commit, and the whole fix-and-verify cycle is paid twice for one review.
+`tend-review` fires on any PR you open, so its review often arrives while you are still polling that PR's checks. Don't act on it. That review session applies the findings it raised itself, so a session that starts editing is racing a run already making the same edits and running the same suite. The loser only finds out at `git push`, discards its commit, and the whole fix-and-verify cycle is paid twice for one review.
 
 Poll your checks to terminal, do the follow-up you were gated on, and exit; name the outstanding review in your summary. This covers a review that arrives *while* you work — a session dispatched to answer a specific review owns that review and actions it normally.
 
-**On a fork PR the premise fails — nothing succeeds you.** `tend-mention`'s relay job is gated on `head.repo.full_name == github.repository`, so a review on a fork PR dispatches nothing, and the notifications poll named as that filter's fallback can't see it either: GitHub doesn't notify an actor of their own activity, so the bot's own review is invisible there by construction. Findings left for a successor session strand until a human happens to comment. So if you pushed the commits under a maintainer directive you are the de-facto author — action your own review's findings before ending. If you pushed them without one, name them in your closing comment as unaddressed and unowned, so the thread shows someone has to pick them up. A review on commits the contributor pushed already reached them — leave it.
+**On a fork PR the premise fails — nothing succeeds you.** The review session applies its own findings only where the PR has no human author, and a fork PR is the contributor's — so the review posts them and stops. The notifications poll can't pick them up either: GitHub doesn't notify an actor of their own activity, so the bot's own review is invisible there by construction. Findings left for a successor session strand until a human happens to comment. So if you pushed the commits under a maintainer directive you are the de-facto author — action your own review's findings before ending. If you pushed them without one, name them in your closing comment as unaddressed and unowned, so the thread shows someone has to pick them up. A review on commits the contributor pushed already reached them — leave it.
 
 ### Rerunning failed jobs
 
@@ -376,7 +376,7 @@ If a maintainer has already addressed the point, exit silently unless you can ad
 
 ## Self-conversation Guard
 
-If you are responding to your own prior comment or review (not a human's reply to it), only respond if there is a distinct role boundary (e.g., you are the reviewer on your own PR and need to address review feedback). If there is no such role distinction, exit silently to avoid self-conversation loops.
+If you are responding to your own prior comment or review (not a human's reply to it), exit silently to avoid self-conversation loops.
 
 **Exception — bot-authored issues with no prior bot comments.** A freshly-opened issue the bot authored (nightly failure, CI report, code-quality finding) is a report to act on, not a self-conversation. Triage it normally. The Recheck Before Posting guard below still prevents duplicate triage comments if a sibling run fires on the same issue.
 
@@ -510,7 +510,7 @@ Split unrelated changes into separate PRs — one concern per PR. If one change 
 
 Load `/install-tend:debug-tend-run` for session log download, JSONL parsing queries, and diagnostic workflow. The primary evidence for diagnosing bot behavior is the session log artifact — not console output.
 
-Review-response runs triggered by `pull_request_review` or `pull_request_review_comment` events sometimes produce no artifact when the session is very short.
+A run triggered by `pull_request_review` or `pull_request_review_comment` executes only the `relay` job and never carries a session or an artifact. The session for a review event runs under the `repository_dispatch` run the relay creates — look there.
 
 ## Recalling Prior Context on This Thread
 
