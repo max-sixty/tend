@@ -117,6 +117,20 @@ def test_every_fixed_agent_assignment_is_reserved() -> None:
     assert f"TMPDIR={setup_sandbox.AGENT_TMP_DIR}" in assignments
 
 
+def test_agent_environment_keeps_zsh_heredoc_scratch_writable() -> None:
+    """zsh names here-document temp files from TMPPREFIX, which ignores TMPDIR.
+
+    Left at its `/tmp/zsh` default every heredoc fails against the sandbox's
+    read-only root `/tmp` — after the shell has already truncated the
+    redirection target to zero bytes.
+    """
+    assignments = setup_sandbox.base_agent_env(
+        "/usr/bin", None, workspace=Path("/agent")
+    )
+
+    assert f"TMPPREFIX={setup_sandbox.AGENT_TMP_DIR / 'zsh'}" in assignments
+
+
 def test_github_only_agent_environment_has_no_model_credential() -> None:
     assignments = setup_sandbox.base_agent_env(
         "/usr/bin", None, workspace=Path("/agent")
