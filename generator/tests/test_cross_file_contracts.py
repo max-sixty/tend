@@ -215,6 +215,17 @@ def test_review_runs_pins_current_state_recovery() -> None:
     assert "failing default-branch CI with no bot fix in progress" in skill
 
 
+def test_review_runs_rechecks_a_stale_closure_read() -> None:
+    skill = _read("plugins", "tend-ci-runner", "skills", "review-runs", "SKILL.md")
+
+    assert (
+        "# Can serve a stale row; re-query once before reporting a path as still red."
+        in skill
+    )
+    assert "can never wrongly close a live red row" in skill
+    assert "re-run its closure call once and take the newer answer" in skill
+
+
 def test_outage_tracker_title_stays_in_sync() -> None:
     title = "Bot temporarily unavailable"
     reporter = _read("shared", "steps", "report_failure.py")
