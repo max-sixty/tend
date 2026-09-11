@@ -222,7 +222,6 @@ def test_review_runs_rechecks_a_stale_closure_read() -> None:
         "# Can serve a stale row; re-query once before reporting a path as still red."
         in skill
     )
-    assert "can never wrongly close a live red row" in skill
     assert "re-run its closure call once and take the newer answer" in skill
 
 

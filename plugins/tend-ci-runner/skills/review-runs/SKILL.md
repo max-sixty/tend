@@ -106,7 +106,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
     --jq '.workflow_runs[0] | {name, conclusion, created_at}'
   ```
 
-  The closure call sometimes serves a cached row weeks behind the true latest green, and an immediate re-query returns the current one. Staleness only moves the answer backwards, so it can never wrongly close a live red row — the one failure direction is a green too old to close a red one, which reports a fixed workflow as still red. So before reporting any path as still failing, re-run its closure call once and take the newer answer.
+  The closure call sometimes serves a cached row weeks behind the true latest green, and staleness only moves the answer backwards — so before reporting any path as still failing, re-run its closure call once and take the newer answer.
 
   Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `$TMPDIR/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The page reaches back weeks, so most rows are already fixed and the closure call is what separates them. What it cannot close stays live: Dependabot's security updates have no workflow file, and each run's `name` carries a per-update ID that never recurs, so those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the page reached.
 
