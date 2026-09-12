@@ -6,6 +6,27 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.2.7
+
+### Improved
+
+- **Tend sessions load less skill text up front.** `running-in-ci` and `review` keep the rules every session needs and move guidance for rarer actions — opening a PR, pushing, monitoring CI, posting, dismissing an approval, draft mode, re-targeting, approving, inline suggestions — into `references/` files, each listed with the action that calls for reading it. `running-in-ci/SKILL.md` shrinks from 52 KB to 20 KB and `review/SKILL.md` from 41 KB to 26 KB. ([#1215](https://github.com/max-sixty/tend/pull/1215))
+- **Review scripts make the pre-flight and pre-approval decisions.** `review_preflight.py start` emits `already_reviewed` and `self_authored`; `already_reviewed` reads the rewrite-aware review anchor, so a force-pushed head no longer counts as reviewed. `poll_pr_checks.py approval <pr> <sha>` replaces `snapshot` and prints one `approve:` or `withhold:` verdict: it waits for pending checks to settle and, at the poll cap, approves past a red check only when every failing check's run was cancelled. ([#1215](https://github.com/max-sixty/tend/pull/1215), [#1217](https://github.com/max-sixty/tend/pull/1217))
+- **`review-runs` checks open Dependabot security alerts.** An alert open for more than a few days with no PR naming its package is live work, and a red `dynamic/dependabot/...` run for that package means the manifest or lockfile needs a direct bump. ([#1214](https://github.com/max-sixty/tend/pull/1214))
+
+### Fixed
+
+- **zsh here-documents work inside the sandbox.** `TMPPREFIX` points at the agent's writable temp directory instead of zsh's default under the read-only root `/tmp`. `TMPPREFIX` is now a reserved `sandbox_env` key. ([#1211](https://github.com/max-sixty/tend/pull/1211))
+- **`review-runs` re-queries the latest successful run once before reporting a workflow as still red.** That lookup can return a cached row weeks old. ([#1210](https://github.com/max-sixty/tend/pull/1210))
+
+### Documentation
+
+- `CLAUDE.md` requires the classic PAT's `repo` scope on public and private repositories alike, matching the installer and the nightly scope audit. ([#1174](https://github.com/max-sixty/tend/pull/1174))
+
+### Internal
+
+- Tests no longer assert wording in skills and docs, and no longer read the enclosing tend session's sandbox environment. ([#1212](https://github.com/max-sixty/tend/pull/1212), [#1207](https://github.com/max-sixty/tend/pull/1207))
+
 ## 0.2.6
 
 ### Improved
