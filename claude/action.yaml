@@ -12,6 +12,12 @@ inputs:
   github_token:
     required: true
     description: GitHub token for API access and pushing commits
+  merge:
+    default: maintainer
+    description: Merge mode generated from .config/tend.yaml (maintainer or yolo)
+  control_plane_owner:
+    default: ""
+    description: CODEOWNER for yolo-protected workflow and Tend config changes
   claude_code_oauth_token:
     required: false
     default: ""
@@ -175,6 +181,8 @@ runs:
         # shell runs before the pinned interpreter does.
         BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
+        TEND_MERGE: ${{ inputs.merge }}
+        TEND_CONTROL_PLANE_OWNER: ${{ inputs.control_plane_owner }}
 
     # Also publishes `login`/`id` for the bot: it reads them off the token it
     # already holds, so nothing downstream has to resolve them again from the
@@ -232,6 +240,7 @@ runs:
       env:
         SYSTEM_PROMPT_FILE: ${{ github.action_path }}/../shared/system-prompt.md
         BOT_NAME: ${{ steps.bot.outputs.login }}
+        TEND_MERGE: ${{ inputs.merge }}
         EXTRA: ${{ inputs.system_prompt_append }}
 
     # Credential isolation: run the agent as a separate, non-sudo

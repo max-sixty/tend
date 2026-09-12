@@ -25,6 +25,8 @@
 {% endif %}
         with:
           github_token: ${{ secrets.<<bot_token_secret>> }}
+          merge: <<cfg.merge>>
+          control_plane_owner: <<cfg.control_plane_owner | tojson>>
 {% if cfg.harness == 'claude' %}
           claude_code_oauth_token: ${{ secrets.<<claude_token_secret>> }}
           anthropic_api_key: ${{ secrets.<<anthropic_api_key_secret>> }}

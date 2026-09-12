@@ -26,9 +26,12 @@ from tend.config import (
     Config,
 )
 from tend.workflows import (
+    CODEOWNERS_BEGIN,
+    CODEOWNERS_END,
     GENERATORS,
     _deep_merge,
     _inline_script,
+    codeowners_config,
     generate_all,
     generate_codex_auth_refresh,
     generate_install_test,
@@ -56,6 +59,75 @@ def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
 
 def test_standard_workflow_registry_matches_the_generators() -> None:
     assert STANDARD_WORKFLOWS == set(GENERATORS)
+
+
+def test_codeowners_block_is_final_and_idempotent() -> None:
+    existing = dedent(f"""\
+        *.py @python-team
+
+        {CODEOWNERS_BEGIN}
+        /.github/** @old-owner
+        /.config/tend.yaml @old-owner
+        {CODEOWNERS_END}
+
+        * @fallback
+        """)
+
+    updated = codeowners_config(existing, "@octo-org/security")
+
+    assert updated == dedent(f"""\
+        *.py @python-team
+
+
+        * @fallback
+
+        {CODEOWNERS_BEGIN}
+        /.github/** @octo-org/security
+        /.config/tend.yaml @octo-org/security
+        /CODEOWNERS @octo-org/security
+        /docs/CODEOWNERS @octo-org/security
+        **/CLAUDE.md @octo-org/security
+        **/CLAUDE.local.md @octo-org/security
+        **/AGENTS.md @octo-org/security
+        **/AGENTS.override.md @octo-org/security
+        **/.claude @octo-org/security
+        **/.claude/** @octo-org/security
+        **/.agents @octo-org/security
+        **/.agents/** @octo-org/security
+        {CODEOWNERS_END}
+        """)
+    assert codeowners_config(updated, "@octo-org/security") is None
+
+
+def test_codeowners_rejects_a_malformed_managed_block() -> None:
+    with pytest.raises(click.ClickException, match="malformed tend control-plane"):
+        codeowners_config(f"{CODEOWNERS_BEGIN}\n/.github/** @owner\n", "@owner")
+
+
+def test_codeowners_block_is_removed_when_yolo_is_disabled() -> None:
+    existing = (
+        "*.py @python\n\n"
+        f"{CODEOWNERS_BEGIN}\n"
+        "/.github/** @security\n"
+        "/.config/tend.yaml @security\n"
+        "/CODEOWNERS @security\n"
+        "/docs/CODEOWNERS @security\n"
+        "**/CLAUDE.md @security\n"
+        "**/CLAUDE.local.md @security\n"
+        "**/AGENTS.md @security\n"
+        "**/AGENTS.override.md @security\n"
+        "**/.claude @security\n"
+        "**/.claude/** @security\n"
+        "**/.agents @security\n"
+        "**/.agents/** @security\n"
+        f"{CODEOWNERS_END}\n"
+    )
+
+    assert codeowners_config(existing, None) == "*.py @python\n"
+
+
+def test_maintainer_mode_leaves_an_unmanaged_codeowners_file_byte_stable() -> None:
+    assert codeowners_config("*.py @python", None) is None
 
 
 def test_minimal_config_generates_seven_workflows(tmp_path: Path) -> None:
@@ -416,14 +488,7 @@ def test_sandbox_levers_rendered_for_codex(tmp_path: Path) -> None:
 
 
 def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
-    """A `uses` setup step with `with:` parameters must still receive the
-    `if:` guard in the notifications workflow.
-
-    Without `with` support on `uses`, steps like `actions/setup-node@v4` that
-    require parameters are forced into `raw`, which cannot receive the guard —
-    so they run even when the pre-check has skipped checkout, failing with
-    "The specified node version file does not exist" (issue #281).
-    """
+    """An action setup step keeps its inputs and the no-work guard."""
     extra = dedent("""\
         setup:
           - uses: actions/setup-node@v4
@@ -432,22 +497,22 @@ def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    notifications = workflows["tend-notifications.yaml"]
-    data = yaml.safe_load(notifications.content)
+    notifications = yaml.safe_load(workflows["tend-notifications.yaml"].content)
+    steps = notifications["jobs"]["notifications"]["steps"]
+    setup_node = next(s for s in steps if s.get("uses") == "actions/setup-node@v4")
+    assert setup_node["with"] == {"node-version-file": ".node-version"}
+    assert "if" in setup_node
 
-    steps = data["jobs"]["notifications"]["steps"]
-    setup_node = next(
-        (s for s in steps if s.get("uses") == "actions/setup-node@v4"), None
-    )
-    assert setup_node is not None, "setup-node step missing from notifications workflow"
-    assert setup_node.get("with") == {"node-version-file": ".node-version"}, (
-        "uses step must render `with:` parameters"
-    )
-    assert "if" in setup_node, (
-        "setup-node step must receive the `if:` guard so it is skipped when "
-        "checkout was skipped (otherwise .node-version is missing and the "
-        "step fails)"
-    )
+
+def test_setup_run_step_rejects_action_inputs(tmp_path: Path) -> None:
+    extra = dedent("""\
+        setup:
+          - run: node --version
+            with:
+              node-version: 24
+    """)
+    with pytest.raises(click.ClickException, match="`with` is only valid"):
+        Config.load(_minimal_config(tmp_path, extra))
 
 
 def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
@@ -463,6 +528,7 @@ def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
             env:
               FORCE_COLOR: "1"
           - run: cargo build --release
+            name: Build release
             shell: bash
             working-directory: ./crates/core
             env:
@@ -480,6 +546,7 @@ def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
     assert node["env"] == {"FORCE_COLOR": "1"}
 
     build = next(s for s in steps if s.get("run") == "cargo build --release")
+    assert build["name"] == "Build release"
     assert build["shell"] == "bash"
     assert build["working-directory"] == "./crates/core"
     assert build["env"] == {"RUSTFLAGS": "-D warnings"}
