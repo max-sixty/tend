@@ -51,7 +51,7 @@ Read every commit author first — it decides the path.
 | `app/renovate` | `renovate[bot]` | In the PR body, check `<!-- rebase-check -->`. |
 
 A rebuild overwrites the branch, so it fits only row 1, where the owning bot is
-every commit's author. `review` pushes fixes to dependency-bot PRs by design,
+every commit's author. `/tend-ci-runner:review` pushes fixes to dependency-bot PRs by design,
 and the owning bot stops resolving conflicts on a branch that has been altered
 — leaving a rebuild that would discard the fix as the only trigger, and the PR
 wedged at its first conflict. That same commit is what makes the branch this
@@ -77,7 +77,7 @@ For each PR:
    "HEAD:refs/heads/<headRefName>"`. The exact lease is the final head guard.
 4. Fetch the live base again and test the pushed head with `git merge-tree`.
    If it conflicts, merge the new base and repeat. Once clean, remove the bot's
-   conflict-deferral comment and monitor CI per **CI Monitoring** in
+   conflict-deferral comment and monitor CI per `references/ci-monitoring.md` in
    `/tend-ci-runner:running-in-ci`.
 
 If resolution is too complex, abort the merge and re-read the PR. When it is

@@ -60,7 +60,7 @@ steps and current branch normally.
 
 ### 3. Create PR
 
-Re-run step 1's author-agnostic PR query, then follow **Dedup recheck immediately before `gh pr create`** in `running-in-ci` to check for a fix committed to the default branch. If the failure no longer reproduces there, don't open the PR.
+Re-run step 1's author-agnostic PR query, then follow **Dedup recheck immediately before `gh pr create`** in `/tend-ci-runner:running-in-ci`'s `references/pr-creation.md` to check for a fix committed to the default branch. If the failure no longer reproduces there, don't open the PR.
 
 ```bash
 git checkout -b fix/ci-<run-id>
@@ -69,7 +69,7 @@ git commit -m "fix: <description>"
 git push -u origin fix/ci-<run-id>
 ```
 
-Create the PR with `gh pr create`, composing its body in a file per `running-in-ci`. Write for a maintainer deciding whether the current fix addresses the failure: explain the causal finding, why the change fixes it at the right level, and the verification relevant to that decision. Link the failed run as supporting evidence and follow **Reader-facing prose** in `running-in-ci`.
+Create the PR with `gh pr create`, composing its body in a file per `/tend-ci-runner:running-in-ci`. Write for a maintainer deciding whether the current fix addresses the failure: explain the causal finding, why the change fixes it at the right level, and the verification relevant to that decision. Link the failed run as supporting evidence and follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`.
 
 ### 3a. Diagnosis without a fix (transient causes)
 
@@ -95,7 +95,7 @@ Match by failure-shape keyword against the issue body (e.g. `rustup-init`, `comp
 
 If the current failure shape has 2+ prior occurrences on separate days within the past 7, escalate to durable: a fault that keeps coming back within a week is not transient even when individual reruns pass. Count occurrences, not trackers — the same root cause taking down several jobs in one afternoon files several trackers and is still one occurrence.
 
-An escalated fault still reruns green, so a mitigation buys back runner time, not correctness — the compute-only bar in **Weighing a Fix** (`running-in-ci`) applies. Open a fix PR proposing a knob-sized mitigation (pin the runner image, skip the affected leg, disable the relevant cache layer), preferring an upstream-documented workaround — `gh issue search` against the action's repo, the action's README, GitHub Community threads — and linking the upstream issue if the search surfaced one. If the fault has no knob-sized mitigation, treat it as a durable cause without a safe fix and follow 3b.
+An escalated fault still reruns green, so a mitigation buys back runner time, not correctness — the compute-only bar in **Weighing a Fix** (`/tend-ci-runner:running-in-ci`) applies. Open a fix PR proposing a knob-sized mitigation (pin the runner image, skip the affected leg, disable the relevant cache layer), preferring an upstream-documented workaround — `gh issue search` against the action's repo, the action's README, GitHub Community threads — and linking the upstream issue if the search surfaced one. If the fault has no knob-sized mitigation, treat it as a durable cause without a safe fix and follow 3b.
 
 #### File the transient tracker
 
@@ -137,10 +137,10 @@ gh issue create \
   --body-file "$TMPDIR/diagnosis.md"
 ```
 
-Compose `$TMPDIR/diagnosis.md` as a durable account for a maintainer deciding what happens next. Include the failed workflow and run, the root cause and mechanism, why no safe automated fix was produced, and the current blocker or decision. Follow **Reader-facing prose** in `running-in-ci`; the issue should preserve the conclusion, not the diagnostic transcript.
+Compose `$TMPDIR/diagnosis.md` as a durable account for a maintainer deciding what happens next. Include the failed workflow and run, the root cause and mechanism, why no safe automated fix was produced, and the current blocker or decision. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`; the issue should preserve the conclusion, not the diagnostic transcript.
 
 Skip step 4 — there's no PR to monitor.
 
 ### 4. Monitor CI
 
-Wait for CI per **CI Monitoring** in `running-in-ci` (loaded in step 0).
+Wait for CI per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci`.

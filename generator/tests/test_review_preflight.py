@@ -250,17 +250,65 @@ def test_start_records_one_snapshot_and_prepares_the_incremental(pr: Fixture) ->
     context = json.loads(result.stdout)
     assert context == {
         "head_sha": moved,
-        "author": "author",
-        "bot_login": BOT,
+        "self_authored": False,
         "is_draft": False,
-        "force_full_review": False,
-        "last_review_sha": pr.reviewed,
-        "force_pushed_since": False,
+        "already_reviewed": False,
         "incremental_path": context["incremental_path"],
     }
     assert "pr-2" in Path(context["incremental_path"]).read_text()
     assert "base-2" not in Path(context["incremental_path"]).read_text()
     assert pr.pinned() == moved
+
+
+def test_start_resolves_self_authorship_against_the_bot_login(pr: Fixture) -> None:
+    """The skill used to be handed both logins and told to compare them, with a
+    warning not to read "authored by the repo owner" as self-authored instead."""
+    view = json.loads(Path(pr.env()["PR_JSON"]).read_text())
+    view["author"] = {"login": BOT}
+    pr.write("PR_JSON", view)
+
+    assert json.loads(pr.start().stdout)["self_authored"] is True
+
+
+def test_start_reports_a_review_standing_on_this_head(pr: Fixture) -> None:
+    pr.reviews(_review(pr.reviewed, "earlier finding"))
+
+    context = json.loads(pr.start().stdout)
+
+    assert context["already_reviewed"] is True
+    assert context["incremental_path"] is None
+
+
+def test_start_does_not_call_a_rewritten_head_reviewed(pr: Fixture) -> None:
+    """A force push re-points the earlier review's `.commit_id` at the new head,
+    so `last_review_sha == head_sha` reads as reviewed on code nothing read —
+    and the incremental over that empty range under-reports every trivial-skip
+    heuristic. `at_head` discounts the rewrite; both fields follow it."""
+    rewritten = pr.force_push()
+    pr.reviews(_review(rewritten, "finding on the discarded commit"))
+    pr.write(
+        "TIMELINE_JSON",
+        [{"event": "head_ref_force_pushed", "created_at": "2026-06-01T00:00:00Z"}],
+    )
+
+    context = json.loads(pr.start().stdout)
+
+    assert context["already_reviewed"] is False
+    assert context["incremental_path"] is None
+
+
+def test_ready_for_review_asks_for_a_full_review(pr: Fixture, tmp_path: Path) -> None:
+    """Becoming ready asks for a full non-draft review, so neither shortcut is
+    offered even though a draft-mode review anchors this commit."""
+    pr.reviews(_review(pr.reviewed, DRAFT_REVIEW_MARKER))
+
+    result = pr.start(
+        GITHUB_EVENT_PATH=_event(tmp_path / "event.json", "ready_for_review")
+    )
+    context = json.loads(result.stdout)
+
+    assert context["already_reviewed"] is False
+    assert context["incremental_path"] is None
 
 
 @pytest.mark.parametrize("state", ["CLOSED", "MERGED"])

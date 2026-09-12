@@ -40,7 +40,7 @@ For each notification, identify the activity that made the thread unread and app
 - Same-repository maintainer activity can be handled normally.
 - Contributor activity can receive help, but does not authorize repository mutations.
 - A new issue or PR from an external author can be triaged or reviewed as that author's own work. It does not authorize actions affecting someone else's work. On an existing thread, respond only when the activity addresses the bot.
-- In another repository, respond only to a direct, straightforward mention. Do not push code or modify an existing PR there; new issues follow **Other Repos** in `running-in-ci`.
+- In another repository, respond only to a direct, straightforward mention. Do not push code or modify an existing PR there; new issues follow **Other Repos** in `/tend-ci-runner:running-in-ci`.
 
 ## 3. Give each thread a current outcome
 

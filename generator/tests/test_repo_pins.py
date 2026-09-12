@@ -449,6 +449,32 @@ def test_action_path_references_resolve(action: str) -> None:
     assert not missing, f"{action} references nothing at: {missing}"
 
 
+# Every `references/<file>` a skill cites. A skill keeps the rules every session
+# needs and names the file behind each rarer action, so the citation is the only
+# path to that rule: one pointing nowhere means the session reads no file and
+# goes ahead without it, with nothing failing. A citation may name another
+# skill's reference, so a name is checked against every skill's `references/`.
+SKILL_REFERENCE = re.compile(r"references/([\w.-]+\.\w+)")
+
+
+def test_skill_reference_citations_resolve() -> None:
+    skill_dirs = [
+        *(REPO_ROOT / "plugins").glob("*/skills/*"),
+        *(REPO_ROOT / ".claude" / "skills").glob("*"),
+    ]
+    available = {path.name for d in skill_dirs for path in d.glob("references/*")}
+    cited = {
+        (name, str(path.relative_to(REPO_ROOT)))
+        for d in skill_dirs
+        for path in d.glob("**/*.md")
+        for name in SKILL_REFERENCE.findall(path.read_text())
+    }
+
+    assert cited, "no references/ citations found — did the skill layout move?"
+    missing = sorted(pair for pair in cited if pair[0] not in available)
+    assert not missing, f"cited references that exist in no skill: {missing}"
+
+
 # Inline `run:` bodies in the composite actions. Nothing else lints them:
 # actionlint only reads workflow files (it parses an action.yaml as a malformed
 # workflow — "jobs section is missing"), and the shellcheck hook's `files:`
