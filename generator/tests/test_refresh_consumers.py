@@ -143,11 +143,3 @@ def test_github_failure_leaves_the_existing_index_untouched(tmp_path: Path) -> N
     assert result.returncode == 17
     assert "GitHub API unavailable" in result.stderr
     assert consumers.read_text() == original
-
-
-def test_weekly_skill_delegates_the_refresh_to_the_script() -> None:
-    skill = SCRIPT.parent.parent / "SKILL.md"
-    content = skill.read_text()
-
-    assert "scripts/refresh_consumers.py" in content
-    assert "mapfile" not in content

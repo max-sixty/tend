@@ -121,10 +121,25 @@ def test_prepare_persists_every_value_the_agent_and_ship_need(
     )
     worktree_calls = [call for call in calls if call[0][0] in {"uv", "git"}]
     assert any(args[0] == "uv" and cwd == worktree for args, cwd in worktree_calls)
-    assert any(
-        args[:3] == ("git", "status", "--porcelain") and cwd == worktree
+
+    # Staging, the no-op check and the diff all run in the regen worktree and
+    # scope themselves to the same paths, which between them must cover
+    # everything `tend init` writes (see test_integration.py::
+    # test_init_writes_only_under_the_two_directories_it_owns). Run anywhere
+    # else and they inspect the runner's own checkout, where `init` never ran;
+    # widen only the staging and the no-op check goes blind to a path `init`
+    # newly created, which a plain `git diff` does not show. Either way the
+    # regeneration quietly stops shipping.
+    scoped = {
+        args[1]: (args[-2:], cwd)
         for args, cwd in worktree_calls
-    )
+        if args[1] in {"add", "status", "diff"}
+    }
+    assert scoped == {
+        "add": ((".github", ".config"), worktree),
+        "status": ((".github", ".config"), worktree),
+        "diff": ((".github", ".config"), worktree),
+    }
 
 
 def test_ship_uses_the_prepared_worktree_and_records_its_sha_before_cleanup(
