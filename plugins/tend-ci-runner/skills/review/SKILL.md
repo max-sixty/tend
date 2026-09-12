@@ -18,7 +18,7 @@ Follow these steps in order. Four references carry guidance a minority of review
 
 - `references/draft-mode.md` — under **Pre-flight checks**, when `is_draft` is true: the lighter pass, COMMENT only, the hidden marker.
 - `references/re-targeting.md` — under **Submit**, when the posting preflight prints `delta:`: reviewing a push that landed mid-review before posting against the new head.
-- `references/approving.md` — under **Submit** before an APPROVE, and under **Monitor CI** after one: the settled-rollup check and the CI outcomes.
+- `references/approving.md` — under **Submit** before an APPROVE, and under **Monitor CI** after one: the approval check and the CI outcomes.
 - `references/inline-suggestions.md` — under **Submit**, when the review carries findings: the payload, multi-line suggestion rules, and 422 recovery.
 
 ### 0. Load environment skills
@@ -210,7 +210,7 @@ Every review POST passes its `gh api` command to the preflight after `--`, which
 
 **Pin every review to the commit you read** — `commit_id` in every posting recipe, read back from `$TMPDIR/reviewed-head`, which **Pre-flight checks** wrote and the posting preflight rewrites if HEAD moved. Two things depend on the pin. GitHub otherwise anchors the review at whatever is live when the POST lands, so the review claims code this session never saw. And the anchor is what the next run's pre-flight reads as `already_reviewed`: pinned to the head you re-targeted onto, the queued run finds that head already reviewed and finishes without posting a second review of the same code.
 
-**Before APPROVE specifically**, run the settled-rollup check in `references/approving.md` — a head mismatch, a real red, or an author-stated blocker withholds the approval.
+**Before APPROVE specifically**, run the approval check in `references/approving.md` — a real red or an author-stated blocker withholds the approval.
 
 Post at most one review per run. Give a verdict (**approve** or **comment**, never "request changes") when this pass has something to say: a new diff-grounded finding, or an approval because the last open concern is now resolved. If the dedup rule above left nothing new and a prior unresolved bot thread still stands, post nothing; the earlier review remains the active verdict. Post reviews through the reviews endpoint, not `gh pr comment`. Note: a COMMENT review requires a non-empty body — if there's nothing to say and no prior concern stands, use the approve-with-empty-body pattern.
 
