@@ -1,15 +1,16 @@
 ---
 name: running-tend
-description: Tend-specific guidance for tend CI workflows. Adds non-standard workflow inclusion for usage analysis and repo conventions on top of the generic tend-* skills.
+description: Tend-specific guidance for tend CI workflows. Adds non-standard workflow inclusion for usage analysis and repo conventions on top of the bundled tend-ci-runner skills.
 metadata:
   internal: true
 ---
 
 # Tend CI
 
-Repo-specific guidance for tend workflows running on tend itself. The generic
-skills (`tend-running-in-ci`, `tend-review`, `tend-triage`, etc.) provide the
-workflow framework; this skill adds tend conventions.
+Repo-specific guidance for tend workflows running on tend itself. The bundled
+skills (`/tend-ci-runner:running-in-ci`, `/tend-ci-runner:review`,
+`/tend-ci-runner:triage`, etc.) provide the workflow framework; this skill adds
+tend conventions.
 
 ## Filing issues in other repos
 
