@@ -234,15 +234,28 @@ def _settle(
     return False, last
 
 
-def _run_conclusion(repo: str, failure: str) -> str:
-    """The conclusion of the Actions run behind a failed check, "" for a status."""
+def _run_conclusion(repo: str, failure: str) -> str | None:
+    """The conclusion of the Actions run behind a failed check.
+
+    "" for a status context, which names no run; None when the run can't be read.
+    """
     match = RUN_ID_RE.search(failure)
     if not match:
         return ""
-    view = github_cli.json_call(
-        "run", "view", match.group(1), "--repo", repo, "--json", "conclusion"
-    )
-    return str(view["conclusion"])
+    try:
+        view = github_cli.json_call(
+            "run",
+            "view",
+            match.group(1),
+            "--repo",
+            repo,
+            "--json",
+            "conclusion",
+            quiet=True,
+        )
+        return str(view["conclusion"])
+    except (subprocess.CalledProcessError, ValueError, KeyError, TypeError):
+        return None
 
 
 def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
@@ -253,7 +266,8 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
     reports that as FAILURE rather than cancelled, and a replacement run is
     already under way. So a red with checks pending waits for them to settle,
     and a red still standing at the cap approves only when every failing check
-    belongs to a cancelled Actions run.
+    belongs to a cancelled Actions run. A run that can't be read decides nothing,
+    unless another failure is already real.
 
     Whether *sha* is still the head is not judged here: the review skill posts
     every review behind `review_preflight.py post`, which refuses a moved head.
@@ -277,7 +291,14 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
 
     failures = rollup["failed"]
     if failures and rollup["pending"]:
-        failures = [f for f in failures if _run_conclusion(repo, f) != "cancelled"]
+        conclusions = [(f, _run_conclusion(repo, f)) for f in failures]
+        failures = [f for f, c in conclusions if c not in {"cancelled", None}]
+        unread = [f for f, c in conclusions if c is None]
+        if unread and not failures:
+            print(
+                f"could not read the run behind: {', '.join(unread)}", file=sys.stderr
+            )
+            return 2
         if not failures:
             print(f"approve: every failure on {sha} is a cancelled run; unverified:")
             print(*rollup["pending"], sep="\n")

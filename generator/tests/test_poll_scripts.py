@@ -66,6 +66,7 @@ FAKE_GH = (
     emit "$(cat "$HEAD_JSON")"
     ;;
   "run view")
+    [ -f "$RUN_DIR/$3.json" ] || exit 1
     emit "$(cat "$RUN_DIR/$3.json")"
     ;;
   "run rerun")
@@ -320,6 +321,31 @@ def test_approval_verdict(
     assert result.returncode == (0 if verdict == "approve:" else 1)
     assert named in result.stdout
     assert (Path(env["GRAPHQL_CALLS"]).read_text().strip() != "1") is polled
+
+
+@pytest.mark.parametrize(
+    ("also_failing", "returncode", "stdout"),
+    [
+        # The only failure's run can't be read: nothing is decided.
+        ((), 2, ""),
+        # Another failure is real, so the unreadable run can't change the verdict.
+        ((_check_run("lint", conclusion="FAILURE", run_id=300),), 1, "withhold: red"),
+    ],
+)
+def test_approval_with_a_run_it_cannot_read(
+    env: dict[str, str], also_failing: tuple[dict, ...], returncode: int, stdout: str
+) -> None:
+    """`gh run view` exits 1 on a 5xx or a run id this repo can't resolve, which
+    is also `withhold:`'s code — so the failure has to be decided, not escape."""
+    _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING, *also_failing))
+    (Path(env["RUN_DIR"]) / "300.json").write_text(
+        json.dumps({"conclusion": "failure"})
+    )
+
+    result = _approval(env)
+
+    assert result.returncode == returncode, result.stdout + result.stderr
+    assert result.stdout.startswith(stdout)
 
 
 def test_red_names_the_failing_check_with_its_url(env: dict[str, str]) -> None:
