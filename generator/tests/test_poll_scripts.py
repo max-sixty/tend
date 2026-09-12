@@ -65,6 +65,10 @@ FAKE_GH = (
   "pr view")
     emit "$(cat "$HEAD_JSON")"
     ;;
+  "run view")
+    [ -f "$RUN_DIR/$3.json" ] || exit 1
+    emit "$(cat "$RUN_DIR/$3.json")"
+    ;;
   "run rerun")
     ;;
   api*)
@@ -157,6 +161,7 @@ def env(tmp_path: Path) -> dict[str, str]:
     rollups.mkdir()
     jobs_dir = tmp_path / "jobs"
     jobs_dir.mkdir()
+    (tmp_path / "runs").mkdir()
     (tmp_path / "head.json").write_text(json.dumps({"headRefOid": HEAD_SHA}))
     (tmp_path / "jobs.json").write_text(json.dumps({"jobs": []}))
     (tmp_path / "attempts").write_text("1\n")
@@ -169,6 +174,7 @@ def env(tmp_path: Path) -> dict[str, str]:
         "HEAD_JSON": str(tmp_path / "head.json"),
         "JOBS_JSON": str(tmp_path / "jobs.json"),
         "JOB_DIR": str(jobs_dir),
+        "RUN_DIR": str(tmp_path / "runs"),
         "ATTEMPTS": str(tmp_path / "attempts"),
         "GITHUB_REPOSITORY": "owner/repo",
         "GITHUB_RUN_ID": "555",
@@ -212,8 +218,8 @@ def _poll(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return _poll_args(env, "7", HEAD_SHA)
 
 
-def _snapshot(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    return _invoke(poll_pr_checks, env, ["snapshot", "7", HEAD_SHA])
+def _approval(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return _invoke(poll_pr_checks, env, ["approval", "7", HEAD_SHA])
 
 
 def test_settled_green(env: dict[str, str]) -> None:
@@ -225,40 +231,121 @@ def test_settled_green(env: dict[str, str]) -> None:
     assert "green" in result.stdout
 
 
-def test_snapshot_prints_the_pinned_rollup_and_live_head(env: dict[str, str]) -> None:
-    _serve(env, _resp(_check_run("tests"), _status_ctx("codecov/patch", "PENDING")))
-
-    result = _snapshot(env)
-
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {
-        "sha": HEAD_SHA,
-        "head_sha": HEAD_SHA,
-        "pending": ["codecov/patch"],
-        "failed": [],
-    }
+OMNIBUS_RED = _check_run("check-ok-to-merge", conclusion="FAILURE", run_id=100)
+MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
 
 
-def test_snapshot_treats_filtered_empty_as_a_clean_preapproval_view(
-    env: dict[str, str],
-) -> None:
-    _serve(
-        env,
-        _resp(
-            _check_run("own", status="IN_PROGRESS", workflow="other", run_id=555),
-            _check_run("review", status="IN_PROGRESS", workflow="tend-review"),
+@pytest.mark.parametrize(
+    ("responses", "runs", "verdict", "named", "polled"),
+    [
+        # Nothing failing approves at once, even beside a running check.
+        ((_resp(_check_run("tests"), MATRIX_RUNNING),), {}, "approve:", "", False),
+        # This run and tend-review are all there is: nothing else gates.
+        (
+            (
+                _resp(
+                    _check_run("own", status="IN_PROGRESS", workflow="x", run_id=555),
+                    _check_run("review", status="IN_PROGRESS", workflow="tend-review"),
+                ),
+            ),
+            {},
+            "approve:",
+            "",
+            False,
         ),
+        # A red with nothing pending is terminal.
+        (
+            (_resp(OMNIBUS_RED, _check_run("matrix")),),
+            {},
+            "withhold: red",
+            "check-ok-to-merge",
+            False,
+        ),
+        # A red beside a running check waits, and its replacement settles green.
+        (
+            (
+                _resp(OMNIBUS_RED, MATRIX_RUNNING),
+                _resp(
+                    _check_run("check-ok-to-merge", run_id=101), _check_run("matrix")
+                ),
+            ),
+            {},
+            "approve:",
+            "",
+            True,
+        ),
+        # Still pending at the cap: a red from a cancelled run approves, naming
+        # what never finished ...
+        (
+            (_resp(OMNIBUS_RED, MATRIX_RUNNING),),
+            {100: "cancelled"},
+            "approve:",
+            "matrix",
+            True,
+        ),
+        # ... a real failure withholds ...
+        (
+            (_resp(OMNIBUS_RED, MATRIX_RUNNING),),
+            {100: "failure"},
+            "withhold: red",
+            "check-ok-to-merge",
+            True,
+        ),
+        # ... and so does a status context, which names no run to inspect.
+        (
+            (_resp(_status_ctx("codecov/patch", "FAILURE"), MATRIX_RUNNING),),
+            {},
+            "withhold: red",
+            "codecov/patch",
+            True,
+        ),
+    ],
+)
+def test_approval_verdict(
+    env: dict[str, str],
+    responses: tuple[str, ...],
+    runs: dict[int, str],
+    verdict: str,
+    named: str,
+    polled: bool,
+) -> None:
+    _serve(env, *responses)
+    for run_id, conclusion in runs.items():
+        (Path(env["RUN_DIR"]) / f"{run_id}.json").write_text(
+            json.dumps({"conclusion": conclusion})
+        )
+
+    result = _approval(env)
+
+    assert result.stdout.startswith(verdict), result.stdout + result.stderr
+    assert result.returncode == (0 if verdict == "approve:" else 1)
+    assert named in result.stdout
+    assert (Path(env["GRAPHQL_CALLS"]).read_text().strip() != "1") is polled
+
+
+@pytest.mark.parametrize(
+    ("also_failing", "returncode", "stdout"),
+    [
+        # The only failure's run can't be read: nothing is decided.
+        ((), 2, ""),
+        # Another failure is real, so the unreadable run can't change the verdict.
+        ((_check_run("lint", conclusion="FAILURE", run_id=300),), 1, "withhold: red"),
+    ],
+)
+def test_approval_with_a_run_it_cannot_read(
+    env: dict[str, str], also_failing: tuple[dict, ...], returncode: int, stdout: str
+) -> None:
+    """`gh run view` exits 1 on a 5xx or a run id this repo can't resolve, which
+    is also `withhold:`'s code — so the failure has to be decided, not escape."""
+    _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING, *also_failing))
+    (Path(env["RUN_DIR"]) / "300.json").write_text(
+        json.dumps({"conclusion": "failure"})
     )
 
-    result = _snapshot(env)
+    result = _approval(env)
 
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {
-        "sha": HEAD_SHA,
-        "head_sha": HEAD_SHA,
-        "pending": [],
-        "failed": [],
-    }
+    assert result.returncode == returncode, result.stdout + result.stderr
+    assert result.stdout.startswith(stdout)
 
 
 def test_red_names_the_failing_check_with_its_url(env: dict[str, str]) -> None:
