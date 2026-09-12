@@ -244,7 +244,7 @@ Clone, create a branch with a trivial README edit, open a PR, wait for
 `tend-review` to register and finish, assert the action invoked the
 Claude session (artifact present).
 
-The `tend-review` skill is explicitly directed to exit silently on
+The `/tend-ci-runner:review` skill is explicitly directed to exit silently on
 self-authored, trivial PRs (GitHub blocks self-approval; the skill keeps
 quiet when there are no concerns). So an "is there a bot review on the
 PR?" assertion can't distinguish "the action never ran" from "the action
