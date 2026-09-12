@@ -193,7 +193,7 @@ session runs the pin.
 | Runner setup (system tools, Actions cache) | Adopter | `setup:` in `.config/tend.yaml` |
 | Event-tree setup (dependencies, generated files) | Adopter | `sandbox_setup:` in `.config/tend.yaml` |
 | Bot identity, auth config | Adopter | `.config/tend.yaml` |
-| Skills (generic) | Tend | `tend` plugin (marketplace) |
+| Skills (generic) | Tend | `tend-ci-runner` plugin (marketplace) |
 | Skills (project-specific) | Adopter | `.claude/skills/` in their repo |
 
 ## Workflow overrides
