@@ -110,6 +110,17 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 
   Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `$TMPDIR/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The page reaches back weeks, so most rows are already fixed and the closure call is what separates them. What it cannot close stays live: Dependabot's security updates have no workflow file, and each run's `name` carries a per-update ID that never recurs, so those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the page reached.
 
+- an open Dependabot security alert with no PR proposing its fix. Dependabot opens that PR itself for most alerts, so the ones that reach this sweep are the ones where it could not — and nothing else in tend looks: `weekly` reviews the dependency PRs that exist, and the defining property here is that none was created.
+
+  ```bash
+  gh api "repos/$GITHUB_REPOSITORY/dependabot/alerts?state=open&per_page=50" \
+    --jq '.[] | {number, dep: .dependency.package.name, manifest: .dependency.manifest_path,
+                 sev: .security_advisory.severity, created_at,
+                 fix: .security_vulnerability.first_patched_version.identifier}'
+  ```
+
+  The PAT's `repo` scope covers this, and it returns `[]` where alerts are disabled, so run it unconditionally. An alert open for more than a few days with no PR naming its package is live work in the same sense as a red default-branch run. A red `dynamic/dependabot/...` row above naming that package is the mechanism: Dependabot is erroring, so waiting will not produce a PR and the manifest or lockfile has to be bumped directly. `gh run view <id> --log-failed` ends with an error table naming the dependency and the error type; `security_update_not_possible` also reports the lowest non-vulnerable version beside the highest the dependency tree currently resolves, which is the constraint to relax.
+
 Handle live work through the normal triage, review, or CI-fix guidance. Keep
 failed runs in the report as diagnostic evidence.
 
