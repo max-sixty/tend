@@ -10,15 +10,15 @@ jobs:
     concurrency:
       group: tend-notifications
       cancel-in-progress: false
-<<fork_guard_if(cfg)>>    runs-on: ubuntu-24.04
+    if: <<fork_guard_prefix(cfg)>><<tend_enabled>>
+    runs-on: ubuntu-24.04
 <<environment()>>
     permissions:
 <<permissions()>>
     steps:
-<<check_tend_enabled(cfg)>>
+<<setup_tend_uv()>>
       - name: Check for unread notifications and conflicted PRs
         id: check
-        if: <<tend_enabled_condition>>
         env:
           GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}
           TEND_UV: ${{ steps.tend_uv.outputs.uv-path }}
@@ -27,5 +27,5 @@ jobs:
 <<check_script|indent(10, first=True)>>
           TEND_PY
 
-<<checkout(cfg, ref=cfg.default_branch, if_condition="(" ~ tend_enabled_condition ~ ") && (" ~ skip_condition ~ ")")>>
-<<setup>><<agent_step(cfg, block_input('prompt', prompt), if_condition="(" ~ tend_enabled_condition ~ ") && (" ~ skip_condition ~ ")")>>
+<<checkout(cfg, ref=cfg.default_branch, if_condition=skip_condition)>>
+<<setup>><<agent_step(cfg, block_input('prompt', prompt), if_condition=skip_condition)>>
