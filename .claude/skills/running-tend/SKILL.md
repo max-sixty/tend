@@ -221,8 +221,10 @@ uv tool run pre-commit autoupdate
 
 # npm: `Wanted` ≠ `Current` is lockfile drift (`npm update`); `Latest` ≠
 # `Wanted` needs the range in package.json moved. Exits 1 when a row prints.
-npm --prefix worker outdated
-npm --prefix site outdated
+# Install first — `outdated` reads `Current` from `node_modules`, which a CI
+# checkout never has, and with none it prints nothing and exits 0.
+npm --prefix worker ci && npm --prefix worker outdated
+npm --prefix site ci && npm --prefix site outdated
 
 # Versions pinned in a shell script (worktrunk, in the Codex Cloud setup)
 git grep -nE '^[A-Za-z_]*VERSION=' -- '*.sh'
