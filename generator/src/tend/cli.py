@@ -20,7 +20,7 @@ from tend.checks import (
     fix_tag_protection,
     run_all_checks,
 )
-from tend.config import Config
+from tend.config import Config, read_enabled
 from tend.migrate import migrate_toml_to_yaml, render_toml_as_yaml
 from tend.workflows import actionlint_config, generate_all
 
@@ -327,3 +327,24 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
             raise SystemExit(1)
     else:
         raise SystemExit(1)
+
+
+@main.command("enabled", hidden=True)
+@click.argument(
+    "config_path", type=click.Path(exists=True, dir_okay=False, path_type=Path)
+)
+def enabled_command(config_path: Path) -> None:
+    """Print the runtime switch as a GitHub step output.
+
+    Generated workflows append stdout to `$GITHUB_OUTPUT`, so the notice goes
+    to stderr, where the runner still reads workflow commands.
+    """
+    if read_enabled(config_path):
+        click.echo("enabled=true")
+        return
+    click.echo("enabled=false")
+    click.echo(
+        "::notice title=Tend disabled::The tend config sets enabled: false; "
+        "skipping this job",
+        err=True,
+    )

@@ -32,9 +32,9 @@ def _trigger(
         ("pull_request_review_comment", {"pull_request": {"number": 12}}, "#12"),
         ("issues", {"issue": {"number": 7}}, "#7"),
         ("issue_comment", {"issue": {"number": 7}}, "#7"),
-        # tend-mention relays review events through a secretless job that
-        # re-posts them as a repository_dispatch, so the PR number arrives in
-        # the payload rather than in a `pull_request` object.
+        # tend-mention-relay re-posts review events as a repository_dispatch,
+        # so the PR number arrives in the payload rather than in a
+        # `pull_request` object.
         ("repository_dispatch", {"client_payload": {"pr": 99}}, "#99"),
         (
             "workflow_run",

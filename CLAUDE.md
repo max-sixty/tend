@@ -166,12 +166,14 @@ require manual regeneration in downstream repos.
 Tend's own `tend-*.yaml` workflows track the latest published release. They
 update each night via `uvx tend@latest init`. Updating earlier to the latest
 release (e.g., during a release commit) is fine. Never regenerate them with
-the in-tree generator: the action ref is pinned to the generator's own
-version (`max-sixty/tend/<harness>@X.Y.Z`), so an unreleased in-tree version
-stamps a tag that does not exist yet, and the workflow's `uses:` fails to resolve.
+the in-tree generator: the action ref (`max-sixty/tend/<harness>@X.Y.Z`) and
+the enabled gate (`uvx tend@X.Y.Z enabled`) both pin the generator's own
+version, and until that version is released neither its tag nor its PyPI
+package carries the in-tree code, so the `uses:` or the gate fails.
 Between a generator commit and the next release the committed workflows lag
 the in-tree generator; that is expected, and the gap closes at the next
-release (which tags `X.Y.Z` before regenerating, so the pin always resolves).
+release (which tags and publishes `X.Y.Z` before regenerating, so both pins
+resolve).
 
 `claude_version` in `claude/action.yaml` is an exact version taken from npm's
 `latest` dist-tag, not `stable`. `stable` lags several releases, and pinning it
@@ -296,7 +298,7 @@ Concurrency groups:
 | Workflow | Group key | Cancel-in-progress |
 |---|---|---|
 | review | `workflow-PR#` | **no** — killing a session discards a review it can still deliver; `queue: max` holds pending PR events within GitHub's queue limit while it folds the push in and posts |
-| mention/relay | none | stateless — secretless job that re-posts review events as a `repository_dispatch` |
+| mention-relay | none | stateless — secretless job that re-posts review events to mention as a `repository_dispatch` |
 | mention/verify | none | stateless |
 | mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
 | triage | `workflow-issue#` | yes — latest comment wins |
@@ -312,9 +314,9 @@ Actions but doesn't have the bot/Claude secrets no-ops cleanly. The
 canonical owner is detected at `init` time (via `gh repo view`, walking
 `source.owner.login` if the local repo is itself a fork) and pinned in
 the generated workflow. `tend-review` uses `pull_request_target` (base
-repo only) and `tend-mention`'s review-event paths already filter forks
-via `head.repo.full_name == github.repository`, so neither needs the
-guard.
+repo only) and `tend-mention-relay`, which carries tend-mention's review
+events, already filters forks via `head.repo.full_name ==
+github.repository`, so neither needs the guard.
 
 **Red branches.** A red default branch fails every push that follows it, each
 on its own commit, so ci-fix keys its group on the branch — a commit-keyed
@@ -440,6 +442,7 @@ Cloudflare Worker that serves its two data streams from `data/consumers.json`.
 
 The site's dev server starts automatically per worktree via a `wt` post-start
 hook (`.config/wt.toml`) on a deterministic port derived from the branch name.
-Get the URL with `wt list statusline --format json | jq -r '.[].url'`; logs
-land in `.git/wt/logs/`. Don't run `npm run dev`; it duplicates the running
-server on a different port.
+Get the URL with
+`wt list statusline --format json | jq -r '.items[].dev_server.url'`; logs land
+in `.git/wt/logs/`. Don't run `npm run dev`; it duplicates the running server on
+a different port.
