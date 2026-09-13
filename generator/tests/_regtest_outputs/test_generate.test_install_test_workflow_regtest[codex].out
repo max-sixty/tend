@@ -92,7 +92,7 @@ jobs:
           RUBY
       - uses: actions/checkout@v7
         if: steps.tend_enabled.outputs.enabled == 'true'
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         if: steps.tend_enabled.outputs.enabled == 'true'
       - name: Verify generator output matches committed files
         if: steps.tend_enabled.outputs.enabled == 'true'

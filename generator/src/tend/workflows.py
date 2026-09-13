@@ -526,7 +526,7 @@ jobs:
 {enabled_check}
       - uses: actions/checkout@v7
         if: {TEND_ENABLED_CONDITION}
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         if: {TEND_ENABLED_CONDITION}
       - name: Verify generator output matches committed files
         if: {TEND_ENABLED_CONDITION}
