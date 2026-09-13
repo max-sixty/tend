@@ -458,6 +458,15 @@ def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWor
         return wf
 
     data = _YAML_BLOCK.load(wf.content)
+    # Either override path replaces a job's `if:` whole, so each job that runs
+    # the agent must come out of the merge still carrying the pause check, or
+    # it keeps running while tend is paused. A job the override deletes runs
+    # nothing and needs no check.
+    guarded = [
+        name
+        for name, job in data["jobs"].items()
+        if TEND_ENABLED_CONDITION in job.get("if", "")
+    ]
 
     if wf_cfg.workflow_extra:
         data = _deep_merge(data, wf_cfg.workflow_extra)
@@ -466,19 +475,6 @@ def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWor
         jobs = data.get("jobs", {})
         for job_name, job_extra in wf_cfg.jobs.items():
             if job_name in jobs:
-                # An `if:` override replaces the rendered condition whole, so
-                # one on a job that runs the agent must carry the pause check,
-                # or that job keeps running while tend is paused.
-                if (
-                    "if" in job_extra
-                    and TEND_ENABLED_CONDITION in jobs[job_name].get("if", "")
-                    and TEND_ENABLED_CONDITION not in str(job_extra["if"] or "")
-                ):
-                    raise click.ClickException(
-                        f"The `if:` override for job '{job_name}' "
-                        f"({wf.filename}) drops tend's pause check. "
-                        f"Start it with: {TEND_ENABLED_CONDITION} && "
-                    )
                 jobs[job_name] = _deep_merge(jobs[job_name], job_extra)
             else:
                 click.echo(
@@ -486,6 +482,18 @@ def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWor
                     f"(known: {', '.join(sorted(jobs))})",
                     err=True,
                 )
+
+    merged_jobs = data.get("jobs")
+    for name in guarded:
+        job = merged_jobs.get(name) if isinstance(merged_jobs, dict) else None
+        if isinstance(job, dict) and TEND_ENABLED_CONDITION not in str(
+            job.get("if") or ""
+        ):
+            raise click.ClickException(
+                f"An override drops tend's pause check from job '{name}' "
+                f"({wf.filename}). Start its `if:` with: "
+                f"{TEND_ENABLED_CONDITION} && "
+            )
 
     # `typ="rt"` preserves the leading HEADER comment block on load, so it
     # round-trips into the dumped output. Don't prepend HEADER manually

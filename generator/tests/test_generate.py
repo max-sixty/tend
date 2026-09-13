@@ -1329,15 +1329,19 @@ def test_user_job_if_extra_replaces_fork_guard(
     assert "github.repository_owner" not in rendered_if
 
 
-@pytest.mark.parametrize("user_if", ["github.actor == 'tend-agent'", None])
-def test_job_if_override_must_keep_the_pause_check(
-    tmp_path: Path, user_if: str | None
-) -> None:
+@pytest.mark.parametrize(
+    "wf_block",
+    [
+        {"jobs": {"triage": {"if": "github.actor == 'tend-agent'"}}},
+        {"jobs": {"triage": {"if": None}}},
+        {"workflow_extra": {"jobs": {"triage": {"if": "github.actor == 'x'"}}}},
+    ],
+)
+def test_if_override_must_keep_the_pause_check(tmp_path: Path, wf_block: dict) -> None:
     """Replacing or deleting an agent job's `if:` without the TEND_ENABLED
-    check would keep that job running while tend is paused."""
-    extra = yaml.safe_dump(
-        {"workflows": {"triage": {"jobs": {"triage": {"if": user_if}}}}}
-    )
+    check, through either override path, would keep that job running while
+    tend is paused."""
+    extra = yaml.safe_dump({"workflows": {"triage": wf_block}})
     cfg = Config.load(_minimal_config(tmp_path, extra))
     with pytest.raises(click.ClickException, match="pause check"):
         generate_all(cfg)
