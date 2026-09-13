@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib.resources
 import json
 import re
-import subprocess
 from pathlib import Path
 from textwrap import dedent
 
@@ -33,18 +32,11 @@ from tend.workflows import (
     generate_codex_auth_refresh,
     generate_install_test,
     generate_mention,
+    generate_mention_relay,
 )
 
-from tests import ACTION_VERSION, agent_prompt
+from tests import ACTION_VERSION, agent_prompt, without_relay
 from tests import _yaml as yaml
-
-CHECK_ENABLED = (
-    Path(__file__).resolve().parents[1]
-    / "src"
-    / "tend"
-    / "templates"
-    / "check-enabled.rb"
-)
 
 
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
@@ -58,15 +50,16 @@ def test_standard_workflow_registry_matches_the_generators() -> None:
     assert STANDARD_WORKFLOWS == set(GENERATORS)
 
 
-def test_minimal_config_generates_seven_workflows(tmp_path: Path) -> None:
-    """ci-fix requires watched_workflows, so minimal config produces seven."""
+def test_minimal_config_generates_eight_workflows(tmp_path: Path) -> None:
+    """ci-fix requires watched_workflows, so minimal config produces eight."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = generate_all(cfg)
-    assert len(workflows) == 7
+    assert len(workflows) == 8
     names = {wf.filename for wf in workflows}
     assert names == {
         "tend-review.yaml",
         "tend-mention.yaml",
+        "tend-mention-relay.yaml",
         "tend-triage.yaml",
         "tend-nightly.yaml",
         "tend-weekly.yaml",
@@ -91,7 +84,17 @@ def test_disabled_workflow_not_generated(tmp_path: Path) -> None:
     workflows = generate_all(cfg)
     names = {wf.filename for wf in workflows}
     assert "tend-weekly.yaml" not in names
-    assert len(workflows) == 6
+    assert len(workflows) == 7
+
+
+def test_disabling_mention_drops_its_relay(tmp_path: Path) -> None:
+    """The relay feeds only tend-mention, so it goes when mention does."""
+    cfg = Config.load(
+        _minimal_config(tmp_path, "workflows:\n  mention:\n    enabled: false\n")
+    )
+    names = {wf.filename for wf in generate_all(cfg)}
+    assert "tend-mention.yaml" not in names
+    assert "tend-mention-relay.yaml" not in names
 
 
 def test_top_level_disable_keeps_workflows_installed_and_gates_every_job(
@@ -112,20 +115,28 @@ def test_top_level_disable_keeps_workflows_installed_and_gates_every_job(
 
     assert cfg.enabled is False
     workflows = generate_all(cfg, with_install_test=True)
-    assert len(workflows) == len(STANDARD_WORKFLOWS) + 1
+    assert len(workflows) == len(STANDARD_WORKFLOWS) + 2  # relay, install-test
 
     condition = "steps.tend_enabled.outputs.enabled == 'true'"
     for workflow in workflows:
         jobs = yaml.safe_load(workflow.content)["jobs"]
         for job_name, job in jobs.items():
             steps = job["steps"]
-            gate = steps[0]
+            install_uv, gate = steps[:2]
+            assert install_uv["uses"].startswith("astral-sh/setup-uv@"), (
+                workflow.filename,
+                job_name,
+            )
+            # Off PATH, so it cannot shadow a uv the adopter provides.
+            assert install_uv["env"] == {"UV_NO_MODIFY_PATH": "1"}
             assert gate["id"] == "tend_enabled", (workflow.filename, job_name)
             assert f"contents/{cfg.config_path}" in gate["run"]
+            assert gate["env"]["TEND_UVX"] == "${{ steps.tend_uv.outputs.uvx-path }}"
+            assert f'"$TEND_UVX" tend@{ACTION_VERSION} enabled ' in gate["run"]
             assert "secrets." not in str(gate)
             if workflow.filename == "tend-install-test.yaml":
                 assert "?ref=${{ github.event.pull_request.head.sha }}" in gate["run"]
-            for step in steps[1:]:
+            for step in steps[2:]:
                 assert condition in str(step.get("if", "")), (
                     workflow.filename,
                     job_name,
@@ -140,81 +151,49 @@ def test_top_level_disable_keeps_workflows_installed_and_gates_every_job(
         ("bot_name: bot\nenabled: true\n", "true"),
         ("bot_name: bot\nenabled: false\n", "false"),
         ("\ufeffbot_name: bot\nenabled: false\n", "false"),
+        # The rest of the config is not the gate's to judge.
+        ("model: not-a-model\nenabled: false\n", "false"),
     ],
 )
-def test_runtime_enabled_check(tmp_path: Path, config: str, enabled: str) -> None:
+def test_enabled_command_writes_the_step_output(
+    tmp_path: Path, config: str, enabled: str
+) -> None:
     path = tmp_path / "tend.yaml"
     path.write_text(config)
 
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = CliRunner().invoke(main, ["enabled", str(path)])
 
-    assert result.returncode == 0, result.stderr
+    assert result.exit_code == 0, result.output
     assert result.stdout == f"enabled={enabled}\n"
-    assert ("Tend disabled" in result.stderr) is (enabled == "false")
+    assert ("::notice title=Tend disabled::" in result.stderr) is (enabled == "false")
 
 
 @pytest.mark.parametrize(
     "config",
     [
+        "",
         "bot_name: bot\nenabled: no\n",
         'bot_name: bot\nenabled: "false"\n',
         "bot_name: bot\nenabled:\n",
         "bot_name: bot\nenabled: {}\n",
         "bot_name: bot\nenabled: true\nenabled: false\n",
+        "bot_name: bot\n---\nenabled: false\n",
+        "defaults: &defaults\n  enabled: false\n<<: *defaults\nbot_name: bot\n",
     ],
 )
-def test_runtime_enabled_check_rejects_non_boolean_values(
+def test_enabled_command_fails_without_a_step_output(
     tmp_path: Path, config: str
 ) -> None:
+    """No `enabled` output means every gated step skips and the job goes red."""
     path = tmp_path / "tend.yaml"
     path.write_text(config)
 
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = CliRunner().invoke(main, ["enabled", str(path)])
 
-    assert result.returncode != 0
-    assert "enabled must" in result.stderr
-
-
-def test_runtime_enabled_check_rejects_multiple_documents(tmp_path: Path) -> None:
-    path = tmp_path / "tend.yaml"
-    path.write_text("bot_name: bot\n---\nenabled: false\n")
-
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "exactly one YAML document" in result.stderr
-
-
-def test_runtime_enabled_check_rejects_yaml_merge_keys(tmp_path: Path) -> None:
-    path = tmp_path / "tend.yaml"
-    path.write_text(
-        "defaults: &defaults\n  enabled: false\n<<: *defaults\nbot_name: bot\n"
-    )
-
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "YAML merge keys" in result.stderr
+    assert result.exit_code != 0
+    assert result.stdout == ""
+    # A reported rejection, not a traceback.
+    assert result.stderr.startswith("Error: "), result.stderr
 
 
 def test_setup_steps_rendered(tmp_path: Path) -> None:
@@ -224,7 +203,7 @@ def test_setup_steps_rendered(tmp_path: Path) -> None:
           - run: echo FOO=bar >> $GITHUB_ENV
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
-    for wf in generate_all(cfg):
+    for wf in without_relay(generate_all(cfg)):
         assert "./.github/actions/my-setup" in wf.content, (
             f"{wf.filename} missing uses step"
         )
@@ -589,14 +568,17 @@ def test_workflows_read_only_the_operational_secrets(
             f"{wf.filename} reads a secret the {harness} harness does not "
             f"provision: {sorted(read - {'GITHUB_TOKEN'} - verified)}"
         )
-        if wf.filename != "tend-codex-auth-refresh.yaml":
+        if wf.filename not in {
+            "tend-codex-auth-refresh.yaml",
+            "tend-mention-relay.yaml",
+        }:
             assert BOT_TOKEN_SECRET in read, f"{wf.filename} missing the bot token"
 
 
 def test_claude_workflows_emit_both_auth_inputs(tmp_path: Path) -> None:
     """Claude agent step references both OAuth token and API key secrets."""
     cfg = Config.load(_minimal_config(tmp_path))
-    for wf in generate_all(cfg):
+    for wf in without_relay(generate_all(cfg)):
         assert (
             "claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"
             in wf.content
@@ -644,7 +626,7 @@ def test_operational_secrets_imply_environment(tmp_path: Path) -> None:
     # of this invariant as silently as ci-fix did.
     assert {wf.filename for wf in generated} == {
         f"tend-{name}.yaml" for name in GENERATORS
-    } | {"tend-install-test.yaml"}
+    } | {"tend-mention-relay.yaml", "tend-install-test.yaml"}
     for wf in generated:
         data = yaml.safe_load(wf.content)
         for job_name, job in data["jobs"].items():
@@ -778,7 +760,9 @@ def test_sandbox_levers_survive_an_indented_first_line(
     `sandbox_env` is exempt, and only because it refuses a newline outright.
     """
     extra = f'{lever}:\n  - "  indented entry"\n  - second entry\n'
-    workflows = generate_all(Config.load(_minimal_config(tmp_path, extra)))
+    workflows = without_relay(
+        generate_all(Config.load(_minimal_config(tmp_path, extra)))
+    )
     for wf in workflows:
         step = next(
             s
@@ -913,10 +897,10 @@ def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     runner = CliRunner()
     result = runner.invoke(main, ["init"])
     assert result.exit_code == 0
-    assert "Generated 7 workflow files" in result.output
+    assert "Generated 8 workflow files" in result.output
     wf_dir = tmp_path / ".github" / "workflows"
     assert wf_dir.exists()
-    assert len(list(wf_dir.glob("tend-*.yaml"))) == 7
+    assert len(list(wf_dir.glob("tend-*.yaml"))) == 8
 
 
 def test_review_delegates_pr_topology_to_disposable_clone(tmp_path: Path) -> None:
@@ -1077,21 +1061,27 @@ def test_setup_raw_rejected_with_migration_hint(tmp_path: Path) -> None:
 
 
 def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
-    """A submitted review must still reach the bot on an engaged PR — via the
-    secretless relay job, which re-enters the event as a repository_dispatch so
-    the run holding the secrets carries a ref their environment admits."""
+    """A submitted review must still reach the bot on an engaged PR — via
+    tend-mention-relay, which re-enters the event as a repository_dispatch so
+    the run holding the secrets carries a ref their environment admits.
+
+    GitHub lists every job of a review event's run among the PR's checks,
+    skipped or not, so the review events belong to a workflow whose one job is
+    the relay: in tend-mention, verify and handle added two skipped rows to
+    every review."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    mention = workflows["tend-mention.yaml"]
-    data = yaml.safe_load(mention.content)
+    data = yaml.safe_load(workflows["tend-mention.yaml"].content)
+    relay_wf = yaml.safe_load(workflows["tend-mention-relay.yaml"].content)
 
-    # The review events' own runs carry refs/pull/N/merge, which the secrets'
-    # environment does not admit, so they may reach only the relay job.
-    assert data["on"]["pull_request_review"] == {"types": ["submitted"]}
+    assert set(relay_wf["on"]) == {"pull_request_review", "pull_request_review_comment"}
+    assert relay_wf["on"]["pull_request_review"] == {"types": ["submitted"]}
+    assert set(relay_wf["jobs"]) == {"relay"}
+    assert set(data["on"]) == {"issues", "issue_comment", "repository_dispatch"}
     assert data["on"]["repository_dispatch"] == {"types": ["tend-mention-review"]}
-    relay = data["jobs"]["relay"]
-    assert "pull_request_review" in relay["if"]
-    # The relay holds no secrets, so it is where the fork filter now lives.
+
+    relay = relay_wf["jobs"]["relay"]
+    # The relay holds no secrets, so it is where the fork filter lives.
     assert "pull_request.head.repo.full_name" in relay["if"]
     assert "environment" not in relay, (
         "the relay must stay outside the secrets' environment — naming it "
@@ -1109,11 +1099,7 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     assert "client_payload[pr]" in relay_run
     assert "client_payload[id]" in relay_run
     assert "client_payload[url]" not in relay_run
-
-    # The secret-bearing jobs must not run on the review events themselves.
-    verify_if = data["jobs"]["verify"]["if"]
-    assert "repository_dispatch" in verify_if
-    assert "pull_request_review" not in verify_if
+    assert "event_type=tend-mention-review" in relay_run
 
     # The harness selects the PR branch only in its disposable clone.
     handle_steps = data["jobs"]["handle"]["steps"]
@@ -1138,26 +1124,18 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
 def test_mention_review_comment_listens_only_for_edits(tmp_path: Path) -> None:
     """pull_request_review_comment must subscribe to `edited` only, not `created`.
 
-    Modern GitHub fires *both* pull_request_review and pull_request_review_comment
-    for every newly-created inline comment (verified across the standalone
-    POST /pulls/{n}/comments endpoint, the /replies endpoint, the "Add single
-    comment" UI button, and reviews submitted with inline comments). If we
-    subscribed to `created` here, the duplicate run would collide on the
-    tend-mention-handle-<PR#> concurrency group, the loser would be cancelled,
-    and the cancelled check_run on the PR head SHA would render the PR's
-    statusCheckRollup as FAILURE — even though the bot did its job from the
-    sibling run.
-
-    Edits have no sibling event (review submissions don't fire on edits), so
-    we still need to listen for `edited` to catch edit-to-summon ("@bot" added
-    to an existing comment after the fact)."""
+    GitHub fires pull_request_review as well for every newly-created inline
+    comment (verified across the standalone POST /pulls/{n}/comments endpoint,
+    the /replies endpoint, the "Add single comment" UI button, and reviews
+    submitted with inline comments), so `created` would relay each comment
+    twice and boot a second session for it. Edits have no sibling event, so
+    `edited` stays to catch "@bot" added to an existing comment."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    mention = workflows["tend-mention.yaml"]
-    data = yaml.safe_load(mention.content)
+    data = yaml.safe_load(workflows["tend-mention-relay.yaml"].content)
     assert data["on"]["pull_request_review_comment"] == {"types": ["edited"]}, (
         "pull_request_review_comment must subscribe to ['edited'] only — see "
-        "the trigger comment in the mention template for the dedup rationale"
+        "the trigger comment in the mention-relay template for the dedup rationale"
     )
 
 
@@ -1193,6 +1171,8 @@ def test_mention_verify_wires_every_variable_the_gate_reads(tmp_path: Path) -> N
         "PAYLOAD_KIND": "${{ github.event.client_payload.kind }}",
         "PAYLOAD_PR": "${{ github.event.client_payload.pr }}",
         "PAYLOAD_ID": "${{ github.event.client_payload.id }}",
+        # The uv that runs the script, not an input it reads.
+        "TEND_UV": "${{ steps.tend_uv.outputs.uv-path }}",
     }
 
     # And the mapping is complete: every name the script reads without first
@@ -1321,11 +1301,15 @@ _GUARDED_WORKFLOWS = [
     "tend-notifications.yaml",
     "tend-triage.yaml",
 ]
-# tend-review uses pull_request_target (base repo only); tend-mention's
-# review-event paths already filter forks, and `issues`/`issue_comment` events
-# are unguarded by design (forks rarely enable Issues, and gating here would
-# silently drop legitimate same-repo activity if the owner is misconfigured).
-_UNGUARDED_WORKFLOWS = ["tend-review.yaml", "tend-mention.yaml"]
+# tend-review uses pull_request_target (base repo only); tend-mention-relay
+# already filters forks, and `issues`/`issue_comment` events are unguarded by
+# design (forks rarely enable Issues, and gating here would silently drop
+# legitimate same-repo activity if the owner is misconfigured).
+_UNGUARDED_WORKFLOWS = [
+    "tend-review.yaml",
+    "tend-mention.yaml",
+    "tend-mention-relay.yaml",
+]
 
 
 @pytest.mark.parametrize("filename", _GUARDED_WORKFLOWS)
@@ -1348,9 +1332,9 @@ def test_fork_guard_present_when_repo_owner_set(tmp_path: Path, filename: str) -
 
 @pytest.mark.parametrize("filename", _UNGUARDED_WORKFLOWS)
 def test_fork_guard_absent_for_unguarded(tmp_path: Path, filename: str) -> None:
-    """tend-review (pull_request_target) and tend-mention (own filtering) must
-    not get a job-level repo_owner guard — adding one would drop legitimate
-    activity on those workflows if owner is misconfigured."""
+    """tend-review (pull_request_target) and tend-mention with its relay (own
+    filtering) must not get a job-level repo_owner guard — adding one would
+    drop legitimate activity on those workflows if owner is misconfigured."""
     cfg = Config.load(_minimal_config(tmp_path))
     cfg.repo_owner = "test-owner"
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -1742,6 +1726,12 @@ def test_sandbox_levers_regtest(regtest: object, tmp_path: Path) -> None:
     print(generate_mention(cfg).content, end="", file=regtest)  # type: ignore[arg-type]
 
 
+def test_mention_relay_regtest(regtest: object, tmp_path: Path) -> None:
+    """Snapshot tend-mention-relay, which is not in `GENERATORS`."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    print(generate_mention_relay(cfg).content, end="", file=regtest)  # type: ignore[arg-type]
+
+
 def test_extras_apply_path_regtest(regtest: object, tmp_path: Path) -> None:
     """Snapshot the workflow with both `workflow_extra` and per-job overrides
     applied — exercises the `_apply_extras` round-trip path that the other
@@ -1821,7 +1811,7 @@ def test_install_test_honors_workflow_extras(tmp_path: Path) -> None:
 def test_codex_action_ref(tmp_path: Path) -> None:
     """Codex workflows reference max-sixty/tend/codex@<release tag>."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
-    for wf in generate_all(cfg):
+    for wf in without_relay(generate_all(cfg)):
         action = (
             "max-sixty/tend/codex/refresh"
             if wf.filename == "tend-codex-auth-refresh.yaml"
@@ -1838,7 +1828,7 @@ def test_codex_action_ref(tmp_path: Path) -> None:
 def test_codex_workflows_use_openai_secrets_not_claude(tmp_path: Path) -> None:
     """Codex consumers receive API-key and access-only subscription paths."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
-    for wf in generate_all(cfg):
+    for wf in without_relay(generate_all(cfg)):
         if wf.filename == "tend-codex-auth-refresh.yaml":
             continue
         assert "openai_api_key: ${{ secrets.OPENAI_API_KEY }}" in wf.content, (
