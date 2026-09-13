@@ -16,7 +16,7 @@ jobs:
 <<permissions()>>
     steps:
 <<check_tend_enabled(cfg)>>
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         if: <<tend_enabled_condition>>
         with:
           version: "<<uv_version>>"
