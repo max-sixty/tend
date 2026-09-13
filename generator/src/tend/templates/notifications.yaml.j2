@@ -21,8 +21,9 @@ jobs:
         if: <<tend_enabled_condition>>
         env:
           GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}
+          TEND_UV: ${{ steps.tend_uv.outputs.uv-path }}
         run: |
-          uv run --script - <<heredoc>>'TEND_PY'
+          "$TEND_UV" run --script - <<heredoc>>'TEND_PY'
 <<check_script|indent(10, first=True)>>
           TEND_PY
 

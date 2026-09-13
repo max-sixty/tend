@@ -127,9 +127,12 @@ def test_top_level_disable_keeps_workflows_installed_and_gates_every_job(
                 workflow.filename,
                 job_name,
             )
+            # Off PATH, so it cannot shadow a uv the adopter provides.
+            assert install_uv["env"] == {"UV_NO_MODIFY_PATH": "1"}
             assert gate["id"] == "tend_enabled", (workflow.filename, job_name)
             assert f"contents/{cfg.config_path}" in gate["run"]
-            assert f"uvx tend@{ACTION_VERSION} enabled " in gate["run"]
+            assert gate["env"]["TEND_UVX"] == "${{ steps.tend_uv.outputs.uvx-path }}"
+            assert f'"$TEND_UVX" tend@{ACTION_VERSION} enabled ' in gate["run"]
             assert "secrets." not in str(gate)
             if workflow.filename == "tend-install-test.yaml":
                 assert "?ref=${{ github.event.pull_request.head.sha }}" in gate["run"]
@@ -189,6 +192,8 @@ def test_enabled_command_fails_without_a_step_output(
 
     assert result.exit_code != 0
     assert result.stdout == ""
+    # A reported rejection, not a traceback.
+    assert result.stderr.startswith("Error: "), result.stderr
 
 
 def test_setup_steps_rendered(tmp_path: Path) -> None:
@@ -1166,6 +1171,8 @@ def test_mention_verify_wires_every_variable_the_gate_reads(tmp_path: Path) -> N
         "PAYLOAD_KIND": "${{ github.event.client_payload.kind }}",
         "PAYLOAD_PR": "${{ github.event.client_payload.pr }}",
         "PAYLOAD_ID": "${{ github.event.client_payload.id }}",
+        # The uv that runs the script, not an input it reads.
+        "TEND_UV": "${{ steps.tend_uv.outputs.uv-path }}",
     }
 
     # And the mapping is complete: every name the script reads without first

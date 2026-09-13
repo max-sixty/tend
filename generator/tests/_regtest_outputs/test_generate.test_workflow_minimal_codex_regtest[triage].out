@@ -29,6 +29,9 @@ jobs:
       issues: write
     steps:
       - uses: astral-sh/setup-uv@v10.0.1
+        id: tend_uv
+        env:
+          UV_NO_MODIFY_PATH: "1"
         with:
           version: "0.12.10"
           enable-cache: false
@@ -37,12 +40,13 @@ jobs:
         id: tend_enabled
         env:
           GH_TOKEN: ${{ github.token }}
+          TEND_UVX: ${{ steps.tend_uv.outputs.uvx-path }}
         run: |
           gh api \
             -H "Accept: application/vnd.github.raw+json" \
             "repos/$GITHUB_REPOSITORY/contents/.config/tend.yaml" \
             > "$RUNNER_TEMP/tend.yaml"
-          uvx tend@X.Y.Z enabled "$RUNNER_TEMP/tend.yaml" >> "$GITHUB_OUTPUT"
+          "$TEND_UVX" tend@X.Y.Z enabled "$RUNNER_TEMP/tend.yaml" >> "$GITHUB_OUTPUT"
       - name: React with eyes
         if: steps.tend_enabled.outputs.enabled == 'true'
         run: |

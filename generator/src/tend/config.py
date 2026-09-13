@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
-from ruamel.yaml import YAML
+from ruamel.yaml import YAML, YAMLError
 from ruamel.yaml.nodes import MappingNode, Node, SequenceNode
 
 # ruamel.yaml parses YAML 1.2 by default, which fixes PyYAML's `on:` → True
@@ -38,10 +38,14 @@ def _has_yaml_merge_key(node: Node | None, seen: set[int] | None = None) -> bool
 
 def _load_mapping(path: Path) -> dict:
     """Parse *path* as a single YAML document holding a mapping."""
-    text = path.read_text(encoding="utf-8")
-    if _has_yaml_merge_key(_YAML.compose(text)):
+    try:
+        text = path.read_text(encoding="utf-8")
+        merged = _has_yaml_merge_key(_YAML.compose(text))
+        raw = _YAML.load(text)
+    except (UnicodeDecodeError, YAMLError) as error:
+        raise click.ClickException(f"Could not parse {path}: {error}") from error
+    if merged:
         raise click.ClickException("YAML merge keys (<<) are not supported")
-    raw = _YAML.load(text)
     if not isinstance(raw, dict):
         raise click.ClickException(
             f"{path} must contain a YAML mapping at the top level"
