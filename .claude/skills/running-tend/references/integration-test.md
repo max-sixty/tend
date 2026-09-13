@@ -319,8 +319,9 @@ rm -rf "$WORK"
 ## 6. Verify tend-mention (review events)
 
 Submit a comment review on the §5 PR that names the bot, and assert that
-a dispatched session ran. The chain is review submitted → relay (the
-review event re-posted as a `repository_dispatch`) → verify → handle. A
+a dispatched session ran. The chain is review submitted →
+`tend-mention-relay` (the review event re-posted as a
+`repository_dispatch`) → verify → handle. A
 review the bot writes otherwise starts no session, since the review
 workflow applies its own findings; naming the bot is the gate's
 mention-wins rule, and it is the only event the single bot identity can

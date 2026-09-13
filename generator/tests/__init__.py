@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Iterable
 from importlib.metadata import version
 from pathlib import Path
+
+from tend.workflows import GeneratedWorkflow
 
 from tests._yaml import safe_load
 
@@ -20,6 +23,13 @@ def agent_prompt(content: str) -> str:
     prompts = [s["with"]["prompt"] for s in steps if "prompt" in s.get("with", {})]
     assert len(prompts) == 1, f"expected one agent step, found {len(prompts)}"
     return prompts[0]
+
+
+def without_relay(workflows: Iterable[GeneratedWorkflow]) -> list[GeneratedWorkflow]:
+    """Drop tend-mention-relay, which only re-posts review events to
+    tend-mention: it runs no agent, so it carries none of the agent step's
+    model, setup, or harness inputs."""
+    return [wf for wf in workflows if wf.filename != "tend-mention-relay.yaml"]
 
 
 # Interpreter for the repo's shell scripts. A bare `bash` would resolve through

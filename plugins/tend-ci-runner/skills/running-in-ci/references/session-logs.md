@@ -9,7 +9,7 @@ Depth behind `/tend-ci-runner:running-in-ci`: read to diagnose another run's beh
 
 Load `/install-tend:debug-tend-run` for session log download, JSONL parsing queries, and diagnostic workflow. The primary evidence for diagnosing bot behavior is the session log artifact — not console output.
 
-A run triggered by `pull_request_review` or `pull_request_review_comment` executes only the `relay` job and never carries a session or an artifact. The session for a review event runs under the `repository_dispatch` run the relay creates — look there.
+Review events trigger `tend-mention-relay`, whose runs never carry a session or an artifact. The session for a review event runs under the `tend-mention` `repository_dispatch` run the relay creates — look there.
 
 ## Recalling prior context on this thread
 
