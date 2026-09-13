@@ -180,6 +180,7 @@ Use a smaller, cheaper model for the subagent and a prompt like:
 >   `gh api repos/$ARGUMENTS/pulls/<pr>/reviews`
 > - `tend-notifications`: check for bot comments/issue-close events inside the window from Step 1
 > - `tend-mention`: map run to issue/PR from triggering comment, check for bot replies
+> - `tend-mention-relay`: no output of its own; the review event it re-posts is handled by the `tend-mention` `repository_dispatch` run below
 > - `tend-mention` on `repository_dispatch` (the relay path for review events): there is no triggering comment and `headBranch` is the default branch, so neither route above resolves it. Read the target off the `verify` job's log, where the step env block prints the relayed payload:
 >   ```bash
 >   JOB=$(gh api "repos/$ARGUMENTS/actions/runs/<run-id>/jobs" --jq '.jobs[] | select(.name == "verify") | .id')

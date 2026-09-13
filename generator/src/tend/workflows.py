@@ -289,6 +289,14 @@ def generate_mention(cfg: Config) -> GeneratedWorkflow:
     return GeneratedWorkflow(filename="tend-mention.yaml", content=content)
 
 
+_MENTION_RELAY_TMPL = _JINJA.get_template("mention-relay.yaml.j2")
+
+
+def generate_mention_relay(cfg: Config) -> GeneratedWorkflow:
+    content = _MENTION_RELAY_TMPL.render(cfg=cfg)
+    return GeneratedWorkflow(filename="tend-mention-relay.yaml", content=content)
+
+
 # ---------------------------------------------------------------------------
 # Triage
 # ---------------------------------------------------------------------------
@@ -714,6 +722,11 @@ def generate_all(
         wf = gen_fn(cfg)
         wf = _apply_extras(wf, wf_cfg)
         results.append(wf)
+    # The relay only feeds tend-mention; alone, it would add a check to every
+    # reviewed PR and dispatch into nothing.
+    relay_cfg = cfg.workflows.get("mention-relay", WorkflowConfig())
+    if cfg.workflows.get("mention", WorkflowConfig()).enabled and relay_cfg.enabled:
+        results.append(_apply_extras(generate_mention_relay(cfg), relay_cfg))
     if "codex" in cfg.enabled_harnesses():
         wf_cfg = cfg.workflows.get("codex-auth-refresh", WorkflowConfig())
         if wf_cfg.enabled:
