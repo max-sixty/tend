@@ -55,30 +55,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: astral-sh/setup-uv@v10.1.0
-        id: tend_uv
-        env:
-          UV_NO_MODIFY_PATH: "1"
-        with:
-          version: "0.12.10"
-          enable-cache: false
-          ignore-empty-workdir: true
-      - name: Check whether tend is enabled
-        id: tend_enabled
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TEND_UVX: ${{ steps.tend_uv.outputs.uvx-path }}
-        run: |
-          gh api \
-            -H "Accept: application/vnd.github.raw+json" \
-            "repos/$GITHUB_REPOSITORY/contents/.config/tend.yaml" \
-            > "$RUNNER_TEMP/tend.yaml"
-          "$TEND_UVX" tend@X.Y.Z enabled "$RUNNER_TEMP/tend.yaml" >> "$GITHUB_OUTPUT"
       # Identifiers only: `verify` re-reads the review or comment from the
       # API, so the words the bot weighs and acts on are the ones GitHub
       # holds, and a forged dispatch faces the same scrutiny as a relayed one.
       - name: Re-enter on an admitted ref
-        if: steps.tend_enabled.outputs.enabled == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

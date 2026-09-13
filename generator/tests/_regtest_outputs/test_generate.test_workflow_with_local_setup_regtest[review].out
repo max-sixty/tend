@@ -13,6 +13,7 @@ on:
 
 jobs:
   review:
+    if: vars.TEND_ENABLED != 'false'
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
       # Preserve pending PR events within GitHub's queue limit: a push must not
@@ -31,27 +32,7 @@ jobs:
       actions: read
       issues: write
     steps:
-      - uses: astral-sh/setup-uv@v10.1.0
-        id: tend_uv
-        env:
-          UV_NO_MODIFY_PATH: "1"
-        with:
-          version: "0.12.10"
-          enable-cache: false
-          ignore-empty-workdir: true
-      - name: Check whether tend is enabled
-        id: tend_enabled
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TEND_UVX: ${{ steps.tend_uv.outputs.uvx-path }}
-        run: |
-          gh api \
-            -H "Accept: application/vnd.github.raw+json" \
-            "repos/$GITHUB_REPOSITORY/contents/.config/tend.yaml" \
-            > "$RUNNER_TEMP/tend.yaml"
-          "$TEND_UVX" tend@X.Y.Z enabled "$RUNNER_TEMP/tend.yaml" >> "$GITHUB_OUTPUT"
       - name: React with eyes
-        if: steps.tend_enabled.outputs.enabled == 'true'
         run: |
           gh api "repos/$REPO/$TARGET/reactions" -f content=eyes --silent \
             || echo "::warning::could not add the eyes reaction"
@@ -64,17 +45,14 @@ jobs:
       # actions and their POST chains. The harness creates and selects the PR
       # topology in an independent disposable clone.
       - uses: actions/checkout@v7
-        if: steps.tend_enabled.outputs.enabled == 'true'
         with:
           fetch-depth: 0
           fetch-tags: true
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: ./.github/actions/tend-setup
-        if: steps.tend_enabled.outputs.enabled == 'true'
 
       - uses: max-sixty/tend/claude@X.Y.Z
-        if: steps.tend_enabled.outputs.enabled == 'true'
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -87,9 +65,7 @@ jobs:
             /tend-ci-runner:review ${{ github.event.pull_request.number }}
 
       - name: Remove the eyes reaction
-        if: |
-          always()
-          && (steps.tend_enabled.outputs.enabled == 'true')
+        if: always()
         run: |
           REACTION_ID=$(gh api --paginate \
             "repos/$REPO/$TARGET/reactions?content=eyes&per_page=100" \

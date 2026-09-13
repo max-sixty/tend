@@ -48,12 +48,10 @@ jobs:
     permissions:
       contents: write
     steps:
-<<check_tend_enabled(cfg)>>
       # Identifiers only: `verify` re-reads the review or comment from the
       # API, so the words the bot weighs and acts on are the ones GitHub
       # holds, and a forged dispatch faces the same scrutiny as a relayed one.
       - name: Re-enter on an admitted ref
-        if: <<tend_enabled_condition>>
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

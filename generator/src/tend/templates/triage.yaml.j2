@@ -10,17 +10,16 @@ concurrency:
 
 jobs:
   triage:
-    if: <<fork_guard_prefix(cfg)>><<not_bookkeeping()>>
+    if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && <<not_bookkeeping()>>
     runs-on: ubuntu-24.04
 <<environment()>>
     permissions:
 <<permissions()>>
     steps:
-<<check_tend_enabled(cfg)>>
-<<react_eyes('issues/${{ github.event.issue.number }}', if_condition=tend_enabled_condition)>>
+<<react_eyes('issues/${{ github.event.issue.number }}')>>
 
-<<checkout(cfg, ref=cfg.default_branch, if_condition=tend_enabled_condition)>>
+<<checkout(cfg, ref=cfg.default_branch)>>
 <<setup>>
-<<agent_step(cfg, block_input('prompt', prompt), if_condition=tend_enabled_condition)>>
+<<agent_step(cfg, block_input('prompt', prompt))>>
 
-<<unreact_eyes(cfg, 'issues/${{ github.event.issue.number }}', if_condition="always()\n&& (" ~ tend_enabled_condition ~ ")")>>
+<<unreact_eyes(cfg, 'issues/${{ github.event.issue.number }}', if_condition='always()')>>

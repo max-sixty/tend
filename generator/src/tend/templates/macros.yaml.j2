@@ -58,25 +58,12 @@
           <<prompt_body>>
 {%- endmacro %}
 
-{# Read the runtime kill switch from the repository's default branch. These are
-   the first steps of every operational job, before checkout, setup, reactions,
-   or the agent action. The Contents API defaults to the default branch when no
-   ref is supplied, so a PR cannot disable its own review from its head tree.
-   The one-shot install test passes its PR head explicitly because the config
-   does not exist on the default branch until that PR lands.
-
-   `tend enabled` is the generator's own config parser, at the version that
-   stamped this file, so the gate and `tend init` read a config identically. A
-   missing or unreadable config, invalid YAML document, or invalid `enabled`
-   value fails the step and therefore the job; the fetch writes a file rather
-   than a pipe because the default `run` shell has no pipefail.
-
-   This uv stays off PATH, and tend's later steps call it by the path setup-uv
-   outputs: on PATH it would shadow a uv the adopter's setup or runner image
-   provides, for the setup steps and the agent alike. Its cache stays off
-   because the post-job save would store the job's later uv downloads under
-   this pre-checkout key and restore them here on every run. #}
-{% macro check_tend_enabled(cfg, ref='') %}
+{# The uv that tend's own script steps run. It stays off PATH, and those steps
+   call it by the path setup-uv outputs: on PATH it would shadow a uv the
+   adopter's setup or runner image provides, for the setup steps and the agent
+   alike. Its cache stays off because the post-job save would store the job's
+   later uv downloads under this step's key and restore them on every run. #}
+{% macro setup_tend_uv() %}
       - uses: astral-sh/setup-uv@v10.1.0
         id: tend_uv
         env:
@@ -85,17 +72,6 @@
           version: "<<uv_version>>"
           enable-cache: false
           ignore-empty-workdir: true
-      - name: Check whether tend is enabled
-        id: tend_enabled
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TEND_UVX: ${{ steps.tend_uv.outputs.uvx-path }}
-        run: |
-          gh api \
-            -H "Accept: application/vnd.github.raw+json" \
-            "repos/$GITHUB_REPOSITORY/contents/<<cfg.config_path|urlencode>>{% if ref %}?ref=<<ref>>{% endif %}" \
-            > "$RUNNER_TEMP/tend.yaml"
-          "$TEND_UVX" tend@<<tend_version>> enabled "$RUNNER_TEMP/tend.yaml" >> "$GITHUB_OUTPUT"
 {%- endmacro %}
 
 {# Environment block at column 4. The environment is a secret scope, not a

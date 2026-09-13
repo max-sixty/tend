@@ -61,11 +61,12 @@ jobs:
     # enters as `repository_dispatch` and is judged in the check step below,
     # against the record the API holds.
     if: |
-      github.event_name == 'repository_dispatch' ||
-      (github.event_name == 'issues' &&
-        contains(github.event.issue.body, '@<<cfg.bot_name>>')) ||
-      (github.event_name == 'issue_comment' &&
-        <<not_bookkeeping()>>)
+      <<tend_enabled>> && (
+        github.event_name == 'repository_dispatch' ||
+        (github.event_name == 'issues' &&
+          contains(github.event.issue.body, '@<<cfg.bot_name>>')) ||
+        (github.event_name == 'issue_comment' &&
+          <<not_bookkeeping()>>))
     runs-on: ubuntu-24.04
 <<environment()>>
     permissions:
@@ -76,10 +77,9 @@ jobs:
       url: ${{ steps.check.outputs.url }}
       ts: ${{ steps.check.outputs.ts }}
     steps:
-<<check_tend_enabled(cfg)>>
+<<setup_tend_uv()>>
       - name: Verify bot engagement
         id: check
-        if: <<tend_enabled_condition>>
         run: |
           "$TEND_UV" run --script - <<heredoc>>'TEND_PY'
 <<check_script|indent(10, first=True)>>
@@ -111,7 +111,6 @@ jobs:
     permissions:
 <<permissions()>>
     steps:
-<<check_tend_enabled(cfg)>>
       # Both halves of the reaction belong to this job, so the eyes can only
       # go on once the job that takes them off has started. Put them in
       # `verify` and `handle` respectively and the routine burst case strands
@@ -123,13 +122,12 @@ jobs:
       # step verified belongs to this PR; a review *submission* has no single
       # comment to react to, so it gets no eyes. The job's own `if` already
       # carries `should_run`.
-<<react_eyes(reaction_target, if_condition="(" ~ tend_enabled_condition ~ ") && (" ~ summoned(cfg.bot_name, 'needs.verify.outputs.reason') ~ ")")>>
+<<react_eyes(reaction_target, if_condition=summoned(cfg.bot_name, 'needs.verify.outputs.reason'))>>
 
-<<checkout(cfg, if_condition=tend_enabled_condition)>>
+<<checkout(cfg)>>
 <<setup>>
       - name: Compute queue delay
         id: delay
-        if: <<tend_enabled_condition>>
         run: |
           if [ -z "$EVENT_TS" ]; then
             echo "seconds=" >> "$GITHUB_OUTPUT"
@@ -142,6 +140,6 @@ jobs:
           # the API record — the dispatch payload never carries one to spoof.
           EVENT_TS: ${{ github.event.comment.updated_at || needs.verify.outputs.ts || github.event.issue.updated_at }}
 
-<<agent_step(cfg, prompt_body, if_condition=tend_enabled_condition, checkout_mode='mention')>>
+<<agent_step(cfg, prompt_body, checkout_mode='mention')>>
 
-<<unreact_eyes(cfg, reaction_target, if_condition="always()\n&& (" ~ tend_enabled_condition ~ ")\n&& (" ~ summoned(cfg.bot_name, 'needs.verify.outputs.reason') ~ ")")>>
+<<unreact_eyes(cfg, reaction_target, if_condition="always()\n&& " ~ summoned(cfg.bot_name, 'needs.verify.outputs.reason'))>>

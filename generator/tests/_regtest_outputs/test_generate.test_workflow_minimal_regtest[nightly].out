@@ -14,6 +14,7 @@ on:
 
 jobs:
   nightly:
+    if: vars.TEND_ENABLED != 'false'
     runs-on: ubuntu-24.04
     environment:
       name: tend
@@ -24,27 +25,7 @@ jobs:
       actions: read
       issues: write
     steps:
-      - uses: astral-sh/setup-uv@v10.1.0
-        id: tend_uv
-        env:
-          UV_NO_MODIFY_PATH: "1"
-        with:
-          version: "0.12.10"
-          enable-cache: false
-          ignore-empty-workdir: true
-      - name: Check whether tend is enabled
-        id: tend_enabled
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TEND_UVX: ${{ steps.tend_uv.outputs.uvx-path }}
-        run: |
-          gh api \
-            -H "Accept: application/vnd.github.raw+json" \
-            "repos/$GITHUB_REPOSITORY/contents/.config/tend.yaml" \
-            > "$RUNNER_TEMP/tend.yaml"
-          "$TEND_UVX" tend@X.Y.Z enabled "$RUNNER_TEMP/tend.yaml" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
-        if: steps.tend_enabled.outputs.enabled == 'true'
         with:
           ref: main
           fetch-depth: 0
@@ -52,7 +33,6 @@ jobs:
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: max-sixty/tend/claude@X.Y.Z
-        if: steps.tend_enabled.outputs.enabled == 'true'
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
