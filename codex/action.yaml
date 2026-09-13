@@ -88,7 +88,7 @@ inputs:
     default: "main"
     description: Base branch used to seed the disposable agent clone.
   sandbox_runtime_version:
-    default: "0.0.75"
+    default: "0.0.76"
     description: Pinned Anthropic Sandbox Runtime version.
   allowed_bots:
     default: "*"
