@@ -17,6 +17,7 @@ jobs:
     concurrency:
       group: tend-notifications
       cancel-in-progress: false
+    if: vars.TEND_ENABLED != 'false'
     runs-on: ubuntu-24.04
     environment:
       name: tend
@@ -35,20 +36,8 @@ jobs:
           version: "0.12.10"
           enable-cache: false
           ignore-empty-workdir: true
-      - name: Check whether tend is enabled
-        id: tend_enabled
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TEND_UVX: ${{ steps.tend_uv.outputs.uvx-path }}
-        run: |
-          gh api \
-            -H "Accept: application/vnd.github.raw+json" \
-            "repos/$GITHUB_REPOSITORY/contents/.config/tend.yaml" \
-            > "$RUNNER_TEMP/tend.yaml"
-          "$TEND_UVX" tend@X.Y.Z enabled "$RUNNER_TEMP/tend.yaml" >> "$GITHUB_OUTPUT"
       - name: Check for unread notifications and conflicted PRs
         id: check
-        if: steps.tend_enabled.outputs.enabled == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
           TEND_UV: ${{ steps.tend_uv.outputs.uv-path }}
@@ -236,7 +225,7 @@ jobs:
           TEND_PY
 
       - uses: actions/checkout@v7
-        if: (steps.tend_enabled.outputs.enabled == 'true') && (steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch')
+        if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
         with:
           ref: main
           fetch-depth: 0
@@ -244,9 +233,9 @@ jobs:
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: astral-sh/setup-uv@v6
-        if: (steps.tend_enabled.outputs.enabled == 'true') && (steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch')
+        if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
       - uses: max-sixty/tend/claude@X.Y.Z
-        if: (steps.tend_enabled.outputs.enabled == 'true') && (steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch')
+        if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

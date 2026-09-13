@@ -458,26 +458,10 @@ def test_init_custom_config_path(
     assert result.exit_code == 0
 
     for path in _workflow_dir(tmp_path).glob("tend-*.yaml"):
-        content = path.read_text()
         if path.name != "tend-mention-relay.yaml":
-            assert "custom-bot" in content, f"{path.name} missing custom bot name"
-        if path.name != "tend-install-test.yaml":
-            assert "contents/custom/my-tend.yaml" in content
-
-
-def test_init_rejects_a_config_outside_the_repository(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    custom = tmp_path / "tend.yaml"
-    custom.write_text("bot_name: custom-bot")
-    monkeypatch.chdir(repo)
-
-    result = CliRunner().invoke(main, ["init", "-c", str(custom)])
-
-    assert result.exit_code == 1
-    assert "Config must be inside the repository" in result.output
+            assert "custom-bot" in path.read_text(), (
+                f"{path.name} missing custom bot name"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -781,7 +765,6 @@ def test_init_notifications_has_precheck(
     }
     steps = data["jobs"]["notifications"]["steps"]
 
-    assert steps[1]["id"] == "tend_enabled"
     check_index = next(i for i, step in enumerate(steps) if step.get("id") == "check")
     check_step = steps[check_index]
     assert check_step["id"] == "check"
@@ -1031,11 +1014,6 @@ def test_install_test_workflow_shape(
     assert "head.repo.full_name == github.repository" in job["if"]
     assert job["permissions"] == {"contents": "read"}
     assert "secrets." not in content
-    steps = job["steps"]
-    assert steps[1]["id"] == "tend_enabled"
-    assert "?ref=${{ github.event.pull_request.head.sha }}" in steps[1]["run"]
-    for step in steps[2:]:
-        assert step["if"] == "steps.tend_enabled.outputs.enabled == 'true'"
 
     # Generator-drift step regenerates with the same flag to keep output stable.
     # Version is pinned from the committed header (not `@latest`) so a release

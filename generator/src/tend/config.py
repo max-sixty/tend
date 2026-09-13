@@ -8,67 +8,10 @@ from pathlib import Path
 
 import click
 from ruamel.yaml import YAML, YAMLError
-from ruamel.yaml.nodes import MappingNode, Node, SequenceNode
 
 # ruamel.yaml parses YAML 1.2 by default, which fixes PyYAML's `on:` → True
 # trap and the Norway problem (yes/no/on/off coerced to bool).
 _YAML = YAML(typ="safe", pure=True)
-
-
-def _has_yaml_merge_key(node: Node | None, seen: set[int] | None = None) -> bool:
-    """Return whether a parsed YAML tree contains a `<<` merge key."""
-    if node is None:
-        return False
-    if seen is None:
-        seen = set()
-    if id(node) in seen:
-        return False
-    seen.add(id(node))
-
-    if isinstance(node, MappingNode):
-        for key, value in node.value:
-            if key.tag == "tag:yaml.org,2002:merge":
-                return True
-            if _has_yaml_merge_key(key, seen) or _has_yaml_merge_key(value, seen):
-                return True
-    elif isinstance(node, SequenceNode):
-        return any(_has_yaml_merge_key(value, seen) for value in node.value)
-    return False
-
-
-def _load_mapping(path: Path) -> dict:
-    """Parse *path* as a single YAML document holding a mapping."""
-    try:
-        text = path.read_text(encoding="utf-8")
-        merged = _has_yaml_merge_key(_YAML.compose(text))
-        raw = _YAML.load(text)
-    except (UnicodeDecodeError, YAMLError) as error:
-        raise click.ClickException(f"Could not parse {path}: {error}") from error
-    if merged:
-        raise click.ClickException("YAML merge keys (<<) are not supported")
-    if not isinstance(raw, dict):
-        raise click.ClickException(
-            f"{path} must contain a YAML mapping at the top level"
-        )
-    return raw
-
-
-def _parse_enabled(raw: dict) -> bool:
-    enabled = raw.get("enabled", True)
-    if not isinstance(enabled, bool):
-        raise click.ClickException("enabled must be true or false")
-    return enabled
-
-
-def read_enabled(path: Path) -> bool:
-    """Read the runtime switch the generated workflows check before each job.
-
-    Only the document shape and `enabled` are validated. The nightly job that
-    regenerates past a config this version rejects elsewhere (a model it does
-    not know yet) passes through the same gate, so failing on the rest of the
-    config would leave nothing to repair it.
-    """
-    return _parse_enabled(_load_mapping(path))
 
 
 STANDARD_WORKFLOWS = {
@@ -95,7 +38,6 @@ KNOWN_WORKFLOWS = {
 }
 KNOWN_TOP_LEVEL = {
     "bot_name",
-    "enabled",
     "memory_gist",
     "harness",
     "model",
@@ -292,10 +234,6 @@ class Config:
     workflows: dict[str, WorkflowConfig]
     # Exact additional argv elements passed to the selected harness CLI.
     args: list[str] = field(default_factory=list)
-    # Runtime kill switch. Generated workflows stay installed and read this
-    # value from the default branch at the start of every operational job.
-    enabled: bool = True
-    config_path: str = ".config/tend.yaml"
     # Owner of the repo where workflows will run. Used to gate jobs that fail
     # noisily on forks (no access to bot/Claude secrets). Not user-configurable;
     # cli.init populates this via `gh repo view` so fork-based maintainer
@@ -347,7 +285,14 @@ class Config:
                     "and regenerates workflows in one step)."
                 )
             raise click.ClickException(f"Config not found: {path}")
-        raw = _load_mapping(path)
+        try:
+            raw = _YAML.load(path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, YAMLError) as error:
+            raise click.ClickException(f"Could not parse {path}: {error}") from error
+        if not isinstance(raw, dict):
+            raise click.ClickException(
+                f"{path} must contain a YAML mapping at the top level"
+            )
 
         if "bot_name" not in raw:
             raise click.ClickException("Missing required field: bot_name")
@@ -384,7 +329,15 @@ class Config:
         if not isinstance(memory_gist, bool):
             raise click.ClickException("memory_gist must be true or false")
 
-        enabled = _parse_enabled(raw)
+        # Refused rather than warned past as unknown: a config that paused tend
+        # would otherwise regenerate running workflows.
+        if "enabled" in raw:
+            raise click.ClickException(
+                "Top-level `enabled` was removed; pausing is now the "
+                "TEND_ENABLED repository variable. To keep tend paused, run "
+                "`gh variable set TEND_ENABLED --body false` before removing "
+                "the key."
+            )
 
         unknown = set(raw.keys()) - KNOWN_TOP_LEVEL
         for key in sorted(unknown):
@@ -738,7 +691,6 @@ class Config:
             sandbox_env=sandbox_env,
             sandbox_setup=sandbox_setup,
             memory_gist=memory_gist,
-            enabled=enabled,
             workflows=workflows,
             allowed_repo_secrets=allowed,
         )

@@ -23,6 +23,7 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         id: tend_uv
         env:
@@ -31,21 +32,7 @@ jobs:
           version: "0.12.10"
           enable-cache: false
           ignore-empty-workdir: true
-      - name: Check whether tend is enabled
-        id: tend_enabled
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TEND_UVX: ${{ steps.tend_uv.outputs.uvx-path }}
-        run: |
-          gh api \
-            -H "Accept: application/vnd.github.raw+json" \
-            "repos/$GITHUB_REPOSITORY/contents/.config/tend.yaml?ref=${{ github.event.pull_request.head.sha }}" \
-            > "$RUNNER_TEMP/tend.yaml"
-          "$TEND_UVX" tend@X.Y.Z enabled "$RUNNER_TEMP/tend.yaml" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v7
-        if: steps.tend_enabled.outputs.enabled == 'true'
       - name: Verify generator output matches committed files
-        if: steps.tend_enabled.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TEND_UVX: ${{ steps.tend_uv.outputs.uvx-path }}

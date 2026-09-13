@@ -201,9 +201,6 @@ Claude; `harness: codex` selects OpenAI Codex (see
 ```yaml
 bot_name: my-project-bot
 
-# Optional runtime switch — every new job skips before checkout or setup
-# enabled: false
-
 # Codex installs pin both values; omit both to use Claude.
 # harness: codex
 # model: gpt-5.6-sol
@@ -211,9 +208,21 @@ bot_name: my-project-bot
 # args: [--max-turns, "40"]   # exact additional CLI arguments
 ```
 
-Top-level `enabled: false` pauses tend from the default branch without removing
-its workflows. Setting it back to `true` (or removing it) resumes new jobs
-without regeneration.
+To pause tend, set the `TEND_ENABLED` repository variable to `false`:
+
+```bash
+gh variable set TEND_ENABLED --body false
+```
+
+Every tend job that runs the agent is then skipped before it starts, with no
+regeneration or commit, and `gh variable delete TEND_ENABLED` resumes them.
+Runs already queued or in progress finish; `gh run cancel` stops one. GitHub
+evaluates the check before a job enters the `tend` environment, so the
+variable must be set on the repository or its organization, not in that
+environment. Codex's credential refresher keeps running, so a paused
+subscription's tokens stay valid. The bot's write access lets it change the
+variable too, so the pause is an operating switch rather than a security
+control: to cut off a misbehaving bot, revoke its PAT.
 
 The secrets, stored in the repo's `tend` environment (install-tend creates
 it; `tend check` verifies it), depend on the harness:

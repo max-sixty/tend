@@ -7,12 +7,12 @@ on:
 
 jobs:
   <<name>>:
-<<fork_guard_if(cfg)>>    runs-on: ubuntu-24.04
+    if: <<fork_guard_prefix(cfg)>><<tend_enabled>>
+    runs-on: ubuntu-24.04
 <<environment()>>
     permissions:
 <<permissions()>>
     steps:
-<<check_tend_enabled(cfg)>>
-<<checkout(cfg, ref=cfg.default_branch, if_condition=tend_enabled_condition)>>
+<<checkout(cfg, ref=cfg.default_branch)>>
 <<setup>>
-<<agent_step(cfg, block_input('prompt', prompt), if_condition=tend_enabled_condition)>>
+<<agent_step(cfg, block_input('prompt', prompt))>>
