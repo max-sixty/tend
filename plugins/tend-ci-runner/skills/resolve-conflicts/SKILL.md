@@ -70,10 +70,8 @@ For each PR:
    Check out that exact head.
 2. Fetch `<baseRefName>` from the remote and pin the SHA that fetch resolves
    to; merge that SHA. Resolve the conflicts, stage them, and commit with
-   `git commit --no-edit`. Do not merge the PR's `baseRefOid` — it trails the
-   base branch, so right after something lands on the base it still names a
-   commit already in the head's history, and merging it reports success
-   without touching the conflict.
+   `git commit --no-edit`. Never merge the PR's `baseRefOid`: it trails the
+   base branch, so the merge can succeed without touching the conflict.
 3. Immediately before pushing, read those live fields again. If any changed,
    discard the local merge and restart. Verify the retained head is an ancestor
    of `HEAD`, then run `git push
