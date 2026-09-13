@@ -146,11 +146,17 @@ _JINJA.globals["codex_refresh_pat_secret"] = CODEX_REFRESH_PAT_SECRET
 BOOKKEEPING_LABELS = ("tend-outage", "tend-rate-limit")
 _JINJA.globals["bookkeeping_labels"] = BOOKKEEPING_LABELS
 
-# Every operational job evaluates the current config on the repository's
-# default branch before it checks out code or reads an operational secret. The
-# Contents API defaults to that branch when `ref` is omitted.
-TEND_ENABLED_CONDITION = "steps.tend_enabled.outputs.enabled == 'true'"
-_JINJA.globals["tend_enabled_condition"] = TEND_ENABLED_CONDITION
+# Pauses tend without a regeneration or a commit. Every job that can boot the
+# agent carries this in its job-level `if:`, so `gh variable set TEND_ENABLED
+# --body false` skips those jobs before a runner starts, and deleting the
+# variable resumes them; unset reads as enabled. Only a repository or
+# organization variable works: GitHub evaluates `jobs.<id>.if` before the job
+# enters the `tend` environment, so an environment variable is invisible to it.
+# Jobs that run no agent carry no check — the relay dispatches into
+# tend-mention's checked verify job, and the Codex refresher keeps a paused
+# subscription's tokens valid.
+TEND_ENABLED_CONDITION = "vars.TEND_ENABLED != 'false'"
+_JINJA.globals["tend_enabled"] = TEND_ENABLED_CONDITION
 _JINJA.globals["uv_version"] = UV_VERSION
 
 
@@ -261,7 +267,7 @@ def generate_review(cfg: Config) -> GeneratedWorkflow:
 
     content = _REVIEW_TMPL.render(
         cfg=eff,
-        setup=_setup_yaml(eff, condition=TEND_ENABLED_CONDITION),
+        setup=_setup_yaml(eff),
         prompt=prompt,
     )
     return GeneratedWorkflow(filename="tend-review.yaml", content=content)
@@ -282,7 +288,7 @@ def generate_mention(cfg: Config) -> GeneratedWorkflow:
 
     content = _MENTION_TMPL.render(
         cfg=eff,
-        setup=_setup_yaml(eff, condition=TEND_ENABLED_CONDITION),
+        setup=_setup_yaml(eff),
         heredoc="<<",
         check_script=check_script,
     )
@@ -314,7 +320,7 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
 
     content = _TRIAGE_TMPL.render(
         cfg=eff,
-        setup=_setup_yaml(eff, condition=TEND_ENABLED_CONDITION),
+        setup=_setup_yaml(eff),
         prompt=prompt,
     )
     return GeneratedWorkflow(filename="tend-triage.yaml", content=content)
@@ -348,7 +354,7 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
         cfg=eff,
         watched=watched,
         branches=branches,
-        setup=_setup_yaml(eff, condition=TEND_ENABLED_CONDITION),
+        setup=_setup_yaml(eff),
         prompt=prompt,
     )
     return GeneratedWorkflow(filename="tend-ci-fix.yaml", content=content)
@@ -381,7 +387,7 @@ def _generate_scheduled(cfg: Config, name: str) -> GeneratedWorkflow:
         cfg=eff,
         name=name,
         cron=cron,
-        setup=_setup_yaml(eff, condition=TEND_ENABLED_CONDITION),
+        setup=_setup_yaml(eff),
         prompt=prompt,
     )
     return GeneratedWorkflow(filename=f"tend-{name}.yaml", content=content)
@@ -415,10 +421,7 @@ def generate_notifications(cfg: Config) -> GeneratedWorkflow:
         cron=cron,
         heredoc="<<",
         skip_condition=skip_condition,
-        setup=_setup_yaml(
-            eff,
-            condition=f"({TEND_ENABLED_CONDITION}) && ({skip_condition})",
-        ),
+        setup=_setup_yaml(eff, condition=skip_condition),
         prompt=prompt,
         check_script=check_script,
     )
@@ -463,6 +466,19 @@ def _apply_extras(wf: GeneratedWorkflow, wf_cfg: WorkflowConfig) -> GeneratedWor
         jobs = data.get("jobs", {})
         for job_name, job_extra in wf_cfg.jobs.items():
             if job_name in jobs:
+                # An `if:` override replaces the rendered condition whole, so
+                # one on a job that runs the agent must carry the pause check,
+                # or that job keeps running while tend is paused.
+                if (
+                    "if" in job_extra
+                    and TEND_ENABLED_CONDITION in jobs[job_name].get("if", "")
+                    and TEND_ENABLED_CONDITION not in str(job_extra["if"] or "")
+                ):
+                    raise click.ClickException(
+                        f"The `if:` override for job '{job_name}' "
+                        f"({wf.filename}) drops tend's pause check. "
+                        f"Start it with: {TEND_ENABLED_CONDITION} && "
+                    )
                 jobs[job_name] = _deep_merge(jobs[job_name], job_extra)
             else:
                 click.echo(
@@ -502,10 +518,7 @@ def generate_install_test(cfg: Config) -> GeneratedWorkflow:
     verifies them. Harness auth is exercised end-to-end by `tend-review`
     on the first post-merge PR.
     """
-    # The config is introduced by the install PR itself, so this one-shot job
-    # reads the PR head rather than the default branch used by operational jobs.
-    install_ref = "${{ github.event.pull_request.head.sha }}"
-    enabled_check = _MACROS.module.check_tend_enabled(cfg, install_ref)
+    setup_uv = _MACROS.module.setup_tend_uv()
     content = f"""\
 {HEADER}
 name: tend-install-test
@@ -525,11 +538,9 @@ jobs:
     permissions:
       contents: read
     steps:
-{enabled_check}
       - uses: actions/checkout@v7
-        if: {TEND_ENABLED_CONDITION}
+{setup_uv}
       - name: Verify generator output matches committed files
-        if: {TEND_ENABLED_CONDITION}
         env:
           GH_TOKEN: ${{{{ github.token }}}}
           TEND_UVX: ${{{{ steps.tend_uv.outputs.uvx-path }}}}

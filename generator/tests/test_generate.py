@@ -26,6 +26,7 @@ from tend.config import (
 )
 from tend.workflows import (
     GENERATORS,
+    TEND_ENABLED_CONDITION,
     _deep_merge,
     _inline_script,
     generate_all,
@@ -95,105 +96,6 @@ def test_disabling_mention_drops_its_relay(tmp_path: Path) -> None:
     names = {wf.filename for wf in generate_all(cfg)}
     assert "tend-mention.yaml" not in names
     assert "tend-mention-relay.yaml" not in names
-
-
-def test_top_level_disable_keeps_workflows_installed_and_gates_every_job(
-    tmp_path: Path,
-) -> None:
-    """The runtime switch can turn itself back on without regeneration."""
-    cfg = Config.load(
-        _minimal_config(
-            tmp_path,
-            dedent("""\
-                enabled: false
-                workflows:
-                  ci-fix:
-                    watched_workflows: ["ci"]
-            """),
-        )
-    )
-
-    assert cfg.enabled is False
-    workflows = generate_all(cfg, with_install_test=True)
-    assert len(workflows) == len(STANDARD_WORKFLOWS) + 2  # relay, install-test
-
-    condition = "steps.tend_enabled.outputs.enabled == 'true'"
-    for workflow in workflows:
-        jobs = yaml.safe_load(workflow.content)["jobs"]
-        for job_name, job in jobs.items():
-            steps = job["steps"]
-            install_uv, gate = steps[:2]
-            assert install_uv["uses"].startswith("astral-sh/setup-uv@"), (
-                workflow.filename,
-                job_name,
-            )
-            # Off PATH, so it cannot shadow a uv the adopter provides.
-            assert install_uv["env"] == {"UV_NO_MODIFY_PATH": "1"}
-            assert gate["id"] == "tend_enabled", (workflow.filename, job_name)
-            assert f"contents/{cfg.config_path}" in gate["run"]
-            assert gate["env"]["TEND_UVX"] == "${{ steps.tend_uv.outputs.uvx-path }}"
-            assert f'"$TEND_UVX" tend@{ACTION_VERSION} enabled ' in gate["run"]
-            assert "secrets." not in str(gate)
-            if workflow.filename == "tend-install-test.yaml":
-                assert "?ref=${{ github.event.pull_request.head.sha }}" in gate["run"]
-            for step in steps[2:]:
-                assert condition in str(step.get("if", "")), (
-                    workflow.filename,
-                    job_name,
-                    step,
-                )
-
-
-@pytest.mark.parametrize(
-    ("config", "enabled"),
-    [
-        ("bot_name: bot\n", "true"),
-        ("bot_name: bot\nenabled: true\n", "true"),
-        ("bot_name: bot\nenabled: false\n", "false"),
-        ("\ufeffbot_name: bot\nenabled: false\n", "false"),
-        # The rest of the config is not the gate's to judge.
-        ("model: not-a-model\nenabled: false\n", "false"),
-    ],
-)
-def test_enabled_command_writes_the_step_output(
-    tmp_path: Path, config: str, enabled: str
-) -> None:
-    path = tmp_path / "tend.yaml"
-    path.write_text(config)
-
-    result = CliRunner().invoke(main, ["enabled", str(path)])
-
-    assert result.exit_code == 0, result.output
-    assert result.stdout == f"enabled={enabled}\n"
-    assert ("::notice title=Tend disabled::" in result.stderr) is (enabled == "false")
-
-
-@pytest.mark.parametrize(
-    "config",
-    [
-        "",
-        "bot_name: bot\nenabled: no\n",
-        'bot_name: bot\nenabled: "false"\n',
-        "bot_name: bot\nenabled:\n",
-        "bot_name: bot\nenabled: {}\n",
-        "bot_name: bot\nenabled: true\nenabled: false\n",
-        "bot_name: bot\n---\nenabled: false\n",
-        "defaults: &defaults\n  enabled: false\n<<: *defaults\nbot_name: bot\n",
-    ],
-)
-def test_enabled_command_fails_without_a_step_output(
-    tmp_path: Path, config: str
-) -> None:
-    """No `enabled` output means every gated step skips and the job goes red."""
-    path = tmp_path / "tend.yaml"
-    path.write_text(config)
-
-    result = CliRunner().invoke(main, ["enabled", str(path)])
-
-    assert result.exit_code != 0
-    assert result.stdout == ""
-    # A reported rejection, not a traceback.
-    assert result.stderr.startswith("Error: "), result.stderr
 
 
 def test_setup_steps_rendered(tmp_path: Path) -> None:
@@ -487,10 +389,9 @@ def test_setup_step_user_if_narrows_notifications_guard(
         if s.get("run") == "./flaky.sh"
     )
     assert step["if"] == (
-        "((steps.tend_enabled.outputs.enabled == 'true') && "
         "(steps.check.outputs.count != '0' || "
         "steps.check.outputs.conflict_count != '0' || "
-        "github.event_name == 'workflow_dispatch')) && (runner.os == 'Linux')"
+        "github.event_name == 'workflow_dispatch') && (runner.os == 'Linux')"
     )
 
 
@@ -842,6 +743,7 @@ def test_ci_fix_runs_for_failures_and_cancellations(tmp_path: Path) -> None:
     )
     workflow = yaml.safe_load(generated.content)
     assert workflow["jobs"]["fix-ci"]["if"] == (
+        f"{TEND_ENABLED_CONDITION} && "
         'contains(fromJSON(\'["failure", "cancelled"]\'), '
         "github.event.workflow_run.conclusion)"
     )
@@ -989,15 +891,14 @@ def test_issue_and_pr_acknowledged_with_eyes(tmp_path: Path) -> None:
     triage = yaml.safe_load(workflows["tend-triage.yaml"].content)
     react = _eyes_steps(triage["jobs"]["triage"]["steps"])[0]
     assert react["env"]["TARGET"] == "issues/${{ github.event.issue.number }}"
-    # Every enabled issues:opened event the job-level `if` admits is the bot's
-    # to take.
-    assert react["if"] == "steps.tend_enabled.outputs.enabled == 'true'"
+    # Every issues:opened event the job-level `if` admits is the bot's to take.
+    assert "if" not in react
 
     review = yaml.safe_load(workflows["tend-review.yaml"].content)
     react = _eyes_steps(review["jobs"]["review"]["steps"])[0]
     assert react["env"]["TARGET"] == "issues/${{ github.event.pull_request.number }}"
-    # Every enabled review run boots a session, so each one gets a reaction.
-    assert react["if"] == "steps.tend_enabled.outputs.enabled == 'true'"
+    # Every review run boots a session, so each one gets a reaction.
+    assert "if" not in react
 
 
 @pytest.mark.parametrize(
@@ -1364,6 +1265,7 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
     # ci-fix's conclusion check must survive even without the guard.
     ci_fix = yaml.safe_load(workflows["tend-ci-fix.yaml"].content)
     assert ci_fix["jobs"]["fix-ci"]["if"] == (
+        f"{TEND_ENABLED_CONDITION} && "
         'contains(fromJSON(\'["failure", "cancelled"]\'), '
         "github.event.workflow_run.conclusion)"
     )
@@ -1372,21 +1274,25 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "workflow_name,job_name,user_if,extra_workflow_keys",
     [
-        # Triage: the guard is the *only* job-level if; clobbering loses just it.
+        # Triage: clobbering drops the fork guard and the bookkeeping-label skip.
         (
             "triage",
             "triage",
-            "github.event.issue.author_association != 'NONE'",
+            (
+                f"{TEND_ENABLED_CONDITION} && "
+                "github.event.issue.author_association != 'NONE'"
+            ),
             {},
         ),
-        # ci-fix: the rendered if is `<guard> && <conclusion-check>`. Clobbering
-        # removes BOTH — so the workflow would also lose its "only run on
-        # failure" gate. More interesting than triage because runtime semantics
-        # change beyond just the fork guard.
+        # ci-fix: the rendered if is `<guard> && <pause> && <conclusion-check>`.
+        # Clobbering removes the guard and the conclusion check — so the
+        # workflow would also lose its "only run on failure" gate. More
+        # interesting than triage because runtime semantics change beyond just
+        # the fork guard.
         (
             "ci-fix",
             "fix-ci",
-            "github.actor == 'tend-agent'",
+            f"{TEND_ENABLED_CONDITION} && github.actor == 'tend-agent'",
             {"watched_workflows": ["ci"]},
         ),
     ],
@@ -1423,6 +1329,20 @@ def test_user_job_if_extra_replaces_fork_guard(
     assert "github.repository_owner" not in rendered_if
 
 
+@pytest.mark.parametrize("user_if", ["github.actor == 'tend-agent'", None])
+def test_job_if_override_must_keep_the_pause_check(
+    tmp_path: Path, user_if: str | None
+) -> None:
+    """Replacing or deleting an agent job's `if:` without the TEND_ENABLED
+    check would keep that job running while tend is paused."""
+    extra = yaml.safe_dump(
+        {"workflows": {"triage": {"jobs": {"triage": {"if": user_if}}}}}
+    )
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    with pytest.raises(click.ClickException, match="pause check"):
+        generate_all(cfg)
+
+
 @pytest.mark.parametrize("filename", _GUARDED_WORKFLOWS)
 def test_fork_guard_rendered_shape_regtest(
     regtest: object, tmp_path: Path, filename: str
@@ -1436,6 +1356,33 @@ def test_fork_guard_rendered_shape_regtest(
     cfg.repo_owner = "test-owner"
     wf = next(w for w in generate_all(cfg) if w.filename == filename)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_tend_enabled_variable_guards_every_agent_job(tmp_path: Path) -> None:
+    """Every job that can boot the agent checks the TEND_ENABLED variable
+    before a runner starts, itself or through a job it `needs`; the workflows
+    that run no agent carry none."""
+    cfg = Config.load(
+        _minimal_config(tmp_path, _extra_for("ci-fix") + "harness: codex\n")
+    )
+    cfg.repo_owner = "test-owner"
+    no_agent = {
+        "tend-mention-relay.yaml",
+        "tend-codex-auth-refresh.yaml",
+        "tend-install-test.yaml",
+    }
+    for wf in generate_all(cfg, with_install_test=True):
+        jobs = yaml.safe_load(wf.content)["jobs"]
+        for job_name, job in jobs.items():
+            needs = job.get("needs", [])
+            upstream = [needs] if isinstance(needs, str) else needs
+            guarded = any(
+                TEND_ENABLED_CONDITION in jobs[name].get("if", "")
+                for name in [job_name, *upstream]
+            )
+            assert guarded == (wf.filename not in no_agent), (
+                f"{wf.filename} job '{job_name}'"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1579,7 +1526,7 @@ def test_job_extras_replace_if_for_skip_review_label(tmp_path: Path) -> None:
     post-regeneration patching scripts.
     """
     skip_if = (
-        "github.event.pull_request.draft == false && "
+        f"{TEND_ENABLED_CONDITION} && "
         "!contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
     )
     extra = yaml.safe_dump(

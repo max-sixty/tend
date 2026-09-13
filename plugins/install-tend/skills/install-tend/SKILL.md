@@ -334,14 +334,15 @@ RFC 7396 (JSON Merge Patch): mappings deep-merge, scalars and lists replace.
 
 Common example — skip review on PRs labeled `tend:dismissed` (so authors can
 opt out of re-reviews after the initial pass). Because scalars replace under
-Merge Patch, the override must duplicate the default draft check:
+Merge Patch, the override must repeat the generated `TEND_ENABLED` pause check
+(`init` refuses one that drops it):
 
 ```yaml
 workflows:
   review:
     jobs:
       review:
-        if: "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+        if: "vars.TEND_ENABLED != 'false' && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
 ```
 
 See ${CLAUDE_SKILL_DIR}/references/tend.example.yaml for more override
