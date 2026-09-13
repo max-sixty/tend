@@ -442,6 +442,7 @@ Cloudflare Worker that serves its two data streams from `data/consumers.json`.
 
 The site's dev server starts automatically per worktree via a `wt` post-start
 hook (`.config/wt.toml`) on a deterministic port derived from the branch name.
-Get the URL with `wt list statusline --format json | jq -r '.[].url'`; logs
-land in `.git/wt/logs/`. Don't run `npm run dev`; it duplicates the running
-server on a different port.
+Get the URL with
+`wt list statusline --format json | jq -r '.items[].dev_server.url'`; logs land
+in `.git/wt/logs/`. Don't run `npm run dev`; it duplicates the running server on
+a different port.
