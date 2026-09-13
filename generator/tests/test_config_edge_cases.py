@@ -28,9 +28,9 @@ def _write_config(tmp_path: Path, content: str) -> Path:
 
 
 def test_empty_config_raises(tmp_path: Path) -> None:
-    """Empty file has no bot_name -- must raise a clear error."""
+    """An empty file holds no mapping -- must raise a clear error."""
     path = _write_config(tmp_path, "")
-    with pytest.raises(ClickException, match="Missing required field: bot_name"):
+    with pytest.raises(ClickException, match="must contain a YAML mapping"):
         Config.load(path)
 
 

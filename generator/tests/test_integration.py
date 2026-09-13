@@ -781,11 +781,12 @@ def test_init_notifications_has_precheck(
     }
     steps = data["jobs"]["notifications"]["steps"]
 
-    assert steps[0]["id"] == "tend_enabled"
+    assert steps[1]["id"] == "tend_enabled"
     check_index = next(i for i, step in enumerate(steps) if step.get("id") == "check")
     check_step = steps[check_index]
     assert check_step["id"] == "check"
-    assert "uv run --script -" in check_step["run"]
+    assert check_step["env"]["TEND_UV"] == "${{ steps.tend_uv.outputs.uv-path }}"
+    assert '"$TEND_UV" run --script -' in check_step["run"]
     assert '"--paginate"' in check_step["run"]
     assert "subscription" in check_step["run"]
     assert "notifications/threads/" not in check_step["run"]
@@ -850,6 +851,7 @@ def test_notifications_precheck_tolerates_transient_non_json(
         "GITHUB_OUTPUT": str(output_file),
         "GITHUB_REPOSITORY": "owner/repo",
         "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
+        "TEND_UV": UV,
     }
     result = subprocess.run(
         [BASH, "-e", "-c", script], env=env, capture_output=True, text=True, check=False
@@ -1030,15 +1032,15 @@ def test_install_test_workflow_shape(
     assert job["permissions"] == {"contents": "read"}
     assert "secrets." not in content
     steps = job["steps"]
-    assert steps[0]["id"] == "tend_enabled"
-    assert "?ref=${{ github.event.pull_request.head.sha }}" in steps[0]["run"]
-    for step in steps[1:]:
+    assert steps[1]["id"] == "tend_enabled"
+    assert "?ref=${{ github.event.pull_request.head.sha }}" in steps[1]["run"]
+    for step in steps[2:]:
         assert step["if"] == "steps.tend_enabled.outputs.enabled == 'true'"
 
     # Generator-drift step regenerates with the same flag to keep output stable.
     # Version is pinned from the committed header (not `@latest`) so a release
     # mid-PR doesn't fail the drift check for an irrelevant reason.
-    assert 'uvx "tend@$TEND_VERSION" init --with-install-test' in content
+    assert '"$TEND_UVX" "tend@$TEND_VERSION" init --with-install-test' in content
     # Version-agnostic: the exact pin is covered by the regtest output, and
     # weekly bumps shouldn't have to edit two places.
     assert "astral-sh/setup-uv@" in content

@@ -166,12 +166,14 @@ require manual regeneration in downstream repos.
 Tend's own `tend-*.yaml` workflows track the latest published release. They
 update each night via `uvx tend@latest init`. Updating earlier to the latest
 release (e.g., during a release commit) is fine. Never regenerate them with
-the in-tree generator: the action ref is pinned to the generator's own
-version (`max-sixty/tend/<harness>@X.Y.Z`), so an unreleased in-tree version
-stamps a tag that does not exist yet, and the workflow's `uses:` fails to resolve.
+the in-tree generator: the action ref (`max-sixty/tend/<harness>@X.Y.Z`) and
+the enabled gate (`uvx tend@X.Y.Z enabled`) both pin the generator's own
+version, and until that version is released neither its tag nor its PyPI
+package carries the in-tree code, so the `uses:` or the gate fails.
 Between a generator commit and the next release the committed workflows lag
 the in-tree generator; that is expected, and the gap closes at the next
-release (which tags `X.Y.Z` before regenerating, so the pin always resolves).
+release (which tags and publishes `X.Y.Z` before regenerating, so both pins
+resolve).
 
 `claude_version` in `claude/action.yaml` is an exact version taken from npm's
 `latest` dist-tag, not `stable`. `stable` lags several releases, and pinning it

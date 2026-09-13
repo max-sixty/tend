@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib.resources
 import json
 import re
-import subprocess
 from pathlib import Path
 from textwrap import dedent
 
@@ -38,14 +37,6 @@ from tend.workflows import (
 
 from tests import ACTION_VERSION, agent_prompt, without_relay
 from tests import _yaml as yaml
-
-CHECK_ENABLED = (
-    Path(__file__).resolve().parents[1]
-    / "src"
-    / "tend"
-    / "templates"
-    / "check-enabled.rb"
-)
 
 
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
@@ -131,13 +122,21 @@ def test_top_level_disable_keeps_workflows_installed_and_gates_every_job(
         jobs = yaml.safe_load(workflow.content)["jobs"]
         for job_name, job in jobs.items():
             steps = job["steps"]
-            gate = steps[0]
+            install_uv, gate = steps[:2]
+            assert install_uv["uses"].startswith("astral-sh/setup-uv@"), (
+                workflow.filename,
+                job_name,
+            )
+            # Off PATH, so it cannot shadow a uv the adopter provides.
+            assert install_uv["env"] == {"UV_NO_MODIFY_PATH": "1"}
             assert gate["id"] == "tend_enabled", (workflow.filename, job_name)
             assert f"contents/{cfg.config_path}" in gate["run"]
+            assert gate["env"]["TEND_UVX"] == "${{ steps.tend_uv.outputs.uvx-path }}"
+            assert f'"$TEND_UVX" tend@{ACTION_VERSION} enabled ' in gate["run"]
             assert "secrets." not in str(gate)
             if workflow.filename == "tend-install-test.yaml":
                 assert "?ref=${{ github.event.pull_request.head.sha }}" in gate["run"]
-            for step in steps[1:]:
+            for step in steps[2:]:
                 assert condition in str(step.get("if", "")), (
                     workflow.filename,
                     job_name,
@@ -152,81 +151,49 @@ def test_top_level_disable_keeps_workflows_installed_and_gates_every_job(
         ("bot_name: bot\nenabled: true\n", "true"),
         ("bot_name: bot\nenabled: false\n", "false"),
         ("\ufeffbot_name: bot\nenabled: false\n", "false"),
+        # The rest of the config is not the gate's to judge.
+        ("model: not-a-model\nenabled: false\n", "false"),
     ],
 )
-def test_runtime_enabled_check(tmp_path: Path, config: str, enabled: str) -> None:
+def test_enabled_command_writes_the_step_output(
+    tmp_path: Path, config: str, enabled: str
+) -> None:
     path = tmp_path / "tend.yaml"
     path.write_text(config)
 
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = CliRunner().invoke(main, ["enabled", str(path)])
 
-    assert result.returncode == 0, result.stderr
+    assert result.exit_code == 0, result.output
     assert result.stdout == f"enabled={enabled}\n"
-    assert ("Tend disabled" in result.stderr) is (enabled == "false")
+    assert ("::notice title=Tend disabled::" in result.stderr) is (enabled == "false")
 
 
 @pytest.mark.parametrize(
     "config",
     [
+        "",
         "bot_name: bot\nenabled: no\n",
         'bot_name: bot\nenabled: "false"\n',
         "bot_name: bot\nenabled:\n",
         "bot_name: bot\nenabled: {}\n",
         "bot_name: bot\nenabled: true\nenabled: false\n",
+        "bot_name: bot\n---\nenabled: false\n",
+        "defaults: &defaults\n  enabled: false\n<<: *defaults\nbot_name: bot\n",
     ],
 )
-def test_runtime_enabled_check_rejects_non_boolean_values(
+def test_enabled_command_fails_without_a_step_output(
     tmp_path: Path, config: str
 ) -> None:
+    """No `enabled` output means every gated step skips and the job goes red."""
     path = tmp_path / "tend.yaml"
     path.write_text(config)
 
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = CliRunner().invoke(main, ["enabled", str(path)])
 
-    assert result.returncode != 0
-    assert "enabled must" in result.stderr
-
-
-def test_runtime_enabled_check_rejects_multiple_documents(tmp_path: Path) -> None:
-    path = tmp_path / "tend.yaml"
-    path.write_text("bot_name: bot\n---\nenabled: false\n")
-
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "exactly one YAML document" in result.stderr
-
-
-def test_runtime_enabled_check_rejects_yaml_merge_keys(tmp_path: Path) -> None:
-    path = tmp_path / "tend.yaml"
-    path.write_text(
-        "defaults: &defaults\n  enabled: false\n<<: *defaults\nbot_name: bot\n"
-    )
-
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "YAML merge keys" in result.stderr
+    assert result.exit_code != 0
+    assert result.stdout == ""
+    # A reported rejection, not a traceback.
+    assert result.stderr.startswith("Error: "), result.stderr
 
 
 def test_setup_steps_rendered(tmp_path: Path) -> None:
@@ -1204,6 +1171,8 @@ def test_mention_verify_wires_every_variable_the_gate_reads(tmp_path: Path) -> N
         "PAYLOAD_KIND": "${{ github.event.client_payload.kind }}",
         "PAYLOAD_PR": "${{ github.event.client_payload.pr }}",
         "PAYLOAD_ID": "${{ github.event.client_payload.id }}",
+        # The uv that runs the script, not an input it reads.
+        "TEND_UV": "${{ steps.tend_uv.outputs.uv-path }}",
     }
 
     # And the mapping is complete: every name the script reads without first
