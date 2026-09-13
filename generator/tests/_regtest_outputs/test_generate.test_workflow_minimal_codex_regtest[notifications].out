@@ -97,7 +97,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         if: steps.tend_enabled.outputs.enabled == 'true'
         with:
-          version: "0.12.10"
+          version: "0.12.13"
           ignore-empty-workdir: true
       - name: Check for unread notifications and conflicted PRs
         id: check
