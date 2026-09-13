@@ -335,8 +335,21 @@ bot_name: my-project-bot
 
 # ### mention
 #
-# Triggers on @bot mentions and review comments. Responds to requests in PR and
-# issue conversations.
+# Triggers on @bot mentions and comments in issues and PRs, and on the review
+# events mention-relay passes it. Responds to requests in PR and issue
+# conversations.
+
+# ### mention-relay
+#
+# Triggers on submitted reviews and edited inline review comments on same-repo
+# PRs, and passes them to mention from a job that holds no secrets; each review
+# adds this one check to the PR. Generated only while mention is enabled. With
+# `enabled: false`, reviews reach the bot through the notifications poll
+# instead, minutes later, as reviews on fork PRs already do.
+#
+# workflows:
+#   mention-relay:
+#     enabled: false
 
 # ### triage
 #
