@@ -48,6 +48,9 @@ STANDARD_WORKFLOWS = {
 }
 KNOWN_WORKFLOWS = {
     *STANDARD_WORKFLOWS,
+    # Generated with mention to carry its review events; runs no agent. Honors
+    # the common workflow enabled/override contract.
+    "mention-relay",
     # Generated whenever at least one workflow uses Codex. It still honors
     # the common workflow enabled/override contract.
     "codex-auth-refresh",

@@ -60,6 +60,7 @@ def test_init_creates_correct_files_with_valid_yaml(
     wf_dir = _workflow_dir(tmp_path)
     files = sorted(p.name for p in wf_dir.glob("tend-*.yaml"))
     assert files == [
+        "tend-mention-relay.yaml",
         "tend-mention.yaml",
         "tend-nightly.yaml",
         "tend-notifications.yaml",
@@ -73,6 +74,8 @@ def test_init_creates_correct_files_with_valid_yaml(
         data = yaml.safe_load(path.read_text())
         assert "name" in data, f"{path.name} missing 'name'"
         assert "jobs" in data, f"{path.name} missing 'jobs'"
+        if path.name == "tend-mention-relay.yaml":
+            continue  # re-posts review events; runs no agent
         assert f"max-sixty/tend/claude@{ACTION_VERSION}" in path.read_text(), (
             f"{path.name} missing action reference"
         )
@@ -97,6 +100,7 @@ def test_init_workflows_have_correct_triggers(
     wf_dir = _workflow_dir(tmp_path)
     expected_triggers = {
         "tend-review.yaml": "pull_request_target",
+        "tend-mention-relay.yaml": "pull_request_review",
         "tend-triage.yaml": "issues",
         "tend-ci-fix.yaml": "workflow_run",
         "tend-nightly.yaml": "schedule",
@@ -127,9 +131,9 @@ def test_init_workflows_have_required_permissions(
         data = yaml.safe_load(path.read_text())
         for job_name, job in data["jobs"].items():
             # The invariant binds the jobs that run the agent; mention's
-            # verify job has no permissions block, and its relay job requests
-            # only the contents: write its dispatch POST needs — no secrets,
-            # no agent.
+            # verify job has no permissions block, and mention-relay's job
+            # requests only the contents: write its dispatch POST needs — no
+            # secrets, no agent.
             if not any(
                 s.get("uses", "").startswith("max-sixty/tend/")
                 for s in job.get("steps", [])
@@ -455,7 +459,8 @@ def test_init_custom_config_path(
 
     for path in _workflow_dir(tmp_path).glob("tend-*.yaml"):
         content = path.read_text()
-        assert "custom-bot" in content, f"{path.name} missing custom bot name"
+        if path.name != "tend-mention-relay.yaml":
+            assert "custom-bot" in content, f"{path.name} missing custom bot name"
         if path.name != "tend-install-test.yaml":
             assert "contents/custom/my-tend.yaml" in content
 
@@ -719,7 +724,7 @@ def test_init_then_check_combined_flow(
     # Step 1: init
     init_result = runner.invoke(main, ["init"])
     assert init_result.exit_code == 0
-    assert "Generated 7 workflow files" in init_result.output
+    assert "Generated 8 workflow files" in init_result.output
     assert "tend check" in init_result.output  # reminder to run check
 
     # Step 2: check (mocked)
@@ -880,13 +885,13 @@ def test_init_with_install_test_generates_extra_file(
     wf_dir = _workflow_dir(tmp_path)
     files = sorted(p.name for p in wf_dir.glob("tend-*.yaml"))
     assert "tend-install-test.yaml" in files
-    assert len(files) == 8  # 7 agent workflows + install-test
+    assert len(files) == 9  # 7 agent workflows, mention-relay, install-test
 
 
 def test_init_without_flag_omits_install_test(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Plain `init` produces the standard 7-file set without the install-test workflow."""
+    """Plain `init` produces the standard 8-file set without the install-test workflow."""
     _write_config(tmp_path, "bot_name: test-bot")
     monkeypatch.chdir(tmp_path)
 

@@ -129,7 +129,7 @@ refresher's credential, and optional auto-memory Gist ID — live in the `tend`
 environment, whose policy names the default branch and any
 `protected_branches`. Every generated job that reads a secret carries
 `environment: {name: tend, deployment: false}`; jobs that hold none
-(mention's relay, below) must not, since naming it would cost them the refs
+(tend-mention-relay, below) must not, since naming it would cost them the refs
 the policy excludes. `deployment: false` keeps GitHub from filing a
 deployment record for a job that deploys nothing — under
 `pull_request_target` those land on the pull request itself, one line per
@@ -172,14 +172,15 @@ Only one workflow legitimately needs a refused ref: tend-mention answers
 review submissions and inline review comments. The merge ref can
 never be admitted, because a same-repo `pull_request` run executes the PR
 head's own workflow files on that same ref — admitting it would hand a
-pushed workflow the secrets back. So tend-mention re-enters those events
-instead: a secretless `relay` job (only the workflow-scoped `GITHUB_TOKEN`,
-`contents: write`, which is what the dispatch POST requires — `read` is
-refused 403, probed) receives the review event and re-posts it as a
-`repository_dispatch` carrying identifiers only (`{kind, pr, id}`). The
-dispatch run carries the default branch, passes the gate, and its verify
-job re-reads the review or comment from the API before applying the
-engagement checks. Any write-scoped actor can forge such a dispatch, which
+pushed workflow the secrets back. So those events go to a separate
+workflow, tend-mention-relay, whose one secretless job (only the
+workflow-scoped `GITHUB_TOKEN`, `contents: write`, which is what the
+dispatch POST requires — `read` is refused 403, probed) receives the
+review event and re-posts it as a `repository_dispatch` carrying
+identifiers only (`{kind, pr, id}`). The dispatch run, in tend-mention,
+carries the default branch, passes the gate, and its verify job re-reads
+the review or comment from the API before applying the engagement
+checks. Any write-scoped actor can forge such a dispatch, which
 is why the payload carries no judgement: a forged dispatch runs the same
 reviewed workflow file, faces the same engagement checks against the record
 GitHub holds, and can point the bot at nothing the actor couldn't reach by

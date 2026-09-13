@@ -103,9 +103,9 @@ def gh_paginated(path: str) -> list[Any]:
 
 
 # Where each event keeps the number of the issue or PR it is about.
-# `repository_dispatch` is tend-mention relaying review events through a
-# secretless job that re-posts them, so its PR number arrives in the dispatch
-# payload — and as a form field, hence a string.
+# `repository_dispatch` is a review event tend-mention-relay re-posted to
+# tend-mention, so its PR number arrives in the dispatch payload — and as a
+# form field, hence a string.
 _SUBJECT_NUMBER_KEYS = {
     "pull_request_target": ("pull_request", "number"),
     "pull_request_review": ("pull_request", "number"),
