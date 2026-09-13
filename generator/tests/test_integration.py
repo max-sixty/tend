@@ -776,7 +776,7 @@ def test_init_notifications_has_precheck(
     }
     steps = data["jobs"]["notifications"]["steps"]
 
-    assert steps[0]["id"] == "tend_enabled"
+    assert steps[1]["id"] == "tend_enabled"
     check_index = next(i for i, step in enumerate(steps) if step.get("id") == "check")
     check_step = steps[check_index]
     assert check_step["id"] == "check"
@@ -1025,9 +1025,9 @@ def test_install_test_workflow_shape(
     assert job["permissions"] == {"contents": "read"}
     assert "secrets." not in content
     steps = job["steps"]
-    assert steps[0]["id"] == "tend_enabled"
-    assert "?ref=${{ github.event.pull_request.head.sha }}" in steps[0]["run"]
-    for step in steps[1:]:
+    assert steps[1]["id"] == "tend_enabled"
+    assert "?ref=${{ github.event.pull_request.head.sha }}" in steps[1]["run"]
+    for step in steps[2:]:
         assert step["if"] == "steps.tend_enabled.outputs.enabled == 'true'"
 
     # Generator-drift step regenerates with the same flag to keep output stable.

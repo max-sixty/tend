@@ -147,11 +147,6 @@ jobs:
       ts: ${{ steps.check.outputs.ts }}
     steps:
 <<check_tend_enabled(cfg)>>
-      - uses: astral-sh/setup-uv@v10.0.1
-        if: <<tend_enabled_condition>>
-        with:
-          version: "<<uv_version>>"
-          ignore-empty-workdir: true
       - name: Verify bot engagement
         id: check
         if: <<tend_enabled_condition>>

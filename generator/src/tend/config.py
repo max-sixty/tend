@@ -36,6 +36,37 @@ def _has_yaml_merge_key(node: Node | None, seen: set[int] | None = None) -> bool
     return False
 
 
+def _load_mapping(path: Path) -> dict:
+    """Parse *path* as a single YAML document holding a mapping."""
+    text = path.read_text(encoding="utf-8")
+    if _has_yaml_merge_key(_YAML.compose(text)):
+        raise click.ClickException("YAML merge keys (<<) are not supported")
+    raw = _YAML.load(text)
+    if not isinstance(raw, dict):
+        raise click.ClickException(
+            f"{path} must contain a YAML mapping at the top level"
+        )
+    return raw
+
+
+def _parse_enabled(raw: dict) -> bool:
+    enabled = raw.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise click.ClickException("enabled must be true or false")
+    return enabled
+
+
+def read_enabled(path: Path) -> bool:
+    """Read the runtime switch the generated workflows check before each job.
+
+    Only the document shape and `enabled` are validated. The nightly job that
+    regenerates past a config this version rejects elsewhere (a model it does
+    not know yet) passes through the same gate, so failing on the rest of the
+    config would leave nothing to repair it.
+    """
+    return _parse_enabled(_load_mapping(path))
+
+
 STANDARD_WORKFLOWS = {
     "review",
     "mention",
@@ -309,15 +340,7 @@ class Config:
                     "and regenerates workflows in one step)."
                 )
             raise click.ClickException(f"Config not found: {path}")
-        text = path.read_text(encoding="utf-8")
-        if _has_yaml_merge_key(_YAML.compose(text)):
-            raise click.ClickException("YAML merge keys (<<) are not supported")
-        raw = _YAML.load(text) or {}
-
-        if not isinstance(raw, dict):
-            raise click.ClickException(
-                f"{path} must contain a YAML mapping at the top level"
-            )
+        raw = _load_mapping(path)
 
         if "bot_name" not in raw:
             raise click.ClickException("Missing required field: bot_name")
@@ -354,9 +377,7 @@ class Config:
         if not isinstance(memory_gist, bool):
             raise click.ClickException("memory_gist must be true or false")
 
-        enabled = raw.get("enabled", True)
-        if not isinstance(enabled, bool):
-            raise click.ClickException("enabled must be true or false")
+        enabled = _parse_enabled(raw)
 
         unknown = set(raw.keys()) - KNOWN_TOP_LEVEL
         for key in sorted(unknown):

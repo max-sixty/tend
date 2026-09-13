@@ -151,11 +151,7 @@ _JINJA.globals["bookkeeping_labels"] = BOOKKEEPING_LABELS
 # Contents API defaults to that branch when `ref` is omitted.
 TEND_ENABLED_CONDITION = "steps.tend_enabled.outputs.enabled == 'true'"
 _JINJA.globals["tend_enabled_condition"] = TEND_ENABLED_CONDITION
-_JINJA.globals["check_enabled_script"] = (
-    (importlib.resources.files("tend") / "templates" / "check-enabled.rb")
-    .read_text(encoding="utf-8")
-    .rstrip("\n")
-)
+_JINJA.globals["uv_version"] = UV_VERSION
 
 
 # Register every macro defined in `macros.yaml.j2` as a Jinja global so
@@ -288,7 +284,6 @@ def generate_mention(cfg: Config) -> GeneratedWorkflow:
         cfg=eff,
         setup=_setup_yaml(eff, condition=TEND_ENABLED_CONDITION),
         heredoc="<<",
-        uv_version=UV_VERSION,
         check_script=check_script,
     )
     return GeneratedWorkflow(filename="tend-mention.yaml", content=content)
@@ -411,7 +406,6 @@ def generate_notifications(cfg: Config) -> GeneratedWorkflow:
         cfg=eff,
         cron=cron,
         heredoc="<<",
-        uv_version=UV_VERSION,
         skip_condition=skip_condition,
         setup=_setup_yaml(
             eff,
@@ -525,8 +519,6 @@ jobs:
     steps:
 {enabled_check}
       - uses: actions/checkout@v7
-        if: {TEND_ENABLED_CONDITION}
-      - uses: astral-sh/setup-uv@v10.0.1
         if: {TEND_ENABLED_CONDITION}
       - name: Verify generator output matches committed files
         if: {TEND_ENABLED_CONDITION}
