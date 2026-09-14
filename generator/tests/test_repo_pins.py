@@ -585,16 +585,20 @@ def test_bundled_runner_guidance_has_no_unscoped_tmp_paths() -> None:
 
     A bare `/tmp` anywhere the runner reads — guidance, script, helper — sends
     the session to a path that fails on write, so the ban is repo-wide rather
-    than a rule any one file states.
+    than a rule any one file states. A line that says `/tmp` is read-only is
+    that rule, not an instance of the failure, so it is exempt.
     """
     runner = REPO_ROOT / "plugins" / "tend-ci-runner"
     unscoped_tmp = re.compile(r"(?<![\w-])/tmp(?:/|\b)")
-    offenders = [
-        path.relative_to(REPO_ROOT)
-        for path in runner.rglob("*")
-        if path.suffix in {".md", ".py", ".sh"}
-        and unscoped_tmp.search(path.read_text())
-    ]
+    offenders = sorted(
+        {
+            path.relative_to(REPO_ROOT)
+            for path in runner.rglob("*")
+            if path.suffix in {".md", ".py", ".sh"}
+            for line in path.read_text().splitlines()
+            if unscoped_tmp.search(line) and "read-only" not in line
+        }
+    )
 
     assert offenders == []
 
