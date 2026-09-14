@@ -37,11 +37,11 @@ Classify into one of:
 
 ```bash
 # Search open issues for similar problems
-gh issue list --state open --json number,title,labels --limit 50
+gh issue list --state open --json number,title,labels --limit 200
 
 # Check for existing fix branches and PRs
 git branch -r --list 'origin/fix/*'
-gh pr list --state open --json number,title,headRefName --limit 50
+gh pr list --state open --json number,title,headRefName --limit 200
 ```
 
 If a duplicate or existing fix is found, note it for the comment in step 7. Don't create a duplicate fix.

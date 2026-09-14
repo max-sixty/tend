@@ -122,8 +122,9 @@ is the answer.** `gh issue list`, `gh pr list`, and `gh search` return 30 items
 by default; `gh run list` returns 20, and nothing in the output says it
 truncated. A dedup scan then misses the existing issue past the cap and opens a
 duplicate; a survey reports complete coverage of the rows it happened to see. A
-count that reads exactly the default across repeated measurements is the
-signature. Client-side filtering inside `--jq` is the worst variant: the filter
+count that lands exactly on the cap in force — the default, or the `--limit`
+you passed — is the signature, and an explicit `--limit` moves that threshold
+rather than removing it. Client-side filtering inside `--jq` is the worst variant: the filter
 hides the truncation, so a capped result reads as a legitimately short one.
 
 **"Likely" is a stop-sign.** A hedge in a user-facing claim — "likely works",
