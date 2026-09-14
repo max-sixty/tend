@@ -94,10 +94,19 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
   DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
   # One server-side filter per red conclusion, to reach past a busy repo's green
   # runs. `cancelled` is left out: concurrency cancels dominate it.
+  # Each filter is re-read until two consecutive pages agree, then unioned: a
+  # single read can serve a coherent older page that omits the newest rows, and
+  # nothing below recovers a row never returned.
   for status in failure startup_failure timed_out; do
-    gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=$DEFAULT_BRANCH&status=$status&per_page=50" \
-      --jq '.workflow_runs[] | {id, name, path, event, conclusion, created_at}'
-  done
+    prev=__unread__  # no page equals this, so an empty answer is re-read too
+    for _ in 1 2 3 4; do
+      page=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=$DEFAULT_BRANCH&status=$status&per_page=50" \
+        --jq '.workflow_runs[] | {id, name, path, event, conclusion, created_at}')
+      [ -n "$page" ] && printf '%s\n' "$page"
+      [ "$page" = "$prev" ] && break
+      prev=$page
+    done
+  done | sort -ru
   # Closure: for each distinct `path` above that is a real workflow file, its
   # latest green default-branch run closes that path's older red rows.
   # `dynamic/dependabot/...` paths are not files and 404 here.
@@ -106,7 +115,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
     --jq '.workflow_runs[0] | {name, conclusion, created_at}'
   ```
 
-  The closure call sometimes serves a cached row weeks behind the true latest green, and staleness only moves the answer backwards — so before reporting any path as still failing, re-run its closure call once and take the newer answer.
+  Both calls sometimes serve an older page, and staleness moves each answer backwards — in opposite directions. On the closure read a too-old green fails to close a path that is already fixed, so the sweep over-reports: re-run that call once and take the newer answer before reporting any path as still failing. On the red listing the missing rows are the *newest* ones, so the sweep under-reports — a stale page supports "`main` is green" while a failure stands on it. Consecutive reads of the same URL have returned different snapshots, and a stale page is internally coherent, so agreement between two of them is the only convergence signal the rows carry; that is what the loop above waits for. Rows come out newest-first within each conclusion.
 
   Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `$TMPDIR/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The page reaches back weeks, so most rows are already fixed and the closure call is what separates them. What it cannot close stays live: Dependabot's security updates have no workflow file, and each run's `name` carries a per-update ID that never recurs, so those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the page reached.
 
