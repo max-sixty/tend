@@ -26,6 +26,9 @@ SCRIPT = (
 )
 CI = ".github/workflows/ci.yaml"
 DEPENDABOT = "dynamic/dependabot/dependabot-updates"
+# red_default_branch_runs.PER_PAGE: a listing this long is truncated, and a
+# shorter one returned everything there is.
+PER_PAGE = 50
 
 # Reads of the same URL are answered from `$RUNS_DIR/<status>-<n>.json`, one
 # file per read, falling back to the newest staged file once the reads outrun
@@ -155,7 +158,8 @@ def test_a_stale_first_page_does_not_hide_the_newest_failure(
 
     assert [row["id"] for row in sweep["live"]] == [200, 100]
     assert sweep["unconverged_listings"] == []
-    assert sweep["reached_back_to"] == "2026-09-01T00:00:00Z"
+    # Neither listing filled its page, so the sweep saw every red run there is.
+    assert sweep["reached_back_to"] is None
 
 
 def test_a_consistent_listing_is_read_twice(env: dict[str, str]) -> None:
@@ -198,6 +202,32 @@ def test_a_listing_that_never_settles_is_reported_as_such(
     ]
     # Everything seen across the capped reads is still reported.
     assert [row["id"] for row in sweep["live"]] == [104, 103, 102, 101]
+
+
+def test_coverage_stops_at_the_listing_that_ran_out_of_page(
+    env: dict[str, str],
+) -> None:
+    """`reached_back_to` is the scope the published claim rests on, so it has to
+    name the window every conclusion was read over — the truncated listing's
+    floor, not the older row a short listing happens to reach."""
+    _page(
+        env,
+        "failure",
+        1,
+        *(
+            _red(400 + n, f"2026-09-01T00:{n:02d}:00Z")
+            for n in reversed(range(PER_PAGE))
+        ),
+    )
+    _page(env, "startup_failure", 1, _red(300, "2026-06-01T00:00:00Z"))
+    _green(env, "ci.yaml", "2026-05-01T00:00:00Z")
+
+    sweep = _sweep(env)
+
+    assert sweep["reached_back_to"] == "2026-09-01T00:00:00Z"
+    # The June row is still reported; it is the *coverage* claim that stops at
+    # September, not the listing of what was found.
+    assert 300 in [row["id"] for row in sweep["live"]]
 
 
 def test_a_later_green_closes_the_path(env: dict[str, str]) -> None:

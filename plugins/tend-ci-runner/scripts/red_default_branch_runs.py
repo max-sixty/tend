@@ -32,6 +32,10 @@ RED_CONCLUSIONS = ("failure", "startup_failure", "timed_out")
 # rather than read forever.
 MAX_READS = 4
 
+# One page per listing, unpaginated. A listing that fills its page is truncated,
+# and its oldest row is as far back as the sweep saw that conclusion.
+PER_PAGE = 50
+
 FIELDS = ("id", "name", "path", "event", "conclusion", "created_at")
 
 
@@ -101,13 +105,17 @@ def main(argv: list[str] | None = None) -> int:
 
     red: dict[int, dict[str, Any]] = {}
     unconverged: list[str] = []
+    floors: list[str] = []
     for conclusion in RED_CONCLUSIONS:
         url = (
-            f"repos/{repo}/actions/runs?branch={branch}&status={conclusion}&per_page=50"
+            f"repos/{repo}/actions/runs"
+            f"?branch={branch}&status={conclusion}&per_page={PER_PAGE}"
         )
         rows, converged = converged_read(url)
         if not converged:
             unconverged.append(url)
+        if len(rows) >= PER_PAGE:
+            floors.append(min(row["created_at"] for row in rows))
         for row in rows:
             red[int(row["id"])] = row
 
@@ -126,9 +134,11 @@ def main(argv: list[str] | None = None) -> int:
     github_cli.dump(
         {
             "branch": branch,
-            "reached_back_to": min(
-                (row["created_at"] for row in red.values()), default=None
-            ),
+            # The newest floor among the truncated listings: coverage stops
+            # at the first conclusion that ran out of page. An untruncated
+            # listing returned its whole history, so it constrains nothing, and
+            # null means none was truncated.
+            "reached_back_to": max(floors, default=None),
             "paths_closed_by_later_green": {
                 path: green for path, green in sorted(closures.items()) if green
             },

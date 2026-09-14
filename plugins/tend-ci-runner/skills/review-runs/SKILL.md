@@ -95,7 +95,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
     "${CLAUDE_PLUGIN_ROOT}/scripts/red_default_branch_runs.py"
   ```
 
-  `live` holds the red rows that no later green run of the same workflow closed, newest first. `paths_closed_by_later_green` and `reached_back_to` are the scope the claim rests on, and a non-empty `unconverged_listings` means a listing never settled — report that rather than publishing the sweep as complete.
+  `live` holds the red rows that no later green run of the same workflow closed, newest first. `paths_closed_by_later_green` and `reached_back_to` are the scope the claim rests on: `reached_back_to` is where the first conclusion listing ran out of page, so a row older than it was never read, and `null` means no listing was truncated and the sweep covers the branch's whole history. A non-empty `unconverged_listings` means a listing never settled — report that rather than publishing the sweep as complete.
 
   The script re-reads each listing until two consecutive answers agree, because the API answers one URL from more than one snapshot, and the two reads it makes fail in opposite directions. A stale red listing drops the *newest* rows, so "`main` is green" can ship while a failure stands on it; a stale closure read serves a green older than the true latest, so a path already fixed reads as still red.
 
