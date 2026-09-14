@@ -66,10 +66,12 @@ conflicted PR. Give each subagent an isolated `$TMPDIR/pr-<number>` worktree.
 For each PR:
 
 1. Read and retain `headRefOid`, `headRefName`, `headRepository`, `baseRefName`,
-   `baseRefOid`, and `state`. Stop unless the PR is open and its head is in this
-   repository. Check out that exact head.
-2. Fetch and merge the recorded base. Resolve the conflicts, stage them, and
-   commit with `git commit --no-edit`.
+   and `state`. Stop unless the PR is open and its head is in this repository.
+   Check out that exact head.
+2. Fetch `<baseRefName>` from the remote and pin the SHA that fetch resolves
+   to; merge that SHA. Resolve the conflicts, stage them, and commit with
+   `git commit --no-edit`. Never merge the PR's `baseRefOid`: it trails the
+   base branch, so the merge can succeed without touching the conflict.
 3. Immediately before pushing, read those live fields again. If any changed,
    discard the local merge and restart. Verify the retained head is an ancestor
    of `HEAD`, then run `git push
