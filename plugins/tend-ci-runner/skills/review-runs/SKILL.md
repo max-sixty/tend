@@ -98,7 +98,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
   # single read can serve a coherent older page that omits the newest rows, and
   # nothing below recovers a row never returned.
   for status in failure startup_failure timed_out; do
-    prev=
+    prev=__unread__  # no page equals this, so an empty answer is re-read too
     for _ in 1 2 3 4; do
       page=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=$DEFAULT_BRANCH&status=$status&per_page=50" \
         --jq '.workflow_runs[] | {id, name, path, event, conclusion, created_at}')
