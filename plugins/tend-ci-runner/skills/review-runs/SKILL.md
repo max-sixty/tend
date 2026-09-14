@@ -208,14 +208,14 @@ Before creating issues or PRs, check for existing ones:
 gh issue list --state open --limit 200 --json number,title,body
 gh issue list --state closed --json number,title,closedAt --limit 200
 # --state all: a merged PR is the most common way a finding is already fixed
-gh pr list --state all --limit 200 --json number,title,state,mergedAt,headRefName
+gh pr list --state all --limit 200 --json number,title,state
 # Bundled-skill defects are filed upstream (Step 6), and the queries above only
 # see this repo — dedup against tend before filing there.
-gh pr list --repo max-sixty/tend --state all --limit 200 --json number,title,state,mergedAt
+gh pr list --repo max-sixty/tend --state all --limit 200 --json number,title,state
 gh issue list --repo max-sixty/tend --state all --limit 200 --json number,title
 ```
 
-Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`). The `--state all` listings project no body deliberately: 200 bodies runs to hundreds of KB, which the harness saves to a file and shows you as a preview of the first item or two.
+Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`).
 
 **A fix merged upstream still reproduces here.** The action ref is pinned per release, so a skill fix that merged in `max-sixty/tend` stays dormant on this repo until the next release tags. Observing the bug is therefore not evidence the fix is missing — check tend's merged PRs before filing, or the report is churn on something already landed.
 

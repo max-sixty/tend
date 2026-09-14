@@ -318,12 +318,12 @@ gh issue list --state open --label claude-behavior --limit 200 --json number,tit
 gh issue list --state open --limit 200 --json number,title,body  # also check unlabeled issues
 gh issue list --state closed --label claude-behavior --json number,title,closedAt --limit 200
 # --state all: a merged PR is the most common way a finding is already fixed
-gh pr list --state all --limit 200 --json number,title,state,mergedAt,headRefName
+gh pr list --state all --limit 200 --json number,title,state
 ```
 
 **A merged fix still reproduces on adopters.** Adopters call a pinned action ref, so a merged skill fix is dormant on their repos until the next release tags. Observing the bug is therefore not evidence the fix is missing — check merged PRs before filing, or the report is churn on something already landed.
 
-Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`); the `--state all` listing projects no body deliberately, since 200 bodies runs to hundreds of KB and the harness shows you a preview of the first item or two. Only comment on existing issues if you have material new cases that would change the approach or increase prioritization. Do not comment with progress updates, fix-PR status, or re-statements of evidence already in the issue.
+Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`). Only comment on existing issues if you have material new cases that would change the approach or increase prioritization. Do not comment with progress updates, fix-PR status, or re-statements of evidence already in the issue.
 
 ## Step 5: Act on findings
 
