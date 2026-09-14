@@ -54,7 +54,7 @@ jobs:
         env:
           UV_NO_MODIFY_PATH: "1"
         with:
-          version: "0.12.10"
+          version: "0.12.13"
           enable-cache: false
           ignore-empty-workdir: true
       - name: Verify bot engagement
