@@ -55,18 +55,14 @@ Process the snapshot oldest first. Read the live issue or PR and decide what it 
 
 Judge deduplication from current state, including bot reviews and bot-authored PRs that cross-reference an issue. The notification timestamp alone does not prove whether a response covered the activity.
 
-For a same-repository item, check whether a dedicated workflow is still handling its subject. Match `display_title` because `workflow_run` does not expose the issue number for comment and review events. Pipe to standalone `jq`; `gh api --jq` cannot take `--arg` or `--argjson`:
+For a same-repository item, check which dedicated runs are still handling its subject. Any run the script lists means defer; an empty list means this poll owns the thread.
 
 ```bash
-SUBJECT_TITLE=$(gh api "$SUBJECT_URL" --jq .title)
-IN_PROGRESS=$(gh api \
-  "repos/$GITHUB_REPOSITORY/actions/runs?status=in_progress&per_page=100" \
-  | jq --arg title "$SUBJECT_TITLE" --argjson own "$GITHUB_RUN_ID" \
-      '[.workflow_runs[]
-        | select(.name | startswith("tend-"))
-        | select(.id != $own and .display_title == $title)] | length')
-echo "in_progress=$IN_PROGRESS"
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py" "$SUBJECT_URL"
 ```
+
+It counts a run that has not started yet. `queued` is a status of its own in the Actions API, and a `tend-mention` run created for a maintainer's comment can sit unstarted for hours — that run owns its subject as much as a running one, and answering it here posts the bot's reply twice.
 
 Issue deduplication includes bot-authored PRs that cross-reference the issue. A PR with `Refs #N` may be the bot's response even when it posted no issue comment. Pad the notification time by 60 seconds because GitHub's notification index can trail the event that produced it:
 
