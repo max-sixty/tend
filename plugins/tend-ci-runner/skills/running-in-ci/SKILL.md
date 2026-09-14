@@ -34,7 +34,7 @@ This file carries the rules every session needs. Guidance tied to an action most
 
 ## Temporary Files
 
-Tend sets `$TMPDIR` to `/home/tend-sandbox/tmp`, the writable scratch directory; the sandbox mounts `/tmp` read-only, so a hand-written `/tmp/...` path fails with `Read-only file system` even though its mode reads `drwxrwxrwt`. A compound command without `set -e` runs on past that failure. Shell commands expand `$TMPDIR`; file-writing tools need the absolute path.
+Tend sets `$TMPDIR` to `/home/tend-sandbox/tmp`, the writable scratch directory; writes land only there and in the checkout, which sits under a `/tmp` container that is itself read-only, so a scratch path written by hand under `/tmp` fails with `Read-only file system` even though the mode reads `drwxrwxrwt`. A compound command without `set -e` runs on past that failure. Shell commands expand `$TMPDIR`; file-writing tools need the absolute path.
 
 ## Conduct
 
