@@ -774,7 +774,8 @@ def test_init_notifications_has_precheck(
     assert "subscription" in check_step["run"]
     assert "notifications/threads/" not in check_step["run"]
     assert any(
-        step.get("uses") == "astral-sh/setup-uv@v10.0.1" for step in steps[:check_index]
+        step.get("uses", "").startswith("astral-sh/setup-uv@")
+        for step in steps[:check_index]
     )
 
     # Everything after the notification check is gated on its output.

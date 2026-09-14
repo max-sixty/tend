@@ -28,7 +28,7 @@ jobs:
       actions: read
       issues: write
     steps:
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         id: tend_uv
         env:
           UV_NO_MODIFY_PATH: "1"
