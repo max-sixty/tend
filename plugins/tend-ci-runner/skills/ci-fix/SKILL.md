@@ -99,7 +99,7 @@ An escalated fault still reruns green, so a mitigation buys back runner time, no
 
 #### File the transient tracker
 
-If the failure stays classified transient, open an issue with the diagnosis and close it immediately. The closure records "diagnosed, no further action" while keeping the analysis discoverable and off the commit timeline. Apply the `tend-outage` label — the workflow-level `if:` in `tend-triage` and `tend-mention` skip labelled issues, suppressing the no-op cascade runs (`opened` → silent-exit; `closed`-comment → silent-exit) that would otherwise fire on every transient tracker:
+If the failure stays classified transient, open an issue with the diagnosis and close it immediately. The closure records "diagnosed, no further action" while keeping the analysis discoverable and off the commit timeline. Apply the `tend-outage` label — the job-level `if:` in `tend-triage` and `tend-mention` skip labelled issues, suppressing the no-op cascade runs (`opened` → silent-exit; `closed`-comment → silent-exit) that would otherwise fire on every transient tracker:
 
 ```bash
 gh label create tend-outage --description "Tracks bot outage incidents" --color "d93f0b" 2>/dev/null || true
