@@ -124,8 +124,12 @@ truncated. A dedup scan then misses the existing issue past the cap and opens a
 duplicate; a survey reports complete coverage of the rows it happened to see. A
 count that lands exactly on the cap in force — the default, or the `--limit`
 you passed — is the signature, and an explicit `--limit` moves that threshold
-rather than removing it. Client-side filtering inside `--jq` is the worst variant: the filter
-hides the truncation, so a capped result reads as a legitimately short one.
+rather than removing it. Client-side filtering inside `--jq` is the worst
+variant: the filter hides the truncation, so a capped result reads as a
+legitimately short one. A wide `--limit` also needs a narrow projection to
+survive the trip back — `--json body` over 200 items runs to hundreds of KB,
+which the harness saves to a file and shows as a preview of the first item or
+two. Project identifiers and titles, then read the bodies of the candidates.
 
 **"Likely" is a stop-sign.** A hedge in a user-facing claim — "likely works",
 "probably parses as", "I think" — means it rests on an unverified guess. Verify
