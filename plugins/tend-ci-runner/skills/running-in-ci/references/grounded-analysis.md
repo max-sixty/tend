@@ -122,9 +122,17 @@ is the answer.** `gh issue list`, `gh pr list`, and `gh search` return 30 items
 by default; `gh run list` returns 20, and nothing in the output says it
 truncated. A dedup scan then misses the existing issue past the cap and opens a
 duplicate; a survey reports complete coverage of the rows it happened to see. A
-count that reads exactly the default across repeated measurements is the
-signature. Client-side filtering inside `--jq` is the worst variant: the filter
-hides the truncation, so a capped result reads as a legitimately short one.
+count that lands exactly on the cap in force — the default, or the `--limit`
+you passed — is the signature, and an explicit `--limit` moves that threshold
+rather than removing it. Client-side filtering inside `--jq` is the worst
+variant: the filter hides the truncation, so a capped result reads as a
+legitimately short one. A wide `--limit` also needs a narrow projection to
+survive the trip back: past roughly 32 KB the harness saves the output to a
+file and shows a 2 KB preview, so the scan reads the first item or two and
+reports the rest as absent. Total size crosses that line, not any one field —
+dropping `body` is not enough when `number,title,state,mergedAt,headRefName`
+over 200 PRs already runs to 34 KB. Project `number,title,state`, then read
+the bodies of the candidates the titles narrow to.
 
 **"Likely" is a stop-sign.** A hedge in a user-facing claim — "likely works",
 "probably parses as", "I think" — means it rests on an unverified guess. Verify

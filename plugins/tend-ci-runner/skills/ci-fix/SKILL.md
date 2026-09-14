@@ -24,10 +24,10 @@ Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, po
 List recent PRs (open and closed) and check whether any already address the same failure — a prior bot attempt, a prior bot fix a maintainer rejected, or a maintainer's in-flight fix under any branch name.
 
 ```bash
-gh pr list --state all --limit 30 --json number,title,state,author,headRefName,body,closedAt
+gh pr list --state all --limit 200 --json number,title,state
 ```
 
-Match by **failure shape** — the diagnostic snippet in the bot's PR body, or the diff for a maintainer-authored PR — not branch name; branch names encode run IDs and never repeat.
+Match by **failure shape** — the diagnostic snippet in the bot's PR body, or the diff for a maintainer-authored PR — not branch name; branch names encode run IDs and never repeat. The listing carries titles only; pull the body and author per candidate (`gh pr view <n> --json body,author`).
 
 - If an existing **open** PR addresses the same failure, comment on it linking the new run and stop.
 - If a **closed** PR with a maintainer rejection covers the same failure, exit silently; check the closure comment for the rationale before referencing it. Re-deriving the same fix forces a maintainer to close it twice.
