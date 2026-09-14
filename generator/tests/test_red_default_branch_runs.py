@@ -208,14 +208,25 @@ def test_coverage_stops_at_the_listing_that_ran_out_of_page(
     env: dict[str, str],
 ) -> None:
     """`reached_back_to` is the scope the published claim rests on, so it has to
-    name the window every conclusion was read over — the truncated listing's
-    floor, not the older row a short listing happens to reach."""
+    name the window every conclusion was read over — the newest floor among the
+    truncated listings, not the older row a short listing happens to reach."""
     _page(
         env,
         "failure",
         1,
         *(
             _red(400 + n, f"2026-09-01T00:{n:02d}:00Z")
+            for n in reversed(range(PER_PAGE))
+        ),
+    )
+    # A second truncated listing, reaching further back: `reached_back_to` is
+    # the newest floor among them, which is what separates `max` from `min`.
+    _page(
+        env,
+        "timed_out",
+        1,
+        *(
+            _red(500 + n, f"2026-07-01T00:{n:02d}:00Z")
             for n in reversed(range(PER_PAGE))
         ),
     )
