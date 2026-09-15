@@ -91,33 +91,15 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 - failing default-branch CI with no bot fix in progress. A live-state check like the two above it: scoped neither to `ci-fix`'s watched workflows — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window.
 
   ```bash
-  DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
-  # One server-side filter per red conclusion, to reach past a busy repo's green
-  # runs. `cancelled` is left out: concurrency cancels dominate it.
-  # Each filter is re-read until two consecutive pages agree, then unioned: a
-  # single read can serve a coherent older page that omits the newest rows, and
-  # nothing below recovers a row never returned.
-  for status in failure startup_failure timed_out; do
-    prev=__unread__  # no page equals this, so an empty answer is re-read too
-    for _ in 1 2 3 4; do
-      page=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=$DEFAULT_BRANCH&status=$status&per_page=50" \
-        --jq '.workflow_runs[] | {id, name, path, event, conclusion, created_at}')
-      [ -n "$page" ] && printf '%s\n' "$page"
-      [ "$page" = "$prev" ] && break
-      prev=$page
-    done
-  done | sort -ru
-  # Closure: for each distinct `path` above that is a real workflow file, its
-  # latest green default-branch run closes that path's older red rows.
-  # `dynamic/dependabot/...` paths are not files and 404 here.
-  # Can serve a stale row; re-query once before reporting a path as still red.
-  gh api "repos/$GITHUB_REPOSITORY/actions/workflows/<basename of path>/runs?branch=$DEFAULT_BRANCH&status=success&per_page=1" \
-    --jq '.workflow_runs[0] | {name, conclusion, created_at}'
+  uv run --script \
+    "${CLAUDE_PLUGIN_ROOT}/scripts/red_default_branch_runs.py"
   ```
 
-  Both calls sometimes serve an older page, and staleness moves each answer backwards — in opposite directions. On the closure read a too-old green fails to close a path that is already fixed, so the sweep over-reports: re-run that call once and take the newer answer before reporting any path as still failing. On the red listing the missing rows are the *newest* ones, so the sweep under-reports — a stale page supports "`main` is green" while a failure stands on it. Consecutive reads of the same URL have returned different snapshots, and a stale page is internally coherent, so agreement between two of them is the only convergence signal the rows carry; that is what the loop above waits for. Rows come out newest-first within each conclusion.
+  `live` holds the red rows that no later green run of the same workflow closed, newest first. `latest_green_by_path` and `reached_back_to` are the scope the claim rests on: `latest_green_by_path` is the newest green read for each workflow that had one, which closes that workflow's older red rows and leaves any newer one in `live`; a workflow with no green at all is absent from it, so name the workflows checked from `live`'s paths too. `reached_back_to` is the newest floor among the listings that filled their page, so a row older than it may be missing — `live` can still carry rows older than it, both from an untruncated listing's whole history and from what an earlier read of a truncated one returned from an older window. `null` means no listing was truncated and the sweep covers the branch's whole history. A non-empty `unconverged_listings` means a listing never settled — report that rather than publishing the sweep as complete.
 
-  Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `$TMPDIR/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The page reaches back weeks, so most rows are already fixed and the closure call is what separates them. What it cannot close stays live: Dependabot's security updates have no workflow file, and each run's `name` carries a per-update ID that never recurs, so those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the page reached.
+  The script re-reads each listing until two consecutive answers agree, because the API answers one URL from more than one snapshot, and its two kinds of read fail in opposite directions. A stale red listing drops the *newest* rows, so "`main` is green" can ship while a failure stands on it; a stale closure read serves a green older than the true latest, so a path already fixed reads as still red.
+
+  Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `$TMPDIR/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The listing reaches back weeks, so most rows are already fixed and the closure read is what separates them. What it cannot close stays live: Dependabot's security updates have no workflow file, and each run's `name` carries a per-update ID that never recurs, so those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the listing reached.
 
 - an open Dependabot security alert with no PR or tracker proposing its fix — same closure as the red rows above, so an alert whose fix needs a maintainer decision stops re-surfacing once it is tracked. Dependabot opens that PR itself for most alerts, so the ones that reach this sweep are the ones where it could not — and nothing else in tend looks: `weekly` reviews the dependency PRs that exist, and the defining property here is that none was created.
 
