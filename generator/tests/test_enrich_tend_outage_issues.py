@@ -484,6 +484,14 @@ def test_an_issue_citing_only_green_runs_posts_nothing(env: dict[str, str]) -> N
     assert "run view" not in Path(env["GH_CALLS"]).read_text()
 
 
+def test_the_jobs_read_asks_for_a_full_page(env: dict[str, str]) -> None:
+    # The green-run guard reads a page with no failed row as a run that never
+    # failed, so a 30-row default would drop a wide matrix's real failure.
+    _run(env)
+
+    assert "/jobs?filter=all&per_page=100" in Path(env["GH_CALLS"]).read_text()
+
+
 def test_an_unreadable_jobs_response_is_not_read_as_green(
     env: dict[str, str],
 ) -> None:

@@ -84,10 +84,17 @@ def run_jobs(repo: str, run_id: str) -> list[dict[str, Any]]:
     when the run fails, and a rerun that then goes green leaves the default
     ``latest`` view with no failed job at all — so the attempt carrying the
     diagnosis is exactly the one that view drops.
+
+    The response is one page, which GitHub would otherwise cap at 30 rows.
+    ``failure_details`` reads rows with no failure among them as a run that
+    never failed, so a truncated page drops a wide matrix — or a narrow one
+    whose attempts stack past the cap — with no section and no marker.
     """
     try:
         response = github_cli.json_call(
-            "api", f"repos/{repo}/actions/runs/{run_id}/jobs?filter=all", quiet=True
+            "api",
+            f"repos/{repo}/actions/runs/{run_id}/jobs?filter=all&per_page=100",
+            quiet=True,
         )
     except (subprocess.CalledProcessError, ValueError):
         return []
