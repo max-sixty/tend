@@ -257,6 +257,10 @@ Leave the review pinned to the head you reviewed. **Submit**'s re-targeting is f
 ```bash
 gh pr checkout <number>
 git add <files>
+# A runner checkout carries no git identity, so this commit fails with `Author
+# identity unknown` unless one was set earlier this session — see "Configure git
+# identity before the first commit" in /tend-ci-runner:running-in-ci's
+# references/pr-creation.md.
 git commit -m "fix: <description>"
 git push
 ```
