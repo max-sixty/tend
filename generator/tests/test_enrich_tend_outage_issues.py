@@ -55,7 +55,11 @@ case "$*" in
   "repo view"*) emit '{"nameWithOwner":"owner/repo"}' ;;
   "issue list"*) emit '[{"number":7}]' ;;
   "issue view"*) emit "$(cat "$ISSUE_JSON")" ;;
-  *"/jobs"*) emit "$(cat "$JOBS_JSON")" ;;
+  *"/jobs"*)
+    run_id=$(printf '%s' "$*" | sed -n 's|.*/actions/runs/\([0-9]*\)/jobs.*|\1|p')
+    override="$(dirname "$JOBS_JSON")/jobs-$run_id.json"
+    if [ -f "$override" ]; then emit "$(cat "$override")"; else emit "$(cat "$JOBS_JSON")"; fi
+    ;;
   *"/annotations"*) emit "$(cat "$ANNOTATIONS_JSON")" ;;
   "run view"*--log-failed*)
     if [ -n "${LOG_FAILS:-}" ]; then exit 1; fi
@@ -434,6 +438,63 @@ def test_a_matrix_of_failed_jobs_cannot_fill_the_body(env: dict[str, str]) -> No
     assert f"<!-- enriched-run:{RUN_ID} -->" in body
     assert "_Remaining failed jobs omitted._" in body
     assert len(_fence_lines(body)) % 2 == 0
+
+
+def _jobs_for(env: dict[str, str], run_id: str, jobs: dict[str, object]) -> None:
+    """Serve a run-specific jobs response instead of the shared fixture one."""
+    path = Path(env["JOBS_JSON"]).with_name(f"jobs-{run_id}.json")
+    path.write_text(json.dumps(jobs))
+
+
+GREEN_JOBS: dict[str, object] = {
+    "jobs": [{"id": 201, "name": "deploy", "conclusion": "success", "run_attempt": 1}]
+}
+
+
+def test_a_green_baseline_run_is_not_enriched(env: dict[str, str]) -> None:
+    # A diagnosis cites green runs as its comparison baseline. They never
+    # failed, so the "could not extract" sentence would misreport them as
+    # undiagnosable failures, and a marker would block a later rerun-to-red.
+    green = "12"
+    Path(env["ISSUE_JSON"]).write_text(
+        json.dumps(
+            {
+                "body": (
+                    f"Failed https://github.com/owner/repo/actions/runs/{RUN_ID}\n"
+                    f"Baseline https://github.com/owner/repo/actions/runs/{green}"
+                ),
+                "comments": [],
+            }
+        )
+    )
+    _jobs_for(env, green, GREEN_JOBS)
+
+    body = _run(env)
+
+    assert f"### [Run {green}]" not in body
+    assert f"<!-- enriched-run:{green} -->" not in body
+    assert "No failure details could be extracted." not in body
+    assert f"<!-- enriched-run:{RUN_ID} -->" in body
+
+
+def test_an_issue_citing_only_green_runs_posts_nothing(env: dict[str, str]) -> None:
+    _jobs_for(env, RUN_ID, GREEN_JOBS)
+
+    assert _run(env) == ""
+    assert "run view" not in Path(env["GH_CALLS"]).read_text()
+
+
+def test_an_unreadable_jobs_response_is_not_read_as_green(
+    env: dict[str, str],
+) -> None:
+    # An API failure yields no rows, which is not evidence the run passed.
+    Path(env["JOBS_JSON"]).write_text("not json")
+    Path(env["LOG_TXT"]).write_text("")
+
+    body = _run(env)
+
+    assert "No failure details could be extracted." in body
+    assert f"<!-- enriched-run:{RUN_ID} -->" in body
 
 
 def test_an_issue_with_nothing_new_posts_nothing(env: dict[str, str]) -> None:

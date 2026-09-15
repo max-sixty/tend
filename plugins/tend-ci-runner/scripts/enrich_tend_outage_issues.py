@@ -174,9 +174,18 @@ def log_details(repo: str, run_id: str, attempt: int | None) -> list[str]:
     return [f"#### log tail\n\n{fenced(body)}"]
 
 
-def failure_details(repo: str, run_id: str) -> list[str]:
-    """Prefer precise annotations, falling back to the failing attempt's log tail."""
+def failure_details(repo: str, run_id: str) -> list[str] | None:
+    """Detail for a run that failed; ``None`` when no attempt failed at all.
+
+    Prefers precise annotations, falling back to the failing attempt's log
+    tail. A diagnosis routinely cites green runs as its baseline; those are
+    not failures to annotate, and ``render_run``'s empty-detail sentence means
+    "the logs are gone", which would be false about them. No rows at all is an
+    unreadable jobs read, not evidence the run passed.
+    """
     jobs = run_jobs(repo, run_id)
+    if jobs and not any(job.get("conclusion") == "failure" for job in jobs):
+        return None
     return annotation_details(repo, jobs) or log_details(
         repo, run_id, failed_attempt(jobs)
     )
@@ -205,7 +214,10 @@ def render_batch(repo: str, run_ids: list[str]) -> str:
         if rendered_bytes > MAX_BATCH_BYTES:
             sections.append(TRUNCATED_BATCH + "\n")
             break
-        section = render_run(repo, run_id, failure_details(repo, run_id))
+        details = failure_details(repo, run_id)
+        if details is None:
+            continue
+        section = render_run(repo, run_id, details)
         sections.append(section)
         rendered_bytes += len(section.encode())
     return "\n".join(sections)
@@ -225,6 +237,8 @@ def main() -> int:
         if not run_ids:
             continue
         body = render_batch(repo, run_ids)
+        if not body.strip():
+            continue
         with tempfile.TemporaryDirectory() as directory:
             body_file = Path(directory) / "enrichment.md"
             body_file.write_text(body, encoding="utf-8")
