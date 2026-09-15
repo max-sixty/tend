@@ -26,6 +26,11 @@ SCRIPT = (
 )
 CI = ".github/workflows/ci.yaml"
 DEPENDABOT = "dynamic/dependabot/dependabot-updates"
+CODE_SCANNING = "dynamic/github-code-scanning/codeql"
+# The generated paths name no committed file, so their closure listing is
+# addressed by the workflow id every run row carries.
+CODE_SCANNING_ID = 348682278
+DEPENDABOT_ID = 348683058
 # red_default_branch_runs.PER_PAGE: a listing this long is truncated, and a
 # shorter one returned everything there is.
 PER_PAGE = 50
@@ -70,14 +75,22 @@ esac
 )
 
 
-def _red(rid: int, created_at: str, *, path: str = CI) -> dict:
+def _red(
+    rid: int,
+    created_at: str,
+    *,
+    path: str = CI,
+    name: str = "ci",
+    workflow_id: int = 250586625,
+) -> dict:
     return {
         "id": rid,
-        "name": "ci",
+        "name": name,
         "path": path,
         "event": "push",
         "conclusion": "failure",
         "created_at": created_at,
+        "workflow_id": workflow_id,
         "html_url": f"https://github.com/owner/repo/actions/runs/{rid}",
     }
 
@@ -124,6 +137,40 @@ def _green(
                         "conclusion": "success",
                         "created_at": created_at,
                     }
+                ]
+            }
+        )
+    )
+
+
+def _generated_green(
+    env: dict[str, str],
+    workflow_id: int,
+    *runs: tuple[int, str, str],
+    read: int = 1,
+) -> None:
+    """Stage the *read*-th closure read of the generated workflow *workflow_id*.
+
+    Each run is `(id, name, created_at)` -- the whole listing is one workflow's,
+    so `name` is what separates the subjects within it.
+    """
+    path = Path(env["RUNS_DIR"]) / f"green-{workflow_id}-{read}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "workflow_runs": [
+                    {
+                        "id": rid,
+                        "name": name,
+                        "path": CODE_SCANNING
+                        if workflow_id == CODE_SCANNING_ID
+                        else DEPENDABOT,
+                        "event": "dynamic",
+                        "conclusion": "success",
+                        "created_at": created_at,
+                        "workflow_id": workflow_id,
+                    }
+                    for rid, name, created_at in runs
                 ]
             }
         )
@@ -320,12 +367,228 @@ def test_a_later_green_closes_the_path(env: dict[str, str]) -> None:
     assert sweep["latest_green_by_path"] == {CI: "2026-09-02T00:00:00Z"}
 
 
-def test_a_path_with_no_workflow_file_stays_live(env: dict[str, str]) -> None:
-    """Dependabot's `dynamic/...` paths are not committed files, so the
-    per-workflow endpoint 404s: those rows have no closure and stay live."""
-    _page(env, "failure", 1, _red(300, "2026-09-01T00:00:00Z", path=DEPENDABOT))
+def test_a_committed_workflow_whose_file_is_gone_stays_live(
+    env: dict[str, str],
+) -> None:
+    """A deleted workflow file 404s the closure endpoint, which is a settled
+    answer rather than an error: the row has no closure and stays live, and the
+    sweep still reports the rest of the branch."""
+    _page(env, "failure", 1, _red(250, "2026-09-01T00:00:00Z"))
+
+    sweep = _sweep(env)
+
+    assert [row["id"] for row in sweep["live"]] == [250]
+    assert sweep["latest_green_by_path"] == {}
+    assert sweep["unconverged_listings"] == []
+
+
+def test_a_generated_update_that_never_repeats_its_name_stays_live(
+    env: dict[str, str],
+) -> None:
+    """Dependabot's updates share one workflow, so its closure listing is full
+    of greens -- but each update's name carries a one-off id, so none of them
+    is the same subject as the failed one."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(
+            300,
+            "2026-09-01T00:00:00Z",
+            path=DEPENDABOT,
+            name="uv in /. for tornado - Update #1",
+            workflow_id=DEPENDABOT_ID,
+        ),
+    )
+    _generated_green(
+        env,
+        DEPENDABOT_ID,
+        (301, "uv in /. for h2 - Update #2", "2026-09-02T00:00:00Z"),
+    )
 
     sweep = _sweep(env)
 
     assert [row["id"] for row in sweep["live"]] == [300]
     assert sweep["latest_green_by_path"] == {}
+
+
+def test_a_later_green_closes_a_generated_run_of_the_same_name(
+    env: dict[str, str],
+) -> None:
+    """Code scanning carries the same name on every push, so a passing analysis
+    closes a failed one — but its path names no committed file, so only the
+    listing addressed by workflow id can say so."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(
+            400,
+            "2026-09-13T17:20:53Z",
+            path=CODE_SCANNING,
+            name="Push on main",
+            workflow_id=CODE_SCANNING_ID,
+        ),
+    )
+    _generated_green(
+        env, CODE_SCANNING_ID, (401, "Push on main", "2026-09-13T17:24:00Z")
+    )
+
+    sweep = _sweep(env)
+
+    assert sweep["live"] == []
+    assert sweep["latest_green_by_path"] == {CODE_SCANNING: "2026-09-13T17:24:00Z"}
+
+
+def test_a_generated_green_older_than_the_failure_closes_nothing(
+    env: dict[str, str],
+) -> None:
+    """The closure is `newer than the red row`, not `exists`: the same analysis
+    passing before it failed leaves the failure standing."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(
+            410,
+            "2026-09-13T17:20:53Z",
+            path=CODE_SCANNING,
+            name="Push on main",
+            workflow_id=CODE_SCANNING_ID,
+        ),
+    )
+    _generated_green(
+        env, CODE_SCANNING_ID, (411, "Push on main", "2026-09-12T00:00:00Z")
+    )
+
+    sweep = _sweep(env)
+
+    assert [row["id"] for row in sweep["live"]] == [410]
+
+
+def test_an_unsettled_generated_green_listing_is_reported_as_such(
+    env: dict[str, str],
+) -> None:
+    """A moving green listing can serve a page without the passing analysis in
+    it, which reports a fixed path as still red — the same over-claim the red
+    listing's convergence loop exists to prevent, reached from the other side."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(
+            420,
+            "2026-09-13T17:20:53Z",
+            path=CODE_SCANNING,
+            name="Push on main",
+            workflow_id=CODE_SCANNING_ID,
+        ),
+    )
+    for read in range(1, 5):
+        _generated_green(
+            env,
+            CODE_SCANNING_ID,
+            (430 + read, "Push on main", f"2026-09-1{read}T00:00:00Z"),
+            read=read,
+        )
+
+    sweep = _sweep(env)
+
+    assert sweep["unconverged_listings"] == [
+        (
+            f"repos/owner/repo/actions/workflows/{CODE_SCANNING_ID}/runs"
+            "?branch=main&status=success&per_page=100"
+        )
+    ]
+
+
+def test_a_committed_path_is_read_once_whatever_its_runs_are_named(
+    env: dict[str, str],
+) -> None:
+    """A committed workflow answers under its path: `run-name:` and a rename
+    both move a run's `name`, and the closure listing is the same either way.
+    Keying those rows by name would re-read one URL per name for no new answer.
+    """
+    _page(
+        env,
+        "failure",
+        1,
+        _red(600, "2026-09-01T00:00:00Z", name="continuous integration"),
+        _red(601, "2026-08-01T00:00:00Z", name="ci"),
+    )
+    _green(env, "ci.yaml", "2026-09-02T00:00:00Z")
+
+    sweep = _sweep(env)
+
+    assert sweep["live"] == []
+    assert sweep["latest_green_by_path"] == {CI: "2026-09-02T00:00:00Z"}
+    reads = [
+        line
+        for line in Path(env["GH_CALLS"]).read_text().splitlines()
+        if "/actions/workflows/ci.yaml/runs" in line
+    ]
+    # One `converged_read`: two answers that agree, and no third.
+    assert len(reads) == 2
+
+
+def test_a_generated_workflow_with_no_listing_stays_live(
+    env: dict[str, str],
+) -> None:
+    """A 404 on the id-addressed listing is a settled answer, as it is for a
+    committed file that has left the branch: the rows under it have no closure.
+    Raising instead would lose the whole sweep over one unresolvable id."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(
+            700,
+            "2026-09-13T17:20:53Z",
+            path=CODE_SCANNING,
+            name="Push on main",
+            workflow_id=CODE_SCANNING_ID,
+        ),
+    )
+
+    sweep = _sweep(env)
+
+    assert [row["id"] for row in sweep["live"]] == [700]
+    assert sweep["latest_green_by_path"] == {}
+    assert sweep["unconverged_listings"] == []
+
+
+def test_one_subject_of_a_generated_path_closes_without_closing_the_others(
+    env: dict[str, str],
+) -> None:
+    """`latest_green_by_path` reduces a per-subject closure onto the path, so a
+    generated path's published green can be the one that closed a different
+    name. The row it did not close stays live even though it is older."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(
+            500,
+            "2026-09-13T00:00:00Z",
+            path=CODE_SCANNING,
+            name="Push on main",
+            workflow_id=CODE_SCANNING_ID,
+        ),
+        _red(
+            501,
+            "2026-09-14T00:00:00Z",
+            path=CODE_SCANNING,
+            name="Scheduled",
+            workflow_id=CODE_SCANNING_ID,
+        ),
+    )
+    _generated_green(
+        env, CODE_SCANNING_ID, (502, "Push on main", "2026-09-15T00:00:00Z")
+    )
+
+    sweep = _sweep(env)
+
+    assert [row["id"] for row in sweep["live"]] == [501]
+    # Older than the green published for its own path: the green closed
+    # `Push on main`, and nothing has closed `Scheduled`.
+    assert sweep["latest_green_by_path"] == {CODE_SCANNING: "2026-09-15T00:00:00Z"}
