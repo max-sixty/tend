@@ -33,6 +33,13 @@ MAX_BATCH_BYTES = 30_000
 TRUNCATED_BATCH = "_Truncated; the remaining runs are enriched by a later batch._"
 OMITTED_JOBS = "_Remaining failed jobs omitted._"
 
+# Job conclusions that mean the attempt did not pass. ``failure_details`` reads
+# their absence as a run that never failed, so every unsuccessful one has to be
+# listed: `ci-fix` diagnoses cancelled runs alongside failed ones. A conclusion
+# still absent (``None``) is deliberately not here — an attempt that has not
+# finished is left unmarked so a later nightly enriches it.
+UNSUCCESSFUL = frozenset({"failure", "cancelled", "timed_out"})
+
 
 def pending_run_ids(issue: dict[str, Any]) -> list[str]:
     """Return referenced run IDs that have no enrichment marker yet."""
@@ -84,14 +91,22 @@ def run_jobs(repo: str, run_id: str) -> list[dict[str, Any]]:
     when the run fails, and a rerun that then goes green leaves the default
     ``latest`` view with no failed job at all — so the attempt carrying the
     diagnosis is exactly the one that view drops.
+
+    ``failure_details`` reads rows with no failure among them as a run that
+    never failed, so every page has to be read: a wide matrix — or a narrow one
+    whose attempts stack past a page — would otherwise be dropped with no
+    section and no marker because its failed row sat past the cap.
     """
     try:
-        response = github_cli.json_call(
-            "api", f"repos/{repo}/actions/runs/{run_id}/jobs?filter=all", quiet=True
+        pages = github_cli.json_stream(
+            "api",
+            "--paginate",
+            f"repos/{repo}/actions/runs/{run_id}/jobs?filter=all&per_page=100",
+            quiet=True,
         )
     except (subprocess.CalledProcessError, ValueError):
         return []
-    return response.get("jobs", [])
+    return [job for page in pages for job in page.get("jobs", [])]
 
 
 def failed_attempt(jobs: list[dict[str, Any]]) -> int | None:
@@ -107,13 +122,33 @@ def failed_attempt(jobs: list[dict[str, Any]]) -> int | None:
 
 
 def annotation_details(repo: str, jobs: list[dict[str, Any]]) -> list[str]:
-    """Render bounded failure annotations for one run."""
+    """Render bounded failure annotations for one run.
+
+    The failed jobs carry the diagnosis wherever any failed, so a fail-fast
+    matrix reports its one real error rather than every sibling's ``The
+    operation was canceled.``. A run that was only cancelled or timed out has
+    no failed job and no ``--log-failed`` output at all, so its annotation —
+    naming the cancelling request or the exceeded limit — is the only
+    diagnosis there is.
+
+    Cancellation and timeout are run-level events that annotate every job the
+    same way, so those runs render each distinct message once rather than once
+    per job, which would fill ``MAX_RUN_BYTES`` on a wide matrix. The repeat is
+    dropped here, on the rendered message, rather than by choosing one job per
+    conclusion up front: a job cancelled before it started carries no
+    annotation at all, so the run's only diagnosis can sit on a sibling, and a
+    distinct message — the timeout naming the exceeded limit among its
+    cancelled siblings — is never the one dropped.
+    """
+    failed = [job for job in jobs if job.get("conclusion") == "failure"]
+    candidates = failed or [
+        job for job in jobs if job.get("conclusion") in UNSUCCESSFUL
+    ]
     label_attempt = len({job.get("run_attempt") or 1 for job in jobs}) > 1
     details: list[str] = []
+    seen: set[str] = set()
     rendered_bytes = 0
-    for job in jobs:
-        if job.get("conclusion") != "failure":
-            continue
+    for job in candidates:
         if rendered_bytes > MAX_RUN_BYTES:
             details.append(OMITTED_JOBS)
             break
@@ -130,11 +165,16 @@ def annotation_details(repo: str, jobs: list[dict[str, Any]]) -> list[str]:
             and not (annotation.get("message") or "").startswith("Process completed")
         ]
         messages = [message for message in messages if message]
-        if messages:
-            heading = job_heading(job, label_attempt)
-            detail = f"#### {heading}\n\n{fenced(bounded_message(messages))}"
-            details.append(detail)
-            rendered_bytes += len(detail.encode())
+        if not messages:
+            continue
+        message = bounded_message(messages)
+        if not failed and message in seen:
+            continue
+        seen.add(message)
+        heading = job_heading(job, label_attempt)
+        detail = f"#### {heading}\n\n{fenced(message)}"
+        details.append(detail)
+        rendered_bytes += len(detail.encode())
     return details
 
 
@@ -174,9 +214,20 @@ def log_details(repo: str, run_id: str, attempt: int | None) -> list[str]:
     return [f"#### log tail\n\n{fenced(body)}"]
 
 
-def failure_details(repo: str, run_id: str) -> list[str]:
-    """Prefer precise annotations, falling back to the failing attempt's log tail."""
+def failure_details(repo: str, run_id: str) -> list[str] | None:
+    """Detail for a run that failed; ``None`` when no attempt failed at all.
+
+    Prefers precise annotations, falling back to the failing attempt's log
+    tail. A diagnosis routinely cites green runs as its baseline; those are
+    not failures to annotate, and ``render_run``'s empty-detail sentence means
+    "the logs are gone", which would be false about them. No rows at all is an
+    unreadable jobs read, not evidence the run passed, and rows that are all
+    still running are not evidence either — both keep the log fallback or wait
+    for a later nightly rather than being marked.
+    """
     jobs = run_jobs(repo, run_id)
+    if jobs and not any(job.get("conclusion") in UNSUCCESSFUL for job in jobs):
+        return None
     return annotation_details(repo, jobs) or log_details(
         repo, run_id, failed_attempt(jobs)
     )
@@ -205,7 +256,10 @@ def render_batch(repo: str, run_ids: list[str]) -> str:
         if rendered_bytes > MAX_BATCH_BYTES:
             sections.append(TRUNCATED_BATCH + "\n")
             break
-        section = render_run(repo, run_id, failure_details(repo, run_id))
+        details = failure_details(repo, run_id)
+        if details is None:
+            continue
+        section = render_run(repo, run_id, details)
         sections.append(section)
         rendered_bytes += len(section.encode())
     return "\n".join(sections)
@@ -225,6 +279,8 @@ def main() -> int:
         if not run_ids:
             continue
         body = render_batch(repo, run_ids)
+        if not body.strip():
+            continue
         with tempfile.TemporaryDirectory() as directory:
             body_file = Path(directory) / "enrichment.md"
             body_file.write_text(body, encoding="utf-8")
