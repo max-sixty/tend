@@ -33,6 +33,13 @@ MAX_BATCH_BYTES = 30_000
 TRUNCATED_BATCH = "_Truncated; the remaining runs are enriched by a later batch._"
 OMITTED_JOBS = "_Remaining failed jobs omitted._"
 
+# Job conclusions that mean the attempt did not pass. ``failure_details`` reads
+# their absence as a run that never failed, so every unsuccessful one has to be
+# listed: `ci-fix` diagnoses cancelled runs alongside failed ones. A conclusion
+# still absent (``None``) is deliberately not here — an attempt that has not
+# finished is left unmarked so a later nightly enriches it.
+UNSUCCESSFUL = frozenset({"failure", "cancelled", "timed_out"})
+
 
 def pending_run_ids(issue: dict[str, Any]) -> list[str]:
     """Return referenced run IDs that have no enrichment marker yet."""
@@ -189,10 +196,12 @@ def failure_details(repo: str, run_id: str) -> list[str] | None:
     tail. A diagnosis routinely cites green runs as its baseline; those are
     not failures to annotate, and ``render_run``'s empty-detail sentence means
     "the logs are gone", which would be false about them. No rows at all is an
-    unreadable jobs read, not evidence the run passed.
+    unreadable jobs read, not evidence the run passed, and rows that are all
+    still running are not evidence either — both keep the log fallback or wait
+    for a later nightly rather than being marked.
     """
     jobs = run_jobs(repo, run_id)
-    if jobs and not any(job.get("conclusion") == "failure" for job in jobs):
+    if jobs and not any(job.get("conclusion") in UNSUCCESSFUL for job in jobs):
         return None
     return annotation_details(repo, jobs) or log_details(
         repo, run_id, failed_attempt(jobs)

@@ -531,6 +531,44 @@ def test_a_failure_on_a_later_jobs_page_is_enriched(env: dict[str, str]) -> None
     assert f"<!-- enriched-run:{RUN_ID} -->" in body
 
 
+def test_a_cancelled_run_is_still_enriched(env: dict[str, str]) -> None:
+    # `ci-fix` fires on cancelled runs as well as failed ones, so its tracker
+    # cites runs whose jobs never carry `conclusion: failure`. Reading those as
+    # green would drop the diagnosis with no section and no marker.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {
+            "jobs": [
+                {
+                    "id": int(JOB_ID),
+                    "name": "tests",
+                    "conclusion": "cancelled",
+                    "run_attempt": 1,
+                }
+            ]
+        },
+    )
+
+    body = _run(env)
+
+    assert f"<!-- enriched-run:{RUN_ID} -->" in body
+
+
+def test_a_run_whose_attempts_are_still_going_is_left_unmarked(
+    env: dict[str, str],
+) -> None:
+    # A marker is durable, so marking a run still in flight would block the
+    # enrichment for good. Leave it for a later nightly instead.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {"jobs": [{"id": int(JOB_ID), "name": "tests", "conclusion": None}]},
+    )
+
+    assert _run(env) == ""
+
+
 def test_an_unreadable_jobs_response_is_not_read_as_green(
     env: dict[str, str],
 ) -> None:
