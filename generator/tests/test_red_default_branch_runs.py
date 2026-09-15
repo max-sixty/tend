@@ -228,9 +228,10 @@ def test_a_closure_listing_that_never_settles_is_reported_as_such(
         )
     ]
     # The newest green seen across the capped reads still closes what it can:
-    # here every one of them predates the red row, so it stays live.
+    # here every one of them predates the red row, so it stays live -- the map
+    # is the closure evidence read, not a set of paths something closed.
     assert [row["id"] for row in sweep["live"]] == [100]
-    assert sweep["paths_closed_by_later_green"] == {CI: "2026-09-04T00:00:00Z"}
+    assert sweep["latest_green_by_path"] == {CI: "2026-09-04T00:00:00Z"}
 
 
 def test_coverage_stops_at_the_listing_that_ran_out_of_page(
@@ -270,6 +271,43 @@ def test_coverage_stops_at_the_listing_that_ran_out_of_page(
     assert 300 in [row["id"] for row in sweep["live"]]
 
 
+def test_the_coverage_floor_comes_from_the_settled_page(
+    env: dict[str, str],
+) -> None:
+    """A stale read answers from its own window, so a floor taken across the
+    union claims coverage of the gap between that window and the settled one --
+    the over-claim `reached_back_to` exists to bound."""
+    # Read 1 is the stale snapshot: a full page from a July window.
+    _page(
+        env,
+        "failure",
+        1,
+        *(
+            _red(500 + n, f"2026-07-01T00:{n:02d}:00Z")
+            for n in reversed(range(PER_PAGE))
+        ),
+    )
+    # Reads 2 and 3 settle on a full page from a September window, so nothing
+    # between July and September was ever read.
+    _page(
+        env,
+        "failure",
+        2,
+        *(
+            _red(400 + n, f"2026-09-01T00:{n:02d}:00Z")
+            for n in reversed(range(PER_PAGE))
+        ),
+    )
+    _green(env, "ci.yaml", "2026-05-01T00:00:00Z")
+
+    sweep = _sweep(env)
+
+    assert sweep["reached_back_to"] == "2026-09-01T00:00:00Z"
+    # The stale page's rows are still reported: the union is what keeps a row a
+    # later read stopped returning, and only the coverage claim is bounded.
+    assert len(sweep["live"]) == 2 * PER_PAGE
+
+
 def test_a_later_green_closes_the_path(env: dict[str, str]) -> None:
     """The closure read is what keeps a weeks-deep listing from re-reporting
     failures somebody already fixed."""
@@ -279,7 +317,7 @@ def test_a_later_green_closes_the_path(env: dict[str, str]) -> None:
     sweep = _sweep(env)
 
     assert sweep["live"] == []
-    assert sweep["paths_closed_by_later_green"] == {CI: "2026-09-02T00:00:00Z"}
+    assert sweep["latest_green_by_path"] == {CI: "2026-09-02T00:00:00Z"}
 
 
 def test_a_path_with_no_workflow_file_stays_live(env: dict[str, str]) -> None:
@@ -290,4 +328,4 @@ def test_a_path_with_no_workflow_file_stays_live(env: dict[str, str]) -> None:
     sweep = _sweep(env)
 
     assert [row["id"] for row in sweep["live"]] == [300]
-    assert sweep["paths_closed_by_later_green"] == {}
+    assert sweep["latest_green_by_path"] == {}

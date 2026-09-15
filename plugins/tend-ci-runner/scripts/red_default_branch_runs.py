@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from typing import Any
+from typing import Any, NamedTuple
 
 import github_cli
 
@@ -50,26 +50,38 @@ def _rows(response: Any) -> list[dict[str, Any]]:
     ]
 
 
-def converged_read(
-    url: str, *, quiet: bool = False
-) -> tuple[list[dict[str, Any]], bool]:
+class Listing(NamedTuple):
+    """One URL's answer: every row seen, the page that settled, whether it did.
+
+    `rows` unions the reads so a row a later answer stopped returning is not
+    lost. `page` is the last answer alone -- the single page `per_page` bounded,
+    and so the only one that says how far the endpoint was read.
+    """
+
+    rows: list[dict[str, Any]]
+    page: list[dict[str, Any]]
+    converged: bool
+
+
+def converged_read(url: str, *, quiet: bool = False) -> Listing:
     """Read *url* until two consecutive answers agree; union what they returned.
 
-    Returns the union keyed by run id and whether the reads agreed. A stale page
-    is internally coherent and `total_count` moves with it, so agreement between
-    consecutive reads is the only convergence signal the response carries.
+    A stale page is internally coherent and `total_count` moves with it, so
+    agreement between consecutive reads is the only convergence signal the
+    response carries.
     """
     seen: dict[int, dict[str, Any]] = {}
+    page: list[dict[str, Any]] = []
     previous: list[int] | None = None
     for _ in range(MAX_READS):
-        rows = _rows(github_cli.json_call("api", url, quiet=quiet))
-        for row in rows:
+        page = _rows(github_cli.json_call("api", url, quiet=quiet))
+        for row in page:
             seen.setdefault(int(row["id"]), row)
-        ids = [int(row["id"]) for row in rows]
+        ids = [int(row["id"]) for row in page]
         if ids == previous:
-            return list(seen.values()), True
+            return Listing(list(seen.values()), page, True)
         previous = ids
-    return list(seen.values()), False
+    return Listing(list(seen.values()), page, False)
 
 
 def green_url(repo: str, branch: str, path: str) -> str:
@@ -97,13 +109,14 @@ def latest_green(
     live. A 404 is a settled answer: there is no listing to converge.
     """
     try:
-        rows, converged = converged_read(green_url(repo, branch, path), quiet=True)
+        listing = converged_read(green_url(repo, branch, path), quiet=True)
     except subprocess.CalledProcessError as error:
         if "HTTP 404" in (error.stderr or ""):
             return None, True
         raise
+    rows = listing.rows
     green = max(rows, key=lambda row: row["created_at"]) if rows else None
-    return green, converged
+    return green, listing.converged
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -125,12 +138,15 @@ def main(argv: list[str] | None = None) -> int:
             f"repos/{repo}/actions/runs"
             f"?branch={branch}&status={conclusion}&per_page={PER_PAGE}"
         )
-        rows, converged = converged_read(url)
-        if not converged:
+        listing = converged_read(url)
+        if not listing.converged:
             unconverged.append(url)
-        if len(rows) >= PER_PAGE:
-            floors.append(min(row["created_at"] for row in rows))
-        for row in rows:
+        # Truncation and the floor come from the settled page, not the union: a
+        # stale read answers from its own window, so a union across the two
+        # reaches back past everything the settled listing read.
+        if len(listing.page) >= PER_PAGE:
+            floors.append(min(row["created_at"] for row in listing.page))
+        for row in listing.rows:
             red[int(row["id"])] = row
 
     closures: dict[str, str | None] = {}
@@ -150,12 +166,13 @@ def main(argv: list[str] | None = None) -> int:
     github_cli.dump(
         {
             "branch": branch,
-            # The newest floor among the truncated listings: coverage stops
-            # at the first conclusion that ran out of page. An untruncated
+            # The newest floor among the truncated listings. An untruncated
             # listing returned its whole history, so it constrains nothing, and
             # null means none was truncated.
             "reached_back_to": max(floors, default=None),
-            "paths_closed_by_later_green": {
+            # The closure evidence, not a closed set: a green older than a
+            # path's red rows closes none of them, and those rows are in `live`.
+            "latest_green_by_path": {
                 path: green for path, green in sorted(closures.items()) if green
             },
             "live": live,
