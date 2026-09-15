@@ -36,6 +36,13 @@ MAX_READS = 4
 # and its oldest row is as far back as the sweep saw that conclusion.
 PER_PAGE = 50
 
+# Runs GitHub generates rather than running from a committed file.
+GENERATED_PREFIX = "dynamic/"
+
+# The repo-wide green listing closes the generated runs. It is read as one page:
+# a generated run that has not passed within it keeps the closure it had, none.
+GREEN_PAGE = 100
+
 FIELDS = ("id", "name", "path", "event", "conclusion", "created_at")
 
 
@@ -104,9 +111,9 @@ def latest_green(
     failure -- so the caller names the URL rather than publishing the sweep as
     complete.
 
-    `dynamic/dependabot/...` paths are generated rather than committed, so the
-    per-workflow endpoint 404s on them; those rows have no closure and stay
-    live. A 404 is a settled answer: there is no listing to converge.
+    A 404 -- the workflow file is gone from the branch -- is a settled answer:
+    there is no listing to converge. Generated runs never reach here; they close
+    against `generated_greens` instead.
     """
     try:
         listing = converged_read(green_url(repo, branch, path), quiet=True)
@@ -117,6 +124,36 @@ def latest_green(
     rows = listing.rows
     green = max(rows, key=lambda row: row["created_at"]) if rows else None
     return green, listing.converged
+
+
+def generated_green_url(repo: str, branch: str) -> str:
+    """The closure listing for the runs that have no workflow file."""
+    return (
+        f"repos/{repo}/actions/runs"
+        f"?branch={branch}&status=success&per_page={GREEN_PAGE}"
+    )
+
+
+def generated_greens(repo: str, branch: str) -> tuple[dict[tuple[str, str], str], bool]:
+    """The newest green run per `(path, name)` among the generated runs.
+
+    A `dynamic/...` run is generated rather than run from a committed file, so
+    the per-workflow endpoint 404s on it and the repo-wide listing is the only
+    place its greens appear. `(path, name)` is the subject a later run repeats:
+    a code-scanning analysis carries the same name on every push, so a passing
+    one closes a failed one, while each Dependabot update's name carries a
+    one-off id that never recurs -- which is why those rows close through a fix
+    PR or a tracker and not here.
+    """
+    listing = converged_read(generated_green_url(repo, branch), quiet=True)
+    newest: dict[tuple[str, str], str] = {}
+    for row in listing.rows:
+        if not row["path"].startswith(GENERATED_PREFIX):
+            continue
+        subject = (row["path"], row["name"])
+        if row["created_at"] > newest.get(subject, ""):
+            newest[subject] = row["created_at"]
+    return newest, listing.converged
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -149,19 +186,35 @@ def main(argv: list[str] | None = None) -> int:
         for row in listing.rows:
             red[int(row["id"])] = row
 
-    closures: dict[str, str | None] = {}
+    # Keyed by `(path, name)`: one committed file answers under one workflow
+    # name, while one generated path answers under a name per subject.
+    closures: dict[tuple[str, str], str | None] = {}
+    generated: dict[tuple[str, str], str] | None = None
     live: list[dict[str, Any]] = []
     for row in sorted(red.values(), key=lambda row: row["created_at"], reverse=True):
-        path = row["path"]
-        if path not in closures:
-            green, converged = latest_green(repo, branch, path)
-            if not converged:
-                unconverged.append(green_url(repo, branch, path))
-            closures[path] = green["created_at"] if green else None
-        closed_at = closures[path]
+        subject = (row["path"], row["name"])
+        if subject not in closures:
+            if row["path"].startswith(GENERATED_PREFIX):
+                if generated is None:
+                    generated, converged = generated_greens(repo, branch)
+                    if not converged:
+                        unconverged.append(generated_green_url(repo, branch))
+                closures[subject] = generated.get(subject)
+            else:
+                green, converged = latest_green(repo, branch, row["path"])
+                if not converged:
+                    unconverged.append(green_url(repo, branch, row["path"]))
+                closures[subject] = green["created_at"] if green else None
+        closed_at = closures[subject]
         if closed_at and closed_at > row["created_at"]:
             continue
         live.append(row)
+
+    # Published per path: the newest green any of that path's subjects closed on.
+    green_by_path: dict[str, str] = {}
+    for (path, _), green in closures.items():
+        if green and green > green_by_path.get(path, ""):
+            green_by_path[path] = green
 
     github_cli.dump(
         {
@@ -172,9 +225,7 @@ def main(argv: list[str] | None = None) -> int:
             "reached_back_to": max(floors, default=None),
             # The closure evidence, not a closed set: a green older than a
             # path's red rows closes none of them, and those rows are in `live`.
-            "latest_green_by_path": {
-                path: green for path, green in sorted(closures.items()) if green
-            },
+            "latest_green_by_path": dict(sorted(green_by_path.items())),
             "live": live,
             "unconverged_listings": unconverged,
         }

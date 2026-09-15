@@ -26,6 +26,7 @@ SCRIPT = (
 )
 CI = ".github/workflows/ci.yaml"
 DEPENDABOT = "dynamic/dependabot/dependabot-updates"
+CODE_SCANNING = "dynamic/github-code-scanning/codeql"
 # red_default_branch_runs.PER_PAGE: a listing this long is truncated, and a
 # shorter one returned everything there is.
 PER_PAGE = 50
@@ -70,10 +71,10 @@ esac
 )
 
 
-def _red(rid: int, created_at: str, *, path: str = CI) -> dict:
+def _red(rid: int, created_at: str, *, path: str = CI, name: str = "ci") -> dict:
     return {
         "id": rid,
-        "name": "ci",
+        "name": name,
         "path": path,
         "event": "push",
         "conclusion": "failure",
@@ -128,6 +129,19 @@ def _green(
             }
         )
     )
+
+
+def _green_run(rid: int, created_at: str, *, path: str, name: str) -> dict:
+    """A row of the repo-wide `status=success` listing."""
+    return {
+        "id": rid,
+        "name": name,
+        "path": path,
+        "event": "dynamic",
+        "conclusion": "success",
+        "created_at": created_at,
+        "html_url": f"https://github.com/owner/repo/actions/runs/{rid}",
+    }
 
 
 def _sweep(env: dict[str, str]) -> dict:
@@ -322,10 +336,116 @@ def test_a_later_green_closes_the_path(env: dict[str, str]) -> None:
 
 def test_a_path_with_no_workflow_file_stays_live(env: dict[str, str]) -> None:
     """Dependabot's `dynamic/...` paths are not committed files, so the
-    per-workflow endpoint 404s: those rows have no closure and stay live."""
-    _page(env, "failure", 1, _red(300, "2026-09-01T00:00:00Z", path=DEPENDABOT))
+    per-workflow endpoint 404s. Its updates never repeat a name, so the
+    repo-wide green listing holds nothing that closes them either."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(
+            300,
+            "2026-09-01T00:00:00Z",
+            path=DEPENDABOT,
+            name="uv in /. for tornado - Update #1",
+        ),
+    )
+    _page(
+        env,
+        "success",
+        1,
+        _green_run(
+            301,
+            "2026-09-02T00:00:00Z",
+            path=DEPENDABOT,
+            name="uv in /. for h2 - Update #2",
+        ),
+    )
 
     sweep = _sweep(env)
 
     assert [row["id"] for row in sweep["live"]] == [300]
     assert sweep["latest_green_by_path"] == {}
+
+
+def test_a_later_green_closes_a_generated_run_of_the_same_name(
+    env: dict[str, str],
+) -> None:
+    """Code scanning carries the same name on every push, so a passing analysis
+    closes a failed one — but the per-workflow endpoint 404s on its generated
+    path, so only the repo-wide green listing can say so."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(400, "2026-09-13T17:20:53Z", path=CODE_SCANNING, name="Push on main"),
+    )
+    _page(
+        env,
+        "success",
+        1,
+        _green_run(
+            401, "2026-09-13T17:24:00Z", path=CODE_SCANNING, name="Push on main"
+        ),
+    )
+
+    sweep = _sweep(env)
+
+    assert sweep["live"] == []
+    assert sweep["latest_green_by_path"] == {CODE_SCANNING: "2026-09-13T17:24:00Z"}
+
+
+def test_a_generated_green_older_than_the_failure_closes_nothing(
+    env: dict[str, str],
+) -> None:
+    """The closure is `newer than the red row`, not `exists`: the same analysis
+    passing before it failed leaves the failure standing."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(410, "2026-09-13T17:20:53Z", path=CODE_SCANNING, name="Push on main"),
+    )
+    _page(
+        env,
+        "success",
+        1,
+        _green_run(
+            411, "2026-09-12T00:00:00Z", path=CODE_SCANNING, name="Push on main"
+        ),
+    )
+
+    sweep = _sweep(env)
+
+    assert [row["id"] for row in sweep["live"]] == [410]
+
+
+def test_an_unsettled_generated_green_listing_is_reported_as_such(
+    env: dict[str, str],
+) -> None:
+    """A moving green listing can serve a page without the passing analysis in
+    it, which reports a fixed path as still red — the same over-claim the red
+    listing's convergence loop exists to prevent, reached from the other side."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(420, "2026-09-13T17:20:53Z", path=CODE_SCANNING, name="Push on main"),
+    )
+    for read in range(1, 5):
+        _page(
+            env,
+            "success",
+            read,
+            _green_run(
+                430 + read,
+                f"2026-09-1{read}T00:00:00Z",
+                path=CODE_SCANNING,
+                name="Push on main",
+            ),
+        )
+
+    sweep = _sweep(env)
+
+    assert sweep["unconverged_listings"] == [
+        "repos/owner/repo/actions/runs?branch=main&status=success&per_page=100"
+    ]
