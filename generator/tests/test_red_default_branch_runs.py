@@ -555,3 +555,40 @@ def test_a_generated_workflow_with_no_listing_stays_live(
     assert [row["id"] for row in sweep["live"]] == [700]
     assert sweep["latest_green_by_path"] == {}
     assert sweep["unconverged_listings"] == []
+
+
+def test_one_subject_of_a_generated_path_closes_without_closing_the_others(
+    env: dict[str, str],
+) -> None:
+    """`latest_green_by_path` reduces a per-subject closure onto the path, so a
+    generated path's published green can be the one that closed a different
+    name. The row it did not close stays live even though it is older."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(
+            500,
+            "2026-09-13T00:00:00Z",
+            path=CODE_SCANNING,
+            name="Push on main",
+            workflow_id=CODE_SCANNING_ID,
+        ),
+        _red(
+            501,
+            "2026-09-14T00:00:00Z",
+            path=CODE_SCANNING,
+            name="Scheduled",
+            workflow_id=CODE_SCANNING_ID,
+        ),
+    )
+    _generated_green(
+        env, CODE_SCANNING_ID, (502, "Push on main", "2026-09-15T00:00:00Z")
+    )
+
+    sweep = _sweep(env)
+
+    assert [row["id"] for row in sweep["live"]] == [501]
+    # Older than the green published for its own path: the green closed
+    # `Push on main`, and nothing has closed `Scheduled`.
+    assert sweep["latest_green_by_path"] == {CODE_SCANNING: "2026-09-15T00:00:00Z"}
