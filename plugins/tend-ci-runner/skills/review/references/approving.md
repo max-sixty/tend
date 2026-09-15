@@ -1,7 +1,5 @@
 # Approving
 
-Depth behind `/tend-ci-runner:review`'s **Submit** and **Monitor CI** steps: read before an empty-body APPROVE, and after one to handle the CI outcome.
-
 - [Before the APPROVE](#before-the-approve)
 - [After the approval](#after-the-approval)
 
