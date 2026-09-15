@@ -3,6 +3,7 @@
 Depth behind `/tend-ci-runner:running-in-ci`: read before `git push`, before merging the default branch into a PR branch, and before `gh pr close`, a revert, or a force-push.
 
 - [Pushing to PR branches](#pushing-to-pr-branches)
+  - [Review the change before the push](#review-the-change-before-the-push)
 - [Merging upstream into PR branches](#merging-upstream-into-pr-branches)
 - [A terminal action collides with branch state, not comments](#a-terminal-action-collides-with-branch-state-not-comments)
 
@@ -11,6 +12,10 @@ Depth behind `/tend-ci-runner:running-in-ci`: read before `git push`, before mer
 Always use `git push` without specifying a remote — `gh pr checkout` configures tracking to the correct remote, including for fork PRs. Specifying `origin` explicitly can push to the wrong place.
 
 If pushing fails (fork PR with edits disabled), fall back to posting code snippets in a comment. Don't reference commit SHAs from temporary branches — post code inline.
+
+### Review the change before the push
+
+Before the push that opens a PR, and before pushing a fix to a PR under review, review the diff you are about to push, at a depth set by what the change touches and how likely it is to be wrong. A docs, config, or mechanical change gets a read-through. A change to the project's logic, to what it writes on a user's behalf, or to a helper with other call sites gets `/tend-ci-runner:code-review` over the diff and a search for the same pattern elsewhere. Fold what you find into the same push; the queued review is otherwise the first pass over the change, and each round that finds something is another session.
 
 ### Batch the push — every push costs a reviewer round
 

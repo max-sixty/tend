@@ -23,7 +23,7 @@ This file carries the rules every session needs. Guidance tied to an action most
 
 - `references/posting.md` — before composing or posting any comment, review body, inline reply, PR body, or issue body: the pre-post re-fetch, reply endpoints, body files, links, footers.
 - `references/pr-creation.md` — before `gh pr create` or `gh issue create`, and before editing a PR's title or description: the open-PR budget, titles, git identity, the dedup and prior-rejection searches.
-- `references/pushing.md` — before `git push`, a base-branch merge into a PR branch, `gh pr close`, a revert, or a force-push: batching pushes, re-checking PR state and head, branch-state collisions.
+- `references/pushing.md` — before `git push`, a base-branch merge into a PR branch, `gh pr close`, a revert, or a force-push: the pre-push review, batching pushes, re-checking PR state and head, branch-state collisions.
 - `references/ci-monitoring.md` — after any push: the pinned poll, a review that lands mid-poll, rerunning failed jobs.
 - `references/dismissing-approval.md` — when you conclude a PR the bot approved should not merge.
 - `references/directives.md` — when a request asks you to close, reopen, lock, label, or revert someone else's work, dismiss a review, or push to a PR owned by another author: the access tiers that authorize it.
