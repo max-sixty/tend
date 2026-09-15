@@ -151,8 +151,18 @@ def generated_greens(
     failed one, while each Dependabot update's name carries a one-off id that
     never recurs -- which is why those rows close through a fix PR or a tracker
     and not here.
+
+    A 404 is a settled answer here as it is for a committed file that has left
+    the branch: the id no longer resolves, so there is no listing to converge
+    and the rows under it have no closure.
     """
-    listing = converged_read(generated_green_url(repo, branch, workflow_id), quiet=True)
+    url = generated_green_url(repo, branch, workflow_id)
+    try:
+        listing = converged_read(url, quiet=True)
+    except subprocess.CalledProcessError as error:
+        if "HTTP 404" in (error.stderr or ""):
+            return {}, True
+        raise
     newest: dict[str, str] = {}
     for row in listing.rows:
         if row["created_at"] > newest.get(row["name"], ""):
@@ -190,15 +200,18 @@ def main(argv: list[str] | None = None) -> int:
         for row in listing.rows:
             red[int(row["id"])] = row
 
-    # Keyed by `(path, name)`: one committed file answers under one workflow
-    # name, while one generated path answers under a name per subject.
+    # One generated path answers under a name per subject, so its closure is
+    # keyed by both. A committed file answers under its path alone: `run-name:`
+    # and a rename both move a run's `name` without changing which listing
+    # closes it, so keying those by name too would re-read one URL per name.
     closures: dict[tuple[str, str], str | None] = {}
     generated: dict[int, dict[str, str]] = {}
     live: list[dict[str, Any]] = []
     for row in sorted(red.values(), key=lambda row: row["created_at"], reverse=True):
-        subject = (row["path"], row["name"])
+        is_generated = row["path"].startswith(GENERATED_PREFIX)
+        subject = (row["path"], row["name"] if is_generated else "")
         if subject not in closures:
-            if row["path"].startswith(GENERATED_PREFIX):
+            if is_generated:
                 workflow_id = row["workflow_id"]
                 if workflow_id not in generated:
                     greens, converged = generated_greens(repo, branch, workflow_id)

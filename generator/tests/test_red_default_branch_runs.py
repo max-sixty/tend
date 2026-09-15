@@ -500,3 +500,58 @@ def test_an_unsettled_generated_green_listing_is_reported_as_such(
             "?branch=main&status=success&per_page=100"
         )
     ]
+
+
+def test_a_committed_path_is_read_once_whatever_its_runs_are_named(
+    env: dict[str, str],
+) -> None:
+    """A committed workflow answers under its path: `run-name:` and a rename
+    both move a run's `name`, and the closure listing is the same either way.
+    Keying those rows by name would re-read one URL per name for no new answer.
+    """
+    _page(
+        env,
+        "failure",
+        1,
+        _red(600, "2026-09-01T00:00:00Z", name="continuous integration"),
+        _red(601, "2026-08-01T00:00:00Z", name="ci"),
+    )
+    _green(env, "ci.yaml", "2026-09-02T00:00:00Z")
+
+    sweep = _sweep(env)
+
+    assert sweep["live"] == []
+    assert sweep["latest_green_by_path"] == {CI: "2026-09-02T00:00:00Z"}
+    reads = [
+        line
+        for line in Path(env["GH_CALLS"]).read_text().splitlines()
+        if "/actions/workflows/ci.yaml/runs" in line
+    ]
+    # One `converged_read`: two answers that agree, and no third.
+    assert len(reads) == 2
+
+
+def test_a_generated_workflow_with_no_listing_stays_live(
+    env: dict[str, str],
+) -> None:
+    """A 404 on the id-addressed listing is a settled answer, as it is for a
+    committed file that has left the branch: the rows under it have no closure.
+    Raising instead would lose the whole sweep over one unresolvable id."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(
+            700,
+            "2026-09-13T17:20:53Z",
+            path=CODE_SCANNING,
+            name="Push on main",
+            workflow_id=CODE_SCANNING_ID,
+        ),
+    )
+
+    sweep = _sweep(env)
+
+    assert [row["id"] for row in sweep["live"]] == [700]
+    assert sweep["latest_green_by_path"] == {}
+    assert sweep["unconverged_listings"] == []
