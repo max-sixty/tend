@@ -30,41 +30,39 @@ DEPENDABOT = "dynamic/dependabot/dependabot-updates"
 # shorter one returned everything there is.
 PER_PAGE = 50
 
-# Reads of the same URL are answered from `$RUNS_DIR/<status>-<n>.json`, one
+# Reads of the same URL are answered from `$RUNS_DIR/<prefix>-<n>.json`, one
 # file per read, falling back to the newest staged file once the reads outrun
 # them — so a single staged page is a consistent endpoint and several are a
-# moving one.
+# moving one. Both listings the script reads work this way: the red rows under
+# the conclusion's name, the closure read under `green-<workflow>`.
 FAKE_GH = (
     GH_PREAMBLE
     + r"""
+serve() {
+  counter="$RUNS_DIR/count-$1"
+  n=$(( $(cat "$counter" 2>/dev/null || echo 0) + 1 ))
+  printf '%s' "$n" > "$counter"
+  i="$n"
+  while [ "$i" -ge 1 ]; do
+    if [ -f "$RUNS_DIR/$1-$i.json" ]; then emit "$(cat "$RUNS_DIR/$1-$i.json")"; return 0; fi
+    i=$(( i - 1 ))
+  done
+  return 1
+}
+
 case "$*" in
   "repo view"*) emit '{"defaultBranchRef": {"name": "main"}}' ;;
   *"/actions/runs?"*)
     args="$*"
     status="${args#*status=}"
     status="${status%%&*}"
-    counter="$RUNS_DIR/count-$status"
-    n=$(( $(cat "$counter" 2>/dev/null || echo 0) + 1 ))
-    printf '%s' "$n" > "$counter"
-    file=""
-    i="$n"
-    while [ "$i" -ge 1 ]; do
-      if [ -f "$RUNS_DIR/$status-$i.json" ]; then file="$RUNS_DIR/$status-$i.json"; break; fi
-      i=$(( i - 1 ))
-    done
-    if [ -n "$file" ]; then emit "$(cat "$file")"; else emit '{"workflow_runs": []}'; fi
+    serve "$status" || emit '{"workflow_runs": []}'
     ;;
   *"/actions/workflows/"*)
     args="$*"
     workflow="${args#*/actions/workflows/}"
     workflow="${workflow%%/runs*}"
-    file="$RUNS_DIR/green-$workflow.json"
-    if [ -f "$file" ]; then
-      emit "$(cat "$file")"
-    else
-      echo "gh: Not Found (HTTP 404)" >&2
-      exit 1
-    fi
+    serve "green-$workflow" || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
     ;;
   *) exit 1 ;;
 esac
@@ -104,14 +102,22 @@ def _page(env: dict[str, str], status: str, read: int, *runs: dict) -> None:
     path.write_text(json.dumps({"workflow_runs": list(runs), "total_count": len(runs)}))
 
 
-def _green(env: dict[str, str], workflow: str, created_at: str) -> None:
-    path = Path(env["RUNS_DIR"]) / f"green-{workflow}.json"
+def _green(
+    env: dict[str, str],
+    workflow: str,
+    created_at: str,
+    *,
+    read: int = 1,
+    rid: int = 1,
+) -> None:
+    """Stage the answer the *read*-th closure read of *workflow* receives."""
+    path = Path(env["RUNS_DIR"]) / f"green-{workflow}-{read}.json"
     path.write_text(
         json.dumps(
             {
                 "workflow_runs": [
                     {
-                        "id": 1,
+                        "id": rid,
                         "name": "ci",
                         "path": f".github/workflows/{workflow}",
                         "event": "push",
@@ -202,6 +208,29 @@ def test_a_listing_that_never_settles_is_reported_as_such(
     ]
     # Everything seen across the capped reads is still reported.
     assert [row["id"] for row in sweep["live"]] == [104, 103, 102, 101]
+
+
+def test_a_closure_listing_that_never_settles_is_reported_as_such(
+    env: dict[str, str],
+) -> None:
+    """The closure read fails the other way round — an older green reported as
+    the latest leaves a fixed path red — so an unsettled one is named too."""
+    _page(env, "failure", 1, _red(100, "2026-09-10T00:00:00Z"))
+    for read in (1, 2, 3, 4):
+        _green(env, "ci.yaml", f"2026-09-0{read}T00:00:00Z", read=read, rid=read)
+
+    sweep = _sweep(env)
+
+    assert sweep["unconverged_listings"] == [
+        (
+            "repos/owner/repo/actions/workflows/ci.yaml/runs"
+            "?branch=main&status=success&per_page=1"
+        )
+    ]
+    # The newest green seen across the capped reads still closes what it can:
+    # here every one of them predates the red row, so it stays live.
+    assert [row["id"] for row in sweep["live"]] == [100]
+    assert sweep["paths_closed_by_later_green"] == {CI: "2026-09-04T00:00:00Z"}
 
 
 def test_coverage_stops_at_the_listing_that_ran_out_of_page(

@@ -72,24 +72,38 @@ def converged_read(
     return list(seen.values()), False
 
 
-def latest_green(repo: str, branch: str, path: str) -> dict[str, Any] | None:
-    """The newest green run of the workflow file at *path*, or None.
-
-    `dynamic/dependabot/...` paths are generated rather than committed, so the
-    per-workflow endpoint 404s on them; those rows have no closure and stay live.
-    """
+def green_url(repo: str, branch: str, path: str) -> str:
+    """The closure listing for the workflow file at *path*."""
     basename = path.rsplit("/", 1)[-1]
-    url = (
+    return (
         f"repos/{repo}/actions/workflows/{basename}/runs"
         f"?branch={branch}&status=success&per_page=1"
     )
+
+
+def latest_green(
+    repo: str, branch: str, path: str
+) -> tuple[dict[str, Any] | None, bool]:
+    """The newest green run of the workflow file at *path*, and whether the
+    listing settled.
+
+    An unsettled closure listing can serve a green older than the true latest,
+    which reports a fixed path as still red -- the mirror of the red listing's
+    failure -- so the caller names the URL rather than publishing the sweep as
+    complete.
+
+    `dynamic/dependabot/...` paths are generated rather than committed, so the
+    per-workflow endpoint 404s on them; those rows have no closure and stay
+    live. A 404 is a settled answer: there is no listing to converge.
+    """
     try:
-        rows, _ = converged_read(url, quiet=True)
+        rows, converged = converged_read(green_url(repo, branch, path), quiet=True)
     except subprocess.CalledProcessError as error:
         if "HTTP 404" in (error.stderr or ""):
-            return None
+            return None, True
         raise
-    return max(rows, key=lambda row: row["created_at"]) if rows else None
+    green = max(rows, key=lambda row: row["created_at"]) if rows else None
+    return green, converged
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -124,7 +138,9 @@ def main(argv: list[str] | None = None) -> int:
     for row in sorted(red.values(), key=lambda row: row["created_at"], reverse=True):
         path = row["path"]
         if path not in closures:
-            green = latest_green(repo, branch, path)
+            green, converged = latest_green(repo, branch, path)
+            if not converged:
+                unconverged.append(green_url(repo, branch, path))
             closures[path] = green["created_at"] if green else None
         closed_at = closures[path]
         if closed_at and closed_at > row["created_at"]:
