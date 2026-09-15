@@ -39,11 +39,12 @@ PER_PAGE = 50
 # Runs GitHub generates rather than running from a committed file.
 GENERATED_PREFIX = "dynamic/"
 
-# The repo-wide green listing closes the generated runs. It is read as one page:
-# a generated run that has not passed within it keeps the closure it had, none.
+# The generated runs' closure listing is read as one page: a subject that has
+# not passed within its own workflow's last this-many greens keeps the closure
+# it had, none.
 GREEN_PAGE = 100
 
-FIELDS = ("id", "name", "path", "event", "conclusion", "created_at")
+FIELDS = ("id", "name", "path", "event", "conclusion", "created_at", "workflow_id")
 
 
 def _rows(response: Any) -> list[dict[str, Any]]:
@@ -126,33 +127,36 @@ def latest_green(
     return green, listing.converged
 
 
-def generated_green_url(repo: str, branch: str) -> str:
-    """The closure listing for the runs that have no workflow file."""
+def generated_green_url(repo: str, branch: str, workflow_id: int) -> str:
+    """The closure listing for a generated workflow, addressed by its id."""
     return (
-        f"repos/{repo}/actions/runs"
+        f"repos/{repo}/actions/workflows/{workflow_id}/runs"
         f"?branch={branch}&status=success&per_page={GREEN_PAGE}"
     )
 
 
-def generated_greens(repo: str, branch: str) -> tuple[dict[tuple[str, str], str], bool]:
-    """The newest green run per `(path, name)` among the generated runs.
+def generated_greens(
+    repo: str, branch: str, workflow_id: int
+) -> tuple[dict[str, str], bool]:
+    """The newest green run per `name` within one generated workflow.
 
-    A `dynamic/...` run is generated rather than run from a committed file, so
-    the per-workflow endpoint 404s on it and the repo-wide listing is the only
-    place its greens appear. `(path, name)` is the subject a later run repeats:
-    a code-scanning analysis carries the same name on every push, so a passing
-    one closes a failed one, while each Dependabot update's name carries a
-    one-off id that never recurs -- which is why those rows close through a fix
-    PR or a tracker and not here.
+    `green_url` addresses the per-workflow endpoint by the path's basename,
+    which 404s for a `dynamic/...` path because it names no committed file. The
+    same endpoint serves these runs when addressed by `workflow_id`, so the
+    page is spent on this workflow's own greens rather than on whatever else
+    ran on the branch.
+
+    The name is what separates the subjects sharing that id: a code-scanning
+    analysis carries the same name on every push, so a passing one closes a
+    failed one, while each Dependabot update's name carries a one-off id that
+    never recurs -- which is why those rows close through a fix PR or a tracker
+    and not here.
     """
-    listing = converged_read(generated_green_url(repo, branch), quiet=True)
-    newest: dict[tuple[str, str], str] = {}
+    listing = converged_read(generated_green_url(repo, branch, workflow_id), quiet=True)
+    newest: dict[str, str] = {}
     for row in listing.rows:
-        if not row["path"].startswith(GENERATED_PREFIX):
-            continue
-        subject = (row["path"], row["name"])
-        if row["created_at"] > newest.get(subject, ""):
-            newest[subject] = row["created_at"]
+        if row["created_at"] > newest.get(row["name"], ""):
+            newest[row["name"]] = row["created_at"]
     return newest, listing.converged
 
 
@@ -189,17 +193,21 @@ def main(argv: list[str] | None = None) -> int:
     # Keyed by `(path, name)`: one committed file answers under one workflow
     # name, while one generated path answers under a name per subject.
     closures: dict[tuple[str, str], str | None] = {}
-    generated: dict[tuple[str, str], str] | None = None
+    generated: dict[int, dict[str, str]] = {}
     live: list[dict[str, Any]] = []
     for row in sorted(red.values(), key=lambda row: row["created_at"], reverse=True):
         subject = (row["path"], row["name"])
         if subject not in closures:
             if row["path"].startswith(GENERATED_PREFIX):
-                if generated is None:
-                    generated, converged = generated_greens(repo, branch)
+                workflow_id = row["workflow_id"]
+                if workflow_id not in generated:
+                    greens, converged = generated_greens(repo, branch, workflow_id)
+                    generated[workflow_id] = greens
                     if not converged:
-                        unconverged.append(generated_green_url(repo, branch))
-                closures[subject] = generated.get(subject)
+                        unconverged.append(
+                            generated_green_url(repo, branch, workflow_id)
+                        )
+                closures[subject] = generated[workflow_id].get(row["name"])
             else:
                 green, converged = latest_green(repo, branch, row["path"])
                 if not converged:
