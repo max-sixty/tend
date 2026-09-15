@@ -446,6 +446,14 @@ def _jobs_for(env: dict[str, str], run_id: str, jobs: dict[str, object]) -> None
     path.write_text(json.dumps(jobs))
 
 
+def _jobs_pages_for(
+    env: dict[str, str], run_id: str, pages: list[dict[str, object]]
+) -> None:
+    """Serve one run's jobs as the page stream ``gh api --paginate`` emits."""
+    path = Path(env["JOBS_JSON"]).with_name(f"jobs-{run_id}.json")
+    path.write_text("".join(json.dumps(page) for page in pages))
+
+
 GREEN_JOBS: dict[str, object] = {
     "jobs": [{"id": 201, "name": "deploy", "conclusion": "success", "run_attempt": 1}]
 }
@@ -484,12 +492,43 @@ def test_an_issue_citing_only_green_runs_posts_nothing(env: dict[str, str]) -> N
     assert "run view" not in Path(env["GH_CALLS"]).read_text()
 
 
-def test_the_jobs_read_asks_for_a_full_page(env: dict[str, str]) -> None:
-    # The green-run guard reads a page with no failed row as a run that never
-    # failed, so a 30-row default would drop a wide matrix's real failure.
+def test_the_jobs_read_walks_every_page(env: dict[str, str]) -> None:
+    # The green-run guard reads rows with no failure among them as a run that
+    # never failed, so a read stopping at one page would drop a wide matrix's
+    # real failure.
     _run(env)
 
-    assert "/jobs?filter=all&per_page=100" in Path(env["GH_CALLS"]).read_text()
+    assert (
+        f"api --paginate repos/owner/repo/actions/runs/{RUN_ID}"
+        "/jobs?filter=all&per_page=100" in Path(env["GH_CALLS"]).read_text()
+    )
+
+
+def test_a_failure_on_a_later_jobs_page_is_enriched(env: dict[str, str]) -> None:
+    # GitHub caps the page at 100 rows while a matrix can create far more, so
+    # the failed row routinely sits behind the first page.
+    _jobs_pages_for(
+        env,
+        RUN_ID,
+        [
+            GREEN_JOBS,
+            {
+                "jobs": [
+                    {
+                        "id": int(JOB_ID),
+                        "name": "tests",
+                        "conclusion": "failure",
+                        "run_attempt": 1,
+                    }
+                ]
+            },
+        ],
+    )
+
+    body = _run(env)
+
+    assert "assertion failed" in body
+    assert f"<!-- enriched-run:{RUN_ID} -->" in body
 
 
 def test_an_unreadable_jobs_response_is_not_read_as_green(

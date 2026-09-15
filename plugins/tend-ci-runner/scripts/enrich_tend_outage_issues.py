@@ -85,20 +85,21 @@ def run_jobs(repo: str, run_id: str) -> list[dict[str, Any]]:
     ``latest`` view with no failed job at all — so the attempt carrying the
     diagnosis is exactly the one that view drops.
 
-    The response is one page, which GitHub would otherwise cap at 30 rows.
     ``failure_details`` reads rows with no failure among them as a run that
-    never failed, so a truncated page drops a wide matrix — or a narrow one
-    whose attempts stack past the cap — with no section and no marker.
+    never failed, so every page has to be read: a wide matrix — or a narrow one
+    whose attempts stack past a page — would otherwise be dropped with no
+    section and no marker because its failed row sat past the cap.
     """
     try:
-        response = github_cli.json_call(
+        pages = github_cli.json_stream(
             "api",
+            "--paginate",
             f"repos/{repo}/actions/runs/{run_id}/jobs?filter=all&per_page=100",
             quiet=True,
         )
     except (subprocess.CalledProcessError, ValueError):
         return []
-    return response.get("jobs", [])
+    return [job for page in pages for job in page.get("jobs", [])]
 
 
 def failed_attempt(jobs: list[dict[str, Any]]) -> int | None:
