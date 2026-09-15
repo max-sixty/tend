@@ -231,7 +231,8 @@ def main(argv: list[str] | None = None) -> int:
             continue
         live.append(row)
 
-    # Published per path: the newest green any of that path's subjects closed on.
+    # Published per path: the newest green read for any of its red subjects,
+    # whether or not it closed one.
     green_by_path: dict[str, str] = {}
     for (path, _), green in closures.items():
         if green and green > green_by_path.get(path, ""):
