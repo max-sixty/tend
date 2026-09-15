@@ -594,6 +594,58 @@ def test_a_fail_fast_matrix_reports_only_the_job_that_failed(
     assert "#### py-3.13" in body
 
 
+def test_a_cancelled_matrix_reports_its_annotation_once(env: dict[str, str]) -> None:
+    # A run-level cancellation annotates every job with the same message, so a
+    # section per job repeats one diagnosis until it fills the run's byte
+    # budget and crowds the other runs into a later batch.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {
+            "jobs": [
+                {"id": 400 + i, "name": f"Analyze ({i})", "conclusion": "cancelled"}
+                for i in range(4)
+            ]
+        },
+    )
+    Path(env["ANNOTATIONS_JSON"]).write_text(
+        json.dumps(
+            [
+                {
+                    "annotation_level": "failure",
+                    "message": "The run was canceled by @github-advanced-security[bot].",
+                }
+            ]
+        )
+    )
+
+    body = _run(env)
+
+    assert body.count("The run was canceled") == 1
+
+
+def test_a_timed_out_job_survives_its_cancelled_siblings(env: dict[str, str]) -> None:
+    # A timeout cancels the rest of the run, so the job that exceeded the limit
+    # sits among cancelled siblings and is the only one whose annotation names
+    # it — keeping one row per conclusion keeps that job.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {
+            "jobs": [
+                {"id": 401, "name": "py-3.12", "conclusion": "cancelled"},
+                {"id": 402, "name": "py-3.13", "conclusion": "cancelled"},
+                {"id": int(JOB_ID), "name": "py-3.14", "conclusion": "timed_out"},
+            ]
+        },
+    )
+
+    body = _run(env)
+
+    assert "#### py-3.14" in body
+    assert "#### py-3.12" not in body
+
+
 def test_a_run_whose_attempts_are_still_going_is_left_unmarked(
     env: dict[str, str],
 ) -> None:

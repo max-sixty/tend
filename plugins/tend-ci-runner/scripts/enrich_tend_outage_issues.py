@@ -129,9 +129,22 @@ def annotated_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     run that was only cancelled or timed out has no failed job and no
     ``--log-failed`` output at all, so its annotation — naming the cancelling
     request or the exceeded limit — is the only diagnosis there is.
+
+    Cancellation and timeout are run-level events that annotate every job the
+    same way, so one job per conclusion carries that diagnosis and the rest
+    repeat it — enough repetition to fill ``MAX_RUN_BYTES`` on a wide matrix.
+    Both conclusions are kept because a timeout cancels its siblings, and the
+    job that exceeded the limit is the one naming it.
     """
     failed = [job for job in jobs if job.get("conclusion") == "failure"]
-    return failed or [job for job in jobs if job.get("conclusion") in UNSUCCESSFUL]
+    if failed:
+        return failed
+    by_conclusion = {
+        job.get("conclusion"): job
+        for job in jobs
+        if job.get("conclusion") in UNSUCCESSFUL
+    }
+    return list(by_conclusion.values())
 
 
 def annotation_details(repo: str, jobs: list[dict[str, Any]]) -> list[str]:
