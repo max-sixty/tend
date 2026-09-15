@@ -60,7 +60,11 @@ case "$*" in
     override="$(dirname "$JOBS_JSON")/jobs-$run_id.json"
     if [ -f "$override" ]; then emit "$(cat "$override")"; else emit "$(cat "$JOBS_JSON")"; fi
     ;;
-  *"/annotations"*) emit "$(cat "$ANNOTATIONS_JSON")" ;;
+  *"/annotations"*)
+    job_id=$(printf '%s' "$*" | sed -n 's|.*/check-runs/\([0-9]*\)/annotations.*|\1|p')
+    override="$(dirname "$ANNOTATIONS_JSON")/annotations-$job_id.json"
+    if [ -f "$override" ]; then emit "$(cat "$override")"; else emit "$(cat "$ANNOTATIONS_JSON")"; fi
+    ;;
   "run view"*--log-failed*)
     if [ -n "${LOG_FAILS:-}" ]; then exit 1; fi
     case "$*" in
@@ -454,6 +458,19 @@ def _jobs_pages_for(
     path.write_text("".join(json.dumps(page) for page in pages))
 
 
+def _annotations_for(env: dict[str, str], job_id: int, messages: list[str]) -> None:
+    """Serve one job's annotations instead of the shared fixture ones."""
+    path = Path(env["ANNOTATIONS_JSON"]).with_name(f"annotations-{job_id}.json")
+    path.write_text(
+        json.dumps(
+            [
+                {"annotation_level": "failure", "message": message}
+                for message in messages
+            ]
+        )
+    )
+
+
 GREEN_JOBS: dict[str, object] = {
     "jobs": [{"id": 201, "name": "deploy", "conclusion": "success", "run_attempt": 1}]
 }
@@ -627,7 +644,7 @@ def test_a_cancelled_matrix_reports_its_annotation_once(env: dict[str, str]) -> 
 def test_a_timed_out_job_survives_its_cancelled_siblings(env: dict[str, str]) -> None:
     # A timeout cancels the rest of the run, so the job that exceeded the limit
     # sits among cancelled siblings and is the only one whose annotation names
-    # it — keeping one row per conclusion keeps that job.
+    # it. Deduping the repeated cancellation must not take it with them.
     _jobs_for(
         env,
         RUN_ID,
@@ -639,11 +656,48 @@ def test_a_timed_out_job_survives_its_cancelled_siblings(env: dict[str, str]) ->
             ]
         },
     )
+    for job_id in (401, 402):
+        _annotations_for(env, job_id, ["The operation was canceled."])
+    _annotations_for(
+        env,
+        int(JOB_ID),
+        ["The job running on runner ubuntu-24.04 has exceeded the maximum time"],
+    )
 
     body = _run(env)
 
-    assert "#### py-3.14" in body
-    assert "#### py-3.12" not in body
+    assert "has exceeded the maximum time" in body
+    assert body.count("The operation was canceled.") == 1
+
+
+def test_a_cancelled_sibling_carries_a_run_that_never_started(
+    env: dict[str, str],
+) -> None:
+    # A job cancelled before it started carries no annotation at all, so the
+    # run's only diagnosis sits on the sibling that did start. Dropping the
+    # repeated message rather than choosing one job per conclusion is what
+    # keeps that sibling's section — otherwise the run renders the "could not
+    # extract" sentence and takes its durable marker with nothing in it.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {
+            "jobs": [
+                {"id": 501, "name": "lint", "conclusion": "cancelled"},
+                {"id": 502, "name": "test", "conclusion": "cancelled"},
+            ]
+        },
+    )
+    _annotations_for(
+        env, 501, ["Canceling since a higher priority waiting request exists"]
+    )
+    _annotations_for(env, 502, [])
+    Path(env["LOG_TXT"]).write_text("")
+
+    body = _run(env)
+
+    assert "Canceling since a higher priority waiting request exists" in body
+    assert "No failure details could be extracted." not in body
 
 
 def test_a_run_whose_attempts_are_still_going_is_left_unmarked(

@@ -121,38 +121,34 @@ def failed_attempt(jobs: list[dict[str, Any]]) -> int | None:
     )
 
 
-def annotated_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The jobs whose annotations carry this run's diagnosis.
+def annotation_details(repo: str, jobs: list[dict[str, Any]]) -> list[str]:
+    """Render bounded failure annotations for one run.
 
-    The failed ones wherever any failed, so a fail-fast matrix reports its one
-    real error rather than every sibling's ``The operation was canceled.``. A
-    run that was only cancelled or timed out has no failed job and no
-    ``--log-failed`` output at all, so its annotation — naming the cancelling
-    request or the exceeded limit — is the only diagnosis there is.
+    The failed jobs carry the diagnosis wherever any failed, so a fail-fast
+    matrix reports its one real error rather than every sibling's ``The
+    operation was canceled.``. A run that was only cancelled or timed out has
+    no failed job and no ``--log-failed`` output at all, so its annotation —
+    naming the cancelling request or the exceeded limit — is the only
+    diagnosis there is.
 
     Cancellation and timeout are run-level events that annotate every job the
-    same way, so one job per conclusion carries that diagnosis and the rest
-    repeat it — enough repetition to fill ``MAX_RUN_BYTES`` on a wide matrix.
-    Both conclusions are kept because a timeout cancels its siblings, and the
-    job that exceeded the limit is the one naming it.
+    same way, so those runs render each distinct message once rather than once
+    per job, which would fill ``MAX_RUN_BYTES`` on a wide matrix. The repeat is
+    dropped here, on the rendered message, rather than by choosing one job per
+    conclusion up front: a job cancelled before it started carries no
+    annotation at all, so the run's only diagnosis can sit on a sibling, and a
+    distinct message — the timeout naming the exceeded limit among its
+    cancelled siblings — is never the one dropped.
     """
     failed = [job for job in jobs if job.get("conclusion") == "failure"]
-    if failed:
-        return failed
-    by_conclusion = {
-        job.get("conclusion"): job
-        for job in jobs
-        if job.get("conclusion") in UNSUCCESSFUL
-    }
-    return list(by_conclusion.values())
-
-
-def annotation_details(repo: str, jobs: list[dict[str, Any]]) -> list[str]:
-    """Render bounded failure annotations for one run."""
+    candidates = failed or [
+        job for job in jobs if job.get("conclusion") in UNSUCCESSFUL
+    ]
     label_attempt = len({job.get("run_attempt") or 1 for job in jobs}) > 1
     details: list[str] = []
+    seen: set[str] = set()
     rendered_bytes = 0
-    for job in annotated_jobs(jobs):
+    for job in candidates:
         if rendered_bytes > MAX_RUN_BYTES:
             details.append(OMITTED_JOBS)
             break
@@ -169,11 +165,16 @@ def annotation_details(repo: str, jobs: list[dict[str, Any]]) -> list[str]:
             and not (annotation.get("message") or "").startswith("Process completed")
         ]
         messages = [message for message in messages if message]
-        if messages:
-            heading = job_heading(job, label_attempt)
-            detail = f"#### {heading}\n\n{fenced(bounded_message(messages))}"
-            details.append(detail)
-            rendered_bytes += len(detail.encode())
+        if not messages:
+            continue
+        message = bounded_message(messages)
+        if not failed and message in seen:
+            continue
+        seen.add(message)
+        heading = job_heading(job, label_attempt)
+        detail = f"#### {heading}\n\n{fenced(message)}"
+        details.append(detail)
+        rendered_bytes += len(detail.encode())
     return details
 
 
