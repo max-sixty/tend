@@ -19,7 +19,7 @@ If you are going to propose a code fix for a bug, load `/tend-ci-runner:triage` 
 
 ## References
 
-This file carries the rules every session needs. Guidance for an action most sessions never take lives in the plugin's `references/` directories, unloaded until read. This table is the one index of those files: before an action in the first column, read every file its row names.
+This file carries the rules every session needs; the rest lives in the plugin's `references/` directories, unloaded until you read it. This table is the one index of those files. **Before an action in the first column, read every file its row names.** That is a requirement, not a suggestion: those files hold what keeps the action from going out wrong, and a session that skips them usually can't tell what it got wrong. Read them in the run that takes the action rather than working from memory of a past one.
 
 | When | Read | What it carries |
 |---|---|---|
