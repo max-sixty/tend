@@ -121,14 +121,25 @@ def failed_attempt(jobs: list[dict[str, Any]]) -> int | None:
     )
 
 
+def annotated_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The jobs whose annotations carry this run's diagnosis.
+
+    The failed ones wherever any failed, so a fail-fast matrix reports its one
+    real error rather than every sibling's ``The operation was canceled.``. A
+    run that was only cancelled or timed out has no failed job and no
+    ``--log-failed`` output at all, so its annotation — naming the cancelling
+    request or the exceeded limit — is the only diagnosis there is.
+    """
+    failed = [job for job in jobs if job.get("conclusion") == "failure"]
+    return failed or [job for job in jobs if job.get("conclusion") in UNSUCCESSFUL]
+
+
 def annotation_details(repo: str, jobs: list[dict[str, Any]]) -> list[str]:
     """Render bounded failure annotations for one run."""
     label_attempt = len({job.get("run_attempt") or 1 for job in jobs}) > 1
     details: list[str] = []
     rendered_bytes = 0
-    for job in jobs:
-        if job.get("conclusion") != "failure":
-            continue
+    for job in annotated_jobs(jobs):
         if rendered_bytes > MAX_RUN_BYTES:
             details.append(OMITTED_JOBS)
             break

@@ -549,10 +549,49 @@ def test_a_cancelled_run_is_still_enriched(env: dict[str, str]) -> None:
             ]
         },
     )
+    # `gh run view --log-failed` selects failed steps, and a cancelled job has
+    # none, so the real CLI returns nothing here: the annotation naming the
+    # cancelling request is the whole diagnosis.
+    Path(env["LOG_TXT"]).write_text("")
+    Path(env["ANNOTATIONS_JSON"]).write_text(
+        json.dumps(
+            [
+                {
+                    "annotation_level": "failure",
+                    "message": "Canceling since a higher priority request exists",
+                }
+            ]
+        )
+    )
 
     body = _run(env)
 
+    assert "Canceling since a higher priority request exists" in body
+    assert "No failure details could be extracted." not in body
     assert f"<!-- enriched-run:{RUN_ID} -->" in body
+
+
+def test_a_fail_fast_matrix_reports_only_the_job_that_failed(
+    env: dict[str, str],
+) -> None:
+    # Fail-fast cancels the failed job's siblings, and each cancelled row
+    # annotates "The operation was canceled." Reporting those alongside the one
+    # real error buries it and spends the run's byte budget on noise.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {
+            "jobs": [
+                {"id": 301, "name": "py-3.12", "conclusion": "cancelled"},
+                {"id": int(JOB_ID), "name": "py-3.13", "conclusion": "failure"},
+            ]
+        },
+    )
+
+    body = _run(env)
+
+    assert "#### py-3.12" not in body
+    assert "#### py-3.13" in body
 
 
 def test_a_run_whose_attempts_are_still_going_is_left_unmarked(
