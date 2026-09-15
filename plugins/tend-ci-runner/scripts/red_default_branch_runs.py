@@ -51,7 +51,7 @@ def _rows(response: Any) -> list[dict[str, Any]]:
 
 
 class Listing(NamedTuple):
-    """One URL's answer: every row seen, the page that settled, whether it did.
+    """One URL's answer: every row seen, the last page read, whether it settled.
 
     `rows` unions the reads so a row a later answer stopped returning is not
     lost. `page` is the last answer alone -- the single page `per_page` bounded,
