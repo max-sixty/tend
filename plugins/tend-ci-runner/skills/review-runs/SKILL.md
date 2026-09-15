@@ -13,7 +13,7 @@ This skill runs **in the adopter repo**, not in tend. Improvements target `.clau
 
 ## First steps
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, PR/comment formatting (line wrapping, heredoc hazards), and polling conventions. This skill opens PRs and issue comments, so those rules apply.
+Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments, so those rules apply.
 
 ```bash
 ls .claude/skills/

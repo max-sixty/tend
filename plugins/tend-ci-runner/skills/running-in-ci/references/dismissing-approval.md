@@ -1,7 +1,5 @@
 # Dismissing a standing bot approval
 
-Depth behind `/tend-ci-runner:running-in-ci`: read when you conclude that a PR the bot approved should not merge.
-
 - [Dismiss a standing bot approval the moment you conclude the PR shouldn't merge](#dismiss-a-standing-bot-approval-the-moment-you-conclude-the-pr-shouldnt-merge)
 
 ## Dismiss a standing bot approval the moment you conclude the PR shouldn't merge

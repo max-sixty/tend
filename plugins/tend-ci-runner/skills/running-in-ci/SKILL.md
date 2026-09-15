@@ -19,18 +19,24 @@ If you are going to propose a code fix for a bug, load `/tend-ci-runner:triage` 
 
 ## References
 
-This file carries the rules every session needs. Guidance tied to an action most sessions never take lives in `references/`, unloaded until read. Read the file for an action before taking it:
+This file carries the rules every session needs; the rest lives in the plugin's `references/` directories, unloaded until you read it. This table is the one index of those files. **Before an action in the first column, read every file its row names.** That is a requirement, not a suggestion: those files hold what keeps the action from going out wrong, and a session that skips them usually can't tell what it got wrong. Read them in the run that takes the action rather than working from memory of a past one.
 
-- `references/posting.md` — before composing or posting any comment, review body, inline reply, PR body, or issue body: the pre-post re-fetch, reply endpoints, body files, links, footers.
-- `references/pr-creation.md` — before `gh pr create` or `gh issue create`, and before editing a PR's title or description: the open-PR budget, titles, git identity, the dedup and prior-rejection searches.
-- `references/pushing.md` — before `git push`, a base-branch merge into a PR branch, `gh pr close`, a revert, or a force-push: batching pushes, re-checking PR state and head, branch-state collisions.
-- `references/ci-monitoring.md` — after any push: the pinned poll, a review that lands mid-poll, rerunning failed jobs.
-- `references/dismissing-approval.md` — when you conclude a PR the bot approved should not merge.
-- `references/directives.md` — when a request asks you to close, reopen, lock, label, or revert someone else's work, dismiss a review, or push to a PR owned by another author: the access tiers that authorize it.
-- `references/session-logs.md` — to diagnose another run, or to recall a prior run's reasoning on this thread.
-- `references/other-repos.md` — before filing or commenting in a repo other than this one.
-- `references/grounded-analysis.md` — before a public claim about a tool's behavior, an incident, or code you did not run.
-- `references/skill-pr-workflow.md` — when a maintainer's correction should become durable guidance.
+| When | Read | What it carries |
+|---|---|---|
+| Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | the pre-post re-fetch, reply endpoints, body files, line wrapping, links and the link checker, fenced bodies, no footers |
+| Before `gh pr create` or `gh issue create`, or editing a PR's title or description | `references/pr-creation.md` and `references/posting.md` | the open-PR budget, titles, git identity, the dedup and prior-rejection searches, keeping a description current |
+| Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | batching pushes, re-checking PR state and head, branch-state collisions |
+| After any push you are accountable for | `references/ci-monitoring.md` | the pinned poll, a review that lands mid-poll, rerunning failed jobs |
+| When a request directs you at someone else's work: close, reopen, lock, label, revert, dismiss a review, or push to another author's PR | `references/directives.md` | the access tiers that authorize it |
+| When you conclude a PR the bot approved should not merge | `references/dismissing-approval.md` | dismissing the standing approval |
+| Before filing or commenting in a repo other than this one | `references/other-repos.md` and `references/posting.md` | the overlay exception for agent-equipped targets, what an issue body there must contain, contributing on invitation, a scope rule that blocks the right action |
+| Before a public claim about a tool's behavior, an incident, or code you did not run | `references/grounded-analysis.md` | source evidence for claims, verifying external-tool behavior, recurring hallucination shapes, transient incidents vs. durable bugs, who to ask for a check CI can't run |
+| To diagnose another run, or to recall what a prior run on this thread read and weighed | `references/session-logs.md` | reading other runs' session logs, recalling prior context on this thread |
+| When a maintainer's correction should become durable guidance | `references/skill-pr-workflow.md` | whether to propose, bundled skill vs. `running-tend` overlay, the branch and PR mechanics |
+| Reviewing a PR whose pre-flight reports `is_draft` | `/tend-ci-runner:review`'s `references/draft-mode.md` | the lighter pass, COMMENT only, the hidden draft marker |
+| Submitting a review when the posting preflight prints `delta:` | `/tend-ci-runner:review`'s `references/re-targeting.md` | reviewing a push that landed mid-review, then posting against the new head |
+| Submitting a review that carries findings | `/tend-ci-runner:review`'s `references/inline-suggestions.md` | the payload, multi-line suggestion rules, 422 recovery |
+| Before an APPROVE, and after one while monitoring its CI | `/tend-ci-runner:review`'s `references/approving.md` | the approval check and the CI outcomes |
 
 ## Temporary Files
 
@@ -134,7 +140,7 @@ When a skill's code block needs edge-case handling or grows past a couple of doz
 
 ## Other Repos
 
-Default: don't act in another repo unsolicited. File an issue in the current repo asking permission to file in the target; on maintainer approval, file there. `references/other-repos.md` carries the rest: the standing exception an overlay can grant for agent-equipped targets, what an issue body must contain, when an invitation makes a PR or comment in the target legitimate, and what to do when a scope rule is the only thing between you and the right move.
+Default: don't act in another repo unsolicited. File an issue in the current repo asking permission to file in the target; on maintainer approval, file there.
 
 ## Multi-way Conversations
 
@@ -178,21 +184,15 @@ For example, supporting material may use this shape when it helps the next reade
 </details>
 ```
 
-### Mechanics
-
-`references/posting.md` carries the mechanics — body files and `--body-file`, line wrapping, link rules and the link checker, fenced bodies, no footers or sign-offs. Read it before composing any comment, review, PR, or issue body.
-
 ## Grounded Analysis
 
 CI threads are high-latency, so each outward response must stand alone: give the current conclusion, its consequence, and the next action or decision. Self-contained does not mean publishing the whole investigation.
 
 Read logs, code, and API data before drawing conclusions. Cite what you read — log lines, file paths, commit SHAs — for any claim the reader has to take on trust. Trace causation — if two things co-occur, find the mechanism rather than saying "this may be related." Never claim a failure is "pre-existing" without checking main branch CI history. Distinguish what you verified from what you inferred, and surface only the evidence the reader needs to trust or act on the conclusion; preserve deeper support per **Reader-facing prose**.
 
-`references/grounded-analysis.md` carries the depth: what counts as source evidence for a user-facing claim, how to verify an external tool's behavior and run a skill's own recipes safely, the hallucination shapes that recur (guessed links, silently truncated `gh` lists, unsubstituted placeholders), how to tell an upstream incident from a durable bug before writing a workaround, and who to ask when a check needs hardware CI doesn't have.
-
 ## Learning from Feedback
 
-When a maintainer corrects the bot's behavior during a run — a repo convention, a repeated mistake, a preference the bot should have known — turn the correction into durable guidance per `references/skill-pr-workflow.md`: the bar it has to clear, whether it belongs in tend's bundled skills or in the repo's `running-tend` overlay, and the branch/PR mechanics. Open the PR or issue and exit: don't merge, don't wait, don't ping for review.
+When a maintainer corrects the bot's behavior during a run — a repo convention, a repeated mistake, a preference the bot should have known — turn the correction into durable guidance per `references/skill-pr-workflow.md`. Open the PR or issue and exit: don't merge, don't wait, don't ping for review.
 
 ## Tone
 

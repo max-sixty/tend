@@ -1,7 +1,5 @@
 # Opening a skill PR from CI
 
-Depth behind `/tend-ci-runner:running-in-ci`'s **Learning from Feedback** section: read when a maintainer's correction should become durable guidance.
-
 Turning a maintainer's correction into durable guidance: whether it clears the
 bar, whether it lands upstream in tend or in the consuming repo's
 `.claude/skills/running-tend/SKILL.md`, and the mechanics of proposing it.

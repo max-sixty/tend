@@ -1,7 +1,5 @@
 # Monitoring CI after a push
 
-Depth behind `/tend-ci-runner:running-in-ci`: read after any push you are accountable for.
-
 - [CI Monitoring](#ci-monitoring)
 
 ## CI Monitoring

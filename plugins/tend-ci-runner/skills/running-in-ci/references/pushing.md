@@ -1,7 +1,5 @@
 # Pushing to a PR branch
 
-Depth behind `/tend-ci-runner:running-in-ci`: read before `git push`, before merging the default branch into a PR branch, and before `gh pr close`, a revert, or a force-push.
-
 - [Pushing to PR branches](#pushing-to-pr-branches)
 - [Merging upstream into PR branches](#merging-upstream-into-pr-branches)
 - [A terminal action collides with branch state, not comments](#a-terminal-action-collides-with-branch-state-not-comments)
