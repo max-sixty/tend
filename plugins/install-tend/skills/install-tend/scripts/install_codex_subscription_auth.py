@@ -113,6 +113,12 @@ def _set_secret(repository: str, name: str, value: str) -> None:
 
 
 def _verify_secrets(repository: str, required: set[str]) -> None:
+    # A shell that forces color makes `gh` colorize even a piped `--json`
+    # body, and the ANSI codes land inside what `json.loads` parses.
+    # `CLICOLOR_FORCE=0` is the setting that defeats it: `gh` ranks a forced
+    # value above `NO_COLOR`, so `NO_COLOR` alone loses.
+    env = os.environ.copy()
+    env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
     result = subprocess.run(
         [
             "gh",
@@ -127,6 +133,7 @@ def _verify_secrets(repository: str, required: set[str]) -> None:
         ],
         text=True,
         capture_output=True,
+        env=env,
         check=True,
     )
     names = {item["name"] for item in json.loads(result.stdout)}

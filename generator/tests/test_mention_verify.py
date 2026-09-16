@@ -606,3 +606,17 @@ def test_engagement_survives_a_paginated_lookup(env: dict[str, str]) -> None:
     _write(env, "ISSUE_COMMENTS_JSON", [{"user": {"login": BOT}, "id": 6}])
 
     assert _verdict(env) == ("true", "participation")
+
+
+def test_the_gate_survives_a_colour_forcing_job_environment(
+    env: dict[str, str],
+) -> None:
+    """An adopter whose workflow env carries `CLICOLOR_FORCE=1` — an `env:`
+    override, or a `setup:` step that wrote one into `$GITHUB_ENV` — would
+    otherwise get ANSI codes inside every `gh` body. The dispatch readers
+    catch the decode error and skip, so the mention goes unanswered with
+    nothing but a "not found" line on a green job to say so."""
+    env["CLICOLOR_FORCE"] = "1"
+    _review(env, body=f"@{BOT} please look")
+
+    assert _verdict(env) == ("true", "mention")
