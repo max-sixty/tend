@@ -34,6 +34,12 @@ jobs:
     # any user with read access already wakes `handle` on a same-repo PR.
     # Widening this is a separate decision, and moot while a fork run's token
     # is refused the dispatch POST (403, probed).
+    #
+    # The pause variable is deliberately absent: it gates the jobs that boot
+    # the agent, and this job boots none. `TEND_ENABLED=false` skips
+    # tend-mention's `verify` — and `handle`, which needs it — so a relayed
+    # event reaches nothing. A paused repo still runs this job and still POSTs
+    # the dispatch; both runs then do nothing.
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     # No secrets here. `contents: write` is what the dispatch POST needs, and
