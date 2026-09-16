@@ -380,7 +380,15 @@ def ensure_sandbox_user() -> None:
     log(f"user {SANDBOX} uid={uid}")
 
 
-def configure_global_gitignore() -> None:
+def configure_global_git(*, login: str, bot_id: str) -> None:
+    """Seed the sandbox user's global Git configuration.
+
+    The identity is global rather than local to the checkout because the agent
+    also commits from clones it makes itself, which inherit nothing; without it
+    every commit fails with ``Author identity unknown``. It is the bot's GitHub
+    noreply address, so commits attribute to the account whose token pushes
+    them.
+    """
     git_config = AGENT_HOME / ".config/git"
     ignore = git_config / "ignore"
     sudo("/usr/bin/mkdir", "-p", str(git_config), user=SANDBOX)
@@ -391,20 +399,25 @@ def configure_global_gitignore() -> None:
         input="/.claude/settings.local.json\n",
         capture=True,
     )
-    sudo(
-        "/usr/bin/env",
-        f"HOME={AGENT_HOME}",
-        f"XDG_CONFIG_HOME={AGENT_HOME / '.config'}",
-        "/usr/bin/git",
-        "-C",
-        str(AGENT_HOME),
-        "config",
-        "--global",
-        "core.excludesFile",
-        str(ignore),
-        user=SANDBOX,
-    )
-    log(f"global gitignore at {ignore}")
+    for name, value in (
+        ("core.excludesFile", str(ignore)),
+        ("user.name", login),
+        ("user.email", f"{bot_id}+{login}@users.noreply.github.com"),
+    ):
+        sudo(
+            "/usr/bin/env",
+            f"HOME={AGENT_HOME}",
+            f"XDG_CONFIG_HOME={AGENT_HOME / '.config'}",
+            "/usr/bin/git",
+            "-C",
+            str(AGENT_HOME),
+            "config",
+            "--global",
+            name,
+            value,
+            user=SANDBOX,
+        )
+    log(f"global gitignore at {ignore}; commit identity {login}")
 
 
 def strip_checkout_credentials(paths: Paths) -> bool:
@@ -598,6 +611,10 @@ def main() -> int:
     if not runner_workspace_value or not Path(runner_workspace_value).is_dir():
         return error("GITHUB_WORKSPACE must name the runner checkout")
     runner_workspace = resolved(runner_workspace_value)
+    bot_login = os.environ.get("TEND_BOT_LOGIN", "")
+    bot_id = os.environ.get("TEND_BOT_ID", "")
+    if not bot_login or not bot_id:
+        return error("TEND_BOT_LOGIN and TEND_BOT_ID must name the bot account")
 
     try:
         paths = Paths(
@@ -614,7 +631,7 @@ def main() -> int:
         return error(str(problem))
 
     ensure_sandbox_user()
-    configure_global_gitignore()
+    configure_global_git(login=bot_login, bot_id=bot_id)
     github_only = os.environ.get("TEND_GITHUB_ONLY") == "1"
     if github_only:
         os.environ.pop("TEND_ANTHROPIC_OAUTH_TOKEN", None)

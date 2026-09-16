@@ -1,7 +1,5 @@
 # Opening PRs and issues
 
-Depth behind `/tend-ci-runner:running-in-ci`: read before `gh pr create` or `gh issue create`, and before editing a PR's title or description.
-
 - [Filing issues in this repo](#filing-issues-in-this-repo)
 - [PR creation](#pr-creation)
 - [Atomic PRs](#atomic-prs)
@@ -35,19 +33,6 @@ The titles that fail it read as figures rather than descriptions — a metaphor,
 Describe the current PR for a maintainer deciding whether to merge it. Follow **Reader-facing prose** in `SKILL.md` and synthesize across commits and review rounds.
 
 If an existing PR addresses the same problem, work on that PR instead.
-
-### Configure git identity before the first commit
-
-Runners don't always pre-seed a git identity, and a fresh `git worktree` never inherits one. Without it `git commit` fails with `Author identity unknown`, the branch gets pushed with **no commit**, and `gh pr create` then fails with `No commits between main and <branch>`. Set it once before your first commit — `--global` covers the main checkout and every `$TMPDIR` worktree in one shot, and it's idempotent, so re-running is safe:
-
-```bash
-BOT_LOGIN=$(gh api user --jq '.login')
-BOT_ID=$(gh api user --jq '.id')
-git config --global user.name "$BOT_LOGIN"
-git config --global user.email "${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
-```
-
-The noreply form (`<id>+<login>@users.noreply.github.com`) keeps commits attributed to the bot account and passes `verified`-email push rules.
 
 ### Dedup recheck immediately before `gh pr create`
 

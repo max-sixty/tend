@@ -380,10 +380,13 @@ case "$1:$2" in
     # the pre-check's fixed cutoff so boundary and fresh activity stay unread.
     pages=$(jq -c --arg cutoff "$NOTIF_CUTOFF" \
       '[.[] | select(.updated_at < $cutoff)]' "$NOTIFICATIONS_JSON")
+    # These pages bypass emit(), so they take colorize() directly: real `gh`
+    # paints every page, and a branch that served plain bodies would let the
+    # forced-colour test below pass with the fix reverted.
     if [ "$pages" = "[]" ]; then
-      echo '[]'
+      echo '[]' | colorize
     else
-      printf '%s\n' "$pages" | jq -c '.[] | [.]'
+      printf '%s\n' "$pages" | jq -c '.[] | [.]' | colorize
     fi
     ;;
   api:repos/*/subscription)
@@ -550,6 +553,40 @@ def test_notifications_check_boots_for_unknown_or_conflicting_bot_prs(
     assert "repo:owner/repo author:test-bot is:pr is:open" in calls
     assert "app/dependabot" not in calls
     assert "app/renovate" not in calls
+
+
+def test_notifications_check_survives_a_colour_forcing_job_environment(
+    notifications_env: dict[str, str],
+) -> None:
+    """An adopter whose workflow env carries `CLICOLOR_FORCE=1` — a `env:`
+    override, or a `setup:` step that wrote one into `$GITHUB_ENV` — would
+    otherwise get ANSI codes inside every `gh` body. Both readers catch the
+    decode error and fall back to zero, so the poll skips every cycle with
+    nothing but a `::warning::` on a green job to say so."""
+    notifications_env["CLICOLOR_FORCE"] = "1"
+    _write_json(
+        notifications_env,
+        "NOTIFICATIONS_JSON",
+        [_notif("11", "issues", 7, NOTIF_SETTLED)],
+    )
+    _write_json(
+        notifications_env,
+        "PULLS_JSON",
+        [
+            {
+                "number": 33,
+                "mergeable": "CONFLICTING",
+                "headRefOid": "head-33",
+                "comments": [],
+            }
+        ],
+    )
+
+    result = _run_check(notifications_env)
+
+    assert result.returncode == 0, result.stderr
+    assert _output(notifications_env, "count") == "1"
+    assert _output(notifications_env, "conflict_count") == "1"
 
 
 def test_notifications_check_suppresses_only_the_marked_bot_head(

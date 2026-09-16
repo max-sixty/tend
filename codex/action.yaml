@@ -255,6 +255,10 @@ runs:
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
         TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
         TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
+        # The sandbox's global Git identity, so the agent's commits attribute
+        # to the bot without every session configuring one for itself.
+        TEND_BOT_LOGIN: ${{ steps.bot.outputs.login }}
+        TEND_BOT_ID: ${{ steps.bot.outputs.id }}
       run: |
         set +x
         /usr/bin/env -i \
@@ -278,6 +282,8 @@ runs:
           PYTHONNOUSERSITE=1 \
           TEND_SANDBOX_PATH="$TEND_SANDBOX_PATH" \
           TEND_SANDBOX_ENV="$TEND_SANDBOX_ENV" \
+          TEND_BOT_LOGIN="$TEND_BOT_LOGIN" \
+          TEND_BOT_ID="$TEND_BOT_ID" \
           "${TEND_UV_DIR}/uv" run --no-cache --no-config \
             --no-python-downloads --python /usr/bin/python3 --script \
             "${{ github.action_path }}/../proxy/setup_sandbox.py"

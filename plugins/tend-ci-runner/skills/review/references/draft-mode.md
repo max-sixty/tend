@@ -1,7 +1,5 @@
 # Draft mode
 
-Depth behind `/tend-ci-runner:review`'s **Pre-flight checks** step: read when the preflight reports `is_draft` as true.
-
 ## Lighter review, COMMENT only
 
 If `is_draft` is true, run a lighter review:

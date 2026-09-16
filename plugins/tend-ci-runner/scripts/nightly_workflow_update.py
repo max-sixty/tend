@@ -184,18 +184,6 @@ def _ship() -> int:
         print(f"write the PR body to {body_path} before shipping", file=sys.stderr)
         return 2
 
-    bot = github_cli.json_call("api", "user")
-    login = str(bot["login"])
-    bot_id = str(bot["id"])
-    _run("git", "config", "--global", "user.name", login, cwd=worktree)
-    _run(
-        "git",
-        "config",
-        "--global",
-        "user.email",
-        f"{bot_id}+{login}@users.noreply.github.com",
-        cwd=worktree,
-    )
     _run("git", "add", "-A", ".github", ".config", cwd=worktree)
     _run("git", "commit", "-m", str(state["title"]), cwd=worktree)
     _run("git", "push", "-u", "origin", BRANCH, cwd=worktree)

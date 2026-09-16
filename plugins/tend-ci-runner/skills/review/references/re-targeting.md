@@ -1,8 +1,6 @@
 # Re-targeting after a mid-review push
 
-Depth behind `/tend-ci-runner:review`'s **Submit** step: read when the commandless preflight prints `delta: <path>`. Read that entire delta file, in chunks if it is long, and update the review without dropping the draft marker when one is present.
-
-**A push mid-review re-targets the review.** Everything read so far still holds for the code it was read against, and the delta is the only new information — however many pushes it spans. Read it, then post against the new head:
+**A push mid-review re-targets the review.** Everything read so far still holds for the code it was read against, and the delta is the only new information — however many pushes it spans. Read it in full, in chunks if it is long, then post against the new head, keeping the hidden draft marker if the review carries one:
 
 - Review the delta to the standard **Review** sets — it is new code, and the review you post covers it. A skim is not enough.
 - Run **Second pass** again over the updated merged tree. The second pass must see the delta before **Submit** can post against the new head.

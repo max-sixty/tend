@@ -12,7 +12,7 @@ Analyze tend's CI behavior on the target repo over the window Step 1 returns. Fo
 
 ## First steps
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, PR/comment formatting (line wrapping, heredoc hazards), and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply.
+Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply.
 
 ## Cost discipline: smaller, cheaper models for exploration
 

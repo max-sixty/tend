@@ -27,11 +27,17 @@ query($q: String!) {
 
 
 def _gh(*args: str, quiet: bool = False) -> str:
+    # `gh` colorizes a piped `--json`/`--jq` response when the job's
+    # environment forces color, and the ANSI codes land inside the body
+    # `_json` parses. `CLICOLOR_FORCE=0` is the setting that defeats it:
+    # `gh` ranks a forced value above `NO_COLOR`, so `NO_COLOR` alone loses.
+    env = os.environ.copy()
+    env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
     result = subprocess.run(
         ["gh", *args],
         capture_output=True,
         text=True,
-        env=os.environ.copy(),
+        env=env,
         check=False,
     )
     if result.returncode:

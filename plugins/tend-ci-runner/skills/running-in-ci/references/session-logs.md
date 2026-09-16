@@ -1,7 +1,5 @@
 # Session logs of other runs
 
-Depth behind `/tend-ci-runner:running-in-ci`: read to diagnose another run's behavior, or to recall what a prior run on this thread read and weighed.
-
 - [Investigating other CI runs](#investigating-other-ci-runs)
 - [Recalling prior context on this thread](#recalling-prior-context-on-this-thread)
 

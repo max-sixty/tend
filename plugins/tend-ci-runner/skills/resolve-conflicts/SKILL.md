@@ -60,8 +60,8 @@ PR. Never force-push over a commit from anyone else.
 
 ## Configured-bot PRs
 
-Set the global git identity from `gh api user`, then dispatch one subagent per
-conflicted PR. Give each subagent an isolated `$TMPDIR/pr-<number>` worktree.
+Dispatch one subagent per conflicted PR. Give each subagent an isolated
+`$TMPDIR/pr-<number>` worktree.
 
 For each PR:
 

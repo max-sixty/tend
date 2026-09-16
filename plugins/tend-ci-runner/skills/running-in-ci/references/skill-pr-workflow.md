@@ -1,10 +1,9 @@
 # Opening a skill PR from CI
 
-Depth behind `/tend-ci-runner:running-in-ci`'s **Learning from Feedback** section: read when a maintainer's correction should become durable guidance.
-
 Turning a maintainer's correction into durable guidance: whether it clears the
 bar, whether it lands upstream in tend or in the consuming repo's
-`.claude/skills/running-tend/SKILL.md`, and the mechanics of proposing it.
+`.claude/skills/running-tend/SKILL.md`, what the text carries, and the mechanics
+of proposing it.
 
 ## Whether to propose
 
@@ -57,6 +56,17 @@ writing it locally would be quicker.
 From a consumer repo, upstream means an issue on tend, filed per **Filing
 issues** in `other-repos.md`. Running on tend itself, it means a PR here.
 
+## What the text carries
+
+Guidance text states the rule a future session acts on: the shape to follow and
+the shape to avoid, in a few lines. That holds in a skill, an overlay, or a
+project instruction file such as `CLAUDE.md`, and for text suggested in a
+review as much as text you commit. Leave out how the rule came about — the PRs,
+issues, and runs that exposed the gap, and the maintainer's wording; the PR
+body links that evidence. Cited cases read as the rule's targets and age into
+trivia. A decision settled for one site belongs in a comment at that site,
+where the next session to edit it will read it.
+
 ## Mechanics
 
 For the overlay path, and for an upstream PR on tend itself — with the bundled
@@ -79,11 +89,8 @@ workaround, since bundled skills live under `plugins/` rather than
 
    If one is open, add to it instead of opening a second.
 
-3. **Draft a minimal edit.** State the rule, not the incident that produced
-   it — no verbatim quotes of the maintainer's comment, no reconstruction of
-   the exchange. A few lines of instruction is the target; step 4's PR body
-   is where the case history goes. Place it under an appropriate heading. New
-   SKILL.md files start with YAML frontmatter:
+3. **Draft the edit** per **What the text carries**, under an appropriate
+   heading. New SKILL.md files start with YAML frontmatter:
 
    ```markdown
    ---
@@ -132,10 +139,6 @@ workaround, since bundled skills live under `plugins/` rather than
 
    cd "$TMPDIR/skill-fix"
    git add .claude/skills/
-   # Set git identity first if you haven't already this session — see
-   # "Configure git identity before the first commit" in pr-creation.md. A fresh
-   # worktree has no identity and the commit below fails with `Author
-   # identity unknown`.
    git commit -m "skills(running-tend): ..."
    git push -u origin skills/<topic>-$GITHUB_RUN_ID
    gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head skills/<topic>-$GITHUB_RUN_ID

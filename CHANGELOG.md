@@ -6,6 +6,42 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.2.9
+
+### Improved
+
+- **A session reviews its own change before the push that opens a PR, and before pushing a fix to a PR under review.** A docs, config, or mechanical change gets a read-through. A change to the project's logic, to what it writes on a user's behalf, or to a helper with other call sites gets `/tend-ci-runner:code-review` over the diff and a search for the same pattern elsewhere. The step lives in `running-in-ci`'s `references/pushing.md`, and `triage`, `ci-fix`, and `review`'s push step point at it. ([#1259](https://github.com/max-sixty/tend/pull/1259))
+
+### Fixed
+
+- **Tend's Python `gh` readers set `NO_COLOR=1` and `CLICOLOR_FORCE=0` for the child process**, so an inherited `CLICOLOR_FORCE=1` no longer wraps the JSON in ANSI escapes. Each reader treated the resulting decode error as transient: `tend check` reported a branch as protected without verifying the bot cannot merge its own PRs, the notifications poll reported an empty inbox every cycle, and mentions on review events went unanswered. The generated `tend-notifications` and `tend-mention` workflows carry the change. ([#1254](https://github.com/max-sixty/tend/pull/1254))
+- **The references index in `running-in-ci` names `references/posting.md` alongside `references/pr-creation.md` for `gh pr create` and `gh issue create`**, so PR and issue bodies follow its line-wrapping and link rules. The index is now a table keyed by action that requires reading every file a row names before that action, and it also indexes `review`'s four references. ([#1253](https://github.com/max-sixty/tend/pull/1253))
+
+### Documentation
+
+- The generated `tend-mention-relay.yaml` records why its job has no `TEND_ENABLED` check: the variable gates jobs that boot the agent, the relay boots none, and in a paused repository the `tend-mention` run it dispatches skips its jobs. ([#1258](https://github.com/max-sixty/tend/pull/1258))
+
+## 0.2.8
+
+### Improved
+
+- **Pause tend by setting the `TEND_ENABLED` repository variable to `false`; deleting it resumes.** Every job that can boot the agent checks the variable in its job-level `if:`, so GitHub skips the job before a runner starts, with no commit or regeneration. Set it on the repository or organization, since GitHub evaluates a job's `if:` before the job enters the `tend` environment. ([#1233](https://github.com/max-sixty/tend/pull/1233), [#1231](https://github.com/max-sixty/tend/pull/1231))
+- **Top-level `enabled` is removed.** A config still carrying it fails with an error naming `TEND_ENABLED`, so a repository paused through its config sets the variable before deleting the key. An `if:` override on an agent job replaces the rendered condition, so `init` refuses one that drops the `TEND_ENABLED` check. ([#1233](https://github.com/max-sixty/tend/pull/1233))
+- **A PR review adds one check row, from the new `tend-mention-relay` workflow, in place of three `tend-mention` rows.** The relay that forwards review events to `tend-mention` is generated as its own `tend-mention-relay.yaml`, the only workflow subscribed to `pull_request_review` and `pull_request_review_comment`; on a fork PR its row is skipped. It is generated only while `mention` is enabled, and it takes its overrides from `workflows.mention-relay`. ([#1230](https://github.com/max-sixty/tend/pull/1230))
+
+### Fixed
+
+- **`review-runs` re-reads each listing of red default-branch runs until two consecutive reads agree.** GitHub intermittently serves a stale page of these listings that omits the newest runs. The sweep is now `red_default_branch_runs.py`, which unions up to four reads per listing, reports any listing that never settled, and closes a generated `dynamic/…` run, such as a CodeQL analysis, against a later green run of the same name. ([#1243](https://github.com/max-sixty/tend/pull/1243), [#1245](https://github.com/max-sixty/tend/pull/1245), [#1247](https://github.com/max-sixty/tend/pull/1247))
+- **The notifications poll defers to a dedicated `tend-*` run that is queued or waiting at an environment gate**, as it already did for one in progress, so the poll and a queued `tend-mention` run no longer both act on the same comment. ([#1235](https://github.com/max-sixty/tend/pull/1235))
+- **`resolve-conflicts` merges the base branch as fetched** instead of the PR's `baseRefOid`, which trails the branch and can merge cleanly without reaching the conflict. ([#1232](https://github.com/max-sixty/tend/pull/1232))
+- **Dedup scans in `triage`, `ci-fix`, `review-runs`, and `review-reviewers` pass `--limit 200`**, and their `--state all` PR listings request only `number,title,state`, so the session receives the whole listing instead of a truncated preview. ([#1239](https://github.com/max-sixty/tend/pull/1239))
+- `running-in-ci` says writes land only in `$TMPDIR` and the checkout, and that `/tmp` is read-only ([#1244](https://github.com/max-sixty/tend/pull/1244)); `ci-fix` names the job-level `if:` that skips `tend-outage` issues ([#1238](https://github.com/max-sixty/tend/pull/1238)).
+
+### Internal
+
+- Claude Code moves to 2.1.270, Codex to 0.154.0, Anthropic Sandbox Runtime to 0.0.76, `uv` to 0.12.13, and `setup-uv` to v10.1.0; repo-local pins and the worker's dependencies move with them. ([#1223](https://github.com/max-sixty/tend/pull/1223), [#1228](https://github.com/max-sixty/tend/pull/1228), [#1224](https://github.com/max-sixty/tend/pull/1224), [#1225](https://github.com/max-sixty/tend/pull/1225), [#1226](https://github.com/max-sixty/tend/pull/1226), [#1227](https://github.com/max-sixty/tend/pull/1227), [#1220](https://github.com/max-sixty/tend/pull/1220), [#1229](https://github.com/max-sixty/tend/pull/1229))
+- The weekly pin sweep installs dependencies before running `npm outdated`, which reports nothing without `node_modules`. ([#1221](https://github.com/max-sixty/tend/pull/1221))
+
 ## 0.2.7
 
 ### Improved

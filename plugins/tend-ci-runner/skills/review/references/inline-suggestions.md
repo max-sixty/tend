@@ -1,7 +1,5 @@
 # Inline suggestions
 
-Depth behind `/tend-ci-runner:review`'s **Submit** step: read when the review carries findings with concrete fixes.
-
 - [Posting the payload](#posting-the-payload)
 - [Recovering from inline comment 422 errors](#recovering-from-inline-comment-422-errors)
 

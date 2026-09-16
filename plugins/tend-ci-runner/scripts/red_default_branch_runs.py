@@ -36,7 +36,15 @@ MAX_READS = 4
 # and its oldest row is as far back as the sweep saw that conclusion.
 PER_PAGE = 50
 
-FIELDS = ("id", "name", "path", "event", "conclusion", "created_at")
+# Runs GitHub generates rather than running from a committed file.
+GENERATED_PREFIX = "dynamic/"
+
+# The generated runs' closure listing is read as one page: a subject that has
+# not passed within its own workflow's last this-many greens keeps the closure
+# it had, none.
+GREEN_PAGE = 100
+
+FIELDS = ("id", "name", "path", "event", "conclusion", "created_at", "workflow_id")
 
 
 def _rows(response: Any) -> list[dict[str, Any]]:
@@ -104,9 +112,9 @@ def latest_green(
     failure -- so the caller names the URL rather than publishing the sweep as
     complete.
 
-    `dynamic/dependabot/...` paths are generated rather than committed, so the
-    per-workflow endpoint 404s on them; those rows have no closure and stay
-    live. A 404 is a settled answer: there is no listing to converge.
+    A 404 -- the workflow file is gone from the branch -- is a settled answer:
+    there is no listing to converge. Generated runs never reach here; they close
+    against `generated_greens` instead.
     """
     try:
         listing = converged_read(green_url(repo, branch, path), quiet=True)
@@ -117,6 +125,49 @@ def latest_green(
     rows = listing.rows
     green = max(rows, key=lambda row: row["created_at"]) if rows else None
     return green, listing.converged
+
+
+def generated_green_url(repo: str, branch: str, workflow_id: int) -> str:
+    """The closure listing for a generated workflow, addressed by its id."""
+    return (
+        f"repos/{repo}/actions/workflows/{workflow_id}/runs"
+        f"?branch={branch}&status=success&per_page={GREEN_PAGE}"
+    )
+
+
+def generated_greens(
+    repo: str, branch: str, workflow_id: int
+) -> tuple[dict[str, str], bool]:
+    """The newest green run per `name` within one generated workflow.
+
+    `green_url` addresses the per-workflow endpoint by the path's basename,
+    which 404s for a `dynamic/...` path because it names no committed file. The
+    same endpoint serves these runs when addressed by `workflow_id`, so the
+    page is spent on this workflow's own greens rather than on whatever else
+    ran on the branch.
+
+    The name is what separates the subjects sharing that id: a code-scanning
+    analysis carries the same name on every push, so a passing one closes a
+    failed one, while each Dependabot update's name carries a one-off id that
+    never recurs -- which is why those rows close through a fix PR or a tracker
+    and not here.
+
+    A 404 is a settled answer here as it is for a committed file that has left
+    the branch: the id no longer resolves, so there is no listing to converge
+    and the rows under it have no closure.
+    """
+    url = generated_green_url(repo, branch, workflow_id)
+    try:
+        listing = converged_read(url, quiet=True)
+    except subprocess.CalledProcessError as error:
+        if "HTTP 404" in (error.stderr or ""):
+            return {}, True
+        raise
+    newest: dict[str, str] = {}
+    for row in listing.rows:
+        if row["created_at"] > newest.get(row["name"], ""):
+            newest[row["name"]] = row["created_at"]
+    return newest, listing.converged
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -149,19 +200,43 @@ def main(argv: list[str] | None = None) -> int:
         for row in listing.rows:
             red[int(row["id"])] = row
 
-    closures: dict[str, str | None] = {}
+    # One generated path answers under a name per subject, so its closure is
+    # keyed by both. A committed file answers under its path alone: `run-name:`
+    # and a rename both move a run's `name` without changing which listing
+    # closes it, so keying those by name too would re-read one URL per name.
+    closures: dict[tuple[str, str], str | None] = {}
+    generated: dict[int, dict[str, str]] = {}
     live: list[dict[str, Any]] = []
     for row in sorted(red.values(), key=lambda row: row["created_at"], reverse=True):
-        path = row["path"]
-        if path not in closures:
-            green, converged = latest_green(repo, branch, path)
-            if not converged:
-                unconverged.append(green_url(repo, branch, path))
-            closures[path] = green["created_at"] if green else None
-        closed_at = closures[path]
+        is_generated = row["path"].startswith(GENERATED_PREFIX)
+        subject = (row["path"], row["name"] if is_generated else "")
+        if subject not in closures:
+            if is_generated:
+                workflow_id = row["workflow_id"]
+                if workflow_id not in generated:
+                    greens, converged = generated_greens(repo, branch, workflow_id)
+                    generated[workflow_id] = greens
+                    if not converged:
+                        unconverged.append(
+                            generated_green_url(repo, branch, workflow_id)
+                        )
+                closures[subject] = generated[workflow_id].get(row["name"])
+            else:
+                green, converged = latest_green(repo, branch, row["path"])
+                if not converged:
+                    unconverged.append(green_url(repo, branch, row["path"]))
+                closures[subject] = green["created_at"] if green else None
+        closed_at = closures[subject]
         if closed_at and closed_at > row["created_at"]:
             continue
         live.append(row)
+
+    # Published per path: the newest green read for any of its red subjects,
+    # whether or not it closed one.
+    green_by_path: dict[str, str] = {}
+    for (path, _), green in closures.items():
+        if green and green > green_by_path.get(path, ""):
+            green_by_path[path] = green
 
     github_cli.dump(
         {
@@ -172,9 +247,7 @@ def main(argv: list[str] | None = None) -> int:
             "reached_back_to": max(floors, default=None),
             # The closure evidence, not a closed set: a green older than a
             # path's red rows closes none of them, and those rows are in `live`.
-            "latest_green_by_path": {
-                path: green for path, green in sorted(closures.items()) if green
-            },
+            "latest_green_by_path": dict(sorted(green_by_path.items())),
             "live": live,
             "unconverged_listings": unconverged,
         }

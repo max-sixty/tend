@@ -13,7 +13,7 @@ This skill runs **in the adopter repo**, not in tend. Improvements target `.clau
 
 ## First steps
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, PR/comment formatting (line wrapping, heredoc hazards), and polling conventions. This skill opens PRs and issue comments, so those rules apply.
+Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments, so those rules apply.
 
 ```bash
 ls .claude/skills/
@@ -95,11 +95,11 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
     "${CLAUDE_PLUGIN_ROOT}/scripts/red_default_branch_runs.py"
   ```
 
-  `live` holds the red rows that no later green run of the same workflow closed, newest first. `latest_green_by_path` and `reached_back_to` are the scope the claim rests on: `latest_green_by_path` is the newest green read for each workflow that had one, which closes that workflow's older red rows and leaves any newer one in `live`; a workflow with no green at all is absent from it, so name the workflows checked from `live`'s paths too. `reached_back_to` is the newest floor among the listings that filled their page, so a row older than it may be missing — `live` can still carry rows older than it, both from an untruncated listing's whole history and from what an earlier read of a truncated one returned from an older window. `null` means no listing was truncated and the sweep covers the branch's whole history. A non-empty `unconverged_listings` means a listing never settled — report that rather than publishing the sweep as complete.
+  `live` holds the red rows that no later green run of the same subject — the same workflow, or for a generated run the same `path` and `name` — closed, newest first. `latest_green_by_path` and `reached_back_to` are the scope the claim rests on: `latest_green_by_path` is closure evidence rather than a set of fixed paths — per path, the newest green read under any subject that carried a red row, whether or not it closed one — so a path can be published with a green that closed nothing, and on a generated path carrying several subjects a row *older* than the published green can still be live because that green closed another name; a path is absent when no green was read under any of its red subjects, which is weaker than the workflow never passing — Dependabot's path is always absent and its workflow does pass — so name the workflows checked from `live`'s paths too. `reached_back_to` is the newest floor among the listings that filled their page, so a row older than it may be missing — `live` can still carry rows older than it, both from an untruncated listing's whole history and from what an earlier read of a truncated one returned from an older window. `null` means no listing was truncated and the sweep covers the branch's whole history. A non-empty `unconverged_listings` means a listing never settled — report that rather than publishing the sweep as complete.
 
   The script re-reads each listing until two consecutive answers agree, because the API answers one URL from more than one snapshot, and its two kinds of read fail in opposite directions. A stale red listing drops the *newest* rows, so "`main` is green" can ship while a failure stands on it; a stale closure read serves a green older than the true latest, so a path already fixed reads as still red.
 
-  Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `$TMPDIR/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The listing reaches back weeks, so most rows are already fixed and the closure read is what separates them. What it cannot close stays live: Dependabot's security updates have no workflow file, and each run's `name` carries a per-update ID that never recurs, so those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the listing reached.
+  Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `$TMPDIR/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The listing reaches back weeks, so most rows are already fixed and the closure read is what separates them. What it cannot close stays live: each Dependabot security update's `name` carries a per-update ID that never recurs, so no later run repeats its subject and those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the listing reached.
 
 - an open Dependabot security alert with no PR or tracker proposing its fix — same closure as the red rows above, so an alert whose fix needs a maintainer decision stops re-surfacing once it is tracked. Dependabot opens that PR itself for most alerts, so the ones that reach this sweep are the ones where it could not — and nothing else in tend looks: `weekly` reviews the dependency PRs that exist, and the defining property here is that none was created.
 
@@ -235,9 +235,6 @@ cd "$TMPDIR/review-runs-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-
 
 cd "$TMPDIR/review-runs-fix"
 git add .claude/skills/
-# Set git identity first if not already done this session — a fresh worktree has
-# none and the commit fails with `Author identity unknown`. See "Configure git
-# identity before the first commit" in /tend-ci-runner:running-in-ci's references/pr-creation.md.
 git commit -m "skills(running-tend): ..."
 git push -u origin daily/review-runs-$GITHUB_RUN_ID
 gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head daily/review-runs-$GITHUB_RUN_ID

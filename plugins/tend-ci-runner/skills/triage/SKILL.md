@@ -109,7 +109,7 @@ Step 3's duplicate check catches identical fixes. It misses the *same root cause
 ### If fixing
 
 1. Fix the root cause (not just the symptom)
-2. Confirm the reproduction test now passes — that targeted pass plus a clean compile is enough local confidence to ship. Leave the comprehensive suite to PR CI per `/tend-ci-runner:running-in-ci`'s "End the turn only when work is shipped"; backgrounding a long suite before push risks ending the session while the result is still local.
+2. Confirm the reproduction test now passes, then review the change per **Review the change before the push** in `/tend-ci-runner:running-in-ci`'s `references/pushing.md`. That targeted pass, a clean compile, and the review are the local bar. Leave the comprehensive suite to PR CI per `/tend-ci-runner:running-in-ci`'s "End the turn only when work is shipped"; backgrounding a long suite before push risks ending the session while the result is still local.
 3. Create branch, commit, push, and create PR:
    ```bash
    git checkout -b fix/issue-$ARGUMENTS
