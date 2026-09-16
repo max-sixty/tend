@@ -373,16 +373,24 @@ FAKE_GH_NOTIFICATIONS = (
     + r"""
 # `gh` ranks a forced colour setting above `NO_COLOR` and colorizes even a
 # piped response, so the pre-check has to unset it in the child's own
-# environment rather than rely on the pipe.
-if [ "${CLICOLOR_FORCE:-}" = "1" ]; then
-  emit() {
-    if [ -n "$jq_expr" ]; then
-      printf '\033[1;37m%s\033[0m' "$(printf '%s' "$1" | jq -rc "$jq_expr")"
-    else
-      printf '\033[1;37m%s\033[0m' "$1"
-    fi
-  }
-fi
+# environment rather than rely on the pipe. Every body goes through
+# `colorize`, `--paginate` pages included — real `gh` paints them all, and a
+# branch that skipped it would let the forced-colour test pass unfixed.
+colorize() {
+  if [ "${CLICOLOR_FORCE:-}" = "1" ]; then
+    sed $'s/^/\033[1;37m/; s/$/\033[0m/'
+  else
+    cat
+  fi
+}
+
+emit() {
+  if [ -n "$jq_expr" ]; then
+    printf '%s' "$1" | jq -rc "$jq_expr" | colorize
+  else
+    printf '%s' "$1" | colorize
+  fi
+}
 
 case "$1:$2" in
   api:notifications\?*)
@@ -394,9 +402,9 @@ case "$1:$2" in
     pages=$(jq -c --arg cutoff "$NOTIF_CUTOFF" \
       '[.[] | select(.updated_at < $cutoff)]' "$NOTIFICATIONS_JSON")
     if [ "$pages" = "[]" ]; then
-      echo '[]'
+      echo '[]' | colorize
     else
-      printf '%s\n' "$pages" | jq -c '.[] | [.]'
+      printf '%s\n' "$pages" | jq -c '.[] | [.]' | colorize
     fi
     ;;
   api:repos/*/subscription)

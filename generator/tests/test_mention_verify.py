@@ -37,6 +37,25 @@ BOT = "test-bot"
 FAKE_GH = (
     GH_PREAMBLE
     + r"""
+# `gh` ranks a forced colour setting above `NO_COLOR` and colorizes even a
+# piped response, so the gate has to unset it in the child's own environment
+# rather than rely on the pipe.
+colorize() {
+  if [ "${CLICOLOR_FORCE:-}" = "1" ]; then
+    sed $'s/^/\033[1;37m/; s/$/\033[0m/'
+  else
+    cat
+  fi
+}
+
+emit() {
+  if [ -n "$jq_expr" ]; then
+    printf '%s' "$1" | jq -rc "$jq_expr" | colorize
+  else
+    printf '%s' "$1" | colorize
+  fi
+}
+
 emit_paged() {
   local i=0
   while [ "$i" -lt "${PAGES:-1}" ]; do
@@ -606,3 +625,17 @@ def test_engagement_survives_a_paginated_lookup(env: dict[str, str]) -> None:
     _write(env, "ISSUE_COMMENTS_JSON", [{"user": {"login": BOT}, "id": 6}])
 
     assert _verdict(env) == ("true", "participation")
+
+
+def test_the_gate_survives_a_colour_forcing_job_environment(
+    env: dict[str, str],
+) -> None:
+    """An adopter whose workflow env carries `CLICOLOR_FORCE=1` — an `env:`
+    override, or a `setup:` step that wrote one into `$GITHUB_ENV` — would
+    otherwise get ANSI codes inside every `gh` body. The dispatch readers
+    catch the decode error and skip, so the mention goes unanswered with
+    nothing but a "not found" line on a green job to say so."""
+    env["CLICOLOR_FORCE"] = "1"
+    _review(env, body=f"@{BOT} please look")
+
+    assert _verdict(env) == ("true", "mention")
