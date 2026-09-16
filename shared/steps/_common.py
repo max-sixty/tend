@@ -59,12 +59,21 @@ def gh(*args: str, input: str | None = None) -> str:
     caller tolerates the failure: "Bad credentials" or "Not Found" is the whole
     diagnosis for a misconfigured install, and the shell bodies had it on the
     step log for free.
+
+    A job environment that forces color makes ``gh`` colorize even a piped
+    ``--json``/``--jq`` body, and the ANSI codes land inside what
+    :func:`gh_json` parses. ``CLICOLOR_FORCE=0`` is the setting that defeats
+    it: ``gh`` ranks a forced value above ``NO_COLOR``, so ``NO_COLOR`` alone
+    loses.
     """
+    env = os.environ.copy()
+    env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
     result = subprocess.run(
         ["gh", *args],
         input=input,
         capture_output=True,
         text=True,
+        env=env,
         check=False,
     )
     if result.returncode != 0:

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -99,10 +100,21 @@ class CheckResult:
 def _gh(
     *args: str, input: str | None = None
 ) -> subprocess.CompletedProcess[str] | None:
-    """Run a gh CLI command. Returns None if gh is not installed."""
+    """Run a gh CLI command. Returns None if gh is not installed.
+
+    A shell that forces color makes ``gh`` colorize even a piped body, and the
+    ANSI codes land inside the JSON the callers parse. Most of them read a
+    decode error as "could not verify" and several — ``check_branch_protection``
+    among them — report the check as passing, so an unguarded read turns the
+    security audit green without having verified anything.
+    ``CLICOLOR_FORCE=0`` is the setting that defeats it: ``gh`` ranks a forced
+    value above ``NO_COLOR``, so ``NO_COLOR`` alone loses.
+    """
     gh = shutil.which("gh")
     if not gh:
         return None
+    env = os.environ.copy()
+    env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
     try:
         return subprocess.run(
             [gh, *args],
@@ -110,6 +122,7 @@ def _gh(
             text=True,
             timeout=30,
             input=input,
+            env=env,
             check=False,
         )
     except subprocess.TimeoutExpired:
