@@ -245,7 +245,7 @@ def test_memory_gist_is_an_explicit_experimental_claude_only_input(
             assert "memory_gist_id" not in inputs
 
     enabled = Config.load(_minimal_config(tmp_path, "memory_gist: true\n"))
-    for wf in generate_all(enabled):
+    for wf in without_relay(generate_all(enabled)):
         data = yaml.safe_load(wf.content)
         agent_steps = [
             step
@@ -253,6 +253,9 @@ def test_memory_gist_is_an_explicit_experimental_claude_only_input(
             for step in job.get("steps", [])
             if step.get("uses", "").startswith("max-sixty/tend/claude@")
         ]
+        assert agent_steps, (
+            f"{wf.filename}: no agent step matched — the action ref or its path moved"
+        )
         for step in agent_steps:
             assert step["with"]["memory_gist"] == "true"
             assert step["with"]["memory_gist_id"] == (

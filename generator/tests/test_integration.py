@@ -863,17 +863,23 @@ def test_init_bot_name_in_workflow_content(
     monkeypatch.chdir(tmp_path)
     _run_init()
 
+    checked = 0
     for path in _workflow_dir(tmp_path).glob("tend-*.yaml"):
         data = yaml.safe_load(path.read_text())
         for job in data["jobs"].values():
-            steps = job.get("steps", [])
-            tend_steps = [
-                s
-                for s in steps
-                if s.get("uses", "").startswith("max-sixty/tend/claude@")
-            ]
-            for step in tend_steps:
+            for step in job.get("steps", []):
+                if not step.get("uses", "").startswith("max-sixty/tend/claude@"):
+                    continue
+                checked += 1
                 assert step["with"]["bot_name"] == "my-custom-bot"
+    assert checked, "no agent step matched: the action ref or its path moved"
+
+    # The other half of the claim above: mention gates on the name textually,
+    # in the verify job's `if:`, not through an action input.
+    mention = yaml.safe_load(
+        (_workflow_dir(tmp_path) / "tend-mention.yaml").read_text()
+    )
+    assert "@my-custom-bot" in mention["jobs"]["verify"]["if"]
 
 
 # ---------------------------------------------------------------------------
