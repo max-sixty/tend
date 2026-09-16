@@ -49,7 +49,7 @@ def _workflow_dir(tmp_path: Path) -> Path:
 def test_init_creates_correct_files_with_valid_yaml(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Minimal config produces 7 workflow files, each valid YAML with expected
+    """Minimal config produces 8 workflow files, each valid YAML with expected
     top-level keys (name, on, jobs) and the tend action reference."""
     _write_config(tmp_path, "bot_name: test-bot")
     monkeypatch.chdir(tmp_path)
@@ -73,6 +73,7 @@ def test_init_creates_correct_files_with_valid_yaml(
     for path in wf_dir.glob("tend-*.yaml"):
         data = yaml.safe_load(path.read_text())
         assert "name" in data, f"{path.name} missing 'name'"
+        assert "on" in data, f"{path.name} missing 'on'"
         assert "jobs" in data, f"{path.name} missing 'jobs'"
         if path.name == "tend-mention-relay.yaml":
             continue  # re-posts review events; runs no agent
@@ -853,6 +854,28 @@ def test_notifications_precheck_tolerates_transient_non_json(
 # ---------------------------------------------------------------------------
 
 
+def test_init_bot_name_in_workflow_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bot_name from config appears in generated workflow files (in the
+    tend action's bot_name input and mention filters)."""
+    _write_config(tmp_path, "bot_name: my-custom-bot")
+    monkeypatch.chdir(tmp_path)
+    _run_init()
+
+    for path in _workflow_dir(tmp_path).glob("tend-*.yaml"):
+        data = yaml.safe_load(path.read_text())
+        for job in data["jobs"].values():
+            steps = job.get("steps", [])
+            tend_steps = [
+                s
+                for s in steps
+                if s.get("uses", "").startswith("max-sixty/tend/claude@")
+            ]
+            for step in tend_steps:
+                assert step["with"]["bot_name"] == "my-custom-bot"
+
+
 # ---------------------------------------------------------------------------
 # --with-install-test flag + cleanup of stale tend-*.yaml files
 # ---------------------------------------------------------------------------
@@ -1031,25 +1054,3 @@ def test_install_test_workflow_shape(
     assert "git remote set-head" not in content
     assert "gh api" in content and ".default_branch" in content
     assert "git symbolic-ref" in content
-
-
-def test_init_bot_name_in_workflow_content(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The bot_name from config appears in generated workflow files (in the
-    tend action's bot_name input and mention filters)."""
-    _write_config(tmp_path, "bot_name: my-custom-bot")
-    monkeypatch.chdir(tmp_path)
-    _run_init()
-
-    for path in _workflow_dir(tmp_path).glob("tend-*.yaml"):
-        data = yaml.safe_load(path.read_text())
-        for job in data["jobs"].values():
-            steps = job.get("steps", [])
-            tend_steps = [
-                s
-                for s in steps
-                if s.get("uses", "").startswith("max-sixty/tend/claude@")
-            ]
-            for step in tend_steps:
-                assert step["with"]["bot_name"] == "my-custom-bot"

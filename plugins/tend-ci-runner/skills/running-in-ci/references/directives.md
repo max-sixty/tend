@@ -1,7 +1,5 @@
 # Directives that affect someone else's work
 
-Depth behind `/tend-ci-runner:running-in-ci`'s **Conduct** section: read when a request asks you to close, reopen, or lock an issue or PR, dismiss a review, revert a commit, apply or remove a label, or push to a PR owned by another author.
-
 - [Helping vs. directing](#helping-vs-directing)
 
 ## Helping vs. directing
