@@ -1,8 +1,5 @@
 # Grounded analysis
 
-Depth behind `/tend-ci-runner:running-in-ci`'s **Grounded Analysis** section: how to establish
-that a claim is true before a permanent public comment carries it.
-
 - [Source evidence for user-facing claims](#source-evidence-for-user-facing-claims)
 - [Verifying external-tool behavior](#verifying-external-tool-behavior)
 - [Recurring hallucination shapes](#recurring-hallucination-shapes)

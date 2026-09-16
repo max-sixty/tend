@@ -1,7 +1,5 @@
 # Opening PRs and issues
 
-Depth behind `/tend-ci-runner:running-in-ci`: read before `gh pr create` or `gh issue create`, and before editing a PR's title or description.
-
 - [Filing issues in this repo](#filing-issues-in-this-repo)
 - [PR creation](#pr-creation)
 - [Atomic PRs](#atomic-prs)

@@ -1,7 +1,5 @@
 # Posting comments and replies
 
-Depth behind `/tend-ci-runner:running-in-ci`: read before composing or posting any comment, review body, inline reply, PR body, or issue body.
-
 - [Recheck Before Posting](#recheck-before-posting)
 - [Replying to comments](#replying-to-comments)
 - [Mechanics](#mechanics)

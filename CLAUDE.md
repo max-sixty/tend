@@ -368,10 +368,12 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
   is overhead. Lead with the rule or recipe; cut motivation, anecdotes, and
   historical context unless required to apply the rule.
 - **Guidance for an action most sessions never take goes in `references/`.**
-  `SKILL.md` keeps the rules every session needs plus a references list that
-  names each file and the action that triggers reading it; the recipes for
-  pushing, opening a PR, posting, or approving load only in the sessions
-  that do them.
+  `SKILL.md` keeps the rules every session needs; the recipes for pushing,
+  opening a PR, posting, or approving load only in the sessions that do
+  them. The References table in `running-in-ci/SKILL.md` is the plugin's one
+  index of those files, naming each file and the action that triggers
+  reading it — a new reference file gets a row there, not a list in its own
+  skill.
 - **No specific past-run references.** Don't link GitHub Actions runs, cite
   session IDs, or quote durations from individual incidents. They age into
   trivia and aren't useful when the skill is reused. State the structural

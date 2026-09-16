@@ -14,12 +14,7 @@ Review a pull request.
 
 ## Workflow
 
-Follow these steps in order. Four references carry guidance a minority of reviews need; read each at the step that names it:
-
-- `references/draft-mode.md` — under **Pre-flight checks**, when `is_draft` is true: the lighter pass, COMMENT only, the hidden marker.
-- `references/re-targeting.md` — under **Submit**, when the posting preflight prints `delta:`: reviewing a push that landed mid-review before posting against the new head.
-- `references/approving.md` — under **Submit** before an APPROVE, and under **Monitor CI** after one: the approval check and the CI outcomes.
-- `references/inline-suggestions.md` — under **Submit**, when the review carries findings: the payload, multi-line suggestion rules, and 422 recovery.
+Follow these steps in order.
 
 ### 0. Load environment skills
 
