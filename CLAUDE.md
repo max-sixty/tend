@@ -370,10 +370,12 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 - **Guidance for an action most sessions never take goes in `references/`.**
   `SKILL.md` keeps the rules every session needs; the recipes for pushing,
   opening a PR, posting, or approving load only in the sessions that do
-  them. The References table in `running-in-ci/SKILL.md` is the plugin's one
-  index of those files, naming each file and the action that triggers
-  reading it — a new reference file gets a row there, not a list in its own
-  skill.
+  them. The References table in `running-in-ci/SKILL.md` is `tend-ci-runner`'s
+  one index of those files, naming each file and the action that triggers
+  reading it — a new bundled reference gets a row there, not a list in its
+  own skill. A repo overlay's references stay in the overlay, named where its
+  own steps use them: every adopter reads the bundled table, and repo-specific
+  guidance doesn't belong in it.
 - **No specific past-run references.** Don't link GitHub Actions runs, cite
   session IDs, or quote durations from individual incidents. They age into
   trivia and aren't useful when the skill is reused. State the structural
