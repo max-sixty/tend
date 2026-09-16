@@ -37,25 +37,6 @@ BOT = "test-bot"
 FAKE_GH = (
     GH_PREAMBLE
     + r"""
-# `gh` ranks a forced colour setting above `NO_COLOR` and colorizes even a
-# piped response, so the gate has to unset it in the child's own environment
-# rather than rely on the pipe.
-colorize() {
-  if [ "${CLICOLOR_FORCE:-}" = "1" ]; then
-    sed $'s/^/\033[1;37m/; s/$/\033[0m/'
-  else
-    cat
-  fi
-}
-
-emit() {
-  if [ -n "$jq_expr" ]; then
-    printf '%s' "$1" | jq -rc "$jq_expr" | colorize
-  else
-    printf '%s' "$1" | colorize
-  fi
-}
-
 emit_paged() {
   local i=0
   while [ "$i" -lt "${PAGES:-1}" ]; do

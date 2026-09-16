@@ -52,6 +52,8 @@ from tend.config import (
 )
 from tend.workflows import TEND_ENVIRONMENT
 
+from tests import GH_PREAMBLE, fake_bin, tool_path
+
 
 def _config(
     *,
@@ -379,6 +381,51 @@ def test_branch_protected_ruleset_inconclusive_skips() -> None:
         result = check_branch_protection("owner/repo", "main", "my-bot")
     assert result.passed is None
     assert "could not verify that the bot cannot bypass" in result.message
+
+
+# `gh` stand-in for the one test that runs `_gh` for real rather than patching
+# it. Colorizes only the bodies real `gh` paints — it pretty-prints a JSON
+# object or array and leaves a scalar `--jq` result alone — so a fake body that
+# survives is one the guard actually had to clear.
+FAKE_GH_PROTECTION = (
+    GH_PREAMBLE
+    + r"""
+case "$*" in
+  *"branches/main/protection"*)
+    emit '{"required_pull_request_reviews":{"required_approving_review_count":1}}'
+    ;;
+  *"rules/branches/main"*)
+    emit '[]'
+    ;;
+  *"branches/main"*".protected"*)
+    printf 'true\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+"""
+)
+
+
+def test_branch_protection_survives_a_colour_forcing_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`gh` ranks a forced colour setting above `NO_COLOR` and paints a piped
+    body, so without the guard in `_gh` every JSON read here fails to decode.
+    The decode handlers report "protected" anyway, so the audit would call the
+    repo's primary security boundary verified without having read it."""
+    bindir = fake_bin(tmp_path, gh=FAKE_GH_PROTECTION)
+    monkeypatch.setenv("PATH", tool_path(bindir))
+    monkeypatch.setenv("GH_CALLS", str(tmp_path / "gh-calls.log"))
+    monkeypatch.setenv("CLICOLOR_FORCE", "1")
+
+    result = check_branch_protection("owner/repo", "main", "my-bot")
+
+    assert result.passed is True
+    # The verified message, not the "could not read the details" fallback that
+    # an ANSI-wrapped body falls through to.
+    assert "requires reviews" in result.message
 
 
 def test_branch_protection_result_name_includes_branch() -> None:

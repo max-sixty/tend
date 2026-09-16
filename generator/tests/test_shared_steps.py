@@ -371,27 +371,6 @@ notifications_check = importlib.import_module("notifications_check")
 FAKE_GH_NOTIFICATIONS = (
     GH_PREAMBLE
     + r"""
-# `gh` ranks a forced colour setting above `NO_COLOR` and colorizes even a
-# piped response, so the pre-check has to unset it in the child's own
-# environment rather than rely on the pipe. Every body goes through
-# `colorize`, `--paginate` pages included — real `gh` paints them all, and a
-# branch that skipped it would let the forced-colour test pass unfixed.
-colorize() {
-  if [ "${CLICOLOR_FORCE:-}" = "1" ]; then
-    sed $'s/^/\033[1;37m/; s/$/\033[0m/'
-  else
-    cat
-  fi
-}
-
-emit() {
-  if [ -n "$jq_expr" ]; then
-    printf '%s' "$1" | jq -rc "$jq_expr" | colorize
-  else
-    printf '%s' "$1" | colorize
-  fi
-}
-
 case "$1:$2" in
   api:notifications\?*)
     [ -z "${FAIL_NOTIFS:-}" ] || exit 1
@@ -401,6 +380,9 @@ case "$1:$2" in
     # the pre-check's fixed cutoff so boundary and fresh activity stay unread.
     pages=$(jq -c --arg cutoff "$NOTIF_CUTOFF" \
       '[.[] | select(.updated_at < $cutoff)]' "$NOTIFICATIONS_JSON")
+    # These pages bypass emit(), so they take colorize() directly: real `gh`
+    # paints every page, and a branch that served plain bodies would let the
+    # forced-colour test below pass with the fix reverted.
     if [ "$pages" = "[]" ]; then
       echo '[]' | colorize
     else
