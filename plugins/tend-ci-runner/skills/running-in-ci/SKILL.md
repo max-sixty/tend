@@ -25,7 +25,7 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 |---|---|---|
 | Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | the pre-post re-fetch, reply endpoints, body files, line wrapping, links and the link checker, fenced bodies, no footers |
 | Before `gh pr create` or `gh issue create`, or editing a PR's title or description | `references/pr-creation.md` and `references/posting.md` | the open-PR budget, titles, git identity, the dedup and prior-rejection searches, keeping a description current |
-| Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | batching pushes, re-checking PR state and head, branch-state collisions |
+| Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | the pre-push review, batching pushes, re-checking PR state and head, branch-state collisions |
 | After any push you are accountable for | `references/ci-monitoring.md` | the pinned poll, a review that lands mid-poll, rerunning failed jobs |
 | When a request directs you at someone else's work: close, reopen, lock, label, revert, dismiss a review, or push to another author's PR | `references/directives.md` | the access tiers that authorize it |
 | When you conclude a PR the bot approved should not merge | `references/dismissing-approval.md` | dismissing the standing approval |

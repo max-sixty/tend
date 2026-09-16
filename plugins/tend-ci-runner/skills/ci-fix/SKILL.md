@@ -60,7 +60,7 @@ steps and current branch normally.
 
 ### 3. Create PR
 
-Re-run step 1's author-agnostic PR query, then follow **Dedup recheck immediately before `gh pr create`** in `/tend-ci-runner:running-in-ci`'s `references/pr-creation.md` to check for a fix committed to the default branch. If the failure no longer reproduces there, don't open the PR.
+Re-run step 1's author-agnostic PR query, then follow **Dedup recheck immediately before `gh pr create`** in `/tend-ci-runner:running-in-ci`'s `references/pr-creation.md` to check for a fix committed to the default branch. If the failure no longer reproduces there, don't open the PR. Before the push, review the change per **Review the change before the push** in `/tend-ci-runner:running-in-ci`'s `references/pushing.md`.
 
 ```bash
 git checkout -b fix/ci-<run-id>
