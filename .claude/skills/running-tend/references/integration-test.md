@@ -61,11 +61,6 @@ if ! gh repo view tend-agent/tend-integration --json name >/dev/null 2>&1; then
   gh repo clone tend-agent/tend-integration "$WORK"
   cd "$WORK"
 
-  # The runner has no global git identity; commit needs both fields set
-  # locally or `git commit` aborts and the follow-up push silently no-ops.
-  git config user.email "tend-agent@users.noreply.github.com"
-  git config user.name "tend-agent"
-
   mkdir -p .config
   cat > .config/tend.yaml <<'EOF'
 bot_name: tend-agent
@@ -155,8 +150,6 @@ gh repo clone tend-agent/tend-integration "$WORK"
 cd "$WORK"
 uv tool run tend@latest init
 if [ -n "$(git status --porcelain)" ]; then
-  git config user.email "tend-agent@users.noreply.github.com"
-  git config user.name "tend-agent"
   gh auth setup-git
   git add .
   git commit -m "chore: regenerate tend workflows (weekly integration self-heal)"
@@ -261,9 +254,6 @@ TS=$(date -u +%Y%m%d-%H%M%S)
 WORK=$(mktemp -d)
 gh repo clone tend-agent/tend-integration "$WORK"
 cd "$WORK"
-
-git config user.email "tend-agent@users.noreply.github.com"
-git config user.name "tend-agent"
 
 BRANCH="integration-test-review-$TS"
 git checkout -b "$BRANCH"

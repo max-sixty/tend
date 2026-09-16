@@ -34,19 +34,6 @@ Describe the current PR for a maintainer deciding whether to merge it. Follow **
 
 If an existing PR addresses the same problem, work on that PR instead.
 
-### Configure git identity before the first commit
-
-Runners don't always pre-seed a git identity, and a fresh `git worktree` never inherits one. Without it `git commit` fails with `Author identity unknown`, the branch gets pushed with **no commit**, and `gh pr create` then fails with `No commits between main and <branch>`. Set it once before your first commit — `--global` covers the main checkout and every `$TMPDIR` worktree in one shot, and it's idempotent, so re-running is safe:
-
-```bash
-BOT_LOGIN=$(gh api user --jq '.login')
-BOT_ID=$(gh api user --jq '.id')
-git config --global user.name "$BOT_LOGIN"
-git config --global user.email "${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
-```
-
-The noreply form (`<id>+<login>@users.noreply.github.com`) keeps commits attributed to the bot account and passes `verified`-email push rules.
-
 ### Dedup recheck immediately before `gh pr create`
 
 A separate mention on a different issue/PR can trigger a concurrent run asking for the same fix. Those runs are not serialized — each has its own concurrency group — so both may read an empty `gh pr list` at session start and then each open their own PR minutes later, producing near-duplicates. A long workflow queue (`tend-mention` can wait hours) also lets a sibling run open *and merge* a PR before this run starts — already-merged duplicates need to be in scope too. Re-run the check **as the last step before `gh pr create`**, with `--state all` so closed and merged siblings show up:

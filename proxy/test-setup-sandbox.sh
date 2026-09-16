@@ -4,8 +4,15 @@
 # steps.
 set -euo pipefail
 
+# The bot identity the sandbox's global Git config is seeded from; `verify` runs
+# as its own step, so both halves read it from here rather than the environment.
+BOT_LOGIN=tend-agent
+BOT_ID=4242
+
 set_inputs() {
   export TEND_GH_TOKEN=dummy
+  export TEND_BOT_LOGIN="$BOT_LOGIN"
+  export TEND_BOT_ID="$BOT_ID"
   export TEND_ANTHROPIC_OAUTH_TOKEN=dummy
   export ACTION_PATH="$TEND_TEST_ACTION_PATH"
   export TEND_UV_DIR="$RUNNER_TEMP/tend-uv"
@@ -189,6 +196,11 @@ verify() {
   grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$AGENT_ENV_FILE"
   sudo -u "$SANDBOX" test -w /home/tend-sandbox/tmp
   test "$(sudo -u "$SANDBOX" env "${agent_env[@]}" uv --version)" = adopter-uv
+  # The agent commits without configuring an identity of its own, including
+  # from a clone it makes itself, so read the identity where such a clone would.
+  test "$(sudo -u "$SANDBOX" env "${agent_env[@]}" git -C /home/tend-sandbox config user.name)" = "$BOT_LOGIN"
+  test "$(sudo -u "$SANDBOX" env "${agent_env[@]}" git -C /home/tend-sandbox config user.email)" \
+    = "${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
 }
 
 # An explicit runner-home path is the one route that could bypass the rewrite.

@@ -130,10 +130,6 @@ workaround, since bundled skills live under `plugins/` rather than
 
    cd "$TMPDIR/skill-fix"
    git add .claude/skills/
-   # Set git identity first if you haven't already this session — see
-   # "Configure git identity before the first commit" in pr-creation.md. A fresh
-   # worktree has no identity and the commit below fails with `Author
-   # identity unknown`.
    git commit -m "skills(running-tend): ..."
    git push -u origin skills/<topic>-$GITHUB_RUN_ID
    gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head skills/<topic>-$GITHUB_RUN_ID

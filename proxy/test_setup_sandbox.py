@@ -195,3 +195,23 @@ def test_runner_home_does_not_trust_an_empty_environment_value(
     assert (
         setup_sandbox.runner_home() == Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
     )
+
+
+def test_global_git_config_carries_the_bot_commit_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def sudo(*args: str, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(setup_sandbox, "sudo", sudo)
+
+    setup_sandbox.configure_global_git(login="tend-agent", bot_id="42")
+
+    settings = {args[-2]: args[-1] for args in calls if "config" in args}
+    assert settings["user.name"] == "tend-agent"
+    assert settings["user.email"] == "42+tend-agent@users.noreply.github.com"
+    assert settings["core.excludesFile"].endswith("/.config/git/ignore")
+    assert all("--global" in args for args in calls if "config" in args)
