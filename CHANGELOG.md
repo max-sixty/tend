@@ -14,6 +14,7 @@ https://github.com/max-sixty/tend/compare for their history.
 
 ### Fixed
 
+- **Tend's Python `gh` readers set `NO_COLOR=1` and `CLICOLOR_FORCE=0` for the child process**, so an inherited `CLICOLOR_FORCE=1` no longer wraps the JSON in ANSI escapes. Each reader treated the resulting decode error as transient: `tend check` reported a branch as protected without verifying the bot cannot merge its own PRs, the notifications poll reported an empty inbox every cycle, and mentions on review events went unanswered. The generated `tend-notifications` and `tend-mention` workflows carry the change. ([#1254](https://github.com/max-sixty/tend/pull/1254))
 - **The references index in `running-in-ci` names `references/posting.md` alongside `references/pr-creation.md` for `gh pr create` and `gh issue create`**, so PR and issue bodies follow its line-wrapping and link rules. The index is now a table keyed by action that requires reading every file a row names before that action, and it also indexes `review`'s four references. ([#1253](https://github.com/max-sixty/tend/pull/1253))
 
 ### Documentation
