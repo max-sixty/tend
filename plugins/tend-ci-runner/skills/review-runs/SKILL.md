@@ -235,9 +235,6 @@ cd "$TMPDIR/review-runs-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-
 
 cd "$TMPDIR/review-runs-fix"
 git add .claude/skills/
-# Set git identity first if not already done this session — a fresh worktree has
-# none and the commit fails with `Author identity unknown`. See "Configure git
-# identity before the first commit" in /tend-ci-runner:running-in-ci's references/pr-creation.md.
 git commit -m "skills(running-tend): ..."
 git push -u origin daily/review-runs-$GITHUB_RUN_ID
 gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head daily/review-runs-$GITHUB_RUN_ID
