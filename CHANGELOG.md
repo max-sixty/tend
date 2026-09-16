@@ -6,6 +6,21 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.2.9
+
+### Improved
+
+- **A session reviews its own change before the push that opens a PR, and before pushing a fix to a PR under review.** A docs, config, or mechanical change gets a read-through. A change to the project's logic, to what it writes on a user's behalf, or to a helper with other call sites gets `/tend-ci-runner:code-review` over the diff and a search for the same pattern elsewhere. The step lives in `running-in-ci`'s `references/pushing.md`, and `triage`, `ci-fix`, and `review`'s push step point at it. ([#1259](https://github.com/max-sixty/tend/pull/1259))
+
+### Fixed
+
+- **Tend's Python `gh` readers set `NO_COLOR=1` and `CLICOLOR_FORCE=0` for the child process**, so an inherited `CLICOLOR_FORCE=1` no longer wraps the JSON in ANSI escapes. Each reader treated the resulting decode error as transient: `tend check` reported a branch as protected without verifying the bot cannot merge its own PRs, the notifications poll reported an empty inbox every cycle, and mentions on review events went unanswered. The generated `tend-notifications` and `tend-mention` workflows carry the change. ([#1254](https://github.com/max-sixty/tend/pull/1254))
+- **The references index in `running-in-ci` names `references/posting.md` alongside `references/pr-creation.md` for `gh pr create` and `gh issue create`**, so PR and issue bodies follow its line-wrapping and link rules. The index is now a table keyed by action that requires reading every file a row names before that action, and it also indexes `review`'s four references. ([#1253](https://github.com/max-sixty/tend/pull/1253))
+
+### Documentation
+
+- The generated `tend-mention-relay.yaml` records why its job has no `TEND_ENABLED` check: the variable gates jobs that boot the agent, the relay boots none, and in a paused repository the `tend-mention` run it dispatches skips its jobs. ([#1258](https://github.com/max-sixty/tend/pull/1258))
+
 ## 0.2.8
 
 ### Improved
