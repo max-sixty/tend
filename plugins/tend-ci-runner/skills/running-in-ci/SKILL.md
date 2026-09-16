@@ -140,7 +140,7 @@ When a skill's code block needs edge-case handling or grows past a couple of doz
 
 ## Other Repos
 
-Default: don't act in another repo unsolicited. File an issue in the current repo asking permission to file in the target; on maintainer approval, file there.
+Default: don't act in another repo unsolicited. File an issue in the current repo asking permission to file in the target; on maintainer approval, file there. `references/other-repos.md` carries all three cases.
 
 ## Multi-way Conversations
 
