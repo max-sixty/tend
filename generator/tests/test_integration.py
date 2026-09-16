@@ -874,6 +874,13 @@ def test_init_bot_name_in_workflow_content(
                 assert step["with"]["bot_name"] == "my-custom-bot"
     assert checked, "no agent step matched: the action ref or its path moved"
 
+    # The other half of the claim above: mention gates on the name textually,
+    # in the verify job's `if:`, not through an action input.
+    mention = yaml.safe_load(
+        (_workflow_dir(tmp_path) / "tend-mention.yaml").read_text()
+    )
+    assert "@my-custom-bot" in mention["jobs"]["verify"]["if"]
+
 
 # ---------------------------------------------------------------------------
 # --with-install-test flag + cleanup of stale tend-*.yaml files
