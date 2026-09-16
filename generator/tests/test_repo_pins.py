@@ -407,6 +407,37 @@ def test_privileged_sandbox_launch_scrubs_adopter_runtime_configuration(
     assert "--no-python-downloads --python /usr/bin/python3 --script" in run
 
 
+# Set to neutralize this step's own shell, not to reach the script: `env -i`
+# drops them by construction.
+SHELL_HARDENING = frozenset({"BASH_ENV", "BASHOPTS", "SHELLOPTS", "PS4"})
+
+
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_privileged_sandbox_launch_forwards_every_configured_value(
+    harness: str,
+) -> None:
+    """`env:` and the `env -i` argv are two lists that have to agree.
+
+    A value reaches `setup_sandbox.py` only when both name it, and the script
+    refuses to start without the bot identity. Nothing else catches a value
+    added to one list alone: neither action.yaml is linted or run here, and the
+    hosted sandbox test supplies the script's environment itself — so the
+    mismatch would first run in an adopter's job after a release.
+    """
+    action = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / harness / "action.yaml").read_text()
+    )
+    step = next(
+        step
+        for step in action["runs"]["steps"]
+        if step.get("name") == "Set up credential-isolation sandbox"
+    )
+    forwarded = set(re.findall(r'(\w+)="\$\1"', step["run"]))
+
+    assert {"TEND_BOT_LOGIN", "TEND_BOT_ID"} <= set(step["env"])
+    assert set(step["env"]) - SHELL_HARDENING <= forwarded
+
+
 def test_codex_actions_pin_the_same_cli_version() -> None:
     versions = {
         action: YAML(typ="safe", pure=True).load((REPO_ROOT / action).read_text())[
