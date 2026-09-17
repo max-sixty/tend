@@ -108,7 +108,9 @@ def resolve(instant: str) -> dict[str, str]:
     if split:
         sys.exit(
             f"{instant} publishes {', '.join(split)} differently per architecture "
-            f"({by_arch}); try a later instant, once the slower arch has caught up"
+            f"({by_arch}); nothing moved, the instant included. Re-run when the "
+            "arches agree; a split that persists is a finding for the sweep to "
+            "report, not a row to drop."
         )
     return first
 
