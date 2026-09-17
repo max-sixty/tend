@@ -344,14 +344,18 @@ that branch's current state, so replacing the pending run loses nothing.
 
 Two kinds of guidance live in this repo, split by which repo the text governs.
 
-**Shipped guidance** reaches every repo that installs tend: `plugins/**`, and
-`shared/system-prompt.md`, which the harness action embeds. It tells the bot
-what to do in a repo it maintains, and has to hold in repos nobody here has
-seen.
+**Shipped guidance** is any text that reaches a repo other than this one. It
+tells the bot what to do in a repo it maintains, and has to hold in repos
+nobody here has seen. More of it than `plugins/**`: `shared/system-prompt.md`
+and the two directives `compose_system_prompt.py` prepends, `codex/agents-tail.md`,
+the header comment `workflows.py` stamps into every generated workflow, and
+`docs/tend.example.yaml`, which a pre-commit hook mirrors into `install-tend`.
+Before writing guidance outside `plugins/`, check whether it ends up in a
+consumer's repo or session.
 
-**Tend's own guidance** is read only here: `CLAUDE.md`, `TODO.md`, `docs/`, and
-`.claude/skills/`. It tells a session — the bot's or yours — how to work on
-tend.
+**Tend's own guidance** is read only here: `CLAUDE.md`, `TODO.md`,
+`docs/security-model.md`, and `.claude/skills/`. It tells a session — the bot's
+or yours — how to work on tend.
 
 The test for a line of shipped text: does it hold in a repo whose maintainer
 disagrees with us? What tend values, what this repo will spend complexity on,
@@ -362,7 +366,7 @@ what the harness does, what a session must never do. A default a consumer might
 want differently ships as a default their overlay can change, stated without
 our reasoning for it.
 
-Two words to keep steady. A repo that installs tend is a **consumer**, the term
+Two naming decisions. A repo that installs tend is a **consumer**, the term
 `data/consumers.json`, `refresh_consumers.py`, and the Worker already use — not
 an adopter, which the changelog keeps only in released entries. And the second
 kind of guidance isn't `internal`: a skill's `metadata: internal: true` already
@@ -395,7 +399,7 @@ sessions in the gap each pay attention for text that changes nothing they do.
 | a workflow's `SKILL.md` | that workflow's sessions | yes |
 | a skill's `references/` | only the sessions taking that action | yes |
 | `.claude/skills/running-tend/` | sessions in that one repo | no |
-| `CLAUDE.md` | sessions working on that repo | no |
+| `CLAUDE.md` | sessions working on the repo it sits in | no |
 
 - **A rule has one home.** Another file that needs it names the section
   instead of restating it — copies drift, and a partial copy drops what the

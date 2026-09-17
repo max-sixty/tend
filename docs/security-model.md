@@ -8,7 +8,7 @@ credentials outside the agent process and requires a human to land code. The
 agent is expected to use the GitHub API for any repository the bot account can
 access, including repositories other than the one that started the run.
 
-Each adopting repo should document its specific configuration (admin accounts,
+Each consumer repo should document its specific configuration (admin accounts,
 token names, protected environments) in its own
 `.claude/skills/running-tend/SKILL.md`, the consumer-owned overlay the rest of
 the docs name. Not a `docs/agent-notes.md` of its own: PR instruction
