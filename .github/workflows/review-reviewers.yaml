@@ -4,15 +4,23 @@ name: review-reviewers
 # improvement PRs/issues). TEND_BOT_TOKEN is sufficient for reading CI data from
 # public consumer repos.
 #
-# Paused — manual dispatch only, no cron. The hourly outside-in sweep had
-# converged on maintaining its own evidence machinery, at the fleet's highest
-# per-run cost and a quota ceiling that twice took the user-facing workflows
-# down with it. Each consumer's own daily `tend-review-runs` already reviews that
-# repo's runs from the inside and routes bundled-skill defects upstream, so the
-# loop this closes is the direct one, not the only one. Dispatch it as a
-# deliberate spot-check after a change that could move bot behavior fleet-wide:
-# a release, a harness switch, a model bump.
+# The matrix is the consumers nobody here maintains, because those are the
+# repos whose runs nobody here reads. On our own, tend's work arrives in PRs
+# and issues we look at anyway, so a bad week is visible without a sweep. Add
+# a repo when a new adopter is one we don't maintain.
+#
+# It used to sweep every consumer, hourly. That was the fleet's highest
+# per-run cost and twice hit a quota ceiling that took the user-facing
+# workflows down with it; two legs a day is a fraction of it.
+#
+# Each consumer's own daily `tend-review-runs` reviews that repo's runs from
+# the inside and routes bundled-skill defects upstream; this is the same
+# reading from outside, and it still works when a repo has switched tend off.
 on:
+  schedule:
+    # Off-peak (outside weekday 8am–2pm ET), and after the consumers' own
+    # nightly and review-runs defaults, so a tick sees the whole night.
+    - cron: "41 9 * * *"
   workflow_dispatch:
 
 jobs:
@@ -25,6 +33,9 @@ jobs:
   # find-or-create fallback, so the matrix runs even when this job doesn't
   # complete (see `if:` on the matrix job below).
   init-tracking:
+    # A cron fires in a fork that has enabled Actions, where neither the
+    # environment nor the pause variable is ours; both guards no-op it there.
+    if: github.repository_owner == 'max-sixty' && vars.TEND_ENABLED != 'false'
     runs-on: ubuntu-24.04
     environment:
       name: tend
@@ -58,20 +69,20 @@ jobs:
     # race guard costs up to N-1 duplicate tracking issues on the first tick of
     # a month, while gating on it costs the whole analysis window for every
     # target repo. Not `always()`: a user cancelling the run should stop here.
-    if: ${{ !cancelled() }}
+    # `!cancelled()` also runs past a *skipped* `init-tracking`, so the guards
+    # above are repeated here rather than inherited through `needs`.
+    if: ${{ !cancelled() && github.repository_owner == 'max-sixty' && vars.TEND_ENABLED != 'false' }}
     strategy:
       fail-fast: false
       matrix:
-        # Must cover data/consumers.json; test_repo_pins.py enforces it.
+        # TODO: consider deriving this from data/consumers.json — everything
+        # there we don't maintain. That needs the ownership recorded in a file
+        # the Worker serves publicly, and a job to emit the matrix, since
+        # Actions cannot read a file into one. Two names stay cheap until
+        # adopters we don't maintain outnumber the ones we do.
         repo:
-          - PRQL/prql
           - diffplug/dormouse
           - jakobtfaber/Faber2026
-          - max-sixty/cargo-affected
-          - max-sixty/leaf
-          - max-sixty/tend
-          - max-sixty/worktrunk
-          - numbagg/numbagg
     runs-on: ubuntu-24.04
     environment:
       name: tend

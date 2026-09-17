@@ -181,6 +181,10 @@ repository, and leaves the existing file untouched if a GitHub read fails.
 Confirm every repository listed under `removed` no longer has generated Tend
 workflows before publishing the change.
 
+When the refresh adds a repository nobody here maintains, add it to
+`.github/workflows/review-reviewers.yaml`'s matrix in the same PR — that
+workflow is the only reading those repos' tend runs get.
+
 Open a PR titled `chore: refresh consumers.json` if the file changed. Skip
 the PR (no diff to land) when `git status --porcelain data/consumers.json`
 is empty — `git diff --quiet` returns 0 for untracked paths, so the

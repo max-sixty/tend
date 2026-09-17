@@ -87,6 +87,23 @@ gh api "repos/$ARGUMENTS/contents/.claude/skills/running-tend/SKILL.md" \
 
 If the file doesn't exist, try the legacy overlay paths and the repo's root project instructions (`.claude/skills/running-tend.md`, `.claude/CLAUDE.md`, `CLAUDE.md`, `AGENTS.md`). Understanding the repo's instructions is essential context for evaluating outcomes — without it, you'll misjudge authorized behavior as a violation.
 
+Then check whether tend is still enabled there — it decides how to read an
+empty run list below:
+
+```bash
+gh api "repos/$ARGUMENTS/actions/workflows" \
+  --jq '.workflows[] | select(.path | test("/tend-")) | "\(.state)\t\(.path)"'
+```
+
+`disabled_manually` across every `tend-*` workflow means tend is switched off
+there, so there are no runs to survey and Steps 2 to 4 do not apply. Read
+tend's output from the weeks before the last run instead, against the same
+gates as any other window, and say in the summary that it is switched off.
+
+A mix of states is ordinary — a consumer may disable one workflow — and
+`disabled_inactivity` is GitHub expiring a cron in a repo with no recent
+pushes, not a decision. Note either and carry on.
+
 Then list recently completed tend CI runs on the target repo:
 
 ```bash
@@ -97,11 +114,11 @@ TARGET_REPO=$ARGUMENTS uv run --script \
 
 The script discovers `tend-*` workflows by default. Pass additional prefixes as arguments to include other workflows (e.g., `review-reviewers` when analyzing tend itself).
 
-If empty, record the run as all-clear per **Evidence accumulation** above, then skip to Step 6.
+If empty, record the run as all-clear per **Evidence accumulation** above, then skip to Step 6 — all-clear only where the check above showed tend enabled.
 
 If the script printed a `WARNING:` on stderr, the list is known-incomplete — the window was clamped, no anchor was found, or a workflow hit the fetch limit. Record a coverage gap naming the missing span instead of an all-clear, whether or not the list came back empty; the next run's floor advances past that span regardless, so an unrecorded gap is never revisited. If the script *fails* (non-zero exit, e.g. a transient API error), re-run it once; if it fails again, record the window as a coverage gap the same way — this run still concludes green, so the next tick anchors on it and never revisits the span.
 
-**State the window you analyzed.** Its floor is the previous successful run of this workflow, or 6h back when that is older. This workflow is dispatch-only, so runs sit further apart than a cron's and the floor moves accordingly: scope every claim to it — "no problems since 08:12Z", never "no problems" — and say plainly when the run was dispatched to check on something that landed before it.
+**State the window you analyzed.** Its floor is the previous successful run of this workflow, or 6h back when that is older — normally a day, since the workflow runs daily, and further back after a gap. Scope every claim to the window — "no problems since 08:12Z", never "no problems" — and say plainly when the run was dispatched to check on something that landed before it.
 
 ## Step 2: Survey outcomes
 
