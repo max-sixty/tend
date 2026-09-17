@@ -150,6 +150,7 @@ A bug finding earns a PR only where a caller can reach it. For a defect found by
 - Code patterns that violate conventions stated in the project's instruction files
 - Stale instructions that reference renamed files, deleted functions, or outdated patterns
 - Skills that have drifted from actual project behavior (instructions that no longer match how the code works)
+- Guidance text most of its loading sessions never act on: it belongs in the file its actors read. The same for a rule stated in two files, including an overlay copy forked from a bundled default — search a distinctive phrase to find the second.
 
 ## Step 7: Update tend workflows
 
@@ -181,11 +182,11 @@ Compose the PR body at `$TMPDIR/tend-update-body.md`. Its
 reader is deciding whether to adopt the regenerated workflows, so explain the
 consumer-visible effect of the upgrade rather than inventorying changed files
 or commits. When the version changed, state the old and new versions,
-synthesize the `upstream_commits` entries into the behavior adopters will
+synthesize the `upstream_commits` entries into the behavior consumers will
 notice, and link `compare_url` as support. Rewrite each `(#NNN)` reference as
 `max-sixty/tend#NNN` — a bare `#NNN` auto-links to this repo's own issues, not
 tend's. Filter out release mechanics, action-pin and lockfile bumps, and
-tend-internal work with no adopter-visible effect. If `upstream_commits` is
+tend-internal work with no consumer-visible effect. If `upstream_commits` is
 empty, the comparison call failed: include only the version line and compare
 link, and do not infer upstream behavior. For a same-version regeneration,
 explain the generator behavior that made the committed workflows stale. Follow

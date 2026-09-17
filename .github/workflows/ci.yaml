@@ -37,7 +37,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.1.0
       # mitmdump starts the way setup_sandbox.py starts it, so a release that
       # drops a flag, moves the CA file, or breaks the addon's import fails
-      # here rather than on every adopter's next run. It goes through the
+      # here rather than on every consumer's next run. It goes through the
       # pinned uv, which nothing else in CI installs. The --allow-hosts value
       # is a throwaway: setup_sandbox.py owns the real regex, which must track
       # the allowlists in inject_credentials.py.

@@ -26,7 +26,7 @@ Expected behavior that looks suspicious — designed no-ops, designed silence, r
 
 **Target repo:** $ARGUMENTS
 
-Analysis targets an adopter repo whose CI runs are analyzed. Findings result in PRs/issues on the current repo (tend) to improve skills and workflows.
+Analysis targets a consumer repo whose CI runs are analyzed. Findings result in PRs/issues on the current repo (tend) to improve skills and workflows.
 
 Use `-R $ARGUMENTS` for commands that access the target repo (querying runs, PRs, issues). Commands without `-R` default to tend.
 

@@ -133,7 +133,7 @@ def test_codex_action_drives_its_stateful_phases_through_the_runner() -> None:
     for the third command, which `agent_lifecycle` issues from inside the
     sandbox. `runner.py` dispatches on an exact argv and indexes that variable,
     and nothing runs a composite action in CI, so a rename or a dropped
-    variable first fails in an adopter's job. What the commands then do is
+    variable first fails in a consumer's job. What the commands then do is
     covered by test_codex_runner.py and test_agent_lifecycle.py.
     """
     action = YAML(typ="safe", pure=True).load(
@@ -383,7 +383,7 @@ def test_generated_workflow_uv_uses_the_action_pin() -> None:
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_privileged_sandbox_launch_scrubs_adopter_runtime_configuration(
+def test_privileged_sandbox_launch_scrubs_consumer_runtime_configuration(
     harness: str,
 ) -> None:
     action = YAML(typ="safe", pure=True).load(
@@ -422,7 +422,7 @@ def test_privileged_sandbox_launch_forwards_every_configured_value(
     refuses to start without the bot identity. Nothing else catches a value
     added to one list alone: neither action.yaml is linted or run here, and the
     hosted sandbox test supplies the script's environment itself — so the
-    mismatch would first run in an adopter's job after a release.
+    mismatch would first run in a consumer's job after a release.
     """
     action = YAML(typ="safe", pure=True).load(
         (REPO_ROOT / harness / "action.yaml").read_text()
@@ -453,8 +453,8 @@ def test_codex_actions_pin_the_same_cli_version() -> None:
 # Nothing else reads them: the pre-commit actionlint hook is pinned to
 # ^.github/workflows/, so neither action.yaml is linted at all, and no workflow
 # here consumes the actions with `uses: ./` — they pin a released ref, so an
-# edited body first runs in an adopter's job. A path that resolves nowhere fails
-# its step, for every adopter, on the first run after a release.
+# edited body first runs in a consumer's job. A path that resolves nowhere fails
+# its step, for every consumer, on the first run after a release.
 ACTION_PATH_REF = re.compile(r"\$\{\{\s*github\.action_path\s*\}\}/?([^\s\"')]*)")
 
 

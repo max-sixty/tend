@@ -39,7 +39,7 @@ locked. The setting is prospective, so install-tend enables it before the
 next release and `tend check` verifies it directly.
 
 The "all tags" scope is deliberate: matching every tag removes a per-repo
-pattern choice and keeps the chain a single uniform rule. Adopters that
+pattern choice and keeps the chain a single uniform rule. Consumers that
 need a narrower or layered configuration (per-pattern rulesets,
 no-bypass immutability on release tags for repos that publish actions
 consumed via tag pins, required-reviewer environment gates for per-deploy

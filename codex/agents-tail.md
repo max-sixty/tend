@@ -23,7 +23,7 @@ workflow. It covers CI security rules, polling conventions, and
 comment-formatting guidance. Other skills depend on it.
 
 Repo-local skills live under `.claude/skills/<name>/SKILL.md` in the
-adopter's repo (e.g. `running-tend`). The `running-in-ci` skill tells
+consumer's repo (e.g. `running-tend`). The `running-in-ci` skill tells
 you when to read them; read those in full too.
 
 ## Tooling

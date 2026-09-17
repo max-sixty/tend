@@ -355,7 +355,7 @@ def test_bot_name_with_hyphens_valid(tmp_path: Path) -> None:
 def test_prompt_punctuation_reaches_the_agent_verbatim(
     tmp_path: Path, workflow: str
 ) -> None:
-    """Braces and quotes in a prompt are the adopter's own text, not syntax.
+    """Braces and quotes in a prompt are the consumer's own text, not syntax.
 
     Every prompt is a YAML block scalar, so the only substitution is the
     workflow's own `{...}` placeholder. `{0}`, `{1}` and a stray apostrophe once
@@ -863,8 +863,8 @@ def test_allowed_secrets_refuses_operational_names(tmp_path: Path) -> None:
 
 
 def test_secret_name_override_refused(tmp_path: Path) -> None:
-    """The per-adopter name overrides are gone. Ignoring a leftover one would
-    generate workflows reading the fixed name while the adopter's secret still
+    """The per-consumer name overrides are gone. Ignoring a leftover one would
+    generate workflows reading the fixed name while the consumer's secret still
     answers to the old one, so it fails with the rename to make."""
     path = _write_config(
         tmp_path,

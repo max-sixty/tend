@@ -9,7 +9,7 @@ metadata:
 
 Analyze the previous night's tend CI runs in this repository. Identify behavioral problems, skill gaps, and workflow issues — then propose improvements to the repo's local skills and workflows.
 
-This skill runs **in the adopter repo**, not in tend. Improvements target `.claude/skills/` and `.config/tend.yaml` in this repository.
+This skill runs **in the consumer repo**, not in tend. Improvements target `.claude/skills/` and `.config/tend.yaml` in this repository.
 
 ## First steps
 
@@ -67,7 +67,7 @@ Then, for each run ID from above, pull its jobs and classify them:
 - **Long-running** (>30 min): Tend runs typically finish in single-digit minutes. Anything over 30 is worth a look — download session logs in Step 3 and diagnose where the time went (long background waits, push-wait-fix cycles, a stuck tool call).
 - **Near-timeout** (within 90% of the cap): A job that consumed most of its timeout budget is one slow external check away from being killed. Structural, but classify the cost per Gate 3 by what the kill left on the record: usually waste-class (a cron-driven run a later tick retries), except where the killed session had already taken an outward action it was still gated on — a `tend-review` job killed mid-poll leaves its approval standing over red CI. Waste-class gets only a remedy that passes Gate 3, or nothing.
 
-To determine the timeout cap for a workflow, read `timeout-minutes` from that workflow's own file under `.github/workflows/` — the census admits workflows named outside the `tend-` prefix, so don't glob for one. Tend's generated workflows do not set `timeout-minutes`, so GitHub's 360-minute default applies unless the adopter has overridden it via `workflows.<name>.jobs.<job>.timeout-minutes` in `.config/tend.yaml`.
+To determine the timeout cap for a workflow, read `timeout-minutes` from that workflow's own file under `.github/workflows/` — the census admits workflows named outside the `tend-` prefix, so don't glob for one. Tend's generated workflows do not set `timeout-minutes`, so GitHub's 360-minute default applies unless the consumer has overridden it via `workflows.<name>.jobs.<job>.timeout-minutes` in `.config/tend.yaml`.
 
 ```bash
 # Flag long-running and near-timeout jobs

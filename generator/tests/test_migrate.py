@@ -159,7 +159,7 @@ def test_init_dry_run_previews_the_migration_without_performing_it(
 ) -> None:
     """`init --dry-run` writes nothing — including the migration.
 
-    The preview run is the one an adopter makes to see what the upgrade would
+    The preview run is the one a consumer makes to see what the upgrade would
     do, so performing the migration there converts the config behind their
     back and deletes the TOML they were still deciding about.
     """
