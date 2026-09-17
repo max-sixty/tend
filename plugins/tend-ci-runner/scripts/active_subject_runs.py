@@ -33,10 +33,12 @@ ACTIVE_STATUSES = ("queued", "in_progress", "waiting", "requested", "pending")
 WORKFLOW_PREFIX = "tend-"
 
 # A run whose state has not moved in this long is never going to deliver.
-# GitHub terminates a job queued past 24h, so nothing legitimate sits
-# untouched for a day. Runs do get stranded non-terminal with no jobs and no
-# further updates, and without this bound one of them pins its subject for
-# good.
+# GitHub documents no queue-time cancellation for its hosted runners — the 24h
+# one covers self-hosted — so this bound rests on observed state rather than a
+# guarantee: a live run advances `updated_at` at every job transition, and the
+# shape that could outlast it is a deep `queue: max` backlog. Runs do get
+# stranded non-terminal with no jobs and no further updates, and without this
+# bound one of them pins its subject for good.
 ABANDONED_AFTER = timedelta(hours=24)
 
 
