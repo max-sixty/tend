@@ -1,11 +1,11 @@
 """Security checks for tend setup.
 
 Verifies the boundaries docs/security-model.md claims: the bot cannot land
-code (protected branches and tag operations), future releases are immutable,
-and a run the bot can cause reaches no credential (the `tend` environment's
-deployment branch policy, every other credential-holding environment's gate,
-the operational secrets living in the environment, and no repo-level secret
-outside the allowlist).
+code (protected branches and tag operations), future releases' assets and tags
+are immutable, and a run the bot can cause reaches no credential (the `tend`
+environment's deployment branch policy, every other credential-holding
+environment's gate, the operational secrets living in the environment, and no
+repo-level secret outside the allowlist).
 
 Uses the `gh` CLI for GitHub API access. Checks degrade gracefully when
 gh is unavailable or the token lacks permission. Almost everything read
@@ -184,7 +184,7 @@ def detect_default_branch(repo: str) -> str | None:
 
 
 def check_immutable_releases(repo: str) -> CheckResult:
-    """Check that future published releases and their tags cannot be rewritten."""
+    """Check that future releases' assets and tags cannot be rewritten."""
     result = _gh(
         "api",
         "-H",

@@ -61,15 +61,16 @@ Three load-bearing boundaries:
 2. **A run the bot can cause reads no secrets.** Every stored secret sits
    behind a gate the bot cannot pass, or is explicitly allowlisted in the
    tend config as accepted repo-level exposure.
-3. **Future published releases cannot be rewritten.** GitHub immutable
+3. **Future releases' assets and tags cannot be rewritten.** GitHub immutable
    releases lock a published release's assets and its associated tag from
    the point the repository setting is enabled. The release's body is not
    locked: a write-access actor can still edit the notes of an immutable
    release, verified against live GitHub with a write-scoped token.
 
 `tend check` fails until the first two hold and the third is enabled, so a
-passing check by a repository admin *is* the claim for future releases. GitHub
-does not apply the setting retroactively.
+passing check by a repository admin *is* the claim for the assets and tag of
+every release published afterwards. GitHub does not apply the setting
+retroactively.
 
 A run below admin cannot read the setting and reads the newest published
 release's `immutable` flag instead, which is retrospective: it establishes that
