@@ -13,7 +13,7 @@ Tend's bundled skills provide defaults; the consumer repo's own guidance — its
 
 If a `running-tend` skill is listed in your available skills, read it before doing anything else. It typically carries PR title conventions, label policies, custom workflows to watch, and other repo-specific context. It can also define extra tasks for the job you're running — additional nightly or weekly maintenance, repo-specific health checks — which you perform as part of that job, not just keep in mind.
 
-Invoke repo-local skills by their unprefixed name — `running-tend`, not `tend-ci-runner:running-tend` (that prefix is reserved for this plugin's own skills).
+Invoke a repo-local skill by its own name with no plugin prefix — `/running-tend`, not `/tend-ci-runner:running-tend` (that prefix is reserved for this plugin's own skills).
 
 ## References
 

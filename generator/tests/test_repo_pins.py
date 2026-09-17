@@ -766,11 +766,11 @@ def test_every_reference_a_skill_names_exists() -> None:
 def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
     """A prompt's first line invokes a skill; a rename leaves it pointing nowhere.
 
-    `/tend-ci-runner:<name>` resolves in the bundled plugin, a bare name in this
-    repo's own `.claude/skills/` — which is how the hand-maintained
-    `review-reviewers.yaml` reaches tend's overlay copy. `tend-mention` is the
-    one agent-invoking workflow whose prompt opens with an expression instead,
-    because it names no skill at all (TODO.md).
+    Both forms are slash commands: `/<plugin>:<name>` resolves in that bundled
+    plugin, `/<name>` in this repo's own `.claude/skills/` — which is how the
+    hand-maintained `review-reviewers.yaml` reaches tend's overlay copy.
+    `tend-mention` is the one agent-invoking workflow whose prompt opens with an
+    expression instead, because it names no skill at all (TODO.md).
     """
     yaml = YAML(typ="safe", pure=True)
     checked = []
@@ -785,16 +785,20 @@ def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
                 first = prompt.strip().split()[0]
                 if first.startswith("${{"):
                     continue
-                if first.startswith("/"):
-                    plugin, _, skill = first.lstrip("/").partition(":")
-                    target = REPO_ROOT / "plugins" / plugin / "skills" / skill
-                else:
-                    target = REPO_ROOT / ".claude" / "skills" / first
+                assert first.startswith("/"), (
+                    f"{path.name}'s prompt opens with `{first}`, not a slash command"
+                )
+                plugin, _, skill = first.lstrip("/").rpartition(":")
+                target = (
+                    REPO_ROOT / "plugins" / plugin / "skills" / skill
+                    if plugin
+                    else REPO_ROOT / ".claude" / "skills" / skill
+                )
                 assert (target / "SKILL.md").is_file(), (
                     f"{path.name} invokes `{first}`, which is not a skill at "
                     f"{target.relative_to(REPO_ROOT)}"
                 )
-                checked.append(first)
+                checked.append(skill)
 
     assert "review-reviewers" in checked, (
         "review-reviewers.yaml stopped naming its skill"

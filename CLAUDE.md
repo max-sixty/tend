@@ -382,7 +382,8 @@ Tend's overlay here is tend's own guidance by the rule above — it doesn't ship
 and it carries the tasks and conventions for bot sessions in this repo. A whole
 skill belongs there when only this repo's workflows invoke it:
 `.claude/skills/review-reviewers/` is one, dispatched by the hand-maintained
-`review-reviewers.yaml` and named unprefixed in its prompt. A tend-only skill
+`review-reviewers.yaml`, whose prompt invokes it as `/review-reviewers` — a
+slash command like any skill, without the plugin prefix. A tend-only skill
 left in the plugin installs into every consumer, is invoked by none of them,
 and collects tend's internal text next to the files they do load.
 
