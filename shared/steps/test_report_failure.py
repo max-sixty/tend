@@ -464,3 +464,14 @@ def test_the_remedy_is_said_once_per_tracker(
     assert RUN_LINK in _posted(gh), "dropped the row along with the remedy"
     assert report_failure.REMEDY_COMMAND not in _posted(gh), _posted(gh)
     assert not gh.called(*RELEASES), gh.calls
+
+
+@pytest.mark.parametrize("ref", ["main", "0.2", "0.2.9.1", "v0.2.9", "1.².3", ""])
+def test_a_ref_that_is_not_a_release_is_unordered(ref: str) -> None:
+    """Every non-release ref returns ``None`` rather than raising.
+
+    ``1.².3`` is the one that needs the strict predicate: ``str.isdigit`` is
+    true for it and ``int`` is not, so a laxer guard raises inside a step that
+    is already red and loses the run's row.
+    """
+    assert report_failure._release(ref) is None
