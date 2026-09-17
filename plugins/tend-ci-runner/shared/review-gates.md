@@ -56,13 +56,11 @@ Only proceed to act on findings that pass both gates.
 
 Some patterns look suspicious but are intentional — flagging expected behavior creates maintainer churn and costs trust. Three structural rules cover them:
 
-- **Designed no-ops.** Many events correctly end with nothing posted, at whatever layer catches them: a pre-boot gate skip (`tend-mention`'s verify gate on the bot's own comments and reviews — though targets on older pinned releases still boot sessions for those), or a session that boots and exits silently (`tend-triage` on the bot's own monthly tracking-issue creation; the `issue_comment.edited` retrigger after a commenter refines their comment — the edit can change relevance, so the retrigger must re-evaluate; `tend-notifications` mark-reading a cross-repo `ci_activity` notification from an abandoned fork). Record them and move on. A loop that produces *wrong outward actions* — duplicate comments, spurious reviews — is a finding, and where a label can express the distinction a label-based skip beats an authorship filter.
+- **Designed no-ops.** Many events correctly end with nothing posted, and the layer that catches one varies: a pre-boot gate skips the job, or a session boots, judges the trigger, and exits silently. Both are the design — a workflow fires on an event class, and most of a class needs no response. Record them and move on. A loop that produces *wrong outward actions* — duplicate comments, spurious reviews — is a finding, and where a label can express the distinction a label-based skip beats an authorship filter.
 
 - **Designed silence.** `/tend-ci-runner:review` decides when a review posts nothing; that skill and its `references/draft-mode.md` are the contract, so read them before calling a missing review an omission. Two states the listing hides: GitHub reports a draft as `state: OPEN` (`gh api repos/OWNER/REPO/pulls/N --jq '{state, draft}'`), and the PR's literal author decides whether an approval was available at all (`gh pr view <n> --json author --jq '.author.login'`) — a human owner's PR is approved normally and is no precedent for approving a bot-authored one.
 
 - **The reviewer role is independent of authorship.** `tend-review` re-reviewing — and re-approving — after any tend workflow pushes a fix commit is the design, not a re-approval loop; authorship-keyed guards that skip re-review drop real work. Stacked approvals from racing runs are a *concurrency* artifact (cancelled runs POSTing before the SIGTERM arrived), not a review-rule problem.
-
-**A merged fix still reproduces where the bot runs.** Every repo calls a pinned action ref, so a skill fix that merged in `max-sixty/tend` stays dormant until the next release tags. Observing the bug is therefore not evidence the fix is missing — check tend's merged PRs before filing, or the report is churn on something already landed.
 
 ## Finding format
 

@@ -208,7 +208,7 @@ gh issue list --repo max-sixty/tend --state all --limit 200 --json number,title
 
 Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`).
 
-A fix merged upstream stays dormant here until the next release tags, so observing the bug is not evidence the fix is missing — see **Non-issues** in `review-gates.md`.
+Your workflows call a pinned action ref, so a skill fix merged upstream stays dormant here until the next release tags. Observing the bug is therefore not evidence the fix is missing: read these results before filing, or the report is churn on something already landed.
 
 ## Step 6: Act on findings
 

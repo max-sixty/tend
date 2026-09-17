@@ -300,7 +300,7 @@ gh issue list --state closed --label claude-behavior --json number,title,closedA
 gh pr list --state all --limit 200 --json number,title,state
 ```
 
-A merged fix stays dormant until the next release tags, so observing the bug is not evidence the fix is missing — see **Non-issues** in `review-gates.md`.
+A merged fix stays dormant in the target repo until the next release tags, so observing the bug there is not evidence the fix is missing — filing it again is churn on something already landed.
 
 Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`). Only comment on existing issues if you have material new cases that would change the approach or increase prioritization. Do not comment with progress updates, fix-PR status, or re-statements of evidence already in the issue.
 
