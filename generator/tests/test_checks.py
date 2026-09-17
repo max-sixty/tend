@@ -1257,8 +1257,23 @@ def test_check_immutable_releases_falls_back_to_newest_release(
         "api",
         "repos/owner/repo/releases",
         "--jq",
-        "[.[] | select(.draft | not)][0] // empty",
+        "[.[] | select(.draft | not)] | max_by(.published_at) // empty",
     )
+
+
+def test_check_immutable_releases_picks_the_latest_published_not_the_first() -> None:
+    """The list endpoint's order is not publication order.
+
+    A release's `created_at` is its tag's commit date, so a repository
+    publishing from several trains (a backport released after a newer
+    version) can serve an older release first. Reading `[0]` there would
+    report the setting as it stood at the earlier publication and pass while
+    a rewritable release exists, so the jq picks `max_by(.published_at)`.
+    """
+    with patch("tend.checks._gh", side_effect=[_SETTING_404, _make_completed()]) as gh:
+        check_immutable_releases("owner/repo")
+
+    assert "max_by(.published_at)" in gh.call_args.args[-1]
 
 
 def test_check_immutable_releases_404_with_no_releases_is_unverified() -> None:

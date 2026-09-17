@@ -215,7 +215,7 @@ def check_immutable_releases(repo: str) -> CheckResult:
         "immutable-releases",
         False,
         "Immutable releases are disabled. A write-access bot can rewrite a "
-        "published release's assets or notes. Run `tend check --fix`.",
+        "published release's assets, and repoint its tag. Run `tend check --fix`.",
     )
 
 
@@ -230,15 +230,22 @@ def _check_newest_release_immutable(repo: str) -> CheckResult:
 
     Each published release carries GitHub's own `immutable` flag, readable with
     write access, recording the setting as it stood when that release was
-    published. The newest release reflects the most recent state of it. The
-    flag is never retroactive, so enabling the setting clears a failure here at
-    the next release rather than immediately.
+    published. The most recently published release therefore reflects the most
+    recent state of the setting — which is `max_by(.published_at)`, not the
+    first element: the list endpoint documents no order, and a release's
+    `created_at` is its tag's commit date, which on a repository publishing
+    from several release trains puts a backport published later further down.
+
+    The flag is retrospective in both directions. Enabling the setting clears a
+    failure here at the next release rather than immediately, and turning it
+    off goes unseen until the repository publishes again. An admin's run reads
+    the setting itself and has neither lag.
     """
     result = _gh(
         "api",
         f"repos/{repo}/releases",
         "--jq",
-        "[.[] | select(.draft | not)][0] // empty",
+        "[.[] | select(.draft | not)] | max_by(.published_at) // empty",
     )
     if result is None:
         return CheckResult("immutable-releases", None, "gh CLI not found")
@@ -273,7 +280,7 @@ def _check_newest_release_immutable(repo: str) -> CheckResult:
         "immutable-releases",
         False,
         f"The newest release ({tag}) can be rewritten — a write-access bot can "
-        "replace its assets or notes. Run `tend check --fix` as a repository "
+        "replace its assets. Run `tend check --fix` as a repository "
         "admin. GitHub applies the setting only to releases published after it "
         "is enabled, so an already-enabled repository clears this at its next "
         "release.",

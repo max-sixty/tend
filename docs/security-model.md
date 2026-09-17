@@ -62,13 +62,21 @@ Three load-bearing boundaries:
    behind a gate the bot cannot pass, or is explicitly allowlisted in the
    tend config as accepted repo-level exposure.
 3. **Future published releases cannot be rewritten.** GitHub immutable
-   releases lock the release record, its assets, and the associated tag from
-   the point the repository setting is enabled.
+   releases lock a published release's assets and its associated tag from
+   the point the repository setting is enabled. The release's body is not
+   locked: a write-access actor can still edit the notes of an immutable
+   release, verified against live GitHub with a write-scoped token.
 
 `tend check` fails until the first two hold and the third is enabled, so a
-passing check *is* the claim for future releases — read from the setting when
-the caller is a repository admin, and from the newest release's own
-`immutable` flag otherwise. GitHub does not apply the setting retroactively.
+passing check by a repository admin *is* the claim for future releases. GitHub
+does not apply the setting retroactively.
+
+A run below admin cannot read the setting and reads the newest published
+release's `immutable` flag instead, which is retrospective: it establishes that
+the setting was enabled when that release was published, not that it is enabled
+now. Turning the setting off is therefore invisible to the nightly run until
+the repository publishes again — at which point the check fails. Closing that
+window takes an admin-run `tend check`.
 
 **Merge restriction.** A GitHub ruleset (or branch protection) prevents the
 bot from merging to protected branches (the default branch plus any in
@@ -351,7 +359,7 @@ longer needs a post-agent restore or recursive ownership repair.
 action to the generator's own release version
 (`max-sixty/tend/<harness>@X.Y.Z`), never a floating ref. Release-tag
 immutability is the boundary this relies on for new releases: GitHub's
-immutable-releases setting locks each release, its assets, and its tag when it
+immutable-releases setting locks each release's assets and its tag when it
 is published. The tag ruleset also restricts updates. Tend's releases from
 before the setting was enabled have no uploaded assets and their tag code is
 protected by a no-bypass tag ruleset, but their GitHub release records are not
