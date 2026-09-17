@@ -84,11 +84,11 @@ shellcheck and no tests; every session re-derives its correctness.
 
 ## Mechanics
 
-For the overlay path, and for an upstream PR on tend itself — with the bundled
-skill file as step 2's dedup target, and without step 3's read-only-mount
-workaround, since bundled skills live under `plugins/` rather than
-`.claude/skills/`. Filing upstream from a consumer repo follows
-`other-repos.md` instead.
+For the overlay path, and for an upstream PR on tend itself — with the skill
+file you are editing as step 2's dedup target. Step 3's read-only-mount
+workaround turns on where that file sits, not on which repo you are in: a file
+under `.claude/skills/` needs it, one under `plugins/` does not. Filing upstream
+from a consumer repo follows `other-repos.md` instead.
 
 1. **Complete the current task first.** The skill update is always a separate
    PR.

@@ -206,9 +206,7 @@ gh pr list --repo max-sixty/tend --state all --limit 200 --json number,title,sta
 gh issue list --repo max-sixty/tend --state all --limit 200 --json number,title
 ```
 
-Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`).
-
-**A fix merged upstream still reproduces here.** The action ref is pinned per release, so a skill fix that merged in `max-sixty/tend` stays dormant on this repo until the next release tags. Observing the bug is therefore not evidence the fix is missing — check tend's merged PRs before filing, or the report is churn on something already landed.
+Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`). The two `max-sixty/tend` queries are what **A fix merged on tend is dormant until the next release** in `review-gates.md` requires: a merged fix there is not yet live here.
 
 ## Step 6: Act on findings
 

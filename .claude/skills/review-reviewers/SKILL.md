@@ -14,6 +14,8 @@ Analyze tend's CI behavior on the target repo over the window Step 1 returns. Fo
 
 Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply.
 
+This skill is repo-local, so its scripts come from the checkout rather than the pinned action's installed plugin — `$(git rev-parse --show-toplevel)` below, not `${CLAUDE_PLUGIN_ROOT}`, which Claude substitutes only into a bundled skill's text. Keep it that way: a release-pinned script beside a skill that tracks `main` skews the moment one of them changes a CLI.
+
 ## Cost discipline
 
 Session log parsing and outcome checking are token-heavy. Keep that bulk reading out of the context that makes the judgments (evaluating findings against gates, deciding whether to act, drafting PRs), and run it on a smaller, cheaper model where the harness allows.
@@ -27,16 +29,6 @@ Session logs are expensive to download and parse. Only escalate to session-log i
 ## Core principle: repo-specific guidance is primary
 
 Each consumer repo has its own guidance (`running-tend` skill or equivalent) that shapes how the bot should behave in that repo. This repo-specific guidance **takes precedence** over tend's default rules. The bot's job is to follow the repo-specific guidance first, falling back to tend's defaults only where the repo doesn't specify.
-
-## Non-issues: do not flag these
-
-Some patterns look suspicious but are intentional — flagging expected behavior creates maintainer churn and costs trust. Three structural rules cover them:
-
-- **Designed no-ops.** Many events correctly end with nothing posted, at whatever layer catches them: a pre-boot gate skip (`tend-mention`'s verify gate on the bot's own comments and reviews — though targets on older pinned releases still boot sessions for those), or a session that boots and exits silently (`tend-triage` on the bot's own monthly tracking-issue creation; the `issue_comment.edited` retrigger after a commenter refines their comment — the edit can change relevance, so the retrigger must re-evaluate; `tend-notifications` mark-reading a cross-repo `ci_activity` notification from an abandoned fork). These cost compute, not correctness — Gate 3 classifies them waste-class: record and move on; do not propose a skip-gate, label filter, pre-check, or occurrence threshold to save the boot. A loop that produces *wrong outward actions* (duplicate comments, spurious reviews) is different — that passes Gate 3, and a label-based skip is preferred over an authorship filter where a label can express it.
-
-- **Designed silence.** The bundled `/tend-ci-runner:review` skill authorizes posting nothing when there is nothing actionable: on a self-authored PR (GitHub rejects self-approvals, so APPROVE isn't an option), on a draft PR (COMMENT-only mode; GitHub blocks approving drafts), or when the PR closed or merged while its run was queued. GitHub reports drafts as `state: OPEN`, so before reading a missing review as omission — or escalating to session logs to explain it — check `gh api repos/OWNER/REPO/pulls/N --jq '{state, draft}'` and the PR's literal author (`gh pr view <n> --json author --jq '.author.login'`; owner-authored PRs are approved normally and are no bot-authored-APPROVE precedent).
-
-- **The reviewer role is independent of authorship.** `tend-review` re-reviewing — and re-approving — after any tend workflow pushes a fix commit is the design, not a re-approval loop; authorship-keyed guards that skip re-review drop real work and are not an accepted shape. Stacked approvals from racing runs are a *concurrency* artifact (cancelled runs POSTing before the SIGTERM arrived), not a review-rule problem.
 
 ## Target repo
 
@@ -56,7 +48,7 @@ current and previous month's evidence:
 
 ```bash
 uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_reviewers.py" \
+  "$(git rev-parse --show-toplevel)/plugins/tend-ci-runner/scripts/review_reviewers.py" \
   prepare-evidence "$ARGUMENTS"
 ```
 
@@ -70,7 +62,7 @@ is the audit trail future runs use. Then append it:
 
 ```bash
 uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_reviewers.py" append-evidence
+  "$(git rev-parse --show-toplevel)/plugins/tend-ci-runner/scripts/review_reviewers.py" append-evidence
 ```
 
 The command refuses a findings file that does not name this run, fetches the
@@ -104,12 +96,12 @@ Then list recently completed tend CI runs on the target repo:
 
 ```bash
 TARGET_REPO=$ARGUMENTS uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/list_recent_runs.py" review-reviewers
+  "$(git rev-parse --show-toplevel)/plugins/tend-ci-runner/scripts/list_recent_runs.py" review-reviewers
 ```
 
 The script discovers `tend-*` workflows by default. Pass additional prefixes as arguments to include other workflows (e.g., `review-reviewers` when analyzing tend itself).
 
-If empty, record the run as all-clear per "Recording below-threshold findings" above, then skip to Step 6.
+If empty, record the run as all-clear per **Evidence accumulation** above, then skip to Step 6.
 
 If the script printed a `WARNING:` on stderr, the list is known-incomplete — the window was clamped, no anchor was found, or a workflow hit the fetch limit. Record a coverage gap naming the missing span instead of an all-clear, whether or not the list came back empty; the next run's floor advances past that span regardless, so an unrecorded gap is never revisited. If the script *fails* (non-zero exit, e.g. a transient API error), re-run it once; if it fails again, record the window as a coverage gap the same way — this run still concludes green, so the next tick anchors on it and never revisits the span.
 
@@ -312,9 +304,7 @@ gh issue list --state closed --label claude-behavior --json number,title,closedA
 gh pr list --state all --limit 200 --json number,title,state
 ```
 
-**A merged fix still reproduces on consumers.** Consumers call a pinned action ref, so a merged skill fix is dormant on their repos until the next release tags. Observing the bug is therefore not evidence the fix is missing — check merged PRs before filing, or the report is churn on something already landed.
-
-Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`). Only comment on existing issues if you have material new cases that would change the approach or increase prioritization. Do not comment with progress updates, fix-PR status, or re-statements of evidence already in the issue.
+Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`). A merged PR among them settles the finding even though the target still reproduces it — **A fix merged on tend is dormant until the next release** in `review-gates.md`. Only comment on existing issues if you have material new cases that would change the approach or increase prioritization. Do not comment with progress updates, fix-PR status, or re-statements of evidence already in the issue.
 
 ## Step 5: Act on findings
 

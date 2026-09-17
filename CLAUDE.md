@@ -378,8 +378,18 @@ overlay. Use outcomes from consumer runs to refine the defaults: a general
 missing instruction or wrong default is a bundled fix, repository policy an
 overlay one.
 
-Tend's overlay here is tend's own guidance by the rule above — it doesn't ship,
-and it carries the tasks and conventions for bot sessions in this repo.
+Tend's own `.claude/skills/` is tend's own guidance by the rule above — it
+doesn't ship, and it carries the tasks and conventions for bot sessions in this
+repo. A skill only tend runs belongs there rather than in the plugin, however
+much it reads like bot machinery: `review-reviewers` analyses tend's fleet and
+files against tend, so bundling it put a skill in every consumer's listing that
+no consumer invokes. A repo-local skill is invoked by its unprefixed name, and
+Claude substitutes `${CLAUDE_PLUGIN_ROOT}` only into a bundled skill's text, so
+one that calls a plugin script reaches it through the checkout instead
+(`$(git rev-parse --show-toplevel)/plugins/…`, as `review-reviewers` does).
+That also keeps the skill and its scripts on one commit: the installed plugin
+comes from the pinned release, so a skill tracking `main` beside a
+release-pinned script skews the first time either changes a CLI.
 
 ### Which file
 
@@ -393,7 +403,7 @@ sessions in the gap each pay attention for text that changes nothing they do.
 | `running-in-ci/SKILL.md` | every session | yes |
 | a workflow's `SKILL.md` | that workflow's sessions | yes |
 | a skill's `references/` | only the sessions taking that action | yes |
-| `.claude/skills/running-tend/` | sessions in that one repo | no |
+| `.claude/skills/` | sessions in that one repo | no |
 | `CLAUDE.md` | sessions working on the repo it sits in | no |
 
 - **A rule has one home.** Another file that needs it names the section

@@ -1,9 +1,22 @@
-<!-- Shared gates and evidence framework for review-reviewers and review-runs skills. -->
-<!-- Symlinked into each skill directory; changes here apply to both. -->
+<!-- Shared gates and evidence framework for the review-runs and review-reviewers skills. -->
+<!-- Symlinked into both: plugins/tend-ci-runner/skills/review-runs/ (bundled) and -->
+<!-- .claude/skills/review-reviewers/ (tend only). Changes here apply to both. -->
+
+## Non-issues: do not flag these
+
+Some patterns look suspicious but are intentional — flagging expected behavior creates maintainer churn and costs trust. Three structural rules cover them; a finding one of these covers never reaches the gates below.
+
+- **Designed no-ops.** Many events correctly end with nothing posted, at whatever layer catches them: a pre-boot gate skip (`tend-mention`'s verify gate on the bot's own comments and reviews — though targets on older pinned releases still boot sessions for those), or a session that boots and exits silently (`tend-triage` on the bot's own monthly tracking-issue creation; the `issue_comment.edited` retrigger after a commenter refines their comment — the edit can change relevance, so the retrigger must re-evaluate; `tend-notifications` mark-reading a cross-repo `ci_activity` notification from an abandoned fork). These cost compute, not correctness — Gate 3 classifies them waste-class: record and move on; do not propose a skip-gate, label filter, pre-check, or occurrence threshold to save the boot. A loop that produces *wrong outward actions* (duplicate comments, spurious reviews) is different — that passes Gate 3, and a label-based skip is preferred over an authorship filter where a label can express it.
+
+- **Designed silence.** The bundled `/tend-ci-runner:review` skill authorizes posting nothing when there is nothing actionable: on a self-authored PR (GitHub rejects self-approvals, so APPROVE isn't an option), on a draft PR (COMMENT-only mode; GitHub blocks approving drafts), or when the PR closed or merged while its run was queued. GitHub reports drafts as `state: OPEN`, so before reading a missing review as omission — or escalating to session logs to explain it — check `gh api repos/OWNER/REPO/pulls/N --jq '{state, draft}'` and the PR's literal author (`gh pr view <n> --json author --jq '.author.login'`; owner-authored PRs are approved normally and are no bot-authored-APPROVE precedent).
+
+- **The reviewer role is independent of authorship.** `tend-review` re-reviewing — and re-approving — after any tend workflow pushes a fix commit is the design, not a re-approval loop; authorship-keyed guards that skip re-review drop real work and are not an accepted shape. Stacked approvals from racing runs are a *concurrency* artifact (cancelled runs POSTing before the SIGTERM arrived), not a review-rule problem.
 
 ## Confidence and magnitude gates
 
 Before creating a PR, every finding must pass three gates.
+
+These gates judge findings about the bot's behavior and the files that drive it — the bundled skills, the repo's `running-tend` overlay, its `.config/tend.yaml`, and its project instruction file where the bot keeps getting a convention wrong. The repo's own code, its tests, and the CI it runs for itself are its maintainer's call, not something to weigh here.
 
 ### Gate 1: Confidence — is this a real problem?
 
@@ -60,6 +73,10 @@ For each finding, state:
 5. Whether it passes all three gates
 
 Only proceed to act on findings that pass all three gates.
+
+## A fix merged on tend is dormant until the next release
+
+Consumers call a version-pinned action ref, so a skill fix that merged in `max-sixty/tend` stays dormant in their repos until a release tags it. Observing the bug is therefore not evidence the fix is missing — check tend's merged PRs while deduplicating, or the report is churn on something already landed.
 
 ## Finding format
 
