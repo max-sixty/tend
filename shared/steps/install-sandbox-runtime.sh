@@ -85,6 +85,17 @@ do
 done
 
 if [ "${#stale[@]}" -gt 0 ]; then
+  # `;` not `&&`: a host with no os-release should reach the message below
+  # rather than die on the `.` under `set -e`.
+  codename=$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-}")
+  if [ "$codename" != noble ]; then
+    echo "::error::The pinned sandbox capabilities are Ubuntu noble builds and this runner is '${codename:-unknown}'. Run Tend on ubuntu-24.04, or preinstall bubblewrap $BUBBLEWRAP_VERSION, socat $SOCAT_VERSION and ripgrep $RIPGREP_VERSION."
+    exit 1
+  fi
+
+  # Series first, since a host off noble reads as ahead of the pin only
+  # because the pin is a noble build — no bump here ever reaches it.
+  #
   # A GitHub-hosted runner is disposable, so rolling it back onto the pin costs
   # its owner nothing. A self-hosted runner is someone's machine, where
   # replacing a security update they have already taken would outlive the job —
@@ -94,17 +105,13 @@ if [ "${#stale[@]}" -gt 0 ]; then
     exit 1
   fi
 
-  # `;` not `&&`: a host with no os-release should reach the message below
-  # rather than die on the `.` under `set -e`.
-  codename=$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-}")
-  if [ "$codename" != noble ]; then
-    echo "::error::The pinned sandbox capabilities are Ubuntu noble builds and this runner is '${codename:-unknown}'. Run Tend on ubuntu-24.04, or preinstall bubblewrap $BUBBLEWRAP_VERSION, socat $SOCAT_VERSION and ripgrep $RIPGREP_VERSION."
-    exit 1
-  fi
-
   # Scoped to this apt invocation with -o rather than written into /etc, so a
   # self-hosted runner keeps both its own sources and its own fetched lists.
   apt_state=$(/usr/bin/mktemp -d /tmp/tend-apt.XXXXXX)
+  # The lists below end up owned by `_apt`, so the runner user cannot unlink
+  # them afterwards. Clear the tree from the failure paths too, or a
+  # self-hosted host collects a root-owned index tree per failed run.
+  trap '/usr/bin/sudo /usr/bin/rm -rf "${apt_state:?}"' EXIT
   /usr/bin/mkdir -p "$apt_state/lists/partial" "$apt_state/parts"
   # snapshot.ubuntu.com spells the same instant without the separators.
   snapshot="https://snapshot.ubuntu.com/ubuntu/${PACKAGES_RESOLVED_AT//[:-]/}"
@@ -127,7 +134,6 @@ if [ "${#stale[@]}" -gt 0 ]; then
   # The snapshot holds one candidate per pocket like any other mirror, so a
   # runner image shipping something newer needs the downgrade spelled out.
   /usr/bin/sudo /usr/bin/apt-get "${apt_options[@]}" install -y --allow-downgrades "${stale[@]}"
-  /usr/bin/sudo /usr/bin/rm -rf "${apt_state:?}"
 fi
 
 runtime_root=$(/usr/bin/mktemp -d /tmp/tend-runtime.XXXXXX)
