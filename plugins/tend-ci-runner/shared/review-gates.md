@@ -38,7 +38,11 @@ Classify what the failure costs:
 
 Classify by what the observed occurrence itself left on the public record. A hypothetical chain from waste to a wrong outward action ("the lost run could have left a stale approval standing") doesn't upgrade the class — the wrong action has to have occurred.
 
-A waste-class failure supports only a fix that is itself nearly free, and only once the waste has recurred on separate days: one existing knob in one place, removed machinery, or a one-line condition. Judge the whole change, so repeated settings across workflows, jobs, platforms, or call sites count as one configuration scheme. One that needs new mechanism — a retry framework, another skip-gate, scheduling arithmetic, a cache — fails this gate at any occurrence count; a mechanism compressed into one dense line is still a mechanism, so judge by what the fix leaves behind (logic a future session must re-derive, a rule every later run loads, failure modes of its own), not its line count. Record the waste in the evidence store with its cost; if the aggregate grows to matter, escalate the number to the maintainer, who owns the simple levers (cadence, disabling a workflow).
+A waste-class failure earns a change only when the waste recurred on separate days **and** the fix is nearly free: one existing setting changed in one place, machinery deleted, or a one-line condition. Judge the whole change — the same setting repeated across workflows, jobs, platforms, or call sites is a configuration scheme, not one knob.
+
+Anything that adds machinery — a retry framework, another skip-gate, scheduling arithmetic, a cache — fails this gate however often the waste recurs, and compressing it into one dense line doesn't make it less. Judge a fix by what it leaves behind: logic a future session must re-derive, a rule every later run loads, failure modes of its own.
+
+Otherwise, record the waste and its cost in the evidence store. When the total grows enough to matter, give the maintainer the number — cadence and switching a workflow off are their levers.
 
 ### Structural vs. stochastic failures
 
