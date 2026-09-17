@@ -340,24 +340,50 @@ pending run covers a replaced poll. ci-fix keeps the default too, and wants
 it: while a session works a red branch, the newest unsuccessful run carries
 that branch's current state, so replacing the pending run loses nothing.
 
-## Skill design: bundled for everyone, overlay for one
+## Where guidance text goes
 
 Bundled skills in `plugins/tend-ci-runner/skills/` supply defaults. Consumer
 repos overlay them at `.claude/skills/running-tend/SKILL.md`; where the two
-conflict, the overlay wins.
+conflict, the overlay wins. `.agents/skills` links to `.claude/skills`, so
+Claude and Codex discover the same repo-local skills.
 
-`.agents/skills` links to `.claude/skills`, so Claude and Codex discover the
-same repo-local skills.
+A rule is **loaded** by one set of sessions and **acted on** by a subset of
+them. Put it at the narrowest level every actor still reads. The sessions in
+the gap are the cost: each one pays attention for text that changes nothing it
+does.
 
-When writing a bundled skill, keep the content universal — it applies to
-every consumer. Repo-specific policy, taste, or convention (PR title
-formats, label names, branch routing) belongs in an overlay. Tend has its
-own overlay at `.claude/skills/running-tend/SKILL.md` — use it for guidance
-that only applies to developing tend itself.
+| Level | Loaded by | Holds |
+|---|---|---|
+| `shared/system-prompt.md` | every session, both harnesses | the bot's identity and priority order — what no skill carries |
+| `running-in-ci/SKILL.md` | every session | what every session acts on |
+| a workflow's `SKILL.md` | that workflow's sessions | that job's steps |
+| a skill's `references/` | only the sessions taking that action | its recipe and how it goes wrong |
+| `.claude/skills/running-tend/` | one repo | that repo's policy, taste, and conventions |
+| `CLAUDE.md` | sessions developing this repo | how tend is built and what it values |
 
-Use outcomes from adopter runs to refine the skills. A general missing
-instruction or wrong default belongs in the bundled skill; repository policy
-belongs in that repository's overlay.
+Four cases of the same question:
+
+- **A rule has one home.** Another file that needs it names the section
+  instead of restating it — copies drift, and a partial copy drops what the
+  copier left out. Before adding a rule, `rg` a distinctive phrase from it
+  across `plugins/`, `shared/`, and `CLAUDE.md`.
+- **Bundled text is what every consumer would want.** Repo-specific policy,
+  taste, or convention (PR title formats, label names, branch routing) goes
+  in an overlay. Use outcomes from adopter runs to refine the defaults: a
+  general missing instruction or wrong default is a bundled fix, repository
+  policy an overlay one.
+- **Tend's own tradeoffs are tend's policy.** This repo's order of value, its
+  PR budget, what it will and won't spend complexity on — these govern the
+  bot's automation and tend's development. In a bundled skill they reach an
+  adopter's own code and CI, where the call may differ; they belong here or
+  in tend's overlay.
+- **Every workflow that invokes the agent names a skill** (`default_prompt` in
+  `config.py`). One without a skill has nowhere to put its own rules, so they
+  land in the every-session file instead.
+
+When reviewing or surveying a change to a guidance file, apply the question to
+the sections it leaves in place as well: a restructure that moves three
+sections and keeps four has reviewed three.
 
 ### Authoring skills
 
@@ -367,15 +393,12 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 - **Be brief.** Skills are loaded into every relevant session — extra prose
   is overhead. Lead with the rule or recipe; cut motivation, anecdotes, and
   historical context unless required to apply the rule.
-- **Guidance for an action most sessions never take goes in `references/`.**
-  `SKILL.md` keeps the rules every session needs; the recipes for pushing,
-  opening a PR, posting, or approving load only in the sessions that do
-  them. The References table in `running-in-ci/SKILL.md` is `tend-ci-runner`'s
-  one index of those files, naming each file and the action that triggers
-  reading it — a new bundled reference gets a row there, not a list in its
-  own skill. A repo overlay's references stay in the overlay, named where its
-  own steps use them: every adopter reads the bundled table, and repo-specific
-  guidance doesn't belong in it.
+- **The References table in `running-in-ci/SKILL.md` is `tend-ci-runner`'s one
+  index of `references/` files**, naming each file and the action that
+  triggers reading it — a new bundled reference gets a row there, not a list
+  in its own skill. A repo overlay's references stay in the overlay, named
+  where its own steps use them: every adopter reads the bundled table, and
+  repo-specific guidance doesn't belong in it.
 - **No specific past-run references.** Don't link GitHub Actions runs, cite
   session IDs, or quote durations from individual incidents. They age into
   trivia and aren't useful when the skill is reused. State the structural
