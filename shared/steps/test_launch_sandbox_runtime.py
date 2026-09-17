@@ -209,7 +209,7 @@ def test_runtime_bundle_carries_every_module_it_imports() -> None:
     `import` inside SRT — a green unit suite and a red agent turn.
     """
     steps = Path(__file__).resolve().parent
-    bundled = {name for name in RUNTIME_STEP_FILES if name.endswith(".py")}
+    bundled = {name for name in launch.RUNTIME_STEP_FILES if name.endswith(".py")}
     sources = {steps / name for name in bundled}
     sources.add(steps.parents[1] / "codex/runner.py")
 

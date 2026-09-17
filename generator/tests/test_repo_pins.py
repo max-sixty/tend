@@ -829,14 +829,29 @@ def test_skill_prefixes_match_the_generator() -> None:
     assert set(prompt.SKILL_PREFIX) == KNOWN_HARNESSES
 
 
-def test_shipped_prompt_files_leave_no_unrendered_skill_token() -> None:
-    """A misspelled `${SKILL:...}` reaches the model verbatim instead of failing."""
+def test_shipped_prompt_skill_tokens_resolve_to_a_bundled_skill() -> None:
+    """Neither way of naming the wrong skill fails until a session is running.
+
+    A token that renames or misspells a skill stays well-formed, renders in both
+    syntaxes, and opens every shipped session with a load of something that does
+    not exist — so resolve the name on disk, as
+    `test_every_workflow_prompt_names_a_skill_that_exists` does for the
+    generator's half. A token malformed enough to miss the pattern survives
+    rendering instead, reaching the model verbatim.
+    """
     prompt = _prompt_module()
     files = [REPO_ROOT / "shared/system-prompt.md", REPO_ROOT / "codex/agents-tail.md"]
 
     for path in files:
+        text = path.read_text()
+        for name in prompt.SKILL_REF.findall(text):
+            skill = REPO_ROOT / "plugins/tend-ci-runner/skills" / name / "SKILL.md"
+            assert skill.is_file(), (
+                f"{path.relative_to(REPO_ROOT)} invokes `{name}`, which is not "
+                f"a skill at {skill.relative_to(REPO_ROOT)}"
+            )
         for harness in prompt.SKILL_PREFIX:
-            rendered = prompt.render(path.read_text(), bot_name="bot", harness=harness)
+            rendered = prompt.render(text, bot_name="bot", harness=harness)
             assert "${SKILL" not in rendered, (
                 f"{path.relative_to(REPO_ROOT)} has a malformed skill token; "
                 "it must read ${SKILL:<lowercase-skill-name>}"

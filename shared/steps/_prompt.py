@@ -19,11 +19,11 @@ import re
 
 SKILL_PREFIX = {"claude": "/tend-ci-runner:", "codex": "$"}
 
-_SKILL_REF = re.compile(r"\$\{SKILL:([a-z0-9-]+)\}")
+SKILL_REF = re.compile(r"\$\{SKILL:([a-z0-9-]+)\}")
 
 
 def render(text: str, *, bot_name: str, harness: str) -> str:
     """Substitute skill references and the bot's name into *text*."""
     prefix = SKILL_PREFIX[harness]
-    text = _SKILL_REF.sub(lambda match: prefix + match.group(1), text)
+    text = SKILL_REF.sub(lambda match: prefix + match.group(1), text)
     return text.replace("${BOT_NAME}", bot_name).replace("$BOT_NAME", bot_name)
