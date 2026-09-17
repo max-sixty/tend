@@ -30,7 +30,7 @@ Write PR titles, issue titles, and commit subjects in plain, literal language th
 
 The titles that fail it read as figures rather than descriptions — a metaphor, a subject withheld for effect, a phrase that only lands once you already know the bug. Rewrite to the literal statement: `Press again for the tab the driver lost, not the one Chromium never made` → `Retry the click when the browser driver never reports the opened tab`.
 
-Describe the current PR for a maintainer deciding whether to merge it. Follow **Reader-facing prose** in `SKILL.md` and synthesize across commits and review rounds.
+Describe the current PR for a maintainer deciding whether to merge it. Follow **Reader-facing prose** in `SKILL.md` and synthesize across commits and review rounds. The opening paragraph carries the merge decision — what changed, why, and what verifies it — and whatever a reviewer needs beyond that follows it or sits in `<details>`.
 
 If an existing PR addresses the same problem, work on that PR instead.
 

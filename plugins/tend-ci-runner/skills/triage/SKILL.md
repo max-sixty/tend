@@ -121,38 +121,22 @@ Step 3's duplicate check catches identical fixes. It misses the *same root cause
    ```
    Compose the body at `$TMPDIR/pr-body.md`. Write for a maintainer deciding whether the current fix resolves the issue: explain the causal finding, the resulting behavior change, and the reproduction test that now passes. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`, and end with `Closes #$ARGUMENTS — automated triage` so merging closes the issue.
 
-   The headings below are one possible shape when they help a reviewer scan the case. They are not a required outline; choose the structure that fits the change.
-
    <example>
-   <bad reason="The headings are filled with a restatement, investigation chronology, and a generic test claim">
+   <bad reason="Restates the report, narrates the investigation, and claims a generic test run">
 
    Bad:
 
    ```markdown
-   ## Problem
-   The issue reports that retries fail.
-
-   ## Solution
-   I inspected the retry loop, compared several paths, and changed three files.
-
-   ## Testing
-   I ran the test suite.
+   The issue reports that retries fail. I inspected the retry loop, compared several paths, and changed three files. I ran the test suite.
    ```
 
    </bad>
-   <good reason="The same headings carry the cause, resulting behavior, and evidence a reviewer needs">
+   <good reason="Carries the cause, the resulting behavior, and the evidence a reviewer needs">
 
    Good:
 
    ```markdown
-   ## Problem
-   A retry drops the resolved workspace root, so its second attempt reads from the process directory and fails outside the repository.
-
-   ## Solution
-   Keep the resolved root in retry state. Both attempts now address the same workspace.
-
-   ## Testing
-   The regression test reproduces the second-attempt failure before the change and passes after it.
+   A retry dropped the resolved workspace root, so its second attempt read from the process directory and failed outside the repository. Retry state now keeps the root, so both attempts address the same workspace. The regression test reproduces the second-attempt failure before the change and passes after it.
 
    Closes #123 — automated triage
    ```
