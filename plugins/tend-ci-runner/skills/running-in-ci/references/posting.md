@@ -8,7 +8,7 @@ In the order a post takes:
 
 ## Composing the body
 
-Write the content per **Reader-facing prose** in `SKILL.md`. The rules below keep it rendering and linking correctly.
+Write the content per **Reader-facing prose** in `/tend-ci-runner:running-in-ci`. The rules below keep it rendering and linking correctly.
 
 **Write bodies to a file, then post with `--body-file`.** The composed file is reviewable before it ships, quoting and escaping are non-issues, and line wrapping is just file content. Put the file under `$TMPDIR`. `--body "…"` is fine only for a one-line body containing no backtick, `$`, or `\`. Inside double quotes bash runs a backticked span as a command and substitutes its output, so a markdown inline-code span is silently deleted from the posted comment: `` --body "`some-check` now passes" `` ships as ` now passes`. Inline code appears in nearly every body the bot writes, and single-quoting instead breaks on any apostrophe, so reach for `--body-file` whenever the text is anything but plain prose.
 
@@ -57,7 +57,7 @@ Take these steps in order, and post straight after the last one.
 
 ### Review the draft
 
-Read the file as its reader will, check it against **Reader-facing prose** in `SKILL.md`, and revise the file. Scale the read to the body. A short reply gets a read-through. A body that carries an analysis (several findings, options weighed, an argument that runs across paragraphs) gets a read without your working context where the harness provides one, because the session that wrote the draft reads that context into it. Check any revision against what you found before posting it.
+Read the file as its reader will, check it against **Reader-facing prose** in `/tend-ci-runner:running-in-ci`, and revise the file. Scale the read to the body. A short reply gets a read-through. A body that carries an analysis (several findings, options weighed, an argument that runs across paragraphs) gets a read without your working context where the harness provides one, because the session that wrote the draft reads that context into it. Check any revision against what you found before posting it.
 
 ### Check the links
 

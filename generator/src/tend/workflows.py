@@ -69,7 +69,7 @@ _YAML_BLOCK.indent(mapping=2, sequence=4, offset=2)
 
 # Stamping the generator's own version into the header gives downstream
 # nightly regen a stable anchor for detecting tend version bumps (see
-# plugins/tend-ci-runner/skills/nightly/SKILL.md, Step 6) regardless of what
+# plugins/tend-ci-runner/skills/nightly/SKILL.md, Step 7) regardless of what
 # templates pin for `uvx tend@...` or the action tag.
 _TEND_VERSION = version("tend")
 UV_VERSION = "0.12.13"

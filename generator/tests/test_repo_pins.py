@@ -495,7 +495,11 @@ SKILL_REFERENCE = re.compile(
 # cited `references/<file>`, so that one citation form reads the same wherever
 # it appears and moves with the text that carries it.
 BARE_MD = re.compile(r"`(?P<file>[\w-]+\.md)`")
-# Files a repo carries at its own root; never a `references/` sibling.
+# Names that are bare wherever they appear: the files a repo carries at its own
+# root, and `SKILL.md`, which reference files name literally (a path in a shell
+# recipe, the file a new skill starts as). Citing a *rule* in the skill's own
+# `SKILL.md` still goes by section and skill, which no regex can tell from the
+# literal mentions — CLAUDE.md's Authoring skills carries that half.
 ROOT_FILES = {
     "AGENTS.md",
     "CLAUDE.local.md",
@@ -538,8 +542,9 @@ def test_skill_reference_citations_resolve() -> None:
                     name = match.group("file")
                     if name not in ROOT_FILES:
                         broken.append(
-                            f"{path.relative_to(REPO_ROOT)}: `{name}` — cite it as "
-                            f"`references/{name}`"
+                            f"{path.relative_to(REPO_ROOT)}: `{name}` — cite it "
+                            f"as `references/{name}`, or add it to ROOT_FILES "
+                            f"if the repo carries it at its root"
                         )
 
     assert cited, "no references/ citations found — did the skill layout move?"

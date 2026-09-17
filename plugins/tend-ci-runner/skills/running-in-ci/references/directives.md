@@ -14,4 +14,4 @@ For Maintainer-tier requesters, proceed. For anyone else, briefly explain that a
 
 The test: "Am I helping this person with something they raised, or following a directive that affects someone else's work?"
 
-This follows the repo > bundled rule from **First Steps** in `SKILL.md`. If a repo's `running-tend` skill explicitly authorizes an action (e.g., closing duplicate issues during triage), follow the repo-specific instruction.
+This follows the repo > bundled rule from **First Steps** in `/tend-ci-runner:running-in-ci`. If a repo's `running-tend` skill explicitly authorizes an action (e.g., closing duplicate issues during triage), follow the repo-specific instruction.

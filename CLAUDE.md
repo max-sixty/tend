@@ -381,8 +381,7 @@ overlay one.
 
 Tend's overlay here is tend's own instructions by the rule above — it doesn't
 ship, and it carries the tasks and conventions for bot sessions in this repo. A
-whole
-skill belongs there when only this repo's workflows invoke it:
+whole skill belongs there when only this repo's workflows invoke it:
 `.claude/skills/review-reviewers/` is one, dispatched by the hand-maintained
 `review-reviewers.yaml`, whose prompt invokes it as `/review-reviewers` — a
 slash command like any skill, without the plugin prefix. A tend-only skill
@@ -412,10 +411,10 @@ sessions in the gap each pay attention for text that changes nothing they do.
   `config.py`). One without a skill has nowhere to put its own rules, so they
   land in the every-session file instead.
 
-When reviewing or surveying an instructions file, ask both questions of it —
-does this ship, and who acts on it — and ask them of the sections a change
-leaves in place, not only the ones it touches: a restructure that moves three
-sections and keeps four has reviewed three.
+When reviewing or surveying a skill, a reference, or a project instruction
+file, ask both questions of it — does this ship, and who acts on it — and ask
+them of the sections a change leaves in place, not only the ones it touches: a
+restructure that moves three sections and keeps four has reviewed three.
 
 ### Authoring skills
 
@@ -437,10 +436,12 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
   (`` `/tend-ci-runner:running-in-ci`'s `references/posting.md` ``). That holds
   inside a `references/` directory too, where the file being cited is a
   neighbour — one form reads the same wherever the sentence ends up, and
-  `test_skill_reference_citations_resolve` rejects the bare filename. Files a
-  repo keeps at its root (`CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`) are
-  named bare. To point at a rule rather than a whole file, name its section
-  and the skill: **Reader-facing prose** in `/tend-ci-runner:running-in-ci`.
+  `test_skill_reference_citations_resolve` rejects the bare filename. Only
+  files a repo keeps at its root (`CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`)
+  are named bare; `ROOT_FILES` in that test is the list. To point at a rule
+  rather than a whole file, name its section and the skill, which also covers
+  a rule in a skill's own `SKILL.md`: **Reader-facing prose** in
+  `/tend-ci-runner:running-in-ci`.
 - **No specific past-run references.** Don't link GitHub Actions runs, cite
   session IDs, or quote durations from individual incidents. They age into
   trivia and aren't useful when the skill is reused. State the structural

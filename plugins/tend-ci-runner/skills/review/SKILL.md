@@ -71,7 +71,7 @@ Check the project's instruction files for language-specific review criteria and 
 - Is the code clear and well-structured?
 - Are there simpler ways to express the same logic?
 - Does it avoid unnecessary complexity?
-- Does the change carry its weight? A PR argued well line by line can still leave more behind than it removes — logic a later reader must re-derive, failure modes of its own.
+- Does the change carry its weight? A PR argued well line by line can still leave more behind than it removes — logic a later reader must re-derive, or failure modes of its own — and the review should say so plainly.
 
 **Correctness:**
 
