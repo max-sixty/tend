@@ -8,9 +8,9 @@ The Actions checkout is trusted orchestration state.  This step clones the
 same repository into a dedicated ``/tmp`` container without local object
 sharing, selects the event topology with runner/system Git configuration
 disabled, removes every temporary credential, and exports the resulting path
-as ``TEND_AGENT_WORKSPACE``.  The dedicated parent is traversable but not
-listable by the sandbox UID; ``RUNNER_TEMP`` and the runner checkout are never
-handed to the agent.
+as ``TEND_AGENT_WORKSPACE``.  The dedicated parent holds that clone alone and
+is open to the sandbox UID, so bwrap can bind the clone through it;
+``RUNNER_TEMP`` and the runner checkout are never handed to the agent.
 """
 
 from __future__ import annotations
@@ -400,11 +400,21 @@ def main() -> int:
             raise ValueError("agent clone persisted a credential in its origin URL")
 
         # Keep the checkout private throughout ingress.  Once its temporary
-        # credentials are gone, grant traversal through the dedicated,
-        # otherwise-empty parent.  The later handoff changes ownership of the
+        # credentials are gone, open the dedicated, otherwise-empty parent to
+        # the sandbox user.  The later handoff changes ownership of the
         # checkout itself, not this runner-owned container.
+        #
+        # The container carries r rather than x alone: since the
+        # CVE-2026-87766 fix (bubblewrap 0.9.0-1ubuntu0.2 on noble, 0.12.0
+        # upstream) bwrap opens each component of a bind destination with
+        # O_DIRECTORY, where the old mkdir_with_parents only stat'd it.  A
+        # 0o711 container fails every sandbox launch before the agent starts,
+        # with "bwrap: Can't mkdir parents for <workspace>: Permission
+        # denied".  Listing the container reveals one name the agent already
+        # has in TEND_AGENT_WORKSPACE; the checkout's own 0o700 keeps the
+        # clone private.
         destination.chmod(0o700)
-        workspace_container.chmod(0o711)
+        workspace_container.chmod(0o755)
 
         with github_env.open("a", encoding="utf-8") as stream:
             stream.write(f"TEND_RUNNER_WORKSPACE={runner_workspace}\n")
