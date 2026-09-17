@@ -131,6 +131,17 @@ dropping `body` is not enough when `number,title,state,mergedAt,headRefName`
 over 200 PRs already runs to 34 KB. Project `number,title,state`, then read
 the bodies of the candidates the titles narrow to.
 
+**An exhaustiveness claim needs a method that could have found a
+counterexample.** Before publishing "all", "every", "none", "the only", or
+"exactly complete", name what would make the claim false and confirm the method
+can see it. A set difference over two `--help` outputs finds the flags one
+command rejects, never a flag both accept that still must not be forwarded; a
+`head -120` diff finds changes in the first 120 lines. The tell is a criterion
+swap — the method answered a narrower question than the sentence asserts.
+Either widen the method, or publish the claim the method did establish ("no
+flag the receiving command rejects is missing from the denylist"), which is
+worth as much to the reader and stays true.
+
 **"Likely" is a stop-sign.** A hedge in a user-facing claim — "likely works",
 "probably parses as", "I think" — means it rests on an unverified guess. Verify
 and replace the hedge with the answer, or hedge explicitly ("I haven't tested
