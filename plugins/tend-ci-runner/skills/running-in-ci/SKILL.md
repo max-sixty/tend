@@ -26,7 +26,7 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 | Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | composing the body (body files, line wrapping, links, fenced bodies, no footers), reply endpoints, and the draft review, link check, and re-fetch before posting |
 | Before `gh pr create` or `gh issue create`, or editing a PR's title or description | `references/pr-creation.md` and `references/posting.md` | titles, the dedup and prior-rejection searches, keeping a description current |
 | Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | the pre-push review, batching pushes, re-checking PR state and head, branch-state collisions |
-| After any push you are accountable for | `references/ci-monitoring.md` | the pinned poll, a review that lands mid-poll, rerunning failed jobs |
+| After any push you are accountable for, or before calling a failure pre-existing | `references/ci-monitoring.md` | the pinned poll, the default-branch check a pre-existing claim needs, a review that lands mid-poll, rerunning failed jobs |
 | When a request directs you at someone else's work: close, reopen, lock, label, revert, dismiss a review, or push to another author's PR | `references/directives.md` | the access tiers that authorize it |
 | When you conclude a PR the bot approved should not merge | `references/dismissing-approval.md` | dismissing the standing approval |
 | Before filing or commenting in a repo other than this one | `references/other-repos.md` and `references/posting.md` | the overlay exception for agent-equipped targets, what an issue body there must contain, contributing on invitation, a scope rule that blocks the right action |
@@ -165,9 +165,7 @@ For example, supporting material may use this shape when it helps the next reade
 
 ## Grounded Analysis
 
-CI threads are high-latency, so each outward response must stand alone: give the current conclusion, its consequence, and the next action or decision. Self-contained does not mean publishing the whole investigation.
-
-Read logs, code, and API data before drawing conclusions. Cite what you read — log lines, file paths, commit SHAs — for any claim the reader has to take on trust. Trace causation — if two things co-occur, find the mechanism rather than saying "this may be related." Never claim a failure is "pre-existing" without checking main branch CI history. Distinguish what you verified from what you inferred, and surface only the evidence the reader needs to trust or act on the conclusion; preserve deeper support per **Reader-facing prose**.
+Read logs, code, and API data before drawing conclusions. Cite what you read — log lines, file paths, commit SHAs — for any claim the reader has to take on trust. Trace causation — if two things co-occur, find the mechanism rather than saying "this may be related." Distinguish what you verified from what you inferred.
 
 ## Tone
 
