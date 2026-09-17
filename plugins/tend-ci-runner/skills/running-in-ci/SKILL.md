@@ -23,7 +23,7 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 
 | When | Read | What it carries |
 |---|---|---|
-| Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | the draft review, the pre-post re-fetch, reply endpoints, body files, line wrapping, links and the link checker, fenced bodies, no footers |
+| Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | whether to respond, composing the body (body files, line wrapping, links, fenced bodies, no footers), the draft review, link check, and re-fetch before posting, reply endpoints |
 | Before `gh pr create` or `gh issue create`, or editing a PR's title or description | `references/pr-creation.md` and `references/posting.md` | the open-PR budget, titles, the dedup and prior-rejection searches, keeping a description current |
 | Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | the pre-push review, batching pushes, re-checking PR state and head, branch-state collisions |
 | After any push you are accountable for | `references/ci-monitoring.md` | the pinned poll, a review that lands mid-poll, rerunning failed jobs |
@@ -32,7 +32,7 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 | Before filing or commenting in a repo other than this one | `references/other-repos.md` and `references/posting.md` | the overlay exception for agent-equipped targets, what an issue body there must contain, contributing on invitation, a scope rule that blocks the right action |
 | Before a public claim about a tool's behavior, an incident, or code you did not run | `references/grounded-analysis.md` | source evidence for claims, verifying external-tool behavior, recurring hallucination shapes, transient incidents vs. durable bugs, who to ask for a check CI can't run |
 | To diagnose another run, or to recall what a prior run on this thread read and weighed | `references/session-logs.md` | reading other runs' session logs, recalling prior context on this thread |
-| When a maintainer's correction should become durable guidance, or before writing or suggesting text for a skill or a project instruction file (`CLAUDE.md`, `AGENTS.md`) | `references/skill-pr-workflow.md` | whether to propose, bundled skill vs. `running-tend` overlay, what guidance text leaves out, the branch and PR mechanics |
+| When a maintainer's correction should become durable guidance, or before writing or suggesting text for a skill or a project instruction file (`CLAUDE.md`, `AGENTS.md`) | `references/skill-pr-workflow.md` | whether to propose, bundled skill vs. `running-tend` overlay, what guidance text leaves out, scripts over prose recipes, the branch and PR mechanics |
 | Reviewing a PR whose pre-flight reports `is_draft` | `/tend-ci-runner:review`'s `references/draft-mode.md` | the lighter pass, COMMENT only, the hidden draft marker |
 | Submitting a review when the posting preflight prints `delta:` | `/tend-ci-runner:review`'s `references/re-targeting.md` | reviewing a push that landed mid-review, then posting against the new head |
 | Submitting a review that carries findings | `/tend-ci-runner:review`'s `references/inline-suggestions.md` | the payload, multi-line suggestion rules, 422 recovery |
@@ -105,7 +105,7 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 
 - **Secrets**: Never print a process's environment or command line, your own or another process's, and never print a credential from anywhere else. Reading is fine where the output doesn't carry the value: `pgrep -f pytest` is allowed but `pgrep -af pytest` is not, and `set -euo pipefail`, `export FOO=bar`, and `env FOO=bar cmd` are fine where bare `set`, `export`, and `env` are not. Commands that do print, among others: `printenv`, `ps aux`, `ps -ef`, `pgrep -a`, `cat /proc/<pid>/environ`, `cat /proc/<pid>/cmdline`, `gh auth token`, and `cat`/`echo` on a credential file. Filtering buys no exception, because you can't tell the output is value-free without reading the values: continuation lines of a multi-line value carry no `=`, so `env | cut -d= -f1` prints them verbatim. The session log is uploaded as an artifact, so one printed value is enough. Both harnesses run the agent as a separate non-sudo sandbox user. Runner-owned proxies hold the bot PAT and API-key or OAuth model credentials. The sandbox gets dummies or a local model endpoint; subscription-mode Codex receives an expiring access token. The outer `sudo env` launch carries the agent's environment in its argv, so process listings still expose dummies and any adopter-supplied value. Narrow a legitimate check rather than skipping it: `ps -eo pid,etime,comm` answers "is it still running?" with no argv in the output. Never include tokens or credentials in responses or comments.
 - **Merging**: Never merge PRs or enable auto-merge (`gh pr merge`, `gh pr merge --auto`). PRs are proposals — a maintainer decides when to merge.
-- **Scope**: By default, PRs, pushes, and comments on existing threads in other repos are off-limits — the point is to never *spam* repos outside the bot's area of ownership. The exception is an **explicitly invited** contribution: when a maintainer of the target repo asks for it in-thread, or the target's published contributing policy welcomes it, AND the contribution helps the repo the bot maintains (e.g. upstreaming a fix for a dependency bug the bot is working around), the bot may open a PR or comment on that thread. Absent one, the default holds — surface the blocker rather than routing around it. **Other Repos** below carries all three cases.
+- **Scope**: By default, PRs, pushes, and comments on existing threads in other repos are off-limits — the point is to never *spam* repos outside the bot's area of ownership. The exception is an **explicitly invited** contribution: when a maintainer of the target repo asks for it in-thread, or the target's published contributing policy welcomes it, AND the contribution helps the repo the bot maintains (e.g. upstreaming a fix for a dependency bug the bot is working around), the bot may open a PR or comment on that thread. Absent one, the default holds — surface the blocker rather than routing around it. `references/other-repos.md` carries all three cases.
 - **Hanging commands**: Never use `gh run watch` or `gh pr checks --watch` — both hang indefinitely. Poll with `gh pr checks` in a loop instead.
 - **Privileges**: Under both harnesses you run as a non-sudo sandbox user, so `sudo` fails and no installer that escalates can work from inside the session. A tool that needs root belongs in the repo's `setup:` steps in `.config/tend.yaml`, which run as `runner` — with sudo — before the agent starts. When a tool you need requires root, propose that `setup:` entry rather than working around its absence, even where a skill's own recipe tells you to install it in-session. The sandbox's PATH includes shared system/toolcache locations and independently seeded sandbox-home tools, but never the runner's home itself: use `sandbox_path:` for an omitted shared directory and `sandbox_setup:` for a later home-scoped install or version change. A missing gate tool is reported, not worked around: propose the entry and say the gate went unrun rather than substituting a weaker command that turns it into a silently green run.
 
@@ -122,47 +122,6 @@ A pushed fix isn't done until its required checks are terminal — see `referenc
 Before ending, re-fetch the thread you are handling: a comment that landed meanwhile may be a directive that changes the work, and a sibling run may already have done it (`references/posting.md`).
 
 Your closing summary is the session's only durable record of what happened, and it is read later as if it were current. Re-check any state claim in it against the live PR or issue as you write it, and prefer claims about what *you* did over claims about a state you don't control — "pushed the fix as `<sha>`, and its checks went green at that head" stays true, while "the PR is open and awaiting a maintainer" is falsified the moment a sibling session or a maintainer closes it.
-
-## Weighing a Fix
-
-The maintainer's order of value: outward correctness first — what the bot posts, approves, merges, closes — then simple machinery, and efficiency a distant third. Complexity spent preventing a wrong outward action is well spent. Complexity spent saving CI runner time (a slow job, a hang that a rerun clears) is not: the waste costs cents, while the added gate, retry wrapper, or cache is maintained forever and fails in ways of its own.
-
-So a change whose only benefit is saved runner time clears a higher bar than a correctness fix, on two counts:
-
-- **Evidence.** The waste has recurred across days — observed, not projected.
-- **Remedy.** Use one existing knob in one place, remove machinery, or add a one-line condition. Judge the whole change: repeated settings across workflows, jobs, platforms, or call sites are a configuration scheme, even when they use the same knob or value.
-
-When either bar fails, don't make the change: note what the waste costs where the maintainer will see it and move on.
-
-## Scripts over prose recipes
-
-When a skill's code block needs edge-case handling or grows past a couple of dozen lines, put the logic in a tested script and leave the skill a one-line invocation with the intent: for bundled skills `plugins/tend-ci-runner/scripts/` (exercised by the generator test suite), for a repo overlay a `scripts/` directory beside the skill. A prose recipe gets no shellcheck and no tests; every session re-derives its correctness.
-
-## Other Repos
-
-Default: don't act in another repo unsolicited. File an issue in the current repo asking permission to file in the target; on maintainer approval, file there. `references/other-repos.md` carries all three cases.
-
-## Multi-way Conversations
-
-Before responding, check how many distinct other participants are in the conversation.
-
-- **Two-party** (you and one other participant): respond normally.
-- **Multi-way** (multiple other participants): apply a stricter bar — only respond with concrete new information no one else provided: a code fix, reproduction, or specific technical detail.
-
-Do not:
-- Restate, agree with, or summarize what another participant just said
-- Post "makes sense" or "good point" agreement comments
-- Echo a user's findings back to them ("Good find!", "That's the smoking gun!")
-
-A comment that responds to concerns you raised in a review is directed at you — briefly acknowledge resolution or explain why concerns remain.
-
-If a maintainer has already addressed the point, exit silently unless you can add something they missed.
-
-## Self-conversation Guard
-
-If you are responding to your own prior comment or review (not a human's reply to it), exit silently to avoid self-conversation loops.
-
-**Exception — bot-authored issues with no prior bot comments.** A freshly-opened issue the bot authored (nightly failure, CI report, code-quality finding) is a report to act on, not a self-conversation. Triage it normally. The pre-post re-fetch in `references/posting.md` still prevents duplicate triage comments if a sibling run fires on the same issue.
 
 ## Comment Formatting
 
@@ -190,16 +149,6 @@ CI threads are high-latency, so each outward response must stand alone: give the
 
 Read logs, code, and API data before drawing conclusions. Cite what you read — log lines, file paths, commit SHAs — for any claim the reader has to take on trust. Trace causation — if two things co-occur, find the mechanism rather than saying "this may be related." Never claim a failure is "pre-existing" without checking main branch CI history. Distinguish what you verified from what you inferred, and surface only the evidence the reader needs to trust or act on the conclusion; preserve deeper support per **Reader-facing prose**.
 
-## Learning from Feedback
-
-When a maintainer corrects the bot's behavior during a run — a repo convention, a repeated mistake, a preference the bot should have known — turn the correction into durable guidance per `references/skill-pr-workflow.md`. Open the PR or issue and exit: don't merge, don't wait, don't ping for review.
-
 ## Tone
 
 Raise observations, don't assign work. Never create checklists or task lists for the PR author.
-
-## PR Review Comments
-
-For review comments on specific lines (`[Comment on path:line]`), read that file and examine the code at that line before answering.
-
-When the GitHub API returns a `diff_hunk`, the reviewer's comment targets the **last line** of that hunk. Use this to disambiguate when multiple candidates exist nearby — match the reviewer's request against the specific anchored line, not the surrounding region.

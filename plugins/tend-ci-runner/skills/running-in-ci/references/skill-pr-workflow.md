@@ -67,6 +67,13 @@ body links that evidence. Cited cases read as the rule's targets and age into
 trivia. A decision settled for one site belongs in a comment at that site,
 where the next session to edit it will read it.
 
+When a skill's code block needs edge-case handling or grows past a couple of
+dozen lines, put the logic in a tested script and leave the skill a one-line
+invocation with the intent: for bundled skills
+`plugins/tend-ci-runner/scripts/` (exercised by the generator test suite), for
+a repo overlay a `scripts/` directory beside the skill. A prose recipe gets no
+shellcheck and no tests; every session re-derives its correctness.
+
 ## Mechanics
 
 For the overlay path, and for an upstream PR on tend itself — with the bundled
