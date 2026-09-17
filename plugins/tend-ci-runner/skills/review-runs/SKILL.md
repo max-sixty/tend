@@ -247,7 +247,7 @@ git worktree remove "$TMPDIR/review-runs-fix" --force
 - **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID`, fix, commit, push, create with label `review-runs`. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:running-in-ci`. Link the tracking issue where it holds prior observations of the same behavior, and carry the evidence that justified promoting this finding — the run IDs, the log excerpt, and the gate assessment — in the body or a `<details>` block.
 - **Issue** (fallback): Only for problems too large or ambiguous to fix directly.
 
-**Limit to at most 2 PRs per run.** Pick the highest-confidence findings; note the rest in the tracking issue.
+**Limit to a couple of PRs per run.** Pick the highest-confidence findings; note the rest in the tracking issue.
 
 ## Step 7: Summary
 
