@@ -33,7 +33,7 @@ Session logs are expensive to download and parse. Only escalate to session-log i
 
 ## Core principle: repo-specific guidance is primary
 
-Each adopter repo has its own guidance (`running-tend` skill or equivalent) that shapes how the bot should behave in that repo. This repo-specific guidance **takes precedence** over tend's default rules. The bot's job is to follow the repo-specific guidance first, falling back to tend's defaults only where the repo doesn't specify.
+Each consumer repo has its own guidance (`running-tend` skill or equivalent) that shapes how the bot should behave in that repo. This repo-specific guidance **takes precedence** over tend's default rules. The bot's job is to follow the repo-specific guidance first, falling back to tend's defaults only where the repo doesn't specify.
 
 ## Non-issues: do not flag these
 
@@ -49,7 +49,7 @@ Some patterns look suspicious but are intentional — flagging expected behavior
 
 **Target repo:** $ARGUMENTS
 
-Analysis targets an adopter repo whose CI runs are analyzed. Findings result in PRs/issues on the current repo (tend) to improve skills and workflows.
+Analysis targets a consumer repo whose CI runs are analyzed. Findings result in PRs/issues on the current repo (tend) to improve skills and workflows.
 
 Use `-R $ARGUMENTS` for commands that access the target repo (querying runs, PRs, issues). Commands without `-R` default to tend.
 
@@ -321,7 +321,7 @@ gh issue list --state closed --label claude-behavior --json number,title,closedA
 gh pr list --state all --limit 200 --json number,title,state
 ```
 
-**A merged fix still reproduces on adopters.** Adopters call a pinned action ref, so a merged skill fix is dormant on their repos until the next release tags. Observing the bug is therefore not evidence the fix is missing — check merged PRs before filing, or the report is churn on something already landed.
+**A merged fix still reproduces on consumers.** Consumers call a pinned action ref, so a merged skill fix is dormant on their repos until the next release tags. Observing the bug is therefore not evidence the fix is missing — check merged PRs before filing, or the report is churn on something already landed.
 
 Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`). Only comment on existing issues if you have material new cases that would change the approach or increase prioritization. Do not comment with progress updates, fix-PR status, or re-statements of evidence already in the issue.
 

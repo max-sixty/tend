@@ -1,4 +1,4 @@
-"""Run adopter dependency setup inside the agent's SRT lifecycle.
+"""Run consumer dependency setup inside the agent's SRT lifecycle.
 
 ``sandbox_setup:`` commands run immediately before the harness process, as the
 same non-sudo user, with the same environment and disposable checkout. Their
@@ -47,7 +47,7 @@ def main() -> int:
 
     code = subprocess.run(setup_argv(commands), check=False).returncode
     if code == 0:
-        _common.log(STEP, "ran adopter sandbox_setup commands inside SRT")
+        _common.log(STEP, "ra consumer sandbox_setup commands inside SRT")
     return code
 
 

@@ -5,7 +5,7 @@ A step body is a flat module beside this one, run by the composite action as
 inputs in the environment, exactly as the shell bodies were. Only the standard
 library is available: the steps run on the runner's ``/usr/bin/python3``, before
 and without tend's own ``uv``. That is 3.12 on the pinned ubuntu-24.04 image,
-but an adopter can select an older image through the documented ``runs-on``
+but a consumer can select an older image through the documented ``runs-on``
 override, so these modules stay 3.10-compatible.
 
 Every GitHub call goes through :func:`gh`, and every step module calls it as

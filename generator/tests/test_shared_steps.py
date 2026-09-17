@@ -558,7 +558,7 @@ def test_notifications_check_boots_for_unknown_or_conflicting_bot_prs(
 def test_notifications_check_survives_a_colour_forcing_job_environment(
     notifications_env: dict[str, str],
 ) -> None:
-    """An adopter whose workflow env carries `CLICOLOR_FORCE=1` — a `env:`
+    """A consumer whose workflow env carries `CLICOLOR_FORCE=1` — a `env:`
     override, or a `setup:` step that wrote one into `$GITHUB_ENV` — would
     otherwise get ANSI codes inside every `gh` body. Both readers catch the
     decode error and fall back to zero, so the poll skips every cycle with

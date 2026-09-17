@@ -75,17 +75,17 @@ would reduce the impact of a token stolen through a compromised runner or
 credential proxy. Neither is being pursued: both require tend to stand up
 and operate a hosted service (a token-minting endpoint or a full webhook
 handler), which gives up tend's defining property of stamping workflow files
-into the adopter's repo and running nothing of its own. The credential proxy
+into the consumer's repo and running nothing of its own. The credential proxy
 keeps the PAT out of the agent on both harnesses, and the environment gate keeps
 it out of any workflow the bot can start on its own. Cross-repository GitHub
 access through the live proxy is intended behavior, not part of this analysis.
 
 ### Model A: token-minting service
 
-Adopter installs our GitHub App; `tend init` generates the same workflow
+Consumer installs our GitHub App; `tend init` generates the same workflow
 files. The only auth change is an OIDC call to our service that mints a
 scoped installation token per workflow run. Workflows still live and run
-in the adopter's repo.
+in the consumer's repo.
 
 ```yaml
 - uses: max-sixty/tend/auth@X.Y.Z   # OIDC → our service → scoped token
@@ -99,8 +99,8 @@ in the adopter's repo.
     claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
-Trust model: standard GitHub App — adopters trust the App by installing it,
-like installing Codecov or Renovate. We hold the App private key; adopters
+Trust model: standard GitHub App — consumers trust the App by installing it,
+like installing Codecov or Renovate. We hold the App private key; consumers
 hold their own Claude OAuth token. A workflow-run OIDC token
 (`id-token: write`) proves the caller's repo identity to our service.
 
@@ -109,20 +109,20 @@ webhook handler to detect config changes.
 
 ### Model B: full webhook handler
 
-Adopter installs our GitHub App, adds `.config/tend.yaml`, done — no
+Consumer installs our GitHub App, adds `.config/tend.yaml`, done — no
 workflow files. GitHub sends raw events to our service; we run the logic
 (engagement verification, concurrency, dispatch) and execute Claude on our
-infrastructure (or dispatch back to the adopter's runners).
+infrastructure (or dispatch back to the consumer's runners).
 
 Most cohesive UX, and partially addresses the fork-PR gap — we receive
 inline review-comment webhooks regardless of fork status.
 
 Trade-offs: a compromise of our infra exposes write access to every
-adopter's repo *and* their code. Anthropic token has three options:
+consumer's repo *and* their code. Anthropic token has three options:
 
-- Adopter hands it to us; we hold it. If our service is compromised, the
-  attacker gets every adopter's Claude token.
-- We provide Claude access and bill the adopter. Simpler for them; we take
+- Consumer hands it to us; we hold it. If our service is compromised, the
+  attacker gets every consumer's Claude token.
+- We provide Claude access and bill the consumer. Simpler for them; we take
   on billing and usage management.
 - `workflow_dispatch` back to their runners. Token stays in their secrets;
   adds latency and complexity.

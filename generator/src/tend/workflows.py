@@ -109,7 +109,7 @@ def _indent_block(text: str, width: int) -> str:
 
     Jinja's `indent` can't do this without emitting a whitespace-only line:
     `blank=True` pads every blank line, and `first=True` pads a blank first
-    line even without it. An adopter's `trailing-whitespace` hook rewrites
+    line even without it. A consumer's `trailing-whitespace` hook rewrites
     such a line, so the file they commit could never match what `init`
     emits — the next regeneration puts the padding back, and the PR the
     nightly opens for it fails its own lint job.
@@ -171,7 +171,7 @@ _JINJA.globals.update(
 
 # Step keys are emitted in this order: step kind (uses/run) first, then
 # metadata, then nested tables. Matches the hand-rendered template style;
-# adopters' YAML order is otherwise preserved as-is.
+# consumers' YAML order is otherwise preserved as-is.
 _STEP_FIELD_ORDER = [
     "uses",
     "run",
@@ -228,7 +228,7 @@ class GeneratedWorkflow:
 def _effective_cfg(cfg: Config, wf: WorkflowConfig) -> Config:
     """Return cfg, or a shallow clone with workflow overrides applied.
 
-    Per-workflow `harness`, `model`, `effort`, and `args` let an adopter trial
+    Per-workflow `harness`, `model`, `effort`, and `args` let a consumer trial
     a different harness on one workflow (e.g. codex on nightly only) without
     flipping the whole bot. A harness change does not carry the other harness's
     model with it. Validation happens in `Config.load`; this helper just
@@ -607,7 +607,7 @@ def generate_codex_auth_refresh(cfg: Config) -> GeneratedWorkflow:
 # ---------------------------------------------------------------------------
 
 # `concurrency.queue` is valid GitHub Actions syntax that actionlint's schema
-# does not accept, so tend-review.yaml fails every actionlint run an adopter
+# does not accept, so tend-review.yaml fails every actionlint run a consumer
 # makes — including the required checks on the nightly regen PR, which then
 # cannot merge. Suppressing it at the linter's invocation only covers that one
 # caller (pre-commit's hook args miss MegaLinter's own actionlint, and both
@@ -627,7 +627,7 @@ def actionlint_config(
 ) -> str | None:
     """Return updated actionlint config content, or None to leave the file be.
 
-    Unlike the workflow files, this one is the adopter's: the ignore is merged
+    Unlike the workflow files, this one is the consumer's: the ignore is merged
     into whatever is already there and nothing else is touched. Returns None
     when the ignore is already present, so the nightly regen produces no diff,
     and when the file holds a shape this cannot merge into — a config the
@@ -641,7 +641,7 @@ def actionlint_config(
             f"leaving it unchanged. Add this ignore by hand or the generated "
             f"workflows will fail actionlint:\n"
             f"  paths:\n"
-            # Quoted because a bare `**` opens a YAML alias — an adopter
+            # Quoted because a bare `**` opens a YAML alias — a consumer
             # pasting an unquoted key gets a scanner error, not a config.
             f"    '{ACTIONLINT_TEND_GLOB}':\n"
             f"      ignore:\n"

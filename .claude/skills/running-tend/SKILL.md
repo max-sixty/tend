@@ -36,7 +36,7 @@ Tend has Claude-powered workflows beyond the generated `tend-*` set:
 
 | Workflow | File | Schedule | Purpose |
 |----------|------|----------|---------|
-| `review-reviewers` | `review-reviewers.yaml` | manual only (paused) | Outside-in analysis of adopter repo sessions |
+| `review-reviewers` | `review-reviewers.yaml` | manual only (paused) | Outside-in analysis of consumer repo sessions |
 
 `review-reviewers` runs only on `workflow_dispatch` — dispatch it as a
 spot-check after a release, harness switch, or model bump, not on a cadence. The
@@ -222,7 +222,7 @@ yq -r '.inputs | to_entries[] | select(.key | test("_version$"))
   | "\(filename) \(.key) = \(.value.default)"' */action.yaml */*/action.yaml
 
 # Python: `==` and upper bounds freeze a version. Floors (`click>=8.0`) state
-# compatibility instead and stay put — raising one only narrows adopter support.
+# compatibility instead and stay put — raising one only narrows consumer support.
 git grep -nE '(==|~=|<=?)[0-9]' -- '*pyproject.toml'
 uv lock --upgrade --dry-run
 
@@ -260,8 +260,8 @@ where CI can't. Split PRs by who runs the result, and take what fits in one
 session rather than clearing a backlog at once — an unswept pin waits a week, a
 swamped run finishes nothing.
 
-- **Ships to adopters** — `claude/action.yaml`, `codex/action.yaml`, and
-  `codex/refresh/action.yaml` run in adopter jobs from the next release;
+- **Ships to consumers** — `claude/action.yaml`, `codex/action.yaml`, and
+  `codex/refresh/action.yaml` run in consumer jobs from the next release;
   `generator/src/tend/templates/` and `workflows.py` render into their workflow
   files. One PR each, titled `chore: bump <name> to <version>` (the
   uv-plus-mitmproxy PR names both), its body naming what changed.
@@ -319,7 +319,7 @@ git grep -hoE 'uses: [^ ./][^ @]*@[^ ]+' -- ':!generator/tests' ':!*.md' \
 An action listed twice is pinned at two majors: refs move when someone needs a
 behavior from one of them, never in a sweep. `git grep` each drifted action for
 its call sites, then split the PRs by the buckets above — a ref that ships to
-adopters gets its own, its body naming what changed across the majors it
+consumers gets its own, its body naming what changed across the majors it
 crosses.
 
 The generated `tend-*.yaml` show up in that grep too; their refs come from the

@@ -8,7 +8,7 @@
 
 Default: file an issue in the current repo asking for permission to file in the target. On maintainer approval, file in the target.
 
-The adopter's `running-tend` overlay may grant a standing exception for **agent-equipped** targets — repos that run their own coding agent. Signals:
+The consumer's `running-tend` overlay may grant a standing exception for **agent-equipped** targets — repos that run their own coding agent. Signals:
 
 - `.github/workflows/tend-*.yaml` present (the target uses tend).
 - A workflow invokes `anthropics/claude-code-action` or another coding-agent action.
@@ -42,6 +42,6 @@ When that Scope restriction is the only thing between you and the correct move (
 Surface the blocker on the triggering thread and offer the maintainer both:
 
 1. **Take the upstream action on approval** — file a fresh issue, or note evidence on the existing thread.
-2. **Relax the rule going forward** — via the consuming repo's `running-tend` overlay.
+2. **Relax the rule going forward** — via the consumer repo's `running-tend` overlay.
 
 Record their choice per `skill-pr-workflow.md`.

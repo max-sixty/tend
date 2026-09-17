@@ -31,8 +31,8 @@ def test_pinned_mitmproxy_matches_the_actions() -> None:
     # The addon imports mitmproxy.test, an internal helper, so these tests only
     # mean anything run against the version production runs. That version is
     # named twice — the workspace dev group installs it, claude/action.yaml
-    # tells an adopter's job which to fetch — and drift between them greens
-    # this suite while every adopter's proxy breaks. Assert on the installed
+    # tells a consumer's job which to fetch — and drift between them greens
+    # this suite while every consumer's proxy breaks. Assert on the installed
     # distribution rather than the pyproject text, so a lock that resolved to
     # something else fails here too.
     pins = {

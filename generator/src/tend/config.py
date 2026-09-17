@@ -55,11 +55,11 @@ KNOWN_HARNESSES = {"claude", "codex"}
 KNOWN_SECRETS_KEYS = {"allowed"}
 
 # The operational secrets, by fixed name. Claude reads the OAuth token
-# (subscription) or the API key (console.anthropic.com) — adopters set one;
+# (subscription) or the API key (console.anthropic.com) — consumers set one;
 # Codex reads either the OpenAI key or an access-only ChatGPT auth bundle.
 # Not configurable: `install-tend` creates the
 # `tend` environment and fills it from scratch, so there is no pre-existing
-# secret whose name an adopter would want to keep.
+# secret whose name a consumer would want to keep.
 BOT_TOKEN_SECRET = "TEND_BOT_TOKEN"
 CLAUDE_TOKEN_SECRET = "CLAUDE_CODE_OAUTH_TOKEN"
 ANTHROPIC_API_KEY_SECRET = "ANTHROPIC_API_KEY"
@@ -80,7 +80,7 @@ OPERATIONAL_SECRETS = {
 }
 # Keys that once renamed those secrets. A leftover one is refused rather
 # than warned past: ignoring it would generate workflows reading the fixed
-# name while the adopter's secret still answers to the old one, and every
+# name while the consumer's secret still answers to the old one, and every
 # job would fail on an empty token.
 REMOVED_SECRETS_KEYS = {
     "bot_token": BOT_TOKEN_SECRET,
@@ -92,8 +92,8 @@ _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 # POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-# Env names an adopter's `sandbox_env` may NOT set. These carry the sandbox's
-# credential isolation and routing — letting an adopter override them (via a
+# Env names a consumer's `sandbox_env` may NOT set. These carry the sandbox's
+# credential isolation and routing — letting a consumer override them (via a
 # committed config, but also as a defense against a hand-edited workflow) could
 # redirect the agent's traffic off the injecting proxy or clobber the dummy
 # credentials the proxy swaps for the real secrets. `PATH` is reserved too:
@@ -172,7 +172,7 @@ class WorkflowConfig:
     branches: list[str] | None = None
     workflow_extra: dict | None = None
     jobs: dict[str, dict] | None = None
-    # Per-workflow harness override. Lets adopters trial a new harness on
+    # Per-workflow harness override. Lets consumers trial a new harness on
     # a single workflow (e.g. `codex` on nightly only) before flipping the
     # whole bot. None means inherit from top-level `harness`.
     harness: str | None = None
@@ -189,7 +189,7 @@ class WorkflowConfig:
 # typo-catching gate at config load is worth the maintenance.
 # Codex models are NOT enumerated here: Codex's catalog churns
 # (gpt-5.1-codex was current at harness bring-up; gone by the next month),
-# and a stale allowlist would silently block adopters from picking a newer
+# and a stale allowlist would silently block consumers from picking a newer
 # model. We pass any user-supplied string through and let `codex exec` error
 # at runtime if it's wrong.
 KNOWN_MODELS_BY_HARNESS = {
@@ -241,7 +241,7 @@ class Config:
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
-    # Adopter levers that reach inside either harness's sandbox, before the
+    # Consumer levers that reach inside either harness's sandbox, before the
     # agent launches (runner-side `setup:` doesn't — it runs as the runner user
     # around the composite action). `sandbox_path` prepends dirs to the sandbox
     # PATH; `sandbox_env` adds NAME=VALUE pairs to the agent's launch env;
@@ -622,7 +622,7 @@ class Config:
                 # Claude action fails on by name and the Codex action hands to
                 # `codex exec` and runs. `""` and a bare `prompt:` are falsy and
                 # fall through to the default instead, which is quieter but no
-                # more what the adopter wrote. All three are typos; refuse them
+                # more what the consumer wrote. All three are typos; refuse them
                 # here, where the key's presence still tells them apart from an
                 # absent one.
                 if "prompt" in wf_raw and not wf_prompt.strip():

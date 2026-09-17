@@ -131,11 +131,11 @@ repos:
                 sys.exit(1)
         pass_filenames: false
 
-      # The set of env names an adopter's `sandbox_env:` may NOT set lives in
+      # The set of env names a consumer's `sandbox_env:` may NOT set lives in
       # two places: RESERVED_SANDBOX_ENV in generator/src/tend/config.py (fails
       # at `init`) and proxy/setup_sandbox.py (re-checks a hand-edited workflow).
       # The runtime re-check is the actual
-      # security boundary; if it drifts below the config set, an adopter's
+      # security boundary; if it drifts below the config set, a consumer's
       # sandbox_env can override a routing/credential var past it. Kept in sync
       # by comments alone this rots — this guard fails the commit if the two
       # sets diverge.
@@ -165,7 +165,7 @@ repos:
             config_set = literal_set("generator/src/tend/config.py")
             runtime_set = literal_set("proxy/setup_sandbox.py")
 
-            # The adopter only meets this set as a rejection at `init`, so the
+            # The consumer only meets this set as a rejection at `init`, so the
             # `sandbox_env` docs have to name every member — a key reserved in
             # code but absent from the docs reads as settable right up until
             # the run fails. Scope the search to that bullet: file-wide, an

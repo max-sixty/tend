@@ -521,7 +521,7 @@ def test_launch_steers_the_agent_entirely_through_argv(launch: Launcher) -> None
     """Nothing on the far side reads the model or the prompts from the env.
 
     `--permission-mode` restates what settings.local.json already says, so the
-    mode survives an adopter overriding that file.
+    mode survives a consumer overriding that file.
     """
     argv = launch(stream=_ev_result()).command("claude").argv
 

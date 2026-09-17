@@ -1,7 +1,7 @@
 """The environment the sandbox user is launched with.
 
 The denylist is the only thing keeping the real PAT and the runner's own
-command-file paths out of a uid that runs adopter code, and
+command-file paths out of a uid that runs consumer code, and
 ``proxy/test-setup-sandbox.sh`` represents all five withheld paths with
 ``GITHUB_ENV`` alone — so drop one of the other four from :data:`WITHHELD` and
 that suite still passes. These pin every name on both sides, and the order the
@@ -92,7 +92,7 @@ def test_launch_env_is_anchored_to_the_prefix(compose: Compose) -> None:
     """`GITHUB_`, so a name that merely contains it stays on the runner.
 
     `MY_GITHUB_TOKEN` and `GITHUBBER_TOKEN` are the shapes that matter: an
-    adopter `setup:` step is free to export either, and neither may ride across
+    consumer `setup:` step is free to export either, and neither may ride across
     on a prefix the match got wrong at one end or the other.
     """
     pairs = compose(
@@ -127,7 +127,7 @@ def test_launch_env_carries_a_value_that_is_not_utf_8(
 ) -> None:
     """The shell that wrote the file was byte transparent, so this must be too.
 
-    A non-UTF-8 byte in an adopter's `sandbox_env:` value would otherwise fail
+    A non-UTF-8 byte in a consumer's `sandbox_env:` value would otherwise fail
     the step before the launch. Asserted through a real subprocess, because the
     round trip is `subprocess`'s `os.fsencode`, not anything this module does.
     """

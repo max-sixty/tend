@@ -26,7 +26,7 @@ inputs:
     required: true
     description: |
       GitHub username of the bot account. Rendered into the workflows so an
-      adopter can see which account tend runs as; the steps themselves read
+      consumer can see which account tend runs as; the steps themselves read
       the identity off the token rather than from here, since a name left
       stale by a rename fails open.
   prompt:
@@ -66,7 +66,7 @@ inputs:
     default: "0.12.13"
     description: >-
       Pinned fallback `uv` version. The agent PATH appends it after any
-      adopter-provided version.
+      consumer-provided version.
   sandbox_path:
     default: ""
     description: >-
@@ -182,7 +182,7 @@ runs:
     # Install the Codex CLI from npm. `@openai/codex` ships a prebuilt
     # per-platform binary, so this is ~3 s with no Rust toolchain. We pin
     # an explicit version (`codex_version`) rather than floating on
-    # `latest` so an adopter's run can't change engine mid-release. The
+    # `latest` so a consumer's run can't change engine mid-release. The
     # pin sat on an `alpha` for a while because only prereleases carried
     # `codex plugin add` (PR #21396, first in `rust-v0.131.0-alpha.17`);
     # stable ships it now, so the pin tracks `latest` and drops back to a
@@ -239,7 +239,7 @@ runs:
     # only for exact GitHub hosts. OpenAI authentication gets its own narrower
     # upstream proxy in the next step.
     - name: Set up credential-isolation sandbox
-      # Resolve the interpreter and credential holder outside the adopter's
+      # Resolve the interpreter and credential holder outside the consumer's
       # environment: this step is the only one that receives the real PAT.
       shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
       env:

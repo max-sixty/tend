@@ -182,11 +182,11 @@ Compose the PR body at `$TMPDIR/tend-update-body.md`. Its
 reader is deciding whether to adopt the regenerated workflows, so explain the
 consumer-visible effect of the upgrade rather than inventorying changed files
 or commits. When the version changed, state the old and new versions,
-synthesize the `upstream_commits` entries into the behavior adopters will
+synthesize the `upstream_commits` entries into the behavior consumers will
 notice, and link `compare_url` as support. Rewrite each `(#NNN)` reference as
 `max-sixty/tend#NNN` — a bare `#NNN` auto-links to this repo's own issues, not
 tend's. Filter out release mechanics, action-pin and lockfile bumps, and
-tend-internal work with no adopter-visible effect. If `upstream_commits` is
+tend-internal work with no consumer-visible effect. If `upstream_commits` is
 empty, the comparison call failed: include only the version line and compare
 link, and do not infer upstream behavior. For a same-version regeneration,
 explain the generator behavior that made the committed workflows stale. Follow

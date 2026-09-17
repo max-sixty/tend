@@ -214,7 +214,7 @@ def test_init_writes_only_under_the_two_directories_it_owns(
 
     A file `init` newly creates outside those two is invisible to that
     staging, so the regeneration PR ships without it — which is how
-    `.github/actionlint.yaml` once left adopters who lint workflows red, and
+    `.github/actionlint.yaml` once left consumers who lint workflows red, and
     left the file untracked again every night.
     """
     _write_config(tmp_path, "bot_name: test-bot")
@@ -255,7 +255,7 @@ def test_init_writes_actionlint_queue_ignore(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`concurrency.queue` is valid GitHub syntax actionlint's schema rejects,
-    so init ships the ignore that keeps an adopter's lint green — scoped to the
+    so init ships the ignore that keeps a consumer's lint green — scoped to the
     generated files so a real schema error elsewhere still fails."""
     _write_config(tmp_path, "bot_name: test-bot")
     monkeypatch.chdir(tmp_path)
@@ -295,7 +295,7 @@ def test_init_skips_actionlint_config_without_review(
 def test_init_merges_actionlint_ignore_into_existing_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An adopter's own actionlint config survives — the ignore is merged in,
+    """A consumer's own actionlint config survives — the ignore is merged in,
     not written over the top of it."""
     _write_config(tmp_path, "bot_name: test-bot")
     existing = _actionlint_path(tmp_path)
@@ -308,7 +308,7 @@ def test_init_merges_actionlint_ignore_into_existing_config(
             paths:
               .github/workflows/release.yaml:
                 ignore:
-                  - 'some adopter pattern'
+                  - 'some consumer pattern'
             """)
     )
     monkeypatch.chdir(tmp_path)
@@ -318,7 +318,7 @@ def test_init_merges_actionlint_ignore_into_existing_config(
     data = yaml.safe_load(existing.read_text())
     assert data["self-hosted-runner"]["labels"] == ["my-runner"]
     assert data["paths"][".github/workflows/release.yaml"]["ignore"] == [
-        "some adopter pattern"
+        "some consumer pattern"
     ]
     assert data["paths"][ACTIONLINT_TEND_GLOB]["ignore"] == [ACTIONLINT_QUEUE_IGNORE]
 
@@ -329,13 +329,13 @@ def test_init_preserves_comments_only_actionlint_config(
     _write_config(tmp_path, "bot_name: test-bot")
     existing = _actionlint_path(tmp_path)
     existing.parent.mkdir(parents=True, exist_ok=True)
-    existing.write_text("# adopter note\n")
+    existing.write_text("# consumer note\n")
     monkeypatch.chdir(tmp_path)
 
     assert _run_init().exit_code == 0
 
     updated = existing.read_text()
-    assert updated.startswith("# adopter note\n")
+    assert updated.startswith("# consumer note\n")
     assert yaml.safe_load(updated)["paths"][ACTIONLINT_TEND_GLOB]["ignore"] == [
         ACTIONLINT_QUEUE_IGNORE
     ]
@@ -359,7 +359,7 @@ def test_init_updates_existing_actionlint_yml_in_place(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """actionlint reads `.yaml` in preference to `.yml`, so writing a new
-    `.yaml` beside an adopter's `.yml` would silently disable their config.
+    `.yaml` beside a consumer's `.yml` would silently disable their config.
     Update the file they have."""
     _write_config(tmp_path, "bot_name: test-bot")
     yml = tmp_path / ".github" / "actionlint.yml"
@@ -391,7 +391,7 @@ def test_init_dry_run_writes_no_actionlint_config(
 def test_init_leaves_unmergeable_actionlint_config_untouched(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A config shape the generator can't merge into is the adopter's to fix:
+    """A config shape the generator can't merge into is the consumer's to fix:
     warn and leave it byte-for-byte, rather than rewrite their linter config
     into something they didn't ask for."""
     _write_config(tmp_path, "bot_name: test-bot")
@@ -950,7 +950,7 @@ def test_init_removes_unknown_tend_yaml_files(
     wf_dir = _workflow_dir(tmp_path)
     wf_dir.mkdir(parents=True)
     (wf_dir / "tend-defunct.yaml").write_text("# leftover from an older generator\n")
-    (wf_dir / "ci.yaml").write_text("# adopter-owned, must not be touched\n")
+    (wf_dir / "ci.yaml").write_text("# consumer-owned, must not be touched\n")
 
     _run_init()
 

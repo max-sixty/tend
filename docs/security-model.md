@@ -10,7 +10,7 @@ access, including repositories other than the one that started the run.
 
 Each adopting repo should document its specific configuration (admin accounts,
 token names, protected environments) in its own
-`.claude/skills/running-tend/SKILL.md`, the adopter-owned overlay the rest of
+`.claude/skills/running-tend/SKILL.md`, the consumer-owned overlay the rest of
 the docs name. Not a `docs/agent-notes.md` of its own: PR instruction
 pinning covers `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.claude/`, and
 `.agents/` at any depth under both harnesses
@@ -198,7 +198,7 @@ property the relay depends on: a fork run that could start a secret-bearing
 run in the base repo would be a fork run with write access to it.
 
 *Release secrets* (registry tokens, signing keys) use the same mechanism in
-adopter-owned environments whose policies list the default branch and/or
+consumer-owned environments whose policies list the default branch and/or
 all tags (a tag-target ruleset gates `creation` and `update` with
 admin-only bypass; `update` is what force-push of an existing tag fires, so
 it must be blocked alongside `creation`). Rulesets are the only mechanism —
@@ -303,7 +303,7 @@ Each transition is a bottleneck with one job:
   named by `GITHUB_EVENT_PATH`. SRT, the Codex binaries, and the immutable agent
   environment live in one dedicated runner-owned, sandbox-readable runtime
   directory; the sandbox cannot write it.
-- **Launch and lifetime** invokes the adopter's `sandbox_setup:` and the whole
+- **Launch and lifetime** invokes the consumer's `sandbox_setup:` and the whole
   Claude or Codex turn as one command under the pinned Anthropic Sandbox
   Runtime. Tend supplies absolute `node`, `bwrap`, `socat`, `rg`, and seccomp
   paths, treats dependency warnings as fatal, and probes AF_UNIX denial plus
@@ -346,7 +346,7 @@ before the setting was enabled have no uploaded assets and their tag code is
 protected by a no-bypass tag ruleset, but their GitHub release records are not
 retroactively immutable. The separate all-tags ruleset prevents the bot from
 creating or repointing any release tag, so a leaked bot token or hijacked
-session cannot change the action code every adopter already runs. Adopters
+session cannot change the action code every consumer already runs. Consumers
 extend trust to `max-sixty/tend`'s release-tag integrity the same way they
 trust any third-party action's publisher; pinning to `X.Y.Z` (or a commit
 SHA) bounds that trust to a reviewed, immutable point.
@@ -367,7 +367,7 @@ what it changed; nothing copies them into the worktree, since a copy made by
 the runner user would follow a fork-planted symlink into files the agent must
 never see, such as the checkout credential in `.git/config`.
 
-**Setup runs on reviewed code.** Adopter `setup:` steps execute as the runner
+**Setup runs on reviewed code.** Consumer `setup:` steps execute as the runner
 user against the stable Actions checkout: the default branch, or in
 `tend-review` the PR's reviewed base. That tree is never replaced or handed to
 the agent, and files `setup:` writes there do not appear in the independent
@@ -402,7 +402,7 @@ written to the agent's env or disk. The injection
 allowlist is exact-match on the connection's real destination, so a request to
 a lookalike host gets no token. The GitHub proxy is launched by a pinned `uv`
 that Tend installs into its own directory, off `$PATH`, so the process holding the PAT
-starts from a known binary rather than whatever an adopter's
+starts from a known binary rather than whatever a consumer's
 `setup:` happened to leave on the runner. (`claude` is Node and ignores the
 system trust store, so it trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) Shared
 system and hosted-toolcache PATH entries remain available to the sandbox. Tend
@@ -422,7 +422,7 @@ descriptors, copies regular files only, and enforces per-file, total-byte, and
 file-count bounds. Symlinks, devices, and FIFOs never enter the runner-owned
 artifact tree.
 
-The weekly subscription refresh job checks out no adopter code and gives Codex
+The weekly subscription refresh job checks out no consumer code and gives Codex
 only Tend's fixed refresh prompt. Codex receives the full refresh bundle there;
 the environment-write PAT appears only in the separate publish step after
 Codex exits.

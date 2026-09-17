@@ -1,7 +1,7 @@
 # Opening a skill PR from CI
 
 Turning a maintainer's correction into durable guidance: whether it clears the
-bar, whether it lands upstream in tend or in the consuming repo's
+bar, whether it lands upstream in tend or in the consumer repo's
 `.claude/skills/running-tend/SKILL.md`, what the text carries, and the mechanics
 of proposing it.
 
