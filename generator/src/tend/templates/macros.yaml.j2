@@ -60,7 +60,7 @@
 
 {# The uv that tend's own script steps run. It stays off PATH, and those steps
    call it by the path setup-uv outputs: on PATH it would shadow a uv the
-   adopter's setup or runner image provides, for the setup steps and the agent
+   consumer's setup or runner image provides, for the setup steps and the agent
    alike. Its cache stays off because the post-job save would store the job's
    later uv downloads under this step's key and restore them on every run. #}
 {% macro setup_tend_uv() %}
@@ -102,7 +102,7 @@
    No `id-token: write`: nothing in the harness actions requests an OIDC
    token, and a job holding it can mint the repository's OIDC identity for
    any relying party whose trust policy doesn't pin the workflow and ref.
-   An adopter whose `setup:` authenticates over OIDC re-adds it with a
+   A consumer whose `setup:` authenticates over OIDC re-adds it with a
    `jobs.<name>.permissions` override. #}
 {% macro permissions(issues=True) %}
       contents: write
@@ -245,7 +245,7 @@
 {%- endmacro %}
 
 {# A multi-line action input, as a YAML block scalar at column 10 with the text
-   indented at column 12. Every input whose value is adopter-supplied and may
+   indented at column 12. Every input whose value is consumer-supplied and may
    span lines renders through here — `prompt`, and the three `sandbox_*` levers
    — so the indentation is written once rather than per call site. A caller with
    extra context to append (ci-fix's run coordinates) composes the text first
@@ -256,7 +256,7 @@
    text. Without it YAML infers the block's indent from its first line, and a
    value whose first line is itself indented makes every following line look
    like the end of the scalar — a file GitHub rejects, from a config that is
-   valid YAML in the adopter's own hands.
+   valid YAML in the consumer's own hands.
 
    `${{ ... }}` in the text reaches the generated file verbatim, and GitHub
    Actions evaluates it when it sets the input — that is how a prompt's

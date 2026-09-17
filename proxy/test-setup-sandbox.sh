@@ -63,10 +63,10 @@ plant() {
   sudo chmod +x /usr/local/bin/tend-probe
   sudo install -d -m 755 "$shared"
   printf '#!/bin/sh\necho shared\n' | sudo tee "$shared/tend-shared" >/dev/null
-  printf '#!/bin/sh\necho adopter-uv\n' | sudo tee "$shared/uv" >/dev/null
+  printf '#!/bin/sh\necho consumer-uv\n' | sudo tee "$shared/uv" >/dev/null
   sudo chmod +x "$shared/tend-shared" "$shared/uv"
   # setup_sandbox.py must capture this PATH entry as tool data without resolving
-  # its privileged utilities through an adopter-controlled directory.
+  # its privileged utilities through a consumer-controlled directory.
   printf '#!/bin/sh\nexit 99\n' >"$bin/sudo"
   chmod +x "$bin/sudo"
   echo "$shared" >>"$GITHUB_PATH"
@@ -195,7 +195,7 @@ verify() {
   grep -q "^PATH=.*:${TEND_AGENT_UV_DIR}$" "$AGENT_ENV_FILE"
   grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$AGENT_ENV_FILE"
   sudo -u "$SANDBOX" test -w /home/tend-sandbox/tmp
-  test "$(sudo -u "$SANDBOX" env "${agent_env[@]}" uv --version)" = adopter-uv
+  test "$(sudo -u "$SANDBOX" env "${agent_env[@]}" uv --version)" = consumer-uv
   # The agent commits without configuring an identity of its own, including
   # from a clone it makes itself, so read the identity where such a clone would.
   test "$(sudo -u "$SANDBOX" env "${agent_env[@]}" git -C /home/tend-sandbox config user.name)" = "$BOT_LOGIN"

@@ -36,7 +36,7 @@ def test_codex_runs_the_turn_through_the_runner(
     """`runner.py` dispatches on an exact argv and nothing else passes it `run`.
 
     The command reaches the runner from here rather than from the action's own
-    steps, so a rename on either side would first fail in an adopter's job.
+    steps, so a rename on either side would first fail in a consumer's job.
     """
     recorded = tmp_path / "argv"
     runner = tmp_path / "runner.py"

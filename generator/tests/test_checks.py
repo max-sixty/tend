@@ -1296,7 +1296,7 @@ def _gh_all_pass(*admitted: str, environment_secrets: tuple[str, ...] | None = N
         if "graphql" in args:
             return _make_completed(_workflow_tree({}))
         url = _url(args)
-        # The common adopter shape: only the ref-gated environment exists.
+        # The common consumer shape: only the ref-gated environment exists.
         if url.endswith("/environments"):
             return _make_completed(f"{TEND_ENVIRONMENT}\n")
         if url.endswith("/secrets") and "/environments/" in url:
@@ -2766,7 +2766,7 @@ def test_credential_environments_unreached_dynamic_environment_spends_nothing() 
     """What an unreachable workflow leaves unreadable is not this repo's to
     gate either. A reusable deploy parameterised by its caller's input names no
     environment tend can resolve, and reporting that would hold the check at
-    unverified for as long as the adopter keeps the workflow."""
+    unverified for as long as the consumer keeps the workflow."""
     result = _credential_check(
         {"pypi": ([], {"protection_rules": []}, "")},
         workflows={

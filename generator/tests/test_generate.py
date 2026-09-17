@@ -149,13 +149,13 @@ def test_local_setup_action_keeps_runner_checkout_stable(
 def test_generated_workflows_survive_the_whitespace_hooks(
     tmp_path: Path, extra: str, harness: str
 ) -> None:
-    """Whitespace an adopter's pre-commit rewrites is pure churn in the regen
+    """Whitespace a consumer's pre-commit rewrites is pure churn in the regen
     diff: the file it commits can never match what `init` emits, and the PR the
     nightly opens over that difference fails its own lint job. Both hooks the
     repo runs are covered — end-of-file-fixer on the last line, and
     trailing-whitespace on every line.
 
-    A prompt is the only adopter-supplied text that lands in a block scalar, so
+    A prompt is the only consumer-supplied text that lands in a block scalar, so
     the nightly's carries the blank lines that a Jinja `indent()` pads: interior
     ones under `blank=True`, and a leading one even without it. Its last line is
     whitespace-only, which reaches the end-of-file hook rather than this one.
@@ -591,7 +591,7 @@ def test_prompt_workflow_matrix_covers_every_generator() -> None:
 
 
 def test_mention_rejects_a_prompt_override(tmp_path: Path) -> None:
-    """`mention` renders no adopter prompt, so accepting the key would drop it
+    """`mention` renders no consumer prompt, so accepting the key would drop it
     silently — the config's own docs promise otherwise."""
     extra = 'workflows:\n  mention:\n    prompt: "do something else"\n'
     with pytest.raises(click.ClickException, match="mention composes its prompt"):
@@ -622,11 +622,11 @@ def test_multi_line_prompt_generates_parseable_yaml(
     line; and the shared block-scalar macro itself let YAML infer the block's
     indent from the first line, so an indented first line made every later line
     look like the end of the scalar. Each wrote a file GitHub rejects from a
-    config that is valid YAML in the adopter's hands, and the adopter found out
+    config that is valid YAML in the consumer's hands, and the consumer found out
     from GitHub.
 
     The braces double as a check that nothing escapes them any more: they are
-    the adopter's text, and only the workflow's own placeholder is substituted,
+    the consumer's text, and only the workflow's own placeholder is substituted,
     to the one expression that names this workflow's event.
     """
     body = f"  Do the thing for {placeholder}.\n\nSkip files matching {{generated}}.\n"
@@ -643,7 +643,7 @@ def test_multi_line_prompt_generates_parseable_yaml(
         for wf in generate_all(Config.load(_minimal_config(tmp_path, extra)))
     }[f"tend-{workflow}.yaml"]
     prompt = agent_prompt(content)
-    assert prompt.startswith("  "), "the adopter's own leading indent was eaten"
+    assert prompt.startswith("  "), "the consumer's own leading indent was eaten"
     assert "Skip files matching {generated}." in prompt
     assert "{{generated}}" not in prompt
     assert "format(" not in prompt
@@ -658,7 +658,7 @@ def test_multi_line_prompt_generates_parseable_yaml(
 def test_sandbox_levers_survive_an_indented_first_line(
     tmp_path: Path, lever: str
 ) -> None:
-    """The `sandbox_*` inputs are adopter-supplied lists rendered into the same
+    """The `sandbox_*` inputs are consumer-supplied lists rendered into the same
     block scalar as the prompt, and had the same bug: an entry whose first line
     is indented made every later entry look like the end of the scalar. Only
     `sandbox_env` is exempt, and only because it refuses a newline outright.
@@ -704,7 +704,7 @@ def test_blank_prompt_is_rejected(tmp_path: Path, blank: str) -> None:
     value is truthy, so it beats the default and leaves the agent step with no
     instructions — the Claude action fails on the empty input, the Codex action
     runs `codex exec` with it. `""` and a bare `prompt:` are falsy and reach the
-    default instead, silently ignoring what the adopter wrote.
+    default instead, silently ignoring what the consumer wrote.
     """
     extra = f"workflows:\n  triage:\n    prompt: {blank}\n"
     with pytest.raises(click.ClickException, match="prompt is blank"):
@@ -1955,7 +1955,7 @@ def test_per_workflow_harness_override_targets_only_named_workflow(
 ) -> None:
     """`workflows.<name>.harness` flips the action ref for that workflow
     only; sibling workflows keep the top-level harness. This is what lets
-    an adopter trial codex on nightly without flipping their PR-review
+    a consumer trial codex on nightly without flipping their PR-review
     workflow."""
     extra = dedent("""\
         workflows:
@@ -2099,7 +2099,7 @@ def test_codex_model_unrestricted(tmp_path: Path) -> None:
     """Codex model strings pass through unvalidated.
 
     Codex's catalog churns (gpt-5.1-codex was current at harness bring-up;
-    deprecated by the next month). An allowlist would silently lock adopters
+    deprecated by the next month). An allowlist would silently lock consumers
     out of newer models. We accept any string and let `codex exec` error at
     runtime if it's wrong.
     """

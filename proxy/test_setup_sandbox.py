@@ -67,7 +67,7 @@ def test_workspace_path_keeps_precedence_over_runner_home_rewrite(
     assert plan.dropped_home_paths == []
 
 
-def test_agent_uv_fallback_trails_adopter_paths_and_needs_no_blocker(
+def test_agent_uv_fallback_trails_consumer_paths_and_needs_no_blocker(
     tmp_path: Path,
 ) -> None:
     paths = _paths(tmp_path)
@@ -76,16 +76,16 @@ def test_agent_uv_fallback_trails_adopter_paths_and_needs_no_blocker(
     for name in ("uv", "uvx", "tend-probe"):
         executable = runner_bin / name
         executable.touch(mode=0o755)
-    adopter_bin = tmp_path / "adopter-bin"
+    consumer_bin = tmp_path / "consumer-bin"
 
     plan = setup_sandbox.plan_agent_path(
         runner_tool_path=str(runner_bin),
-        extras=[str(adopter_bin)],
+        extras=[str(consumer_bin)],
         paths=paths,
         can_execute=lambda _: False,
     )
 
-    assert plan.agent_path[0] == str(adopter_bin)
+    assert plan.agent_path[0] == str(consumer_bin)
     assert plan.agent_path[-1] == str(setup_sandbox.TEND_AGENT_UV_DIR)
     assert plan.blocked_commands == ["tend-probe"]
 
@@ -98,13 +98,13 @@ def test_agent_uv_fallback_trails_adopter_paths_and_needs_no_blocker(
         ("NOT_AN_ASSIGNMENT", "not NAME=VALUE"),
     ],
 )
-def test_adopter_environment_rejects_unsafe_records(raw: str, message: str) -> None:
+def test_consumer_environment_rejects_unsafe_records(raw: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        setup_sandbox.adopter_env(raw)
+        setup_sandbox.consumer_env(raw)
 
 
-def test_adopter_environment_preserves_values_after_the_first_equals() -> None:
-    assert setup_sandbox.adopter_env("TEND_VALUE=a=b\n") == ["TEND_VALUE=a=b"]
+def test_consumer_environment_preserves_values_after_the_first_equals() -> None:
+    assert setup_sandbox.consumer_env("TEND_VALUE=a=b\n") == ["TEND_VALUE=a=b"]
 
 
 def test_every_fixed_agent_assignment_is_reserved() -> None:
@@ -170,7 +170,7 @@ def test_workspace_handoff_never_dereferences_pr_symlinks(
     )
 
 
-def test_proxy_uvx_isolated_from_adopter_python_and_uv_configuration(
+def test_proxy_uvx_isolated_from_consumer_python_and_uv_configuration(
     tmp_path: Path,
 ) -> None:
     command = setup_sandbox.uvx_command(

@@ -87,7 +87,7 @@ itself the go-ahead.
 
 1. **Harness** — which model runs the bot and which credential it
    bills to:
-   - **Claude — OAuth token** (recommended for adopters with a Claude
+   - **Claude — OAuth token** (recommended for consumers with a Claude
      subscription) — draws from the subscription's usage limits.
    - **Claude — API key** — a console.anthropic.com key, billed per token.
      Fits when there's no subscription to draw on, or the user wants a
@@ -537,7 +537,7 @@ reachable by the bot.
 mixed bypass actors, layered no-bypass immutability rulesets for repos
 that publish actions consumed via tag pins). Install-tend packages the
 recipe above because it is the simplest configuration that holds the chain;
-adopters with stricter requirements can layer additional rulesets or
+consumers with stricter requirements can layer additional rulesets or
 environment protection rules on top.
 
 ## 4. Create skill overlay (recommended)

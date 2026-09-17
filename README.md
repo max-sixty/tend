@@ -111,7 +111,7 @@ The nightly regen restamps a newer tag when a new tend version ships.
 When the review workflow is generated, `init` also merges one ignore into
 `.github/actionlint.yaml`: the workflow's `concurrency.queue` is valid GitHub
 syntax that actionlint's schema rejects. The ignore applies only to generated
-workflows and preserves the rest of the adopter-owned config.
+workflows and preserves the rest of the consumer-owned config.
 
 Both actions run the same security and rate-limit preflight checks and
 resolve bot identity. They differ in how the agent runs:

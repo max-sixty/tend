@@ -29,8 +29,8 @@ inputs:
   bot_name:
     required: true
     description: |
-      GitHub username of the bot account. Rendered into the workflows so an
-      adopter can see which account tend runs as; the steps themselves read
+      GitHub username of the bot account. Rendered into the workflows so a
+      consumer can see which account tend runs as; the steps themselves read
       the identity off the token rather than from here, since a name left
       stale by a rename fails open.
   prompt:
@@ -90,8 +90,8 @@ inputs:
     default: "0.12.13"
     description: >-
       Pinned `uv` version. The credential-injection proxy always uses a private
-      copy off $PATH. The agent gets a separate fallback after the adopter PATH,
-      so an adopter-provided version stays selected.
+      copy off $PATH. The agent gets a separate fallback after the consumer PATH,
+      so a consumer-provided version stays selected.
   sandbox_path:
     default: ""
     description: >-
@@ -158,7 +158,7 @@ runs:
     # and runs the script (reached via ../shared/steps, since this action is
     # one level deep).
     # A step receiving a real credential pins both its shell and child PATH;
-    # adopter setup may have prepended arbitrary commands to the job PATH. Every
+    # consumer setup may have prepended arbitrary commands to the job PATH. Every
     # Ordinary Python bodies are pinned to `/usr/bin/python3` and started
     # isolated: `-E` ignores every `PYTHON*` variable (a `PYTHONPATH` shadowing
     # `json`, a `PYTHONSAFEPATH`) and `-s` drops the user site dir. The sandbox
@@ -222,7 +222,7 @@ runs:
         TEND_BASE_BRANCH: ${{ inputs.base_branch }}
 
     # Compose the system prompt (shared/system-prompt.md + Claude directives +
-    # the adopter's system_prompt_append). SYSTEM_PROMPT_FILE is passed in so
+    # the consumer's system_prompt_append). SYSTEM_PROMPT_FILE is passed in so
     # the script is path-agnostic; this action lives under claude/, so the
     # shared file is one level up.
     - name: Compose system prompt
@@ -255,7 +255,7 @@ runs:
     # mitmproxy download (a sizeable dependency) in an isolated uv cache dir,
     # keyed on the pinned version. First run populates; every run after restores
     # in seconds instead of a cold ~20s resolve. This cache belongs only to the
-    # proxy; agent and adopter uv caches stay separate.
+    # proxy; agent and consumer uv caches stay separate.
     - name: Cache mitmproxy
       uses: actions/cache@v6
       with:
@@ -263,7 +263,7 @@ runs:
         key: tend-mitmproxy-${{ runner.os }}-${{ inputs.mitmproxy_version }}
 
     - name: Set up credential-isolation sandbox
-      # Resolve the interpreter outside adopter-controlled PATH: this step is
+      # Resolve the interpreter outside consumer-controlled PATH: this step is
       # the only one that receives both real credentials.
       shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
       env:
@@ -284,7 +284,7 @@ runs:
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
-        # Adopter sandbox levers: PATH prepends and env additions, baked into
+        # Consumer sandbox levers: PATH prepends and env additions, baked into
         # the agent env file. sandbox_setup (commands) runs in a later step.
         TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
         TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
@@ -323,7 +323,7 @@ runs:
             "${{ github.action_path }}/../proxy/setup_sandbox.py"
 
     # Install the claude binary into the sandbox user's home. Nothing else —
-    # a language toolchain here would shadow the adopter's on the sandbox PATH.
+    # a language toolchain here would shadow the consumer's on the sandbox PATH.
     # SANDBOX/AGENT_HOME come from setup_sandbox.py via $GITHUB_ENV.
     - name: Install claude binary (sandbox)
       shell: bash
@@ -331,7 +331,7 @@ runs:
       env:
         CLAUDE_VERSION: ${{ inputs.claude_version }}
 
-    # Install a pinned fallback after the adopter PATH, as the sandbox user.
+    # Install a pinned fallback after the consumer PATH, as the sandbox user.
     # The runner opens the script because its action cache is outside the
     # sandbox user's traversable paths.
     - name: Install agent uv fallback (sandbox)
@@ -540,7 +540,7 @@ runs:
     # also persistent — red until a human fixes branch protection, so an issue
     # titled "Bot temporarily unavailable" would collect a row per trigger —
     # but that argument doesn't single it out: `Validate auth configured` and
-    # the adopter's `sandbox_setup:` fail the same way and stay in. Bounding
+    # the consumer's `sandbox_setup:` fail the same way and stay in. Bounding
     # that repeated append belongs in `report_failure.py`, where it covers
     # every such step at once (#859); enumerating more step ids here would go
     # stale as steps move.

@@ -47,10 +47,10 @@ def _detect_default_branch_local() -> str:
 
 def _update_actionlint_config(dry_run: bool) -> None:
     """Ensure `.github/actionlint.yaml` ignores the `concurrency.queue` schema
-    false positive, so an adopter's workflow lint stays green on regen.
+    false positive, so a consumer's workflow lint stays green on regen.
 
     actionlint reads `.yaml` in preference to `.yml`, so a new `.yaml` written
-    beside an adopter's `.yml` would silently disable their whole config —
+    beside a consumer's `.yml` would silently disable their whole config —
     update the file they already have.
     """
     github_dir = Path(".github")
@@ -112,13 +112,13 @@ def main() -> None:
 def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> None:
     """Generate workflow files from config. Idempotent — always overwrites."""
     # Auto-migrate a legacy .config/tend.toml. One-shot upgrade path for
-    # adopters bumping past the TOML→YAML cutover; the migration verifies
+    # consumers bumping past the TOML→YAML cutover; the migration verifies
     # the parsed structures match before swapping, so the no-op case (no
     # .toml on disk) is the steady state.
     #
     # Under --dry-run the migration is rendered and verified but not applied:
     # the flag's contract is that the command writes nothing, and the one run
-    # an adopter makes to preview the upgrade is exactly the run that would
+    # a consumer makes to preview the upgrade is exactly the run that would
     # otherwise perform it — silently, and irreversibly for an uncommitted
     # config, since the migration deletes the TOML.
     preview_yaml: str | None = None
@@ -180,7 +180,7 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
     # behind their YAML, and workflows renamed across generator versions.
     # Runs even when the generated set is empty (every workflow disabled)
     # so the cleanup contract still applies. The tend-*.yaml glob is the
-    # generator's filename contract per CLAUDE.md — adopter-owned workflows
+    # generator's filename contract per CLAUDE.md — consumer-owned workflows
     # live under other names.
     generated = {wf.filename for wf in workflows}
     removed = 0

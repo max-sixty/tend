@@ -450,7 +450,7 @@ def main() -> int:
     stream_json = Path(env["RUNNER_TEMP"]) / "tend-stream.json"
     stderr_log = Path(env["RUNNER_TEMP"]) / "tend-claude-stderr.log"
 
-    # Written inside SRT so the agent can read it back. It lands in the adopter's
+    # Written inside SRT so the agent can read it back. It lands in the consumer's
     # checkout untracked, next to the `.claude/skills/` they do track;
     # setup_sandbox.py's global gitignore for the sandbox user keeps a broad
     # `git add -A` from committing `bypassPermissions` into the session's PR.

@@ -169,7 +169,7 @@ class PathPlan:
 
 
 def configured_paths(raw: str, *, paths: Paths) -> list[str]:
-    """Expand and validate adopter-provided sandbox PATH prefixes."""
+    """Expand and validate consumer-provided sandbox PATH prefixes."""
     entries: list[str] = []
     for entry in raw.split("\n"):
         if not entry:
@@ -324,7 +324,7 @@ def base_agent_env(
     return [f"{name}={value}" for name, value in values.items()]
 
 
-def adopter_env(raw: str) -> list[str]:
+def consumer_env(raw: str) -> list[str]:
     """Validate the hand-edited workflow boundary for ``sandbox_env``."""
     assignments: list[str] = []
     for line in raw.split("\n"):
@@ -344,7 +344,7 @@ def write_agent_environment(
 ) -> str:
     agent_path = os.pathsep.join(plan.agent_path)
     assignments = base_agent_env(agent_path, anthropic_dummy, workspace=paths.workspace)
-    assignments.extend(adopter_env(os.environ.get("TEND_SANDBOX_ENV", "")))
+    assignments.extend(consumer_env(os.environ.get("TEND_SANDBOX_ENV", "")))
     paths.agent_env_file.write_text("\n".join(assignments) + "\n", encoding="utf-8")
     exports = {
         "SANDBOX": SANDBOX,

@@ -12,7 +12,7 @@ Pass ``GITHUB_*`` through as a denylist rather than an explicit allowlist: most
 additions automatically. Skills depend on them for run-self-reference (branch
 names, gist headings, dedup of own check runs) and owner-correct URL
 construction. Apart from :data:`WITHHELD`, every ``GITHUB_*`` Actions defines is
-public rather than a secret; a ``GITHUB_*``-named variable an adopter's
+public rather than a secret; a ``GITHUB_*``-named variable a consumer's
 ``setup:`` step writes to ``$GITHUB_ENV`` crosses on the same rule, so a secret
 must not be given a ``GITHUB_*`` name.
 """
@@ -57,7 +57,7 @@ def agent_env(agent_env_file: str | os.PathLike[str]) -> list[str]:
     # NAME=VALUE into two `env` arguments, and `env` execs a trailing argument
     # that is not an assignment as the command to run.
     # `surrogateescape` because the shell that wrote the file was byte
-    # transparent: a non-UTF-8 byte in an adopter's `sandbox_env:` value must
+    # transparent: a non-UTF-8 byte in a consumer's `sandbox_env:` value must
     # reach the sandbox as it was written, not fail the step before the launch.
     # `subprocess` re-encodes it with `os.fsencode`, which round-trips it back.
     with Path(agent_env_file).open(
@@ -73,12 +73,12 @@ def launch_env(agent_env_file: str | os.PathLike[str]) -> list[str]:
     """The ``NAME=VALUE`` arguments for the outer SRT launch.
 
     The file's lines (proxy routing, CA trust, dummy credentials, and the
-    adopter's own ``sandbox_env:`` additions) come first, then the GitHub
+    consumer's own ``sandbox_env:`` additions) come first, then the GitHub
     context.
 
     That order is the reason this composes both halves rather than handing back
     the context alone. ``env`` takes the final assignment of a name, and the
-    file is the half an adopter writes, so the context has to follow it or a
+    file is the half a consumer writes, so the context has to follow it or a
     ``sandbox_env: {GITHUB_WORKFLOW: …}`` would decide what the run thinks it
     is. As two lists that was a rule each caller had to remember; here it is the
     function's postcondition. A caller may append names of its own afterwards —
