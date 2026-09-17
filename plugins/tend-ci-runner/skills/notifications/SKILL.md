@@ -62,7 +62,7 @@ uv run --script \
   "${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py" "$SUBJECT_URL"
 ```
 
-It counts a run that has not started yet. `queued` is a status of its own in the Actions API, and a `tend-mention` run created for a maintainer's comment can sit unstarted for hours — that run owns its subject as much as a running one, and answering it here posts the bot's reply twice.
+It counts a run that has not started yet. `queued` is a status of its own in the Actions API, and a `tend-mention` run created for a maintainer's comment can sit unstarted for hours — that run owns its subject as much as a running one, and answering it here posts the bot's reply twice. It stops counting one whose state has not moved in over a day: GitHub strands runs that never start, and an owner that never finishes would defer its thread forever.
 
 Issue deduplication includes bot-authored PRs that cross-reference the issue. A PR with `Refs #N` may be the bot's response even when it posted no issue comment. Pad the notification time by 60 seconds because GitHub's notification index can trail the event that produced it:
 
