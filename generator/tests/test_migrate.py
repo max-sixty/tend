@@ -77,15 +77,14 @@ def test_migrate_full_config_round_trips_through_config_load(tmp_path: Path) -> 
     assert cfg.workflows["review"].jobs == {"review": {"timeout-minutes": 240}}
 
 
-def test_migrate_generates_identical_workflows(tmp_path: Path) -> None:
-    """The whole point: workflows produced from the migrated config must be
-    byte-identical to what the TOML would have produced.
+def test_migrate_preserves_the_parsed_config(tmp_path: Path) -> None:
+    """The migrated YAML parses to the same data the TOML did.
 
-    We can't load the TOML directly with the new Config.load (TOML support
-    is gone), so we simulate the equivalent: construct a Config from the
-    parsed TOML dict via the same path Config.load uses internally.
-    Equality of generated workflow content is the strongest check that
-    migration is data-faithful.
+    `Config.load` no longer reads TOML, so the parsed dicts are the last
+    point at which the two formats can be compared directly — and equality
+    there is what makes the migrated config load into the same `Config`.
+    `test_workflows_from_migrated_config_match_workflows_built_from_toml_dict`
+    carries that through to the generated workflow content.
     """
     import tomllib
 

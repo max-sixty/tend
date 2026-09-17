@@ -158,7 +158,7 @@ runs:
     # and runs the script (reached via ../shared/steps, since this action is
     # one level deep).
     # A step receiving a real credential pins both its shell and child PATH;
-    # consumer setup may have prepended arbitrary commands to the job PATH. Every
+    # consumer setup may have prepended arbitrary commands to the job PATH.
     # Ordinary Python bodies are pinned to `/usr/bin/python3` and started
     # isolated: `-E` ignores every `PYTHON*` variable (a `PYTHONPATH` shadowing
     # `json`, a `PYTHONSAFEPATH`) and `-s` drops the user site dir. The sandbox
