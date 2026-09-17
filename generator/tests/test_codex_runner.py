@@ -147,7 +147,9 @@ def test_stage_agents_writes_as_the_sandbox_user(
     action, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
     shared = action.parent / "shared"
     shared.mkdir()
-    (shared / "system-prompt.md").write_text("Act as ${BOT_NAME}; keep $GH_TOKEN.\n")
+    (shared / "system-prompt.md").write_text(
+        "Act as ${BOT_NAME}; keep $GH_TOKEN. Read ${SKILL:running-in-ci}.\n"
+    )
     (action / "agents-tail.md").write_text("Look up $BOT_NAME.\n")
     monkeypatch.setenv("BOT_NAME", "tend-bot")
     calls: list[tuple[list[str], dict[str, object]]] = []
@@ -172,7 +174,7 @@ def test_stage_agents_writes_as_the_sandbox_user(
     assert calls[1][0][-2:] == ["/usr/bin/tee", str(agents)]
     assert calls[1][1]["input"] == (
         "# Tend CI instructions (Codex harness)\n\n"
-        "Act as tend-bot; keep $GH_TOKEN.\n\n"
+        "Act as tend-bot; keep $GH_TOKEN. Read $running-in-ci.\n\n"
         "Look up tend-bot.\n"
     )
 

@@ -342,10 +342,10 @@ governs.
 
 **Shipped instructions** are whatever text reaches a repo other than this one.
 They tell the bot what to do in a repo it maintains, and have to hold in repos
-nobody here has seen. More of them than `plugins/**`: `shared/system-prompt.md`
-and the two directives `compose_system_prompt.py` prepends, `codex/agents-tail.md`,
-the header comment `workflows.py` stamps into every generated workflow, and
-`docs/tend.example.yaml`, which a pre-commit hook mirrors into `install-tend`.
+nobody here has seen. More of them than `plugins/**`: `shared/system-prompt.md`,
+`codex/agents-tail.md`, the header comment `workflows.py` stamps into every
+generated workflow, and `docs/tend.example.yaml`, which a pre-commit hook
+mirrors into `install-tend`.
 Before writing instructions outside `plugins/`, check whether they end up in a
 consumer's repo or session.
 

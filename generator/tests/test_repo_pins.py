@@ -8,6 +8,7 @@ holds for every file, not a phrase pinned in one.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import shutil
@@ -20,6 +21,7 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 from ruamel.yaml import YAML
+from tend.config import KNOWN_HARNESSES, Config
 from tend.workflows import UV_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -794,3 +796,67 @@ def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
     assert "review-reviewers" in checked, (
         "review-reviewers.yaml stopped naming its skill"
     )
+
+
+def _prompt_module():
+    spec = importlib.util.spec_from_file_location(
+        "tend_prompt", REPO_ROOT / "shared/steps/_prompt.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_skill_prefixes_match_the_generator() -> None:
+    """One mapping from skill name to invocation, asserted across two deliverables.
+
+    `shared/steps/_prompt.py` renders `${SKILL:<name>}` in the system prompt at
+    runtime; `Config.default_prompt` writes the same invocation into generated
+    workflow prompts. The generator is not installed on the runner, so neither
+    can import the other.
+    """
+    prompt = _prompt_module()
+
+    for harness, prefix in prompt.SKILL_PREFIX.items():
+        cfg = Config(
+            bot_name="bot",
+            default_branch="main",
+            protected_branches=[],
+            harness=harness,
+            model="opus",
+            effort="",
+            setup=[],
+            workflows={},
+        )
+        assert cfg.default_prompt("running-in-ci") == f"{prefix}running-in-ci"
+    assert set(prompt.SKILL_PREFIX) == KNOWN_HARNESSES
+
+
+def test_shipped_prompt_skill_tokens_resolve_to_a_bundled_skill() -> None:
+    """Neither way of naming the wrong skill fails until a session is running.
+
+    A token that renames or misspells a skill stays well-formed, renders in both
+    syntaxes, and opens every shipped session with a load of something that does
+    not exist — so resolve the name on disk, as
+    `test_every_workflow_prompt_names_a_skill_that_exists` does for the
+    generator's half. A token malformed enough to miss the pattern survives
+    rendering instead, reaching the model verbatim.
+    """
+    prompt = _prompt_module()
+    files = [REPO_ROOT / "shared/system-prompt.md", REPO_ROOT / "codex/agents-tail.md"]
+
+    for path in files:
+        text = path.read_text()
+        for name in prompt.SKILL_REF.findall(text):
+            skill = REPO_ROOT / "plugins/tend-ci-runner/skills" / name / "SKILL.md"
+            assert skill.is_file(), (
+                f"{path.relative_to(REPO_ROOT)} invokes `{name}`, which is not "
+                f"a skill at {skill.relative_to(REPO_ROOT)}"
+            )
+        for harness in prompt.SKILL_PREFIX:
+            rendered = prompt.render(text, bot_name="bot", harness=harness)
+            assert "${SKILL" not in rendered, (
+                f"{path.relative_to(REPO_ROOT)} has a malformed skill token; "
+                "it must read ${SKILL:<lowercase-skill-name>}"
+            )

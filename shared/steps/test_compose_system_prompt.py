@@ -7,12 +7,15 @@ import compose_system_prompt
 import pytest
 
 
-def test_composes_directives_shared_prompt_and_extra(
+def test_renders_shared_prompt_in_claude_syntax_and_appends_extra(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     shared = tmp_path / "system-prompt.md"
     output = tmp_path / "github-output"
-    shared.write_text("Act as **${BOT_NAME}**. Keep `$GH_TOKEN` intact.\n")
+    shared.write_text(
+        "Act as **${BOT_NAME}**. Keep `$GH_TOKEN` intact.\n"
+        "Read `${SKILL:running-in-ci}` first.\n"
+    )
     monkeypatch.setenv("SYSTEM_PROMPT_FILE", str(shared))
     monkeypatch.setenv("BOT_NAME", "tend-bot")
     monkeypatch.setenv("EXTRA", "One more rule.")
@@ -24,8 +27,7 @@ def test_composes_directives_shared_prompt_and_extra(
     match = re.fullmatch(r"value<<(tend-[0-9a-f]+)\n(.*)\n\1\n", written, re.DOTALL)
     assert match
     assert match.group(2) == (
-        f"{compose_system_prompt.CLAUDE_DIRECTIVE}\n\n"
-        f"{compose_system_prompt.AUTONOMY_DIRECTIVE}\n\n"
-        "Act as **tend-bot**. Keep `$GH_TOKEN` intact.\n\n"
+        "Act as **tend-bot**. Keep `$GH_TOKEN` intact.\n"
+        "Read `/tend-ci-runner:running-in-ci` first.\n\n"
         "One more rule."
     )

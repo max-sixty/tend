@@ -63,6 +63,7 @@ MAX_STEP_SUMMARY = 512 * 1024
 MAX_RUNTIME_FILE = 2 * 1024 * 1024
 RUNTIME_STEP_FILES = (
     "_common.py",
+    "_prompt.py",
     "_sandbox.py",
     "agent_lifecycle.py",
     "run_claude.py",
