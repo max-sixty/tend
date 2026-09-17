@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # On a fork PR, pin every instruction file to the default branch before Codex
-# starts, so a fork's copies aren't read as trusted repo guidance. The list
+# starts, so a fork's copies aren't read as trusted repo instructions. The list
 # and the reconcile are in lib/pin-instruction-paths.sh; the Claude harness
 # runs the same ones from restore-sensitive-config.sh.
 #

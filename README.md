@@ -27,7 +27,7 @@ To use Tend, a project needs:
     (harness = "codex") — see
     [Codex (experimental alternative)](#codex-experimental-alternative).
 
-Tend offers the default code & guidance for the agent. Specifically that means:
+Tend offers the default code & instructions for the agent. Specifically that means:
 
 - A set of workflow templates
 - A very particular set of Skills
@@ -250,7 +250,7 @@ schedules — are documented in
 Tend reads `CLAUDE.md` like any Claude Code session — build commands, test
 commands, project conventions all go there.
 
-For tend-specific guidance, add a skill overlay at
+For tend-specific instructions, add a skill overlay at
 `.claude/skills/running-tend/SKILL.md`. Common uses: recording which CI
 workflow names `tend-ci-fix` watches, PR title conventions, label policies.
 

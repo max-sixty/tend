@@ -12,7 +12,7 @@ Analyze tend's CI behavior on the target repo over the window Step 1 returns. Fo
 
 ## First steps
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply. Judge the target repo's runs against its own guidance first: the repo wins over tend's defaults, per **First Steps** there.
+Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply. Judge the target repo's runs against its own instructions first: the repo wins over tend's defaults, per **First Steps** there.
 
 ## Core principle: outcomes over internals
 
@@ -65,7 +65,7 @@ latest gist content, and appends without replacing prior evidence.
 
 ## Step 1: Setup
 
-Resolve the **target repo's** bot login and load repo-specific guidance upfront — both are needed throughout. `gh api user` returns the *analysis* bot (e.g., `tend-agent` when review-reviewers runs on tend), which is typically **not** the target repo's bot — filtering reviews/comments by the wrong login produces false "no bot output" negatives. Read `bot_name` from the target repo's `.config/tend.yaml`:
+Resolve the **target repo's** bot login and load its repo-specific instructions upfront — both are needed throughout. `gh api user` returns the *analysis* bot (e.g., `tend-agent` when review-reviewers runs on tend), which is typically **not** the target repo's bot — filtering reviews/comments by the wrong login produces false "no bot output" negatives. Read `bot_name` from the target repo's `.config/tend.yaml`:
 
 ```bash
 BOT_LOGIN=$(gh api "repos/$ARGUMENTS/contents/.config/tend.yaml" --jq '.content' 2>/dev/null \
@@ -78,14 +78,14 @@ fi
 echo "BOT_LOGIN=$BOT_LOGIN (target: $ARGUMENTS)"
 ```
 
-Read the target repo's repo-specific guidance to understand what the bot was told to do:
+Read the target repo's own instructions to understand what the bot was told to do:
 
 ```bash
 gh api "repos/$ARGUMENTS/contents/.claude/skills/running-tend/SKILL.md" \
   --jq '.content' | base64 -d
 ```
 
-If the file doesn't exist, try the legacy overlay paths and the repo's root project instructions (`.claude/skills/running-tend.md`, `.claude/CLAUDE.md`, `CLAUDE.md`, `AGENTS.md`). Understanding the repo's guidance is essential context for evaluating outcomes — without it, you'll misjudge authorized behavior as a violation.
+If the file doesn't exist, try the legacy overlay paths and the repo's root project instructions (`.claude/skills/running-tend.md`, `.claude/CLAUDE.md`, `CLAUDE.md`, `AGENTS.md`). Understanding the repo's instructions is essential context for evaluating outcomes — without it, you'll misjudge authorized behavior as a violation.
 
 Then list recently completed tend CI runs on the target repo:
 
@@ -286,7 +286,7 @@ Brief the investigation with a prompt like:
 >
 > Report: what the bot decided, what evidence it used, and what went wrong.
 
-Evaluate the diagnosis against the repo-specific guidance from Step 1. Determine whether the failure is structural (same conditions always produce this failure) or stochastic (probabilistic model behavior that might not recur).
+Evaluate the diagnosis against the repo-specific instructions from Step 1. Determine whether the failure is structural (same conditions always produce this failure) or stochastic (probabilistic model behavior that might not recur).
 
 ## Step 4: Deduplicate
 

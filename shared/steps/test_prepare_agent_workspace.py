@@ -119,11 +119,11 @@ def test_sensitive_config_restore_stays_in_the_isolated_git_ingress(
     command("init", "--initial-branch=main", str(repo), cwd=tmp_path)
     command("config", "user.email", "test@example.com", cwd=repo)
     command("config", "user.name", "Test", cwd=repo)
-    (repo / "CLAUDE.md").write_text("reviewed guidance\n")
+    (repo / "CLAUDE.md").write_text("reviewed instructions\n")
     command("add", "CLAUDE.md", cwd=repo)
     command("commit", "-m", "base", cwd=repo)
     base = command("rev-parse", "HEAD", cwd=repo)
-    (repo / "CLAUDE.md").write_text("event guidance\n")
+    (repo / "CLAUDE.md").write_text("event instructions\n")
     (repo / ".gitattributes").write_text("CLAUDE.md filter=runner-hook\n")
     command("add", "CLAUDE.md", ".gitattributes", cwd=repo)
     command("commit", "-m", "event", cwd=repo)
@@ -153,7 +153,7 @@ def test_sensitive_config_restore_stays_in_the_isolated_git_ingress(
 
     prepare.restore_sensitive_config(repo, base)
 
-    assert (repo / "CLAUDE.md").read_text() == "reviewed guidance\n"
+    assert (repo / "CLAUDE.md").read_text() == "reviewed instructions\n"
     assert not Path(f"{hook}.ran").exists()
 
 
@@ -237,12 +237,12 @@ def test_mention_on_a_closed_pr_keeps_the_default_branch_instructions(
     The fallback checks out the default branch, which is reviewed code. Pinning
     it to the base the PR opened against reverts every `CLAUDE.md`, `AGENTS.md`
     and `.claude/**` the branch has gained since — so the session runs on stale
-    repo guidance, and the revert is staged by any later `git add -A`.
+    repo instructions, and the revert is staged by any later `git add -A`.
     """
     origin, runner, base, _head = repository(tmp_path)
-    (runner / "CLAUDE.md").write_text("current guidance\n")
+    (runner / "CLAUDE.md").write_text("current instructions\n")
     command("add", "CLAUDE.md", cwd=runner)
-    command("commit", "-m", "guidance", cwd=runner)
+    command("commit", "-m", "instructions", cwd=runner)
     tip = command("rev-parse", "HEAD", cwd=runner)
     command("push", "origin", "main", cwd=runner)
 
@@ -271,7 +271,7 @@ def test_mention_on_a_closed_pr_keeps_the_default_branch_instructions(
     assert selected == f"base branch main at {tip}"
     assert config_base == ""
     prepare.restore_sensitive_config(destination, config_base)
-    assert (destination / "CLAUDE.md").read_text() == "current guidance\n"
+    assert (destination / "CLAUDE.md").read_text() == "current instructions\n"
     assert command("status", "--porcelain", cwd=destination) == ""
 
 

@@ -483,18 +483,23 @@ def test_action_path_references_resolve(action: str) -> None:
 # Every `references/<file>` a skill cites. A skill keeps the rules every session
 # needs and names the file behind each rarer action, so the citation is the only
 # path to that rule: one pointing nowhere means the session reads no file and
-# goes ahead without it, with nothing failing. The owner comes before the path
-# (``/tend-ci-runner:review`'s `references/approving.md``) or after
-# (``references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci``); with
-# neither, the citing skill's own directory.
+# goes ahead without it, with nothing failing. The path is written from the
+# skill's own directory, with the owning skill in front of it when the file
+# belongs to another skill (``/tend-ci-runner:review`'s
+# `references/approving.md``).
 SKILL_REFERENCE = re.compile(
     r"(?:`/[a-z-]+:(?P<skill>[a-z-]+)`'s\s+)?`?"
     r"references/(?P<file>[\w.-]+\.\w+)`?"
-    r"(?:[^`\n]{0,40}?in\s+`/[a-z-]+:(?P<skill_after>[a-z-]+)`)?"
 )
-# A sibling named from inside a `references/` directory, where the path is bare.
-SIBLING_REFERENCE = re.compile(r"`(?P<file>[\w-]+\.md)`")
-# Files a repo carries at its own root; never a `references/` sibling.
+# A bare filename inside a `references/` directory. Its own neighbour is still
+# cited `references/<file>`, so that one citation form reads the same wherever
+# it appears and moves with the text that carries it.
+BARE_MD = re.compile(r"`(?P<file>[\w-]+\.md)`")
+# Names that are bare wherever they appear: the files a repo carries at its own
+# root, and `SKILL.md`, which reference files name literally (a path in a shell
+# recipe, the file a new skill starts as). Citing a *rule* in the skill's own
+# `SKILL.md` still goes by section and skill, which no regex can tell from the
+# literal mentions — CLAUDE.md's Authoring skills carries that half.
 ROOT_FILES = {
     "AGENTS.md",
     "CLAUDE.local.md",
@@ -520,7 +525,7 @@ def test_skill_reference_citations_resolve() -> None:
 
             for match in SKILL_REFERENCE.finditer(text):
                 cited += 1
-                named = match.group("skill") or match.group("skill_after")
+                named = match.group("skill")
                 if named and named not in by_name:
                     broken.append(
                         f"{path.relative_to(REPO_ROOT)}: no skill named `{named}`"
@@ -533,11 +538,13 @@ def test_skill_reference_citations_resolve() -> None:
                     )
 
             if path.parent.name == "references":
-                for match in SIBLING_REFERENCE.finditer(text):
+                for match in BARE_MD.finditer(text):
                     name = match.group("file")
-                    if name not in ROOT_FILES and not (path.parent / name).exists():
+                    if name not in ROOT_FILES:
                         broken.append(
-                            f"{path.relative_to(REPO_ROOT)}: `{name}` has no sibling"
+                            f"{path.relative_to(REPO_ROOT)}: `{name}` — cite it "
+                            f"as `references/{name}`, or add it to ROOT_FILES "
+                            f"if the repo carries it at its root"
                         )
 
     assert cited, "no references/ citations found — did the skill layout move?"
@@ -649,10 +656,10 @@ def test_codex_refresher_keeps_the_secret_writer_pat_out_of_the_model_step() -> 
     assert publish["env"]["CODEX_OUTCOME"] == "${{ steps.codex.outcome }}"
 
 
-def test_bundled_runner_guidance_has_no_unscoped_tmp_paths() -> None:
+def test_bundled_runner_instructions_have_no_unscoped_tmp_paths() -> None:
     """`/tmp` is not writable in the sandbox; `$TMPDIR` is.
 
-    A bare `/tmp` anywhere the runner reads — guidance, script, helper — sends
+    A bare `/tmp` anywhere the runner reads — instructions, script, helper — sends
     the session to a path that fails on write, so the ban is repo-wide rather
     than a rule any one file states. A line that says `/tmp` is read-only is
     that rule, not an instance of the failure, so it is exempt.
@@ -724,10 +731,7 @@ def test_references_table_indexes_every_bundled_reference() -> None:
     """
     skills = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
     indexed = {
-        (
-            match.group("skill") or match.group("skill_after") or "running-in-ci",
-            match.group("file"),
-        )
+        (match.group("skill") or "running-in-ci", match.group("file"))
         for line in (skills / "running-in-ci" / "SKILL.md").read_text().splitlines()
         if line.startswith("|")
         for match in SKILL_REFERENCE.finditer(line)

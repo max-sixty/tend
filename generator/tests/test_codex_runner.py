@@ -171,7 +171,7 @@ def test_stage_agents_writes_as_the_sandbox_user(
     ]
     assert calls[1][0][-2:] == ["/usr/bin/tee", str(agents)]
     assert calls[1][1]["input"] == (
-        "# Tend CI guidance (Codex harness)\n\n"
+        "# Tend CI instructions (Codex harness)\n\n"
         "Act as tend-bot; keep $GH_TOKEN.\n\n"
         "Look up tend-bot.\n"
     )

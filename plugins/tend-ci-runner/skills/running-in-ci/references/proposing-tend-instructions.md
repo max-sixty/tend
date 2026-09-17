@@ -1,9 +1,11 @@
-# Opening a skill PR from CI
+# Proposing tend instructions from CI
 
-Turning a maintainer's correction into durable guidance: whether it clears the
-bar, whether it lands upstream in tend or in the consumer repo's
-`.claude/skills/running-tend/SKILL.md`, what the text carries, and the mechanics
-of proposing it.
+Turning a maintainer's correction into durable instructions for future runs. It
+lands in one of two places: this repo's own `running-tend` overlay, which only
+sessions here read, or tend's bundled skills upstream at `max-sixty/tend`,
+which every repo tend maintains reads. This file covers whether the correction
+clears the bar, which of the two it lands in, what the text carries, and the
+mechanics of proposing it.
 
 ## Whether to propose
 
@@ -61,12 +63,12 @@ conventions, its test topology, its trackers and labels, its standing
 exceptions — and for its maintainer's judgments above. A rule of mechanics goes
 upstream even when writing it locally would be quicker.
 
-From a consumer repo, upstream means an issue on tend, filed per **Filing
-issues** in `other-repos.md`. Running on tend itself, it means a PR here.
+Upstream means an issue on `max-sixty/tend`, filed per **Filing issues** in
+`references/other-repos.md`.
 
 ## What the text carries
 
-Guidance text states the rule a future session acts on: the shape to follow and
+Instructions state the rule a future session acts on: the shape to follow and
 the shape to avoid, in a few lines. That holds in a skill, an overlay, or a
 project instruction file such as `CLAUDE.md`, and for text suggested in a
 review as much as text you commit. Leave out how the rule came about — the PRs,
@@ -76,19 +78,15 @@ trivia. A decision settled for one site belongs in a comment at that site,
 where the next session to edit it will read it.
 
 When a skill's code block needs edge-case handling or grows past a couple of
-dozen lines, put the logic in a tested script and leave the skill a one-line
-invocation with the intent: for bundled skills
-`plugins/tend-ci-runner/scripts/` (exercised by the generator test suite), for
-a repo overlay a `scripts/` directory beside the skill. A prose recipe gets no
-shellcheck and no tests; every session re-derives its correctness.
+dozen lines, put the logic in a tested script in a `scripts/` directory beside
+the skill, and leave the skill a one-line invocation with the intent. A prose
+recipe gets no shellcheck and no tests; every session re-derives its
+correctness.
 
 ## Mechanics
 
-For the overlay path, and for an upstream PR on tend itself — with the skill
-file you are editing as step 2's dedup target. Step 3's read-only-mount
-workaround turns on where that file sits, not on which repo you are in: a file
-under `.claude/skills/` needs it, one under `plugins/` does not. Filing upstream
-from a consumer repo follows `other-repos.md` instead.
+These steps are for the overlay path. Filing upstream follows
+`references/other-repos.md` instead.
 
 1. **Complete the current task first.** The skill update is always a separate
    PR.
@@ -110,7 +108,7 @@ from a consumer repo follows `other-repos.md` instead.
    ```markdown
    ---
    name: running-tend
-   description: Project-specific guidance for tend workflows running on this repo.
+   description: Project-specific instructions for tend workflows running on this repo.
    ---
    ```
 
@@ -164,7 +162,7 @@ from a consumer repo follows `other-repos.md` instead.
 4. **Open as a separate PR.** Follow the repo's PR title conventions
    (conventional commits, Jira prefix, or whatever the repo uses — check
    recent merged PRs or `CONTRIBUTING.md`). The body states the generalized
-   behavior gap and the outcome the new guidance should produce, then links
+   behavior gap and the outcome the new instructions should produce, then links
    the triggering thread as evidence. Do not quote or reconstruct the exchange.
 
 5. **Open and exit — don't merge, don't wait.** The PR itself is the review

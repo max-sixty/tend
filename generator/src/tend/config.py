@@ -614,7 +614,7 @@ class Config:
                     raise click.ClickException(
                         "workflows.mention.prompt is not supported: mention "
                         "composes its prompt from the triggering event. Put "
-                        "standing guidance in the repo's `running-tend` skill "
+                        "standing instructions in the repo's `running-tend` skill "
                         "overlay instead."
                     )
                 # A whitespace-only prompt is truthy, so it beats the default

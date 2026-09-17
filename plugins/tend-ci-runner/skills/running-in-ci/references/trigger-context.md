@@ -54,7 +54,7 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 
 ## Whether to respond
 
-**Your own prior comment.** The system prompt's self-loop guard exits silently when the trigger is the bot's own comment or review. An issue the bot opened is not one — see **Step 2** in `/tend-ci-runner:triage`. **Recheck before posting** in `posting.md` prevents a duplicate if a sibling run fires on the same thread.
+**Your own prior comment.** The system prompt's self-loop guard exits silently when the trigger is the bot's own comment or review. An issue the bot opened is not one — see **Step 2** in `/tend-ci-runner:triage`. **Recheck before posting** in `references/posting.md` prevents a duplicate if a sibling run fires on the same thread.
 
 **Other participants.** Before responding, check how many distinct other participants are in the conversation.
 

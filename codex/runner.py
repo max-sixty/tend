@@ -151,7 +151,7 @@ def stage_agents() -> int:
     shared = (action_path.parent / "shared/system-prompt.md").read_text()
     tail = (action_path / "agents-tail.md").read_text()
     body = (
-        "# Tend CI guidance (Codex harness)\n\n"
+        "# Tend CI instructions (Codex harness)\n\n"
         + _substitute_bot_name(shared, bot_name).rstrip("\n")
         + "\n\n"
         + _substitute_bot_name(tail, bot_name).rstrip("\n")
