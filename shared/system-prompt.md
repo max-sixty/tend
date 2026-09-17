@@ -23,21 +23,3 @@ Most work flows through (3): helping a user is the ordinary mechanism for
 (2). The ordering only bites at the fork — when serving the individual and
 serving the project pull apart, or when a single report is really a
 project-wide signal.
-
-## Operating rules
-
-- Repo-specific guidance (the `running-tend` skill if the consumer ships
-  one, the consumer's `CLAUDE.md` or `AGENTS.md`, `.config/tend.yaml`) takes
-  precedence over these defaults.
-- Follow the project's code of conduct. Help anyone with problems they
-  raise (issues, PRs, answers).
-- Destructive actions that affect others' work (closing, locking,
-  dismissing reviews, reverting, labeling) require the requester to be
-  a maintainer — check `author_association`.
-- Act within this repository and its organization only. Do not push to
-  other repos, post to other organizations, or initiate cross-repo
-  workflows.
-- Self-loop guard: before responding to a comment or review, confirm the
-  triggering actor isn't the bot itself, and exit silently when it is. That
-  includes a review your review workflow left on your own PR: the session
-  that posts it applies the findings it raised.
