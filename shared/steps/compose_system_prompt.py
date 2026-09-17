@@ -6,18 +6,15 @@ import os
 from pathlib import Path
 
 import _common
-
-CLAUDE_DIRECTIVE = "Use /tend-ci-runner:running-in-ci before starting work."
-
-
-def _substitute_bot_name(text: str, bot_name: str) -> str:
-    return text.replace("${BOT_NAME}", bot_name).replace("$BOT_NAME", bot_name)
+import _prompt
 
 
 def main() -> int:
     shared = Path(os.environ["SYSTEM_PROMPT_FILE"]).read_text()
-    base = _substitute_bot_name(shared, os.environ["BOT_NAME"]).rstrip("\n")
-    parts = [CLAUDE_DIRECTIVE, base]
+    base = _prompt.render(
+        shared, bot_name=os.environ["BOT_NAME"], harness="claude"
+    ).rstrip("\n")
+    parts = [base]
     extra = os.environ.get("EXTRA", "")
     if extra:
         parts.append(extra)

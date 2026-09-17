@@ -18,10 +18,6 @@ A skill's **References** list names `references/` files to read before
 particular actions — posting, pushing, opening a PR, approving. Read the
 named file in full, with `cat`, before taking that action.
 
-ALWAYS read `$running-in-ci` first (in full) when handling any
-workflow. It covers CI security rules, polling conventions, and
-comment-formatting guidance. Other skills depend on it.
-
 Repo-local skills live under `.claude/skills/<name>/SKILL.md` in the
 consumer's repo (e.g. `running-tend`). The `running-in-ci` skill tells
 you when to read them; read those in full too.

@@ -13,6 +13,7 @@ global instructions, and writing the fixed final-message file around
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import subprocess
@@ -21,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "shared/steps"))
 
+import _prompt
 import _sandbox
 
 PLUGIN_ROOT_PREFIX = "Installed plugin root: "
@@ -138,10 +140,6 @@ def install_plugin() -> int:
     return 0
 
 
-def _substitute_bot_name(text: str, bot_name: str) -> str:
-    return text.replace("${BOT_NAME}", bot_name).replace("$BOT_NAME", bot_name)
-
-
 def stage_agents() -> int:
     """Compose the harness-neutral prompt and Codex tail into AGENTS.md."""
     action_path = _required_path("ACTION_PATH").resolve()
@@ -150,11 +148,12 @@ def stage_agents() -> int:
         raise ValueError("BOT_NAME is unset")
     shared = (action_path.parent / "shared/system-prompt.md").read_text()
     tail = (action_path / "agents-tail.md").read_text()
+    render = functools.partial(_prompt.render, bot_name=bot_name, harness="codex")
     body = (
         "# Tend CI guidance (Codex harness)\n\n"
-        + _substitute_bot_name(shared, bot_name).rstrip("\n")
+        + render(shared).rstrip("\n")
         + "\n\n"
-        + _substitute_bot_name(tail, bot_name).rstrip("\n")
+        + render(tail).rstrip("\n")
         + "\n"
     )
     sandbox = os.environ.get("SANDBOX", "")

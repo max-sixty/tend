@@ -56,10 +56,10 @@ inputs:
     default: ""
     description: >-
       Extra text appended to the computed system prompt. The base prompt
-      is composed at runtime from `shared/system-prompt.md` (harness-neutral
-      conduct, scope, and precedence rules) plus a Claude-specific
-      skill-loading directive. Empty (default) uses just the base; a
-      non-empty value is appended on top.
+      is `shared/system-prompt.md` (harness-neutral conduct, scope, and
+      precedence rules), rendered at runtime in Claude's skill-invocation
+      syntax. Empty (default) uses just the base; a non-empty value is
+      appended on top.
   show_full_output:
     default: "false"
     description: Include the rendered Claude transcript in the workflow step summary.
@@ -221,10 +221,10 @@ runs:
         TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
         TEND_BASE_BRANCH: ${{ inputs.base_branch }}
 
-    # Compose the system prompt (shared/system-prompt.md + the Claude directive +
-    # the consumer's system_prompt_append). SYSTEM_PROMPT_FILE is passed in so
-    # the script is path-agnostic; this action lives under claude/, so the
-    # shared file is one level up.
+    # Compose the system prompt (shared/system-prompt.md, rendered in Claude's
+    # skill syntax, plus the consumer's system_prompt_append).
+    # SYSTEM_PROMPT_FILE is passed in so the script is path-agnostic; this
+    # action lives under claude/, so the shared file is one level up.
     - name: Compose system prompt
       id: prompt
       shell: bash
