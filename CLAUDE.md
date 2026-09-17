@@ -10,7 +10,7 @@ completely — old formats should fail with a clear error, not silently parse.
 
 Simplicity outranks efficiency. Complexity earns its place by preventing
 wrong outward actions — what the bot posts, approves, merges, or closes —
-never by saving compute. Prefer deleting a mechanism over refining it.
+rather than by saving compute. Prefer deleting a mechanism over refining it.
 "What waste is worth fixing" below says which waste earns a change.
 
 ## Commands
@@ -486,12 +486,19 @@ simple knob — a cadence value, a deleted step, a one-line condition — and
 otherwise leave it. Model tokens are the larger cost, dollars per session,
 so keep sessions, and the context each one carries, to what the work needs.
 
-Judge a proposed fix by the whole change, and by what it leaves behind —
+Judge a token saving by the share of total spend it removes. A change that
+materially cuts the total — a frequent boot that never had work to do, bulk
+reading carried into every deciding context — is worth the mechanism it
+leaves behind, so estimate that share before proposing one. A small or rare
+saving doesn't justify complication, however well the change reads line by
+line.
+
+Judge the fix itself by the whole change, and by what it leaves behind —
 logic a future session must re-derive, a rule every later run loads, failure
 modes of its own — rather than by its line count. The same setting repeated
 across workflows, jobs, platforms, or call sites is a configuration scheme
 rather than one knob, and a mechanism compressed into one dense line is
-still a mechanism: it fails this bar however often the waste recurs.
+still a mechanism.
 
 This is tend's answer, and it stays here. The bundled skills carry no view on
 what compute is worth — a bot session in this repo reads this file, and a
