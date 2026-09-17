@@ -221,7 +221,7 @@ runs:
         TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
         TEND_BASE_BRANCH: ${{ inputs.base_branch }}
 
-    # Compose the system prompt (shared/system-prompt.md + Claude directives +
+    # Compose the system prompt (shared/system-prompt.md + the Claude directive +
     # the consumer's system_prompt_append). SYSTEM_PROMPT_FILE is passed in so
     # the script is path-agnostic; this action lives under claude/, so the
     # shared file is one level up.

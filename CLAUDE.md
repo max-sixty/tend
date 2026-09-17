@@ -342,7 +342,7 @@ Two kinds of guidance live in this repo, split by which repo the text governs.
 **Shipped guidance** is any text that reaches a repo other than this one. It
 tells the bot what to do in a repo it maintains, and has to hold in repos
 nobody here has seen. More of it than `plugins/**`: `shared/system-prompt.md`
-and the two directives `compose_system_prompt.py` prepends, `codex/agents-tail.md`,
+and the directive `compose_system_prompt.py` prepends, `codex/agents-tail.md`,
 the header comment `workflows.py` stamps into every generated workflow, and
 `docs/tend.example.yaml`, which a pre-commit hook mirrors into `install-tend`.
 Before writing guidance outside `plugins/`, check whether it ends up in a
