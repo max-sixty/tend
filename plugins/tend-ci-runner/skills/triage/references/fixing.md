@@ -9,11 +9,11 @@ The gates every fix attempt clears, whichever workflow you are running.
 3. **Write a failing test** — Add a test to the appropriate *existing* test file that demonstrates the bug. Don't create new test files.
 4. **Run the test** to confirm it fails. Use the test commands from the project's instruction files.
 
-You MUST have a failing test before writing any fix. A fix without reproduction evidence is not a conservative fix: report what you established instead. If the test passes, the bug may already be fixed — say so.
+Generally, have a failing test before writing a fix. A fix without reproduction evidence is not a conservative fix: report what you established instead. If the test passes, the bug may already be fixed — say so.
 
 **Only attempt a fix if all of these hold:**
 
-- Bug is clearly reproducible (the test written above fails)
+- Bug is clearly reproducible (usually, the test written above fails)
 - Root cause is understood
 - Fix is localized (1-3 files changed)
 - Confident the fix is correct

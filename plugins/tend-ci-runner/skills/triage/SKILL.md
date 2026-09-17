@@ -73,7 +73,7 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
 
 *Bug reports only.*
 
-`references/fixing.md` carries the gates: the failing test you must already have, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
+`references/fixing.md` carries the gates: the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
 
 ### If fixing
 
