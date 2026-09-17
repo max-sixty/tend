@@ -12,7 +12,7 @@ Analyze tend's CI behavior on the target repo over the window Step 1 returns. Fo
 
 ## First steps
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply.
+Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply. Judge the target repo's runs against its own guidance first: the repo wins over tend's defaults, per **First Steps** there.
 
 ## Cost discipline
 
@@ -23,8 +23,6 @@ Session log parsing and outcome checking are token-heavy. Keep that bulk reading
 The bot's job is to produce useful outputs: reviews, triage comments, fix commits, issue responses. The cheapest way to evaluate quality is to check whether those outputs were **accepted** (merged, kept, acted on) or **rejected** (reverted, closed, corrected, disagreed with).
 
 Session logs are expensive to download and parse. Only escalate to session-log inspection when outcome signals indicate a real problem worth diagnosing.
-
-Judge the target repo's runs against its own guidance first — the repo wins over tend's defaults, per **First Steps** in `/tend-ci-runner:running-in-ci`.
 
 Expected behavior that looks suspicious — designed no-ops, designed silence, re-review after a fix commit — is listed under **Non-issues** in `review-gates.md`. Read it before a finding becomes a PR.
 

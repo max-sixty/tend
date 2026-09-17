@@ -71,11 +71,11 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
 
 *Bug reports only.*
 
-`references/fixing.md` carries the gates: the failing test you must already have, the four conditions a fix attempt needs, skill-text fixes, the three shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
+`references/fixing.md` carries the gates: the failing test you must already have, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
 
 ### If fixing
 
-1. Fix the root cause (not just the symptom), and clear the local bar in `references/fixing.md`.
+1. Clear the local bar in `references/fixing.md`.
 2. Create branch, commit, push, and create PR:
    ```bash
    git checkout -b fix/issue-$ARGUMENTS
@@ -113,7 +113,7 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
    ```bash
    gh pr create --title "fix: <description>" --body-file "$TMPDIR/pr-body.md"
    ```
-4. Wait for CI per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci`.
+3. Wait for CI per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci`.
 
 ### If reproduction test works but fix is not confident
 

@@ -9,7 +9,7 @@ metadata:
 
 ## First Steps — Load Repo-Specific Guidance
 
-Tend's bundled skills provide defaults; the consuming repo's `running-tend` skill overlays them. **Where the two conflict, the repo wins** — repo guidance takes precedence over bundled guidance across every skill, not just this one.
+Tend's bundled skills provide defaults; the consuming repo's own guidance — its `running-tend` skill, its `CLAUDE.md` or `AGENTS.md`, its `.config/tend.yaml` — overlays them. **Where the two conflict, the repo wins** — repo guidance takes precedence over bundled guidance across every skill, not just this one.
 
 If a `running-tend` skill is listed in your available skills, read it before doing anything else. It typically carries PR title conventions, label policies, custom workflows to watch, and other repo-specific context. It can also define extra tasks for the job you're running — additional nightly or weekly maintenance, repo-specific health checks — which you perform as part of that job, not just keep in mind.
 
@@ -24,14 +24,14 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 | Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | composing the body (body files, line wrapping, links, fenced bodies, no footers), reply endpoints, and the draft review, link check, and re-fetch before posting |
 | Before `gh pr create` or `gh issue create`, or editing a PR's title or description | `references/pr-creation.md` and `references/posting.md` | the open-PR budget, titles, the dedup and prior-rejection searches, keeping a description current |
 | Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | the pre-push review, batching pushes, re-checking PR state and head, branch-state collisions |
-| After any push you are accountable for | `references/ci-monitoring.md` | the pinned poll, a review that lands mid-poll, rerunning failed jobs |
+| After any push you are accountable for, or before calling a failure pre-existing | `references/ci-monitoring.md` | the pinned poll, the main-branch check behind a "pre-existing" claim, a review that lands mid-poll, rerunning failed jobs |
 | When a request directs you at someone else's work: close, reopen, lock, label, revert, dismiss a review, or push to another author's PR | `references/directives.md` | the access tiers that authorize it |
 | When you conclude a PR the bot approved should not merge | `references/dismissing-approval.md` | dismissing the standing approval |
 | Before filing or commenting in a repo other than this one | `references/other-repos.md` and `references/posting.md` | the overlay exception for agent-equipped targets, what an issue body there must contain, contributing on invitation, a scope rule that blocks the right action |
 | Before a public claim about a tool's behavior, an incident, or code you did not run | `references/grounded-analysis.md` | source evidence for claims, verifying external-tool behavior, recurring hallucination shapes, transient incidents vs. durable bugs, who to ask for a check CI can't run |
 | To diagnose another run, or to recall what a prior run on this thread read and weighed | `references/session-logs.md` | reading other runs' session logs, recalling prior context on this thread |
-| Before writing a code fix for a bug, whichever workflow you are running | `/tend-ci-runner:triage`'s `references/fixing.md` | the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, the local bar before pushing |
 | When a maintainer corrects the bot's behavior, or before writing or suggesting text for a skill or a project instruction file (`CLAUDE.md`, `AGENTS.md`) | `references/skill-pr-workflow.md` | whether to propose, bundled skill vs. `running-tend` overlay, what guidance text leaves out, scripts over prose recipes, the branch and PR mechanics |
+| Before writing a code fix for a bug, whichever workflow you are running | `/tend-ci-runner:triage`'s `references/fixing.md` | the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, the local bar before pushing |
 | Reviewing a PR whose pre-flight reports `is_draft` | `/tend-ci-runner:review`'s `references/draft-mode.md` | the lighter pass, COMMENT only, the hidden draft marker |
 | Submitting a review when the posting preflight prints `delta:` | `/tend-ci-runner:review`'s `references/re-targeting.md` | reviewing a push that landed mid-review, then posting against the new head |
 | Submitting a review that carries findings | `/tend-ci-runner:review`'s `references/inline-suggestions.md` | the payload, multi-line suggestion rules, 422 recovery |
