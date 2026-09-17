@@ -15,7 +15,6 @@ If a `running-tend` skill is listed in your available skills, read it before doi
 
 Invoke repo-local skills by their unprefixed name — `running-tend`, not `tend-ci-runner:running-tend` (that prefix is reserved for this plugin's own skills).
 
-
 ## References
 
 This file carries the rules every session needs; the rest lives in the plugin's `references/` directories, unloaded until you read it. This table is the one index of those files. **Before an action in the first column, read every file its row names.** That is a requirement, not a suggestion: those files hold what keeps the action from going out wrong, and a session that skips them usually can't tell what it got wrong. Read them in the run that takes the action rather than working from memory of a past one.
