@@ -36,18 +36,14 @@ Tend has Claude-powered workflows beyond the generated `tend-*` set:
 
 | Workflow | File | Schedule | Purpose |
 |----------|------|----------|---------|
-| `review-reviewers` | `review-reviewers.yaml` | manual only (paused) | Outside-in analysis of consumer repo sessions |
+| `review-reviewers` | `review-reviewers.yaml` | daily 09:41 UTC | Outside-in analysis of consumer repo sessions |
 
-`review-reviewers` runs only on `workflow_dispatch` — dispatch it as a
-spot-check after a release, harness switch, or model bump, not on a cadence. The
-per-repo `tend-review-runs` carries the routine loop; the workflow file's header
-explains the pause.
-
-A dispatched run's window opens at the **previous successful `review-reviewers`
-run**, floored 6h back (`list_recent_runs.py`). With no cron, dispatches usually
-sit further apart than that, so the floor is the normal case: the run covers the
-last 6h and warns on stderr that the rest is a coverage gap. Dispatch it within
-~6h of whatever you want it to see.
+`review-reviewers` sweeps only the consumers nobody here maintains; the
+workflow file's header says why, and the matrix is the list. A run's window
+opens at the **previous successful `review-reviewers` run**, so a daily tick
+covers the day. `list_recent_runs.py` caps it at 49h, wide enough to absorb a
+missed tick; past that it warns on stderr and the run records a coverage gap
+rather than an all-clear.
 
 These use the tend composite action and produce `claude-session-logs*` artifacts,
 but their names don't match the `tend-*` prefix that scripts filter on by
@@ -180,6 +176,10 @@ The command unions code-search results with the current index, verifies each
 repository, and leaves the existing file untouched if a GitHub read fails.
 Confirm every repository listed under `removed` no longer has generated Tend
 workflows before publishing the change.
+
+When the refresh adds a repository nobody here maintains, add it to
+`.github/workflows/review-reviewers.yaml`'s matrix in the same PR — that
+workflow is the only reading those repos' tend runs get.
 
 Open a PR titled `chore: refresh consumers.json` if the file changed. Skip
 the PR (no diff to land) when `git status --porcelain data/consumers.json`

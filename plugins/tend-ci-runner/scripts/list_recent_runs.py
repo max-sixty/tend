@@ -17,12 +17,14 @@ from typing import Any
 
 import github_cli
 
-WINDOW_CAP = timedelta(hours=6)
-REVIEW_RUNS_WINDOW_CAP = timedelta(hours=49)
-REVIEW_RUNS_DEFAULT_WINDOW = timedelta(hours=25)
+# Both profiles are daily crons resuming from their own previous run, so one
+# set of window constants serves them. The cap is a little over two days:
+# enough to absorb a missed tick, short of letting a sustained outage grow the
+# window without bound.
+WINDOW_CAP = timedelta(hours=49)
+DEFAULT_WINDOW = timedelta(hours=25)
 AD_HOC_WINDOW = timedelta(hours=1)
-CREATION_CUSHION = timedelta(hours=2)
-REVIEW_RUNS_CREATION_CUSHION = timedelta(hours=24)
+CREATION_CUSHION = timedelta(hours=24)
 RUN_LIMIT = 200
 
 
@@ -59,8 +61,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         if row["name"].startswith(prefix)
     )
 
-    window_cap = REVIEW_RUNS_WINDOW_CAP if profile == "review-runs" else WINDOW_CAP
-    floor_cap = now - window_cap
+    floor_cap = now - WINDOW_CAP
     current_workflow = os.environ.get("GITHUB_WORKFLOW")
     if current_workflow:
         anchors = github_cli.json_call(
@@ -82,11 +83,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             (row for row in anchors if int(row["databaseId"]) != current_run), None
         )
         if previous is None:
-            completed_after = (
-                now - REVIEW_RUNS_DEFAULT_WINDOW
-                if profile == "review-runs"
-                else floor_cap
-            )
+            completed_after = now - DEFAULT_WINDOW
             print(
                 f"WARNING: no successful '{current_workflow}' run found. Window "
                 f"floored at {_stamp(completed_after)}; anything earlier is NOT in this "
@@ -99,7 +96,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 print(
                     f"WARNING: the last successful '{current_workflow}' run started "
                     f"{previous['createdAt']}, more than "
-                    f"{window_cap.total_seconds() / 3600:g}h back. Window floored at "
+                    f"{WINDOW_CAP.total_seconds() / 3600:g}h back. Window floored at "
                     f"{_stamp(floor_cap)}; runs that completed before it are NOT in "
                     "this list. Record a coverage gap, not an all-clear.",
                     file=sys.stderr,
@@ -108,10 +105,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     else:
         completed_after = now - AD_HOC_WINDOW
 
-    cushion = (
-        REVIEW_RUNS_CREATION_CUSHION if profile == "review-runs" else CREATION_CUSHION
-    )
-    created_since = (completed_after - cushion).strftime("%Y-%m-%dT%H:%M:%S")
+    created_since = (completed_after - CREATION_CUSHION).strftime("%Y-%m-%dT%H:%M:%S")
     if profile == "review-runs":
         Path(
             os.environ.get(

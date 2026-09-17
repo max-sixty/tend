@@ -749,18 +749,23 @@ def test_runner_helper_directory_is_python_only() -> None:
     assert not sorted(scripts.glob("*.sh"))
 
 
-def test_review_reviewers_matrix_covers_consumers() -> None:
+def test_review_reviewers_sweeps_only_known_consumers() -> None:
+    """The matrix is a hand-picked subset — the consumers nobody here
+    maintains — so nothing enforces that it covers `consumers.json`. What it
+    must not carry is a repo that is no longer a consumer at all: that leg
+    fails remotely, on a missing `.config/tend.yaml`, rather than here.
+    """
     workflow = YAML(typ="safe", pure=True).load(
         (REPO_ROOT / ".github" / "workflows" / "review-reviewers.yaml").read_text()
     )
     matrix = workflow["jobs"]["review-reviewers"]["strategy"]["matrix"]["repo"]
-    consumers = [
+    consumers = {
         entry["repo"]
         for entry in json.loads((REPO_ROOT / "data" / "consumers.json").read_text())
-    ]
+    }
 
-    missing = sorted(set(consumers) - set(matrix))
-    assert not missing, f"add consumers to review-reviewers.yaml matrix: {missing}"
+    unknown = sorted(set(matrix) - consumers)
+    assert not unknown, f"review-reviewers targets are not consumers: {unknown}"
 
 
 def test_every_workflow_pins_the_same_tend_release() -> None:
