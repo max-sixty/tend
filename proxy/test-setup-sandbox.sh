@@ -30,7 +30,10 @@ plant() {
   TEND_TEST_ACTION_PATH="$TEND_AGENT_CONTAINER/action"
   git clone --no-local --no-hardlinks "$GITHUB_WORKSPACE" "$TEND_AGENT_WORKSPACE"
   chmod 700 "$TEND_AGENT_WORKSPACE"
-  chmod 711 "$TEND_AGENT_CONTAINER"
+  # 755, not 711, for the reason prepare_agent_workspace gives: bwrap opens
+  # each component of a bind destination, and both the checkout and the action
+  # path below sit under this container.
+  chmod 755 "$TEND_AGENT_CONTAINER"
   mkdir -p "$TEND_TEST_ACTION_PATH"
   cp -a "$GITHUB_WORKSPACE/claude" "$GITHUB_WORKSPACE/codex" \
     "$GITHUB_WORKSPACE/proxy" \

@@ -297,8 +297,8 @@ Each transition is a bottleneck with one job:
   container with no hardlinks or object-store alternates and with runner/system
   Git config and attributes disabled. It selects the exact base, PR merge/head,
   or open-PR head ref, pins startup configuration to the exact chosen base
-  commit, removes the temporary credential, makes the otherwise-empty parent
-  traversable but not listable, then changes ownership of that clone only.
+  commit, removes the temporary credential, opens the otherwise-empty parent to
+  the sandbox UID, then changes ownership of that clone only.
   `RUNNER_TEMP` remains unreadable except for the exact read-only event payload
   named by `GITHUB_EVENT_PATH`. SRT, the Codex binaries, and the immutable agent
   environment live in one dedicated runner-owned, sandbox-readable runtime
