@@ -231,29 +231,39 @@ def _check_newest_release_immutable(repo: str) -> CheckResult:
     Each published release carries GitHub's own `immutable` flag, readable with
     write access, recording the setting as it stood when that release was
     published. The most recently published release therefore reflects the most
-    recent state of the setting — which is `max_by(.published_at)`, not the
-    first element: the list endpoint documents no order, and a release's
-    `created_at` is its tag's commit date, which on a repository publishing
-    from several release trains puts a backport published later further down.
+    recent state of the setting — the maximum by `published_at`, not the first
+    element of the listing and not the first page of it. The endpoint documents
+    no order, and a release's `created_at` is its tag's commit date, so a repo
+    publishing from several trains serves a backport published later further
+    down; without `--paginate` the maximum would be taken over whichever
+    hundred releases GitHub returned first.
 
     The flag is retrospective in both directions. Enabling the setting clears a
     failure here at the next release rather than immediately, and turning it
     off goes unseen until the repository publishes again. An admin's run reads
     the setting itself and has neither lag.
     """
-    result = _gh(
-        "api",
-        f"repos/{repo}/releases",
-        "--jq",
-        "[.[] | select(.draft | not)] | max_by(.published_at) // empty",
-    )
+    # `--slurp` collects the pages into one array of pages, and gh refuses it
+    # alongside `--jq`, so the selection happens here rather than in a filter.
+    result = _gh("api", "--paginate", "--slurp", f"repos/{repo}/releases")
     if result is None:
         return CheckResult("immutable-releases", None, "gh CLI not found")
     if result.returncode != 0:
         return CheckResult(
             "immutable-releases", None, f"API error: {result.stderr.strip()}"
         )
-    if not result.stdout.strip():
+    try:
+        published = [
+            release
+            for page in json.loads(result.stdout)
+            for release in page
+            if not release["draft"]
+        ]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return CheckResult(
+            "immutable-releases", None, "GitHub returned an unreadable response"
+        )
+    if not published:
         return CheckResult(
             "immutable-releases",
             None,
@@ -261,10 +271,10 @@ def _check_newest_release_immutable(repo: str) -> CheckResult:
             "immutable-releases setting requires repository admin access.",
         )
     try:
-        release = json.loads(result.stdout)
-        tag = release["tag_name"]
-        immutable = release["immutable"]
-    except (json.JSONDecodeError, KeyError, TypeError):
+        newest = max(published, key=lambda release: release["published_at"])
+        tag = newest["tag_name"]
+        immutable = newest["immutable"]
+    except (KeyError, TypeError):
         return CheckResult(
             "immutable-releases", None, "GitHub returned an unreadable response"
         )

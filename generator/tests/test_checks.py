@@ -1230,10 +1230,18 @@ def test_check_immutable_releases_reads_setting(enabled: bool, expected: bool) -
 _SETTING_404 = _make_completed(returncode=1, stderr="gh: Not Found (HTTP 404)")
 
 
-def _newest_release(immutable: bool) -> subprocess.CompletedProcess[str]:
-    return _make_completed(
-        json.dumps({"tag_name": "v1.2.3", "immutable": immutable, "draft": False})
-    )
+def _release(tag: str, published_at: str, immutable: bool, draft: bool = False) -> dict:
+    return {
+        "tag_name": tag,
+        "published_at": published_at,
+        "immutable": immutable,
+        "draft": draft,
+    }
+
+
+def _release_pages(*pages: list[dict]) -> subprocess.CompletedProcess[str]:
+    """What `gh api --paginate --slurp` returns: one array holding each page."""
+    return _make_completed(json.dumps(list(pages)))
 
 
 @pytest.mark.parametrize(("immutable", "expected"), [(True, True), (False, False)])
@@ -1247,7 +1255,10 @@ def test_check_immutable_releases_falls_back_to_newest_release(
     """
     with patch(
         "tend.checks._gh",
-        side_effect=[_SETTING_404, _newest_release(immutable)],
+        side_effect=[
+            _SETTING_404,
+            _release_pages([_release("v1.2.3", "2026-01-01T00:00:00Z", immutable)]),
+        ],
     ) as gh:
         result = check_immutable_releases("owner/repo")
 
@@ -1255,31 +1266,63 @@ def test_check_immutable_releases_falls_back_to_newest_release(
     assert "v1.2.3" in result.message
     assert gh.call_args.args == (
         "api",
+        "--paginate",
+        "--slurp",
         "repos/owner/repo/releases",
-        "--jq",
-        "[.[] | select(.draft | not)] | max_by(.published_at) // empty",
     )
 
 
-def test_check_immutable_releases_picks_the_latest_published_not_the_first() -> None:
-    """The list endpoint's order is not publication order.
+def test_check_immutable_releases_picks_the_latest_published_across_pages() -> None:
+    """Neither the listing's order nor its first page is publication order.
 
     A release's `created_at` is its tag's commit date, so a repository
-    publishing from several trains (a backport released after a newer
-    version) can serve an older release first. Reading `[0]` there would
-    report the setting as it stood at the earlier publication and pass while
-    a rewritable release exists, so the jq picks `max_by(.published_at)`.
+    publishing from several trains serves a backport published later further
+    down — and past a page boundary when there are enough releases. Reading
+    the first entry, or only the first page, would report the setting as it
+    stood at an earlier publication and pass while a rewritable release
+    exists.
     """
-    with patch("tend.checks._gh", side_effect=[_SETTING_404, _make_completed()]) as gh:
-        check_immutable_releases("owner/repo")
+    with patch(
+        "tend.checks._gh",
+        side_effect=[
+            _SETTING_404,
+            _release_pages(
+                [
+                    _release("v13.2.2", "2026-09-15T12:21:32Z", True),
+                    _release("v13.2.1", "2026-09-01T00:00:00Z", True),
+                ],
+                [_release("v13.0.9", "2026-09-15T12:43:46Z", False)],
+            ),
+        ],
+    ):
+        result = check_immutable_releases("owner/repo")
 
-    assert "max_by(.published_at)" in gh.call_args.args[-1]
+    assert result.passed is False
+    assert "v13.0.9" in result.message
+
+
+def test_check_immutable_releases_ignores_drafts() -> None:
+    """A draft is unpublished, so nothing can consume or rewrite it yet."""
+    with patch(
+        "tend.checks._gh",
+        side_effect=[
+            _SETTING_404,
+            _release_pages(
+                [
+                    _release("draft", "2026-09-16T00:00:00Z", False, draft=True),
+                    _release("v1.0.0", "2026-09-15T00:00:00Z", True),
+                ]
+            ),
+        ],
+    ):
+        result = check_immutable_releases("owner/repo")
+
+    assert result.passed is True
+    assert "v1.0.0" in result.message
 
 
 def test_check_immutable_releases_404_with_no_releases_is_unverified() -> None:
-    with patch(
-        "tend.checks._gh", side_effect=[_SETTING_404, _make_completed(stdout="")]
-    ):
+    with patch("tend.checks._gh", side_effect=[_SETTING_404, _release_pages([])]):
         result = check_immutable_releases("owner/repo")
 
     assert result.passed is None
