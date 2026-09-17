@@ -7,7 +7,7 @@
 
 ## Review the draft before posting
 
-Before posting a body you composed, read the file as its reader will, check it against **Reader-facing prose** in `SKILL.md`, and revise the file. A short reply gets a read-through. A body that carries an analysis (several findings, options weighed, an argument that runs across paragraphs) gets the read from a subagent, where this session permits subagent use, because the session that wrote the draft reads its own context into it. Give the subagent the thread and the draft, and check its revision against what you found before posting it. The link check and the recheck below come after the revision.
+Before posting a body you composed, read the file as its reader will, check it against **Reader-facing prose** in `SKILL.md`, and revise the file. Scale the read to the body. A short reply gets a read-through. A body that carries an analysis (several findings, options weighed, an argument that runs across paragraphs) gets a read without your working context, because the session that wrote the draft reads that context into it. Check any revision against what you found before posting it. The link check and the recheck below come after the revision.
 
 ## Recheck Before Posting
 
