@@ -1,6 +1,6 @@
 """Render the harness-neutral prompt text for one harness.
 
-`shared/system-prompt.md` is the one home for guidance both harnesses read:
+`shared/system-prompt.md` is the one home for instructions both harnesses read:
 the Claude action appends it to the system prompt, and the Codex runner stages
 it into `AGENTS.md`. Only two things in it vary — the bot's name, and how a
 skill is invoked — so the file writes those as `${BOT_NAME}` and
