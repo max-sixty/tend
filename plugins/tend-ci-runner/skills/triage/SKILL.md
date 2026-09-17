@@ -16,7 +16,7 @@ Triage a newly opened GitHub issue.
 
 Load `/tend-ci-runner:running-in-ci` first (CI environment rules, security). It will also prompt you to load any repo-specific skills (e.g., `running-tend`) — do so before proceeding.
 
-Follow the AD FONTES principle throughout: reproduce before fixing, evidence before speculation, test before committing.
+Reproduce before fixing, find evidence before speculating, and test before committing.
 
 ## Step 2: Read and classify the issue
 

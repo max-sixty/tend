@@ -150,7 +150,7 @@ A bug finding earns a PR only where a caller can reach it. For a defect found by
 - Code patterns that violate conventions stated in the project's instruction files
 - Stale instructions that reference renamed files, deleted functions, or outdated patterns
 - Skills that have drifted from actual project behavior (instructions that no longer match how the code works)
-- Guidance text most of its loading sessions never act on: it belongs in the file its actors read. The same for a rule stated in two files, including an overlay copy forked from a bundled default — search a distinctive phrase to find the second.
+- An overlay rule that restates a bundled default — search a distinctive phrase from it in the bundled skills. The copy drifts as the bundled text changes.
 
 ## Step 7: Update tend workflows
 

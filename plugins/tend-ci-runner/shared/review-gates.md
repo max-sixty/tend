@@ -64,7 +64,7 @@ Some patterns look suspicious but are intentional — flagging expected behavior
 
 ## Finding format
 
-Each run appends findings to the skill's evidence store under a `## Run <run-id>` heading. **Always derive the run ID, timestamp, and repo from the CI environment — never hand-type them.** Past sessions have filled the `<run-id>` placeholder with fabricated round numbers (e.g. `24294000000`) when the skill didn't explicitly point at `$GITHUB_RUN_ID`, producing dead link-anchors in the evidence log.
+Each run appends findings to the skill's evidence store under a `## Run <run-id>` heading. **Always derive the run ID, timestamp, and repo from the CI environment — never hand-type them.**
 
 ```bash
 RUN_ID="$GITHUB_RUN_ID"

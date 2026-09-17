@@ -158,7 +158,7 @@ uv run --script \
   > "$TMPDIR/token-report.json"
 ```
 
-Pass the same extra prefixes Step 1 censuses (after `$HOURS`, which the script reads as its first positional arg), so the two steps agree on what the fleet is — the repo's `running-tend` skill is the source for both (e.g. `review-` for a `review-reviewers` workflow that uses the tend action but isn't named `tend-*`).
+Pass the same extra prefixes Step 1 censuses (after `$HOURS`, which the script reads as its first positional arg), so the two steps agree on what the fleet is — the repo's `running-tend` skill is the source for both, naming any workflow that uses the tend action but isn't named `tend-*`.
 
 Include the total cost and the per-workflow breakdown in the summary (Step 7). Escalate outliers to Step 3 — for example a run far above its workflow's usual cost, or a subject the subject table shows several runs against.
 
@@ -177,7 +177,7 @@ For each analyzed run, compare what the bot did against what happened next. The 
 - **Nightly**: did the bot's PRs merge, or get closed as unhelpful?
 - **CI-fix**: did the fix actually resolve the failure?
 
-mention, notifications, weekly, and review-reviewers runs get the same treatment: find the bot's output and check whether it was accepted.
+mention, notifications, and weekly runs get the same treatment: find the bot's output and check whether it was accepted.
 
 Dispositions — merged, closed, relabeled, reverted — are only half the signal. A maintainer replying in-thread that a bot claim was wrong, or requesting changes on a bot PR, leaves labels and state untouched and is equally a correction; where the bot authors most of the PRs, a review body is the *first* place a maintainer writes. The script collects all three — dispositions, thread comments, review bodies — for the window:
 

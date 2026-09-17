@@ -187,26 +187,21 @@ else
 fi
 ```
 
-**A failed probe is `unknown`, never `clear`.** Empty output from a successful
-query means no open incident; a probe that errored means you didn't check. Both
-resolve the same way — record the symptom in the evidence log and skip the
-workaround PR — so an unreachable status endpoint is not a reason to file one.
-
-If the response is non-empty and the components and timing match the symptom,
-record it in the run's evidence log and exit without a PR. Sibling matrix legs
-hitting different surface symptoms of one incident otherwise each open their own
-near-duplicate workaround PR — title and file dedup don't catch them, because
-each leg picks a different command to mitigate.
+When an open incident's components and timing match the symptom, treat the
+symptom as transient. Report it with the incident link wherever your workflow
+reports findings, and skip the workaround PR. **A failed probe is `unknown`,
+never `clear`**: an errored probe means you didn't check, and it is no more a
+reason to file a workaround than a matching incident is.
 
 <example>
-<bad reason="Reproduced an API flake during an active incident, opened code workarounds without checking upstream status">
+<bad reason="Reproduced an API flake during an active incident, opened a code workaround without checking upstream status">
 
-Bad: `gh issue list` returns `[]` intermittently for queries whose matching issues clearly exist. Bot opens a PR adding a retry loop. A sibling matrix leg sees the same shape on `gh run list` and opens its own workaround PR swapping to client-side filtering. Both are workarounds for an active upstream search-degradation incident; both get closed once the incident link surfaces.
+Bad: `gh issue list` returns `[]` intermittently for queries whose matching issues clearly exist. Bot opens a PR adding a retry loop. The flake was an active upstream search-degradation incident, and the PR is closed once the incident link surfaces.
 
 </bad>
 <good reason="Checked status.github.com first, treated the symptom as transient">
 
-Good: Same flake → `curl /api/v2/incidents/unresolved.json` returns an active "GitHub search is degraded" incident touching Issues + Pull Requests → record the symptom in the evidence log, skip the PR, let the incident resolve.
+Good: Same flake → `curl /api/v2/incidents/unresolved.json` returns an active "GitHub search is degraded" incident touching Issues + Pull Requests → report the symptom with the incident link, skip the PR, let the incident resolve.
 
 </good>
 </example>
@@ -218,15 +213,14 @@ physical terminal). Escalate in this order and stop at the first rung that works
 
 1. **Do it yourself.** Exhaust what's reachable from CI — install the tool,
    clone and read the source, stand up the missing surface in a container.
-2. **Make it doable yourself.** Add the capability to *your own* repo so no
-   future run needs a favor — a Windows CI job that exercises the path, rather
-   than asking a person to run it once by hand.
+2. **Offer to make it doable yourself.** Propose adding the capability to *your
+   own* repo — a Windows CI job that exercises the path — so no future run
+   needs a person to run the check by hand.
 3. **Ask a contributor of your own repo**, and only for something that follows
    from what they're already doing (a PR author testing their own change).
 4. **Escalate to your own repo's maintainer** that you're blocked.
 
 Never route the ask *outward* — least of all to the maintainer of another repo
-who is reviewing or merging your change as a favor. Closing an upstream PR with
-"if you can confirm on a real Windows terminal I'd appreciate it" hands them
-work; state the gap honestly ("verified by source inspection, not on hardware")
-and take rung 2 back home instead.
+who is reviewing or merging your change as a favor. State the gap honestly
+there ("verified by source inspection, not on hardware") and make rung 2's offer
+in your own repo.

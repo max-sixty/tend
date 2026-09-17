@@ -20,6 +20,15 @@ qualify, as do other Claude-Code-action-using repos. The default rule (open
 an issue here asking permission first) still applies when the target shows no
 agent signals.
 
+## Skill PRs
+
+Here, `skill-pr-workflow.md`'s upstream is a PR, not an issue. A fix to a
+bundled skill follows its **Mechanics** with the file under `plugins/` as step
+2's dedup target and without step 3's read-only-mount workaround, which only
+`.claude/skills/` needs. A bundled skill's scripts go in
+`plugins/tend-ci-runner/scripts/`, where the generator test suite exercises
+them.
+
 ## Non-standard workflows
 
 Tend has Claude-powered workflows beyond the generated `tend-*` set:
@@ -101,6 +110,12 @@ empty`) with the failing endpoint, the counts seen, and whether the bots still
 have recent activity on GitHub — that localizes the fault to the Worker. The
 bot can't rotate the Worker's Cloudflare-side secret itself, so leave the
 diagnosis to a maintainer; `worker/README.md` covers the Worker's setup.
+
+## Nightly: guidance placement
+
+When the survey reads a guidance file, ask of it the two questions under
+**Shipped guidance and tend's own** in `CLAUDE.md`: does it ship, and who acts
+on it.
 
 ## Nightly: don't duplicate the release's regeneration PR
 
