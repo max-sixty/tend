@@ -52,7 +52,7 @@ def index_url(instant: str, pocket: str, component: str) -> str:
 
 def published_versions(url: str, wanted: set[str]) -> dict[str, str]:
     """Binary package versions in one Packages index, for `wanted` only."""
-    with urllib.request.urlopen(url) as response:  # noqa: S310 — fixed https host
+    with urllib.request.urlopen(url) as response:
         index = lzma.decompress(response.read()).decode()
 
     found: dict[str, str] = {}
