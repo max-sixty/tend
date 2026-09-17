@@ -223,6 +223,8 @@ That projection orients you; it does not clear a finding. It omits both states a
 
 The default action is a PR, not an issue. If there's a plausible fix, make it — explain uncertainty in the PR description.
 
+Group findings by theme and keep a run to a couple of PRs, picking the highest-confidence ones; the rest go in the Step 9 summary for a later run.
+
 For each finding:
 
 1. **Create a PR** — branch, fix, run full test suite, commit, push, create PR, then poll CI per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci`. Your job ends when those checks are terminal: a review posted on the PR while you poll belongs to `tend-mention`. **Every bug fix must include a regression test that would have failed before the fix.** If a test is not feasible (e.g., pure documentation changes), note why in the PR description. When uncertain about the approach, explain the trade-offs in the description.
