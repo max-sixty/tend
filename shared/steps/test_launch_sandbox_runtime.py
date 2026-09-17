@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import os
 import signal
@@ -14,6 +15,7 @@ import pytest
 
 RUNTIME_STEP_FILES = (
     "_common.py",
+    "_prompt.py",
     "_sandbox.py",
     "agent_lifecycle.py",
     "run_claude.py",
@@ -197,3 +199,34 @@ def test_runner_cancellation_is_raised_through_the_reap_path() -> None:
 
     assert raised.value.signum == signal.SIGTERM
     assert signal.getsignal(signal.SIGTERM) is previous
+
+
+def test_runtime_bundle_carries_every_module_it_imports() -> None:
+    """The bundle is what the sandbox executes from; a missing import is a crash.
+
+    Nothing in the sandbox can reach back to the action checkout, so a bundled
+    module that imports a sibling left out of `RUNTIME_STEP_FILES` fails at
+    `import` inside SRT — a green unit suite and a red agent turn.
+    """
+    steps = Path(__file__).resolve().parent
+    bundled = {name for name in RUNTIME_STEP_FILES if name.endswith(".py")}
+    sources = {steps / name for name in bundled}
+    sources.add(steps.parents[1] / "codex/runner.py")
+
+    for source in sorted(sources):
+        tree = ast.parse(source.read_text())
+        imported = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        } | {
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module
+        }
+        local = {f"{name}.py" for name in imported if (steps / f"{name}.py").is_file()}
+        assert local <= bundled, (
+            f"{source.name} imports {sorted(local - bundled)}, which "
+            "RUNTIME_STEP_FILES does not stage into the sandbox bundle"
+        )
