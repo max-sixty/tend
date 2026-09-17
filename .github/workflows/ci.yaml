@@ -3,17 +3,16 @@ on:
   push:
     branches: [main]
   pull_request:
-  # `test-sandbox` installs bubblewrap from the Ubuntu archive on every run,
-  # and the archive moves without a commit here.  A bubblewrap security update
-  # on 2026-09-17 changed how bwrap resolves a bind destination and killed
-  # every consumer's sessions at launch; main had gone unpushed for two hours,
-  # so nothing ran and production was the first signal.  tend's other watches
-  # — `tend-ci-fix`, `tend-review-runs`, the outage issues — all boot an agent
-  # inside that same sandbox, so the failure disabled its own detection.  This
-  # schedule runs outside it, and a scheduled run failing on the default branch
-  # mails the repo owner with no agent in the path.  Pinning the package is not
-  # an option: Ubuntu keeps one version per pocket, and the superseded
-  # 0.9.0-1ubuntu0.1 had already left the archive hours after the update.
+  # `test-sandbox` is the only job that builds the real sandbox, and it still
+  # reaches hosts no commit here controls — snapshot.ubuntu.com, the npm
+  # registry, the runner image — even with every version pinned.  A bubblewrap
+  # security update on 2026-09-17 killed every consumer's sessions at launch;
+  # main had gone unpushed for two hours, so nothing ran and production was the
+  # first signal.  tend's other watches — `tend-ci-fix`, `tend-review-runs`,
+  # the outage issues — all boot an agent inside that same sandbox, so the
+  # failure disabled its own detection.  This schedule runs outside it, and a
+  # scheduled run failing on the default branch mails the repo owner with no
+  # agent in the path.
   schedule:
     - cron: "0 */6 * * *"
 
