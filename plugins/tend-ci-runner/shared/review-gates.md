@@ -33,16 +33,16 @@ If a finding doesn't meet the threshold, **skip it** — don't create a PR, don'
 
 Classify what the failure costs:
 
-- **Wrong outward action** — a false-green verdict, a stale approval left standing, a wrong claim posted, an issue closed in error. Each occurrence does standing damage; real complexity is justified to prevent it.
+- **Wrong outward action** — a false-green verdict, a stale approval left standing, a wrong claim posted, an issue closed in error. Each occurrence does standing damage.
 - **Wasted compute** — a no-op session, a duplicated survey, a run lost to a blip that a later tick retries, a runner-hour burned by a slow or hung job. Each occurrence leaves no standing damage.
 
 Classify by what the observed occurrence itself left on the public record. A hypothetical chain from waste to a wrong outward action ("the lost run could have left a stale approval standing") doesn't upgrade the class — the wrong action has to have occurred.
 
-A waste-class failure earns a change only when the waste recurred on separate days **and** the fix is nearly free: one existing setting changed in one place, machinery deleted, or a one-line condition. Judge the whole change — the same setting repeated across workflows, jobs, platforms, or call sites is a configuration scheme, not one knob.
+A wrong-action failure justifies whatever its prevention costs. The default for the waste class is narrower: act only when the waste recurred on separate days **and** the fix is nearly free — one existing setting changed in one place, machinery deleted, or a one-line condition. Judge the whole change by what it leaves behind — logic a future session must re-derive, a rule every later run loads, failure modes of its own — rather than by its line count: the same setting repeated across workflows, jobs, platforms, or call sites is a configuration scheme rather than one knob, and a retry framework, skip-gate, or cache compressed into one dense line is still machinery.
 
-Anything that adds machinery — a retry framework, another skip-gate, scheduling arithmetic, a cache — fails this gate however often the waste recurs, and compressing it into one dense line doesn't make it less. Judge a fix by what it leaves behind: logic a future session must re-derive, a rule every later run loads, failure modes of its own.
+How much complexity this repo will carry to save compute is its maintainer's call, so a stance in its `CLAUDE.md`, `AGENTS.md`, or `running-tend` overlay replaces that default.
 
-Otherwise, record the waste and its cost in the evidence store. When the total grows enough to matter, give the maintainer the number — cadence and switching a workflow off are their levers.
+When the fix doesn't clear the bar, record the waste and its cost in the evidence store. When the total grows enough to matter, give the maintainer the number — cadence and switching a workflow off are their levers.
 
 ### Structural vs. stochastic failures
 
