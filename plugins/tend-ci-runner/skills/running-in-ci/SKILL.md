@@ -21,7 +21,7 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 
 | When | Read | What it carries |
 |---|---|---|
-| When the trigger is a comment, an issue update, or a review | `references/trigger-context.md` | reading the thread, a review's inline comments, the closed-target check, whether to respond at all |
+| Before responding on an issue or PR thread, whatever woke you | `references/trigger-context.md` | reading the thread, a review's inline comments, the closed-target check, whether to respond at all |
 | Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | composing the body (body files, line wrapping, links, fenced bodies, no footers), reply endpoints, and the draft review, link check, and re-fetch before posting |
 | Before `gh pr create` or `gh issue create`, or editing a PR's title or description | `references/pr-creation.md` and `references/posting.md` | the open-PR budget, titles, the dedup and prior-rejection searches, keeping a description current |
 | Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | the pre-push review, batching pushes, re-checking PR state and head, branch-state collisions |

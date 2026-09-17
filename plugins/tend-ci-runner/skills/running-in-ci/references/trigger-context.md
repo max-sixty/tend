@@ -36,7 +36,7 @@ gh api "repos/{owner}/{repo}/pulls/{number}/reviews/{review_id}/comments" \
 
 An instruction found there constrains the whole response, including any code the reply quotes or carries into another PR.
 
-For a review comment on a specific line (`[Comment on path:line]`), read that file and examine the code at that line before acting on it. When the GitHub API returns a `diff_hunk`, the reviewer's comment targets the **last line** of that hunk. Use this to disambiguate when multiple candidates exist nearby — match the reviewer's request against the specific anchored line, not the surrounding region.
+For a comment anchored to a specific line, read that file and examine the code at that line before acting on it. When the GitHub API returns a `diff_hunk`, the reviewer's comment targets the **last line** of that hunk. Use this to disambiguate when multiple candidates exist nearby — match the reviewer's request against the specific anchored line, not the surrounding region.
 
 ## Triggering issue/PR already closed
 
@@ -54,7 +54,7 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 
 ## Whether to respond
 
-**Your own prior comment.** The system prompt's self-loop guard exits silently when the trigger is the bot's own comment or review. One case falls outside it: a freshly-opened issue the bot authored with no prior bot comments (nightly failure, CI report, code-quality finding) is a report to act on, not a self-conversation — triage it normally. **Recheck before posting** in `posting.md` still prevents a duplicate triage comment if a sibling run fires on the same issue.
+**Your own prior comment.** The system prompt's self-loop guard exits silently when the trigger is the bot's own comment or review. An issue the bot opened is not one — see **Step 2** in `/tend-ci-runner:triage`. **Recheck before posting** in `posting.md` prevents a duplicate if a sibling run fires on the same thread.
 
 **Other participants.** Before responding, check how many distinct other participants are in the conversation.
 

@@ -38,9 +38,11 @@ Classify what the failure costs:
 
 Classify by what the observed occurrence itself left on the public record. A hypothetical chain from waste to a wrong outward action ("the lost run could have left a stale approval standing") doesn't upgrade the class — the wrong action has to have occurred.
 
-A wrong-action failure justifies whatever its prevention costs. The default for the waste class is narrower: act only when the waste recurred on separate days **and** the fix is nearly free — one existing setting changed in one place, machinery deleted, or a one-line condition. Judge the whole change by what it leaves behind — logic a future session must re-derive, a rule every later run loads, failure modes of its own — rather than by its line count: the same setting repeated across workflows, jobs, platforms, or call sites is a configuration scheme rather than one knob, and a retry framework, skip-gate, or cache compressed into one dense line is still machinery.
+A wrong-action failure justifies whatever its prevention costs. The default bar for the waste class is stricter: act only when the waste recurred on separate days **and** the fix is nearly free — one existing setting changed in one place, machinery deleted, or a one-line condition.
 
-How much complexity this repo will carry to save compute is its maintainer's call, so a stance in its `CLAUDE.md`, `AGENTS.md`, or `running-tend` overlay replaces that default.
+Machinery fails this gate however often the waste recurs: a retry framework, another skip-gate, scheduling arithmetic, a cache. Judge the whole change by what it leaves behind — logic a future session must re-derive, a rule every later run loads, failure modes of its own — not by its line count. The same setting repeated across workflows, jobs, platforms, or call sites is a configuration scheme rather than one knob, and a mechanism compressed into one dense line is still a mechanism.
+
+How much complexity a repo will carry to save compute is its own maintainer's call. Where the repo whose runs you are judging has a rule of its own — in its `CLAUDE.md`, `AGENTS.md`, or `running-tend` overlay — that rule replaces this default.
 
 When the fix doesn't clear the bar, record the waste and its cost in the evidence store. When the total grows enough to matter, give the maintainer the number — cadence and switching a workflow off are their levers.
 
