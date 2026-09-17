@@ -16,6 +16,11 @@ Versions come from the snapshot rather than the live archive because the two
 differ by hours, and it is the snapshot the runners install from. `dpkg
 --compare-versions` picks between pockets, since apt takes the highest version
 across them rather than preferring one.
+
+Both architectures are read, and a package that resolves differently on each
+stops the refresh. One pin serves every runner, so a version published for
+amd64 and not yet for arm64 is unsatisfiable on an `ubuntu-24.04-arm` box; the
+answer is a later instant, not a pin that installs on one arch.
 """
 
 from __future__ import annotations
@@ -36,7 +41,9 @@ POCKETS = (SERIES, f"{SERIES}-updates", f"{SERIES}-security")
 # `main` carries bubblewrap and socat, `universe` ripgrep. Both are listed in
 # the sources the install script writes, so both are read here.
 COMPONENTS = ("main", "universe")
-ARCH = "amd64"
+# One pin serves every runner, so a divergence between these is a reason to
+# wait rather than something to resolve per-arch.
+ARCHES = ("amd64", "arm64")
 # Constant name in the shell script -> binary package it pins.
 PACKAGES = {
     "BUBBLEWRAP_VERSION": "bubblewrap",
@@ -45,9 +52,9 @@ PACKAGES = {
 }
 
 
-def index_url(instant: str, pocket: str, component: str) -> str:
+def index_url(instant: str, pocket: str, component: str, arch: str) -> str:
     snapshot = instant.replace(":", "").replace("-", "")
-    return f"{SNAPSHOT_HOST}/{snapshot}/dists/{pocket}/{component}/binary-{ARCH}/Packages.xz"
+    return f"{SNAPSHOT_HOST}/{snapshot}/dists/{pocket}/{component}/binary-{arch}/Packages.xz"
 
 
 def published_versions(url: str, wanted: set[str]) -> dict[str, str]:
@@ -75,22 +82,35 @@ def newer(candidate: str, incumbent: str | None) -> bool:
     )
 
 
-def resolve(instant: str) -> dict[str, str]:
+def resolve_arch(instant: str, arch: str) -> dict[str, str]:
     """The version apt would install from the snapshot, per package."""
     wanted = set(PACKAGES.values())
     highest: dict[str, str] = {}
     for pocket in POCKETS:
         for component in COMPONENTS:
             for name, version in published_versions(
-                index_url(instant, pocket, component), wanted
+                index_url(instant, pocket, component, arch), wanted
             ).items():
                 if newer(version, highest.get(name)):
                     highest[name] = version
 
     missing = sorted(wanted - highest.keys())
     if missing:
-        sys.exit(f"{instant} publishes no {', '.join(missing)} for {SERIES}/{ARCH}")
+        sys.exit(f"{instant} publishes no {', '.join(missing)} for {SERIES}/{arch}")
     return highest
+
+
+def resolve(instant: str) -> dict[str, str]:
+    """The version every architecture agrees on, or no version at all."""
+    by_arch = {arch: resolve_arch(instant, arch) for arch in ARCHES}
+    first, *rest = by_arch.values()
+    split = sorted(name for name in first if any(o[name] != first[name] for o in rest))
+    if split:
+        sys.exit(
+            f"{instant} publishes {', '.join(split)} differently per architecture "
+            f"({by_arch}); try a later instant, once the slower arch has caught up"
+        )
+    return first
 
 
 def main() -> None:
