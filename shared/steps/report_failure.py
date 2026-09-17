@@ -16,7 +16,7 @@ A closed outage issue is left closed and a fresh one filed. The `review-runs`
 sweep closes it after diagnosing every row and checking the live repository for
 work the failed runs may have missed. Reopening would fold the next incident
 into a stale record. Nightly leaves this label alone because its cron precedes
-`review-runs`, and a clean recent run says nothing about missed work. Where an
+`review-runs`, and a clean recent run says nothing about missed work. Where a
 consumer disables `review-runs`, a maintainer applies the same close criterion.
 The rate-limit issue takes the opposite policy, for reasons in ``_issue.py``.
 

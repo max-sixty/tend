@@ -262,6 +262,6 @@ whether to respond, the closed-target check — land in the file every session
 loads because there is nowhere else for them to go.
 
 A `mention` skill invoked by that prompt gives them a home and restores the
-invariant in "Where guidance text goes". The move is the work: decide which of
+invariant under "Which file" in `CLAUDE.md`. The move is the work: decide which of
 `running-in-ci`'s Read Context sections are mention-only, which notifications
 and review also act on, and which belong in `references/` keyed on the trigger.

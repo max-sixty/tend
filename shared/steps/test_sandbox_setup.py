@@ -80,5 +80,5 @@ def test_successful_setup_is_reported(
 
     assert sandbox_setup.main() == 0
     assert capsys.readouterr().out == (
-        "[sandbox-setup] ra consumer sandbox_setup commands inside SRT\n"
+        "[sandbox-setup] ran consumer sandbox_setup commands inside SRT\n"
     )

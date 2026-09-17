@@ -91,7 +91,7 @@ def test_launch_env_carries_a_name_the_denylist_never_heard_of(
 def test_launch_env_is_anchored_to_the_prefix(compose: Compose) -> None:
     """`GITHUB_`, so a name that merely contains it stays on the runner.
 
-    `MY_GITHUB_TOKEN` and `GITHUBBER_TOKEN` are the shapes that matter: an
+    `MY_GITHUB_TOKEN` and `GITHUBBER_TOKEN` are the shapes that matter: a
     consumer `setup:` step is free to export either, and neither may ride across
     on a prefix the match got wrong at one end or the other.
     """

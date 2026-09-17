@@ -47,7 +47,7 @@ def main() -> int:
 
     code = subprocess.run(setup_argv(commands), check=False).returncode
     if code == 0:
-        _common.log(STEP, "ra consumer sandbox_setup commands inside SRT")
+        _common.log(STEP, "ran consumer sandbox_setup commands inside SRT")
     return code
 
 
