@@ -11,7 +11,7 @@ An issue here is not a note to a maintainer — where `tend-triage` is enabled (
 
 So if you can open the PR in this run, open the PR. Reserve an issue for what you genuinely can't finish here: a problem too large or ambiguous to fix, one that needs a maintainer decision, or one whose verification is out of reach from CI. Bookkeeping issues are a separate case, not this trade-off: `ci-fix`'s transient-diagnosis tracker carries `tend-outage`, which the generated `tend-triage` and `tend-mention` `if:` skip, so no conversion run fires.
 
-This governs your own repo only; filing into another repo follows **Other Repos** in `SKILL.md`.
+This governs your own repo only; filing into another repo follows `references/other-repos.md`.
 
 ## PR creation
 
@@ -24,13 +24,13 @@ gh pr list --state open --limit 200 --json number,title,headRefName --jq '.[] | 
 git branch -r --list 'origin/fix/*'
 ```
 
-Open PRs compete for one maintainer's attention. A self-initiated improvement — a sweep finding, a skill or workflow refinement nobody asked for — draws on a budget: when the bot already has five or more PRs open (`gh pr list --state open --author "@me"`), open one only for a wrong outward action (see **Weighing a Fix** in `SKILL.md`), and hold the rest until the queue drains, recorded where the maintainer will see it (the evidence store, or a line on the triggering thread) rather than as an issue (**Filing Issues in This Repo** explains why not). The budget never holds work someone asked for, a fix a user is waiting on (a red default branch, a triaged bug), or the scheduled maintenance a skill itself instructs (a workflow regeneration, a pinned-version bump, a data refresh). Base every PR on the default branch; never stack one on an unmerged bot branch, which puts the same change through review once per link in the chain.
+Open PRs compete for one maintainer's attention. A self-initiated improvement — a sweep finding, a skill or workflow refinement nobody asked for — draws on a budget: when the bot already has five or more PRs open (`gh pr list --state open --author "@me"`), open one only for a wrong outward action (something the bot posted, approved, merged, or closed in error), and hold the rest until the queue drains, recorded where the maintainer will see it (the evidence store, or a line on the triggering thread) rather than as an issue (**Filing Issues in This Repo** explains why not). The budget never holds work someone asked for, a fix a user is waiting on (a red default branch, a triaged bug), or the scheduled maintenance a skill itself instructs (a workflow regeneration, a pinned-version bump, a data refresh). Base every PR on the default branch; never stack one on an unmerged bot branch, which puts the same change through review once per link in the chain.
 
 Write PR titles, issue titles, and commit subjects in plain, literal language that a reader can understand without the body. Name the concrete component and behavior changed while keeping any prefix the repository requires. Put the explanation in the body. The test: someone who has not read the diff can say what changed. Example: `Stop worker retries after cancellation`.
 
 The titles that fail it read as figures rather than descriptions — a metaphor, a subject withheld for effect, a phrase that only lands once you already know the bug. Rewrite to the literal statement: `Press again for the tab the driver lost, not the one Chromium never made` → `Retry the click when the browser driver never reports the opened tab`.
 
-Describe the current PR for a maintainer deciding whether to merge it. Follow **Reader-facing prose** in `SKILL.md` and synthesize across commits and review rounds.
+Describe the current PR for a maintainer deciding whether to merge it. Follow **Reader-facing prose** in `SKILL.md` and synthesize across commits and review rounds. The opening paragraph carries the merge decision — what changed, why, and what verifies it — and whatever a reviewer needs beyond that follows it or sits in `<details>`.
 
 If an existing PR addresses the same problem, work on that PR instead.
 

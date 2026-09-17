@@ -60,7 +60,7 @@ PR. Never force-push over a commit from anyone else.
 
 ## Configured-bot PRs
 
-Dispatch one subagent per conflicted PR. Give each subagent an isolated
+Consider dispatching one subagent per conflicted PR. Give each PR an isolated
 `$TMPDIR/pr-<number>` worktree.
 
 For each PR:
@@ -97,4 +97,4 @@ changed or an older same-head deferral won a concurrent race. Never edit another
 head's deferral. The frequent poll skips the marked head; nightly retries it,
 and a new head is eligible immediately.
 
-Remove the temporary worktrees when all subagents finish.
+Remove the temporary worktrees when every PR is done.
