@@ -127,8 +127,14 @@ def _conflicts(repo: str) -> int:
         nodes = response["data"]["search"]["nodes"]
         if not isinstance(nodes, list):
             raise TypeError("GraphQL search nodes were not an array")
+        # `mergeable` is computed lazily: the first read after the base branch
+        # moves returns `UNKNOWN` and enqueues the computation, so counting
+        # anything but a settled `CONFLICTING` boots a session after every merge
+        # into the default branch. A conflict behind an `UNKNOWN` is counted on
+        # the next poll, which reads the value this one enqueued; the resolver
+        # test-merges locally either way.
         return sum(
-            pr.get("mergeable") != "MERGEABLE" and not _is_deferred(pr, bot)
+            pr.get("mergeable") == "CONFLICTING" and not _is_deferred(pr, bot)
             for pr in nodes
             if isinstance(pr, dict)
         )
