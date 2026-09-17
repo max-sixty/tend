@@ -63,54 +63,20 @@ Record what you found (or didn't find) for use in step 7.
 
 *Bug reports only.*
 
-1. **Understand the report** — What command was run? What was expected? What actually happened?
-2. **Find relevant code** — Search the codebase for the functionality described
-3. **Write a failing test** — Add a test to the appropriate *existing* test file that demonstrates the bug. Don't create new test files.
-4. **Run the test** to confirm it fails. Use the test commands from the project's instruction files.
+Follow **Reproduce first** in `references/fixing.md`: a failing test in an existing test file, run to confirm it fails.
 
-If the test passes (bug may already be fixed), note this for the comment.
-
-If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7. Do NOT proceed to Step 6 without a failing test — a fix without reproduction evidence is not a conservative fix.
+If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7. If the test passes, the bug may already be fixed — note that for the comment.
 
 ## Step 6: Fix (conservative)
 
 *Bug reports only.*
 
-**CRITICAL — gate check before proceeding:**
-
-You MUST have a failing test from Step 5 before writing any fix. If you skipped the test (couldn't write one, environment-specific bug, etc.), do NOT attempt a fix — go directly to Step 7 and report the outcome you established.
-
-**Only attempt a fix if ALL of these conditions are met:**
-
-- Bug is clearly reproducible (test written in Step 5 fails)
-- Root cause is understood
-- Fix is localized (1-3 files changed)
-- Confident the fix is correct
-
-### Skill text fixes
-
-When the bug is about bot behavior (e.g., "bot didn't use links", "bot posted wrong format"), the root cause is often a skill/prompt compliance issue, not missing code. Before adding guidance to a skill:
-
-1. **Check ALL co-loaded skills** — Skills loaded together in the same workflow share context. If the guidance already exists in a co-loaded skill, the issue is behavioral compliance, not missing instructions.
-2. **Don't duplicate guidance across skills.**
-
-### Don't "fix" tests by adding skip guards
-
-If the proposed change removes coverage for the failing scenario instead of restoring the assertion, stop. Smell patterns: a newly-added early-return at the top of the test (`let Ok(_) = X else { return };`, `if !path.exists() { return; }`), a fresh `#[ignore]`, a newly-inserted `skipIf` / `pytest.skip` keyed on the failing condition. The fix belongs in production code or test setup, not in a guard that makes the test bail when the bug fires.
-
-### Don't pin undefined behavior in a test
-
-When a doc claim and the code disagree and which of the two is wrong is still an open question, the finding *is* that question. A test asserting the current output settles it without the authority to — it turns unspecified behavior into a pinned contract, so the eventual fix arrives looking like a regression. Report the discrepancy and let a maintainer say which side moves; write the test after that.
-
-### Defer to in-flight same-root-cause PRs
-
-Step 3's duplicate check catches identical fixes. It misses the *same root cause class, different surface* pattern: several failing tests share one underlying cause, and an outstanding PR fixes some of them but not the one being triaged. When the triage analysis itself names an existing PR as same-root-cause, that's the signal to wait for it to merge and re-run, or to mirror its approach for the remaining sites — not to open a parallel narrow workaround.
+`references/fixing.md` carries the gates: the failing test you must already have, the four conditions a fix attempt needs, skill-text fixes, the three shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
 
 ### If fixing
 
-1. Fix the root cause (not just the symptom)
-2. Confirm the reproduction test now passes, then review the change per **Review the change before the push** in `/tend-ci-runner:running-in-ci`'s `references/pushing.md`. That targeted pass, a clean compile, and the review are the local bar. Leave the comprehensive suite to PR CI per `/tend-ci-runner:running-in-ci`'s "End the turn only when work is shipped"; backgrounding a long suite before push risks ending the session while the result is still local.
-3. Create branch, commit, push, and create PR:
+1. Fix the root cause (not just the symptom), and clear the local bar in `references/fixing.md`.
+2. Create branch, commit, push, and create PR:
    ```bash
    git checkout -b fix/issue-$ARGUMENTS
    git add -A

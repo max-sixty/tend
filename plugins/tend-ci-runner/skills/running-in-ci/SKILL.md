@@ -15,7 +15,6 @@ If a `running-tend` skill is listed in your available skills, read it before doi
 
 Invoke repo-local skills by their unprefixed name — `running-tend`, not `tend-ci-runner:running-tend` (that prefix is reserved for this plugin's own skills).
 
-If you are going to propose a code fix for a bug, load `/tend-ci-runner:triage` first — it contains reproduction and testing gates that apply to all fix attempts, not just initial triage.
 
 ## References
 
@@ -32,6 +31,7 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 | Before filing or commenting in a repo other than this one | `references/other-repos.md` and `references/posting.md` | the overlay exception for agent-equipped targets, what an issue body there must contain, contributing on invitation, a scope rule that blocks the right action |
 | Before a public claim about a tool's behavior, an incident, or code you did not run | `references/grounded-analysis.md` | source evidence for claims, verifying external-tool behavior, recurring hallucination shapes, transient incidents vs. durable bugs, who to ask for a check CI can't run |
 | To diagnose another run, or to recall what a prior run on this thread read and weighed | `references/session-logs.md` | reading other runs' session logs, recalling prior context on this thread |
+| Before writing a code fix for a bug, whichever workflow you are running | `/tend-ci-runner:triage`'s `references/fixing.md` | the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, the local bar before pushing |
 | When a maintainer corrects the bot's behavior, or before writing or suggesting text for a skill or a project instruction file (`CLAUDE.md`, `AGENTS.md`) | `references/skill-pr-workflow.md` | whether to propose, bundled skill vs. `running-tend` overlay, what guidance text leaves out, scripts over prose recipes, the branch and PR mechanics |
 | Reviewing a PR whose pre-flight reports `is_draft` | `/tend-ci-runner:review`'s `references/draft-mode.md` | the lighter pass, COMMENT only, the hidden draft marker |
 | Submitting a review when the posting preflight prints `delta:` | `/tend-ci-runner:review`'s `references/re-targeting.md` | reviewing a push that landed mid-review, then posting against the new head |
@@ -105,7 +105,7 @@ If a linked PR merged (or the triggering PR itself merged) **after the triggerin
 
 ### Whether to respond
 
-**Your own prior comment.** If you are responding to your own prior comment or review (not a human's reply to it), exit silently to avoid self-conversation loops. A freshly-opened issue the bot authored with no prior bot comments (nightly failure, CI report, code-quality finding) is a report to act on, not a self-conversation: triage it normally. **Recheck before posting** in `references/posting.md` still prevents a duplicate triage comment if a sibling run fires on the same issue.
+**Your own prior comment.** The system prompt's self-loop guard exits silently when the trigger is the bot's own comment or review. One case falls outside it: a freshly-opened issue the bot authored with no prior bot comments (nightly failure, CI report, code-quality finding) is a report to act on, not a self-conversation — triage it normally. **Recheck before posting** in `references/posting.md` still prevents a duplicate triage comment if a sibling run fires on the same issue.
 
 **Other participants.** Before responding, check how many distinct other participants are in the conversation.
 
@@ -163,12 +163,10 @@ For example, supporting material may use this shape when it helps the next reade
 </details>
 ```
 
-## Grounded Analysis
-
-CI threads are high-latency, so each outward response must stand alone: give the current conclusion, its consequence, and the next action or decision. Self-contained does not mean publishing the whole investigation.
-
-Read logs, code, and API data before drawing conclusions. Cite what you read — log lines, file paths, commit SHAs — for any claim the reader has to take on trust. Trace causation — if two things co-occur, find the mechanism rather than saying "this may be related." Never claim a failure is "pre-existing" without checking main branch CI history. Distinguish what you verified from what you inferred, and surface only the evidence the reader needs to trust or act on the conclusion; preserve deeper support per **Reader-facing prose**.
-
-## Tone
+### Tone
 
 Raise observations, don't assign work. Never create checklists or task lists for the PR author.
+
+## Grounded Analysis
+
+Read logs, code, and API data before drawing conclusions. Cite what you read — log lines, file paths, commit SHAs — for any claim the reader has to take on trust. Trace causation — if two things co-occur, find the mechanism rather than saying "this may be related." Never claim a failure is "pre-existing" without running the main-branch check in `references/ci-monitoring.md`. Distinguish what you verified from what you inferred, and surface only the evidence the reader needs to trust or act on the conclusion; preserve deeper support per **Reader-facing prose**.

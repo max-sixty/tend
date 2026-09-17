@@ -47,12 +47,7 @@ Reply in context rather than creating new top-level comments:
     -F body=@"$TMPDIR/reply.md"
   ```
 
-- **Review events with inline comments** (review ID in prompt): A review may include inline comments. Fetch them by review ID and reply to each individually:
-  ```bash
-  gh api repos/{owner}/{repo}/pulls/{number}/reviews/{review_id}/comments \
-    --jq '.[] | {id: .id, path: .path, body: .body}'
-  ```
-  Reply to each comment using the inline review comment reply endpoint above.
+- **Review events with inline comments** (review ID in prompt): you fetched them while reading context, per **A review's inline comments are a separate fetch** in `SKILL.md`. Reply to each with the inline review comment reply endpoint above.
 
 - **Conversation comments** (`#issuecomment-`): Post a regular comment (GitHub doesn't support threading).
 
