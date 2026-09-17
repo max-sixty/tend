@@ -65,7 +65,7 @@ Report the run census as the count this returns. `.total_count` counts the wider
 Then, for each run ID from above, pull its jobs and classify them:
 
 - **Long-running** (>30 min): Tend runs typically finish in single-digit minutes. Anything over 30 is worth a look — download session logs in Step 3 and diagnose where the time went (long background waits, push-wait-fix cycles, a stuck tool call).
-- **Near-timeout** (within 90% of the cap): A job that consumed most of its timeout budget is one slow external check away from being killed. Structural, but classify the cost per Gate 3 by what the kill left on the record: usually waste-class (a cron-driven run a later tick retries), except where the killed session had already taken an outward action it was still gated on — a `tend-review` job killed mid-poll leaves its approval standing over red CI. Waste-class gets only a remedy that passes Gate 3, or nothing.
+- **Near-timeout** (within 90% of the cap): A job that consumed most of its timeout budget is one slow external check away from being killed. Structural, but rate it by what the kill would leave on the record. Usually nothing — a cron-driven run a later tick repeats. It reaches **Critical** where the killed session had already taken an outward action it was still gated on: a `tend-review` job killed mid-poll leaves its approval standing over red CI.
 
 To determine the timeout cap for a workflow, read `timeout-minutes` from that workflow's own file under `.github/workflows/` — the census admits workflows named outside the `tend-` prefix, so don't glob for one. Tend's generated workflows do not set `timeout-minutes`, so GitHub's 360-minute default applies unless the consumer has overridden it via `workflows.<name>.jobs.<job>.timeout-minutes` in `.config/tend.yaml`.
 
@@ -208,7 +208,7 @@ gh issue list --repo max-sixty/tend --state all --limit 200 --json number,title
 
 Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`).
 
-**A fix merged upstream still reproduces here.** The action ref is pinned per release, so a skill fix that merged in `max-sixty/tend` stays dormant on this repo until the next release tags. Observing the bug is therefore not evidence the fix is missing — check tend's merged PRs before filing, or the report is churn on something already landed.
+Your workflows call a pinned action ref, so a skill fix merged upstream stays dormant here until the next release tags. Observing the bug is therefore not evidence the fix is missing: read these results before filing, or the report is churn on something already landed.
 
 ## Step 6: Act on findings
 

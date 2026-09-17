@@ -1,9 +1,10 @@
-<!-- Shared gates and evidence framework for review-reviewers and review-runs skills. -->
-<!-- Symlinked into each skill directory; changes here apply to both. -->
+<!-- Gates and evidence framework for the review-runs skill, and for tend's own -->
+<!-- review-reviewers overlay. Symlinked into each; changes here apply to both. -->
+<!-- It ships with the plugin: every rule here has to hold in a consumer's repo. -->
 
 ## Confidence and magnitude gates
 
-Before creating a PR, every finding must pass three gates.
+Before creating a PR, every finding must pass both gates.
 
 ### Gate 1: Confidence — is this a real problem?
 
@@ -13,6 +14,8 @@ Before creating a PR, every finding must pass three gates.
 | **High** | Consistent pattern across multiple sessions | 2–3 |
 | **Medium** | Plausible problem seen once, could be noise | 5+ |
 | **Low** | Nitpick or stylistic preference | Do not act |
+
+**Critical** means a wrong outward action the bot actually took — a false-green verdict, a stale approval left standing, a wrong claim posted, an issue closed in error — judged by what the observed occurrence left on the public record. A hypothetical chain to one ("the lost run could have left a stale approval standing") doesn't reach it; the wrong action has to have occurred.
 
 Occurrences include both the current analysis **and** historical evidence recorded by prior runs. Each skill defines where that evidence lives — see the calling skill's "Evidence accumulation" section.
 
@@ -29,17 +32,6 @@ If a finding doesn't meet the threshold, **skip it** — don't create a PR, don'
 
 **The larger the change, the more evidence required.** A one-line simplification needs less justification than a new paragraph. Prefer small, targeted fixes over broad rewrites.
 
-### Gate 3: Cost — does the failure cost more than the fix?
-
-Classify what the failure costs:
-
-- **Wrong outward action** — a false-green verdict, a stale approval left standing, a wrong claim posted, an issue closed in error. Each occurrence does standing damage; real complexity is justified to prevent it.
-- **Wasted compute** — a no-op session, a duplicated survey, a run lost to a blip that a later tick retries, a runner-hour burned by a slow or hung job. Each occurrence leaves no standing damage.
-
-Classify by what the observed occurrence itself left on the public record. A hypothetical chain from waste to a wrong outward action ("the lost run could have left a stale approval standing") doesn't upgrade the class — the wrong action has to have occurred.
-
-A waste-class failure supports only a fix that is itself nearly free, and only once the waste has recurred on separate days: one existing knob in one place, removed machinery, or a one-line condition. Judge the whole change, so repeated settings across workflows, jobs, platforms, or call sites count as one configuration scheme. One that needs new mechanism — a retry framework, another skip-gate, scheduling arithmetic, a cache — fails this gate at any occurrence count; a mechanism compressed into one dense line is still a mechanism, so judge by what the fix leaves behind (logic a future session must re-derive, a rule every later run loads, failure modes of its own), not its line count. Record the waste in the evidence store with its cost; if the aggregate grows to matter, escalate the number to the maintainer, who owns the simple levers (cadence, disabling a workflow).
-
 ### Structural vs. stochastic failures
 
 Before applying the gates, classify each failure by asking: **did the bot have a decision point?**
@@ -55,11 +47,20 @@ The test: "If I replayed this exact scenario 10 times, would the failure occur e
 For each finding, state:
 1. The evidence level and occurrence count (current + historical)
 2. Whether the failure is structural or stochastic
-3. The failure's cost class (wrong outward action / wasted compute)
-4. The proposed change type
-5. Whether it passes all three gates
+3. The proposed change type
+4. Whether it passes both gates
 
-Only proceed to act on findings that pass all three gates.
+Only proceed to act on findings that pass both gates.
+
+### Non-issues: do not flag these
+
+Some patterns look suspicious but are intentional — flagging expected behavior creates maintainer churn and costs trust. Three structural rules cover them:
+
+- **Designed no-ops.** Many events correctly end with nothing posted, and the layer that catches one varies: a pre-boot gate skips the job, or a session boots, judges the trigger, and exits silently. Both are the design — a workflow fires on an event class, and most of a class needs no response. Record them and move on. A loop that produces *wrong outward actions* — duplicate comments, spurious reviews — is a finding, and where a label can express the distinction a label-based skip beats an authorship filter.
+
+- **Designed silence.** `/tend-ci-runner:review`'s `references/draft-mode.md` and the skill itself are the contract for when a review posts nothing, so read them before calling a missing review an omission. Two states the listing hides: GitHub reports a draft as `state: OPEN` (`gh api repos/OWNER/REPO/pulls/N --jq '{state, draft}'`), and the PR's literal author decides whether an approval was available at all (`gh pr view <n> --json author --jq '.author.login'`) — a human owner's PR is approved normally and is no precedent for approving a bot-authored one.
+
+- **The reviewer role is independent of authorship.** `tend-review` re-reviewing — and re-approving — after any tend workflow pushes a fix commit is the design, not a re-approval loop; authorship-keyed guards that skip re-review drop real work. Stacked approvals from racing runs are a *concurrency* artifact (cancelled runs POSTing before the SIGTERM arrived), not a review-rule problem.
 
 ## Finding format
 

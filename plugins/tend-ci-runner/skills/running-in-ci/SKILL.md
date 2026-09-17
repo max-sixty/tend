@@ -9,13 +9,11 @@ metadata:
 
 ## First Steps — Load Repo-Specific Guidance
 
-Tend's bundled skills provide defaults; the consumer repo's `running-tend` skill overlays them. **Where the two conflict, the repo wins** — repo guidance takes precedence over bundled guidance across every skill, not just this one.
+Tend's bundled skills provide defaults; the consumer repo's own guidance — its `running-tend` skill, its `CLAUDE.md` or `AGENTS.md`, its `.config/tend.yaml` — overlays them. **Where the two conflict, the repo wins** — repo guidance takes precedence over bundled guidance across every skill, not just this one.
 
 If a `running-tend` skill is listed in your available skills, read it before doing anything else. It typically carries PR title conventions, label policies, custom workflows to watch, and other repo-specific context. It can also define extra tasks for the job you're running — additional nightly or weekly maintenance, repo-specific health checks — which you perform as part of that job, not just keep in mind.
 
-Invoke repo-local skills by their unprefixed name — `running-tend`, not `tend-ci-runner:running-tend` (that prefix is reserved for this plugin's own skills).
-
-If you are going to propose a code fix for a bug, load `/tend-ci-runner:triage` first — it contains reproduction and testing gates that apply to all fix attempts, not just initial triage.
+Invoke a repo-local skill by its own name with no plugin prefix — `/running-tend`, not `/tend-ci-runner:running-tend` (that prefix is reserved for this plugin's own skills).
 
 ## References
 
@@ -23,16 +21,18 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 
 | When | Read | What it carries |
 |---|---|---|
+| Before responding on an issue or PR thread, whatever woke you | `references/trigger-context.md` | reading the thread, a review's inline comments, the closed-target check, whether to respond at all |
 | Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | composing the body (body files, line wrapping, links, fenced bodies, no footers), reply endpoints, and the draft review, link check, and re-fetch before posting |
 | Before `gh pr create` or `gh issue create`, or editing a PR's title or description | `references/pr-creation.md` and `references/posting.md` | titles, the dedup and prior-rejection searches, keeping a description current |
 | Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | the pre-push review, batching pushes, re-checking PR state and head, branch-state collisions |
-| After any push you are accountable for | `references/ci-monitoring.md` | the pinned poll, a review that lands mid-poll, rerunning failed jobs |
+| After any push you are accountable for, or before calling a failure pre-existing | `references/ci-monitoring.md` | the pinned poll, the main-branch check behind a "pre-existing" claim, a review that lands mid-poll, rerunning failed jobs |
 | When a request directs you at someone else's work: close, reopen, lock, label, revert, dismiss a review, or push to another author's PR | `references/directives.md` | the access tiers that authorize it |
 | When you conclude a PR the bot approved should not merge | `references/dismissing-approval.md` | dismissing the standing approval |
 | Before filing or commenting in a repo other than this one | `references/other-repos.md` and `references/posting.md` | the overlay exception for agent-equipped targets, what an issue body there must contain, contributing on invitation, a scope rule that blocks the right action |
 | Before a public claim about a tool's behavior, an incident, or code you did not run | `references/grounded-analysis.md` | source evidence for claims, verifying external-tool behavior, recurring hallucination shapes, transient incidents vs. durable bugs, who to ask for a check CI can't run |
 | To diagnose another run, or to recall what a prior run on this thread read and weighed | `references/session-logs.md` | reading other runs' session logs, recalling prior context on this thread |
 | When a maintainer corrects the bot's behavior, or before writing or suggesting text for a skill or a project instruction file (`CLAUDE.md`, `AGENTS.md`) | `references/skill-pr-workflow.md` | whether to propose, bundled skill vs. `running-tend` overlay, what guidance text leaves out, scripts over prose recipes, the branch and PR mechanics |
+| Before writing a code fix for a bug, whichever workflow you are running | `/tend-ci-runner:triage`'s `references/fixing.md` | the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, the local bar before pushing |
 | Reviewing a PR whose pre-flight reports `is_draft` | `/tend-ci-runner:review`'s `references/draft-mode.md` | the lighter pass, COMMENT only, the hidden draft marker |
 | Submitting a review when the posting preflight prints `delta:` | `/tend-ci-runner:review`'s `references/re-targeting.md` | reviewing a push that landed mid-review, then posting against the new head |
 | Submitting a review that carries findings | `/tend-ci-runner:review`'s `references/inline-suggestions.md` | the payload, multi-line suggestion rules, 422 recovery |
@@ -48,78 +48,13 @@ Follow the project's code of conduct. Avoid causing disruption — unnecessary c
 
 Anyone can ask for help with a problem they raise. A request that directs you at someone else's work is gated on the requester's access tier — check it per `references/directives.md` before complying.
 
-## Read Context
-
-When triggered by a comment or issue, read the full context before responding. The prompt provides a URL — extract the PR/issue number from it.
-
-For PRs:
-
-```bash
-gh pr view <number> --json title,body,comments,reviews,state,statusCheckRollup
-gh pr diff <number>
-gh pr checks <number>
-```
-
-For issues:
-
-```bash
-gh issue view <number> --json title,body,comments,state
-```
-
-Read the triggering comment, the PR/issue description, the diff (for PRs), and recent comments to understand the full conversation before taking action.
-
-### A review's inline comments are a separate fetch
-
-Neither `gh pr view --json reviews` nor `GET /pulls/<n>/reviews/<id>` returns a review's inline comments — both hand back the review body alone, with no field signalling that more exists, so a read that stops there looks complete. A one-line review body routinely sits on top of the maintainer's actual instructions. Whenever the trigger names a review ID, fetch them as part of reading context — not only when you already intend to reply inline:
-
-```bash
-gh api "repos/{owner}/{repo}/pulls/{number}/reviews/{review_id}/comments" \
-  --jq '.[] | {id, path, line, body}'
-```
-
-An instruction found there constrains the whole response, including any code the reply quotes or carries into another PR.
-
-For a review comment on a specific line (`[Comment on path:line]`), read that file and examine the code at that line before acting on it. When the GitHub API returns a `diff_hunk`, the reviewer's comment targets the **last line** of that hunk. Use this to disambiguate when multiple candidates exist nearby — match the reviewer's request against the specific anchored line, not the surrounding region.
-
-### Instruction paths read as the base version on a PR
+## Instruction paths read as the base version on a PR
 
 Before the session starts, both harnesses restore `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, and `.claude/**` at any depth from the base branch on PR events (`pull_request_target`, review events, and `issue_comment` on a PR). Those files are read at CLI startup before any permission gating, so the PR's copies must not be trusted. `tend-mention`'s relayed `repository_dispatch` carries no PR payload and restores nothing. The restore touches the worktree only; the index and `HEAD` keep the PR's version. So on a PR that legitimately edits these paths:
 
 - The working tree holds the **base** content — grepping it reports the PR's additions as absent, and the repo-local skills loaded into this session are the base versions too. Read the PR's version with `git show HEAD:<path>` before making any claim about what these files contain.
 - `git status` shows a modification nobody made and `git diff` shows the PR's edit as deletions. Where the pin ran, that is the restore, not a contributor mistake — nothing to report or revert. On an unpinned event it is a real modification, worth reading.
 - **Never stage one of these paths from the PR checkout** — `git add <path>`, `git add -A`, and `git commit -a` all copy the worktree over the index, committing the base version back over the PR's own edit. Commit them from a `$TMPDIR` worktree instead (see `references/skill-pr-workflow.md`).
-
-### Triggering issue/PR already closed
-
-If the trigger is a comment on an issue or PR and the target is **closed** by the time the job starts, the requested work was likely handled by a sibling run during the queue delay. Long `tend-mention` queues (hours, not minutes) make this common. Before starting work:
-
-```bash
-# For an issue trigger — check linked PRs that closed it.
-gh issue view <number> --json state,closedAt,closedByPullRequestsReferences
-
-# For a PR trigger — check whether the PR was merged.
-gh pr view <number> --json state,mergedAt,mergeCommit
-```
-
-If a linked PR merged (or the triggering PR itself merged) **after the triggering comment was posted**, exit silently — the work is already on the default branch. If the closure looks unrelated (e.g. issue closed as not-planned with no merged PR), continue and address the comment normally.
-
-### Whether to respond
-
-**Your own prior comment.** If you are responding to your own prior comment or review (not a human's reply to it), exit silently to avoid self-conversation loops. A freshly-opened issue the bot authored with no prior bot comments (nightly failure, CI report, code-quality finding) is a report to act on, not a self-conversation: triage it normally. **Recheck before posting** in `references/posting.md` still prevents a duplicate triage comment if a sibling run fires on the same issue.
-
-**Other participants.** Before responding, check how many distinct other participants are in the conversation.
-
-- **Two-party** (you and one other participant): respond normally.
-- **Multi-way** (multiple other participants): apply a stricter bar — only respond with concrete new information no one else provided: a code fix, reproduction, or specific technical detail.
-
-Do not:
-- Restate, agree with, or summarize what another participant just said
-- Post "makes sense" or "good point" agreement comments
-- Echo a user's findings back to them ("Good find!", "That's the smoking gun!")
-
-A comment that responds to concerns you raised in a review is directed at you — briefly acknowledge resolution or explain why concerns remain.
-
-If a maintainer has already addressed the point, exit silently unless you can add something they missed.
 
 ## Restrictions
 
@@ -163,12 +98,10 @@ For example, supporting material may use this shape when it helps the next reade
 </details>
 ```
 
-## Grounded Analysis
-
-CI threads are high-latency, so each outward response must stand alone: give the current conclusion, its consequence, and the next action or decision. Self-contained does not mean publishing the whole investigation.
-
-Read logs, code, and API data before drawing conclusions. Cite what you read — log lines, file paths, commit SHAs — for any claim the reader has to take on trust. Trace causation — if two things co-occur, find the mechanism rather than saying "this may be related." Never claim a failure is "pre-existing" without checking main branch CI history. Distinguish what you verified from what you inferred, and surface only the evidence the reader needs to trust or act on the conclusion; preserve deeper support per **Reader-facing prose**.
-
-## Tone
+### Tone
 
 Raise observations, don't assign work. Never create checklists or task lists for the PR author.
+
+## Grounded Analysis
+
+Read logs, code, and API data before drawing conclusions. Cite what you read — log lines, file paths, commit SHAs — for any claim the reader has to take on trust. Trace causation — if two things co-occur, find the mechanism rather than saying "this may be related." Never claim a failure is "pre-existing" without running the main-branch check in `references/ci-monitoring.md`. Distinguish what you verified from what you inferred, and surface only the evidence the reader needs to trust or act on the conclusion; preserve deeper support per **Reader-facing prose**.

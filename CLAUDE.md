@@ -379,7 +379,13 @@ missing instruction or wrong default is a bundled fix, repository policy an
 overlay one.
 
 Tend's overlay here is tend's own guidance by the rule above — it doesn't ship,
-and it carries the tasks and conventions for bot sessions in this repo.
+and it carries the tasks and conventions for bot sessions in this repo. A whole
+skill belongs there when only this repo's workflows invoke it:
+`.claude/skills/review-reviewers/` is one, dispatched by the hand-maintained
+`review-reviewers.yaml`, whose prompt invokes it as `/review-reviewers` — a
+slash command like any skill, without the plugin prefix. A tend-only skill
+left in the plugin installs into every consumer, is invoked by none of them,
+and collects tend's internal text next to the files they do load.
 
 ### Which file
 
@@ -393,7 +399,7 @@ sessions in the gap each pay attention for text that changes nothing they do.
 | `running-in-ci/SKILL.md` | every session | yes |
 | a workflow's `SKILL.md` | that workflow's sessions | yes |
 | a skill's `references/` | only the sessions taking that action | yes |
-| `.claude/skills/running-tend/` | sessions in that one repo | no |
+| `.claude/skills/` (the overlay, and any skill only this repo invokes) | sessions in that one repo | no |
 | `CLAUDE.md` | sessions working on the repo it sits in | no |
 
 - **A rule has one home.** Another file that needs it names the section
@@ -487,6 +493,17 @@ reading carried into every deciding context — is worth the mechanism it
 leaves behind, so estimate that share before proposing one. A small or rare
 saving doesn't justify complication, however well the change reads line by
 line.
+
+Judge the fix itself by the whole change, and by what it leaves behind —
+logic a future session must re-derive, a rule every later run loads, failure
+modes of its own — rather than by its line count. The same setting repeated
+across workflows, jobs, platforms, or call sites is a configuration scheme
+rather than one knob, and a mechanism compressed into one dense line is
+still a mechanism.
+
+This is tend's answer, and it stays here. The bundled skills carry no view on
+what compute is worth — a bot session in this repo reads this file, and a
+session in another repo reads that repo's.
 
 ## Live testing against real GitHub
 

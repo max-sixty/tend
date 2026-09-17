@@ -12,31 +12,15 @@ Analyze tend's CI behavior on the target repo over the window Step 1 returns. Fo
 
 ## First steps
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply.
-
-## Cost discipline
-
-Session log parsing and outcome checking are token-heavy. Keep that bulk reading out of the context that makes the judgments (evaluating findings against gates, deciding whether to act, drafting PRs), and run it on a smaller, cheaper model where the harness allows.
+Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply. Judge the target repo's runs against its own guidance first: the repo wins over tend's defaults, per **First Steps** there.
 
 ## Core principle: outcomes over internals
 
-The bot's job is to produce useful outputs: reviews, triage comments, fix commits, issue responses. The cheapest way to evaluate quality is to check whether those outputs were **accepted** (merged, kept, acted on) or **rejected** (reverted, closed, corrected, disagreed with).
+The bot's job is to produce useful outputs: reviews, triage comments, fix commits, issue responses. Judge them first by whether they were **accepted** (merged, kept, acted on) or **rejected** (reverted, closed, corrected, disagreed with). Escalate to session-log inspection only when an outcome signal points at a problem to diagnose.
 
-Session logs are expensive to download and parse. Only escalate to session-log inspection when outcome signals indicate a real problem worth diagnosing.
+Log parsing and outcome checking produce bulk text; run them in a subagent so the context that makes the judgments — evaluating findings against the gates, deciding whether to act, drafting PRs — holds the conclusions rather than the transcripts.
 
-## Core principle: repo-specific guidance is primary
-
-Each consumer repo has its own guidance (`running-tend` skill or equivalent) that shapes how the bot should behave in that repo. This repo-specific guidance **takes precedence** over tend's default rules. The bot's job is to follow the repo-specific guidance first, falling back to tend's defaults only where the repo doesn't specify.
-
-## Non-issues: do not flag these
-
-Some patterns look suspicious but are intentional — flagging expected behavior creates maintainer churn and costs trust. Three structural rules cover them:
-
-- **Designed no-ops.** Many events correctly end with nothing posted, at whatever layer catches them: a pre-boot gate skip (`tend-mention`'s verify gate on the bot's own comments and reviews — though targets on older pinned releases still boot sessions for those), or a session that boots and exits silently (`tend-triage` on the bot's own monthly tracking-issue creation; the `issue_comment.edited` retrigger after a commenter refines their comment — the edit can change relevance, so the retrigger must re-evaluate; `tend-notifications` mark-reading a cross-repo `ci_activity` notification from an abandoned fork). These cost compute, not correctness — Gate 3 classifies them waste-class: record and move on; do not propose a skip-gate, label filter, pre-check, or occurrence threshold to save the boot. A loop that produces *wrong outward actions* (duplicate comments, spurious reviews) is different — that passes Gate 3, and a label-based skip is preferred over an authorship filter where a label can express it.
-
-- **Designed silence.** The bundled `/tend-ci-runner:review` skill authorizes posting nothing when there is nothing actionable: on a self-authored PR (GitHub rejects self-approvals, so APPROVE isn't an option), on a draft PR (COMMENT-only mode; GitHub blocks approving drafts), or when the PR closed or merged while its run was queued. GitHub reports drafts as `state: OPEN`, so before reading a missing review as omission — or escalating to session logs to explain it — check `gh api repos/OWNER/REPO/pulls/N --jq '{state, draft}'` and the PR's literal author (`gh pr view <n> --json author --jq '.author.login'`; owner-authored PRs are approved normally and are no bot-authored-APPROVE precedent).
-
-- **The reviewer role is independent of authorship.** `tend-review` re-reviewing — and re-approving — after any tend workflow pushes a fix commit is the design, not a re-approval loop; authorship-keyed guards that skip re-review drop real work and are not an accepted shape. Stacked approvals from racing runs are a *concurrency* artifact (cancelled runs POSTing before the SIGTERM arrived), not a review-rule problem.
+Expected behavior that looks suspicious — designed no-ops, designed silence, re-review after a fix commit — is listed under **Non-issues** in `review-gates.md`. Read it before a finding becomes a PR.
 
 ## Target repo
 
@@ -54,10 +38,13 @@ Evidence lives in one secret gist per target repo and month, indexed by the
 monthly `review-reviewers-tracking` issue on Tend. Prepare it and read the
 current and previous month's evidence:
 
+This skill lives in tend's own `.claude/skills/`, so the bundled plugin's
+scripts are reached through `$SCRIPTS` — Claude leaves `CLAUDE_PLUGIN_ROOT`
+unset in the shell, Codex exports it. Each block below sets it.
+
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_reviewers.py" \
-  prepare-evidence "$ARGUMENTS"
+SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
+uv run --script "$SCRIPTS/review_reviewers.py" prepare-evidence "$ARGUMENTS"
 ```
 
 The command finds or creates both index and gist, announces a new gist once,
@@ -69,8 +56,8 @@ $GITHUB_RUN_ID` heading every run, including an all-clear window; the heading
 is the audit trail future runs use. Then append it:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_reviewers.py" append-evidence
+SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
+uv run --script "$SCRIPTS/review_reviewers.py" append-evidence
 ```
 
 The command refuses a findings file that does not name this run, fetches the
@@ -103,8 +90,9 @@ If the file doesn't exist, try the legacy overlay paths and the repo's root proj
 Then list recently completed tend CI runs on the target repo:
 
 ```bash
+SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
 TARGET_REPO=$ARGUMENTS uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/list_recent_runs.py" review-reviewers
+  "$SCRIPTS/list_recent_runs.py" review-reviewers
 ```
 
 The script discovers `tend-*` workflows by default. Pass additional prefixes as arguments to include other workflows (e.g., `review-reviewers` when analyzing tend itself).
@@ -117,7 +105,7 @@ If the script printed a `WARNING:` on stderr, the list is known-incomplete — t
 
 ## Step 2: Survey outcomes
 
-Check outcomes across all runs from Step 1: map runs to PRs and issues, and check acceptance signals. This is the token-heavy part, so run it per **Cost discipline**, briefed with a prompt like:
+Check outcomes across all runs from Step 1: map runs to PRs and issues, and check acceptance signals. This is the bulk reading, so run it in a subagent per **Core principle: outcomes over internals**, briefed with a prompt like:
 
 > Survey bot outcomes on `$ARGUMENTS` for the following runs: [run IDs from Step 1].
 > The bot's login is `$BOT_LOGIN`.
@@ -256,7 +244,7 @@ Review the survey's summary, and verify any actor attribution before it enters a
 
 ## Step 3: Investigate concerning outcomes
 
-For runs with negative outcome signals (or suspicious lack of output), download and inspect the specific session logs, per **Cost discipline**.
+For runs with negative outcome signals (or suspicious lack of output), download and inspect the specific session logs, in a subagent as above.
 
 **Also escalate whenever a finding will name *which run* produced an output.** A timestamp falling inside a run's start/end span does not attribute the output to it: several runs are live at once — a long scheduled run that opened the PR, the event-triggered handle answering a review on it, a racing sibling — and any of them can post. Attributing by wall-clock inclusion credits the wrong run, and the run ID then ships in a public comment. Confirm from the posting run's own log before a run ID enters a finding.
 
@@ -312,7 +300,7 @@ gh issue list --state closed --label claude-behavior --json number,title,closedA
 gh pr list --state all --limit 200 --json number,title,state
 ```
 
-**A merged fix still reproduces on consumers.** Consumers call a pinned action ref, so a merged skill fix is dormant on their repos until the next release tags. Observing the bug is therefore not evidence the fix is missing — check merged PRs before filing, or the report is churn on something already landed.
+A merged fix stays dormant in the target repo until the next release tags, so observing the bug there is not evidence the fix is missing — filing it again is churn on something already landed.
 
 Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`). Only comment on existing issues if you have material new cases that would change the approach or increase prioritization. Do not comment with progress updates, fix-PR status, or re-statements of evidence already in the issue.
 
