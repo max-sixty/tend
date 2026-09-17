@@ -429,6 +429,17 @@ simple knob — a cadence value, a deleted step, a one-line condition — and
 otherwise leave it. Model tokens are the larger cost, dollars per session,
 so keep sessions, and the context each one carries, to what the work needs.
 
+Judge a proposed fix by the whole change, and by what it leaves behind —
+logic a future session must re-derive, a rule every later run loads, failure
+modes of its own — rather than by its line count. The same setting repeated
+across workflows, jobs, platforms, or call sites is a configuration scheme
+rather than one knob, and a mechanism compressed into one dense line is
+still a mechanism: it fails this bar however often the waste recurs.
+
+This is tend's answer, and it stays here. The bundled skills carry no view on
+what compute is worth — a bot session in this repo reads this file, and a
+session in another repo reads that repo's.
+
 ## Live testing against real GitHub
 
 For live experiments against real GitHub behavior (environments, branch

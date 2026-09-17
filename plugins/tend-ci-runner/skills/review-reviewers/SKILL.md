@@ -14,15 +14,11 @@ Analyze tend's CI behavior on the target repo over the window Step 1 returns. Fo
 
 Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply. Judge the target repo's runs against its own guidance first: the repo wins over tend's defaults, per **First Steps** there.
 
-## Cost discipline
-
-Session log parsing and outcome checking are token-heavy. Keep that bulk reading out of the context that makes the judgments (evaluating findings against gates, deciding whether to act, drafting PRs), and run it on a smaller, cheaper model where the harness allows.
-
 ## Core principle: outcomes over internals
 
-The bot's job is to produce useful outputs: reviews, triage comments, fix commits, issue responses. The cheapest way to evaluate quality is to check whether those outputs were **accepted** (merged, kept, acted on) or **rejected** (reverted, closed, corrected, disagreed with).
+The bot's job is to produce useful outputs: reviews, triage comments, fix commits, issue responses. Judge them first by whether they were **accepted** (merged, kept, acted on) or **rejected** (reverted, closed, corrected, disagreed with). Escalate to session-log inspection only when an outcome signal points at a problem to diagnose.
 
-Session logs are expensive to download and parse. Only escalate to session-log inspection when outcome signals indicate a real problem worth diagnosing.
+Log parsing and outcome checking produce bulk text; run them in a subagent so the context that makes the judgments — evaluating findings against the gates, deciding whether to act, drafting PRs — holds the conclusions rather than the transcripts.
 
 Expected behavior that looks suspicious — designed no-ops, designed silence, re-review after a fix commit — is listed under **Non-issues** in `review-gates.md`. Read it before a finding becomes a PR.
 
@@ -105,7 +101,7 @@ If the script printed a `WARNING:` on stderr, the list is known-incomplete — t
 
 ## Step 2: Survey outcomes
 
-Check outcomes across all runs from Step 1: map runs to PRs and issues, and check acceptance signals. This is the token-heavy part, so run it per **Cost discipline**, briefed with a prompt like:
+Check outcomes across all runs from Step 1: map runs to PRs and issues, and check acceptance signals. This is the bulk reading, so run it in a subagent per **Core principle: outcomes over internals**, briefed with a prompt like:
 
 > Survey bot outcomes on `$ARGUMENTS` for the following runs: [run IDs from Step 1].
 > The bot's login is `$BOT_LOGIN`.
@@ -244,7 +240,7 @@ Review the survey's summary, and verify any actor attribution before it enters a
 
 ## Step 3: Investigate concerning outcomes
 
-For runs with negative outcome signals (or suspicious lack of output), download and inspect the specific session logs, per **Cost discipline**.
+For runs with negative outcome signals (or suspicious lack of output), download and inspect the specific session logs, in a subagent as above.
 
 **Also escalate whenever a finding will name *which run* produced an output.** A timestamp falling inside a run's start/end span does not attribute the output to it: several runs are live at once — a long scheduled run that opened the PR, the event-triggered handle answering a review on it, a racing sibling — and any of them can post. Attributing by wall-clock inclusion credits the wrong run, and the run ID then ships in a public comment. Confirm from the posting run's own log before a run ID enters a finding.
 

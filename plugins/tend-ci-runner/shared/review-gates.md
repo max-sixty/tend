@@ -3,7 +3,7 @@
 
 ## Confidence and magnitude gates
 
-Before creating a PR, every finding must pass three gates.
+Before creating a PR, every finding must pass both gates.
 
 ### Gate 1: Confidence — is this a real problem?
 
@@ -13,6 +13,8 @@ Before creating a PR, every finding must pass three gates.
 | **High** | Consistent pattern across multiple sessions | 2–3 |
 | **Medium** | Plausible problem seen once, could be noise | 5+ |
 | **Low** | Nitpick or stylistic preference | Do not act |
+
+**Critical** means a wrong outward action the bot actually took — a false-green verdict, a stale approval left standing, a wrong claim posted, an issue closed in error — judged by what the observed occurrence left on the public record. A hypothetical chain to one ("the lost run could have left a stale approval standing") doesn't reach it; the wrong action has to have occurred.
 
 Occurrences include both the current analysis **and** historical evidence recorded by prior runs. Each skill defines where that evidence lives — see the calling skill's "Evidence accumulation" section.
 
@@ -29,23 +31,6 @@ If a finding doesn't meet the threshold, **skip it** — don't create a PR, don'
 
 **The larger the change, the more evidence required.** A one-line simplification needs less justification than a new paragraph. Prefer small, targeted fixes over broad rewrites.
 
-### Gate 3: Cost — does the failure cost more than the fix?
-
-Classify what the failure costs:
-
-- **Wrong outward action** — a false-green verdict, a stale approval left standing, a wrong claim posted, an issue closed in error. Each occurrence does standing damage.
-- **Wasted compute** — a no-op session, a duplicated survey, a run lost to a blip that a later tick retries, a runner-hour burned by a slow or hung job. Each occurrence leaves no standing damage.
-
-Classify by what the observed occurrence itself left on the public record. A hypothetical chain from waste to a wrong outward action ("the lost run could have left a stale approval standing") doesn't upgrade the class — the wrong action has to have occurred.
-
-A wrong-action failure justifies whatever its prevention costs. The default bar for the waste class is stricter: act only when the waste recurred on separate days **and** the fix is nearly free — one existing setting changed in one place, machinery deleted, or a one-line condition.
-
-Machinery fails this gate however often the waste recurs: a retry framework, another skip-gate, scheduling arithmetic, a cache. Judge the whole change by what it leaves behind — logic a future session must re-derive, a rule every later run loads, failure modes of its own — not by its line count. The same setting repeated across workflows, jobs, platforms, or call sites is a configuration scheme rather than one knob, and a mechanism compressed into one dense line is still a mechanism.
-
-How much complexity a repo will carry to save compute is its own maintainer's call. Where the repo whose runs you are judging has a rule of its own — in its `CLAUDE.md`, `AGENTS.md`, or `running-tend` overlay — that rule replaces this default.
-
-When the fix doesn't clear the bar, record the waste and its cost in the evidence store. When the total grows enough to matter, give the maintainer the number — cadence and switching a workflow off are their levers.
-
 ### Structural vs. stochastic failures
 
 Before applying the gates, classify each failure by asking: **did the bot have a decision point?**
@@ -61,11 +46,10 @@ The test: "If I replayed this exact scenario 10 times, would the failure occur e
 For each finding, state:
 1. The evidence level and occurrence count (current + historical)
 2. Whether the failure is structural or stochastic
-3. The failure's cost class (wrong outward action / wasted compute)
-4. The proposed change type
-5. Whether it passes all three gates
+3. The proposed change type
+4. Whether it passes both gates
 
-Only proceed to act on findings that pass all three gates.
+Only proceed to act on findings that pass both gates.
 
 ### Non-issues: do not flag these
 
