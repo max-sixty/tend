@@ -91,7 +91,7 @@ Then check whether tend is still enabled there — it decides how to read an
 empty run list below:
 
 ```bash
-gh api "repos/$ARGUMENTS/actions/workflows" \
+gh api --paginate "repos/$ARGUMENTS/actions/workflows" \
   --jq '.workflows[] | select(.path | test("/tend-")) | "\(.state)\t\(.path)"'
 ```
 
@@ -118,7 +118,7 @@ If empty, record the run as all-clear per **Evidence accumulation** above, then 
 
 If the script printed a `WARNING:` on stderr, the list is known-incomplete — the window was clamped, no anchor was found, or a workflow hit the fetch limit. Record a coverage gap naming the missing span instead of an all-clear, whether or not the list came back empty; the next run's floor advances past that span regardless, so an unrecorded gap is never revisited. If the script *fails* (non-zero exit, e.g. a transient API error), re-run it once; if it fails again, record the window as a coverage gap the same way — this run still concludes green, so the next tick anchors on it and never revisits the span.
 
-**State the window you analyzed.** Its floor is the previous successful run of this workflow, or 6h back when that is older — normally a day, since the workflow runs daily, and further back after a gap. Scope every claim to the window — "no problems since 08:12Z", never "no problems" — and say plainly when the run was dispatched to check on something that landed before it.
+**State the window you analyzed.** Its floor is the previous successful run of this workflow — normally a day back, since the workflow runs daily, and further after a missed tick, up to a 49h cap beyond which the script warns and records a coverage gap. Scope every claim to the window — "no problems since 08:12Z", never "no problems" — and say plainly when the run was dispatched to check on something that landed before it.
 
 ## Step 2: Survey outcomes
 

@@ -1,9 +1,10 @@
 """Tests for plugins/tend-ci-runner/scripts/list_recent_runs.py.
 
 The window logic is the behaviour under test: the completion window resumes
-at the previous successful run's start, clamps at 6h with a stderr WARNING,
-and falls back to a plain 1h window outside Actions. The fake `gh` serves API
-fixtures, while an injected clock keeps the window edges deterministic.
+at the previous successful run's start, clamps at the cap with a stderr
+WARNING, and falls back to a plain 1h window outside Actions. The fake `gh`
+serves API fixtures, while an injected clock keeps the window edges
+deterministic.
 """
 
 from __future__ import annotations
@@ -180,13 +181,15 @@ def test_anchor_query_excludes_the_current_run(env: dict[str, str]) -> None:
     )
 
 
-def test_no_anchor_floors_at_6h_and_warns(env: dict[str, str]) -> None:
-    """With no successful run at all, the window reaches back 6h and the
+def test_no_anchor_floors_at_the_default_window_and_warns(
+    env: dict[str, str],
+) -> None:
+    """With no successful run at all, the window reaches back a day and the
     stderr WARNING tells the caller to record a coverage gap."""
     _runs(
         env,
-        _run_entry(1, updated=NOW - 18000),
-        _run_entry(2, updated=NOW - 25200),
+        _run_entry(1, updated=NOW - 20 * 3600),
+        _run_entry(2, updated=NOW - 26 * 3600),
     )
 
     result = _run(env)
@@ -196,21 +199,23 @@ def test_no_anchor_floors_at_6h_and_warns(env: dict[str, str]) -> None:
     assert "WARNING: no successful" in result.stderr
 
 
-def test_stale_anchor_clamps_to_6h_and_warns(env: dict[str, str]) -> None:
-    """An anchor older than 6h (a sustained outage) clamps the floor rather
-    than growing the window unboundedly, and warns of the coverage gap."""
-    _anchor(env, (555, NOW - 28800))
+def test_stale_anchor_clamps_to_the_cap_and_warns(env: dict[str, str]) -> None:
+    """An anchor older than the cap (a sustained outage) clamps the floor
+    rather than growing the window unboundedly, and warns of the coverage gap.
+    A daily cron's own previous run sits ~24h back, well inside the cap, so
+    this is the outage case rather than the ordinary one."""
+    _anchor(env, (555, NOW - 72 * 3600))
     _runs(
         env,
-        _run_entry(1, updated=NOW - 18000),
-        _run_entry(2, updated=NOW - 23400),
+        _run_entry(1, updated=NOW - 40 * 3600),
+        _run_entry(2, updated=NOW - 60 * 3600),
     )
 
     result = _run(env)
 
     assert result.returncode == 0, result.stderr
     assert _ids(result) == [1]
-    assert "more than 6h back" in result.stderr
+    assert "more than 49h back" in result.stderr
 
 
 def test_outside_actions_uses_a_1h_window(env: dict[str, str]) -> None:

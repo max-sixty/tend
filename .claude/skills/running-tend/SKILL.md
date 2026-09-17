@@ -40,10 +40,10 @@ Tend has Claude-powered workflows beyond the generated `tend-*` set:
 
 `review-reviewers` sweeps only the consumers nobody here maintains; the
 workflow file's header says why, and the matrix is the list. A run's window
-opens at the **previous successful `review-reviewers` run**, floored 6h back
-(`list_recent_runs.py`), so a daily tick covers the day and a dispatch soon
-after one covers the last 6h and warns on stderr that the rest is a coverage
-gap.
+opens at the **previous successful `review-reviewers` run**, so a daily tick
+covers the day. `list_recent_runs.py` caps it at 49h, wide enough to absorb a
+missed tick; past that it warns on stderr and the run records a coverage gap
+rather than an all-clear.
 
 These use the tend composite action and produce `claude-session-logs*` artifacts,
 but their names don't match the `tend-*` prefix that scripts filter on by
