@@ -36,18 +36,14 @@ Tend has Claude-powered workflows beyond the generated `tend-*` set:
 
 | Workflow | File | Schedule | Purpose |
 |----------|------|----------|---------|
-| `review-reviewers` | `review-reviewers.yaml` | manual only (paused) | Outside-in analysis of consumer repo sessions |
+| `review-reviewers` | `review-reviewers.yaml` | daily 09:41 UTC | Outside-in analysis of consumer repo sessions |
 
-`review-reviewers` runs only on `workflow_dispatch` — dispatch it as a
-spot-check after a release, harness switch, or model bump, not on a cadence. The
-per-repo `tend-review-runs` carries the routine loop; the workflow file's header
-explains the pause.
-
-A dispatched run's window opens at the **previous successful `review-reviewers`
-run**, floored 6h back (`list_recent_runs.py`). With no cron, dispatches usually
-sit further apart than that, so the floor is the normal case: the run covers the
-last 6h and warns on stderr that the rest is a coverage gap. Dispatch it within
-~6h of whatever you want it to see.
+`review-reviewers` sweeps only the consumers nobody here maintains; the
+workflow file's header says why, and the matrix is the list. A run's window
+opens at the **previous successful `review-reviewers` run**, floored 6h back
+(`list_recent_runs.py`), so a daily tick covers the day and a dispatch soon
+after one covers the last 6h and warns on stderr that the rest is a coverage
+gap.
 
 These use the tend composite action and produce `claude-session-logs*` artifacts,
 but their names don't match the `tend-*` prefix that scripts filter on by
