@@ -332,3 +332,49 @@ def test_a_mention_on_an_issue_never_asks_the_pull_request_endpoint(
         assert command("rev-parse", "--abbrev-ref", "HEAD", cwd=workspace) == "main"
     finally:
         shutil.rmtree(workspace.parent)
+
+
+def test_the_workspace_container_is_readable_not_merely_traversable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A traverse-only container takes every session down at launch.
+
+    bwrap opens each bind-destination component, so the container needs r for
+    the sandbox user and not x alone; the chmod in prepare_agent_workspace
+    says why.  Pin both modes here, the container's and the clone's.
+    """
+    origin, runner, _base, _head = repository(tmp_path)
+    github_env = tmp_path / "github.env"
+    github_env.write_text("")
+
+    clone_workspace = prepare.clone_workspace
+    mkdtemp = prepare.tempfile.mkdtemp
+    monkeypatch.setattr(
+        prepare.tempfile,
+        "mkdtemp",
+        lambda **arguments: mkdtemp(**{**arguments, "dir": tmp_path}),
+    )
+    monkeypatch.setattr(
+        prepare,
+        "clone_workspace",
+        lambda **arguments: clone_workspace(**arguments, remote_url=str(origin)),
+    )
+    for name, value in {
+        "GITHUB_WORKSPACE": str(runner),
+        "GITHUB_REPOSITORY": "owner/repo",
+        "GITHUB_TOKEN": "unused",
+        "GITHUB_ENV": str(github_env),
+        "TEND_CHECKOUT_MODE": "base",
+        "TEND_BASE_BRANCH": "main",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+    assert prepare.main() == 0
+
+    exported = dict(line.split("=", 1) for line in github_env.read_text().splitlines())
+    workspace = Path(exported["TEND_AGENT_WORKSPACE"])
+    try:
+        assert workspace.parent.stat().st_mode & 0o777 == 0o755
+        assert workspace.stat().st_mode & 0o777 == 0o700
+    finally:
+        shutil.rmtree(workspace.parent)
