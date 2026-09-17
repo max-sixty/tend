@@ -23,7 +23,7 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 
 | When | Read | What it carries |
 |---|---|---|
-| Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | the pre-post re-fetch, reply endpoints, body files, line wrapping, links and the link checker, fenced bodies, no footers |
+| Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | the draft review, the pre-post re-fetch, reply endpoints, body files, line wrapping, links and the link checker, fenced bodies, no footers |
 | Before `gh pr create` or `gh issue create`, or editing a PR's title or description | `references/pr-creation.md` and `references/posting.md` | the open-PR budget, titles, the dedup and prior-rejection searches, keeping a description current |
 | Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | the pre-push review, batching pushes, re-checking PR state and head, branch-state collisions |
 | After any push you are accountable for | `references/ci-monitoring.md` | the pinned poll, a review that lands mid-poll, rerunning failed jobs |
@@ -172,7 +172,7 @@ Write public prose for its reader and the decision the surface supports. A PR de
 
 Lead with the current outcome or causal conclusion. Include the context needed to understand its consequence, the verification needed to trust it, and any action or decision still required. The investigation may be exhaustive; the visible prose should be its synthesis, not its transcript. Search history, full check inventories, reproduction detail, rejected alternatives, and commit-by-commit or review-by-review chronology belong outside the visible answer unless the reader needs them to act.
 
-The visible text must stand on its own. When useful supporting evidence would interrupt it, put a curated record in `<details>` under a descriptive summary. Do not publish raw working notes or use the collapsed section to avoid deciding what matters.
+The visible text must stand on its own, in a shape the reader can scan: the outcome in a short opening paragraph, parallel items (findings, options, affected paths, open decisions) as a list, and a single line of reasoning as prose. When supporting evidence would interrupt it, put a curated record in `<details>` under a descriptive summary. A later run starts with no memory of this one, so that record is what lets it resume the thread without re-deriving the analysis. Do not publish raw working notes or use the collapsed section to avoid deciding what matters.
 
 For example, supporting material may use this shape when it helps the next reader; choose a summary and contents that fit the case:
 

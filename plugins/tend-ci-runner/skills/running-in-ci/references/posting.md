@@ -1,8 +1,13 @@
 # Posting comments and replies
 
+- [Review the draft before posting](#review-the-draft-before-posting)
 - [Recheck Before Posting](#recheck-before-posting)
 - [Replying to comments](#replying-to-comments)
 - [Mechanics](#mechanics)
+
+## Review the draft before posting
+
+Before posting a body you composed, read the file as its reader will, check it against **Reader-facing prose** in `SKILL.md`, and revise the file. A short reply gets a read-through. A body that carries an analysis (several findings, options weighed, an argument that runs across paragraphs) gets the read from a subagent, where this session permits subagent use, because the session that wrote the draft reads its own context into it. Give the subagent the thread and the draft, and check its revision against what you found before posting it. The link check and the recheck below come after the revision.
 
 ## Recheck Before Posting
 
@@ -76,8 +81,6 @@ gh issue comment "$ISSUE" --body-file "$TMPDIR/comment-body.md"
 ```
 
 **Line wrapping:** GitHub renders newlines literally in issue bodies, PR descriptions, and comments — a line break in the source becomes a `<br>` in the output, so a paragraph hard-wrapped at ~72 chars ships with mid-sentence breaks. Write each paragraph as a single long line and let the browser reflow. Code blocks, bullet lists, and tables keep their newlines as-is.
-
-Each CI run is a fresh session with no memory of prior reasoning, so preserve evidence another run would need to resume the thread without re-deriving it. Curate that durable record for future readers too.
 
 Always use markdown links for files, issues, PRs, and docs. **Any link containing `#L` must use a commit SHA, never `blob/main/...#L42`** — line numbers shift silently, so the link stays valid but starts pointing at different code than the comment describes. Get the SHA with `git rev-parse HEAD` before composing the link.
 
