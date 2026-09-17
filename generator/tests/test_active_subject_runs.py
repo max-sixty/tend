@@ -50,7 +50,7 @@ esac
 
 
 def _ago(hours: float) -> str:
-    """A `created_at` *hours* back, against the wall clock the script reads."""
+    """A timestamp *hours* back, against the wall clock the script reads."""
     moment = datetime.now(UTC) - timedelta(hours=hours)
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -61,13 +61,21 @@ def _run(
     status: str,
     title: str = TITLE,
     created_ago_hours: float = 0.25,
+    updated_ago_hours: float | None = None,
 ) -> dict:
+    """A run created *created_ago_hours* back, last touched *updated_ago_hours*.
+
+    Defaults to a run GitHub has not moved since creating it — the shape the
+    Actions API reports for one sitting in a queue, and for a stranded one.
+    """
+    updated = created_ago_hours if updated_ago_hours is None else updated_ago_hours
     return {
         "id": rid,
         "name": name,
         "status": status,
         "display_title": title,
         "created_at": _ago(created_ago_hours),
+        "updated_at": _ago(updated),
         "html_url": f"https://github.com/owner/repo/actions/runs/{rid}",
     }
 
@@ -193,13 +201,37 @@ def test_a_run_queued_for_hours_still_owns_the_subject(env: dict[str, str]) -> N
     assert [run["id"] for run in _owners(env)] == [108]
 
 
-def test_a_run_with_no_created_at_still_owns_the_subject(env: dict[str, str]) -> None:
+def test_a_run_with_no_updated_at_still_owns_the_subject(env: dict[str, str]) -> None:
     """An unreadable age is not evidence of abandonment.
 
     Deferring a poll costs a poll; dropping a live owner costs a second
     outward answer from the same bot account.
     """
     run = _run(109, "tend-mention", "queued")
-    del run["created_at"]
+    del run["updated_at"]
     _stage(env, "queued", run)
     assert [run["id"] for run in _owners(env)] == [109]
+
+
+def test_a_long_queued_run_that_started_still_owns_the_subject(
+    env: dict[str, str],
+) -> None:
+    """Age is measured from the last state change, not from creation.
+
+    A run can queue for most of a day and then run out a job timeout hours
+    long, putting it over a day past `created_at` while it is still working
+    the subject. Dropping it there is the double answer the bound must not
+    cause.
+    """
+    _stage(
+        env,
+        "in_progress",
+        _run(
+            110,
+            "tend-mention",
+            "in_progress",
+            created_ago_hours=25,
+            updated_ago_hours=2,
+        ),
+    )
+    assert [run["id"] for run in _owners(env)] == [110]

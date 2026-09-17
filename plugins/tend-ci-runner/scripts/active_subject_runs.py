@@ -32,29 +32,36 @@ ACTIVE_STATUSES = ("queued", "in_progress", "waiting", "requested", "pending")
 # below by run id rather than by name, since a second poll would own nothing.
 WORKFLOW_PREFIX = "tend-"
 
-# A non-terminal run this old is never going to deliver. GitHub terminates a
-# job queued past 24h, and a Tend session's own timeout is hours short of
-# that, so nothing legitimate is still owed after a day. Runs do get stranded
-# non-terminal with no jobs and no further updates, and without this bound one
-# of them pins its subject for good.
+# A run whose state has not moved in this long is never going to deliver.
+# GitHub terminates a job queued past 24h, so nothing legitimate sits
+# untouched for a day. Runs do get stranded non-terminal with no jobs and no
+# further updates, and without this bound one of them pins its subject for
+# good.
 ABANDONED_AFTER = timedelta(hours=24)
 
 
 def abandoned(run: dict[str, Any], *, now: datetime) -> bool:
-    """Whether *run* has been non-terminal longer than a run ever legitimately is.
+    """Whether *run*'s state has stood still longer than a live run's ever does.
 
-    An unreadable or absent `created_at` counts as fresh: deferring one extra
+    Measured from `updated_at`, which GitHub advances on every job transition,
+    rather than `created_at`, which spans the queue and the session both: a
+    run queued most of a day and then running out its job timeout is over a
+    day old while still live, and dropping it costs the second outward answer
+    this check exists to prevent. A stranded run reports `updated_at` equal to
+    its `created_at`, so the bound still reaches it.
+
+    An unreadable or absent `updated_at` counts as fresh: deferring one extra
     poll costs a poll, while dropping a live owner costs a second outward
     answer from the same bot account.
     """
-    created = str(run.get("created_at") or "")
+    touched = str(run.get("updated_at") or "")
     try:
-        started = datetime.fromisoformat(created)
+        moved = datetime.fromisoformat(touched)
     except ValueError:
         return False
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=UTC)
-    return now - started > ABANDONED_AFTER
+    if moved.tzinfo is None:
+        moved = moved.replace(tzinfo=UTC)
+    return now - moved > ABANDONED_AFTER
 
 
 def owning_runs(
