@@ -88,7 +88,7 @@ gh pr view <number> --json comments,reviews \
 
 Keep `reviews` in the PR projection rather than narrowing to `comments` — it is the entry a dedup-shaped check is most likely to drop, and on a fork PR it is the one nothing else will pick up (see **A review that lands while you poll is not yours to action** in `references/ci-monitoring.md`).
 
-An inline review comment has a third path: a single PR review can fire both `pull_request_review` and `pull_request_review_comment` events, triggering separate workflow runs (serialized by the concurrency group, not truly concurrent). Before replying to one, check whether the bot already replied:
+A reply to an inline review comment needs its own check for the sibling path: a single PR review can fire both `pull_request_review` and `pull_request_review_comment` events, triggering separate workflow runs (serialized by the concurrency group, not truly concurrent). Before replying, check whether the bot already replied to that comment:
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
