@@ -6,6 +6,32 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.2.10
+
+### Fixed
+
+- **The disposable agent workspace's container directory is `0o755` rather than `0o711`.** bubblewrap's CVE-2026-87766 fix (`0.9.0-1ubuntu0.2` on noble, `0.12.0` upstream) opens each component of a bind destination with `O_DIRECTORY` where it used to stat it, so an intermediate directory needs read permission and not just search. From the afternoon of 2026-09-17, when the Ubuntu archive began serving the update, every session on every consumer died at sandbox launch with `bwrap: Can't mkdir parents for /tmp/tend-agent-workspace-*/checkout: Permission denied`. ([#1277](https://github.com/max-sixty/tend/pull/1277))
+- **The bot-PR conflict gate in `tend-notifications` counts only a settled `CONFLICTING`.** GitHub computes `mergeable` lazily, so a recently pushed PR reads `UNKNOWN`; the gate read that as a conflict and booted an agent session after every merge into the default branch. ([#1276](https://github.com/max-sixty/tend/pull/1276))
+- **An abandoned workflow run no longer counts as a subject's owner**, so the notifications poll stops deferring to a dedicated run that will never act on it. ([#1264](https://github.com/max-sixty/tend/pull/1264))
+- **`enrich_tend_outage_issues` skips a run with no failed attempt** instead of enriching it as "No failure details could be extracted". ([#1248](https://github.com/max-sixty/tend/pull/1248))
+
+### Improved
+
+- **The sandbox seeds the agent's Git commit identity before the turn starts**, so the bundled skills no longer ask a session to configure `user.name` and `user.email` for itself. ([#1252](https://github.com/max-sixty/tend/pull/1252))
+- **Guidance that ships to consumers carries mechanics, not tend's own maintainer calls** — its order of value, its single-maintainer PR budget, and its compute economics have left the bundled skills for `CLAUDE.md`, which gains **Shipped guidance and tend's own** to say which repo a given file governs. What work is worth doing in a consumer's repo is now that repo's call. ([#1265](https://github.com/max-sixty/tend/pull/1265), [#1267](https://github.com/max-sixty/tend/pull/1267), [#1268](https://github.com/max-sixty/tend/pull/1268), [#1269](https://github.com/max-sixty/tend/pull/1269), [#1272](https://github.com/max-sixty/tend/pull/1272))
+- **A session reads its draft as its reader would before posting it**, and `running-in-ci` states the goal for reader-facing prose rather than a required shape. ([#1263](https://github.com/max-sixty/tend/pull/1263))
+- **"State the rule, not the incident" is its own section in `running-in-ci`**, covering skills, overlays, and project instruction files, in a review suggestion as well as a commit. It previously sat inside the skill-PR mechanics, which a session reached only when a maintainer's correction was becoming guidance. ([#1262](https://github.com/max-sixty/tend/pull/1262))
+- **An exhaustiveness claim ships only on a method that could have falsified it.** A set difference over two `--help` outputs answers which options one command rejects, not which must not be forwarded to it, and a truncated listing answers nothing about the rows it cut. ([#1275](https://github.com/max-sixty/tend/pull/1275))
+
+### Documentation
+
+- **`code-review` and `review` scale by coverage rather than by subagent fan-out**: the caller is told how much was covered, not which mechanism ran. `CLAUDE.md`'s **What waste is worth fixing** judges a token saving by its share of total spend, estimated before the change is proposed. ([#1266](https://github.com/max-sixty/tend/pull/1266))
+- A truncated comment in `claude/action.yaml` and a migration test's stale docstring. ([#1271](https://github.com/max-sixty/tend/pull/1271))
+
+### Internal
+
+- Two generator tests filtered a generated workflow's steps for the agent step and asserted inside that loop, so an unmatched filter passed green while asserting nothing. Both now fail on an unmatched step, and the mention filter gains coverage. ([#1256](https://github.com/max-sixty/tend/pull/1256))
+
 ## 0.2.9
 
 ### Improved
