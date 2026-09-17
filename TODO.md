@@ -256,12 +256,12 @@ earns its keep — until then, demand-fetch is cheap enough.
 
 `workflows.py` builds every other agent-invoking workflow's prompt from
 `default_prompt(skill)`; mention's is written inline in `mention.yaml.j2` and
-names no skill, so `running-in-ci` doubles as mention's skill. Rules with
-mention's shape — reading a triggering comment, a review's inline comments,
-whether to respond, the closed-target check — land in the file every session
-loads because there is nowhere else for them to go.
+names no skill — the one exception `test_repo_pins.py` allows to the invariant
+under "Which file" in `CLAUDE.md`.
 
-A `mention` skill invoked by that prompt gives them a home and restores the
-invariant under "Which file" in `CLAUDE.md`. The move is the work: decide which of
-`running-in-ci`'s Read Context sections are mention-only, which notifications
-and review also act on, and which belong in `references/` keyed on the trigger.
+The rules with mention's shape — reading the thread, a review's inline
+comments, the closed-target check, whether to respond — no longer need that
+skill for a home: `running-in-ci`'s `references/trigger-context.md` holds them,
+keyed on responding to a thread whatever woke the session, so triage,
+notifications, and review reach them too. A `mention` skill earns its cost only
+once rules that bind mention alone start accumulating in `running-in-ci` again.
