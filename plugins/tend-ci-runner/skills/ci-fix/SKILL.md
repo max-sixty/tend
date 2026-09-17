@@ -17,7 +17,7 @@ durable cause, and create a PR when code or configuration needs to change.
 
 ### 0. Load environment skills
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, polling conventions, and comment formatting guidance. It will also prompt you to load any repo-specific skills (e.g., `running-tend`).
+Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, polling conventions, and comment formatting instructions. It will also prompt you to load any repo-specific skills (e.g., `running-tend`).
 
 ### 1. Check for existing fixes
 

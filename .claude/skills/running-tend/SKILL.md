@@ -1,13 +1,13 @@
 ---
 name: running-tend
-description: Tend-specific guidance for tend CI workflows. Adds non-standard workflow inclusion for usage analysis and repo conventions on top of the bundled tend-ci-runner skills.
+description: Tend-specific instructions for tend CI workflows. Adds non-standard workflow inclusion for usage analysis and repo conventions on top of the bundled tend-ci-runner skills.
 metadata:
   internal: true
 ---
 
 # Tend CI
 
-Repo-specific guidance for tend workflows running on tend itself. The bundled
+Repo-specific instructions for tend workflows running on tend itself. The bundled
 skills (`/tend-ci-runner:running-in-ci`, `/tend-ci-runner:review`,
 `/tend-ci-runner:triage`, etc.) provide the workflow framework; this skill adds
 tend conventions.
@@ -20,9 +20,9 @@ qualify, as do other Claude-Code-action-using repos. The default rule (open
 an issue here asking permission first) still applies when the target shows no
 agent signals.
 
-## Guidance PRs
+## Proposing instructions
 
-`/tend-ci-runner:running-in-ci`'s `references/proposing-tend-guidance.md`
+`/tend-ci-runner:running-in-ci`'s `references/proposing-tend-instructions.md`
 routes a bundled rule upstream to tend, which is this repo, so the rule lands
 here as a PR rather than an issue. That PR follows the file's **Mechanics**,
 with the file under `plugins/` as step 2's dedup target and without step 3's
@@ -112,11 +112,11 @@ have recent activity on GitHub — that localizes the fault to the Worker. The
 bot can't rotate the Worker's Cloudflare-side secret itself, so leave the
 diagnosis to a maintainer; `worker/README.md` covers the Worker's setup.
 
-## Nightly: guidance placement
+## Nightly: where instructions belong
 
-When the survey reads a guidance file, ask of it the two questions under
-**Shipped guidance and tend's own** in `CLAUDE.md`: does it ship, and who acts
-on it.
+When the survey reads an instructions file, ask of it the two questions under
+**Shipped instructions and tend's own** in `CLAUDE.md`: does it ship, and who
+acts on it.
 
 ## Nightly: don't duplicate the release's regeneration PR
 

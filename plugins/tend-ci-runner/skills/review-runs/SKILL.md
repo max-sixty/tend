@@ -112,7 +112,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 
   The PAT's `repo` scope covers this. Where alerts are disabled the call fails with `403 Dependabot alerts are disabled for this repository.` — that is the check not applying, not a missing scope; only an empty result means no open alerts. Otherwise run it unconditionally. An alert open for more than a few days with no PR naming its package is live work in the same sense as a red default-branch run. A red `dynamic/dependabot/...` row above naming that package is the mechanism: Dependabot is erroring, so waiting will not produce a PR and the manifest or lockfile has to be bumped directly. `gh run view <id> --log-failed` ends with an error table naming the dependency and the error type; `security_update_not_possible` also reports the lowest non-vulnerable version beside the highest the dependency tree currently resolves, which is the constraint to relax.
 
-Handle live work through the normal triage, review, or CI-fix guidance. Keep
+Handle live work through the normal triage, review, or CI-fix instructions. Keep
 failed runs in the report as diagnostic evidence.
 
 After the exhaustive live scan, find the canonical current outage tracker and
@@ -214,15 +214,15 @@ Your workflows call a pinned action ref, so a skill fix merged upstream stays do
 
 Improvements target **repo-local** files by default:
 
-- **`.claude/skills/`** — update or create skill overlays with guidance that prevents the identified problem. Prefer updating existing skill files over creating new ones.
+- **`.claude/skills/`** — update or create skill overlays with instructions that prevent the identified problem. Prefer updating existing skill files over creating new ones.
 - **`.config/tend.yaml`** — adjust workflow configuration if the problem is structural (e.g., wrong cron schedule, missing setup step).
-- **Project instruction file (`CLAUDE.md` or `AGENTS.md`)** — add project-specific guidance if the problem is about code conventions or patterns the bot keeps getting wrong.
+- **Project instruction file (`CLAUDE.md` or `AGENTS.md`)** — add project-specific instructions if the problem is about code conventions or patterns the bot keeps getting wrong.
 
-**Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per `/tend-ci-runner:running-in-ci`'s `references/other-repos.md`. Signal: the fix reads as generic guidance that would apply to any consumer.
+**Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per `/tend-ci-runner:running-in-ci`'s `references/other-repos.md`. Signal: the fix reads as generic instructions that would apply to any consumer.
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
-Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `/tend-ci-runner:running-in-ci`'s `references/proposing-tend-guidance.md`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place):
+Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `/tend-ci-runner:running-in-ci`'s `references/proposing-tend-instructions.md`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place):
 
 
 ```bash

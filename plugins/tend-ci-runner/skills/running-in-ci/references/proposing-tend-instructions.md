@@ -1,6 +1,6 @@
-# Proposing tend guidance from CI
+# Proposing tend instructions from CI
 
-Turning a maintainer's correction into durable guidance for future runs. It
+Turning a maintainer's correction into durable instructions for future runs. It
 lands in one of two places: this repo's own `running-tend` overlay, which only
 sessions here read, or tend's bundled skills upstream at `max-sixty/tend`,
 which every repo tend maintains reads. This file covers whether the correction
@@ -68,7 +68,7 @@ Upstream means an issue on `max-sixty/tend`, filed per **Filing issues** in
 
 ## What the text carries
 
-Guidance text states the rule a future session acts on: the shape to follow and
+Instructions state the rule a future session acts on: the shape to follow and
 the shape to avoid, in a few lines. That holds in a skill, an overlay, or a
 project instruction file such as `CLAUDE.md`, and for text suggested in a
 review as much as text you commit. Leave out how the rule came about — the PRs,
@@ -108,7 +108,7 @@ These steps are for the overlay path. Filing upstream follows
    ```markdown
    ---
    name: running-tend
-   description: Project-specific guidance for tend workflows running on this repo.
+   description: Project-specific instructions for tend workflows running on this repo.
    ---
    ```
 
@@ -162,7 +162,7 @@ These steps are for the overlay path. Filing upstream follows
 4. **Open as a separate PR.** Follow the repo's PR title conventions
    (conventional commits, Jira prefix, or whatever the repo uses — check
    recent merged PRs or `CONTRIBUTING.md`). The body states the generalized
-   behavior gap and the outcome the new guidance should produce, then links
+   behavior gap and the outcome the new instructions should produce, then links
    the triggering thread as evidence. Do not quote or reconstruct the exchange.
 
 5. **Open and exit — don't merge, don't wait.** The PR itself is the review

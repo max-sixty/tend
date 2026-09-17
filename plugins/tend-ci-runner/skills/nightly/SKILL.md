@@ -12,7 +12,7 @@ Resolve conflicts on bot PRs, review recent commits, survey a slice of existing 
 ## Step 0: Load environment skills
 
 Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules,
-polling conventions, and comment formatting guidance. It will also prompt you
+polling conventions, and comment formatting instructions. It will also prompt you
 to load any repo-specific skills (e.g., `running-tend`).
 
 ## Step 1: Verify bot PAT scopes
@@ -107,7 +107,7 @@ For each open issue, check whether recent commits or the current codebase state 
   - a body containing "Do not close manually" — recurring trackers with their own lifecycle.
   - the `tend-outage` label. Its rows identify failed runs that `review-runs` diagnoses before checking the live repository for missed work. Nightly's cron precedes `review-runs` under the generated defaults, so closing the issue here can remove those rows before that check.
   - the `tend-rate-limit` label, where a maintainer's close is what lifts the bot past its own rate limit. Closing that one as the bot lifts nothing — the preflight counts only closes by a person — but it clears a decision still waiting on one.
-- The repo's guidance (e.g., `running-tend` skill) explicitly authorizes closing issues.
+- The repo's instructions (e.g., `running-tend` skill) explicitly authorize closing issues.
 
 Otherwise, leave it open for a maintainer to close.
 

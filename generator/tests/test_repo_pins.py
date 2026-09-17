@@ -651,10 +651,10 @@ def test_codex_refresher_keeps_the_secret_writer_pat_out_of_the_model_step() -> 
     assert publish["env"]["CODEX_OUTCOME"] == "${{ steps.codex.outcome }}"
 
 
-def test_bundled_runner_guidance_has_no_unscoped_tmp_paths() -> None:
+def test_bundled_runner_instructions_have_no_unscoped_tmp_paths() -> None:
     """`/tmp` is not writable in the sandbox; `$TMPDIR` is.
 
-    A bare `/tmp` anywhere the runner reads — guidance, script, helper — sends
+    A bare `/tmp` anywhere the runner reads — instructions, script, helper — sends
     the session to a path that fails on write, so the ban is repo-wide rather
     than a rule any one file states. A line that says `/tmp` is read-only is
     that rule, not an instance of the failure, so it is exempt.

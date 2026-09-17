@@ -38,17 +38,17 @@ RESTORE_SENSITIVE_CONFIG = (
 # harnesses' pin scripts run against it and are held to the same end state.
 _BASE = {
     "README.md": "base readme\n",
-    "CLAUDE.md": "root guidance\n",
+    "CLAUDE.md": "root instructions\n",
     "AGENTS.md": "-> CLAUDE.md",
     ".agents/plugins/marketplace.json": "base plugins\n",
     ".agents/skills": "-> ../.claude/skills",
     ".claude/skills/running-tend/SKILL.md": "root skill\n",
-    "site/CLAUDE.md": "site guidance\n",
-    "docs/CLAUDE.md": "docs guidance\n",
-    "docs/CLAUDE.local.md": "docs local guidance\n",
-    "nested/AGENTS.md": "nested guidance\n",
-    "tools/CLAUDE.md": "tools guidance\n",
-    "moved/CLAUDE.md": "moved guidance\n",
+    "site/CLAUDE.md": "site instructions\n",
+    "docs/CLAUDE.md": "docs instructions\n",
+    "docs/CLAUDE.local.md": "docs local instructions\n",
+    "nested/AGENTS.md": "nested instructions\n",
+    "tools/CLAUDE.md": "tools instructions\n",
+    "moved/CLAUDE.md": "moved instructions\n",
     "apps/api/.agents/skills/deploy/SKILL.md": "api skill\n",
     "apps/web/.claude/skills/deploy/SKILL.md": "web skill\n",
 }
@@ -324,7 +324,7 @@ def test_pinning_fails_when_the_base_ref_is_missing(
     fork's instruction files with a log line saying 0 paths were pinned."""
     repo, event = _fork_pr(
         tmp_path,
-        {"CLAUDE.md": "root guidance\n"},
+        {"CLAUDE.md": "root instructions\n"},
         lambda repo: _write(repo / "CLAUDE.md", "EVIL root\n"),
         base_ref="missing",
     )

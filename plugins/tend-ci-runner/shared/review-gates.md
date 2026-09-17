@@ -25,9 +25,9 @@ If a finding doesn't meet the threshold, **skip it** — don't create a PR, don'
 
 | Change type | Examples | Evidence bar |
 |---|---|---|
-| **Removal / simplification** | Remove confusing sentence, delete dead guidance | Low (1 occurrence is enough) |
+| **Removal / simplification** | Remove confusing sentence, delete dead instructions | Low (1 occurrence is enough) |
 | **Targeted fix** | Fix a specific incorrect instruction, add a missing step | Normal (use Gate 1 thresholds) |
-| **New paragraph or section** | Add explanation of a concept, new workflow guidance | High (need 3+ occurrences showing the gap) |
+| **New paragraph or section** | Add explanation of a concept, new workflow instructions | High (need 3+ occurrences showing the gap) |
 | **Structural change** | Reorganize a skill, add a new skill file, change workflow | Very high (need 5+ occurrences or a critical failure) |
 
 **The larger the change, the more evidence required.** A one-line simplification needs less justification than a new paragraph. Prefer small, targeted fixes over broad rewrites.
@@ -38,7 +38,7 @@ Before applying the gates, classify each failure by asking: **did the bot have a
 
 - **Structural**: no decision point — the same conditions produce the same failure every time, regardless of how the bot approached the task. E.g., "the checkout differs between `pull_request_target` and `issue_comment` events, so grepping always finds stale content." Structural classification raises confidence the failure will recur, but does **not** override Gate 1 — a non-Critical structural failure still needs the occurrence count its evidence level requires (High = 2–3, Medium = 5+). Only **Critical** structural failures act on a single occurrence.
 
-- **Stochastic**: the failure is a probabilistic model behavior — e.g., "the model was too agreeable when challenged" or "the model forgot to check X." The same model might handle the next identical situation correctly without any guidance change. These need significantly more evidence (5+ occurrences) because adding guidance for a one-off stochastic lapse adds noise that can degrade performance on other tasks. The 5+ floor governs a stochastic failure whatever evidence level its entries carry — no reclassification, pre-registered condition, or escalation recorded in the evidence store lowers it.
+- **Stochastic**: the failure is a probabilistic model behavior — e.g., "the model was too agreeable when challenged" or "the model forgot to check X." The same model might handle the next identical situation correctly without any change to the instructions. These need significantly more evidence (5+ occurrences) because adding an instruction for a one-off stochastic lapse adds noise that can degrade performance on other tasks. The 5+ floor governs a stochastic failure whatever evidence level its entries carry — no reclassification, pre-registered condition, or escalation recorded in the evidence store lowers it.
 
 The test: "If I replayed this exact scenario 10 times, would the failure occur every time (structural) or only sometimes (stochastic)?" When in doubt, classify as stochastic and wait for more evidence.
 

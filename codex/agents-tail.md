@@ -12,7 +12,7 @@ skills that inspect earlier Tend sessions.
 `sed -n '1,Np'` or `head`. These skills are short, and their trailing
 sections carry load-bearing security, dedup, and CI-polling rules. A
 prefix read silently drops those and produces wrong behavior. This
-overrides any general "read only enough" guidance for tend skills.
+overrides any general "read only enough" instruction for tend skills.
 
 A skill's **References** list names `references/` files to read before
 particular actions — posting, pushing, opening a PR, approving. Read the
@@ -20,7 +20,7 @@ named file in full, with `cat`, before taking that action.
 
 ALWAYS read `$running-in-ci` first (in full) when handling any
 workflow. It covers CI security rules, polling conventions, and
-comment-formatting guidance. Other skills depend on it.
+comment-formatting instructions. Other skills depend on it.
 
 Repo-local skills live under `.claude/skills/<name>/SKILL.md` in the
 consumer's repo (e.g. `running-tend`). The `running-in-ci` skill tells

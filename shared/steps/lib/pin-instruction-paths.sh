@@ -3,7 +3,7 @@
 # instruction files to the base branch under both harnesses. Sourced, not
 # executed.
 #
-# Instruction files are trusted repo guidance at any depth, not only the root.
+# Instruction files are trusted repo instructions at any depth, not only the root.
 # Claude Code loads the CLAUDE.md, CLAUDE.local.md, or AGENTS.md nearest the
 # file the agent opens, and the skills under any directory's .claude/; Codex
 # reads the AGENTS.md beside the files it opens and discovers skills under
