@@ -113,7 +113,7 @@ Otherwise, leave it open for a maintainer to close.
 
 ### Enrich tend-outage issues
 
-The action's "Report failure" step records only a workflow run link in `tend-outage` issues — annotations and job logs aren't reliably available while the job is in_progress. Run the enrichment script to fetch failure details for each newly referenced run and post them as a comment. The script is idempotent: it skips runs already marked with `<!-- enriched-run:RUN_ID -->`.
+The action's "Report failure" step records a workflow run link in `tend-outage` issues — annotations and job logs aren't reliably available while the job is in_progress. Run the enrichment script to fetch failure details for each newly referenced run and post them as a comment. The script is idempotent: it skips runs already marked with `<!-- enriched-run:RUN_ID -->`.
 
 ```bash
 uv run --script \
