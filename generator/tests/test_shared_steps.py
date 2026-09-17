@@ -600,7 +600,7 @@ def test_notifications_check_suppresses_only_the_marked_bot_head(
         [
             {
                 "number": 22,
-                "mergeable": "UNKNOWN",
+                "mergeable": "CONFLICTING",
                 "headRefOid": "head-22",
                 "comments": [
                     {
