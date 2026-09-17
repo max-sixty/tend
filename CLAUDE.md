@@ -10,8 +10,8 @@ completely — old formats should fail with a clear error, not silently parse.
 
 Simplicity outranks efficiency. Complexity earns its place by preventing
 wrong outward actions — what the bot posts, approves, merges, or closes —
-never by saving compute — see "What waste is worth fixing" below. Prefer
-deleting a mechanism over refining it.
+never by saving compute. Prefer deleting a mechanism over refining it.
+"What waste is worth fixing" below says which waste earns a change.
 
 ## Commands
 
