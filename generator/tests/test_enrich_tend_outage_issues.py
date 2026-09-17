@@ -55,8 +55,16 @@ case "$*" in
   "repo view"*) emit '{"nameWithOwner":"owner/repo"}' ;;
   "issue list"*) emit '[{"number":7}]' ;;
   "issue view"*) emit "$(cat "$ISSUE_JSON")" ;;
-  *"/jobs"*) emit "$(cat "$JOBS_JSON")" ;;
-  *"/annotations"*) emit "$(cat "$ANNOTATIONS_JSON")" ;;
+  *"/jobs"*)
+    run_id=$(printf '%s' "$*" | sed -n 's|.*/actions/runs/\([0-9]*\)/jobs.*|\1|p')
+    override="$(dirname "$JOBS_JSON")/jobs-$run_id.json"
+    if [ -f "$override" ]; then emit "$(cat "$override")"; else emit "$(cat "$JOBS_JSON")"; fi
+    ;;
+  *"/annotations"*)
+    job_id=$(printf '%s' "$*" | sed -n 's|.*/check-runs/\([0-9]*\)/annotations.*|\1|p')
+    override="$(dirname "$ANNOTATIONS_JSON")/annotations-$job_id.json"
+    if [ -f "$override" ]; then emit "$(cat "$override")"; else emit "$(cat "$ANNOTATIONS_JSON")"; fi
+    ;;
   "run view"*--log-failed*)
     if [ -n "${LOG_FAILS:-}" ]; then exit 1; fi
     case "$*" in
@@ -434,6 +442,289 @@ def test_a_matrix_of_failed_jobs_cannot_fill_the_body(env: dict[str, str]) -> No
     assert f"<!-- enriched-run:{RUN_ID} -->" in body
     assert "_Remaining failed jobs omitted._" in body
     assert len(_fence_lines(body)) % 2 == 0
+
+
+def _jobs_for(env: dict[str, str], run_id: str, jobs: dict[str, object]) -> None:
+    """Serve a run-specific jobs response instead of the shared fixture one."""
+    path = Path(env["JOBS_JSON"]).with_name(f"jobs-{run_id}.json")
+    path.write_text(json.dumps(jobs))
+
+
+def _jobs_pages_for(
+    env: dict[str, str], run_id: str, pages: list[dict[str, object]]
+) -> None:
+    """Serve one run's jobs as the page stream ``gh api --paginate`` emits."""
+    path = Path(env["JOBS_JSON"]).with_name(f"jobs-{run_id}.json")
+    path.write_text("".join(json.dumps(page) for page in pages))
+
+
+def _annotations_for(env: dict[str, str], job_id: int, messages: list[str]) -> None:
+    """Serve one job's annotations instead of the shared fixture ones."""
+    path = Path(env["ANNOTATIONS_JSON"]).with_name(f"annotations-{job_id}.json")
+    path.write_text(
+        json.dumps(
+            [
+                {"annotation_level": "failure", "message": message}
+                for message in messages
+            ]
+        )
+    )
+
+
+GREEN_JOBS: dict[str, object] = {
+    "jobs": [{"id": 201, "name": "deploy", "conclusion": "success", "run_attempt": 1}]
+}
+
+
+def test_a_green_baseline_run_is_not_enriched(env: dict[str, str]) -> None:
+    # A diagnosis cites green runs as its comparison baseline. They never
+    # failed, so the "could not extract" sentence would misreport them as
+    # undiagnosable failures, and a marker would block a later rerun-to-red.
+    green = "12"
+    Path(env["ISSUE_JSON"]).write_text(
+        json.dumps(
+            {
+                "body": (
+                    f"Failed https://github.com/owner/repo/actions/runs/{RUN_ID}\n"
+                    f"Baseline https://github.com/owner/repo/actions/runs/{green}"
+                ),
+                "comments": [],
+            }
+        )
+    )
+    _jobs_for(env, green, GREEN_JOBS)
+
+    body = _run(env)
+
+    assert f"### [Run {green}]" not in body
+    assert f"<!-- enriched-run:{green} -->" not in body
+    assert "No failure details could be extracted." not in body
+    assert f"<!-- enriched-run:{RUN_ID} -->" in body
+
+
+def test_an_issue_citing_only_green_runs_posts_nothing(env: dict[str, str]) -> None:
+    _jobs_for(env, RUN_ID, GREEN_JOBS)
+
+    assert _run(env) == ""
+    assert "run view" not in Path(env["GH_CALLS"]).read_text()
+
+
+def test_the_jobs_read_walks_every_page(env: dict[str, str]) -> None:
+    # The green-run guard reads rows with no failure among them as a run that
+    # never failed, so a read stopping at one page would drop a wide matrix's
+    # real failure.
+    _run(env)
+
+    assert (
+        f"api --paginate repos/owner/repo/actions/runs/{RUN_ID}"
+        "/jobs?filter=all&per_page=100" in Path(env["GH_CALLS"]).read_text()
+    )
+
+
+def test_a_failure_on_a_later_jobs_page_is_enriched(env: dict[str, str]) -> None:
+    # GitHub caps the page at 100 rows while a matrix can create far more, so
+    # the failed row routinely sits behind the first page.
+    _jobs_pages_for(
+        env,
+        RUN_ID,
+        [
+            GREEN_JOBS,
+            {
+                "jobs": [
+                    {
+                        "id": int(JOB_ID),
+                        "name": "tests",
+                        "conclusion": "failure",
+                        "run_attempt": 1,
+                    }
+                ]
+            },
+        ],
+    )
+
+    body = _run(env)
+
+    assert "assertion failed" in body
+    assert f"<!-- enriched-run:{RUN_ID} -->" in body
+
+
+def test_a_cancelled_run_is_still_enriched(env: dict[str, str]) -> None:
+    # `ci-fix` fires on cancelled runs as well as failed ones, so its tracker
+    # cites runs whose jobs never carry `conclusion: failure`. Reading those as
+    # green would drop the diagnosis with no section and no marker.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {
+            "jobs": [
+                {
+                    "id": int(JOB_ID),
+                    "name": "tests",
+                    "conclusion": "cancelled",
+                    "run_attempt": 1,
+                }
+            ]
+        },
+    )
+    # `gh run view --log-failed` selects failed steps, and a cancelled job has
+    # none, so the real CLI returns nothing here: the annotation naming the
+    # cancelling request is the whole diagnosis.
+    Path(env["LOG_TXT"]).write_text("")
+    Path(env["ANNOTATIONS_JSON"]).write_text(
+        json.dumps(
+            [
+                {
+                    "annotation_level": "failure",
+                    "message": "Canceling since a higher priority request exists",
+                }
+            ]
+        )
+    )
+
+    body = _run(env)
+
+    assert "Canceling since a higher priority request exists" in body
+    assert "No failure details could be extracted." not in body
+    assert f"<!-- enriched-run:{RUN_ID} -->" in body
+
+
+def test_a_fail_fast_matrix_reports_only_the_job_that_failed(
+    env: dict[str, str],
+) -> None:
+    # Fail-fast cancels the failed job's siblings, and each cancelled row
+    # annotates "The operation was canceled." Reporting those alongside the one
+    # real error buries it and spends the run's byte budget on noise.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {
+            "jobs": [
+                {"id": 301, "name": "py-3.12", "conclusion": "cancelled"},
+                {"id": int(JOB_ID), "name": "py-3.13", "conclusion": "failure"},
+            ]
+        },
+    )
+
+    body = _run(env)
+
+    assert "#### py-3.12" not in body
+    assert "#### py-3.13" in body
+
+
+def test_a_cancelled_matrix_reports_its_annotation_once(env: dict[str, str]) -> None:
+    # A run-level cancellation annotates every job with the same message, so a
+    # section per job repeats one diagnosis until it fills the run's byte
+    # budget and crowds the other runs into a later batch.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {
+            "jobs": [
+                {"id": 400 + i, "name": f"Analyze ({i})", "conclusion": "cancelled"}
+                for i in range(4)
+            ]
+        },
+    )
+    Path(env["ANNOTATIONS_JSON"]).write_text(
+        json.dumps(
+            [
+                {
+                    "annotation_level": "failure",
+                    "message": "The run was canceled by @github-advanced-security[bot].",
+                }
+            ]
+        )
+    )
+
+    body = _run(env)
+
+    assert body.count("The run was canceled") == 1
+
+
+def test_a_timed_out_job_survives_its_cancelled_siblings(env: dict[str, str]) -> None:
+    # A timeout cancels the rest of the run, so the job that exceeded the limit
+    # sits among cancelled siblings and is the only one whose annotation names
+    # it. Deduping the repeated cancellation must not take it with them.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {
+            "jobs": [
+                {"id": 401, "name": "py-3.12", "conclusion": "cancelled"},
+                {"id": 402, "name": "py-3.13", "conclusion": "cancelled"},
+                {"id": int(JOB_ID), "name": "py-3.14", "conclusion": "timed_out"},
+            ]
+        },
+    )
+    for job_id in (401, 402):
+        _annotations_for(env, job_id, ["The operation was canceled."])
+    _annotations_for(
+        env,
+        int(JOB_ID),
+        ["The job running on runner ubuntu-24.04 has exceeded the maximum time"],
+    )
+
+    body = _run(env)
+
+    assert "has exceeded the maximum time" in body
+    assert body.count("The operation was canceled.") == 1
+
+
+def test_a_cancelled_sibling_carries_a_run_that_never_started(
+    env: dict[str, str],
+) -> None:
+    # A job cancelled before it started carries no annotation at all, so the
+    # run's only diagnosis sits on the sibling that did start. Dropping the
+    # repeated message rather than choosing one job per conclusion is what
+    # keeps that sibling's section — otherwise the run renders the "could not
+    # extract" sentence and takes its durable marker with nothing in it.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {
+            "jobs": [
+                {"id": 501, "name": "lint", "conclusion": "cancelled"},
+                {"id": 502, "name": "test", "conclusion": "cancelled"},
+            ]
+        },
+    )
+    _annotations_for(
+        env, 501, ["Canceling since a higher priority waiting request exists"]
+    )
+    _annotations_for(env, 502, [])
+    Path(env["LOG_TXT"]).write_text("")
+
+    body = _run(env)
+
+    assert "Canceling since a higher priority waiting request exists" in body
+    assert "No failure details could be extracted." not in body
+
+
+def test_a_run_whose_attempts_are_still_going_is_left_unmarked(
+    env: dict[str, str],
+) -> None:
+    # A marker is durable, so marking a run still in flight would block the
+    # enrichment for good. Leave it for a later nightly instead.
+    _jobs_for(
+        env,
+        RUN_ID,
+        {"jobs": [{"id": int(JOB_ID), "name": "tests", "conclusion": None}]},
+    )
+
+    assert _run(env) == ""
+
+
+def test_an_unreadable_jobs_response_is_not_read_as_green(
+    env: dict[str, str],
+) -> None:
+    # An API failure yields no rows, which is not evidence the run passed.
+    Path(env["JOBS_JSON"]).write_text("not json")
+    Path(env["LOG_TXT"]).write_text("")
+
+    body = _run(env)
+
+    assert "No failure details could be extracted." in body
+    assert f"<!-- enriched-run:{RUN_ID} -->" in body
 
 
 def test_an_issue_with_nothing_new_posts_nothing(env: dict[str, str]) -> None:
