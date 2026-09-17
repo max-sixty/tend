@@ -514,15 +514,19 @@ def test_skill_reference_citations_resolve() -> None:
     cited, broken = 0, []
 
     for skill in skill_dirs:
+        # Symlinks stay in: `shared/` is reachable only through them.
         for path in skill.glob("**/*.md"):
-            if path.is_symlink():
-                continue
             text = path.read_text()
 
             for match in SKILL_REFERENCE.finditer(text):
                 cited += 1
                 named = match.group("skill") or match.group("skill_after")
-                owner = by_name.get(named, skill) if named else skill
+                if named and named not in by_name:
+                    broken.append(
+                        f"{path.relative_to(REPO_ROOT)}: no skill named `{named}`"
+                    )
+                    continue
+                owner = by_name[named] if named else skill
                 if not (owner / "references" / match.group("file")).exists():
                     broken.append(
                         f"{path.relative_to(REPO_ROOT)}: {match.group().strip()}"
