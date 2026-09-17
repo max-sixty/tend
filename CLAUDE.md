@@ -10,7 +10,7 @@ completely — old formats should fail with a clear error, not silently parse.
 
 Simplicity outranks efficiency. Complexity earns its place by preventing
 wrong outward actions — what the bot posts, approves, merges, or closes —
-never by saving compute. Prefer deleting a mechanism over refining it.
+rather than by saving compute. Prefer deleting a mechanism over refining it.
 "What waste is worth fixing" below says which waste earns a change.
 
 ## Commands
@@ -480,6 +480,13 @@ arithmetic that would prevent it is maintained forever: fix it only with a
 simple knob — a cadence value, a deleted step, a one-line condition — and
 otherwise leave it. Model tokens are the larger cost, dollars per session,
 so keep sessions, and the context each one carries, to what the work needs.
+
+Judge a token saving by the share of total spend it removes. A change that
+materially cuts the total — a frequent boot that never had work to do, bulk
+reading carried into every deciding context — is worth the mechanism it
+leaves behind, so estimate that share before proposing one. A small or rare
+saving doesn't justify complication, however well the change reads line by
+line.
 
 ## Live testing against real GitHub
 
