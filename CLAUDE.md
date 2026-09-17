@@ -10,15 +10,8 @@ completely — old formats should fail with a clear error, not silently parse.
 
 Simplicity outranks efficiency. Complexity earns its place by preventing
 wrong outward actions — what the bot posts, approves, merges, or closes —
-never by saving compute. Wasted runner time (a slow CI job, a run lost to
-a blip that a later tick retries) costs cents; the retry wrapper, cache, or
-scheduling arithmetic that would have prevented it has to be understood and
-maintained forever. Fix it only when the fix is a simple knob — a cadence
-value, a deleted step, a one-line condition — and otherwise leave it.
-Model tokens are a different cost: an agent session costs dollars, so
-design skills and workflows to keep sessions, and the context each one
-carries, to what the work needs. Prefer deleting a mechanism over refining
-it.
+never by saving compute — see "What waste is worth fixing" below. Prefer
+deleting a mechanism over refining it.
 
 ## Commands
 
@@ -426,6 +419,15 @@ or tested Python.
 
 Don't build deterministic YAML steps for work that happens *inside* an
 agent run. Extend the skill instead.
+
+### What waste is worth fixing
+
+Wasted runner time (a slow CI job, a run lost to a blip that a later tick
+retries) costs cents, while the retry wrapper, cache, or scheduling
+arithmetic that would prevent it is maintained forever: fix it only with a
+simple knob — a cadence value, a deleted step, a one-line condition — and
+otherwise leave it. Model tokens are the larger cost, dollars per session,
+so keep sessions, and the context each one carries, to what the work needs.
 
 ## Live testing against real GitHub
 
