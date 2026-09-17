@@ -17,7 +17,7 @@ durable cause, and create a PR when code or configuration needs to change.
 
 ### 0. Load environment skills
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, polling conventions, and comment formatting guidance. It will also prompt you to load any repo-specific skills (e.g., `running-tend`).
+Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, polling conventions, and comment formatting instructions. It will also prompt you to load any repo-specific skills (e.g., `running-tend`).
 
 ### 1. Check for existing fixes
 
@@ -113,7 +113,7 @@ Skip step 4 — there's no PR to monitor.
 
 If the diagnosis identifies a durable root cause but a safe fix can't be produced — the cause is in an external system the bot can't change, the fix requires judgment the bot shouldn't make unilaterally, or an attempted fix didn't validate locally — leave a tracking issue. Without one, a durable failure that the bot can't fix lives only on the workflow-run page and is invisible in the issues list.
 
-Leave the issue **open**. A subsequent fix PR closes it via `Fixes #<n>` in the PR body (see step 1 — search for a matching open tracking issue before opening the fix PR). This mirrors the consumer-side `create-issue-on-nightly-failure` pattern and gives maintainers a durable "still broken" signal until a fix ships.
+Leave the issue **open**, so maintainers have a durable "still broken" signal until a fix ships. A subsequent fix PR closes it via `Fixes #<n>` in the PR body (see step 1 — search for a matching open tracking issue before opening the fix PR).
 
 **Dedup first.** Search for an open tracking issue covering the same failure shape; if one exists, comment with the new run link rather than opening a duplicate. Match by failure shape (workflow name + diagnostic snippet), not run ID — each run ID is unique and won't dedup:
 
@@ -143,4 +143,4 @@ Skip step 4 — there's no PR to monitor.
 
 ### 4. Monitor CI
 
-Wait for CI per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci`.
+Wait for CI per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md`.

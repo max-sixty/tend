@@ -104,7 +104,7 @@ itself the go-ahead.
    come back available.
 3. **Defaults** — accept the default setup, or pick areas to change:
    - **Accept all defaults** (recommended) — no workflow overrides, a
-     placeholder guidance overlay, the badge added, and the bot bio
+     placeholder instructions overlay, the badge added, and the bot bio
      "tend agent for `<owner>/<repo>`. I triage issues and help maintain
      `<repo>`." Nothing is locked in: every default is an ordinary edit later
      (`.config/tend.yaml`, the files the install writes) or a re-run of
@@ -123,7 +123,7 @@ question at 4 options, so a new area means grouping, not appending.
 
 - **Workflow config** — setup steps, workflow conditions, schedules, job
   permissions/timeouts, env vars (default: no overrides)
-- **Bot guidance overlay** — PR title format, labels, review routing,
+- **Bot instructions overlay** — PR title format, labels, review routing,
   target branch, nightly actions (default: a placeholder overlay)
 - **README badge** — placement and style, or leaving it out (default:
   added, matching the README's existing badge style)
@@ -543,7 +543,7 @@ environment protection rules on top.
 ## 4. Create skill overlay (recommended)
 
 Create `.claude/skills/running-tend/SKILL.md` with tend-specific project
-guidance, opening with the frontmatter below so discovery lists it by
+instructions, opening with the frontmatter below so discovery lists it by
 description rather than by its first heading. An existing overlay without
 frontmatter needs it added in place.
 
@@ -577,10 +577,10 @@ placeholder:
 ```markdown
 ---
 name: running-tend
-description: Project-specific guidance for tend workflows running on this repo.
+description: Project-specific instructions for tend workflows running on this repo.
 ---
 
-No project-specific tend preferences yet. Add guidance here as
+No project-specific tend preferences yet. Add instructions here as
 needed — this file is loaded by tend workflows alongside the project's
 instruction file.
 ```

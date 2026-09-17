@@ -8,7 +8,7 @@ In the order a post takes:
 
 ## Composing the body
 
-Write the content per **Reader-facing prose** in `SKILL.md`. The rules below keep it rendering and linking correctly.
+Write the content per **Reader-facing prose** in `/tend-ci-runner:running-in-ci`. The rules below keep it rendering and linking correctly.
 
 **Write bodies to a file, then post with `--body-file`.** The composed file is reviewable before it ships, quoting and escaping are non-issues, and line wrapping is just file content. Put the file under `$TMPDIR`. `--body "…"` is fine only for a one-line body containing no backtick, `$`, or `\`. Inside double quotes bash runs a backticked span as a command and substitutes its output, so a markdown inline-code span is silently deleted from the posted comment: `` --body "`some-check` now passes" `` ships as ` now passes`. Inline code appears in nearly every body the bot writes, and single-quoting instead breaks on any apostrophe, so reach for `--body-file` whenever the text is anything but plain prose.
 
@@ -47,7 +47,7 @@ Reply in context rather than creating new top-level comments:
     -F body=@"$TMPDIR/reply.md"
   ```
 
-- **Review events with inline comments** (review ID in prompt): fetch them per **A review's inline comments are a separate fetch** in `trigger-context.md`, then reply to each with the inline review comment reply endpoint above.
+- **Review events with inline comments** (review ID in prompt): fetch them per **A review's inline comments are a separate fetch** in `references/trigger-context.md`, then reply to each with the inline review comment reply endpoint above.
 
 - **Conversation comments** (`#issuecomment-`): Post a regular comment (GitHub doesn't support threading).
 
@@ -57,7 +57,7 @@ Take these steps in order, and post straight after the last one.
 
 ### Review the draft
 
-Read the file as its reader will, check it against **Reader-facing prose** in `SKILL.md`, and revise the file. Scale the read to the body. A short reply gets a read-through. A body that carries an analysis (several findings, options weighed, an argument that runs across paragraphs) gets a read without your working context where the harness provides one, because the session that wrote the draft reads that context into it. Check any revision against what you found before posting it.
+Read the file as its reader will, check it against **Reader-facing prose** in `/tend-ci-runner:running-in-ci`, and revise the file. Scale the read to the body. A short reply gets a read-through. A body that carries an analysis (several findings, options weighed, an argument that runs across paragraphs) gets a read without your working context where the harness provides one, because the session that wrote the draft reads that context into it. Check any revision against what you found before posting it.
 
 ### Check the links
 
@@ -70,7 +70,7 @@ uv run --script \
 
 It resolves every 40-hex SHA in the body against the API and reports any `#L` anchor pinned to a branch or an abbreviation. Resolving is the part a scan by eye cannot do: a hand-typed OID is well-formed whether or not the commit exists, so a fabricated SHA — the model extending an abbreviation it saw in `git log` instead of running `git rev-parse HEAD` — reads as correctly pinned and ships a permalink that 404s. Run it after the push when the body cites a commit from this session; before the push that commit is unreachable and reports as dead, correctly.
 
-**Owners it cannot check — read `$GITHUB_REPOSITORY` from the environment, don't hand-type the owner.** The model reliably guesses wrong — past comments have shipped with the wrong owner (e.g. `anthropics/<repo>` on a repo not owned by Anthropic). The script catches a wrong owner on a SHA-pinned link, because that URL does not resolve either; on every other link, scan the body's `github.com/` hits and confirm each owner is either `$GITHUB_REPOSITORY` or a repo the text genuinely means.
+**Owners it cannot check — read `$GITHUB_REPOSITORY` from the environment, don't hand-type the owner.** The model reliably guesses wrong, for example `anthropics/<repo>` on a repo Anthropic doesn't own. The script catches a wrong owner on a SHA-pinned link, because that URL does not resolve either; on every other link, scan the body's `github.com/` hits and confirm each owner is either `$GITHUB_REPOSITORY` or a repo the text genuinely means.
 
 ### Recheck before posting
 

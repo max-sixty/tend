@@ -16,7 +16,7 @@ Triage a newly opened GitHub issue.
 
 Load `/tend-ci-runner:running-in-ci` first (CI environment rules, security). It will also prompt you to load any repo-specific skills (e.g., `running-tend`) — do so before proceeding.
 
-Follow the AD FONTES principle throughout: reproduce before fixing, evidence before speculation, test before committing.
+Reproduce before fixing, find evidence before speculating, and test before committing.
 
 ## Step 2: Read and classify the issue
 
@@ -115,7 +115,7 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
    ```bash
    gh pr create --title "fix: <description>" --body-file "$TMPDIR/pr-body.md"
    ```
-3. Wait for CI per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci`.
+3. Wait for CI per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md`.
 
 ### If reproduction test works but fix is not confident
 

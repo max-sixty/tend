@@ -335,22 +335,23 @@ pending run covers a replaced poll. ci-fix keeps the default too, and wants
 it: while a session works a red branch, the newest unsuccessful run carries
 that branch's current state, so replacing the pending run loses nothing.
 
-## Shipped guidance and tend's own
+## Shipped instructions and tend's own
 
-Two kinds of guidance live in this repo, split by which repo the text governs.
+Two kinds of instructions live in this repo, split by which repo the text
+governs.
 
-**Shipped guidance** is any text that reaches a repo other than this one. It
-tells the bot what to do in a repo it maintains, and has to hold in repos
-nobody here has seen. More of it than `plugins/**`: `shared/system-prompt.md`,
+**Shipped instructions** are whatever text reaches a repo other than this one.
+They tell the bot what to do in a repo it maintains, and have to hold in repos
+nobody here has seen. More of them than `plugins/**`: `shared/system-prompt.md`,
 `codex/agents-tail.md`, the header comment `workflows.py` stamps into every
 generated workflow, and `docs/tend.example.yaml`, which a pre-commit hook
 mirrors into `install-tend`.
-Before writing guidance outside `plugins/`, check whether it ends up in a
+Before writing instructions outside `plugins/`, check whether they end up in a
 consumer's repo or session.
 
-**Tend's own guidance** is read only here: `CLAUDE.md`, `TODO.md`,
-`docs/security-model.md`, and `.claude/skills/`. It tells a session — the bot's
-or yours — how to work on tend.
+**Tend's own instructions** are read only here: `CLAUDE.md`, `TODO.md`,
+`docs/security-model.md`, and `.claude/skills/`. They tell a session — the
+bot's or yours — how to work on tend.
 
 The test for a line of shipped text: does it hold in a repo whose maintainer
 disagrees with us? What tend values, what this repo will spend complexity on,
@@ -364,12 +365,12 @@ our reasoning for it.
 Two naming decisions. A repo that installs tend is a **consumer**, the term
 `data/consumers.json`, `refresh_consumers.py`, and the Worker already use — not
 an adopter, which the changelog keeps only in released entries. And the second
-kind of guidance isn't `internal`: a skill's `metadata: internal: true` already
+kind isn't `internal`: a skill's `metadata: internal: true` already
 means it isn't user-invocable, and every shipped skill carries it.
 
 ### Bundled and overlay
 
-Within shipped guidance, `plugins/tend-ci-runner/skills/` holds the defaults
+Within shipped instructions, `plugins/tend-ci-runner/skills/` holds the defaults
 and a consumer overlays them at `.claude/skills/running-tend/SKILL.md`; where
 the two conflict, the overlay wins. `.agents/skills` links to `.claude/skills`,
 so Claude and Codex discover the same repo-local skills. Repo-specific policy,
@@ -378,9 +379,9 @@ overlay. Use outcomes from consumer runs to refine the defaults: a general
 missing instruction or wrong default is a bundled fix, repository policy an
 overlay one.
 
-Tend's overlay here is tend's own guidance by the rule above — it doesn't ship,
-and it carries the tasks and conventions for bot sessions in this repo. A whole
-skill belongs there when only this repo's workflows invoke it:
+Tend's overlay here is tend's own instructions by the rule above — it doesn't
+ship, and it carries the tasks and conventions for bot sessions in this repo. A
+whole skill belongs there when only this repo's workflows invoke it:
 `.claude/skills/review-reviewers/` is one, dispatched by the hand-maintained
 `review-reviewers.yaml`, whose prompt invokes it as `/review-reviewers` — a
 slash command like any skill, without the plugin prefix. A tend-only skill
@@ -410,10 +411,10 @@ sessions in the gap each pay attention for text that changes nothing they do.
   `config.py`). One without a skill has nowhere to put its own rules, so they
   land in the every-session file instead.
 
-When reviewing or surveying a guidance file, ask both questions of it — does
-this ship, and who acts on it — and ask them of the sections a change leaves in
-place, not only the ones it touches: a restructure that moves three sections
-and keeps four has reviewed three.
+When reviewing or surveying a skill, a reference, or a project instruction
+file, ask both questions of it — does this ship, and who acts on it — and ask
+them of the sections a change leaves in place, not only the ones it touches: a
+restructure that moves three sections and keeps four has reviewed three.
 
 ### Authoring skills
 
@@ -428,7 +429,19 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
   triggers reading it — a new bundled reference gets a row there, not a list
   in its own skill. A repo overlay's references stay in the overlay, named
   where its own steps use them: every consumer reads the bundled table, and
-  repo-specific guidance doesn't belong in it.
+  repo-specific instructions don't belong in it.
+- **Cite a reference file by its path from the skill's own directory**:
+  `` `references/<file>.md` ``, with the owning skill in front where the file
+  belongs to another skill
+  (`` `/tend-ci-runner:running-in-ci`'s `references/posting.md` ``). That holds
+  inside a `references/` directory too, where the file being cited is a
+  neighbour — one form reads the same wherever the sentence ends up, and
+  `test_skill_reference_citations_resolve` rejects the bare filename. Only
+  files a repo keeps at its root (`CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`)
+  are named bare; `ROOT_FILES` in that test is the list. To point at a rule
+  rather than a whole file, name its section and the skill, which also covers
+  a rule in a skill's own `SKILL.md`: **Reader-facing prose** in
+  `/tend-ci-runner:running-in-ci`.
 - **No specific past-run references.** Don't link GitHub Actions runs, cite
   session IDs, or quote durations from individual incidents. They age into
   trivia and aren't useful when the skill is reused. State the structural

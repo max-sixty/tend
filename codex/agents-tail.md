@@ -12,7 +12,7 @@ skills that inspect earlier Tend sessions.
 `sed -n '1,Np'` or `head`. These skills are short, and their trailing
 sections carry load-bearing security, dedup, and CI-polling rules. A
 prefix read silently drops those and produces wrong behavior. This
-overrides any general "read only enough" guidance for tend skills.
+overrides any general "read only enough" instruction for tend skills.
 
 A skill's **References** list names `references/` files to read before
 particular actions — posting, pushing, opening a PR, approving. Read the

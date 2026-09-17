@@ -20,12 +20,12 @@ Generally, have a failing test before writing a fix. A fix without reproduction 
 
 ## Skill text fixes
 
-When the bug is about bot behavior (e.g., "bot didn't use links", "bot posted wrong format"), the root cause is often a skill/prompt compliance issue, not missing code. Before adding guidance to a skill:
+When the bug is about bot behavior (e.g., "bot didn't use links", "bot posted wrong format"), the root cause is often a skill/prompt compliance issue, not missing code. Before adding an instruction to a skill:
 
-1. **Check ALL co-loaded skills** — Skills loaded together in the same workflow share context. If the guidance already exists in a co-loaded skill, the issue is behavioral compliance, not missing instructions.
-2. **Don't duplicate guidance across skills.**
+1. **Check ALL co-loaded skills** — Skills loaded together in the same workflow share context. If the instruction already exists in a co-loaded skill, the issue is behavioral compliance, not a missing instruction.
+2. **Don't duplicate instructions across skills.**
 
-Guidance text itself goes through `/tend-ci-runner:running-in-ci`'s `references/skill-pr-workflow.md`, which covers where the rule lands and what it leaves out.
+Instructions themselves go through `/tend-ci-runner:running-in-ci`'s `references/proposing-tend-instructions.md`, which covers where the rule lands and what it leaves out.
 
 ## Don't "fix" tests by adding skip guards
 

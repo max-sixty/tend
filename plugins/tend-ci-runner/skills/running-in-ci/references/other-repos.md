@@ -18,7 +18,7 @@ Two or three convergent signals are enough; borderline cases revert to the defau
 
 When asking permission (the default path), close with a short offer so the user can record a preference for future asks. The offer should let them pick either outcome: have the bot file without asking next time, or keep approving each one but stop seeing the offer. Phrase it to fit the thread.
 
-Either reply gets codified in the consumer repo's `running-tend` overlay per `skill-pr-workflow.md` — opt-in adds the target (or "all agent-equipped targets") to the exceptions list; suppress adds a one-line rule telling the bot to skip the offer for future asks.
+Either reply gets codified in the consumer repo's `running-tend` overlay per `references/proposing-tend-instructions.md` — opt-in adds the target (or "all agent-equipped targets") to the exceptions list; suppress adds a one-line rule telling the bot to skip the offer for future asks.
 
 Whether filed direct or post-approval, the issue body includes:
 
@@ -44,4 +44,4 @@ Surface the blocker on the triggering thread and offer the maintainer both:
 1. **Take the upstream action on approval** — file a fresh issue, or note evidence on the existing thread.
 2. **Relax the rule going forward** — via the consumer repo's `running-tend` overlay.
 
-Record their choice per `skill-pr-workflow.md`.
+Record their choice per `references/proposing-tend-instructions.md`.

@@ -12,7 +12,7 @@ Resolve conflicts on bot PRs, review recent commits, survey a slice of existing 
 ## Step 0: Load environment skills
 
 Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules,
-polling conventions, and comment formatting guidance. It will also prompt you
+polling conventions, and comment formatting instructions. It will also prompt you
 to load any repo-specific skills (e.g., `running-tend`).
 
 ## Step 1: Verify bot PAT scopes
@@ -107,7 +107,7 @@ For each open issue, check whether recent commits or the current codebase state 
   - a body containing "Do not close manually" — recurring trackers with their own lifecycle.
   - the `tend-outage` label. Its rows identify failed runs that `review-runs` diagnoses before checking the live repository for missed work. Nightly's cron precedes `review-runs` under the generated defaults, so closing the issue here can remove those rows before that check.
   - the `tend-rate-limit` label, where a maintainer's close is what lifts the bot past its own rate limit. Closing that one as the bot lifts nothing — the preflight counts only closes by a person — but it clears a decision still waiting on one.
-- The repo's guidance (e.g., `running-tend` skill) explicitly authorizes closing issues.
+- The repo's instructions (e.g., `running-tend` skill) explicitly authorize closing issues.
 
 Otherwise, leave it open for a maintainer to close.
 
@@ -150,7 +150,7 @@ A bug finding earns a PR only where a caller can reach it. For a defect found by
 - Code patterns that violate conventions stated in the project's instruction files
 - Stale instructions that reference renamed files, deleted functions, or outdated patterns
 - Skills that have drifted from actual project behavior (instructions that no longer match how the code works)
-- Guidance text most of its loading sessions never act on: it belongs in the file its actors read. The same for a rule stated in two files, including an overlay copy forked from a bundled default — search a distinctive phrase to find the second.
+- An overlay rule that restates a bundled default — search a distinctive phrase from it in the bundled skills. The copy drifts as the bundled text changes.
 
 ## Step 7: Update tend workflows
 
@@ -201,7 +201,7 @@ uv run --script \
 
 The command commits, pushes, creates or updates the PR, records the pushed OID,
 removes the temporary worktree, and prints the PR number and URL. Poll that
-exact commit per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci` — foreground,
+exact commit per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md` — foreground,
 `timeout: 600000`:
 
 ```bash
@@ -227,7 +227,7 @@ Group findings by theme and keep a run to a couple of PRs, picking the highest-c
 
 For each finding:
 
-1. **Create a PR** — branch, fix, run full test suite, commit, push, create PR, then poll CI per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci`. Your job ends when those checks are terminal: a review posted on the PR while you poll belongs to `tend-mention`. **Every bug fix must include a regression test that would have failed before the fix.** If a test is not feasible (e.g., pure documentation changes), note why in the PR description. When uncertain about the approach, explain the trade-offs in the description.
+1. **Create a PR** — branch, fix, run full test suite, commit, push, create PR, then poll CI per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md`. Your job ends when those checks are terminal: a review posted on the PR while you poll belongs to `tend-mention`. **Every bug fix must include a regression test that would have failed before the fix.** If a test is not feasible (e.g., pure documentation changes), note why in the PR description. When uncertain about the approach, explain the trade-offs in the description.
 2. **Create an issue only when there's no obvious fix** — design questions, problems needing maintainer input, or findings requiring investigation beyond what the survey can provide.
 
 ## Optional steps

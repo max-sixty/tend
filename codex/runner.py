@@ -150,7 +150,7 @@ def stage_agents() -> int:
     tail = (action_path / "agents-tail.md").read_text()
     render = functools.partial(_prompt.render, bot_name=bot_name, harness="codex")
     body = (
-        "# Tend CI guidance (Codex harness)\n\n"
+        "# Tend CI instructions (Codex harness)\n\n"
         + render(shared).rstrip("\n")
         + "\n\n"
         + render(tail).rstrip("\n")

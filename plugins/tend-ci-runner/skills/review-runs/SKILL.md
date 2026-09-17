@@ -112,7 +112,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 
   The PAT's `repo` scope covers this. Where alerts are disabled the call fails with `403 Dependabot alerts are disabled for this repository.` — that is the check not applying, not a missing scope; only an empty result means no open alerts. Otherwise run it unconditionally. An alert open for more than a few days with no PR naming its package is live work in the same sense as a red default-branch run. A red `dynamic/dependabot/...` row above naming that package is the mechanism: Dependabot is erroring, so waiting will not produce a PR and the manifest or lockfile has to be bumped directly. `gh run view <id> --log-failed` ends with an error table naming the dependency and the error type; `security_update_not_possible` also reports the lowest non-vulnerable version beside the highest the dependency tree currently resolves, which is the constraint to relax.
 
-Handle live work through the normal triage, review, or CI-fix guidance. Keep
+Handle live work through the normal triage, review, or CI-fix instructions. Keep
 failed runs in the report as diagnostic evidence.
 
 After the exhaustive live scan, find the canonical current outage tracker and
@@ -158,7 +158,7 @@ uv run --script \
   > "$TMPDIR/token-report.json"
 ```
 
-Pass the same extra prefixes Step 1 censuses (after `$HOURS`, which the script reads as its first positional arg), so the two steps agree on what the fleet is — the repo's `running-tend` skill is the source for both (e.g. `review-` for a `review-reviewers` workflow that uses the tend action but isn't named `tend-*`).
+Pass the same extra prefixes Step 1 censuses (after `$HOURS`, which the script reads as its first positional arg), so the two steps agree on what the fleet is — the repo's `running-tend` skill is the source for both, naming any workflow that uses the tend action but isn't named `tend-*`.
 
 Include the total cost and the per-workflow breakdown in the summary (Step 7). Escalate outliers to Step 3 — for example a run far above its workflow's usual cost, or a subject the subject table shows several runs against.
 
@@ -177,7 +177,7 @@ For each analyzed run, compare what the bot did against what happened next. The 
 - **Nightly**: did the bot's PRs merge, or get closed as unhelpful?
 - **CI-fix**: did the fix actually resolve the failure?
 
-mention, notifications, weekly, and review-reviewers runs get the same treatment: find the bot's output and check whether it was accepted.
+mention, notifications, and weekly runs get the same treatment: find the bot's output and check whether it was accepted.
 
 Dispositions — merged, closed, relabeled, reverted — are only half the signal. A maintainer replying in-thread that a bot claim was wrong, or requesting changes on a bot PR, leaves labels and state untouched and is equally a correction; where the bot authors most of the PRs, a review body is the *first* place a maintainer writes. The script collects all three — dispositions, thread comments, review bodies — for the window:
 
@@ -214,15 +214,15 @@ Your workflows call a pinned action ref, so a skill fix merged upstream stays do
 
 Improvements target **repo-local** files by default:
 
-- **`.claude/skills/`** — update or create skill overlays with guidance that prevents the identified problem. Prefer updating existing skill files over creating new ones.
+- **`.claude/skills/`** — update or create skill overlays with instructions that prevent the identified problem. Prefer updating existing skill files over creating new ones.
 - **`.config/tend.yaml`** — adjust workflow configuration if the problem is structural (e.g., wrong cron schedule, missing setup step).
-- **Project instruction file (`CLAUDE.md` or `AGENTS.md`)** — add project-specific guidance if the problem is about code conventions or patterns the bot keeps getting wrong.
+- **Project instruction file (`CLAUDE.md` or `AGENTS.md`)** — add project-specific instructions if the problem is about code conventions or patterns the bot keeps getting wrong.
 
-**Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per `/tend-ci-runner:running-in-ci`'s `references/other-repos.md`. Signal: the fix reads as generic guidance that would apply to any consumer.
+**Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per `/tend-ci-runner:running-in-ci`'s `references/other-repos.md`. Signal: the fix reads as generic instructions that would apply to any consumer.
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
-Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `references/skill-pr-workflow.md` in `/tend-ci-runner:running-in-ci`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place):
+Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `/tend-ci-runner:running-in-ci`'s `references/proposing-tend-instructions.md`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place):
 
 
 ```bash

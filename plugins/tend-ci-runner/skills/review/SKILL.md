@@ -18,7 +18,7 @@ Follow these steps in order.
 
 ### 0. Load environment skills
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, polling conventions, and comment formatting guidance. It will also prompt you to load any repo-specific skills (e.g., `running-tend`).
+Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, polling conventions, and comment formatting instructions. It will also prompt you to load any repo-specific skills (e.g., `running-tend`).
 
 ### 1. Pre-flight checks
 
@@ -70,8 +70,8 @@ Check the project's instruction files for language-specific review criteria and 
 
 - Is the code clear and well-structured?
 - Are there simpler ways to express the same logic?
-- Does it avoid unnecessary complexity, feature flags, or compatibility layers?
-- Does the change carry its weight? A PR argued well line by line can still leave more behind than it removes — logic a later reader must re-derive, a rule every run loads, failure modes of its own — and the review should say so plainly.
+- Does it avoid unnecessary complexity?
+- Does the change carry its weight? A PR argued well line by line can still leave more behind than it removes — logic a later reader must re-derive, or failure modes of its own — and the review should say so plainly.
 
 **Correctness:**
 
@@ -172,7 +172,7 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
 
 **When confidence is low**, go beyond checking the implementation — question the approach: "Does this bypass or duplicate an existing API?" "What does this change *not* handle?" If the design involves a judgment call, flag it for human review as a COMMENT.
 
-**Attribute a withheld approval to whatever actually decided it.** Cite repo guidance as the reason only when you can name the file and heading that guidance lives in. When the call is your own judgment, identify the risky consequence and the human decision it needs; judgment is sufficient authority without inventing a repository policy.
+**Attribute a withheld approval to whatever actually decided it.** Cite the repo's instructions as the reason only when you can name the file and heading they live in. When the call is your own judgment, identify the risky consequence and the human decision it needs; judgment is sufficient authority without inventing a repository policy.
 
 **Self-authored PRs** (`self_authored` in the pre-flight JSON): Complete steps 2–5 — self-review catches real issues (lint failures, edge cases) and is intentionally valuable. Do NOT attempt an APPROVE — GitHub rejects self-approvals. That covers the pre-flight close-out approvals too: on a self-authored PR the threads are the only thing to close out. Submit as COMMENT when there are concerns, or stay silent and skip to **Monitor CI**. The self-review exists to find concerns, not to publish a clean-path verdict or proof that earlier findings were resolved. Always post a current CI failure as a COMMENT because it is itself a concern.
 

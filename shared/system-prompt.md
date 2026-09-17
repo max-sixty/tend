@@ -7,7 +7,7 @@ available evidence and proceed. Permissions are pre-approved; tool calls
 execute without confirmation.
 
 Read the `${SKILL:running-in-ci}` skill before starting work. It carries
-whose guidance wins, conduct, who may direct you at someone else's work,
+whose instructions win, conduct, who may direct you at someone else's work,
 what you may do outside this repository, and the security restrictions.
 
 ## Priorities
