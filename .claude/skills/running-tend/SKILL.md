@@ -308,8 +308,11 @@ in the release-note pass above.
 
 bubblewrap, socat and ripgrep come from the Ubuntu archive and SRT's own
 dependency ranges come from npm, and both resolve as of `PACKAGES_RESOLVED_AT`
-rather than from whatever the live sources hold that morning. Move all four
-constants at once:
+rather than from whatever the live sources hold that morning. The four
+constants move together or not at all: the install asks apt for an exact
+version at that instant, each pocket lists one version, and a version the
+archive has superseded is gone from a later instant — which is the whole reason
+the pin names an instant. Move them with:
 
 ```bash
 uv run --script .claude/skills/running-tend/scripts/refresh_sandbox_pins.py
@@ -320,21 +323,30 @@ The script prints what moved; the diff is the PR body's evidence. `test-sandbox`
 is the gate — it builds the real sandbox and drives both harness adapters
 through it, which is exactly what a bubblewrap change breaks.
 
-The instant moves every week even when no Debian version does, because it also
-re-resolves SRT's npm tree; that week's diff is one line and its green
-`test-sandbox` is the point. This ships to consumers, so it rides that bucket:
-`chore: bump bubblewrap to <version>` when a capability moved, `chore: re-pin
-the sandbox boundary (<date>)` when only the instant did.
+The instant moves every week, carrying whatever versions it resolves to, since
+it re-resolves SRT's npm tree as well; a week where the archive stood still is
+a one-line diff whose green `test-sandbox` is the point. This ships to
+consumers, so it rides that bucket: `chore: bump bubblewrap to <version>` when
+a capability moved, `chore: re-pin the sandbox boundary (<date>)` when only the
+instant did.
 
-This pin holds security updates out of every consumer's sandbox until it moves,
-so a version that will not move is a finding rather than a skipped row. When
-`test-sandbox` goes red on a new bubblewrap, read what the upload changed —
+This pin holds the archive's changes out of every consumer's sandbox until it
+moves, so a version that will not move is a finding rather than a skipped row.
+Read what the upload did before deciding which way to go —
 `https://changelogs.ubuntu.com/changelogs/pool/main/b/bubblewrap/bubblewrap_<version>/changelog`
-names the CVE, and the Ubuntu security notice it cites describes the fix — then
-fix Tend against it and land the bump in one PR. If the fix needs a maintainer
-decision, leave the pin where it is and open an issue naming the CVE it is now
-holding back. Reverting the version alone turns a red check into a silent hold
-on a security update, so it is never the answer on its own.
+says it in a few lines. Newer is not automatically safer: a `-security` upload
+can *drop* a fix the previous one added, when that fix turned out to break
+something else, so read the changelog rather than the version order. Where the
+newer version is a fix, take it — fix Tend against it if `test-sandbox` goes
+red, and land both in one PR. Where it is a revert, or where taking it needs a
+maintainer decision, hold the whole set where it is and open an issue naming
+the version and what it changes. What is never the answer on its own is moving
+the version with no note, which turns a red check into a silent hold.
+
+`refresh_sandbox_pins.py` halts when the architectures publish different
+versions, which usually means one is a few hours behind; re-running later
+clears it. A halt parks the whole set, so a split that persists also parks the
+SRT tree's re-resolution and is the same kind of finding.
 
 `mitmproxy_version` pins the process that holds the real PAT and model
 credential, so a security fix there matters here. Check anything security- or
