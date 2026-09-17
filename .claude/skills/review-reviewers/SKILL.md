@@ -96,9 +96,9 @@ gh api --paginate "repos/$ARGUMENTS/actions/workflows" \
 ```
 
 `disabled_manually` across every `tend-*` workflow means tend is switched off
-there, so there are no runs to survey and Steps 2 to 4 do not apply. Read
-tend's output from the weeks before the last run instead, against the same
-gates as any other window, and say in the summary that it is switched off.
+there. Say so in the summary; it is not an all-clear. There are no runs for
+Steps 2 and 3 to key on, while Step 4 still applies — its dedup check is what
+keeps a repo that stays switched off from opening the same issue every day.
 
 A mix of states is ordinary — a consumer may disable one workflow — and
 `disabled_inactivity` is GitHub expiring a cron in a repo with no recent
