@@ -22,10 +22,10 @@ Read the unique project instruction files that govern the changed code: root and
 
 Work through the angles below. Each surfaces candidates with `file`, `line`, a one-line `summary`, and a concrete `failure_scenario`.
 
-Scale the fan-out to the change, the same way the caller scales its own depth:
+Scale the depth to the change, the same way the caller scales its own:
 
 - **Peripheral or mechanical** (docs, config, dependency bumps, test-only): angles A–C plus the cleanup and conventions angles, in one pass, in this context. Up to 4 candidates each.
-- **Core logic**: every angle, up to 6 candidates each. Work through them yourself, in sequence, in one pass — that's the default. Fan out one subagent per angle only where this session permits subagent use. Either way, don't skip angles for lack of fan-out.
+- **Core logic**: every angle, up to 6 candidates each. Cover every angle however this session works best — in sequence in this context, or one angle at a time in a context of its own — and don't skip one for lack of a way to run it separately.
 
 Don't let one angle's conclusions suppress another's: if two angles flag the same line for different reasons, record both. Pass every candidate with a nameable failure scenario through to Phase 2 — finders that silently drop half-believed candidates bypass the verify step and are the dominant cause of misses.
 
@@ -73,7 +73,7 @@ Cleanup, altitude, and conventions candidates use the same `file`/`line`/`summar
 
 ## Phase 2 — Dedup and verify
 
-Dedup candidates that point at the same line and mechanism, keeping the one with the most concrete failure scenario. Then verify each remaining candidate against the diff and the relevant files — yourself, in this context, by default; one subagent verifier per candidate only where this session permits subagent use. Each candidate gets exactly one of:
+Dedup candidates that point at the same line and mechanism, keeping the one with the most concrete failure scenario. Then verify each remaining candidate against the diff and the relevant files, one at a time. Each candidate gets exactly one of:
 
 - **CONFIRMED** — you can name the inputs/state that trigger it and the wrong output or crash. Quote the line.
 - **PLAUSIBLE** — mechanism is real, trigger is uncertain (timing, env, config). State what would confirm it.
@@ -93,6 +93,6 @@ On a core-logic change, take one more pass as a fresh reviewer holding the verif
 
 Return the findings to the caller as a list of at most 10 (at most 4 for a peripheral change), ranked most-severe first, each with `file`, `line`, `summary`, `failure_scenario`, and its verdict. If nothing survives verification, say so in one line. Don't publish the findings through a separate reporting mechanism or artifact — the caller owns the output.
 
-Tell the caller which mode ran (fanned-out angles with a subagent verify, or a single inline pass) so it can weigh the findings — context for the caller, not content for the review it posts.
+Tell the caller how the pass ran — every angle covered and every candidate verified, or less than that — so it can weigh the findings. That is context for the caller, not content for the review it posts.
 
-**Running from a caller skill, this is a sub-step, not the answer.** When the pass runs in the caller's own session rather than a subagent, there is no separate caller to return to — "return the findings" means hand them to the caller's next step and continue there. A session that emits them as its final message ends with the caller's work unfinished and nothing posted, leaving the findings reachable only from the session log. Invoked directly, with no caller, the findings *are* the answer.
+**Running from a caller skill, this is a sub-step, not the answer.** When the pass runs in the caller's own session, there is no separate caller to return to — "return the findings" means hand them to the caller's next step and continue there. A session that emits them as its final message ends with the caller's work unfinished and nothing posted, leaving the findings reachable only from the session log. Invoked directly, with no caller, the findings *are* the answer.
