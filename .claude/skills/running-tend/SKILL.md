@@ -20,16 +20,6 @@ qualify, as do other Claude-Code-action-using repos. The default rule (open
 an issue here asking permission first) still applies when the target shows no
 agent signals.
 
-## Shipped guidance
-
-Everything under `plugins/` reaches every repo that installs tend; `CLAUDE.md`,
-`TODO.md`, `docs/`, and this overlay stay here. When a diff you are reviewing
-or a file the survey hands you is guidance under `plugins/`, check it against
-**Shipped guidance and tend's own** in `CLAUDE.md`. A line that holds only
-because this is tend's repo, tend's maintainer, or tend's taste is misplaced
-however true it is here — move it to `CLAUDE.md` or to this overlay. Check the
-sections a change leaves alone, not only the ones it touches.
-
 ## Non-standard workflows
 
 Tend has Claude-powered workflows beyond the generated `tend-*` set:

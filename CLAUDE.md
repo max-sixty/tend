@@ -409,9 +409,10 @@ sessions in the gap each pay attention for text that changes nothing they do.
   `config.py`). One without a skill has nowhere to put its own rules, so they
   land in the every-session file instead.
 
-When reviewing or surveying a change to a guidance file, apply both questions
-to the sections it leaves in place as well: a restructure that moves three
-sections and keeps four has reviewed three.
+When reviewing or surveying a guidance file, ask both questions of it — does
+this ship, and who acts on it — and ask them of the sections a change leaves in
+place, not only the ones it touches: a restructure that moves three sections
+and keeps four has reviewed three.
 
 ### Authoring skills
 
