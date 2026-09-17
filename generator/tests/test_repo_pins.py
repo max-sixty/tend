@@ -483,9 +483,26 @@ def test_action_path_references_resolve(action: str) -> None:
 # Every `references/<file>` a skill cites. A skill keeps the rules every session
 # needs and names the file behind each rarer action, so the citation is the only
 # path to that rule: one pointing nowhere means the session reads no file and
-# goes ahead without it, with nothing failing. A citation may name another
-# skill's reference, so a name is checked against every skill's `references/`.
-SKILL_REFERENCE = re.compile(r"references/([\w.-]+\.\w+)")
+# goes ahead without it, with nothing failing. The owner comes before the path
+# (``/tend-ci-runner:review`'s `references/approving.md``) or after
+# (``references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci``); with
+# neither, the citing skill's own directory.
+SKILL_REFERENCE = re.compile(
+    r"(?:`/[a-z-]+:(?P<skill>[a-z-]+)`'s\s+)?`?"
+    r"references/(?P<file>[\w.-]+\.\w+)`?"
+    r"(?:[^`\n]{0,40}?in\s+`/[a-z-]+:(?P<skill_after>[a-z-]+)`)?"
+)
+# A sibling named from inside a `references/` directory, where the path is bare.
+SIBLING_REFERENCE = re.compile(r"`(?P<file>[\w-]+\.md)`")
+# Files a repo carries at its own root; never a `references/` sibling.
+ROOT_FILES = {
+    "AGENTS.md",
+    "CLAUDE.local.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "README.md",
+    "SKILL.md",
+}
 
 
 def test_skill_reference_citations_resolve() -> None:
@@ -493,17 +510,34 @@ def test_skill_reference_citations_resolve() -> None:
         *(REPO_ROOT / "plugins").glob("*/skills/*"),
         *(REPO_ROOT / ".claude" / "skills").glob("*"),
     ]
-    available = {path.name for d in skill_dirs for path in d.glob("references/*")}
-    cited = {
-        (name, str(path.relative_to(REPO_ROOT)))
-        for d in skill_dirs
-        for path in d.glob("**/*.md")
-        for name in SKILL_REFERENCE.findall(path.read_text())
-    }
+    by_name = {d.name: d for d in skill_dirs}
+    cited, broken = 0, []
+
+    for skill in skill_dirs:
+        for path in skill.glob("**/*.md"):
+            if path.is_symlink():
+                continue
+            text = path.read_text()
+
+            for match in SKILL_REFERENCE.finditer(text):
+                cited += 1
+                named = match.group("skill") or match.group("skill_after")
+                owner = by_name.get(named, skill) if named else skill
+                if not (owner / "references" / match.group("file")).exists():
+                    broken.append(
+                        f"{path.relative_to(REPO_ROOT)}: {match.group().strip()}"
+                    )
+
+            if path.parent.name == "references":
+                for match in SIBLING_REFERENCE.finditer(text):
+                    name = match.group("file")
+                    if name not in ROOT_FILES and not (path.parent / name).exists():
+                        broken.append(
+                            f"{path.relative_to(REPO_ROOT)}: `{name}` has no sibling"
+                        )
 
     assert cited, "no references/ citations found — did the skill layout move?"
-    missing = sorted(pair for pair in cited if pair[0] not in available)
-    assert not missing, f"cited references that exist in no skill: {missing}"
+    assert not broken, "references named but absent:\n" + "\n".join(broken)
 
 
 # Inline `run:` bodies in the composite actions. Nothing else lints them:
@@ -676,30 +710,6 @@ def test_every_workflow_pins_the_same_tend_release() -> None:
     )
 
 
-# A `references/` file named in prose. The skill that owns it comes before the
-# path (``/tend-ci-runner:review`'s `references/approving.md``) or after
-# (``references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci``), and is
-# the citing file's own skill when neither appears.
-_OWNER_BEFORE = r"(?:`/(?P<plugin>[a-z-]+):(?P<skill>[a-z-]+)`'s\s+)?"
-_OWNER_AFTER = (
-    r"(?:[^`\n]{0,40}?in\s+`/(?P<plugin_after>[a-z-]+):(?P<skill_after>[a-z-]+)`)?"
-)
-_REFERENCE_CITATION = re.compile(
-    _OWNER_BEFORE + r"`references/(?P<file>[\w.-]+\.md)`" + _OWNER_AFTER
-)
-# A sibling named from inside a `references/` directory, where the path is bare.
-_SIBLING_CITATION = re.compile(r"`(?P<file>[\w-]+\.md)`")
-# Files a repo carries at its own root; never a `references/` sibling.
-_PROJECT_FILES = {
-    "AGENTS.md",
-    "CLAUDE.local.md",
-    "CLAUDE.md",
-    "CONTRIBUTING.md",
-    "README.md",
-    "SKILL.md",
-}
-
-
 def test_references_table_indexes_every_bundled_reference() -> None:
     """`running-in-ci`'s References table is the plugin's one index.
 
@@ -710,10 +720,13 @@ def test_references_table_indexes_every_bundled_reference() -> None:
     """
     skills = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
     indexed = {
-        (match.group("skill") or "running-in-ci", match.group("file"))
+        (
+            match.group("skill") or match.group("skill_after") or "running-in-ci",
+            match.group("file"),
+        )
         for line in (skills / "running-in-ci" / "SKILL.md").read_text().splitlines()
         if line.startswith("|")
-        for match in _REFERENCE_CITATION.finditer(line)
+        for match in SKILL_REFERENCE.finditer(line)
     }
     on_disk = {
         (path.parent.parent.name, path.name)
@@ -727,48 +740,13 @@ def test_references_table_indexes_every_bundled_reference() -> None:
     )
 
 
-def test_every_reference_a_skill_names_exists() -> None:
-    """A skill sends a session to read a file by name; the name has to resolve.
-
-    Moving a `references/` file leaves the pointers to it behind, and a session
-    told to read what isn't there takes the action without what the file holds.
-    """
-    plugins = REPO_ROOT / "plugins"
-    broken: list[str] = []
-
-    for path in sorted(plugins.glob("*/skills/**/*.md")):
-        if path.is_symlink():
-            continue
-        in_references = path.parent.name == "references"
-        skill_dir = path.parent.parent if in_references else path.parent
-        text = path.read_text()
-
-        for match in _REFERENCE_CITATION.finditer(text):
-            plugin = match.group("plugin") or match.group("plugin_after")
-            skill = match.group("skill") or match.group("skill_after")
-            owner = plugins / plugin / "skills" / skill if plugin else skill_dir
-            if not (owner / "references" / match.group("file")).exists():
-                broken.append(
-                    f"{path.relative_to(REPO_ROOT)}: {match.group(0).strip()}"
-                )
-
-        if in_references:
-            for match in _SIBLING_CITATION.finditer(text):
-                name = match.group("file")
-                if name not in _PROJECT_FILES and not (path.parent / name).exists():
-                    broken.append(
-                        f"{path.relative_to(REPO_ROOT)}: `{name}` has no sibling"
-                    )
-
-    assert not broken, "references named but absent:\n" + "\n".join(broken)
-
-
 def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
     """A prompt's first line invokes a skill; a rename leaves it pointing nowhere.
 
-    Both forms are slash commands: `/<plugin>:<name>` resolves in that bundled
-    plugin, `/<name>` in this repo's own `.claude/skills/` — which is how the
-    hand-maintained `review-reviewers.yaml` reaches tend's overlay copy.
+    `/<plugin>:<name>` resolves in that bundled plugin and `/<name>` in this
+    repo's own `.claude/skills/` — which is how the hand-maintained
+    `review-reviewers.yaml` reaches tend's overlay copy. Under `harness: codex`
+    the generator writes the same invocation as `$<name>` (`default_prompt`).
     `tend-mention` is the one agent-invoking workflow whose prompt opens with an
     expression instead, because it names no skill at all (TODO.md).
     """
@@ -785,10 +763,15 @@ def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
                 first = prompt.strip().split()[0]
                 if first.startswith("${{"):
                     continue
-                assert first.startswith("/"), (
-                    f"{path.name}'s prompt opens with `{first}`, not a slash command"
-                )
-                plugin, _, skill = first.lstrip("/").rpartition(":")
+                if first.startswith("$"):
+                    # Codex mentions a bundled skill as `$NAME` (`default_prompt`).
+                    plugin, skill = "tend-ci-runner", first.lstrip("$")
+                else:
+                    assert first.startswith("/"), (
+                        f"{path.name}'s prompt opens with `{first}`, neither a "
+                        "slash command nor a Codex skill mention"
+                    )
+                    plugin, _, skill = first.lstrip("/").rpartition(":")
                 target = (
                     REPO_ROOT / "plugins" / plugin / "skills" / skill
                     if plugin
