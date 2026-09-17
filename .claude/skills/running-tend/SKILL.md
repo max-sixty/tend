@@ -242,8 +242,12 @@ uv tool run pre-commit autoupdate
 npm --prefix worker ci && npm --prefix worker outdated
 npm --prefix site ci && npm --prefix site outdated
 
-# Versions pinned in a shell script (worktrunk, in the Codex Cloud setup)
+# Versions pinned in a shell script: the sandbox boundary's Debian packages,
+# and worktrunk in the Codex Cloud setup.
 git grep -nE '^[A-Za-z_]*VERSION=' -- '*.sh'
+
+# The instant the sandbox boundary resolves its Ubuntu and npm packages as of.
+git grep -n '^PACKAGES_RESOLVED_AT=' -- '*.sh'
 ```
 
 What upstream currently publishes:
@@ -259,7 +263,11 @@ gh api repos/max-sixty/worktrunk/releases/latest --jq '.tag_name | ltrimstr("v")
 GHA `uses:` refs sweep separately, under a rule of their own — see below.
 Out of scope entirely: runner images (`ubuntu-24.04`), `node-version`, and
 `requires-python` are platform choices carrying their own rationale, so they
-move when a reason arrives rather than on a cadence.
+move when a reason arrives rather than on a cadence. The `noble` series in
+`install-sandbox-runtime.sh` follows the runner image, so it moves with it and
+not on its own. `https://claude.ai/install.sh` is fetched live on purpose:
+it is Anthropic's installer for a version-pinned binary, it runs as the
+sandbox UID, and a vendored copy would rot against their layout.
 
 Default rule: move to latest and let CI decide — the table below names the pins
 where CI can't. Split PRs by who runs the result, and take what fits in one
@@ -287,12 +295,46 @@ swamped run finishes nothing.
 | `uv_version` | both harness `action.yaml` files | move both defaults together, with `mitmproxy_version` |
 | `codex_version` | `codex/action.yaml`, `codex/refresh/action.yaml` | move both defaults together; `alpha` only for a fix not yet released |
 | `uv_build` | `generator/pyproject.toml` | its range must contain the uv doing the build; a stale one only warns during `uv build`, so only this sweep catches it |
+| `PACKAGES_RESOLVED_AT`, `BUBBLEWRAP_VERSION`, `SOCAT_VERSION`, `RIPGREP_VERSION` | `shared/steps/install-sandbox-runtime.sh` | move together; see below |
+| `sandbox_runtime_version` | both harness `action.yaml` files | `npm --before` filters this exact version too, so a release published after `PACKAGES_RESOLVED_AT` needs the instant moved in the same PR |
 | `WORKTRUNK_VERSION` | `.config/codex-cloud/environment.sh` | nothing in CI runs the script, and it dies under `set -euo pipefail` — confirm the release still ships `worktrunk-installer.sh` and that `wt config approvals add --yes` still records approvals without a TTY |
 
 A stale `claude` binary resolves `--model opus`/`sonnet` to a superseded alias
 target, so drift silently downgrades the model. In a bump PR, report the
 release notes between the old and new pins that affect the integration surfaces
 in the release-note pass above.
+
+### The sandbox boundary's packages
+
+bubblewrap, socat and ripgrep come from the Ubuntu archive and SRT's own
+dependency ranges come from npm, and both resolve as of `PACKAGES_RESOLVED_AT`
+rather than from whatever the live sources hold that morning. Move all four
+constants at once:
+
+```bash
+uv run --script .claude/skills/running-tend/scripts/refresh_sandbox_pins.py
+git diff shared/steps/install-sandbox-runtime.sh
+```
+
+The script prints what moved; the diff is the PR body's evidence. `test-sandbox`
+is the gate — it builds the real sandbox and drives both harness adapters
+through it, which is exactly what a bubblewrap change breaks.
+
+The instant moves every week even when no Debian version does, because it also
+re-resolves SRT's npm tree; that week's diff is one line and its green
+`test-sandbox` is the point. This ships to consumers, so it rides that bucket:
+`chore: bump bubblewrap to <version>` when a capability moved, `chore: re-pin
+the sandbox boundary (<date>)` when only the instant did.
+
+This pin holds security updates out of every consumer's sandbox until it moves,
+so a version that will not move is a finding rather than a skipped row. When
+`test-sandbox` goes red on a new bubblewrap, read what the upload changed —
+`https://changelogs.ubuntu.com/changelogs/pool/main/b/bubblewrap/bubblewrap_<version>/changelog`
+names the CVE, and the Ubuntu security notice it cites describes the fix — then
+fix Tend against it and land the bump in one PR. If the fix needs a maintainer
+decision, leave the pin where it is and open an issue naming the CVE it is now
+holding back. Reverting the version alone turns a red check into a silent hold
+on a security update, so it is never the answer on its own.
 
 `mitmproxy_version` pins the process that holds the real PAT and model
 credential, so a security fix there matters here. Check anything security- or
