@@ -513,9 +513,11 @@ def test_notifications_check_counts_a_complete_cutoff_snapshot_without_acknowled
     assert "notifications/threads/" not in calls
 
 
-def test_notifications_check_boots_for_unknown_or_conflicting_bot_prs(
+def test_notifications_check_ignores_an_unsettled_mergeable(
     notifications_env: dict[str, str],
 ) -> None:
+    # A lazily-computed `UNKNOWN` is not a conflict: only a settled
+    # `CONFLICTING` counts, so a merge into the base branch boots no session.
     _write_json(
         notifications_env,
         "PULLS_JSON",
@@ -545,8 +547,8 @@ def test_notifications_check_boots_for_unknown_or_conflicting_bot_prs(
 
     assert result.returncode == 0, result.stderr
     assert _output(notifications_env, "count") == "0"
-    assert _output(notifications_env, "conflict_count") == "2"
-    assert "2 possible conflicted bot PR(s)" in result.stdout
+    assert _output(notifications_env, "conflict_count") == "1"
+    assert "1 possible conflicted bot PR(s)" in result.stdout
     calls = Path(notifications_env["GH_CALLS"]).read_text()
     assert "api graphql" in calls
     assert "comments(last: 100)" in calls
@@ -598,7 +600,7 @@ def test_notifications_check_suppresses_only_the_marked_bot_head(
         [
             {
                 "number": 22,
-                "mergeable": "UNKNOWN",
+                "mergeable": "CONFLICTING",
                 "headRefOid": "head-22",
                 "comments": [
                     {
