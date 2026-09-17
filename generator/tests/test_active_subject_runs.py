@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -48,12 +49,25 @@ esac
 )
 
 
-def _run(rid: int, name: str, status: str, title: str = TITLE) -> dict:
+def _ago(hours: float) -> str:
+    """A `created_at` *hours* back, against the wall clock the script reads."""
+    moment = datetime.now(UTC) - timedelta(hours=hours)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _run(
+    rid: int,
+    name: str,
+    status: str,
+    title: str = TITLE,
+    created_ago_hours: float = 0.25,
+) -> dict:
     return {
         "id": rid,
         "name": name,
         "status": status,
         "display_title": title,
+        "created_at": _ago(created_ago_hours),
         "html_url": f"https://github.com/owner/repo/actions/runs/{rid}",
     }
 
@@ -155,3 +169,37 @@ def test_a_run_seen_twice_is_reported_once(env: dict[str, str]) -> None:
     owners = _owners(env)
     assert [run["id"] for run in owners] == [106]
     assert owners[0]["status"] == "queued"
+
+
+def test_an_abandoned_run_no_longer_owns_the_subject(env: dict[str, str]) -> None:
+    """The regression on the other side: an owner that never finishes.
+
+    GitHub strands runs non-terminal — created, no jobs, no further updates —
+    and the Actions API keeps answering `status=queued` with them for good.
+    Counting one as an owner defers its subject on every later poll, so the
+    thread it holds is never handled by anything.
+    """
+    _stage(env, "queued", _run(107, "tend-mention", "queued", created_ago_hours=980))
+    assert _owners(env) == []
+
+
+def test_a_run_queued_for_hours_still_owns_the_subject(env: dict[str, str]) -> None:
+    """The bound has to clear a real queue, not just a fast one.
+
+    `tend-mention` waits behind its concurrency group for hours, and that run
+    is the one this check exists to see.
+    """
+    _stage(env, "queued", _run(108, "tend-mention", "queued", created_ago_hours=20))
+    assert [run["id"] for run in _owners(env)] == [108]
+
+
+def test_a_run_with_no_created_at_still_owns_the_subject(env: dict[str, str]) -> None:
+    """An unreadable age is not evidence of abandonment.
+
+    Deferring a poll costs a poll; dropping a live owner costs a second
+    outward answer from the same bot account.
+    """
+    run = _run(109, "tend-mention", "queued")
+    del run["created_at"]
+    _stage(env, "queued", run)
+    assert [run["id"] for run in _owners(env)] == [109]

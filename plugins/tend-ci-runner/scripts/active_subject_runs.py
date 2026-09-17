@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.12"
 # dependencies = []
 # ///
 """Report the dedicated Tend runs still working a notification subject.
@@ -8,7 +8,9 @@ The notifications poll defers a thread a dedicated ``tend-*`` workflow already
 owns.  Ownership has to cover runs GitHub has created but not started: a
 ``tend-mention`` run can sit ``queued`` for hours, and a poll that reads its
 subject as unowned answers the maintainer a second time as the same bot
-account.
+account.  It also has to end: a run GitHub abandons stays non-terminal
+forever, and an owner that never finishes defers its subject on every later
+poll, so the thread is never handled at all.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import github_cli
@@ -29,9 +32,33 @@ ACTIVE_STATUSES = ("queued", "in_progress", "waiting", "requested", "pending")
 # below by run id rather than by name, since a second poll would own nothing.
 WORKFLOW_PREFIX = "tend-"
 
+# A non-terminal run this old is never going to deliver. GitHub terminates a
+# job queued past 24h, and a Tend session's own timeout is hours short of
+# that, so nothing legitimate is still owed after a day. Runs do get stranded
+# non-terminal with no jobs and no further updates, and without this bound one
+# of them pins its subject for good.
+ABANDONED_AFTER = timedelta(hours=24)
+
+
+def abandoned(run: dict[str, Any], *, now: datetime) -> bool:
+    """Whether *run* has been non-terminal longer than a run ever legitimately is.
+
+    An unreadable or absent `created_at` counts as fresh: deferring one extra
+    poll costs a poll, while dropping a live owner costs a second outward
+    answer from the same bot account.
+    """
+    created = str(run.get("created_at") or "")
+    try:
+        started = datetime.fromisoformat(created)
+    except ValueError:
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    return now - started > ABANDONED_AFTER
+
 
 def owning_runs(
-    runs: list[dict[str, Any]], *, subject_title: str, own_run_id: int
+    runs: list[dict[str, Any]], *, subject_title: str, own_run_id: int, now: datetime
 ) -> list[dict[str, Any]]:
     """Reduce workflow runs to the dedicated ones handling *subject_title*.
 
@@ -46,6 +73,8 @@ def owning_runs(
         if not str(run.get("name") or "").startswith(WORKFLOW_PREFIX):
             continue
         if run.get("display_title") != subject_title:
+            continue
+        if abandoned(run, now=now):
             continue
         owners.setdefault(
             run_id,
@@ -87,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
             fetch_active_runs(repo),
             subject_title=subject_title,
             own_run_id=int(os.environ.get("GITHUB_RUN_ID") or 0),
+            now=datetime.now(UTC),
         )
     )
     return 0
