@@ -21,6 +21,7 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 
 | When | Read | What it carries |
 |---|---|---|
+| When the trigger is a comment, an issue update, or a review | `references/trigger-context.md` | reading the thread, a review's inline comments, the closed-target check, whether to respond at all |
 | Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | composing the body (body files, line wrapping, links, fenced bodies, no footers), reply endpoints, and the draft review, link check, and re-fetch before posting |
 | Before `gh pr create` or `gh issue create`, or editing a PR's title or description | `references/pr-creation.md` and `references/posting.md` | the open-PR budget, titles, the dedup and prior-rejection searches, keeping a description current |
 | Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | the pre-push review, batching pushes, re-checking PR state and head, branch-state collisions |
@@ -47,78 +48,13 @@ Follow the project's code of conduct. Avoid causing disruption — unnecessary c
 
 Anyone can ask for help with a problem they raise. A request that directs you at someone else's work is gated on the requester's access tier — check it per `references/directives.md` before complying.
 
-## Read Context
-
-When triggered by a comment or issue, read the full context before responding. The prompt provides a URL — extract the PR/issue number from it.
-
-For PRs:
-
-```bash
-gh pr view <number> --json title,body,comments,reviews,state,statusCheckRollup
-gh pr diff <number>
-gh pr checks <number>
-```
-
-For issues:
-
-```bash
-gh issue view <number> --json title,body,comments,state
-```
-
-Read the triggering comment, the PR/issue description, the diff (for PRs), and recent comments to understand the full conversation before taking action.
-
-### A review's inline comments are a separate fetch
-
-Neither `gh pr view --json reviews` nor `GET /pulls/<n>/reviews/<id>` returns a review's inline comments — both hand back the review body alone, with no field signalling that more exists, so a read that stops there looks complete. A one-line review body routinely sits on top of the maintainer's actual instructions. Whenever the trigger names a review ID, fetch them as part of reading context — not only when you already intend to reply inline:
-
-```bash
-gh api "repos/{owner}/{repo}/pulls/{number}/reviews/{review_id}/comments" \
-  --jq '.[] | {id, path, line, body}'
-```
-
-An instruction found there constrains the whole response, including any code the reply quotes or carries into another PR.
-
-For a review comment on a specific line (`[Comment on path:line]`), read that file and examine the code at that line before acting on it. When the GitHub API returns a `diff_hunk`, the reviewer's comment targets the **last line** of that hunk. Use this to disambiguate when multiple candidates exist nearby — match the reviewer's request against the specific anchored line, not the surrounding region.
-
-### Instruction paths read as the base version on a PR
+## Instruction paths read as the base version on a PR
 
 Before the session starts, both harnesses restore `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, and `.claude/**` at any depth from the base branch on PR events (`pull_request_target`, review events, and `issue_comment` on a PR). Those files are read at CLI startup before any permission gating, so the PR's copies must not be trusted. `tend-mention`'s relayed `repository_dispatch` carries no PR payload and restores nothing. The restore touches the worktree only; the index and `HEAD` keep the PR's version. So on a PR that legitimately edits these paths:
 
 - The working tree holds the **base** content — grepping it reports the PR's additions as absent, and the repo-local skills loaded into this session are the base versions too. Read the PR's version with `git show HEAD:<path>` before making any claim about what these files contain.
 - `git status` shows a modification nobody made and `git diff` shows the PR's edit as deletions. Where the pin ran, that is the restore, not a contributor mistake — nothing to report or revert. On an unpinned event it is a real modification, worth reading.
 - **Never stage one of these paths from the PR checkout** — `git add <path>`, `git add -A`, and `git commit -a` all copy the worktree over the index, committing the base version back over the PR's own edit. Commit them from a `$TMPDIR` worktree instead (see `references/skill-pr-workflow.md`).
-
-### Triggering issue/PR already closed
-
-If the trigger is a comment on an issue or PR and the target is **closed** by the time the job starts, the requested work was likely handled by a sibling run during the queue delay. Long `tend-mention` queues (hours, not minutes) make this common. Before starting work:
-
-```bash
-# For an issue trigger — check linked PRs that closed it.
-gh issue view <number> --json state,closedAt,closedByPullRequestsReferences
-
-# For a PR trigger — check whether the PR was merged.
-gh pr view <number> --json state,mergedAt,mergeCommit
-```
-
-If a linked PR merged (or the triggering PR itself merged) **after the triggering comment was posted**, exit silently — the work is already on the default branch. If the closure looks unrelated (e.g. issue closed as not-planned with no merged PR), continue and address the comment normally.
-
-### Whether to respond
-
-**Your own prior comment.** The system prompt's self-loop guard exits silently when the trigger is the bot's own comment or review. One case falls outside it: a freshly-opened issue the bot authored with no prior bot comments (nightly failure, CI report, code-quality finding) is a report to act on, not a self-conversation — triage it normally. **Recheck before posting** in `references/posting.md` still prevents a duplicate triage comment if a sibling run fires on the same issue.
-
-**Other participants.** Before responding, check how many distinct other participants are in the conversation.
-
-- **Two-party** (you and one other participant): respond normally.
-- **Multi-way** (multiple other participants): apply a stricter bar — only respond with concrete new information no one else provided: a code fix, reproduction, or specific technical detail.
-
-Do not:
-- Restate, agree with, or summarize what another participant just said
-- Post "makes sense" or "good point" agreement comments
-- Echo a user's findings back to them ("Good find!", "That's the smoking gun!")
-
-A comment that responds to concerns you raised in a review is directed at you — briefly acknowledge resolution or explain why concerns remain.
-
-If a maintainer has already addressed the point, exit silently unless you can add something they missed.
 
 ## Restrictions
 
