@@ -66,8 +66,9 @@ Three load-bearing boundaries:
    the point the repository setting is enabled.
 
 `tend check` fails until the first two hold and the third is enabled, so a
-passing check *is* the claim for future releases. GitHub does not apply the
-setting retroactively.
+passing check *is* the claim for future releases — read from the setting when
+the caller is a repository admin, and from the newest release's own
+`immutable` flag otherwise. GitHub does not apply the setting retroactively.
 
 **Merge restriction.** A GitHub ruleset (or branch protection) prevents the
 bot from merging to protected branches (the default branch plus any in
@@ -210,7 +211,11 @@ yet, so the Releases API is not a way around it. The
 Immutable releases close the separate write path: once a release is published,
 GitHub locks its assets and associated tag. This is a repository setting, not a
 ruleset inference; `tend check` verifies it directly and `--fix` enables it.
-The setting is prospective, so enable it before the repository's next release.
+Both the read and the write take repository admin, so the nightly run — which
+holds only the bot's write-scoped token — verifies the newest published
+release's own `immutable` flag instead, and fails when that release can still
+be rewritten. The setting is prospective, so enable it before the repository's
+next release.
 It does not make `release: published` safe for secrets: a write actor
 can still publish a new release against an existing unpublished tag.
 

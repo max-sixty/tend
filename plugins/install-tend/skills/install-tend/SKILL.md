@@ -457,7 +457,9 @@ add a no-bypass `deletion` ruleset (see the publisher uplift below).
 
 **Immutable releases.** Enable this before the next release. It locks that
 release, its assets, and its associated tag; GitHub does not apply the setting
-retroactively:
+retroactively. Reading the setting takes repository admin, so the nightly
+`tend check` verifies the newest published release's own `immutable` flag —
+on a repo that already had releases, that check fails until the next one:
 
 ```bash
 gh api "repos/$REPO/immutable-releases" \

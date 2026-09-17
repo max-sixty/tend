@@ -147,7 +147,9 @@ start unless the answer is no. `tend check` verifies the setup;
 
 **Immutable releases** lock each release published after the setting is
 enabled, including its assets and tag. `tend check` requires the setting and
-`--fix` enables it before the next release.
+`--fix` enables it before the next release. Reading the setting takes
+repository admin, so a run as the bot checks the newest release's own
+`immutable` flag instead.
 
 **Environment-gated credentials** — a workflow the bot can cause to run
 reaches no credential: not the bot token, not the model auth, not a release

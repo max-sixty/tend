@@ -1227,15 +1227,58 @@ def test_check_immutable_releases_reads_setting(enabled: bool, expected: bool) -
     )
 
 
-def test_check_immutable_releases_404_is_unverified() -> None:
+_SETTING_404 = _make_completed(returncode=1, stderr="gh: Not Found (HTTP 404)")
+
+
+def _newest_release(immutable: bool) -> subprocess.CompletedProcess[str]:
+    return _make_completed(
+        json.dumps({"tag_name": "v1.2.3", "immutable": immutable, "draft": False})
+    )
+
+
+@pytest.mark.parametrize(("immutable", "expected"), [(True, True), (False, False)])
+def test_check_immutable_releases_falls_back_to_newest_release(
+    immutable: bool, expected: bool
+) -> None:
+    """Admin reads the setting; the bot 404s on it and reads the release flag.
+
+    Without the fallback this check skips in every scheduled run, and the
+    nightly files nothing for a skip — so the setting could drift off unseen.
+    """
     with patch(
         "tend.checks._gh",
-        return_value=_make_completed(returncode=1, stderr="gh: Not Found (HTTP 404)"),
+        side_effect=[_SETTING_404, _newest_release(immutable)],
+    ) as gh:
+        result = check_immutable_releases("owner/repo")
+
+    assert result.passed is expected
+    assert "v1.2.3" in result.message
+    assert gh.call_args.args == (
+        "api",
+        "repos/owner/repo/releases",
+        "--jq",
+        "[.[] | select(.draft | not)][0] // empty",
+    )
+
+
+def test_check_immutable_releases_404_with_no_releases_is_unverified() -> None:
+    with patch(
+        "tend.checks._gh", side_effect=[_SETTING_404, _make_completed(stdout="")]
     ):
         result = check_immutable_releases("owner/repo")
 
     assert result.passed is None
     assert "admin" in result.message
+
+
+def test_check_immutable_releases_404_and_failed_release_read_is_unverified() -> None:
+    with patch(
+        "tend.checks._gh",
+        side_effect=[_SETTING_404, _make_completed(returncode=1, stderr="HTTP 500")],
+    ):
+        result = check_immutable_releases("owner/repo")
+
+    assert result.passed is None
 
 
 def test_check_immutable_releases_other_api_error_is_unknown() -> None:
