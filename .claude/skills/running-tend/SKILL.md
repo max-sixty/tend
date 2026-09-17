@@ -296,6 +296,7 @@ swamped run finishes nothing.
 | `codex_version` | `codex/action.yaml`, `codex/refresh/action.yaml` | move both defaults together; `alpha` only for a fix not yet released |
 | `uv_build` | `generator/pyproject.toml` | its range must contain the uv doing the build; a stale one only warns during `uv build`, so only this sweep catches it |
 | `PACKAGES_RESOLVED_AT`, `BUBBLEWRAP_VERSION`, `SOCAT_VERSION`, `RIPGREP_VERSION` | `shared/steps/install-sandbox-runtime.sh` | move together; see below |
+| `sandbox_runtime_version` | both harness `action.yaml` files | `npm --before` filters this exact version too, so a release published after `PACKAGES_RESOLVED_AT` needs the instant moved in the same PR |
 | `WORKTRUNK_VERSION` | `.config/codex-cloud/environment.sh` | nothing in CI runs the script, and it dies under `set -euo pipefail` — confirm the release still ships `worktrunk-installer.sh` and that `wt config approvals add --yes` still records approvals without a TTY |
 
 A stale `claude` binary resolves `--model opus`/`sonnet` to a superseded alias

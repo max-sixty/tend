@@ -66,16 +66,34 @@ fi
 # different sandbox. A runner already holding all three exactly skips apt, and
 # with it sudo, which is the one thing a self-hosted runner may not grant.
 stale=()
+ahead=()
 for spec in \
   "bubblewrap=$BUBBLEWRAP_VERSION" \
   "socat=$SOCAT_VERSION" \
   "ripgrep=$RIPGREP_VERSION"
 do
   status=$(/usr/bin/dpkg-query -W -f='${db:Status-Status} ${Version}' "${spec%%=*}" 2>/dev/null || true)
-  [ "$status" = "installed ${spec#*=}" ] || stale+=("$spec")
+  [ "$status" = "installed ${spec#*=}" ] && continue
+  stale+=("$spec")
+  case "$status" in
+    "installed "*)
+      if /usr/bin/dpkg --compare-versions "${status#installed }" gt "${spec#*=}"; then
+        ahead+=("${spec%%=*} ${status#installed }")
+      fi
+      ;;
+  esac
 done
 
 if [ "${#stale[@]}" -gt 0 ]; then
+  # A GitHub-hosted runner is disposable, so rolling it back onto the pin costs
+  # its owner nothing. A self-hosted runner is someone's machine, where
+  # replacing a security update they have already taken would outlive the job —
+  # the restraint the AppArmor branch above applies to host policy.
+  if [ "${#ahead[@]}" -gt 0 ] && [ "${TEND_RUNNER_ENVIRONMENT:-}" != github-hosted ]; then
+    echo "::error::This runner is ahead of Tend's pin (${ahead[*]}) and Tend does not downgrade a self-hosted host. Wait for Tend's weekly bump to reach those versions, or run Tend on a runner holding bubblewrap $BUBBLEWRAP_VERSION, socat $SOCAT_VERSION and ripgrep $RIPGREP_VERSION."
+    exit 1
+  fi
+
   # `;` not `&&`: a host with no os-release should reach the message below
   # rather than die on the `.` under `set -e`.
   codename=$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-}")
@@ -99,8 +117,11 @@ if [ "${#stale[@]}" -gt 0 ]; then
     -o "Dir::State::Lists=$apt_state/lists"
     -o Acquire::Languages=none
   )
-  # apt drops to `_apt` for the downloads and warns on every fetch into a
-  # directory that user cannot write.
+  # apt drops to `_apt` for the downloads, and falls back to fetching as root —
+  # one warning per index — if that user cannot reach them. It needs to write
+  # the lists and to cross mktemp's 0700 parent, so the parent gets search and
+  # not read: unlike a bwrap bind destination, apt never lists this directory.
+  /usr/bin/chmod 711 "$apt_state"
   /usr/bin/sudo /usr/bin/chown -R _apt "$apt_state/lists"
   /usr/bin/sudo /usr/bin/apt-get "${apt_options[@]}" update
   # The snapshot holds one candidate per pocket like any other mirror, so a

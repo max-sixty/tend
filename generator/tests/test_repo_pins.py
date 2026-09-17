@@ -247,6 +247,9 @@ def test_no_other_apt_install_escapes_the_pin() -> None:
         for name in tracked
         if name
         and not name.startswith("generator/tests/")
+        # `git ls-files` reports the index; a Tend PR session restores
+        # `.claude/**` from the base branch, so a tracked path can be absent.
+        and (REPO_ROOT / name).is_file()
         and re.search(r"apt-get\b.*\binstall\b", (REPO_ROOT / name).read_text())
     )
 
