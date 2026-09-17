@@ -674,3 +674,90 @@ def test_every_workflow_pins_the_same_tend_release() -> None:
         f"workflows pin more than one tend release: {sorted(refs)}. "
         "Restamp the hand-maintained workflows onto the generated files' ref."
     )
+
+
+# A `references/` file named in prose. The skill that owns it comes before the
+# path (``/tend-ci-runner:review`'s `references/approving.md``) or after
+# (``references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci``), and is
+# the citing file's own skill when neither appears.
+_OWNER_BEFORE = r"(?:`/(?P<plugin>[a-z-]+):(?P<skill>[a-z-]+)`'s\s+)?"
+_OWNER_AFTER = (
+    r"(?:[^`\n]{0,40}?in\s+`/(?P<plugin_after>[a-z-]+):(?P<skill_after>[a-z-]+)`)?"
+)
+_REFERENCE_CITATION = re.compile(
+    _OWNER_BEFORE + r"`references/(?P<file>[\w.-]+\.md)`" + _OWNER_AFTER
+)
+# A sibling named from inside a `references/` directory, where the path is bare.
+_SIBLING_CITATION = re.compile(r"`(?P<file>[\w-]+\.md)`")
+# Files a repo carries at its own root; never a `references/` sibling.
+_PROJECT_FILES = {
+    "AGENTS.md",
+    "CLAUDE.local.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "README.md",
+    "SKILL.md",
+}
+
+
+def test_references_table_indexes_every_bundled_reference() -> None:
+    """`running-in-ci`'s References table is the plugin's one index.
+
+    A `references/` file no row names loads in no session, and a row naming a
+    file that moved sends a session to a path that isn't there. The one symlink
+    into `shared/` is excluded: it is reached by `@` embedding in
+    `notifications` and by a pointer from `directives.md`, not by a row here.
+    """
+    skills = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
+    indexed = {
+        (match.group("skill") or "running-in-ci", match.group("file"))
+        for line in (skills / "running-in-ci" / "SKILL.md").read_text().splitlines()
+        if line.startswith("|")
+        for match in _REFERENCE_CITATION.finditer(line)
+    }
+    on_disk = {
+        (path.parent.parent.name, path.name)
+        for path in skills.glob("*/references/*.md")
+        if not path.is_symlink()
+    }
+
+    assert indexed == on_disk, (
+        f"unindexed: {sorted(on_disk - indexed)}; "
+        f"named but absent: {sorted(indexed - on_disk)}"
+    )
+
+
+def test_every_reference_a_skill_names_exists() -> None:
+    """A skill sends a session to read a file by name; the name has to resolve.
+
+    Moving a `references/` file leaves the pointers to it behind, and a session
+    told to read what isn't there takes the action without what the file holds.
+    """
+    plugins = REPO_ROOT / "plugins"
+    broken: list[str] = []
+
+    for path in sorted(plugins.glob("*/skills/**/*.md")):
+        if path.is_symlink():
+            continue
+        in_references = path.parent.name == "references"
+        skill_dir = path.parent.parent if in_references else path.parent
+        text = path.read_text()
+
+        for match in _REFERENCE_CITATION.finditer(text):
+            plugin = match.group("plugin") or match.group("plugin_after")
+            skill = match.group("skill") or match.group("skill_after")
+            owner = plugins / plugin / "skills" / skill if plugin else skill_dir
+            if not (owner / "references" / match.group("file")).exists():
+                broken.append(
+                    f"{path.relative_to(REPO_ROOT)}: {match.group(0).strip()}"
+                )
+
+        if in_references:
+            for match in _SIBLING_CITATION.finditer(text):
+                name = match.group("file")
+                if name not in _PROJECT_FILES and not (path.parent / name).exists():
+                    broken.append(
+                        f"{path.relative_to(REPO_ROOT)}: `{name}` has no sibling"
+                    )
+
+    assert not broken, "references named but absent:\n" + "\n".join(broken)

@@ -24,7 +24,7 @@ gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=claude-session-logs-n${N
   | jq -s 'sort_by(.created_at) | reverse'
 ```
 
-Download a chosen run's log and parse it with the recipes in `/install-tend:debug-tend-run` (`references/claude-logs.md`):
+Download a chosen run's log and parse it with the recipes in `/install-tend:debug-tend-run`'s `references/claude-logs.md`:
 
 ```bash
 RUN_ID=<chosen run>
