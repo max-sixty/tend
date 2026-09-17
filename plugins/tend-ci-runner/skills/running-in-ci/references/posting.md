@@ -47,7 +47,7 @@ Reply in context rather than creating new top-level comments:
     -F body=@"$TMPDIR/reply.md"
   ```
 
-- **Review events with inline comments** (review ID in prompt): fetch them per **A review's inline comments are a separate fetch** in `trigger-context.md`, then reply to each with the inline review comment reply endpoint above.
+- **Review events with inline comments** (review ID in prompt): fetch them per **A review's inline comments are a separate fetch** in `references/trigger-context.md`, then reply to each with the inline review comment reply endpoint above.
 
 - **Conversation comments** (`#issuecomment-`): Post a regular comment (GitHub doesn't support threading).
 

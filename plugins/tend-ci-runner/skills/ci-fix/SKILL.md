@@ -143,4 +143,4 @@ Skip step 4 — there's no PR to monitor.
 
 ### 4. Monitor CI
 
-Wait for CI per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci`.
+Wait for CI per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md`.

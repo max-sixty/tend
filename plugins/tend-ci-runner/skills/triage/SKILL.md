@@ -115,7 +115,7 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
    ```bash
    gh pr create --title "fix: <description>" --body-file "$TMPDIR/pr-body.md"
    ```
-3. Wait for CI per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci`.
+3. Wait for CI per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md`.
 
 ### If reproduction test works but fix is not confident
 

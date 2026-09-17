@@ -25,7 +25,7 @@ When the bug is about bot behavior (e.g., "bot didn't use links", "bot posted wr
 1. **Check ALL co-loaded skills** — Skills loaded together in the same workflow share context. If the guidance already exists in a co-loaded skill, the issue is behavioral compliance, not missing instructions.
 2. **Don't duplicate guidance across skills.**
 
-Guidance text itself goes through `/tend-ci-runner:running-in-ci`'s `references/skill-pr-workflow.md`, which covers where the rule lands and what it leaves out.
+Guidance text itself goes through `/tend-ci-runner:running-in-ci`'s `references/proposing-tend-guidance.md`, which covers where the rule lands and what it leaves out.
 
 ## Don't "fix" tests by adding skip guards
 

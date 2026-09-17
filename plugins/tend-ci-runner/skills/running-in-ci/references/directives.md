@@ -8,7 +8,7 @@ Anyone can ask for help with a problem they raise: investigating a bug, answerin
 
 Directing the bot to affect someone else's work — closing, reopening, or locking issues/PRs, dismissing reviews, reverting commits, applying or removing labels, pushing commits to a PR owned by another author — requires Maintainer-tier access. Before complying, check the requester's `author_association`:
 
-Read `author-association.md` in this directory for the tiers.
+Read `references/author-association.md` for the tiers.
 
 For Maintainer-tier requesters, proceed. For anyone else, briefly explain that a maintainer needs to make that call.
 

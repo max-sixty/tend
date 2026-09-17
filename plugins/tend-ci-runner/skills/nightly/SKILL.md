@@ -201,7 +201,7 @@ uv run --script \
 
 The command commits, pushes, creates or updates the PR, records the pushed OID,
 removes the temporary worktree, and prints the PR number and URL. Poll that
-exact commit per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci` — foreground,
+exact commit per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md` — foreground,
 `timeout: 600000`:
 
 ```bash
@@ -227,7 +227,7 @@ Group findings by theme and keep a run to a couple of PRs, picking the highest-c
 
 For each finding:
 
-1. **Create a PR** — branch, fix, run full test suite, commit, push, create PR, then poll CI per `references/ci-monitoring.md` in `/tend-ci-runner:running-in-ci`. Your job ends when those checks are terminal: a review posted on the PR while you poll belongs to `tend-mention`. **Every bug fix must include a regression test that would have failed before the fix.** If a test is not feasible (e.g., pure documentation changes), note why in the PR description. When uncertain about the approach, explain the trade-offs in the description.
+1. **Create a PR** — branch, fix, run full test suite, commit, push, create PR, then poll CI per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md`. Your job ends when those checks are terminal: a review posted on the PR while you poll belongs to `tend-mention`. **Every bug fix must include a regression test that would have failed before the fix.** If a test is not feasible (e.g., pure documentation changes), note why in the PR description. When uncertain about the approach, explain the trade-offs in the description.
 2. **Create an issue only when there's no obvious fix** — design questions, problems needing maintainer input, or findings requiring investigation beyond what the survey can provide.
 
 ## Optional steps

@@ -1,9 +1,11 @@
-# Opening a skill PR from CI
+# Proposing tend guidance from CI
 
-Turning a maintainer's correction into durable guidance: whether it clears the
-bar, whether it lands upstream in tend or in the consumer repo's
-`.claude/skills/running-tend/SKILL.md`, what the text carries, and the mechanics
-of proposing it.
+Turning a maintainer's correction into durable guidance for future runs. It
+lands in one of two places: this repo's own `running-tend` overlay, which only
+sessions here read, or tend's bundled skills upstream at `max-sixty/tend`,
+which every repo tend maintains reads. This file covers whether the correction
+clears the bar, which of the two it lands in, what the text carries, and the
+mechanics of proposing it.
 
 ## Whether to propose
 
@@ -61,8 +63,8 @@ conventions, its test topology, its trackers and labels, its standing
 exceptions — and for its maintainer's judgments above. A rule of mechanics goes
 upstream even when writing it locally would be quicker.
 
-Upstream means an issue on tend, filed per **Filing issues** in
-`other-repos.md`.
+Upstream means an issue on `max-sixty/tend`, filed per **Filing issues** in
+`references/other-repos.md`.
 
 ## What the text carries
 
@@ -83,8 +85,8 @@ correctness.
 
 ## Mechanics
 
-These steps are for the overlay path. Filing upstream follows `other-repos.md`
-instead.
+These steps are for the overlay path. Filing upstream follows
+`references/other-repos.md` instead.
 
 1. **Complete the current task first.** The skill update is always a separate
    PR.

@@ -20,14 +20,15 @@ qualify, as do other Claude-Code-action-using repos. The default rule (open
 an issue here asking permission first) still applies when the target shows no
 agent signals.
 
-## Skill PRs
+## Guidance PRs
 
-Here, `skill-pr-workflow.md`'s upstream is a PR, not an issue. A fix to a
-bundled skill follows its **Mechanics** with the file under `plugins/` as step
-2's dedup target and without step 3's read-only-mount workaround, which only
-`.claude/skills/` needs. A bundled skill's scripts go in
-`plugins/tend-ci-runner/scripts/`, where the generator test suite exercises
-them.
+`/tend-ci-runner:running-in-ci`'s `references/proposing-tend-guidance.md`
+routes a bundled rule upstream to tend, which is this repo, so the rule lands
+here as a PR rather than an issue. That PR follows the file's **Mechanics**,
+with the file under `plugins/` as step 2's dedup target and without step 3's
+read-only-mount workaround, which only `.claude/skills/` needs. A bundled
+skill's scripts go in `plugins/tend-ci-runner/scripts/`, where the generator
+test suite exercises them.
 
 ## Non-standard workflows
 

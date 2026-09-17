@@ -429,6 +429,16 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
   in its own skill. A repo overlay's references stay in the overlay, named
   where its own steps use them: every consumer reads the bundled table, and
   repo-specific guidance doesn't belong in it.
+- **Cite a reference file by its path from the skill's own directory**:
+  `` `references/<file>.md` ``, with the owning skill in front where the file
+  belongs to another skill
+  (`` `/tend-ci-runner:running-in-ci`'s `references/posting.md` ``). That holds
+  inside a `references/` directory too, where the file being cited is a
+  neighbour — one form reads the same wherever the sentence ends up, and
+  `test_skill_reference_citations_resolve` rejects the bare filename. Files a
+  repo keeps at its root (`CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`) are
+  named bare. To point at a rule rather than a whole file, name its section
+  and the skill: **Reader-facing prose** in `/tend-ci-runner:running-in-ci`.
 - **No specific past-run references.** Don't link GitHub Actions runs, cite
   session IDs, or quote durations from individual incidents. They age into
   trivia and aren't useful when the skill is reused. State the structural
