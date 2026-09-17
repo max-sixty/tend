@@ -33,9 +33,17 @@ confirm.
 
 ## Where it lands
 
-Settle the destination before drafting a line, and settle it on one question:
-**would every tend consumer want this rule?** If yes it belongs in tend's
-bundled skills, and what the bundled text currently says doesn't change that:
+Settle the destination before drafting a line, on two questions: **would every
+tend consumer want this rule**, and **is it ours to state?** Mechanics are the
+first kind — how GitHub behaves, what the harness does, what a session must
+never do. A judgment about what is worth doing in a repo — the complexity it
+will spend, the CI time worth saving, how many open PRs is too many — belongs
+to whoever maintains that repo, and goes in its overlay even where it reads as
+generic good sense; bundled, it makes every other repo answer to this one's
+maintainer.
+
+Where the answer to both is yes, the rule belongs in tend's bundled skills, and
+what the bundled text currently says doesn't change that:
 
 - **Bundled text is wrong or unclear** — fix it upstream.
 - **Bundled text is silent** — the same gap, usually a wider one, since
@@ -50,8 +58,8 @@ bundled skills, and what the bundled text currently says doesn't change that:
 
 The overlay is for what is true of one repo alone — its branch and landing
 conventions, its test topology, its trackers and labels, its standing
-exceptions. A rule that reads as generic guidance goes upstream even when
-writing it locally would be quicker.
+exceptions — and for its maintainer's judgments above. A rule of mechanics goes
+upstream even when writing it locally would be quicker.
 
 From a consumer repo, upstream means an issue on tend, filed per **Filing
 issues** in `other-repos.md`. Running on tend itself, it means a PR here.

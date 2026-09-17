@@ -340,49 +340,70 @@ pending run covers a replaced poll. ci-fix keeps the default too, and wants
 it: while a session works a red branch, the newest unsuccessful run carries
 that branch's current state, so replacing the pending run loses nothing.
 
-## Where guidance text goes
+## Shipped guidance and tend's own
 
-Bundled skills in `plugins/tend-ci-runner/skills/` supply defaults. Consumer
-repos overlay them at `.claude/skills/running-tend/SKILL.md`; where the two
-conflict, the overlay wins. `.agents/skills` links to `.claude/skills`, so
-Claude and Codex discover the same repo-local skills.
+Two kinds of guidance live in this repo, split by which repo the text governs.
 
-A rule is **loaded** by one set of sessions and **acted on** by a subset of
-them. Put it at the narrowest level every actor still reads. The sessions in
-the gap are the cost: each one pays attention for text that changes nothing it
-does.
+**Shipped guidance** reaches every repo that installs tend: `plugins/**`, and
+`shared/system-prompt.md`, which the harness action embeds. It tells the bot
+what to do in a repo it maintains, and has to hold in repos nobody here has
+seen.
 
-| Level | Loaded by | Holds |
+**Tend's own guidance** is read only here: `CLAUDE.md`, `TODO.md`, `docs/`, and
+`.claude/skills/`. It tells a session — the bot's or yours — how to work on
+tend.
+
+The test for a line of shipped text: does it hold in a repo whose maintainer
+disagrees with us? What tend values, what this repo will spend complexity on,
+how many open PRs is too many, how much runner time is worth saving — those are
+one maintainer's calls. Shipped, they make every consumer's repo answer to
+tend's; they belong here instead. Mechanics ship freely: how GitHub behaves,
+what the harness does, what a session must never do. A default a consumer might
+want differently ships as a default their overlay can change, stated without
+our reasoning for it.
+
+The word for the second kind isn't `internal`: a skill's `metadata: internal:
+true` already means it isn't user-invocable, and every shipped skill carries it.
+
+### Bundled and overlay
+
+Within shipped guidance, `plugins/tend-ci-runner/skills/` holds the defaults
+and a consumer overlays them at `.claude/skills/running-tend/SKILL.md`; where
+the two conflict, the overlay wins. `.agents/skills` links to `.claude/skills`,
+so Claude and Codex discover the same repo-local skills. Repo-specific policy,
+taste, or convention (PR title formats, label names, branch routing) goes in an
+overlay. Use outcomes from consumer runs to refine the defaults: a general
+missing instruction or wrong default is a bundled fix, repository policy an
+overlay one.
+
+Tend's overlay here is tend's own guidance by the rule above — it doesn't ship,
+and it carries the tasks and conventions for bot sessions in this repo.
+
+### Which file
+
+Shipped or not, a rule is **loaded** by one set of sessions and **acted on** by
+a subset of them. Put it at the narrowest level every actor still reads: the
+sessions in the gap each pay attention for text that changes nothing they do.
+
+| File | Read by | Ships |
 |---|---|---|
-| `shared/system-prompt.md` | every session, both harnesses | the bot's identity and priority order — what no skill carries |
-| `running-in-ci/SKILL.md` | every session | what every session acts on |
-| a workflow's `SKILL.md` | that workflow's sessions | that job's steps |
-| a skill's `references/` | only the sessions taking that action | its recipe and how it goes wrong |
-| `.claude/skills/running-tend/` | one repo | that repo's policy, taste, and conventions |
-| `CLAUDE.md` | sessions developing this repo | how tend is built and what it values |
-
-Four cases of the same question:
+| `shared/system-prompt.md` | every session, both harnesses | yes |
+| `running-in-ci/SKILL.md` | every session | yes |
+| a workflow's `SKILL.md` | that workflow's sessions | yes |
+| a skill's `references/` | only the sessions taking that action | yes |
+| `.claude/skills/running-tend/` | sessions in that one repo | no |
+| `CLAUDE.md` | sessions working on that repo | no |
 
 - **A rule has one home.** Another file that needs it names the section
   instead of restating it — copies drift, and a partial copy drops what the
   copier left out. Before adding a rule, `rg` a distinctive phrase from it
   across `plugins/`, `shared/`, and `CLAUDE.md`.
-- **Bundled text is what every consumer would want.** Repo-specific policy,
-  taste, or convention (PR title formats, label names, branch routing) goes
-  in an overlay. Use outcomes from adopter runs to refine the defaults: a
-  general missing instruction or wrong default is a bundled fix, repository
-  policy an overlay one.
-- **Tend's own tradeoffs are tend's policy.** This repo's order of value, its
-  PR budget, what it will and won't spend complexity on — these govern the
-  bot's automation and tend's development. In a bundled skill they reach an
-  adopter's own code and CI, where the call may differ; they belong here or
-  in tend's overlay.
 - **Every workflow that invokes the agent names a skill** (`default_prompt` in
   `config.py`). One without a skill has nowhere to put its own rules, so they
   land in the every-session file instead.
 
-When reviewing or surveying a change to a guidance file, apply the question to
-the sections it leaves in place as well: a restructure that moves three
+When reviewing or surveying a change to a guidance file, apply both questions
+to the sections it leaves in place as well: a restructure that moves three
 sections and keeps four has reviewed three.
 
 ### Authoring skills
