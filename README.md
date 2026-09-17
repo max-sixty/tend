@@ -145,9 +145,12 @@ custom roles, and org-level rulesets are all accounted for) and refuses to
 start unless the answer is no. `tend check` verifies the setup;
 `tend check --fix` creates the ruleset.
 
-**Immutable releases** lock each release published after the setting is
-enabled, including its assets and tag. `tend check` requires the setting and
-`--fix` enables it before the next release.
+**Immutable releases** lock the assets and tag of each release published
+after the setting is enabled. The body is not locked — a write-access actor
+can still edit an immutable release's notes. `tend check` requires the setting and
+`--fix` enables it before the next release. Reading the setting takes
+repository admin, so a run as the bot checks the newest release's own
+`immutable` flag instead.
 
 **Environment-gated credentials** — a workflow the bot can cause to run
 reaches no credential: not the bot token, not the model auth, not a release

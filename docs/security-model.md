@@ -61,13 +61,23 @@ Three load-bearing boundaries:
 2. **A run the bot can cause reads no secrets.** Every stored secret sits
    behind a gate the bot cannot pass, or is explicitly allowlisted in the
    tend config as accepted repo-level exposure.
-3. **Future published releases cannot be rewritten.** GitHub immutable
-   releases lock the release record, its assets, and the associated tag from
-   the point the repository setting is enabled.
+3. **Future releases' assets and tags cannot be rewritten.** GitHub immutable
+   releases lock a published release's assets and its associated tag from
+   the point the repository setting is enabled. The release's body is not
+   locked: a write-access actor can still edit the notes of an immutable
+   release, verified against live GitHub with a write-scoped token.
 
 `tend check` fails until the first two hold and the third is enabled, so a
-passing check *is* the claim for future releases. GitHub does not apply the
-setting retroactively.
+passing check by a repository admin *is* the claim for the assets and tag of
+every release published afterwards. GitHub does not apply the setting
+retroactively.
+
+A run below admin cannot read the setting and reads the newest published
+release's `immutable` flag instead, which is retrospective: it establishes that
+the setting was enabled when that release was published, not that it is enabled
+now. Turning the setting off is therefore invisible to the nightly run until
+the repository publishes again — at which point the check fails. Closing that
+window takes an admin-run `tend check`.
 
 **Merge restriction.** A GitHub ruleset (or branch protection) prevents the
 bot from merging to protected branches (the default branch plus any in
@@ -210,7 +220,11 @@ yet, so the Releases API is not a way around it. The
 Immutable releases close the separate write path: once a release is published,
 GitHub locks its assets and associated tag. This is a repository setting, not a
 ruleset inference; `tend check` verifies it directly and `--fix` enables it.
-The setting is prospective, so enable it before the repository's next release.
+Both the read and the write take repository admin, so the nightly run — which
+holds only the bot's write-scoped token — verifies the newest published
+release's own `immutable` flag instead, and fails when that release can still
+be rewritten. The setting is prospective, so enable it before the repository's
+next release.
 It does not make `release: published` safe for secrets: a write actor
 can still publish a new release against an existing unpublished tag.
 
@@ -346,7 +360,7 @@ longer needs a post-agent restore or recursive ownership repair.
 action to the generator's own release version
 (`max-sixty/tend/<harness>@X.Y.Z`), never a floating ref. Release-tag
 immutability is the boundary this relies on for new releases: GitHub's
-immutable-releases setting locks each release, its assets, and its tag when it
+immutable-releases setting locks each release's assets and its tag when it
 is published. The tag ruleset also restricts updates. Tend's releases from
 before the setting was enabled have no uploaded assets and their tag code is
 protected by a no-bypass tag ruleset, but their GitHub release records are not

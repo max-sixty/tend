@@ -456,8 +456,11 @@ repos that need stronger protection against published-tag deletion can
 add a no-bypass `deletion` ruleset (see the publisher uplift below).
 
 **Immutable releases.** Enable this before the next release. It locks that
-release, its assets, and its associated tag; GitHub does not apply the setting
-retroactively:
+release's assets and its associated tag, but not its body — a write-access
+actor can still edit the notes. GitHub does not apply the setting
+retroactively. Reading the setting takes repository admin, so the nightly
+`tend check` verifies the newest published release's own `immutable` flag —
+on a repo that already had releases, that check fails until the next one:
 
 ```bash
 gh api "repos/$REPO/immutable-releases" \

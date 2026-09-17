@@ -34,9 +34,12 @@ The two admin-gated operations are:
   code; the only damage is brief availability of the tag itself.
 
 GitHub's immutable-releases setting closes the adjacent Releases API path:
-once a release is published, its record, assets, and associated tag are
-locked. The setting is prospective, so install-tend enables it before the
-next release and `tend check` verifies it directly.
+once a release is published, its assets and associated tag are locked. Its
+body is not — a write-access actor can still edit the notes of an immutable
+release. The setting is prospective, so install-tend enables it before the
+next release and `tend check` verifies it directly. Reading the setting
+takes repository admin, so the nightly run — holding only the bot's
+write-scoped token — checks the newest release's own `immutable` flag.
 
 The "all tags" scope is deliberate: matching every tag removes a per-repo
 pattern choice and keeps the chain a single uniform rule. Consumers that

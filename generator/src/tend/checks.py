@@ -1,21 +1,28 @@
 """Security checks for tend setup.
 
 Verifies the boundaries docs/security-model.md claims: the bot cannot land
-code (protected branches and tag operations), future releases are immutable,
-and a run the bot can cause reaches no credential (the `tend` environment's
-deployment branch policy, every other credential-holding environment's gate,
-the operational secrets living in the environment, and no repo-level secret
-outside the allowlist).
+code (protected branches and tag operations), future releases' assets and tags
+are immutable, and a run the bot can cause reaches no credential (the `tend`
+environment's deployment branch policy, every other credential-holding
+environment's gate, the operational secrets living in the environment, and no
+repo-level secret outside the allowlist).
 
 Uses the `gh` CLI for GitHub API access. Checks degrade gracefully when
-gh is unavailable or the token lacks permission. Everything read here is
-readable with the bot's own write-scoped token, so the nightly run sees
-the same answers a maintainer does — with one asymmetry: a ruleset's
-`bypass_actors` list is served only to repo admins, but every response
-carries `current_user_can_bypass`, GitHub's own evaluation of the caller
-against that list. A run as the bot reads its verdict there; a run as an
-admin reads the list; a token that is neither — or a failed read, or a
-listed principal tend cannot resolve — reports unknown.
+gh is unavailable or the token lacks permission. Almost everything read
+here is readable with the bot's own write-scoped token, so the nightly run
+sees the same answers a maintainer does. Two reads are admin-only, and each
+has a bot-readable stand-in, so the nightly reaches a verdict on them rather
+than skipping:
+
+- A ruleset's `bypass_actors` list is served only to repo admins, but every
+  response carries `current_user_can_bypass`, GitHub's own evaluation of the
+  caller against that list. A run as the bot reads its verdict there; a run
+  as an admin reads the list; a token that is neither — or a failed read, or
+  a listed principal tend cannot resolve — reports unknown.
+- The immutable-releases setting 404s for anything below admin, on read and
+  on write alike. Each published release carries its own `immutable` flag,
+  which a write-scoped token can read, so the bot verifies the newest
+  release instead of the setting that produced it.
 """
 
 from __future__ import annotations
@@ -177,7 +184,7 @@ def detect_default_branch(repo: str) -> str | None:
 
 
 def check_immutable_releases(repo: str) -> CheckResult:
-    """Check that future published releases and their tags cannot be rewritten."""
+    """Check that future releases' assets and tags cannot be rewritten."""
     result = _gh(
         "api",
         "-H",
@@ -188,12 +195,7 @@ def check_immutable_releases(repo: str) -> CheckResult:
         return CheckResult("immutable-releases", None, "gh CLI not found")
     if result.returncode != 0:
         if "HTTP 404" in result.stderr:
-            return CheckResult(
-                "immutable-releases",
-                None,
-                "Could not read the immutable-releases setting. Repository "
-                "admin access is required to verify it.",
-            )
+            return _check_newest_release_immutable(repo)
         return CheckResult(
             "immutable-releases", None, f"API error: {result.stderr.strip()}"
         )
@@ -213,7 +215,85 @@ def check_immutable_releases(repo: str) -> CheckResult:
         "immutable-releases",
         False,
         "Immutable releases are disabled. A write-access bot can rewrite a "
-        "published release's assets or notes. Run `tend check --fix`.",
+        "published release's assets, and repoint its tag. Run `tend check --fix`.",
+    )
+
+
+def _check_newest_release_immutable(repo: str) -> CheckResult:
+    """Verify release integrity from the releases themselves, without admin.
+
+    Reading the immutable-releases setting takes repository admin, and so does
+    writing it. The bot has write, so every scheduled run 404s on the endpoint
+    above. A skip there leaves the setting verified only when a maintainer runs
+    `tend check` by hand, and the nightly files nothing for a skip — so the
+    setting could be turned off, or never enabled, with nothing watching.
+
+    Each published release carries GitHub's own `immutable` flag, readable with
+    write access, recording the setting as it stood when that release was
+    published. The most recently published release therefore reflects the most
+    recent state of the setting — the maximum by `published_at`, not the first
+    element of the listing and not the first page of it. The endpoint documents
+    no order, and a release's `created_at` is its tag's commit date, so a repo
+    publishing from several trains serves a backport published later further
+    down; without `--paginate` the maximum would be taken over whichever
+    hundred releases GitHub returned first.
+
+    The flag is retrospective in both directions. Enabling the setting clears a
+    failure here at the next release rather than immediately, and turning it
+    off goes unseen until the repository publishes again. An admin's run reads
+    the setting itself and has neither lag.
+    """
+    # `--slurp` collects the pages into one array of pages, and gh refuses it
+    # alongside `--jq`, so the selection happens here rather than in a filter.
+    result = _gh("api", "--paginate", "--slurp", f"repos/{repo}/releases")
+    if result is None:
+        return CheckResult("immutable-releases", None, "gh CLI not found")
+    if result.returncode != 0:
+        return CheckResult(
+            "immutable-releases", None, f"API error: {result.stderr.strip()}"
+        )
+    try:
+        published = [
+            release
+            for page in json.loads(result.stdout)
+            for release in page
+            if not release["draft"]
+        ]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return CheckResult(
+            "immutable-releases", None, "GitHub returned an unreadable response"
+        )
+    if not published:
+        return CheckResult(
+            "immutable-releases",
+            None,
+            "No published release to read the flag from, and reading the "
+            "immutable-releases setting requires repository admin access.",
+        )
+    try:
+        newest = max(published, key=lambda release: release["published_at"])
+        tag = newest["tag_name"]
+        immutable = newest["immutable"]
+    except (KeyError, TypeError):
+        return CheckResult(
+            "immutable-releases", None, "GitHub returned an unreadable response"
+        )
+    if immutable is True:
+        return CheckResult(
+            "immutable-releases",
+            True,
+            f"The newest release ({tag}) is immutable, so the setting was "
+            "enabled when it was published. Reading the setting itself "
+            "requires repository admin access.",
+        )
+    return CheckResult(
+        "immutable-releases",
+        False,
+        f"The newest release ({tag}) can be rewritten — a write-access bot can "
+        "replace its assets. Run `tend check --fix` as a repository "
+        "admin. GitHub applies the setting only to releases published after it "
+        "is enabled, so an already-enabled repository clears this at its next "
+        "release.",
     )
 
 
