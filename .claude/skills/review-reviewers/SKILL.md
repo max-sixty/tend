@@ -38,10 +38,13 @@ Evidence lives in one secret gist per target repo and month, indexed by the
 monthly `review-reviewers-tracking` issue on Tend. Prepare it and read the
 current and previous month's evidence:
 
+This skill lives in tend's own `.claude/skills/`, so the bundled plugin's
+scripts are reached through `$SCRIPTS` — Claude leaves `CLAUDE_PLUGIN_ROOT`
+unset in the shell, Codex exports it. Each block below sets it.
+
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_reviewers.py" \
-  prepare-evidence "$ARGUMENTS"
+SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
+uv run --script "$SCRIPTS/review_reviewers.py" prepare-evidence "$ARGUMENTS"
 ```
 
 The command finds or creates both index and gist, announces a new gist once,
@@ -53,8 +56,8 @@ $GITHUB_RUN_ID` heading every run, including an all-clear window; the heading
 is the audit trail future runs use. Then append it:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_reviewers.py" append-evidence
+SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
+uv run --script "$SCRIPTS/review_reviewers.py" append-evidence
 ```
 
 The command refuses a findings file that does not name this run, fetches the
@@ -87,8 +90,9 @@ If the file doesn't exist, try the legacy overlay paths and the repo's root proj
 Then list recently completed tend CI runs on the target repo:
 
 ```bash
+SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
 TARGET_REPO=$ARGUMENTS uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/list_recent_runs.py" review-reviewers
+  "$SCRIPTS/list_recent_runs.py" review-reviewers
 ```
 
 The script discovers `tend-*` workflows by default. Pass additional prefixes as arguments to include other workflows (e.g., `review-reviewers` when analyzing tend itself).

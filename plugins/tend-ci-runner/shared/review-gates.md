@@ -1,5 +1,6 @@
-<!-- Shared gates and evidence framework for review-reviewers and review-runs skills. -->
-<!-- Symlinked into each skill directory; changes here apply to both. -->
+<!-- Gates and evidence framework for the review-runs skill, and for tend's own -->
+<!-- review-reviewers overlay. Symlinked into each; changes here apply to both. -->
+<!-- It ships with the plugin: every rule here has to hold in a consumer's repo. -->
 
 ## Confidence and magnitude gates
 
