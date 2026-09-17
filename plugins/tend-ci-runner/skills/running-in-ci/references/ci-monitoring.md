@@ -29,9 +29,7 @@ Run this command in the foreground and allow at least 10 minutes — the poll ru
 
 Exit 0 is green, judged on the latest run of each check — where one workflow ran twice *independently* on the same SHA, read the earlier run's own conclusion before relying on it. Exit 1 is red, with the failing checks and their run URLs: diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and poll the new commit. Any other exit is **unverified, not green** — the script prints why. The cap is the whole poll budget — the pending count includes advisory jobs (an hourly benchmark matrix never reaches zero), so don't re-enter the loop; report the still-pending checks as unverified, marking each required or advisory (`gh pr checks <number> --required` lists the required contexts already registered on the commit; an omnibus that hasn't registered yet is required too).
 
-### A failure is not "pre-existing" until you have checked the default branch
-
-The rule holds for a local test run's failures as much as for a red check on the PR:
+Before calling a failure pre-existing (**Grounded Analysis** in `SKILL.md`), check the default branch's CI:
 
 ```bash
 DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')

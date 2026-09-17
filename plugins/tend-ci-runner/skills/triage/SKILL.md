@@ -24,6 +24,8 @@ Follow the AD FONTES principle throughout: reproduce before fixing, evidence bef
 gh issue view $ARGUMENTS --json title,body,labels,author
 ```
 
+An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on, not a self-conversation: the system prompt's self-loop guard covers the bot's own *comments*, and triage runs on these normally while no bot comment answers them yet.
+
 Classify into one of:
 
 - **Bug report** — describes unexpected behavior, includes steps to reproduce or error output. Descriptions of changed behavior ("no longer works", "used to work") strongly signal a bug even with a terse body.
@@ -63,25 +65,19 @@ Record what you found (or didn't find) for use in step 7.
 
 *Bug reports only.*
 
-1. **Understand the report** — What command was run? What was expected? What actually happened?
-2. **Find relevant code** — Search the codebase for the functionality described
-3. **Reproduce it** per **Reproduce before you fix** in `/tend-ci-runner:running-in-ci`'s `references/fixing.md`.
+Follow **Reproduce first** in `references/fixing.md`: a failing test in an existing test file, run to confirm it fails.
 
-If the test passes (bug may already be fixed), note this for the comment.
-
-If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7.
+If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7. If the test passes, the bug may already be fixed — note that for the comment.
 
 ## Step 6: Fix (conservative)
 
 *Bug reports only.*
 
-Read `references/fixing.md` in `/tend-ci-runner:running-in-ci` before writing anything. It carries the gate — no failing test, no fix — the four conditions a fix attempt has to meet, and the shapes that look like a fix and aren't. If the gate or the conditions rule out a fix, go to Step 7 and report the outcome you established.
-
-Step 3's duplicate check catches identical fixes, not the same-root-cause-different-surface case; **Shapes that are not a fix** covers that one.
+`references/fixing.md` carries the gates: the failing test you must already have, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
 
 ### If fixing
 
-1. Run the pre-push checks in **Before the push** in `/tend-ci-runner:running-in-ci`'s `references/fixing.md`.
+1. Clear the local bar in `references/fixing.md`.
 2. Create branch, commit, push, and create PR:
    ```bash
    git checkout -b fix/issue-$ARGUMENTS

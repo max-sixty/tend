@@ -4,15 +4,6 @@ name: review-reviewers
 # improvement PRs/issues). TEND_BOT_TOKEN is sufficient for reading CI data from
 # public consumer repos.
 #
-# The skill is repo-local (`.claude/skills/review-reviewers/`), not bundled, so
-# the prompt names it unprefixed and it comes from this checkout rather than the
-# pinned action's plugin. Its `review-gates.md` symlink and its script paths
-# reach into the checkout's `plugins/` for the same reason, so the skill and the
-# scripts it calls stay on one commit. Only the Claude harness resolves an
-# unprefixed slash command this way; `agents-tail.md` teaches Codex `$name`
-# mentions for bundled skills only, so switching this workflow to the codex
-# action needs the prompt reworded to name the file.
-#
 # Paused — manual dispatch only, no cron. The hourly outside-in sweep had
 # converged on maintaining its own evidence machinery, at the fleet's highest
 # per-run cost and a quota ceiling that twice took the user-facing workflows
