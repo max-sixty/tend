@@ -195,6 +195,67 @@ def test_sandbox_runtime_pin_is_identical_in_actions_and_hosted_probe() -> None:
     assert len(versions) == 1, f"Sandbox Runtime pins diverged: {versions}"
 
 
+def test_sandbox_capabilities_resolve_from_one_recorded_instant() -> None:
+    """The sandbox boundary is assembled from code no commit here owns.
+
+    bubblewrap, socat and ripgrep come from the Ubuntu archive, and SRT's own
+    `zod`, `commander`, `node-forge` and `@pondwader/socks5-server` ranges come
+    from npm, so an unpinned install rebuilds the boundary out of whatever
+    upstream published that morning. That is how a bubblewrap security update
+    took every consumer's sessions down on 2026-09-17 with nothing red here.
+    Both installs resolve as of `PACKAGES_RESOLVED_AT`; this is the lint that
+    stops a later edit dropping back to the live sources.
+    """
+    script = (REPO_ROOT / "shared/steps/install-sandbox-runtime.sh").read_text()
+
+    instants = re.findall(r"^PACKAGES_RESOLVED_AT=(\S+)$", script, re.MULTILINE)
+    assert len(instants) == 1, instants
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", instants[0]), instants[
+        0
+    ]
+
+    # npm resolves SRT's whole tree as of that instant, and apt reads the
+    # Ubuntu archive snapshot taken at the same one.
+    assert '--before "$PACKAGES_RESOLVED_AT"' in script
+    assert "${PACKAGES_RESOLVED_AT//[:-]/}" in script
+
+    installs = re.findall(r"^.*apt-get\b.*\binstall\b.*$", script, re.MULTILINE)
+    assert len(installs) == 1, installs
+    assert '"${apt_options[@]}"' in installs[0], installs[0]
+    assert installs[0].endswith('"${stale[@]}"'), installs[0]
+
+    # `stale` holds one package=version pair per capability, so nothing reaches
+    # apt by bare name.
+    assert re.findall(r'^\s*"(\w+)=\$[A-Z_]+_VERSION" ?\\?$', script, re.MULTILINE) == [
+        "bubblewrap",
+        "socat",
+        "ripgrep",
+    ]
+
+
+def test_no_other_apt_install_escapes_the_pin() -> None:
+    """One `apt-get install` in the repo, and the test above owns it."""
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*.sh", "*.yaml", "*.py", "*.mjs"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split("\0")
+    offenders = sorted(
+        name
+        for name in tracked
+        if name
+        and not name.startswith("generator/tests/")
+        # `git ls-files` reports the index; a Tend PR session restores
+        # `.claude/**` from the base branch, so a tracked path can be absent.
+        and (REPO_ROOT / name).is_file()
+        and re.search(r"apt-get\b.*\binstall\b", (REPO_ROOT / name).read_text())
+    )
+
+    assert offenders == ["shared/steps/install-sandbox-runtime.sh"]
+
+
 @pytest.mark.parametrize("harness", ["claude", "codex"])
 def test_sandbox_resources_are_removed_immediately_after_agent_reap(
     harness: str,

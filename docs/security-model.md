@@ -307,13 +307,19 @@ Each transition is a bottleneck with one job:
   Claude or Codex turn as one command under the pinned Anthropic Sandbox
   Runtime. Tend supplies absolute `node`, `bwrap`, `socat`, `rg`, and seccomp
   paths, treats dependency warnings as fatal, and probes AF_UNIX denial plus
-  runner-checkout unreadability before setup executes. The hosted integration
-  probe additionally asserts that direct host loopback is unreachable while
-  the HTTP broker remains reachable. Ubuntu 24.04's AppArmor policy strips the
-  user-namespace capabilities SRT needs. Tend temporarily applies SRT's
-  documented sysctl prerequisite on disposable GitHub-hosted VMs and restores
-  it immediately after the sandbox is reaped; Tend never changes self-hosted
-  policy, where a scoped AppArmor profile may satisfy the same prerequisite.
+  runner-checkout unreadability before setup executes. The boundary's own code
+  is pinned as tightly as its configuration: `bwrap`, `socat` and `rg` install
+  at named Debian versions from a dated Ubuntu archive snapshot, and the
+  Sandbox Runtime's npm tree resolves as of the same instant, so neither the
+  Ubuntu archive nor the npm registry changes how the sandbox is built without
+  a commit in Tend. The
+  hosted integration probe additionally asserts that direct host loopback is
+  unreachable while the HTTP broker remains reachable. Ubuntu 24.04's AppArmor
+  policy strips the user-namespace capabilities SRT needs. Tend temporarily
+  applies SRT's documented sysctl prerequisite on disposable GitHub-hosted VMs
+  and restores it immediately after the sandbox is reaped; Tend never changes
+  self-hosted policy, where a scoped AppArmor profile may satisfy the same
+  prerequisite.
   Without either, the run fails closed inside `bwrap` with `Failed
   RTM_NEWADDR: Operation not permitted`, rather than with a capability
   diagnosis.
