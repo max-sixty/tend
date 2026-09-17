@@ -71,7 +71,7 @@ Check the project's instruction files for language-specific review criteria and 
 - Is the code clear and well-structured?
 - Are there simpler ways to express the same logic?
 - Does it avoid unnecessary complexity, feature flags, or compatibility layers?
-- In the bot's own automation (its skills, and the scheduled workflows that invoke it) and the repo's CI config: is the change worth its weight? Challenge new mechanism whose only payoff is saved runner time — retries, skip-gates, caches, scheduling arithmetic. Judge the whole change: a PR well-argued line by line can still cost more machinery than the runner time it saves, and the review should say so plainly. Recommend the simple knob, or closing the PR, over refinement.
+- In the bot's own automation (its skills, and the scheduled workflows that invoke it) and the repo's CI config: is the change worth its weight? Challenge new mechanism whose only payoff is saved compute — retries, skip-gates, caches, scheduling arithmetic — and ask for waste that has recurred across days, not projected waste. Judge the whole change: a PR well-argued line by line can still cost more machinery than the compute it saves, and the review should say so plainly; the same setting repeated across workflows, jobs, or call sites is a configuration scheme, not a knob. Recommend one knob in one place, or closing the PR, over refinement.
 
 **Correctness:**
 

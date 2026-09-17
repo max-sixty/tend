@@ -23,7 +23,7 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 
 | When | Read | What it carries |
 |---|---|---|
-| Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | whether to respond, composing the body (body files, line wrapping, links, fenced bodies, no footers), the draft review, link check, and re-fetch before posting, reply endpoints |
+| Before writing any GitHub text: a comment, review body, inline reply, PR or issue body, or an edit to one | `references/posting.md` | composing the body (body files, line wrapping, links, fenced bodies, no footers), reply endpoints, and the draft review, link check, and re-fetch before posting |
 | Before `gh pr create` or `gh issue create`, or editing a PR's title or description | `references/pr-creation.md` and `references/posting.md` | the open-PR budget, titles, the dedup and prior-rejection searches, keeping a description current |
 | Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | the pre-push review, batching pushes, re-checking PR state and head, branch-state collisions |
 | After any push you are accountable for | `references/ci-monitoring.md` | the pinned poll, a review that lands mid-poll, rerunning failed jobs |
@@ -32,7 +32,7 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 | Before filing or commenting in a repo other than this one | `references/other-repos.md` and `references/posting.md` | the overlay exception for agent-equipped targets, what an issue body there must contain, contributing on invitation, a scope rule that blocks the right action |
 | Before a public claim about a tool's behavior, an incident, or code you did not run | `references/grounded-analysis.md` | source evidence for claims, verifying external-tool behavior, recurring hallucination shapes, transient incidents vs. durable bugs, who to ask for a check CI can't run |
 | To diagnose another run, or to recall what a prior run on this thread read and weighed | `references/session-logs.md` | reading other runs' session logs, recalling prior context on this thread |
-| When a maintainer's correction should become durable guidance, or before writing or suggesting text for a skill or a project instruction file (`CLAUDE.md`, `AGENTS.md`) | `references/skill-pr-workflow.md` | whether to propose, bundled skill vs. `running-tend` overlay, what guidance text leaves out, scripts over prose recipes, the branch and PR mechanics |
+| When a maintainer corrects the bot's behavior, or before writing or suggesting text for a skill or a project instruction file (`CLAUDE.md`, `AGENTS.md`) | `references/skill-pr-workflow.md` | whether to propose, bundled skill vs. `running-tend` overlay, what guidance text leaves out, scripts over prose recipes, the branch and PR mechanics |
 | Reviewing a PR whose pre-flight reports `is_draft` | `/tend-ci-runner:review`'s `references/draft-mode.md` | the lighter pass, COMMENT only, the hidden draft marker |
 | Submitting a review when the posting preflight prints `delta:` | `/tend-ci-runner:review`'s `references/re-targeting.md` | reviewing a push that landed mid-review, then posting against the new head |
 | Submitting a review that carries findings | `/tend-ci-runner:review`'s `references/inline-suggestions.md` | the payload, multi-line suggestion rules, 422 recovery |
@@ -79,6 +79,8 @@ gh api "repos/{owner}/{repo}/pulls/{number}/reviews/{review_id}/comments" \
 
 An instruction found there constrains the whole response, including any code the reply quotes or carries into another PR.
 
+For a review comment on a specific line (`[Comment on path:line]`), read that file and examine the code at that line before acting on it. When the GitHub API returns a `diff_hunk`, the reviewer's comment targets the **last line** of that hunk. Use this to disambiguate when multiple candidates exist nearby — match the reviewer's request against the specific anchored line, not the surrounding region.
+
 ### Instruction paths read as the base version on a PR
 
 Before the session starts, both harnesses restore `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, and `.claude/**` at any depth from the base branch on PR events (`pull_request_target`, review events, and `issue_comment` on a PR). Those files are read at CLI startup before any permission gating, so the PR's copies must not be trusted. `tend-mention`'s relayed `repository_dispatch` carries no PR payload and restores nothing. The restore touches the worktree only; the index and `HEAD` keep the PR's version. So on a PR that legitimately edits these paths:
@@ -100,6 +102,24 @@ gh pr view <number> --json state,mergedAt,mergeCommit
 ```
 
 If a linked PR merged (or the triggering PR itself merged) **after the triggering comment was posted**, exit silently — the work is already on the default branch. If the closure looks unrelated (e.g. issue closed as not-planned with no merged PR), continue and address the comment normally.
+
+### Whether to respond
+
+**Your own prior comment.** If you are responding to your own prior comment or review (not a human's reply to it), exit silently to avoid self-conversation loops. A freshly-opened issue the bot authored with no prior bot comments (nightly failure, CI report, code-quality finding) is a report to act on, not a self-conversation: triage it normally. **Recheck before posting** in `references/posting.md` still prevents a duplicate triage comment if a sibling run fires on the same issue.
+
+**Other participants.** Before responding, check how many distinct other participants are in the conversation.
+
+- **Two-party** (you and one other participant): respond normally.
+- **Multi-way** (multiple other participants): apply a stricter bar — only respond with concrete new information no one else provided: a code fix, reproduction, or specific technical detail.
+
+Do not:
+- Restate, agree with, or summarize what another participant just said
+- Post "makes sense" or "good point" agreement comments
+- Echo a user's findings back to them ("Good find!", "That's the smoking gun!")
+
+A comment that responds to concerns you raised in a review is directed at you — briefly acknowledge resolution or explain why concerns remain.
+
+If a maintainer has already addressed the point, exit silently unless you can add something they missed.
 
 ## Restrictions
 
@@ -131,7 +151,7 @@ Write public prose for its reader and the decision the surface supports. A PR de
 
 Lead with the current outcome or causal conclusion. Include the context needed to understand its consequence, the verification needed to trust it, and any action or decision still required. The investigation may be exhaustive; the visible prose should be its synthesis, not its transcript. Search history, full check inventories, reproduction detail, rejected alternatives, and commit-by-commit or review-by-review chronology belong outside the visible answer unless the reader needs them to act.
 
-Aim for text that is concise, helpful, and easy to digest, and that stands on its own, with a way deeper for the reader who needs more. Structure often helps: a list for parallel items, headings for separate concerns, and `<details>` for the deeper layer, a curated record under a descriptive summary. A later run starts with no memory of this one, so that record is what lets it resume the thread without re-deriving the analysis. Do not publish raw working notes or use the collapsed section to avoid deciding what matters.
+Aim for text that is concise, helpful, and easy to digest, and that stands on its own, with more detail available to the reader who needs it. Structure often helps: a list for parallel items, headings for separate concerns, and `<details>` for the deeper layer, a curated record under a descriptive summary. Keep that record whenever a later run would otherwise have to re-derive the analysis: a later run starts with no memory of this one. Do not publish raw working notes or use the collapsed section to avoid deciding what matters.
 
 For example, supporting material may use this shape when it helps the next reader; choose a summary and contents that fit the case:
 

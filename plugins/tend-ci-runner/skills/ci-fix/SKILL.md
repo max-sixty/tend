@@ -95,7 +95,7 @@ Match by failure-shape keyword against the issue body (e.g. `rustup-init`, `comp
 
 If the current failure shape has 2+ prior occurrences on separate days within the past 7, escalate to durable: a fault that keeps coming back within a week is not transient even when individual reruns pass. Count occurrences, not trackers — the same root cause taking down several jobs in one afternoon files several trackers and is still one occurrence.
 
-An escalated fault still reruns green, so a mitigation buys back runner time, not correctness. Open a fix PR proposing a knob-sized mitigation (pin the runner image, skip the affected leg, disable the relevant cache layer), preferring an upstream-documented workaround — `gh issue search` against the action's repo, the action's README, GitHub Community threads — and linking the upstream issue if the search surfaced one. If the fault has no knob-sized mitigation, treat it as a durable cause without a safe fix and follow 3b.
+An escalated fault still reruns green, so a mitigation buys back runner time, not correctness. Open a fix PR proposing a knob-sized mitigation, one setting in one place (pin the runner image, skip the affected leg, disable the relevant cache layer), preferring an upstream-documented workaround — `gh issue search` against the action's repo, the action's README, GitHub Community threads — and linking the upstream issue if the search surfaced one. If the fault has no knob-sized mitigation, treat it as a durable cause without a safe fix and follow 3b.
 
 #### File the transient tracker
 
