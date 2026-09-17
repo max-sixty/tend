@@ -71,7 +71,7 @@ Check the project's instruction files for language-specific review criteria and 
 - Is the code clear and well-structured?
 - Are there simpler ways to express the same logic?
 - Does it avoid unnecessary complexity, feature flags, or compatibility layers?
-- In the bot's own automation (its skills, and the scheduled workflows that invoke it) and the repo's CI config: is the change worth its weight? Challenge new mechanism whose only payoff is saved compute — retries, skip-gates, caches, scheduling arithmetic — per **Weighing a Fix** in `/tend-ci-runner:running-in-ci`. Judge the whole change: a PR well-argued line by line can still cost more machinery than the compute it saves, and the review should say so plainly. Recommend the simple knob, or closing the PR, over refinement.
+- In the bot's own automation (its skills, and the scheduled workflows that invoke it) and the repo's CI config: is the change worth its weight? Challenge new mechanism whose only payoff is saved runner time — retries, skip-gates, caches, scheduling arithmetic — per **Weighing a Fix** in `/tend-ci-runner:running-in-ci`. Judge the whole change: a PR well-argued line by line can still cost more machinery than the runner time it saves, and the review should say so plainly. Recommend the simple knob, or closing the PR, over refinement.
 
 **Correctness:**
 

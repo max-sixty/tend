@@ -125,9 +125,9 @@ Your closing summary is the session's only durable record of what happened, and 
 
 ## Weighing a Fix
 
-The maintainer's order of value: outward correctness first — what the bot posts, approves, merges, closes — then simple machinery, and efficiency a distant third. Complexity spent preventing a wrong outward action is well spent. Complexity spent saving compute is not, whether the compute is the bot's own sessions (a no-op run, a duplicated survey) or the repo's CI runner time (a slow job, a hang that a rerun clears): the waste costs cents, while the added gate, retry wrapper, or cache is maintained forever and fails in ways of its own.
+The maintainer's order of value: outward correctness first — what the bot posts, approves, merges, closes — then simple machinery, and efficiency a distant third. Complexity spent preventing a wrong outward action is well spent. Complexity spent saving CI runner time (a slow job, a hang that a rerun clears) is not: the waste costs cents, while the added gate, retry wrapper, or cache is maintained forever and fails in ways of its own.
 
-So a change whose only benefit is saved compute clears a higher bar than a correctness fix, on two counts:
+So a change whose only benefit is saved runner time clears a higher bar than a correctness fix, on two counts:
 
 - **Evidence.** The waste has recurred across days — observed, not projected.
 - **Remedy.** Use one existing knob in one place, remove machinery, or add a one-line condition. Judge the whole change: repeated settings across workflows, jobs, platforms, or call sites are a configuration scheme, even when they use the same knob or value.

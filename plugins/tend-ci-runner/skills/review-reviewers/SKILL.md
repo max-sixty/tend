@@ -14,16 +14,9 @@ Analyze tend's CI behavior on the target repo over the window Step 1 returns. Fo
 
 Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply.
 
-## Cost discipline: smaller, cheaper models for exploration
+## Cost discipline
 
-Session log parsing and outcome checking are token-heavy. Delegate all broad exploration to a **smaller, cheaper model**. Keep the main agent for judgment: evaluating findings against gates, deciding whether to act, and drafting PRs.
-
-Pattern:
-1. Main agent sets up context (bot identity, repo guidance, run list)
-2. Main agent delegates the run survey to a subagent using a smaller, cheaper model → receives structured summary
-3. Main agent evaluates the summary against gates
-4. If needed, main agent delegates specific session logs to another subagent using a smaller, cheaper model → receives diagnosis
-5. Main agent drafts fix PR if warranted
+Session log parsing and outcome checking are token-heavy. Keep that bulk reading out of the context that makes the judgments (evaluating findings against gates, deciding whether to act, drafting PRs), and run it on a smaller, cheaper model where the harness allows.
 
 ## Core principle: outcomes over internals
 
@@ -122,11 +115,9 @@ If the script printed a `WARNING:` on stderr, the list is known-incomplete — t
 
 **State the window you analyzed.** Its floor is the previous successful run of this workflow, or 6h back when that is older. This workflow is dispatch-only, so runs sit further apart than a cron's and the floor moves accordingly: scope every claim to it — "no problems since 08:12Z", never "no problems" — and say plainly when the run was dispatched to check on something that landed before it.
 
-## Step 2: Survey outcomes via a smaller, cheaper model
+## Step 2: Survey outcomes
 
-Spawn a subagent using a smaller, cheaper model to check outcomes across all runs from Step 1. The subagent does the token-heavy work of mapping runs to PRs/issues and checking acceptance signals.
-
-Use a smaller, cheaper model for the subagent and a prompt like:
+Check outcomes across all runs from Step 1: map runs to PRs and issues, and check acceptance signals. This is the token-heavy part, so run it per **Cost discipline**, briefed with a prompt like:
 
 > Survey bot outcomes on `$ARGUMENTS` for the following runs: [run IDs from Step 1].
 > The bot's login is `$BOT_LOGIN`.
@@ -261,11 +252,11 @@ Use a smaller, cheaper model for the subagent and a prompt like:
 
 A report of little or no bot output is only usable if it carries the repo-wide sweep counts — without them, run the sweep block yourself before believing it, because a silent window and a broken per-run walk produce the same summary. Absence is not a finding on its own either: don't reason from it toward a conclusion the sweep would contradict.
 
-Review the subagent's summary, and verify any actor attribution before it enters a finding — a survey that credits the bot's own reply to a human turns a self-conversation into a false all-clear. Route on the buckets: if concerning outcomes exist, continue to Step 3. Otherwise judge the bot-only threads on their content — a self-review chain that went wrong is a finding even with no human in it, and one that read fine is not — and if nothing there concerns you and there are no sanity-check flags, skip to Step 6 (summary).
+Review the survey's summary, and verify any actor attribution before it enters a finding — a survey that credits the bot's own reply to a human turns a self-conversation into a false all-clear. Route on the buckets: if concerning outcomes exist, continue to Step 3. Otherwise judge the bot-only threads on their content — a self-review chain that went wrong is a finding even with no human in it, and one that read fine is not — and if nothing there concerns you and there are no sanity-check flags, skip to Step 6 (summary).
 
-## Step 3: Investigate concerning outcomes via a smaller, cheaper model
+## Step 3: Investigate concerning outcomes
 
-For runs with negative outcome signals (or suspicious lack of output), spawn another subagent using a smaller, cheaper model to download and inspect the specific session logs.
+For runs with negative outcome signals (or suspicious lack of output), download and inspect the specific session logs, per **Cost discipline**.
 
 **Also escalate whenever a finding will name *which run* produced an output.** A timestamp falling inside a run's start/end span does not attribute the output to it: several runs are live at once — a long scheduled run that opened the PR, the event-triggered handle answering a review on it, a racing sibling — and any of them can post. Attributing by wall-clock inclusion credits the wrong run, and the run ID then ships in a public comment. Confirm from the posting run's own log before a run ID enters a finding.
 
@@ -287,7 +278,7 @@ done | grep -E "$WRITES"
 
 The run whose log contains the posting call is the author. Presence is the strong signal; before concluding a run posted *nothing*, confirm you ran the variant matching the artifact you downloaded — the wrong one returns empty regardless of what the run did — and that the write you're chasing has a shape `WRITES` covers.
 
-Use a smaller, cheaper model for the subagent and a prompt like:
+Brief the investigation with a prompt like:
 
 > Investigate session logs for run <run-id> on `$ARGUMENTS`.
 >
@@ -307,7 +298,7 @@ Use a smaller, cheaper model for the subagent and a prompt like:
 >
 > Report: what the bot decided, what evidence it used, and what went wrong.
 
-Evaluate the subagent's diagnosis against the repo-specific guidance from Step 1. Determine whether the failure is structural (same conditions always produce this failure) or stochastic (probabilistic model behavior that might not recur).
+Evaluate the diagnosis against the repo-specific guidance from Step 1. Determine whether the failure is structural (same conditions always produce this failure) or stochastic (probabilistic model behavior that might not recur).
 
 ## Step 4: Deduplicate
 
