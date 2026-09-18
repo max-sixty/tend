@@ -829,9 +829,11 @@ def test_every_workflow_pins_the_same_tend_release() -> None:
     )
 
 
-# A bundled skill invoked as a slash command. `<name>` and `NAME` placeholders
+# A bundled skill invoked as a slash command, or named by the system prompt's
+# `${SKILL:<name>}` placeholder, which `_prompt.py` renders into that same
+# invocation for whichever harness is running. `<name>` and `NAME` placeholders
 # don't match, so prose about the citation form isn't read as a citation.
-PLUGIN_SKILL = re.compile(r"/tend-ci-runner:(?P<skill>[a-z0-9-]+)")
+PLUGIN_SKILL = re.compile(r"(?:/tend-ci-runner:|\$\{SKILL:)(?P<skill>[a-z0-9-]+)")
 
 
 def test_plugin_skill_citations_resolve() -> None:
@@ -869,9 +871,10 @@ def test_plugin_skill_citations_resolve() -> None:
 # so a longer description is cut mid-sentence and every session reads a trigger
 # that stops partway. The share falls as skills are added, and several
 # descriptions sit within a few characters of the ceiling, so the count is pinned
-# below — adding a skill means re-measuring, not raising it.
+# below — adding a skill means re-measuring, not raising it. The count spans both
+# plugins, because the install carries both and they share the one budget.
 DESCRIPTION_BUDGET = 130
-SKILLS_MEASURED_AT = 22
+SKILLS_MEASURED_AT = 24
 
 
 def test_skill_frontmatter_is_loadable() -> None:
@@ -889,12 +892,14 @@ def test_skill_frontmatter_is_loadable() -> None:
     broken = []
     runner = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
 
-    paths = sorted(runner.glob("*/SKILL.md"))
-    assert len(paths) == SKILLS_MEASURED_AT, (
-        f"{len(paths)} skills, not the {SKILLS_MEASURED_AT} the budget was "
-        "measured at — re-measure the share against the installed plugin, and "
-        "move DESCRIPTION_BUDGET with the count"
+    installed = sorted((REPO_ROOT / "plugins").glob("*/skills/*/SKILL.md"))
+    assert len(installed) == SKILLS_MEASURED_AT, (
+        f"{len(installed)} skills across both plugins, not the "
+        f"{SKILLS_MEASURED_AT} the budget was measured at — re-measure the "
+        "share against the install, and move DESCRIPTION_BUDGET with the count"
     )
+
+    paths = sorted(runner.glob("*/SKILL.md"))
 
     for path in paths:
         name = path.relative_to(REPO_ROOT)

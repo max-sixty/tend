@@ -14,8 +14,8 @@ prefix read silently drops those and produces wrong behavior. This
 overrides any general "read only enough" instruction for tend skills.
 
 `tend-ci-runner` carries one skill per action — posting, pushing,
-opening a PR — and `review` keeps `references/` files for the cases only it
-hits. Work out which your task will hit and read them as you plan the task,
+opening a PR — and `references/` files for cases a skill's own steps send you
+to. Work out which your task will hit and read them as you plan the task,
 in full, with `cat`.
 
 Repo-local skills live under `.claude/skills/<name>/SKILL.md` in the

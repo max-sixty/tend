@@ -400,7 +400,7 @@ sessions in the gap each pay attention for text that changes nothing they do.
 | `run-tend/SKILL.md` | every session | yes |
 | a workflow's `SKILL.md` | that workflow's sessions | yes |
 | a per-action `SKILL.md` | only the sessions taking that action | yes |
-| a skill's `references/` | that skill's sessions, when the case arises | yes |
+| a skill's `references/` | sessions of the skills whose steps cite it | yes |
 | `.claude/skills/` (the overlay, and any skill only this repo invokes) | sessions in that one repo | no |
 | `CLAUDE.md` | sessions working on the repo it sits in | no |
 
