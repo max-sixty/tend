@@ -26,6 +26,8 @@ DEFAULT_WINDOW = timedelta(hours=25)
 AD_HOC_WINDOW = timedelta(hours=1)
 CREATION_CUSHION = timedelta(hours=24)
 RUN_LIMIT = 200
+# `gh workflow list` fetches 50 without one, and says nothing when it truncates.
+WORKFLOW_LIMIT = 200
 
 
 def _parse_time(value: str) -> datetime:
@@ -52,8 +54,15 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     )
 
     workflow_rows = github_cli.json_call(
-        "workflow", "list", *repo_args, "--json", "name"
+        "workflow", "list", *repo_args, "--limit", str(WORKFLOW_LIMIT), "--json", "name"
     )
+    if len(workflow_rows) >= WORKFLOW_LIMIT:
+        print(
+            f"WARNING: the repository has at least {WORKFLOW_LIMIT} workflows, the "
+            "fetch limit — a Tend workflow beyond it is missing from this list "
+            "entirely. Record a coverage gap, not an all-clear.",
+            file=sys.stderr,
+        )
     workflows = github_cli.unique(
         row["name"]
         for prefix in prefixes

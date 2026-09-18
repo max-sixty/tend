@@ -264,6 +264,30 @@ def test_api_failure_fails_loudly(env: dict[str, str], failure: str) -> None:
     )
 
 
+def test_workflow_fetch_limit_warns(env: dict[str, str]) -> None:
+    """`gh workflow list` fetches 50 without a limit and says nothing when it
+    truncates, so a Tend workflow past the edge would be missing from the list
+    outright rather than merely missing runs."""
+    Path(env["WF_JSON"]).write_text(
+        json.dumps([{"name": f"tend-{i}"} for i in range(200)])
+    )
+    _anchor(env, (555, NOW - 5400))
+    _runs(env, _run_entry(1, updated=NOW - 600))
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    # Scoped to the listing's own call: the run fetches below it carry the same
+    # `--limit 200`, so a search of the whole log passes with the flag deleted.
+    listings = [
+        line
+        for line in Path(env["GH_CALLS"]).read_text().splitlines()
+        if line.startswith("workflow list")
+    ]
+    assert listings and all("--limit 200" in line for line in listings), listings
+    assert "at least 200 workflows" in result.stderr
+
+
 def test_workflows_filtered_by_prefix(env: dict[str, str]) -> None:
     """Only workflows matching the prefixes are fetched (default: tend-)."""
     Path(env["WF_JSON"]).write_text(
