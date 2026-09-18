@@ -53,8 +53,8 @@ gh api "repos/$REPO/contents/.github/workflows" \
 ```
 
 The summary checklist at the end describes a finished install, so skip it.
-A preference a step needs (7a's auth mode, 10's bio stance) is asked at
-that step.
+A preference a step needs (7a's auth mode and mint path, 10's bio stance)
+is asked at that step.
 
 Otherwise this is an install, including a resume of one that never finished
 (config present, later steps missing). Gather every preference at the
@@ -152,6 +152,11 @@ complete the prompt in the open tab. When it isn't but the runtime can open
 a URL in the user's browser, open each URL as soon as it appears and hand over
 the exact prompt or code. Otherwise, give the user the URL and wait for
 confirmation.
+
+Whatever the user has to act on — a URL, a code, a command — goes in the reply
+itself, ready to use: a clickable link where the runtime renders one, and the
+bare URL on its own line where they may need to copy it. Repeat it while its
+window is still open.
 
 Driving uses the user's real Chrome profile, so logging in as the bot
 displaces their own github.com session until they sign back in — tell
@@ -693,14 +698,20 @@ flow or a resumed install lands here without one — first ask the user to choos
 between the two Claude options from Kickoff question 1.
 
 For **OAuth token** (`sk-ant-oat01-…` from `claude setup-token`; advertised
-as 1-year), two mint paths, routed by environment rather than asked:
+as 1-year), two mint paths that differ only in whose terminal runs them. Ask
+which. Name in each option the commands it runs and where the token lands:
+neither path shows the value to the agent or puts it in the transcript, and
+nothing outside the question tells the user so. Offer only the paths the
+environment supports — where the CLI path's requirements below don't hold,
+Manual is the only one and there is nothing to ask.
 
-- **CLI** — the default when `claude` is on PATH (`command -v claude`) and
-  `uname` reports macOS or Linux; the bundled wrapper needs `python3` and a
-  pty and has only been validated there, so `MINGW*`, `CYGWIN*`, `MSYS*`,
-  `Windows_NT`, etc. route to Manual. The wrapper drives
-  `claude setup-token` (OAuth 2.0 PKCE) and prints only the token to
-  stdout, so piping straight into `gh` keeps it out of the transcript.
+- **CLI** — the agent mints and stores it. Available when `claude` is on
+  PATH (`command -v claude`) and `uname` reports macOS or Linux; the bundled
+  wrapper needs `python3` and a pty and has only been validated there, so
+  `MINGW*`, `CYGWIN*`, `MSYS*`, `Windows_NT`, etc. leave Manual as the only
+  path. The wrapper drives `claude setup-token` (OAuth 2.0 PKCE) and prints
+  only the token to stdout, so piping straight into `gh` keeps it out of the
+  transcript.
 
   Launch the command below as a background task — a foreground call sits
   blocked with the URL trapped in its pending
@@ -751,12 +762,13 @@ as 1-year), two mint paths, routed by environment rather than asked:
   unguarded failed run would leave a `CLAUDE_CODE_OAUTH_TOKEN` that the
   next run reads as already set, skips, and finishes green on.
 
-- **Manual** — when the CLI path is unavailable, the wrapper errors out,
-  or the user isn't at the browser when the agent is. Hand over both
-  commands, fully substituted, for them to run in their own terminal (any
-  machine with Claude Code installed and `gh` logged in as the
-  maintainer; `https://claude.com/claude-code` to install it), whenever
-  suits them:
+- **Manual** — the user runs both commands themselves, watching what
+  happens to the token rather than taking it on trust. Also the path when
+  the CLI one is unavailable, the wrapper errors out, or the user isn't at
+  the browser when the agent is. Hand over both commands, fully
+  substituted, for them to run in their own terminal (any machine with Claude
+  Code installed and `gh` logged in as the maintainer;
+  `https://claude.com/claude-code` to install it), whenever suits them:
 
   ```bash
   claude setup-token
@@ -772,7 +784,12 @@ as 1-year), two mint paths, routed by environment rather than asked:
   value, and a token pasted there is a live credential sitting in the
   transcript. The prompt refuses an empty submission and keeps waiting, so
   the empty-value hazard that makes the CLI path's guard load-bearing has
-  no counterpart here.
+  no counterpart here. Give them this alongside, which shows the secret's
+  name and when it was written without exposing the value:
+
+  ```bash
+  gh secret list --repo "$REPO" --env tend
+  ```
 
 For **API key**: the user takes a key from
 `https://console.anthropic.com/settings/keys` and runs this themselves,
