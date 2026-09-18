@@ -6,6 +6,31 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.2.11
+
+### Improved
+
+- **The twelve cross-cutting `references/` files are skills of their own**, and `running-in-ci` is now `run-tend`. `references/posting.md` is `/tend-ci-runner:post-to-github`, `references/pushing.md` is `/tend-ci-runner:push-commits`, and so on for `respond-on-thread`, `open-pr`, `monitor-ci`, `ground-claims`, `check-requester-access`, `dismiss-approval`, `act-in-other-repos`, `read-session-logs`, `propose-instructions`, and `fix-a-bug`; the skill listing every session already holds is the index, and `nightly`, `weekly`, `notifications`, and `ci-fix` cite each skill at the step that takes the action. `review`'s four references stay references — every skill whose steps reach them can be named, `weekly` and `review-runs` among them. ([#1305](https://github.com/max-sixty/tend/pull/1305), [#1306](https://github.com/max-sixty/tend/pull/1306))
+- **`model:` accepts any name the harness CLI accepts**, so a consumer can pin an exact id (`claude-opus-5`) rather than an alias that moves when a new model is promoted behind it. Neither harness is enumerated in the generator now; `claude` and `codex exec` judge the name, and a typo fails the job with the bad value named rather than failing `init`. ([#1294](https://github.com/max-sixty/tend/pull/1294))
+- **`install-tend` hands the Claude OAuth mint to the user** — two commands in their own terminal, with `gh secret set` run by them so the token never leaves it, or pasted back for the agent to set. The pty wrapper that drove `claude setup-token` and its tests are deleted. ([#1295](https://github.com/max-sixty/tend/pull/1295))
+- **The sandbox boundary's Ubuntu and npm packages resolve as of one recorded instant.** apt reads `snapshot.ubuntu.com` and installs bubblewrap, socat, and ripgrep by exact version; npm gets `--before` the same instant, which freezes the Sandbox Runtime dependency tree that builds the bwrap argv and terminates the agent's TLS. The weekly refresh resolves every architecture and stops on a divergence rather than writing a pin that installs on one. ([#1289](https://github.com/max-sixty/tend/pull/1289), [#1291](https://github.com/max-sixty/tend/pull/1291))
+- **`tend-mention` no longer wakes on a third-party review bot's approval.** An approval with no inline comments is terminal when its author is a `Bot`, whatever its body says; a `COMMENTED` review from the same bot still runs, since only a reader can tell a real finding from a template. ([#1292](https://github.com/max-sixty/tend/pull/1292))
+- **The `tend-outage` tracker names a stale action pin as a remedy** when the workflow that failed pins a release behind tend's newest, and says to run `uvx tend@latest init`. A boot-path failure takes out the regeneration that would pick up its fix, so the tracker is the only artifact a consumer gets in that window. ([#1288](https://github.com/max-sixty/tend/pull/1288))
+- **Shipped instructions carry mechanics rather than tend's own calls**, after a survey of every file that reaches a consumer's repo: `review` no longer objects to compatibility layers on a published library's behalf, `nightly`'s checklist no longer applies tend's placement rules to a consumer's instruction files, and the escalation ladder offers a CI job rather than adding one. The autonomy and skill-loading directives move from Python constants into `shared/system-prompt.md`, which reaches both harnesses — so Codex sessions get the autonomy directive for the first time. ([#1284](https://github.com/max-sixty/tend/pull/1284), [#1280](https://github.com/max-sixty/tend/pull/1280), [#1287](https://github.com/max-sixty/tend/pull/1287))
+
+### Fixed
+
+- **`tend check` verifies release immutability without repository admin.** `GET /repos/{repo}/immutable-releases` is admin-only, so the check reported `SKIP` in every scheduled run whether the setting was on or off — which also made the nightly's "every line PASS, close the drift issue" branch unreachable in every consumer. It now reads the `immutable` flag on the most recently published release when the settings endpoint 404s. ([#1290](https://github.com/max-sixty/tend/pull/1290))
+- **`review-runs` reads outage trackers a maintainer closed**, not just open ones, since the live scan cannot distinguish a PR whose review died in the outage from one the maintainer merged without waiting. Trackers still open at the end of the drain are closed; one someone else closed stays closed. ([#1299](https://github.com/max-sixty/tend/pull/1299))
+- **`token_report.py` admits a run on when it finished, not when it was created**, matching the census window. A run that started before the window's anchor and finished inside it was priced by neither sweep, and those runs are by construction the longest ones — so the published spend was short by exactly the sessions the figure exists to surface. ([#1301](https://github.com/max-sixty/tend/pull/1301))
+- **`list_recent_runs.py` asks for 200 workflows and warns on hitting the limit.** `gh workflow list` fetches 50 and says nothing when it truncates, so on a large repo a `tend-*` workflow could fall outside the listing and its runs read as a quiet window rather than an incomplete one. ([#1293](https://github.com/max-sixty/tend/pull/1293))
+- **The worktree recipes in `review-runs` and `propose-instructions` keep their `cd`s inside subshells**, so removing the worktree no longer leaves the session standing in a deleted directory with no working directory for the steps after it. ([#1297](https://github.com/max-sixty/tend/pull/1297))
+- **`triage` ends the run on a bot-maintained evidence tracker without commenting** — an issue whose body says **Do not close manually** and which later runs append to carries no report. ([#1303](https://github.com/max-sixty/tend/pull/1303))
+
+### Internal
+
+- The CI suite runs every six hours as well as on push and PR. `test-sandbox` installs bubblewrap from the live Ubuntu archive, so it is the check that catches an archive update changing the sandbox boundary — and every other watch that would notice boots an agent inside that same sandbox. ([#1282](https://github.com/max-sixty/tend/pull/1282))
+
 ## 0.2.10
 
 ### Fixed
