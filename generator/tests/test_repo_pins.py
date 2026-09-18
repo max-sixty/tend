@@ -742,6 +742,29 @@ def test_bundled_runner_instructions_have_no_unscoped_tmp_paths() -> None:
     assert offenders == []
 
 
+def test_bundled_runner_instructions_never_return_with_cd_dash() -> None:
+    """`cd -` cannot bring a session back to where a recipe started.
+
+    It restores `$OLDPWD`, which is whatever the last `cd` left — after a
+    recipe's second `cd` that is the first `cd`'s target, not the checkout.
+    The worktree recipes end by deleting the directory they moved into, so a
+    session that followed one is left with no working directory and every
+    later command fails. A recipe that has to change directory does it in a
+    subshell, which never moves the session's own cwd.
+    """
+    runner = REPO_ROOT / "plugins" / "tend-ci-runner"
+    cd_dash = re.compile(r"(?<![\w-])cd\s+-(?![\w-])")
+    offenders = sorted(
+        f"{path.relative_to(REPO_ROOT)}:{number}"
+        for path in runner.rglob("*")
+        if path.suffix in {".md", ".py", ".sh"}
+        for number, line in enumerate(path.read_text().splitlines(), 1)
+        if cd_dash.search(line)
+    )
+
+    assert offenders == []
+
+
 def test_runner_helper_directory_is_python_only() -> None:
     """Substantial runner behavior belongs in tested Python, not shell helpers."""
     scripts = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts"
@@ -926,3 +949,23 @@ def test_shipped_prompt_skill_tokens_resolve_to_a_bundled_skill() -> None:
                 f"{path.relative_to(REPO_ROOT)} has a malformed skill token; "
                 "it must read ${SKILL:<lowercase-skill-name>}"
             )
+
+
+@pytest.mark.parametrize("harness", sorted(KNOWN_HARNESSES))
+def test_report_failure_is_told_the_running_version(harness: str) -> None:
+    """`report_failure.py` cannot read the pin it is running at.
+
+    `github.action_ref` and `github.action_repository` resolve in a composite
+    step's `env:` and not inside its `run:` body, where they expand to the
+    empty string rather than failing (actions/runner#2473). So dropping either
+    from either harness leaves the outage tracker silently unable to name a
+    stale pin as the remedy, with nothing else red.
+    """
+    action = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / harness / "action.yaml").read_text()
+    )
+    steps = {step["name"]: step for step in action["runs"]["steps"]}
+    env = steps["Report failure"]["env"]
+
+    assert env["TEND_ACTION_REF"] == "${{ github.action_ref }}"
+    assert env["TEND_ACTION_REPOSITORY"] == "${{ github.action_repository }}"

@@ -489,6 +489,10 @@ runs:
       env:
         BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
+        # Passed through `env:` because they resolve nowhere else — see the
+        # matching note in claude/action.yaml.
+        TEND_ACTION_REF: ${{ github.action_ref }}
+        TEND_ACTION_REPOSITORY: ${{ github.action_repository }}
 
     - name: Compute artifact name
       if: always()

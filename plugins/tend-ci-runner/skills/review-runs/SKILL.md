@@ -115,32 +115,31 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 Handle live work through the normal triage, review, or CI-fix instructions. Keep
 failed runs in the report as diagnostic evidence.
 
-After the exhaustive live scan, find the canonical current outage tracker and
-read every row. The issue body holds the first row and later rows are comments.
-Fail the sweep if the lookup fails; that is different from finding no open
-tracker:
+After the exhaustive live scan, read every row on every outage tracker this
+sweep still owes a drain. Each tracker's `rows` holds them in order: the issue
+body carries the first, comments the rest. Fail the sweep if the script exits
+non-zero; that is different from it returning no trackers:
 
 ```bash
-if ! gh issue list --state open --label tend-outage --author @me \
-  --limit 100 --json number,title \
-  --jq '[.[] | select(.title == "Bot temporarily unavailable") | .number]
-    | sort | .[0] // empty' > "$TMPDIR/review-runs-outage-number"; then
-  echo "Could not read the outage tracker" >&2
-  exit 1
-fi
-OUTAGE=$(cat "$TMPDIR/review-runs-outage-number")
-if [ -n "$OUTAGE" ]; then
-  gh issue view "$OUTAGE" --json body,comments --jq '.body, .comments[].body'
-fi
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" outage-trackers \
+  > "$TMPDIR/review-runs-outage.json"
 ```
 
+It returns the open trackers plus any closed since Step 1's anchor by someone
+other than the bot, since only this drain closes a drained tracker. Read the
+closed ones too: the live scan above reads current repository state, where a
+merged PR whose review died in the outage is indistinguishable from one the
+maintainer merged without waiting.
+
 Use every row to identify what the failed run may have missed. Diagnose it and
-handle any applicable current work. If a tracker was found, close the exact
-issue number returned above:
+handle any applicable current work. Then close the trackers still open; one
+someone else already closed stays closed:
 
 ```bash
-OUTAGE=$(cat "$TMPDIR/review-runs-outage-number")
-[ -n "$OUTAGE" ] && gh issue close "$OUTAGE" --reason completed
+jq -r '.trackers[] | select(.state == "OPEN") | .number' \
+  "$TMPDIR/review-runs-outage.json" \
+  | while read -r number; do gh issue close "$number" --reason completed; done
 ```
 
 ## Step 2: Token usage report
@@ -148,17 +147,17 @@ OUTAGE=$(cat "$TMPDIR/review-runs-outage-number")
 Run the token report script to get per-run token counts:
 
 ```bash
-# Whole hours back to Step 1's anchor, rounded up so the whole band is priced.
-# A literal `24` reopens the gap Step 1 closed. The `cat` isn't optional: an
-# unset `$SINCE` makes `date -d ""` today's midnight, not an error.
-SINCE=$(cat "$TMPDIR/review-runs-since")
-HOURS=$(( ( $(date -u +%s) - $(date -u -d "$SINCE" +%s) + 3599 ) / 3600 ))
+# Step 1's own anchor, so the spend prices exactly the band the census counts:
+# the script fetches with a cushion and admits a run on completion, the way
+# Step 1 does. A window in hours would drop a run that started before the
+# anchor and finished inside it — the longest and costliest runs there are.
 uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/token_report.py" "$HOURS" \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/token_report.py" \
+  --since "$(cat "$TMPDIR/review-runs-since")" \
   > "$TMPDIR/token-report.json"
 ```
 
-Pass the same extra prefixes Step 1 censuses (after `$HOURS`, which the script reads as its first positional arg), so the two steps agree on what the fleet is — the repo's `running-tend` skill is the source for both, naming any workflow that uses the tend action but isn't named `tend-*`.
+Pass the same extra prefixes Step 1 censuses, as positional arguments after `--since`, so the two steps agree on what the fleet is — the repo's `running-tend` skill is the source for both, naming any workflow that uses the tend action but isn't named `tend-*`.
 
 Include the total cost and the per-workflow breakdown in the summary (Step 7). Escalate outliers to Step 3 — for example a run far above its workflow's usual cost, or a subject the subject table shows several runs against.
 
@@ -229,17 +228,20 @@ Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted 
 git worktree add "$TMPDIR/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID HEAD
 
 # Author each edited skill file at $TMPDIR/<name>.md.
-# Then move the files into place:
-cd "$TMPDIR/review-runs-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend.md" SKILL.md
+# Then move the files into place. Both `cd`s stay inside subshells, so the
+# session's own cwd never enters the worktree: the last line deletes it, and a
+# session standing in it has no working directory for Step 7 or anything after.
+( cd "$TMPDIR/review-runs-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend.md" SKILL.md )
 # Repeat per skill file being updated.
 
-cd "$TMPDIR/review-runs-fix"
-git add .claude/skills/
-git commit -m "skills(running-tend): ..."
-git push -u origin daily/review-runs-$GITHUB_RUN_ID
-gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head daily/review-runs-$GITHUB_RUN_ID
-cd -
-git worktree remove "$TMPDIR/review-runs-fix" --force
+(
+  set -e
+  cd "$TMPDIR/review-runs-fix"
+  git add .claude/skills/
+  git commit -m "skills(running-tend): ..."
+  git push -u origin daily/review-runs-$GITHUB_RUN_ID
+  gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head daily/review-runs-$GITHUB_RUN_ID
+) && git worktree remove "$TMPDIR/review-runs-fix" --force
 ```
 
 `.config/tend.yaml` and project instruction files are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.

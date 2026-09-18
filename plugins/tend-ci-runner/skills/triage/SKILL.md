@@ -26,6 +26,8 @@ gh issue view $ARGUMENTS --json title,body,labels,author
 
 An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on, not a self-conversation: the system prompt's self-loop guard covers the bot's own *comments*, and triage runs on these normally while no bot comment answers them yet.
 
+One exception: a tracker the bot maintains for its own evidence — its body says **Do not close manually**, and later runs append to it — carries no report. End the run without commenting.
+
 Classify into one of:
 
 - **Bug report** — describes unexpected behavior, includes steps to reproduce or error output. Descriptions of changed behavior ("no longer works", "used to work") strongly signal a bug even with a terse body.
