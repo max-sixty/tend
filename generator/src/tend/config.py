@@ -185,23 +185,19 @@ class WorkflowConfig:
     args: list[str] | None = None
 
 
-# Claude model allowlist — the set is small and stable enough that a
-# typo-catching gate at config load is worth the maintenance.
-# Codex models are NOT enumerated here: Codex's catalog churns
-# (gpt-5.1-codex was current at harness bring-up; gone by the next month),
-# and a stale allowlist would silently block consumers from picking a newer
-# model. We pass any user-supplied string through and let `codex exec` error
-# at runtime if it's wrong.
-KNOWN_MODELS_BY_HARNESS = {
-    "claude": {"opus", "sonnet", "haiku"},
-}
+# Models are not enumerated for either harness. Both catalogs churn, both
+# accept an alias (`opus`) or an exact id (`claude-opus-5`, which a consumer
+# pins to keep behavior fixed across a promotion), and a stale allowlist
+# would refuse a newer model the CLI accepts. Any non-empty string passes
+# through to `--model`; an unknown one fails the job with the CLI's own
+# message naming it.
 DEFAULT_MODEL_BY_HARNESS = {
     "claude": "opus",
     "codex": "gpt-5.6-sol",
 }
 
 
-def _effective_model(
+def effective_model(
     harness: str,
     model: str,
     workflow_harness: str | None,
@@ -314,14 +310,13 @@ class Config:
             )
 
         model = raw.get("model", DEFAULT_MODEL_BY_HARNESS[harness])
-        known_models = KNOWN_MODELS_BY_HARNESS.get(harness)
-        if known_models is not None and model not in known_models:
+        if not isinstance(model, str) or not model.strip():
             raise click.ClickException(
-                f"model '{model}' is not recognized for harness '{harness}' "
-                f"(known: {', '.join(sorted(known_models))})"
+                "model must be a non-empty string naming a model the "
+                f"{harness} CLI accepts"
             )
 
-        effort = _parse_effort(raw.get("effort", ""), harness, model, "effort")
+        effort = _parse_effort(raw.get("effort", ""), harness, "effort")
 
         args = _parse_args(raw.get("args", []), "args")
 
@@ -562,38 +557,28 @@ class Config:
                         f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
                     )
                 eff_harness = wf_harness or harness
-                eff_model = _effective_model(harness, model, wf_harness, wf_model)
+                if wf_model is not None and (
+                    not isinstance(wf_model, str) or not wf_model.strip()
+                ):
+                    raise click.ClickException(
+                        f"workflows.{name}.model must be a non-empty string "
+                        f"naming a model the {eff_harness} CLI accepts"
+                    )
                 wf_effort = (
                     _parse_effort(
                         wf_raw["effort"],
                         eff_harness,
-                        eff_model,
                         f"workflows.{name}.effort",
                     )
                     if "effort" in wf_raw
                     else None
                 )
-                # Validate an explicit per-workflow model against the effective
-                # harness. A harness change without one uses that harness's
-                # default instead of carrying a model across families.
-                if wf_harness is not None or wf_model is not None:
-                    eff_known = KNOWN_MODELS_BY_HARNESS.get(eff_harness)
-                    if eff_known is not None and eff_model not in eff_known:
-                        raise click.ClickException(
-                            f"workflows.{name} harness '{eff_harness}' is incompatible "
-                            f"with model '{eff_model}' "
-                            f"(known for {eff_harness}: {', '.join(sorted(eff_known))}). "
-                            f"Set `workflows.{name}.model:` (or change the top-level "
-                            "`model:`) to a valid value for this harness."
-                        )
-
-                if wf_effort is None and (
-                    wf_harness is not None or wf_model is not None
-                ):
+                # A workflow that switches harness inherits the top-level
+                # effort, which the other CLI may not accept.
+                if wf_effort is None and wf_harness is not None:
                     _parse_effort(
                         effort,
                         eff_harness,
-                        eff_model,
                         "effort",
                         inherited_by=f"workflows.{name}",
                     )
@@ -717,29 +702,18 @@ def _parse_args(raw: object, key: str) -> list[str]:
 def _parse_effort(
     raw: object,
     harness: str,
-    model: str,
     key: str,
     *,
     inherited_by: str | None = None,
 ) -> str:
-    """Validate an effort value against the CLI and model selected for it."""
+    """Validate an effort value against the CLI selected for it, not the model:
+    which models read the level is the harness CLI's to know."""
     source = key if inherited_by is None else f"{key} (inherited by {inherited_by})"
     known = KNOWN_EFFORTS_BY_HARNESS[harness]
     if not isinstance(raw, str) or raw not in known:
         raise click.ClickException(
             f"{source} '{raw}' is not recognized for harness '{harness}' "
             f"(known: {', '.join(sorted(e for e in known if e))})"
-        )
-    if raw and harness == "claude" and model == "haiku":
-        if inherited_by is not None:
-            raise click.ClickException(
-                f"{source} is not supported for Claude model 'haiku'; "
-                f'set `{inherited_by}.effort: ""` to use that model\'s default '
-                "or drop the top-level `effort:`"
-            )
-        raise click.ClickException(
-            f"{key} is not supported for Claude model 'haiku'; "
-            "drop the key to use that model"
         )
     return raw
 

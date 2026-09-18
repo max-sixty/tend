@@ -27,7 +27,7 @@ from tend.config import (
     OPENAI_KEY_SECRET,
     Config,
     WorkflowConfig,
-    _effective_model,
+    effective_model,
 )
 
 # Variable delimiters are swapped from `{{`/`}}` to `<<`/`>>` so GitHub
@@ -246,9 +246,7 @@ def _effective_cfg(cfg: Config, wf: WorkflowConfig) -> Config:
     if wf.harness is not None:
         updates["harness"] = wf.harness
     if wf.harness is not None or wf.model is not None:
-        updates["model"] = _effective_model(
-            cfg.harness, cfg.model, wf.harness, wf.model
-        )
+        updates["model"] = effective_model(cfg.harness, cfg.model, wf.harness, wf.model)
     if wf.effort is not None:
         updates["effort"] = wf.effort
     if wf.args is not None:
