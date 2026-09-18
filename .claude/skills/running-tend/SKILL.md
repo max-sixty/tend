@@ -58,14 +58,13 @@ workflows are included:
 ```bash
 # Claude leaves this unset in the shell; Codex exports it.
 SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
-uv run --script "$SCRIPTS/token_report.py" "${HOURS:-24}" "review-"
+uv run --script "$SCRIPTS/token_report.py" --hours "${HOURS:-24}" "review-"
 TARGET_REPO=max-sixty/tend uv run --script \
   "$SCRIPTS/list_recent_runs.py" review-reviewers "tend-" "review-"
 ```
 
-Under `review-runs`, `$HOURS` is the lookback derived from its Step 1 anchor —
-passing a literal `24` there reopens the window gap that anchor closes. The
-default keeps an ad-hoc invocation working.
+`--hours` is for an ad-hoc look; `review-runs` passes `--since` with its own
+Step 1 anchor instead, so its spend covers the same band that step censuses.
 
 ## Labels
 

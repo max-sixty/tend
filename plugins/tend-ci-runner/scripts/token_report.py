@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -18,6 +19,11 @@ from typing import Any
 import github_cli
 
 RUN_LIMIT = 1000
+# A run is priced when it *completed* in the window, matching how
+# `list_recent_runs.py` censuses one — so the fetch has to reach back far
+# enough to see a run that started before the window and finished inside it.
+# Same value as that script's `CREATION_CUSHION`, and for the same reason.
+CREATION_CUSHION = timedelta(hours=24)
 
 REPORT_JQ = r"""
 def sum(f): map(f) | add // 0;
@@ -237,15 +243,47 @@ def _report(jobs: list[dict[str, Any]], *, skipped: int, since: str) -> dict[str
     return json.loads(result.stdout)
 
 
+def _stamp(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_time(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    try:
-        hours = int(args[0]) if args else 168
-    except ValueError:
-        print(f"usage: {sys.argv[0]} [HOURS] [PREFIX ...]", file=sys.stderr)
-        return 2
-    extra_prefixes = args[1:] if args else []
-    since = (datetime.now(UTC) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    parser = argparse.ArgumentParser(description=__doc__)
+    window = parser.add_mutually_exclusive_group()
+    window.add_argument(
+        "--since",
+        metavar="ISO",
+        help="price runs that completed at or after this timestamp — pass "
+        "review-runs' own anchor so the spend covers the censused band",
+    )
+    window.add_argument(
+        "--hours", type=int, default=168, help="price the last N hours (default 168)"
+    )
+    parser.add_argument(
+        "prefixes",
+        nargs="*",
+        metavar="PREFIX",
+        help="extra workflow-name prefixes beyond 'tend-'",
+    )
+    options = parser.parse_args(args)
+    if hours := next((p for p in options.prefixes if p.isdigit()), None):
+        parser.error(f"PREFIX {hours!r} is an hour count — pass --hours {hours}")
+    if options.since:
+        try:
+            completed_after = _parse_time(options.since.strip())
+        except ValueError:
+            parser.error(f"--since: not an ISO timestamp: {options.since!r}")
+    else:
+        completed_after = datetime.now(UTC) - timedelta(hours=options.hours)
+    since = _stamp(completed_after)
+    created_since = _stamp(completed_after - CREATION_CUSHION)
+    extra_prefixes = options.prefixes
     repo_args = (
         ["-R", os.environ["TARGET_REPO"]] if os.environ.get("TARGET_REPO") else []
     )
@@ -270,11 +308,11 @@ def main(argv: list[str] | None = None) -> int:
                 "--workflow",
                 workflow,
                 "--created",
-                f">={since}",
+                f">={created_since}",
                 "--status",
                 "completed",
                 "--json",
-                "databaseId,createdAt,name",
+                "databaseId,createdAt,updatedAt,name",
                 "--limit",
                 str(RUN_LIMIT),
                 quiet=True,
@@ -290,12 +328,13 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"WARNING: '{workflow}' returned {RUN_LIMIT} runs, the Actions "
                 "API's pagination ceiling — older runs in the window are "
-                "unreachable and the totals below under-report it. Narrow HOURS "
-                "to bring the window under the ceiling; raising RUN_LIMIT cannot help.",
+                "unreachable and the totals below under-report it. Narrow the "
+                "window to bring it under the ceiling; raising RUN_LIMIT cannot help.",
                 file=sys.stderr,
             )
         for row in rows:
-            runs_by_id[int(row["databaseId"])] = row
+            if _parse_time(row["updatedAt"]) >= completed_after:
+                runs_by_id[int(row["databaseId"])] = row
 
     print(f"Downloading artifacts for {len(runs_by_id)} runs...", file=sys.stderr)
     jobs: list[dict[str, Any]] = []
