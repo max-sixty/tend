@@ -430,9 +430,14 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
   (`post-to-github`, `push-commits`, `open-pr`). The skill listing every
   session already carries is the index, so `run-tend/SKILL.md` names only the
   handful nearly every task needs and sends the session to the listing for the
-  rest — don't rebuild a table of them. A `references/` file is for text one
-  skill owns and no other skill's session reaches (`review`'s four); a repo
-  overlay's references stay in the overlay, named where its own steps use them.
+  rest — don't rebuild a table of them. A pointer gets read where the session
+  already is when it acts: that listing, or a step in a skill it has loaded.
+  So text keeps its `references/` file while the skills whose steps cite it can
+  be named — `review`'s four, two of them also reached by `weekly` and
+  `review-runs` from their own steps. Where instead the need arises from an
+  action any workflow might take, no skill body can be relied on to raise it
+  and the listing has to: that is a skill. A repo overlay's references stay in
+  the overlay, named where its own steps use them.
 - **Cite a skill as `/tend-ci-runner:<name>`**, and a reference file by its
   path from the owning skill's directory: `` `references/<file>.md` ``, with
   the owning skill in front where the file belongs to another skill

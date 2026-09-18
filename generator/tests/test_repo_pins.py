@@ -574,11 +574,19 @@ ROOT_FILES = {
 
 
 def test_skill_reference_citations_resolve() -> None:
+    """Every `references/` citation resolves, and every reference file is cited.
+
+    A citation naming a file that isn't there loads nothing; a file nothing
+    names loads in no session. Both ship silently, so the check runs in each
+    direction.
+    """
     skill_dirs = [
         *(REPO_ROOT / "plugins").glob("*/skills/*"),
         *(REPO_ROOT / ".claude" / "skills").glob("*"),
     ]
     by_name = {d.name: d for d in skill_dirs}
+    on_disk = {path for d in skill_dirs for path in (d / "references").glob("*.md")}
+    resolved: set[Path] = set()
     cited, broken = 0, []
 
     for skill in skill_dirs:
@@ -595,7 +603,10 @@ def test_skill_reference_citations_resolve() -> None:
                     )
                     continue
                 owner = by_name[named] if named else skill
-                if not (owner / "references" / match.group("file")).exists():
+                target = owner / "references" / match.group("file")
+                if target.exists():
+                    resolved.add(target)
+                else:
                     broken.append(
                         f"{path.relative_to(REPO_ROOT)}: {match.group().strip()}"
                     )
@@ -612,6 +623,12 @@ def test_skill_reference_citations_resolve() -> None:
 
     assert cited, "no references/ citations found — did the skill layout move?"
     assert not broken, "references named but absent:\n" + "\n".join(broken)
+
+    orphans = sorted(str(path.relative_to(REPO_ROOT)) for path in on_disk - resolved)
+    assert not orphans, (
+        "reference files no skill cites, so no session loads them:\n"
+        + "\n".join(orphans)
+    )
 
 
 # Inline `run:` bodies in the composite actions. Nothing else lints them:
@@ -847,12 +864,14 @@ def test_plugin_skill_citations_resolve() -> None:
     assert not broken, "skills cited but absent:\n" + "\n".join(broken)
 
 
-# What Codex 0.155.0 leaves each description at the current skill count, measured
-# against the installed plugin: the listing shares one budget, so a longer one is
-# cut mid-sentence and every session reads a trigger that stops partway. The share
-# shrinks as skills are added, so treat this as a ceiling that can fall, not a
-# guarantee.
+# What Codex 0.155.0 leaves each description, measured against the installed
+# plugin at SKILLS_MEASURED_AT skills: the listing shares one budget across them,
+# so a longer description is cut mid-sentence and every session reads a trigger
+# that stops partway. The share falls as skills are added, and several
+# descriptions sit within a few characters of the ceiling, so the count is pinned
+# below — adding a skill means re-measuring, not raising it.
 DESCRIPTION_BUDGET = 130
+SKILLS_MEASURED_AT = 22
 
 
 def test_skill_frontmatter_is_loadable() -> None:
@@ -870,7 +889,14 @@ def test_skill_frontmatter_is_loadable() -> None:
     broken = []
     runner = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
 
-    for path in sorted(runner.glob("*/SKILL.md")):
+    paths = sorted(runner.glob("*/SKILL.md"))
+    assert len(paths) == SKILLS_MEASURED_AT, (
+        f"{len(paths)} skills, not the {SKILLS_MEASURED_AT} the budget was "
+        "measured at — re-measure the share against the installed plugin, and "
+        "move DESCRIPTION_BUDGET with the count"
+    )
+
+    for path in paths:
         name = path.relative_to(REPO_ROOT)
         head, _, _ = path.read_text().removeprefix("---\n").partition("\n---\n")
         try:
