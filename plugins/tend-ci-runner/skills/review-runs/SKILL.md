@@ -148,17 +148,17 @@ OUTAGE=$(cat "$TMPDIR/review-runs-outage-number")
 Run the token report script to get per-run token counts:
 
 ```bash
-# Whole hours back to Step 1's anchor, rounded up so the whole band is priced.
-# A literal `24` reopens the gap Step 1 closed. The `cat` isn't optional: an
-# unset `$SINCE` makes `date -d ""` today's midnight, not an error.
-SINCE=$(cat "$TMPDIR/review-runs-since")
-HOURS=$(( ( $(date -u +%s) - $(date -u -d "$SINCE" +%s) + 3599 ) / 3600 ))
+# Step 1's own anchor, so the spend prices exactly the band the census counts:
+# the script fetches with a cushion and admits a run on completion, the way
+# Step 1 does. A window in hours would drop a run that started before the
+# anchor and finished inside it — the longest and costliest runs there are.
 uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/token_report.py" "$HOURS" \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/token_report.py" \
+  --since "$(cat "$TMPDIR/review-runs-since")" \
   > "$TMPDIR/token-report.json"
 ```
 
-Pass the same extra prefixes Step 1 censuses (after `$HOURS`, which the script reads as its first positional arg), so the two steps agree on what the fleet is — the repo's `running-tend` skill is the source for both, naming any workflow that uses the tend action but isn't named `tend-*`.
+Pass the same extra prefixes Step 1 censuses, as positional arguments after `--since`, so the two steps agree on what the fleet is — the repo's `running-tend` skill is the source for both, naming any workflow that uses the tend action but isn't named `tend-*`.
 
 Include the total cost and the per-workflow breakdown in the summary (Step 7). Escalate outliers to Step 3 — for example a run far above its workflow's usual cost, or a subject the subject table shows several runs against.
 
