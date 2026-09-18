@@ -21,6 +21,7 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 from tend.config import KNOWN_HARNESSES, Config
 from tend.workflows import UV_VERSION
 
@@ -543,12 +544,11 @@ def test_action_path_references_resolve(action: str) -> None:
     assert not missing, f"{action} references nothing at: {missing}"
 
 
-# Every `references/<file>` a skill cites. A skill keeps the rules every session
-# needs and names the file behind each rarer action, so the citation is the only
-# path to that rule: one pointing nowhere means the session reads no file and
-# goes ahead without it, with nothing failing. The path is written from the
-# skill's own directory, with the owning skill in front of it when the file
-# belongs to another skill (``/tend-ci-runner:review`'s
+# Every `references/<file>` a skill cites. A reference holds text one skill owns,
+# and the citation is the only path to it: one pointing nowhere means the session
+# reads no file and goes ahead without it, with nothing failing. The path is
+# written from the owning skill's directory, with that skill in front of it where
+# another skill's text does the citing (``/tend-ci-runner:review`'s
 # `references/approving.md``).
 SKILL_REFERENCE = re.compile(
     r"(?:`/[a-z-]+:(?P<skill>[a-z-]+)`'s\s+)?`?"
@@ -812,31 +812,88 @@ def test_every_workflow_pins_the_same_tend_release() -> None:
     )
 
 
-def test_references_table_indexes_every_bundled_reference() -> None:
-    """`running-in-ci`'s References table is the plugin's one index.
+# A bundled skill invoked as a slash command. `<name>` and `NAME` placeholders
+# don't match, so prose about the citation form isn't read as a citation.
+PLUGIN_SKILL = re.compile(r"/tend-ci-runner:(?P<skill>[a-z0-9-]+)")
 
-    A `references/` file no row names loads in no session, and a row naming a
-    file that moved sends a session to a path that isn't there. The one symlink
-    into `shared/` is excluded: it is reached by `@` embedding in
-    `notifications` and by a pointer from `directives.md`, not by a row here.
+
+def test_plugin_skill_citations_resolve() -> None:
+    """Every `/tend-ci-runner:<name>` a shipped file cites exists.
+
+    The skill listing every session carries is the plugin's index of its
+    per-action skills, and a citation is how the text that needs one reaches it
+    from the step that acts. A citation left behind by a rename resolves to
+    nothing: the session loads no skill and goes ahead without the rules, with
+    nothing failing. `CHANGELOG.md` is excluded — its entries are published
+    release notes and name the skills as they stood at the time.
     """
-    skills = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
-    indexed = {
-        (match.group("skill") or "running-in-ci", match.group("file"))
-        for line in (skills / "running-in-ci" / "SKILL.md").read_text().splitlines()
-        if line.startswith("|")
-        for match in SKILL_REFERENCE.finditer(line)
+    names = {
+        path.parent.name
+        for path in (REPO_ROOT / "plugins" / "tend-ci-runner" / "skills").glob(
+            "*/SKILL.md"
+        )
     }
-    on_disk = {
-        (path.parent.parent.name, path.name)
-        for path in skills.glob("*/references/*.md")
-        if not path.is_symlink()
-    }
+    cited, broken = 0, []
 
-    assert indexed == on_disk, (
-        f"unindexed: {sorted(on_disk - indexed)}; "
-        f"named but absent: {sorted(indexed - on_disk)}"
-    )
+    for path in sorted(REPO_ROOT.rglob("*.md")):
+        if ".git" in path.parts or path.name == "CHANGELOG.md":
+            continue
+        for match in PLUGIN_SKILL.finditer(path.read_text()):
+            cited += 1
+            if match.group("skill") not in names:
+                broken.append(f"{path.relative_to(REPO_ROOT)}: {match.group()}")
+
+    assert cited, "no plugin-skill citations found — did the skill layout move?"
+    assert not broken, "skills cited but absent:\n" + "\n".join(broken)
+
+
+# What Codex 0.155.0 leaves each description at the current skill count, measured
+# against the installed plugin: the listing shares one budget, so a longer one is
+# cut mid-sentence and every session reads a trigger that stops partway. The share
+# shrinks as skills are added, so treat this as a ceiling that can fall, not a
+# guarantee.
+DESCRIPTION_BUDGET = 130
+
+
+def test_skill_frontmatter_is_loadable() -> None:
+    """Every `tend-ci-runner` skill's frontmatter parses and carries a trigger.
+
+    The harness reads `name` and `description` out of this block to build the
+    listing that is the plugin's index. An unquoted `: ` inside a description
+    makes the block invalid YAML, and a description over the budget is truncated
+    in the listing — either way the skill stops being findable at the moment it
+    is needed, with nothing failing. `install-tend` is out of scope: a person
+    reads its two descriptions and invokes them by name, so neither the budget
+    nor `internal` applies.
+    """
+    yaml = YAML(typ="safe", pure=True)
+    broken = []
+    runner = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
+
+    for path in sorted(runner.glob("*/SKILL.md")):
+        name = path.relative_to(REPO_ROOT)
+        head, _, _ = path.read_text().removeprefix("---\n").partition("\n---\n")
+        try:
+            front = yaml.load(head)
+        except YAMLError as error:
+            broken.append(
+                f"{name}: frontmatter is not YAML ({error.__class__.__name__})"
+            )
+            continue
+        if front.get("name") != path.parent.name:
+            broken.append(f"{name}: `name: {front.get('name')}` isn't the directory")
+        if not front.get("metadata", {}).get("internal"):
+            broken.append(f"{name}: bundled skills are `metadata: internal: true`")
+        description = front.get("description", "")
+        if not description:
+            broken.append(f"{name}: no description, so the listing carries no trigger")
+        elif len(description) > DESCRIPTION_BUDGET:
+            broken.append(
+                f"{name}: description is {len(description)} chars, over the "
+                f"{DESCRIPTION_BUDGET} the listing shows"
+            )
+
+    assert not broken, "unloadable skill frontmatter:\n" + "\n".join(broken)
 
 
 def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
@@ -918,7 +975,7 @@ def test_skill_prefixes_match_the_generator() -> None:
             setup=[],
             workflows={},
         )
-        assert cfg.default_prompt("running-in-ci") == f"{prefix}running-in-ci"
+        assert cfg.default_prompt("run-tend") == f"{prefix}run-tend"
     assert set(prompt.SKILL_PREFIX) == KNOWN_HARNESSES
 
 

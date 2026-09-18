@@ -1,6 +1,6 @@
 ---
 name: review
-description: Reviews a pull request for code quality and correctness. Use when asked to review a PR or when running as an automated PR reviewer.
+description: Reviews a pull request for code quality and correctness. Use when running as an automated PR reviewer.
 argument-hint: "[PR number]"
 metadata:
   internal: true
@@ -18,7 +18,7 @@ Follow these steps in order.
 
 ### 0. Load environment skills
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, polling conventions, and comment formatting instructions. It will also prompt you to load any repo-specific skills (e.g., `running-tend`).
+Load `/tend-ci-runner:run-tend` first — it contains CI security rules and comment formatting, and it will prompt you to load any repo-specific skills (e.g., `running-tend`). The steps below name the per-action skill each one needs.
 
 ### 1. Pre-flight checks
 
@@ -42,13 +42,13 @@ These snapshot fields decide how much of the workflow runs:
 - **`is_draft`** — follow `references/draft-mode.md`: a lighter review submitted as COMMENT only, carrying the hidden draft marker, with no CI polling and no pushes.
 - **`incremental_path`** — the bot reviewed an earlier commit on this PR, and the file named holds the commits and per-file line counts pushed since. Read the whole file, and judge what was pushed from it and from the PR's three-dot diff (`gh pr diff <number>`, merge-base→head, the same diff **Read and understand the change** uses). Neither leaks base-branch churn: the incremental excludes everything reachable from the base tip, so a base merge's own commits are not counted as new PR work, and base-merge commits never enter the three-dot diff.
 
-The incremental scopes the *review*, not anything this run writes about the PR as a whole: if you also edit the PR description, scope its claims to the merge base per **Keeping PR titles and descriptions current** in `/tend-ci-runner:running-in-ci`'s `references/pr-creation.md`.
+The incremental scopes the *review*, not anything this run writes about the PR as a whole: if you also edit the PR description, scope its claims to the merge base per **Keeping PR titles and descriptions current** in `/tend-ci-runner:open-pr`.
 
 If the incremental changes are trivial, skip the full review — go directly to **Resolve handled suggestions** for any bot threads addressed by the new changes. After resolving threads: if the most recent bot review was a COMMENT that flagged issues, and those issues are now addressed, submit an APPROVE with an empty body so the PR isn't left in limbo — and the author-readiness gate under **Submit** applies here too, since these are the bot's own findings closing out rather than the author's. Use the recipe under **Submit**, which pins the commit read here. Otherwise do not submit a new review — the existing one stands. Do NOT proceed to steps 2–7; finish. Rough heuristic: changes under ~20 added+deleted lines that don't introduce new functions, types, or control flow are typically trivial.
 
 **Commit and PR authorship do not affect review behavior.** Apply the same trivial-vs-substantive heuristic regardless of who pushed the new commits. When `tend-notifications` or `tend-ci-fix` pushes a fix to a human-authored PR, reviewing (and re-approving) the updated state is expected — the reviewer role is independent of commit authorship.
 
-**Apply the sibling-workflow dedup rule from `/tend-ci-runner:running-in-ci`'s `references/posting.md`** to both the review body and inline comments. If a prior bot comment in the conversation already covers a point — a previous review on this or an earlier commit, a `tend-mention` reply, a `tend-triage` post, anything from a tend workflow — omit it from this review and stick to diff-grounded findings. If that leaves no new diff-grounded finding on the incremental changes and the only outstanding concern is a still-unresolved thread from an earlier bot review, do not post a new review: that thread already blocks the PR, and restating "the prior thread still applies" on every push is noise. Resolve any bot threads the new commits addressed (**Resolve handled suggestions**), then finish without posting. A fresh review is warranted only when the incremental diff introduces a new finding, or resolves the last open one (then approve with an empty body — the author-readiness gate under **Submit** applies here too, since these are the bot's own findings closing out rather than the author's). When concurrent runs race (a new push while the first run is still responding), both see the same unanswered question — check whether a bot reply exists after the question's timestamp before answering. Address remaining unanswered questions in the review body (not via `gh pr comment`).
+**Apply the sibling-workflow dedup rule from `/tend-ci-runner:post-to-github`** to both the review body and inline comments. If a prior bot comment in the conversation already covers a point — a previous review on this or an earlier commit, a `tend-mention` reply, a `tend-triage` post, anything from a tend workflow — omit it from this review and stick to diff-grounded findings. If that leaves no new diff-grounded finding on the incremental changes and the only outstanding concern is a still-unresolved thread from an earlier bot review, do not post a new review: that thread already blocks the PR, and restating "the prior thread still applies" on every push is noise. Resolve any bot threads the new commits addressed (**Resolve handled suggestions**), then finish without posting. A fresh review is warranted only when the incremental diff introduces a new finding, or resolves the last open one (then approve with an empty body — the author-readiness gate under **Submit** applies here too, since these are the bot's own findings closing out rather than the author's). When concurrent runs race (a new push while the first run is still responding), both see the same unanswered question — check whether a bot reply exists after the question's timestamp before answering. Address remaining unanswered questions in the review body (not via `gh pr comment`).
 
 ### 2. Check for overlapping PRs
 
@@ -91,7 +91,7 @@ When a PR fixes a bug or changes a pattern, search for the same pattern in other
 
 **Citing code outside the diff:**
 
-The checkout uses `refs/pull/N/merge`, so you read the merged tree (PR head + current base branch). When a finding involves code outside `gh pr diff` — code the PR didn't touch but now interacts with — identify the interacting code by semantic anchor (selector, function name, declaration text) and quote enough of the relevant property/value that the reader can grep for it. Don't lead with the line number: the author's local branch may be behind main, so line numbers from the merged tree won't match their checkout, and a line-number-first citation reads as a hallucination when they check the line on their stale branch. Same principle as the `blob/main/...#L42` link rule in `/tend-ci-runner:running-in-ci` — line numbers are fragile across diverging refs.
+The checkout uses `refs/pull/N/merge`, so you read the merged tree (PR head + current base branch). When a finding involves code outside `gh pr diff` — code the PR didn't touch but now interacts with — identify the interacting code by semantic anchor (selector, function name, declaration text) and quote enough of the relevant property/value that the reader can grep for it. Don't lead with the line number: the author's local branch may be behind main, so line numbers from the merged tree won't match their checkout, and a line-number-first citation reads as a hallucination when they check the line on their stale branch. Same principle as the `blob/main/...#L42` link rule in `/tend-ci-runner:run-tend` — line numbers are fragile across diverging refs.
 
 **Duplication check (for new functions/types):**
 
@@ -134,7 +134,7 @@ REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0
     -f event=APPROVE -f commit_id="$REVIEWED" -f body=""
 ```
 
-If there are actionable findings, submit them as a review with inline suggestions for concrete fixes. The review is a decision surface for the author, not a record of the reviewer's work: publish only distinct points that require a change or decision, with enough mechanism and evidence to make each credible and actionable. Correct paths, unaffected behavior, verification inventory, and search history stay in the session. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci` for any supporting detail.
+If there are actionable findings, submit them as a review with inline suggestions for concrete fixes. The review is a decision surface for the author, not a record of the reviewer's work: publish only distinct points that require a change or decision, with enough mechanism and evidence to make each credible and actionable. Correct paths, unaffected behavior, verification inventory, and search history stay in the session. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend` for any supporting detail.
 
 Don't explain what the code does — the author wrote it. Don't nitpick formatting — that's what linters are for. Explain why the consequence warrants a change.
 
@@ -159,7 +159,7 @@ The failure message still names the removed local path, so it directs users to a
 </good>
 </example>
 
-**A findings review never supersedes a standing approval — dismiss it.** GitHub moves `reviewDecision` only on an `APPROVED` or a `CHANGES_REQUESTED`, so a COMMENT posted over the bot's own earlier approval leaves the PR reading as bot-approved and mergeable over the findings you just posted. How the head moved makes no difference: an ordinary push leaves the approval standing exactly as a rewrite does. So whenever this round posts a COMMENT that withholds the verdict, dismiss the approval that still decides the PR — after the review POST lands, so a failed post doesn't leave the PR with neither a verdict nor findings. Findings are the common case, but the withheld-merge-readiness COMMENT above is reachable with an approval already standing, and it leaves the same wrong signal: the PR reads bot-approved while the review names a blocker. A COMMENT that withholds nothing does not qualify — the unanswered-question exception under **Pre-flight checks** posts one at a head the approval already covers, and dismissing there withdraws a verdict the code still earns.
+**A findings review never supersedes a standing approval — dismiss it.** GitHub moves `reviewDecision` only on an `APPROVED` or a `CHANGES_REQUESTED`, so a COMMENT posted over the bot's own earlier approval leaves the PR reading as bot-approved and mergeable over the findings you just posted. How the head moved makes no difference: an ordinary push leaves the approval standing exactly as a rewrite does. So whenever this round posts a COMMENT that withholds the verdict, dismiss the approval that still decides the PR — after the review POST lands, so a failed post doesn't leave the PR with neither a verdict nor findings. Findings are the common case, but the withheld-merge-readiness COMMENT above is reachable with an approval already standing, and it leaves the same wrong signal: the PR reads bot-approved while the review names a blocker. A COMMENT that withholds nothing does not qualify — the unanswered-question exception under **Pre-flight checks** posts one at a head the approval already covers, and dismissing there withdraws a verdict the code still earns. `/tend-ci-runner:dismiss-approval` covers the conclusions reached from outside the PR, which no review round fires on.
 
 ```bash
 # Re-read rather than reusing the pre-flight blob — a whole review has passed since.
@@ -217,9 +217,9 @@ Build the review payload — inline comments, `commit_id`, the preflight-wrapped
 
 ### 7. Monitor CI
 
-If you **stayed silent** (no review posted, nothing to dismiss), finish — there's no follow-up gated on the CI result. Don't background-poll: per `/tend-ci-runner:running-in-ci` under "End the turn only when work is shipped", the completion notification isn't reliably delivered to a CI session.
+If you **stayed silent** (no review posted, nothing to dismiss), finish — there's no follow-up gated on the CI result. Don't background-poll: per `/tend-ci-runner:run-tend` under "End the turn only when work is shipped", the completion notification isn't reliably delivered to a CI session.
 
-If you **approved**, the dismissal-on-failure is a gated follow-up. Poll in the foreground per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md`, pinned to `$TMPDIR/reviewed-head`, then handle the outcome per **After the approval** in `references/approving.md`. If the PR head moves while polling, stop polling the stale commit; the queued review handles the new HEAD.
+If you **approved**, the dismissal-on-failure is a gated follow-up. Poll in the foreground per `/tend-ci-runner:monitor-ci`, pinned to `$TMPDIR/reviewed-head`, then handle the outcome per **After the approval** in `references/approving.md`. If the PR head moves while polling, stop polling the stale commit; the queued review handles the new HEAD.
 
 ### 8. Resolve handled suggestions
 
@@ -241,9 +241,9 @@ Outdated comments (null line) are best-effort — skip if the original context c
 
 ### 9. Push fixes
 
-Pushing to the branch under review fires `synchronize`, which queues another run behind this session rather than cancelling it. Submit the review (**Submit**) and resolve threads (**Resolve handled suggestions**) before pushing, so the review documents the code the fix responds to. Batch every fix into a single push; each push costs another review round. Poll the pushed fix's CI to green per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md` before ending the session; the queued run reviews the new HEAD.
+Pushing to the branch under review fires `synchronize`, which queues another run behind this session rather than cancelling it. Submit the review (**Submit**) and resolve threads (**Resolve handled suggestions**) before pushing, so the review documents the code the fix responds to. Batch every fix into a single push; each push costs another review round. Poll the pushed fix's CI to green per `/tend-ci-runner:monitor-ci` before ending the session; the queued run reviews the new HEAD.
 
-Before the push, review the fix itself per **Review the change before the push** in `/tend-ci-runner:running-in-ci`'s `references/pushing.md`. Leave the review pinned to the head you reviewed. **Submit**'s re-targeting is for pushes by others during the review; re-target onto your own fix and the queued run reads that head as already reviewed, then finishes without looking at the fix. That run reviews the pushed head and resolves the threads the fix addressed.
+Before the push, review the fix itself per **Review the change before the push** in `/tend-ci-runner:push-commits`. Leave the review pinned to the head you reviewed. **Submit**'s re-targeting is for pushes by others during the review; re-target onto your own fix and the queued run reads that head as already reviewed, then finishes without looking at the fix. That run reviews the pushed head and resolves the threads the fix addressed.
 
 **PRs with no human author** (this bot's own, and third-party bot PRs like Dependabot or renovate): Nobody else will act on the feedback — a third-party bot doesn't read it, and on your own PR you are the author. A review that only describes the fix leaves the PR red and pushes the work onto a maintainer — the opposite of the point. If you can articulate the fix, apply it: commit and push it to the PR branch. "Not a one-token change" and "more than one syntactically valid form exists" are **not** reasons to defer — pick the option most consistent with the surrounding code and the repo's existing conventions, push it, and note any alternative in the review. The only bar for deferring is that *no defensible default exists*: a genuine semantic ambiguity that needs maintainer intent, not merely a fix that took thought to derive. If the review already worked out the answer, that answer is pushable. Rebase onto the latest target branch first if the branch is behind.
 

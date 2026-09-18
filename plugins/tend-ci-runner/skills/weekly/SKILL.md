@@ -9,7 +9,7 @@ metadata:
 
 ## Step 0: Load environment skills
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, review/comment formatting, and polling conventions. This skill posts approvals and comments on PRs, so those rules apply. `running-in-ci` will also load the repo's `running-tend` overlay if one exists; keep the loaded content in mind for Step 3.
+Load `/tend-ci-runner:run-tend` first — it contains CI security rules and comment formatting, and will load the repo's `running-tend` overlay if one exists; keep the loaded content in mind for Step 3. This skill approves and comments on PRs, so load `/tend-ci-runner:post-to-github` and `/tend-ci-runner:review`'s `references/approving.md` with it.
 
 ## Step 1: Find dependency PRs
 
@@ -24,14 +24,15 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
 
 1. Check CI status: `gh pr checks <number>`
 2. If CI is passing, review the diff for breaking changes (major version bumps, API changes, deprecation warnings)
-3. If the update is safe (patch/minor with green CI), check whether the bot has already approved this commit before approving — a dependabot PR open across multiple weekly runs (or already approved by `tend-review` on creation) would otherwise accumulate redundant approvals on the same `commit_id`:
+3. If the update is safe (patch/minor with green CI), run the approval check in `/tend-ci-runner:review`'s `references/approving.md`, then check whether the bot has already approved this commit before approving — a dependabot PR open across multiple weekly runs (or already approved by `tend-review` on creation) would otherwise accumulate redundant approvals on the same `commit_id`:
    ```bash
    uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
      prepare-approval <number>
    ```
 
    **If `already_approved` is true, this PR is done — move to the next one.**
-   Otherwise compose `$TMPDIR/review-body.md`. Give the
+   Otherwise compose `$TMPDIR/review-body.md` per
+   `/tend-ci-runner:post-to-github`. Give the
    reviewer the context for the approval: the upgrade's scope and the evidence
    relevant to its safety. Keep it concise and omit the inspection chronology.
    Use a file rather than an inline `--body` because a
@@ -51,9 +52,9 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
    gh api "repos/$REPO/pulls/<number>/reviews" --method POST \
      -f event=APPROVE -f commit_id="$CHECKED" -F body=@"$TMPDIR/review-body.md"
    ```
-4. If CI is failing, comment with the failure summary and skip
+4. If CI is failing, comment the failure summary per `/tend-ci-runner:post-to-github` and skip
 5. If a major version bump, comment noting it needs manual review and skip
-6. On either skip path (4 or 5), dismiss an approval that predates the newest rewrite before you leave. Both paths are reachable *because* a rebase changed something, and neither passes through item 3's guard — so the pre-rewrite approval stays the bot's latest review, re-anchored onto the current head, and the PR still reads as bot-approved while you comment that it isn't mergeable:
+6. On either skip path (4 or 5), dismiss an approval that predates the newest rewrite before you leave, per `/tend-ci-runner:dismiss-approval`. Both paths are reachable *because* a rebase changed something, and neither passes through item 3's guard — so the pre-rewrite approval stays the bot's latest review, re-anchored onto the current head, and the PR still reads as bot-approved while you comment that it isn't mergeable:
    ```bash
    uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
      dismiss-stale <number> \

@@ -27,7 +27,7 @@ tend's own CI between merge and the release tag bump.
 ## Thread memory: deterministic prep of prior conversations
 
 A thread's session logs share one artifact name per harness, so
-`running-in-ci` finds its prior runs with a single `?name=` call, and the
+`run-tend` finds its prior runs with a single `?name=` call, and the
 agent downloads and parses them on demand. The lookup is cheap; the
 cost is the agent reading raw logs (a session JSONL runs ~100 KB, ~30k
 tokens) each time it opens one.
@@ -261,7 +261,7 @@ under "Which file" in `CLAUDE.md`.
 
 The rules with mention's shape — reading the thread, a review's inline
 comments, the closed-target check, whether to respond — no longer need that
-skill for a home: `running-in-ci`'s `references/trigger-context.md` holds them,
+skill for a home: `/tend-ci-runner:respond-on-thread` holds them,
 keyed on responding to a thread whatever woke the session, so triage,
 notifications, and review reach them too. A `mention` skill earns its cost only
-once rules that bind mention alone start accumulating in `running-in-ci` again.
+once rules that bind mention alone start accumulating in `run-tend` again.

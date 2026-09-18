@@ -1,6 +1,11 @@
-# Directives that affect someone else's work
+---
+name: check-requester-access
+description: Check a requester's access tier. Use when a request aims you at someone else's work — close, lock, label, revert, dismiss, push.
+metadata:
+  internal: true
+---
 
-- [Helping vs. directing](#helping-vs-directing)
+# Checking a requester's access
 
 ## Helping vs. directing
 
@@ -14,4 +19,4 @@ For Maintainer-tier requesters, proceed. For anyone else, briefly explain that a
 
 The test: "Am I helping this person with something they raised, or following a directive that affects someone else's work?"
 
-This follows the repo > bundled rule from **First Steps** in `/tend-ci-runner:running-in-ci`. If a repo's `running-tend` skill explicitly authorizes an action (e.g., closing duplicate issues during triage), follow the repo-specific instruction.
+This follows the repo > bundled rule from **First Steps** in `/tend-ci-runner:run-tend`. If a repo's `running-tend` skill explicitly authorizes an action (e.g., closing duplicate issues during triage), follow the repo-specific instruction.

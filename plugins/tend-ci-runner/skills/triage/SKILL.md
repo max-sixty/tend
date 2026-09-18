@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Triages new GitHub issues — classifies, reproduces bugs, attempts conservative fixes, and comments. Use when a new issue is opened and needs automated triage.
+description: Triages a newly opened GitHub issue — classifies, reproduces bugs, attempts conservative fixes, and comments.
 argument-hint: "[issue number]"
 metadata:
   internal: true
@@ -14,7 +14,7 @@ Triage a newly opened GitHub issue.
 
 ## Step 1: Setup
 
-Load `/tend-ci-runner:running-in-ci` first (CI environment rules, security). It will also prompt you to load any repo-specific skills (e.g., `running-tend`) — do so before proceeding.
+Load `/tend-ci-runner:run-tend` first (CI environment rules, security). It will also prompt you to load any repo-specific skills (e.g., `running-tend`) — do so before proceeding.
 
 Reproduce before fixing, find evidence before speculating, and test before committing.
 
@@ -67,7 +67,7 @@ Record what you found (or didn't find) for use in step 7.
 
 *Bug reports only.*
 
-Follow **Reproduce first** in `references/fixing.md`: a failing test in an existing test file, run to confirm it fails.
+Follow **Reproduce first** in `/tend-ci-runner:fix-a-bug`: a failing test in an existing test file, run to confirm it fails.
 
 If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7. If the test passes, the bug may already be fixed — note that for the comment.
 
@@ -75,11 +75,11 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
 
 *Bug reports only.*
 
-`references/fixing.md` carries the gates: the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
+`/tend-ci-runner:fix-a-bug` carries the gates: the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
 
 ### If fixing
 
-1. Clear the local bar in `references/fixing.md`.
+1. Clear the local bar in `/tend-ci-runner:fix-a-bug`.
 2. Create branch, commit, push, and create PR:
    ```bash
    git checkout -b fix/issue-$ARGUMENTS
@@ -89,7 +89,7 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
    Closes #$ARGUMENTS"
    git push -u origin fix/issue-$ARGUMENTS
    ```
-   Compose the body at `$TMPDIR/pr-body.md`. Write for a maintainer deciding whether the current fix resolves the issue: explain the causal finding, the resulting behavior change, and the reproduction test that now passes. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`, and end with `Closes #$ARGUMENTS — automated triage` so merging closes the issue.
+   Compose the body at `$TMPDIR/pr-body.md`. Write for a maintainer deciding whether the current fix resolves the issue: explain the causal finding, the resulting behavior change, and the reproduction test that now passes. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`, and end with `Closes #$ARGUMENTS — automated triage` so merging closes the issue.
 
    <example>
    <bad reason="Restates the report, narrates the investigation, and claims a generic test run">
@@ -117,7 +117,7 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
    ```bash
    gh pr create --title "fix: <description>" --body-file "$TMPDIR/pr-body.md"
    ```
-3. Wait for CI per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md`.
+3. Wait for CI per `/tend-ci-runner:monitor-ci`.
 
 ### If reproduction test works but fix is not confident
 
@@ -130,7 +130,7 @@ git commit -m "test: add reproduction for #$ARGUMENTS"
 git push -u origin repro/issue-$ARGUMENTS
 ```
 
-Compose the body at `$TMPDIR/pr-body.md`. Make clear that the PR deliberately adds a failing reproduction without a fix, what behavior it captures, and any causal boundary already established so a maintainer knows what remains to decide. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`, and end with `Automated triage for #$ARGUMENTS`.
+Compose the body at `$TMPDIR/pr-body.md`. Make clear that the PR deliberately adds a failing reproduction without a fix, what behavior it captures, and any causal boundary already established so a maintainer knows what remains to decide. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`, and end with `Automated triage for #$ARGUMENTS`.
 
 ```bash
 gh pr create --title "test: reproduction for #$ARGUMENTS" --body-file "$TMPDIR/pr-body.md"
@@ -140,9 +140,9 @@ Note the PR number for the comment.
 
 ## Step 7: Comment on the issue
 
-Re-fetch before posting, per **Recheck before posting** in `/tend-ci-runner:running-in-ci`'s `references/posting.md` — triage can take minutes, so re-fetch the issue and skip any point a new human comment or a sibling tend workflow already covered.
+Re-fetch before posting, per **Recheck before posting** in `/tend-ci-runner:post-to-github` — triage can take minutes, so re-fetch the issue and skip any point a new human comment or a sibling tend workflow already covered.
 
-Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`; do not restate the report or narrate the investigation. Never claim the issue is fully resolved by automation alone — an opened fix still needs maintainer review and landing. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
+Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`; do not restate the report or narrate the investigation. Never claim the issue is fully resolved by automation alone — an opened fix still needs maintainer review and landing. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
 
 Read the reporter's relationship to the repository before composing the reply:
 

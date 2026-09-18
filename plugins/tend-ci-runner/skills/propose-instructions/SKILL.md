@@ -1,9 +1,16 @@
+---
+name: propose-instructions
+description: Propose durable instructions. Use when a maintainer corrects the bot, or before writing text for a skill or an instruction file.
+metadata:
+  internal: true
+---
+
 # Proposing tend instructions from CI
 
 Turning a maintainer's correction into durable instructions for future runs. It
 lands in one of two places: this repo's own `running-tend` overlay, which only
 sessions here read, or tend's bundled skills upstream at `max-sixty/tend`,
-which every repo tend maintains reads. This file covers whether the correction
+which every repo tend maintains reads. This skill covers whether the correction
 clears the bar, which of the two it lands in, what the text carries, and the
 mechanics of proposing it.
 
@@ -64,7 +71,7 @@ exceptions — and for its maintainer's judgments above. A rule of mechanics goe
 upstream even when writing it locally would be quicker.
 
 Upstream means an issue on `max-sixty/tend`, filed per **Filing issues** in
-`references/other-repos.md`.
+`/tend-ci-runner:act-in-other-repos`.
 
 ## What the text carries
 
@@ -86,7 +93,7 @@ correctness.
 ## Mechanics
 
 These steps are for the overlay path. Filing upstream follows
-`references/other-repos.md` instead.
+`/tend-ci-runner:act-in-other-repos` instead.
 
 1. **Complete the current task first.** The skill update is always a separate
    PR.
@@ -172,4 +179,4 @@ These steps are for the overlay path. Filing upstream follows
    request; a maintainer lands it (or doesn't) in their own time. Don't post
    a separate comment pinging for review, and don't block the session
    waiting. This open-and-exit is for skill proposals only; a code fix
-   follows `references/ci-monitoring.md`.
+   follows `/tend-ci-runner:monitor-ci`.

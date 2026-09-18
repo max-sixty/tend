@@ -1,6 +1,6 @@
 ---
 name: nightly
-description: Nightly code quality sweep — resolves bot PR conflicts, reviews recent commits, surveys existing code, checks resolved issues, and updates tend workflows.
+description: Nightly code quality sweep — bot PR conflicts, recent commits, a rolling survey, resolved issues, and tend workflow updates.
 metadata:
   internal: true
 ---
@@ -11,9 +11,12 @@ Resolve conflicts on bot PRs, review recent commits, survey a slice of existing 
 
 ## Step 0: Load environment skills
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules,
-polling conventions, and comment formatting instructions. It will also prompt you
-to load any repo-specific skills (e.g., `running-tend`).
+Load `/tend-ci-runner:run-tend` first — it contains CI security rules and
+comment formatting, and it will prompt you to load any repo-specific skills
+(e.g., `running-tend`). This sweep comments, files issues, opens PRs, pushes,
+and polls CI from Step 1 onward, so load `/tend-ci-runner:post-to-github`,
+`/tend-ci-runner:open-pr`, `/tend-ci-runner:push-commits`, and
+`/tend-ci-runner:monitor-ci` with it.
 
 ## Step 1: Verify bot PAT scopes
 
@@ -101,7 +104,7 @@ gh issue list --state open --limit 200 --json number,title
 gh pr list --state open --limit 200 --json number,title,headRefName
 ```
 
-For each open issue, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue). Close the issue with `gh issue close` when:
+For each open issue, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue) per `/tend-ci-runner:post-to-github`. Close the issue with `gh issue close` when:
 
 - The bot opened the issue itself to report a transient condition (e.g., a "Nightly tests failed" report from a prior run) and the condition has clearly resolved — the fix PR is merged and the relevant CI on `main` is passing. Skip this case where closing the issue is itself a signal rather than a record of resolution:
   - a body containing "Do not close manually" — recurring trackers with their own lifecycle.
@@ -178,10 +181,10 @@ moving this session's cwd:
 ( cd "<worktree from prepare output>" && uv tool run tend@latest init )
 ```
 
-Compose the PR body at `$TMPDIR/tend-update-body.md`. Its
-reader is deciding whether to adopt the regenerated workflows, so explain the
-consumer-visible effect of the upgrade rather than inventorying changed files
-or commits. When the version changed, state the old and new versions,
+Compose the PR body at `$TMPDIR/tend-update-body.md` per
+`/tend-ci-runner:post-to-github`. Its reader is deciding whether to adopt the
+regenerated workflows, so explain the consumer-visible effect of the upgrade
+rather than inventorying changed files or commits. When the version changed, state the old and new versions,
 synthesize the `upstream_commits` entries into the behavior consumers will
 notice, and link `compare_url` as support. Rewrite each `(#NNN)` reference as
 `max-sixty/tend#NNN` — a bare `#NNN` auto-links to this repo's own issues, not
@@ -190,9 +193,10 @@ tend-internal work with no consumer-visible effect. If `upstream_commits` is
 empty, the comparison call failed: include only the version line and compare
 link, and do not infer upstream behavior. For a same-version regeneration,
 explain the generator behavior that made the committed workflows stale. Follow
-**Reader-facing prose** in `/tend-ci-runner:running-in-ci`.
+**Reader-facing prose** in `/tend-ci-runner:run-tend`.
 
-Then ship the prepared change:
+Review the prepared diff per **Review the change before the push** in
+`/tend-ci-runner:push-commits`, then ship it:
 
 ```bash
 uv run --script \
@@ -201,7 +205,7 @@ uv run --script \
 
 The command commits, pushes, creates or updates the PR, records the pushed OID,
 removes the temporary worktree, and prints the PR number and URL. Poll that
-exact commit per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md` — foreground,
+exact commit per `/tend-ci-runner:monitor-ci` — foreground,
 `timeout: 600000`:
 
 ```bash
@@ -219,7 +223,7 @@ gh issue list --state open --limit 200 --json number,title
 gh pr list --state open --limit 200 --json number,title,headRefName
 ```
 
-That projection orients you; it does not clear a finding. It omits both states a prior rejection lives in — closed PRs, and the comment bodies of an open issue — so per finding, before writing code, run the searches under **Fetch the prior rejection before re-deriving a fix** in `/tend-ci-runner:running-in-ci`'s `references/pr-creation.md`.
+That projection orients you; it does not clear a finding. It omits both states a prior rejection lives in — closed PRs, and the comment bodies of an open issue — so per finding, before writing code, run the searches under **Fetch the prior rejection before re-deriving a fix** in `/tend-ci-runner:open-pr`.
 
 The default action is a PR, not an issue. If there's a plausible fix, make it — explain uncertainty in the PR description.
 
@@ -227,8 +231,8 @@ Group findings by theme and keep a run to a couple of PRs, picking the highest-c
 
 For each finding:
 
-1. **Create a PR** — branch, fix, run full test suite, commit, push, create PR, then poll CI per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md`. Your job ends when those checks are terminal: a review posted on the PR while you poll belongs to `tend-mention`. **Every bug fix must include a regression test that would have failed before the fix.** If a test is not feasible (e.g., pure documentation changes), note why in the PR description. When uncertain about the approach, explain the trade-offs in the description.
-2. **Create an issue only when there's no obvious fix** — design questions, problems needing maintainer input, or findings requiring investigation beyond what the survey can provide.
+1. **Create a PR** — branch, fix per `/tend-ci-runner:fix-a-bug`, run full test suite, commit, push per `/tend-ci-runner:push-commits`, create the PR per `/tend-ci-runner:open-pr`, then poll CI per `/tend-ci-runner:monitor-ci`. Your job ends when those checks are terminal: a review posted on the PR while you poll belongs to `tend-mention`. **Every bug fix must include a regression test that would have failed before the fix.** If a test is not feasible (e.g., pure documentation changes), note why in the PR description. When uncertain about the approach, explain the trade-offs in the description.
+2. **Create an issue only when there's no obvious fix** (per `/tend-ci-runner:open-pr`) — design questions, problems needing maintainer input, or findings requiring investigation beyond what the survey can provide.
 
 ## Optional steps
 

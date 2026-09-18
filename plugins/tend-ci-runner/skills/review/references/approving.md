@@ -25,7 +25,7 @@ An approval you post at a re-targeted head is yours to stand behind: the queued 
 
 ## After the approval
 
-Poll the pinned commit to terminal per `/tend-ci-runner:running-in-ci`'s `references/ci-monitoring.md`, then handle the outcome:
+Poll the pinned commit to terminal per `/tend-ci-runner:monitor-ci`, then handle the outcome:
 
 - **All required checks passed** -> done.
 - **A check failed** and it's related to the PR -> post a follow-up COMMENT review with analysis and inline suggestions, then dismiss the bot's approval:
