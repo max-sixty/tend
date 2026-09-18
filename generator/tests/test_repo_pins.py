@@ -873,6 +873,25 @@ def test_plugin_skill_citations_resolve() -> None:
 # descriptions sit within a few characters of the ceiling, so the count is pinned
 # below — adding a skill means re-measuring, not raising it. The count spans both
 # plugins, because the install carries both and they share the one budget.
+#
+# To re-measure, install both plugins from this checkout into a throwaway Codex
+# home and run any prompt:
+#
+#     export CODEX_HOME=$(mktemp -d)
+#     codex login
+#     codex plugin marketplace add "$PWD"
+#     codex plugin add tend-ci-runner@tend; codex plugin add install-tend@tend
+#     codex exec --skip-git-repo-check -s read-only "Quote your skills listing."
+#     rm -rf "$CODEX_HOME"
+#
+# Log in afresh rather than copying `~/.codex/auth.json` in: a token refresh
+# inside the throwaway home would rotate the refresh-token chain your own login
+# depends on.
+#
+# Codex prints "Skill descriptions were shortened to fit the skills context
+# budget" when any description is cut, and a description it cut, quoted back by
+# the model, shows the length each share gets. Tighten the descriptions to fit
+# and re-run until the warning is gone.
 DESCRIPTION_BUDGET = 130
 SKILLS_MEASURED_AT = 24
 
