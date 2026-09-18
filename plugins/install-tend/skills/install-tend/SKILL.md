@@ -53,8 +53,8 @@ gh api "repos/$REPO/contents/.github/workflows" \
 ```
 
 The summary checklist at the end describes a finished install, so skip it.
-A preference a step needs (7a's auth mode and mint path, 10's bio stance)
-is asked at that step.
+A preference a step needs (7a's auth mode, 10's bio stance) is asked at
+that step.
 
 Otherwise this is an install, including a resume of one that never finished
 (config present, later steps missing). Gather every preference at the
@@ -698,12 +698,7 @@ flow or a resumed install lands here without one — first ask the user to choos
 between the two Claude options from Kickoff question 1.
 
 For **OAuth token** (`sk-ant-oat01-…` from `claude setup-token`; advertised
-as 1-year), two mint paths that differ only in whose terminal runs them. Ask
-which. Name in each option the commands it runs and where the token lands:
-neither path shows the value to the agent or puts it in the transcript, and
-nothing outside the question tells the user so. Offer only the paths the
-environment supports — where the CLI path's requirements below don't hold,
-Manual is the only one and there is nothing to ask.
+as 1-year), two mint paths, routed by environment rather than asked:
 
 - **CLI** — the agent mints and stores it. Available when `claude` is on
   PATH (`command -v claude`) and `uname` reports macOS or Linux; the bundled
@@ -714,12 +709,12 @@ Manual is the only one and there is nothing to ask.
   transcript.
 
   Launch the command below as a background task — a foreground call sits
-  blocked with the URL trapped in its pending
-  result, and times out before the user has anything to click. Start it
-  only once the user says they are at the browser: the wrapper prints the
-  authorize URL within seconds, then waits — up to 15 minutes — for their
-  approval, and a run started ahead of them spends its window and takes
-  its own URL down.
+  blocked with the URL trapped in its pending result, and times out before
+  the user has anything to click. Start it only once the user says they are
+  at the browser: the wrapper prints the authorize URL within seconds, then
+  waits — up to 15 minutes — for their approval, and a run started ahead of
+  them spends its window and takes its own URL down. Say what it runs and
+  where the token lands when you ask them.
 
   ```bash
   TOKEN=$("${CLAUDE_SKILL_DIR}/scripts/oauth_token.py" --code-file /tmp/tend-oauth-code)
@@ -778,14 +773,16 @@ Manual is the only one and there is nothing to ask.
   gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO" --env tend
   ```
 
-  Given neither `--body` nor a pipe, `gh secret set` prompts for the
-  value, so the token goes from the first command's output to that prompt
-  and nowhere else. Don't ask for it in chat: the agent has no use for the
-  value, and a token pasted there is a live credential sitting in the
-  transcript. The prompt refuses an empty submission and keeps waiting, so
-  the empty-value hazard that makes the CLI path's guard load-bearing has
-  no counterpart here. Give them this alongside, which shows the secret's
-  name and when it was written without exposing the value:
+  Given neither `--body` nor a pipe, `gh secret set` prompts for the value,
+  so the token goes from the first command's output to that prompt and
+  nowhere else. Offer both endings when handing the commands over: paste the
+  token back and the agent sets the secret, or run the second command so the
+  value never leaves their terminal. Say which is which, since a token
+  pasted into chat is a live credential in the transcript. The prompt
+  refuses an empty submission and keeps waiting, so the empty-value hazard
+  that makes the CLI path's guard load-bearing has no counterpart here. Give
+  them this alongside, which shows the secret's name and when it was written
+  without exposing the value:
 
   ```bash
   gh secret list --repo "$REPO" --env tend
