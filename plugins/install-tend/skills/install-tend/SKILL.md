@@ -711,12 +711,13 @@ claude setup-token
 gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO" --env tend
 ```
 
-Offer both endings when handing the commands over: paste the token back and
-the agent sets the secret, or run the second command so the value never
-leaves their terminal. Say which is which, since a token pasted into chat is
-a live credential in the transcript. Given neither `--body` nor a pipe,
-`gh secret set` prompts for the value, so on that second ending the token
-goes from the first command's output to the prompt and nowhere else.
+Offer both endings when handing the commands over: run `gh secret set`
+themselves so the value never leaves their terminal, or paste the token back
+for the agent to set it. Recommend the first and say why — a token pasted
+into chat is a live credential in a transcript that outlives the install.
+Given neither `--body` nor a pipe, `gh secret set` prompts for the value, so
+taken that way the token goes from `claude setup-token`'s output to the
+prompt and nowhere else.
 
 When setting it from a pasted value, check it starts with `sk-ant-oat01-`
 first. `gh secret set` stores an empty or malformed body and exits 0, and
