@@ -146,17 +146,20 @@ These steps are for the overlay path. Filing upstream follows
    # Author the new skill file at $TMPDIR/running-tend-new.md.
    # Then move it into place from inside the worktree. mkdir -p covers the
    # new-skill case where .claude/skills/<name>/ doesn't yet exist in the
-   # default branch:
+   # default branch. Both `cd`s stay inside subshells, so the session's own
+   # cwd never enters the worktree: the last line deletes it, and a session
+   # standing in it has no working directory for anything after this block.
    mkdir -p "$TMPDIR/skill-fix/.claude/skills/running-tend"
-   cd "$TMPDIR/skill-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend-new.md" SKILL.md
+   ( cd "$TMPDIR/skill-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend-new.md" SKILL.md )
 
-   cd "$TMPDIR/skill-fix"
-   git add .claude/skills/
-   git commit -m "skills(running-tend): ..."
-   git push -u origin skills/<topic>-$GITHUB_RUN_ID
-   gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head skills/<topic>-$GITHUB_RUN_ID
-   cd -
-   git worktree remove "$TMPDIR/skill-fix" --force
+   (
+     set -e
+     cd "$TMPDIR/skill-fix"
+     git add .claude/skills/
+     git commit -m "skills(running-tend): ..."
+     git push -u origin skills/<topic>-$GITHUB_RUN_ID
+     gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head skills/<topic>-$GITHUB_RUN_ID
+   ) && git worktree remove "$TMPDIR/skill-fix" --force
    ```
 
 4. **Open as a separate PR.** Follow the repo's PR title conventions
