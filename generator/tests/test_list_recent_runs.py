@@ -277,7 +277,14 @@ def test_workflow_fetch_limit_warns(env: dict[str, str]) -> None:
     result = _run(env)
 
     assert result.returncode == 0, result.stderr
-    assert "--limit 200" in Path(env["GH_CALLS"]).read_text()
+    # Scoped to the listing's own call: the run fetches below it carry the same
+    # `--limit 200`, so a search of the whole log passes with the flag deleted.
+    listings = [
+        line
+        for line in Path(env["GH_CALLS"]).read_text().splitlines()
+        if line.startswith("workflow list")
+    ]
+    assert listings and all("--limit 200" in line for line in listings), listings
     assert "at least 200 workflows" in result.stderr
 
 
