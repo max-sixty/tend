@@ -1991,24 +1991,6 @@ def test_per_workflow_harness_unknown_rejected(tmp_path: Path) -> None:
         Config.load(_minimal_config(tmp_path, extra))
 
 
-def test_per_workflow_harness_incompatible_model_rejected_codex_target(
-    tmp_path: Path,
-) -> None:
-    """An explicit per-workflow model must fit its effective harness."""
-    extra = dedent("""\
-        harness: codex
-        workflows:
-          nightly:
-            harness: claude
-            model: gpt-5.5
-    """)
-    with pytest.raises(
-        click.ClickException,
-        match=r"workflows.nightly harness 'claude' is incompatible with model 'gpt-5.5'",
-    ):
-        Config.load(_minimal_config(tmp_path, extra))
-
-
 def test_per_workflow_harness_change_uses_target_default_model(
     tmp_path: Path,
 ) -> None:
@@ -2062,57 +2044,56 @@ def test_per_workflow_model_override_unblocks_cross_family(tmp_path: Path) -> No
     assert "model: opus" in review.content
 
 
-def test_per_workflow_model_typo_without_harness_rejected(tmp_path: Path) -> None:
-    """Reviewer-flagged gap (#612): per-workflow `model:` override WITHOUT
-    a `harness:` change must still be validated against the top-level
-    harness's allowlist. Previously skipped because both checks gated on
-    `wf_harness is not None`."""
-    extra = dedent("""\
+@pytest.mark.parametrize("model", ["haiku", "claude-opus-5"])
+def test_per_workflow_model_only_override(tmp_path: Path, model: str) -> None:
+    """A `model:` override without a harness change reaches that workflow alone."""
+    extra = dedent(f"""\
         workflows:
           nightly:
-            model: opus-99
+            model: {model}
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    assert f"model: {model}" in workflows["tend-nightly.yaml"].content
+    assert "model: opus" in workflows["tend-review.yaml"].content
+
+
+# Bare `model:` stays out: at workflow level it reads as inherit, as
+# `prompt:` does, rather than as a value.
+@pytest.mark.parametrize("model", ['"   "', "[opus]", "5"])
+def test_per_workflow_model_must_be_a_non_empty_string(
+    tmp_path: Path, model: str
+) -> None:
+    extra = dedent(f"""\
+        workflows:
+          nightly:
+            model: {model}
     """)
     with pytest.raises(
         click.ClickException,
-        match=r"workflows.nightly harness 'claude' is incompatible with model 'opus-99'",
+        match="workflows.nightly.model must be a non-empty string",
     ):
         Config.load(_minimal_config(tmp_path, extra))
 
 
-def test_per_workflow_model_only_override_valid(tmp_path: Path) -> None:
-    """Per-workflow `model:` override (no harness change) to a valid model
-    in the top-level harness's allowlist loads cleanly and renders."""
-    extra = dedent("""\
-        workflows:
-          nightly:
-            model: haiku
-    """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    nightly = workflows["tend-nightly.yaml"]
-    assert "model: haiku" in nightly.content
-    review = workflows["tend-review.yaml"]
-    assert "model: opus" in review.content
+@pytest.mark.parametrize(
+    ("config", "model"),
+    [
+        ("harness: codex\nmodel: gpt-99-future", "gpt-99-future"),
+        ("model: claude-opus-5", "claude-opus-5"),
+        # Not even a mismatched family is caught here.
+        ("harness: codex\nmodel: opus", "opus"),
+    ],
+)
+def test_model_unrestricted(tmp_path: Path, config: str, model: str) -> None:
+    """Neither harness enumerates models.
 
-
-def test_codex_model_unrestricted(tmp_path: Path) -> None:
-    """Codex model strings pass through unvalidated.
-
-    Codex's catalog churns (gpt-5.1-codex was current at harness bring-up;
-    deprecated by the next month). An allowlist would silently lock consumers
-    out of newer models. We accept any string and let `codex exec` error at
-    runtime if it's wrong.
+    Both catalogs churn, and both CLIs take an exact id as well as an alias,
+    so an allowlist would refuse a pin the CLI accepts. `tend` forwards the
+    string; the CLI errors on a name it does not know.
     """
-    cfg = Config.load(_minimal_config(tmp_path, "harness: codex\nmodel: gpt-99-future"))
-    assert cfg.model == "gpt-99-future"
-
-
-def test_unknown_claude_model_rejected(tmp_path: Path) -> None:
-    """Claude's model set is small and stable; typos fail at config load."""
-    with pytest.raises(
-        click.ClickException, match="not recognized for harness 'claude'"
-    ):
-        Config.load(_minimal_config(tmp_path, "model: opus-3"))
+    cfg = Config.load(_minimal_config(tmp_path, config))
+    assert cfg.model == model
 
 
 @pytest.mark.parametrize(
@@ -2126,32 +2107,30 @@ def test_effort_rejected_when_unsupported_or_malformed(
         Config.load(_minimal_config(tmp_path, config))
 
 
-@pytest.mark.parametrize(
-    ("config", "match"),
-    [
-        (
-            "model: haiku\neffort: low",
-            "effort is not supported for Claude model 'haiku'",
-        ),
-        (
-            dedent("""\
-                effort: high
-                workflows:
-                  nightly:
-                    model: haiku
-            """),
-            (
-                r"effort \(inherited by workflows\.nightly\) is not supported .* "
-                r"set `workflows\.nightly\.effort: \"\"`"
-            ),
-        ),
-    ],
-)
-def test_effort_rejected_for_claude_models_without_effort(
-    tmp_path: Path, config: str, match: str
+def test_effort_is_not_validated_against_the_model(tmp_path: Path) -> None:
+    """Which models read `--effort` is the CLI's to know, so the pair renders."""
+    cfg = Config.load(_minimal_config(tmp_path, "model: haiku\neffort: low"))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    review = workflows["tend-review.yaml"].content
+    assert "model: haiku" in review
+    assert "effort: low" in review
+
+
+def test_inherited_effort_rejected_when_a_workflow_switches_harness(
+    tmp_path: Path,
 ) -> None:
-    with pytest.raises(click.ClickException, match=match):
-        Config.load(_minimal_config(tmp_path, config))
+    """`max` is Claude-only, so a codex workflow cannot inherit it."""
+    extra = dedent("""\
+        effort: max
+        workflows:
+          nightly:
+            harness: codex
+    """)
+    with pytest.raises(
+        click.ClickException,
+        match=r"effort \(inherited by workflows\.nightly\) 'max' is not recognized",
+    ):
+        Config.load(_minimal_config(tmp_path, extra))
 
 
 @pytest.mark.parametrize(

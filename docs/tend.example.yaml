@@ -21,10 +21,12 @@ bot_name: my-project-bot
 
 # ## Model
 #
-# Model to use for all workflows. Valid values depend on the harness:
-#
-# - harness: claude  — opus (default), sonnet, haiku
-# - harness: codex   — gpt-5.6-sol (default), or any string Codex CLI accepts
+# Model to use for all workflows. Any string the selected harness's CLI accepts
+# — an alias that follows the provider's promotions (`opus`, `sonnet`,
+# `haiku`), or an exact id that stays put across them (`claude-opus-5`,
+# `gpt-5.6-sol`). Tend passes the value straight to `--model`, so a name the
+# CLI does not know fails the job with that CLI's error. The defaults are
+# `opus` for Claude and `gpt-5.6-sol` for Codex.
 #
 # model: opus
 
@@ -33,9 +35,9 @@ bot_name: my-project-bot
 
 # ## Effort
 #
-# Reasoning effort for the selected model. Codex and Claude's Opus and Sonnet
-# models accept low, medium, high, and xhigh; Claude's also accept max. Haiku
-# does not support effort. Empty (default) leaves the choice to the harness CLI.
+# Reasoning effort for the selected model. Codex accepts low, medium, high,
+# and xhigh; Claude also accepts max. A model that does not read the level
+# ignores it. Empty (default) leaves the choice to the harness CLI.
 #
 # effort: medium
 

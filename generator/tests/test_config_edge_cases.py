@@ -179,16 +179,22 @@ def test_protected_branches_empty_string_rejected(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("model", ["opus", "sonnet", "haiku"])
+@pytest.mark.parametrize(
+    "model", ["opus", "sonnet", "haiku", "claude-opus-5", "claude-haiku-4-5-20251001"]
+)
 def test_model_accepted(tmp_path: Path, model: str) -> None:
+    """Aliases and exact ids alike reach `--model`; the CLI judges the name."""
     path = _write_config(tmp_path, f"bot_name: my-bot\nmodel: {model}\n")
     cfg = Config.load(path)
     assert cfg.model == model
 
 
-def test_model_unknown_rejected(tmp_path: Path) -> None:
-    path = _write_config(tmp_path, "bot_name: my-bot\nmodel: gpt-4\n")
-    with pytest.raises(ClickException, match="model 'gpt-4' is not recognized"):
+# `model:` with nothing after it, whitespace, a list, and a number — each
+# would otherwise render into the workflow's `model:` input as written.
+@pytest.mark.parametrize("model", ["", '"   "', "[opus]", "5"])
+def test_model_must_be_a_non_empty_string(tmp_path: Path, model: str) -> None:
+    path = _write_config(tmp_path, f"bot_name: my-bot\nmodel: {model}\n")
+    with pytest.raises(ClickException, match="model must be a non-empty string"):
         Config.load(path)
 
 
