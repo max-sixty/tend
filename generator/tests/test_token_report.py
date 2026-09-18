@@ -542,3 +542,18 @@ def test_an_hour_count_in_the_prefix_slot_is_an_error(report: Report) -> None:
     assert result.returncode == 2
     assert "--hours 24" in result.stderr
     assert result.stdout == ""
+
+
+def test_an_empty_since_is_an_error_not_a_week_long_window(report: Report) -> None:
+    """`--since "$(cat ...)"` collapses to `--since ""` when the anchor is absent.
+
+    Falling through to the `--hours` default would publish a week's spend under
+    a header naming a window nobody asked for, with a zero exit.
+    """
+    report.add(1, created_at="2026-09-17T08:00:00Z", updated_at="2026-09-17T08:10:00Z")
+
+    result = report.invoke("--since", "")
+
+    assert result.returncode == 2
+    assert "--since" in result.stderr
+    assert result.stdout == ""

@@ -274,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
     options = parser.parse_args(args)
     if hours := next((p for p in options.prefixes if p.isdigit()), None):
         parser.error(f"PREFIX {hours!r} is an hour count — pass --hours {hours}")
-    if options.since:
+    if options.since is not None:
         try:
             completed_after = _parse_time(options.since.strip())
         except ValueError:
