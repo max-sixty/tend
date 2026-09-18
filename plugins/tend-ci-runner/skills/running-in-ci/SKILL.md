@@ -17,7 +17,11 @@ Invoke a repo-local skill by its own name with no plugin prefix — `/running-te
 
 ## References
 
-This file carries the rules every session needs; the rest lives in the plugin's `references/` directories, unloaded until you read it. This table is the one index of those files. **Before an action in the first column, read every file its row names.** That is a requirement, not a suggestion: those files hold what keeps the action from going out wrong, and a session that skips them usually can't tell what it got wrong. Read them in the run that takes the action rather than working from memory of a past one.
+This file carries the rules every session needs; the rest lives in the plugin's `references/` directories, unloaded until you read it. The two tables below are the one index of those files.
+
+**As soon as you know what the task will do, read every file its actions will hit.** Reading them is a requirement, not a suggestion: they hold what keeps the action from going out wrong, and a session that skips one usually can't tell what it got wrong. Read them in the run that takes the action rather than working from memory of a past one. If an action you did not plan for comes up later, read its row's files before taking it.
+
+Nearly every task takes some of these, so work out which apply and read them before you start:
 
 | When | Read | What it carries |
 |---|---|---|
@@ -26,10 +30,15 @@ This file carries the rules every session needs; the rest lives in the plugin's 
 | Before `gh pr create` or `gh issue create`, or editing a PR's title or description | `references/pr-creation.md` and `references/posting.md` | titles, the dedup and prior-rejection searches, keeping a description current |
 | Before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push | `references/pushing.md` | the pre-push review, batching pushes, re-checking PR state and head, branch-state collisions |
 | After any push you are accountable for, or before calling a failure pre-existing | `references/ci-monitoring.md` | the pinned poll, the default-branch check behind a "pre-existing" claim, a review that lands mid-poll, rerunning failed jobs |
+| Before a public claim about a tool's behavior, an incident, or code you did not run | `references/grounded-analysis.md` | source evidence for claims, verifying external-tool behavior, recurring hallucination shapes, transient incidents vs. durable bugs, who to ask for a check CI can't run |
+
+The rest depend on a situation you may not be in. Read a row's files when its situation arises:
+
+| When | Read | What it carries |
+|---|---|---|
 | When a request directs you at someone else's work: close, reopen, lock, label, revert, dismiss a review, or push to another author's PR | `references/directives.md` | the access tiers that authorize it |
 | When you conclude a PR the bot approved should not merge | `references/dismissing-approval.md` | dismissing the standing approval |
 | Before filing or commenting in a repo other than this one | `references/other-repos.md` and `references/posting.md` | the overlay exception for agent-equipped targets, what an issue body there must contain, contributing on invitation, a scope rule that blocks the right action |
-| Before a public claim about a tool's behavior, an incident, or code you did not run | `references/grounded-analysis.md` | source evidence for claims, verifying external-tool behavior, recurring hallucination shapes, transient incidents vs. durable bugs, who to ask for a check CI can't run |
 | To diagnose another run, or to recall what a prior run on this thread read and weighed | `references/session-logs.md` | reading other runs' session logs, recalling prior context on this thread |
 | When a maintainer corrects the bot's behavior, or before writing or suggesting text for a skill or a project instruction file (`CLAUDE.md`, `AGENTS.md`) | `references/proposing-tend-instructions.md` | whether to propose, bundled skill vs. `running-tend` overlay, what the instructions leave out, scripts over prose recipes, the branch and PR mechanics |
 | Before writing a code fix for a bug, whichever workflow you are running | `/tend-ci-runner:triage`'s `references/fixing.md` | the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, the local bar before pushing |
