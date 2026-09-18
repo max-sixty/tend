@@ -753,7 +753,7 @@ def test_bundled_runner_instructions_never_return_with_cd_dash() -> None:
     subshell, which never moves the session's own cwd.
     """
     runner = REPO_ROOT / "plugins" / "tend-ci-runner"
-    cd_dash = re.compile(r"(?<![\w-])cd\s+-\s*$")
+    cd_dash = re.compile(r"(?<![\w-])cd\s+-(?![\w-])")
     offenders = sorted(
         f"{path.relative_to(REPO_ROOT)}:{number}"
         for path in runner.rglob("*")

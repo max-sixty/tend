@@ -242,8 +242,7 @@ git worktree add "$TMPDIR/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID H
   git commit -m "skills(running-tend): ..."
   git push -u origin daily/review-runs-$GITHUB_RUN_ID
   gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head daily/review-runs-$GITHUB_RUN_ID
-)
-git worktree remove "$TMPDIR/review-runs-fix" --force
+) && git worktree remove "$TMPDIR/review-runs-fix" --force
 ```
 
 `.config/tend.yaml` and project instruction files are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.

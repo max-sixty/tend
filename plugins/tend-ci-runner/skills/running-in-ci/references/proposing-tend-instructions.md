@@ -159,8 +159,7 @@ These steps are for the overlay path. Filing upstream follows
      git commit -m "skills(running-tend): ..."
      git push -u origin skills/<topic>-$GITHUB_RUN_ID
      gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head skills/<topic>-$GITHUB_RUN_ID
-   )
-   git worktree remove "$TMPDIR/skill-fix" --force
+   ) && git worktree remove "$TMPDIR/skill-fix" --force
    ```
 
 4. **Open as a separate PR.** Follow the repo's PR title conventions
