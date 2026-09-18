@@ -742,6 +742,29 @@ def test_bundled_runner_instructions_have_no_unscoped_tmp_paths() -> None:
     assert offenders == []
 
 
+def test_bundled_runner_instructions_never_return_with_cd_dash() -> None:
+    """`cd -` cannot bring a session back to where a recipe started.
+
+    It restores `$OLDPWD`, which is whatever the last `cd` left — after a
+    recipe's second `cd` that is the first `cd`'s target, not the checkout.
+    The worktree recipes end by deleting the directory they moved into, so a
+    session that followed one is left with no working directory and every
+    later command fails. A recipe that has to change directory does it in a
+    subshell, which never moves the session's own cwd.
+    """
+    runner = REPO_ROOT / "plugins" / "tend-ci-runner"
+    cd_dash = re.compile(r"(?<![\w-])cd\s+-\s*$")
+    offenders = sorted(
+        f"{path.relative_to(REPO_ROOT)}:{number}"
+        for path in runner.rglob("*")
+        if path.suffix in {".md", ".py", ".sh"}
+        for number, line in enumerate(path.read_text().splitlines(), 1)
+        if cd_dash.search(line)
+    )
+
+    assert offenders == []
+
+
 def test_runner_helper_directory_is_python_only() -> None:
     """Substantial runner behavior belongs in tested Python, not shell helpers."""
     scripts = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts"

@@ -229,16 +229,20 @@ Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted 
 git worktree add "$TMPDIR/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID HEAD
 
 # Author each edited skill file at $TMPDIR/<name>.md.
-# Then move the files into place:
-cd "$TMPDIR/review-runs-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend.md" SKILL.md
+# Then move the files into place. Both `cd`s stay inside subshells, so the
+# session's own cwd never enters the worktree: the last line deletes it, and a
+# session standing in it has no working directory for Step 7 or anything after.
+( cd "$TMPDIR/review-runs-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend.md" SKILL.md )
 # Repeat per skill file being updated.
 
-cd "$TMPDIR/review-runs-fix"
-git add .claude/skills/
-git commit -m "skills(running-tend): ..."
-git push -u origin daily/review-runs-$GITHUB_RUN_ID
-gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head daily/review-runs-$GITHUB_RUN_ID
-cd -
+(
+  set -e
+  cd "$TMPDIR/review-runs-fix"
+  git add .claude/skills/
+  git commit -m "skills(running-tend): ..."
+  git push -u origin daily/review-runs-$GITHUB_RUN_ID
+  gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head daily/review-runs-$GITHUB_RUN_ID
+)
 git worktree remove "$TMPDIR/review-runs-fix" --force
 ```
 
