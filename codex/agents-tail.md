@@ -14,9 +14,10 @@ sections carry load-bearing security, dedup, and CI-polling rules. A
 prefix read silently drops those and produces wrong behavior. This
 overrides any general "read only enough" instruction for tend skills.
 
-A skill's **References** list names `references/` files to read before
-particular actions — posting, pushing, opening a PR, approving. Read the
-named file in full, with `cat`, before taking that action.
+A skill's **References** tables name `references/` files for particular
+actions — posting, pushing, opening a PR, approving. Work out which rows
+your task will hit and read those files as you plan the task, in full, with
+`cat`.
 
 Repo-local skills live under `.claude/skills/<name>/SKILL.md` in the
 consumer's repo (e.g. `running-tend`). The `running-in-ci` skill tells

@@ -424,12 +424,15 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 - **Be brief.** Skills are loaded into every relevant session — extra prose
   is overhead. Lead with the rule or recipe; cut motivation, anecdotes, and
   historical context unless required to apply the rule.
-- **The References table in `running-in-ci/SKILL.md` is `tend-ci-runner`'s one
-  index of `references/` files**, naming each file and the action that
+- **The References tables in `running-in-ci/SKILL.md` are `tend-ci-runner`'s
+  one index of `references/` files**, naming each file and the action that
   triggers reading it — a new bundled reference gets a row there, not a list
-  in its own skill. A repo overlay's references stay in the overlay, named
-  where its own steps use them: every consumer reads the bundled table, and
-  repo-specific instructions don't belong in it.
+  in its own skill. Rows split by how reliably the action fires: the first
+  table holds what nearly every task does, so a session reads those up front;
+  the second holds actions that depend on a situation the session may not be in.
+  A repo overlay's references stay in the overlay, named where its own steps
+  use them: every consumer reads the bundled tables, and repo-specific
+  instructions don't belong in them.
 - **Cite a reference file by its path from the skill's own directory**:
   `` `references/<file>.md` ``, with the owning skill in front where the file
   belongs to another skill
