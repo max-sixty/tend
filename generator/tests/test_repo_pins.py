@@ -911,9 +911,12 @@ def test_skill_frontmatter_is_loadable() -> None:
                 f"{name}: frontmatter is not YAML ({error.__class__.__name__})"
             )
             continue
+        if not isinstance(front, dict):
+            broken.append(f"{name}: no `---` frontmatter block above the body")
+            continue
         if front.get("name") != path.parent.name:
             broken.append(f"{name}: `name: {front.get('name')}` isn't the directory")
-        if not front.get("metadata", {}).get("internal"):
+        if not (front.get("metadata") or {}).get("internal"):
             broken.append(f"{name}: bundled skills are `metadata: internal: true`")
         description = front.get("description", "")
         if not description:
