@@ -2058,6 +2058,24 @@ def test_per_workflow_model_only_override(tmp_path: Path, model: str) -> None:
     assert "model: opus" in workflows["tend-review.yaml"].content
 
 
+# Bare `model:` stays out: at workflow level it reads as inherit, as
+# `prompt:` does, rather than as a value.
+@pytest.mark.parametrize("model", ['"   "', "[opus]", "5"])
+def test_per_workflow_model_must_be_a_non_empty_string(
+    tmp_path: Path, model: str
+) -> None:
+    extra = dedent(f"""\
+        workflows:
+          nightly:
+            model: {model}
+    """)
+    with pytest.raises(
+        click.ClickException,
+        match="workflows.nightly.model must be a non-empty string",
+    ):
+        Config.load(_minimal_config(tmp_path, extra))
+
+
 @pytest.mark.parametrize(
     ("config", "model"),
     [

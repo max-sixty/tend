@@ -170,7 +170,7 @@ bot_name: <bot-name>
 # harness: codex
 # model: gpt-5.6-sol
 # Both harnesses optionally accept:
-# effort: medium   # low | medium | high | xhigh; Claude Opus/Sonnet also accept max
+# effort: medium   # low | medium | high | xhigh; Claude also accepts max
 ```
 
 Write the Codex model into the config. It is the installation's reviewed pin;
