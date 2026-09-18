@@ -13,6 +13,8 @@ NEW_ISSUE = 42
 RUN_LINK = "[workflow run](https://github.com/owner/repo/actions/runs/12345)"
 ROW = f"| when | {RUN_LINK} | #851 |"
 COMMENTS = f"repos/owner/repo/issues/{NEW_ISSUE}/comments?per_page=100"
+ACTION_REPOSITORY = "max-sixty/tend"
+RELEASES = ("api", f"repos/{ACTION_REPOSITORY}/releases/latest")
 
 
 @pytest.fixture(autouse=True)
@@ -105,6 +107,23 @@ def _created_body(gh: FakeGh) -> str:
         if call[:2] == ("issue", "create"):
             return stdin or ""
     raise AssertionError(f"nothing was created: {gh.calls}")
+
+
+def _pinned(
+    gh: FakeGh,
+    monkeypatch: pytest.MonkeyPatch,
+    ref: str,
+    latest: Any = "0.2.10",
+) -> None:
+    """The action running at *ref*, with *latest* as the newest release.
+
+    An ``int`` for *latest* makes the release read fail with that exit code.
+    """
+    monkeypatch.setenv("TEND_ACTION_REF", ref)
+    monkeypatch.setenv("TEND_ACTION_REPOSITORY", ACTION_REPOSITORY)
+    gh.respond(
+        *RELEASES, with_=latest if isinstance(latest, int) else {"tag_name": latest}
+    )
 
 
 def test_files_when_nothing_is_open(gh: FakeGh) -> None:
@@ -362,3 +381,97 @@ def test_duplicate_rows_keeps_the_earliest_generated_row_alone() -> None:
         _comment(7, ROW, "2026-01-02T11:59:00Z"),
     ]
     assert report_failure.duplicate_rows(comments, RUN_LINK) == [9]
+
+
+def test_names_a_stale_pin_as_the_remedy(
+    gh: FakeGh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pin behind the newest release is the one cause the reader can clear.
+
+    The blank line before the note is asserted with it: a prose line directly
+    under the last table row renders as another row of the table.
+    """
+    _pinned(gh, monkeypatch, "0.2.9")
+
+    assert report_failure.main() == 0
+    body = _created_body(gh)
+    assert report_failure.REMEDY_COMMAND in body, body
+    assert "\n\nTend `0.2.10` is released" in body, body
+    assert "`0.2.9`" in body, body
+
+
+def test_says_nothing_when_the_pin_is_current(
+    gh: FakeGh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On the newest release a boot failure is something else, and telling the
+    reader to regenerate would send them the wrong way."""
+    _pinned(gh, monkeypatch, "0.2.10")
+
+    assert report_failure.main() == 0
+    assert report_failure.REMEDY_COMMAND not in _created_body(gh)
+
+
+def test_reads_no_release_for_a_ref_that_is_not_one(
+    gh: FakeGh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A branch, a SHA, or a local path cannot be ordered against a release,
+    so there is nothing to ask GitHub about."""
+    monkeypatch.setenv("TEND_ACTION_REF", "main")
+    monkeypatch.setenv("TEND_ACTION_REPOSITORY", ACTION_REPOSITORY)
+
+    assert report_failure.main() == 0
+    assert not gh.called(*RELEASES), gh.calls
+    assert report_failure.REMEDY_COMMAND not in _created_body(gh)
+
+
+def test_survives_a_failed_release_read(
+    gh: FakeGh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The row is the record; the remedy is a hint on top of it."""
+    _pinned(gh, monkeypatch, "0.2.9", latest=502)
+
+    assert report_failure.main() == 0
+    assert RUN_LINK in _created_body(gh)
+    assert report_failure.REMEDY_COMMAND not in _created_body(gh)
+
+
+def test_the_remedy_rides_the_first_row_after_the_release(
+    gh: FakeGh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The release that ends an outage normally lands while it is still
+    running, so the note cannot be confined to the seed body — at file time
+    there was no newer release to name."""
+    _open_tracker(gh)
+    _seen_by_the_guard(gh, "an earlier run's row", body="the seed body")
+    _pinned(gh, monkeypatch, "0.2.9")
+
+    assert report_failure.main() == 0
+    assert report_failure.REMEDY_COMMAND in _posted(gh), _posted(gh)
+
+
+def test_the_remedy_is_said_once_per_tracker(
+    gh: FakeGh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One incident appends a row per stranded run and the command is the same
+    each time, so anything already naming it — an earlier row as much as a
+    maintainer diagnosing in the thread — settles it, before the release read.
+    """
+    _open_tracker(gh)
+    _seen_by_the_guard(gh, f"try `{report_failure.REMEDY_COMMAND}`")
+    _pinned(gh, monkeypatch, "0.2.9")
+
+    assert report_failure.main() == 0
+    assert RUN_LINK in _posted(gh), "dropped the row along with the remedy"
+    assert report_failure.REMEDY_COMMAND not in _posted(gh), _posted(gh)
+    assert not gh.called(*RELEASES), gh.calls
+
+
+@pytest.mark.parametrize("ref", ["main", "0.2", "0.2.9.1", "v0.2.9", "1.².3", ""])
+def test_a_ref_that_is_not_a_release_is_unordered(ref: str) -> None:
+    """Every non-release ref returns ``None`` rather than raising.
+
+    ``1.².3`` is the one that needs the strict predicate: ``str.isdigit`` is
+    true for it and ``int`` is not, so a laxer guard raises inside a step that
+    is already red and loses the run's row.
+    """
+    assert report_failure._release(ref) is None
