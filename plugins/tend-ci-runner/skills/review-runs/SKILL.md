@@ -115,32 +115,31 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 Handle live work through the normal triage, review, or CI-fix instructions. Keep
 failed runs in the report as diagnostic evidence.
 
-After the exhaustive live scan, find the canonical current outage tracker and
-read every row. The issue body holds the first row and later rows are comments.
-Fail the sweep if the lookup fails; that is different from finding no open
-tracker:
+After the exhaustive live scan, read every row on every outage tracker this
+sweep still owes a drain. Each tracker's `rows` holds them in order: the issue
+body carries the first, comments the rest. Fail the sweep if the script exits
+non-zero; that is different from it returning no trackers:
 
 ```bash
-if ! gh issue list --state open --label tend-outage --author @me \
-  --limit 100 --json number,title \
-  --jq '[.[] | select(.title == "Bot temporarily unavailable") | .number]
-    | sort | .[0] // empty' > "$TMPDIR/review-runs-outage-number"; then
-  echo "Could not read the outage tracker" >&2
-  exit 1
-fi
-OUTAGE=$(cat "$TMPDIR/review-runs-outage-number")
-if [ -n "$OUTAGE" ]; then
-  gh issue view "$OUTAGE" --json body,comments --jq '.body, .comments[].body'
-fi
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" outage-trackers \
+  > "$TMPDIR/review-runs-outage.json"
 ```
 
+It returns the open trackers plus any closed since Step 1's anchor by someone
+other than the bot, since only this drain closes a drained tracker. Read the
+closed ones too: the live scan above reads current repository state, where a
+merged PR whose review died in the outage is indistinguishable from one the
+maintainer merged without waiting.
+
 Use every row to identify what the failed run may have missed. Diagnose it and
-handle any applicable current work. If a tracker was found, close the exact
-issue number returned above:
+handle any applicable current work. Then close the trackers still open; one
+someone else already closed stays closed:
 
 ```bash
-OUTAGE=$(cat "$TMPDIR/review-runs-outage-number")
-[ -n "$OUTAGE" ] && gh issue close "$OUTAGE" --reason completed
+jq -r '.trackers[] | select(.state == "OPEN") | .number' \
+  "$TMPDIR/review-runs-outage.json" \
+  | while read -r number; do gh issue close "$number" --reason completed; done
 ```
 
 ## Step 2: Token usage report

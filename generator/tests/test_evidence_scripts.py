@@ -285,3 +285,77 @@ def test_review_reviewers_append_refetches_before_patching(
         "files": {"findings.md": {"content": "old\n\n## Run 42\nnew\n"}}
     }
     assert json.loads(capsys.readouterr().out)["action"] == "appended"
+
+
+def test_review_runs_outage_trackers_reads_a_maintainer_closed_tracker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    since = tmp_path / "since"
+    since.write_text("2026-09-17T19:39:09Z\n")
+    monkeypatch.setenv("REVIEW_RUNS_SINCE_FILE", str(since))
+    monkeypatch.setattr(review_runs.github_cli, "repository", lambda: "owner/repo")
+    issues = [
+        # A maintainer closed it mid-window, so its rows were never drained.
+        {
+            "number": 30,
+            "title": review_runs.OUTAGE_TITLE,
+            "state": "CLOSED",
+            "closedAt": "2026-09-18T05:39:34Z",
+        },
+        # The previous sweep's own close — already drained.
+        {
+            "number": 20,
+            "title": review_runs.OUTAGE_TITLE,
+            "state": "CLOSED",
+            "closedAt": "2026-09-17T19:57:33Z",
+        },
+        # Closed before the anchor: an earlier sweep's window.
+        {
+            "number": 10,
+            "title": review_runs.OUTAGE_TITLE,
+            "state": "CLOSED",
+            "closedAt": "2026-09-16T07:00:00Z",
+        },
+        # Shares the label but is a durable tracker, not an outage row set.
+        {
+            "number": 31,
+            "title": "Bot lacks push access",
+            "state": "OPEN",
+            "closedAt": None,
+        },
+        {
+            "number": 32,
+            "title": review_runs.OUTAGE_TITLE,
+            "state": "OPEN",
+            "closedAt": None,
+        },
+    ]
+
+    def json_call(*args: str, **kwargs: object) -> object:
+        if args[:2] == ("issue", "list"):
+            return issues
+        if args[:2] == ("issue", "view"):
+            return {
+                "body": f"body-{args[2]}",
+                "comments": [{"body": f"row-{args[2]}"}],
+            }
+        if args[:2] == ("api", "user"):
+            return {"login": "bot"}
+        if args[0] == "api" and args[1].startswith("repos/owner/repo/issues/"):
+            closer = {"30": "maintainer", "20": "bot"}[args[1].rsplit("/", 1)[-1]]
+            return {"closed_by": {"login": closer}}
+        raise AssertionError(args)
+
+    monkeypatch.setattr(review_runs.github_cli, "json_call", json_call)
+
+    assert review_runs.outage_trackers() == 0
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["since"] == "2026-09-17T19:39:09Z"
+    assert [tracker["number"] for tracker in output["trackers"]] == [30, 32]
+    assert output["trackers"][0]["state"] == "CLOSED"
+    assert output["trackers"][0]["closed_by"] == "maintainer"
+    assert output["trackers"][0]["rows"] == ["body-30", "row-30"]
+    assert output["trackers"][1]["state"] == "OPEN"
