@@ -8,7 +8,7 @@ metadata:
 # Tend CI
 
 Repo-specific instructions for tend workflows running on tend itself. The bundled
-skills (`/tend-ci-runner:running-in-ci`, `/tend-ci-runner:review`,
+skills (`/tend-ci-runner:run-tend`, `/tend-ci-runner:review`,
 `/tend-ci-runner:triage`, etc.) provide the workflow framework; this skill adds
 tend conventions.
 
@@ -22,11 +22,11 @@ agent signals.
 
 ## Proposing instructions
 
-`/tend-ci-runner:running-in-ci`'s `references/proposing-tend-instructions.md`
-routes a bundled rule upstream to tend, which is this repo, so the rule lands
-here as a PR rather than an issue. That PR follows the file's **Mechanics**,
-with the file under `plugins/` as step 2's dedup target and without step 3's
-read-only-mount workaround, which only `.claude/skills/` needs. A bundled
+`/tend-ci-runner:propose-instructions` routes a bundled rule upstream to
+tend, which is this repo, so the rule lands here as a PR rather than an issue.
+That PR follows that skill's **Mechanics**, with the file under `plugins/` as
+step 2's dedup target and without step 3's read-only-mount workaround, which
+only `.claude/skills/` needs. A bundled
 skill's scripts go in `plugins/tend-ci-runner/scripts/`, where the generator
 test suite exercises them.
 

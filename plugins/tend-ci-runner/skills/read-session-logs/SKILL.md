@@ -1,4 +1,11 @@
-# Session logs of other runs
+---
+name: read-session-logs
+description: Read another run's session log. Use to diagnose another run, or to recall what a prior run on this thread weighed.
+metadata:
+  internal: true
+---
+
+# Reading another run's session logs
 
 - [Investigating other CI runs](#investigating-other-ci-runs)
 - [Recalling prior context on this thread](#recalling-prior-context-on-this-thread)

@@ -1,3 +1,10 @@
+---
+name: push-commits
+description: Push to a branch. Use before `git push`, merging the default branch into a PR branch, `gh pr close`, a revert, or a force-push.
+metadata:
+  internal: true
+---
+
 # Pushing to a PR branch
 
 - [Pushing to PR branches](#pushing-to-pr-branches)
@@ -57,7 +64,7 @@ When merging the default branch into a PR branch, **never use `--allow-unrelated
 
 ## A terminal action collides with branch state, not comments
 
-The pre-post re-fetch in `references/posting.md` counts comments and reviews, because that is what a duplicate *post* collides with. Closing a PR, reverting it, or force-pushing over it collides with **commits** instead, and a sibling session's pushed, CI-green commit is invisible to all three checks a session typically runs first: a comments-and-reviews re-fetch, the `state == OPEN` check under **Re-check PR state before pushing a follow-up commit**, and a re-read of the review bodies that prompted the action. `--delete-branch` turns that blind spot destructive — the branch ref goes and the commit survives only through the PR ref.
+The pre-post re-fetch in `/tend-ci-runner:post-to-github` counts comments and reviews, because that is what a duplicate *post* collides with. Closing a PR, reverting it, or force-pushing over it collides with **commits** instead, and a sibling session's pushed, CI-green commit is invisible to all three checks a session typically runs first: a comments-and-reviews re-fetch, the `state == OPEN` check under **Re-check PR state before pushing a follow-up commit**, and a re-read of the review bodies that prompted the action. `--delete-branch` turns that blind spot destructive — the branch ref goes and the commit survives only through the PR ref.
 
 So before `gh pr close`, a revert, or a force-push, re-read the branch itself rather than the thread:
 

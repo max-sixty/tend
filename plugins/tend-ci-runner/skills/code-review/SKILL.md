@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Structured second pass over a diff — correctness and cleanup angles, a verify pass, ranked findings returned to the caller. Use as the independent pass inside a PR review, or when asked for a thorough diff review.
+description: Structured second pass over a diff — correctness and cleanup angles, a verify pass, ranked findings returned to the caller.
 argument-hint: "[target]"
 metadata:
   internal: true

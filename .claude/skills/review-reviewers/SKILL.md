@@ -12,7 +12,7 @@ Analyze tend's CI behavior on the target repo over the window Step 1 returns. Fo
 
 ## First steps
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments on tend, so those rules apply. Judge the target repo's runs against its own instructions first: the repo wins over tend's defaults, per **First Steps** there.
+Load `/tend-ci-runner:run-tend` first — it contains CI security rules, the per-action skills, and comment formatting. This skill opens PRs and issue comments on tend, so those rules apply. Judge the target repo's runs against its own instructions first: the repo wins over tend's defaults, per **First Steps** there.
 
 ## Core principle: outcomes over internals
 
@@ -325,7 +325,7 @@ Search the titles for related keywords, then read the bodies of the candidates (
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
-- **PR** (default): Branch `review-reviewers/$GITHUB_RUN_ID-<target-repo-name>-<topic-slug>`, fix, commit, push, create with label `claude-behavior`. `$GITHUB_RUN_ID` alone is not a unique branch name: every matrix leg of a run carries the same one, and a single leg may open more than one PR (see the limit below). The target's repo name (the part after the `/`) keeps two legs from racing the same ref; the topic slug keeps one leg's own PRs from doing the same. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:running-in-ci`. The evidence gist already carries the run history, outcome evidence, and gate assessment; link it and include only what the reader needs to understand this change. Don't also create a separate issue.
+- **PR** (default): Branch `review-reviewers/$GITHUB_RUN_ID-<target-repo-name>-<topic-slug>`, fix, commit, push, create with label `claude-behavior`. `$GITHUB_RUN_ID` alone is not a unique branch name: every matrix leg of a run carries the same one, and a single leg may open more than one PR (see the limit below). The target's repo name (the part after the `/`) keeps two legs from racing the same ref; the topic slug keeps one leg's own PRs from doing the same. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. The evidence gist already carries the run history, outcome evidence, and gate assessment; link it and include only what the reader needs to understand this change. Don't also create a separate issue.
 - **Issue** (fallback): Only for problems too large or ambiguous to fix directly. Include run ID, outcome evidence, root cause analysis.
 
 Group multiple findings by broad theme. **Limit to a couple of PRs per run** — if you have more findings, pick the highest-confidence ones and record the rest in the evidence gist.

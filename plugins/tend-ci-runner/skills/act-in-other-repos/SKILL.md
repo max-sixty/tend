@@ -1,3 +1,10 @@
+---
+name: act-in-other-repos
+description: Act in another repository. Use before filing an issue, commenting, or contributing anywhere other than this repo.
+metadata:
+  internal: true
+---
+
 # Acting in other repos
 
 - [Filing issues](#filing-issues)
@@ -18,9 +25,9 @@ Two or three convergent signals are enough; borderline cases revert to the defau
 
 When asking permission (the default path), close with a short offer so the user can record a preference for future asks. The offer should let them pick either outcome: have the bot file without asking next time, or keep approving each one but stop seeing the offer. Phrase it to fit the thread.
 
-Either reply gets codified in the consumer repo's `running-tend` overlay per `references/proposing-tend-instructions.md` — opt-in adds the target (or "all agent-equipped targets") to the exceptions list; suppress adds a one-line rule telling the bot to skip the offer for future asks.
+Either reply gets codified in the consumer repo's `running-tend` overlay per `/tend-ci-runner:propose-instructions` — opt-in adds the target (or "all agent-equipped targets") to the exceptions list; suppress adds a one-line rule telling the bot to skip the offer for future asks.
 
-Whether filed direct or post-approval, the issue body includes:
+Whether filed direct or post-approval, compose the issue body per `/tend-ci-runner:post-to-github`. It includes:
 
 - Problem statement: what fires, where, under what conditions.
 - Evidence: run links; cost/duration if relevant.
@@ -28,7 +35,7 @@ Whether filed direct or post-approval, the issue body includes:
 
 ## Contributing on invitation
 
-SKILL.md's **Restrictions → Scope** bars *unsolicited* PRs/comments in other repos. It does not bar an *invited* one. When BOTH hold, the bot may open a PR or comment on an existing thread in the target repo:
+**Restrictions → Scope** in `/tend-ci-runner:run-tend` bars *unsolicited* PRs/comments in other repos. It does not bar an *invited* one. When BOTH hold, the bot may open a PR or comment on an existing thread in the target repo:
 
 - **Explicit invitation** — a maintainer of the target repo asked for the contribution in-thread (e.g. "do you want to open the PR?"), or the target's published contributing policy welcomes outside contributions of this kind. Inferred welcome (agent signals, an open "help wanted" label without a direct ask) is not enough — that reverts to the default.
 - **Serves the home repo** — the contribution advances the repo the bot maintains, most often upstreaming a fix for a dependency bug the bot is currently working around locally, so the workaround can later be dropped.
@@ -44,4 +51,4 @@ Surface the blocker on the triggering thread and offer the maintainer both:
 1. **Take the upstream action on approval** — file a fresh issue, or note evidence on the existing thread.
 2. **Relax the rule going forward** — via the consumer repo's `running-tend` overlay.
 
-Record their choice per `references/proposing-tend-instructions.md`.
+Record their choice per `/tend-ci-runner:propose-instructions`.

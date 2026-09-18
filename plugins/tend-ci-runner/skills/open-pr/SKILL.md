@@ -1,3 +1,10 @@
+---
+name: open-pr
+description: Open a PR or an issue. Use before `gh pr create` or `gh issue create`, or before editing a PR's title or description.
+metadata:
+  internal: true
+---
+
 # Opening PRs and issues
 
 - [Filing issues in this repo](#filing-issues-in-this-repo)
@@ -11,11 +18,11 @@ An issue here is not a note to a maintainer — where `tend-triage` is enabled (
 
 So if you can open the PR in this run, open the PR. Reserve an issue for what you genuinely can't finish here: a problem too large or ambiguous to fix, one that needs a maintainer decision, or one whose verification is out of reach from CI. Bookkeeping issues are a separate case, not this trade-off: `ci-fix`'s transient-diagnosis tracker carries `tend-outage`, which the generated `tend-triage` and `tend-mention` `if:` skip, so no conversion run fires.
 
-This governs your own repo only; filing into another repo follows `references/other-repos.md`.
+This governs your own repo only; filing into another repo follows `/tend-ci-runner:act-in-other-repos`.
 
 ## PR creation
 
-When asked to create a PR, use `gh pr create` directly.
+When asked to create a PR, use `gh pr create` directly. Compose its title and body per `/tend-ci-runner:post-to-github`.
 
 Before creating a branch or PR, check for existing work:
 
@@ -30,7 +37,7 @@ Write PR titles, issue titles, and commit subjects in plain, literal language th
 
 The titles that fail it read as figures rather than descriptions — a metaphor, a subject withheld for effect, a phrase that only lands once you already know the bug. Rewrite to the literal statement: `Press again for the tab the driver lost, not the one Chromium never made` → `Retry the click when the browser driver never reports the opened tab`.
 
-Describe the current PR for a maintainer deciding whether to merge it. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci` and synthesize across commits and review rounds. The opening paragraph carries the merge decision — what changed, why, and what verifies it — and whatever a reviewer needs beyond that follows it or sits in `<details>`.
+Describe the current PR for a maintainer deciding whether to merge it. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend` and synthesize across commits and review rounds. The opening paragraph carries the merge decision — what changed, why, and what verifies it — and whatever a reviewer needs beyond that follows it or sits in `<details>`.
 
 If an existing PR addresses the same problem, work on that PR instead.
 

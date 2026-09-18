@@ -397,9 +397,10 @@ sessions in the gap each pay attention for text that changes nothing they do.
 | File | Read by | Ships |
 |---|---|---|
 | `shared/system-prompt.md` | every session, both harnesses | yes |
-| `running-in-ci/SKILL.md` | every session | yes |
+| `run-tend/SKILL.md` | every session | yes |
 | a workflow's `SKILL.md` | that workflow's sessions | yes |
-| a skill's `references/` | only the sessions taking that action | yes |
+| a per-action `SKILL.md` | only the sessions taking that action | yes |
+| a skill's `references/` | sessions of the skills whose steps cite it | yes |
 | `.claude/skills/` (the overlay, and any skill only this repo invokes) | sessions in that one repo | no |
 | `CLAUDE.md` | sessions working on the repo it sits in | no |
 
@@ -424,19 +425,23 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 - **Be brief.** Skills are loaded into every relevant session — extra prose
   is overhead. Lead with the rule or recipe; cut motivation, anecdotes, and
   historical context unless required to apply the rule.
-- **The References tables in `running-in-ci/SKILL.md` are `tend-ci-runner`'s
-  one index of `references/` files**, naming each file and the action that
-  triggers reading it — a new bundled reference gets a row there, not a list
-  in its own skill. Rows split by how reliably the action fires: the first
-  table holds what nearly every task does, so a session reads those up front;
-  the second holds actions that depend on a situation the session may not be in.
-  A repo overlay's references stay in the overlay, named where its own steps
-  use them: every consumer reads the bundled tables, and repo-specific
-  instructions don't belong in them.
-- **Cite a reference file by its path from the skill's own directory**:
-  `` `references/<file>.md` ``, with the owning skill in front where the file
-  belongs to another skill
-  (`` `/tend-ci-runner:running-in-ci`'s `references/posting.md` ``). That holds
+- **An action more than one workflow takes gets its own skill**, named for
+  the action and described by the situation that calls for it
+  (`post-to-github`, `push-commits`, `open-pr`). The skill listing every
+  session already carries is the index, so `run-tend/SKILL.md` names only the
+  handful nearly every task needs and sends the session to the listing for the
+  rest — don't rebuild a table of them. A pointer gets read where the session
+  already is when it acts: that listing, or a step in a skill it has loaded.
+  So text keeps its `references/` file while the skills whose steps cite it can
+  be named — `review`'s four, two of them also reached by `weekly` and
+  `review-runs` from their own steps. Where instead the need arises from an
+  action any workflow might take, no skill body can be relied on to raise it
+  and the listing has to: that is a skill. A repo overlay's references stay in
+  the overlay, named where its own steps use them.
+- **Cite a skill as `/tend-ci-runner:<name>`**, and a reference file by its
+  path from the owning skill's directory: `` `references/<file>.md` ``, with
+  the owning skill in front where the file belongs to another skill
+  (`` `/tend-ci-runner:review`'s `references/approving.md` ``). That holds
   inside a `references/` directory too, where the file being cited is a
   neighbour — one form reads the same wherever the sentence ends up, and
   `test_skill_reference_citations_resolve` rejects the bare filename. Only
@@ -444,7 +449,7 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
   are named bare; `ROOT_FILES` in that test is the list. To point at a rule
   rather than a whole file, name its section and the skill, which also covers
   a rule in a skill's own `SKILL.md`: **Reader-facing prose** in
-  `/tend-ci-runner:running-in-ci`.
+  `/tend-ci-runner:run-tend`.
 - **No specific past-run references.** Don't link GitHub Actions runs, cite
   session IDs, or quote durations from individual incidents. They age into
   trivia and aren't useful when the skill is reused. State the structural

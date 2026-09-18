@@ -7,7 +7,7 @@ metadata:
 
 # Resolve Conflicts
 
-Load `/tend-ci-runner:running-in-ci` first.
+Load `/tend-ci-runner:run-tend` first.
 
 Resolve configured-bot PRs. Include Dependabot and Renovate only when the
 calling skill requests dependency bots.
@@ -79,8 +79,7 @@ For each PR:
    "HEAD:refs/heads/<headRefName>"`. The exact lease is the final head guard.
 4. Fetch the live base again and test the pushed head with `git merge-tree`.
    If it conflicts, merge the new base and repeat. Once clean, remove the bot's
-   conflict-deferral comment and monitor CI per `/tend-ci-runner:running-in-ci`'s
-   `references/ci-monitoring.md`.
+   conflict-deferral comment and monitor CI per `/tend-ci-runner:monitor-ci`.
 
 If resolution is too complex, abort the merge and re-read the PR. When it is
 still open at the original head and has no same-head deferral, create one

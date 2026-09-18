@@ -1,3 +1,10 @@
+---
+name: fix-a-bug
+description: Write a code fix for a bug. Use before writing any fix, whichever workflow you are running.
+metadata:
+  internal: true
+---
+
 # Fixing a bug
 
 The gates every fix attempt clears, whichever workflow you are running.
@@ -25,7 +32,7 @@ When the bug is about bot behavior (e.g., "bot didn't use links", "bot posted wr
 1. **Check ALL co-loaded skills** — Skills loaded together in the same workflow share context. If the instruction already exists in a co-loaded skill, the issue is behavioral compliance, not a missing instruction.
 2. **Don't duplicate instructions across skills.**
 
-Instructions themselves go through `/tend-ci-runner:running-in-ci`'s `references/proposing-tend-instructions.md`, which covers where the rule lands and what it leaves out.
+Instructions themselves go through `/tend-ci-runner:propose-instructions`, which covers where the rule lands and what it leaves out.
 
 ## Don't "fix" tests by adding skip guards
 
@@ -41,4 +48,4 @@ A duplicate search catches identical fixes. It misses the *same root cause class
 
 ## The local bar
 
-Fix the root cause, not the symptom. Confirm the reproduction test now passes, then review the change per **Review the change before the push** in `/tend-ci-runner:running-in-ci`'s `references/pushing.md`. That targeted pass, a clean compile, and the review are the local bar. Leave the comprehensive suite to PR CI per `/tend-ci-runner:running-in-ci`'s "End the turn only when work is shipped"; backgrounding a long suite before push risks ending the session while the result is still local.
+Fix the root cause, not the symptom. Confirm the reproduction test now passes, then review the change per **Review the change before the push** in `/tend-ci-runner:push-commits`. That targeted pass, a clean compile, and the review are the local bar. Leave the comprehensive suite to PR CI per `/tend-ci-runner:run-tend`'s "End the turn only when work is shipped"; backgrounding a long suite before push risks ending the session while the result is still local.

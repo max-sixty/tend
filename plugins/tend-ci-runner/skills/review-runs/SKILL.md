@@ -13,7 +13,7 @@ This skill runs **in the consumer repo**, not in tend. Improvements target `.cla
 
 ## First steps
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, the index of every reference file, and polling conventions. This skill opens PRs and issue comments, so those rules apply.
+Load `/tend-ci-runner:run-tend` first — it contains CI security rules and comment formatting. This skill opens PRs and issue comments, so load `/tend-ci-runner:post-to-github` and `/tend-ci-runner:open-pr` with it.
 
 ```bash
 ls .claude/skills/
@@ -163,7 +163,7 @@ Include the total cost and the per-workflow breakdown in the summary (Step 7). E
 
 ## Step 3: Download and analyze session logs
 
-Load `/install-tend:debug-tend-run` for download commands and JSONL parsing queries.
+Load `/tend-ci-runner:read-session-logs`, which picks the runs and sends you to `/install-tend:debug-tend-run` for the download commands and JSONL parsing queries.
 
 Skip runs without artifacts. Trace decision chains: what did tend decide, what evidence did it use, what was the outcome?
 
@@ -217,11 +217,11 @@ Improvements target **repo-local** files by default:
 - **`.config/tend.yaml`** — adjust workflow configuration if the problem is structural (e.g., wrong cron schedule, missing setup step).
 - **Project instruction file (`CLAUDE.md` or `AGENTS.md`)** — add project-specific instructions if the problem is about code conventions or patterns the bot keeps getting wrong.
 
-**Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per `/tend-ci-runner:running-in-ci`'s `references/other-repos.md`. Signal: the fix reads as generic instructions that would apply to any consumer.
+**Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per `/tend-ci-runner:act-in-other-repos`. Signal: the fix reads as generic instructions that would apply to any consumer.
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
-Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `/tend-ci-runner:running-in-ci`'s `references/proposing-tend-instructions.md`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place):
+Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `/tend-ci-runner:propose-instructions`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place):
 
 
 ```bash
@@ -246,7 +246,7 @@ git worktree add "$TMPDIR/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID H
 
 `.config/tend.yaml` and project instruction files are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.
 
-- **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID`, fix, commit, push, create with label `review-runs`. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:running-in-ci`. Link the tracking issue where it holds prior observations of the same behavior, and carry the evidence that justified promoting this finding — the run IDs, the log excerpt, and the gate assessment — in the body or a `<details>` block.
+- **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID`, fix, commit, push, create with label `review-runs`. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. Link the tracking issue where it holds prior observations of the same behavior, and carry the evidence that justified promoting this finding — the run IDs, the log excerpt, and the gate assessment — in the body or a `<details>` block.
 - **Issue** (fallback): Only for problems too large or ambiguous to fix directly.
 
 **Limit to a couple of PRs per run.** Pick the highest-confidence findings; note the rest in the tracking issue.

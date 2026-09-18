@@ -1,3 +1,10 @@
+---
+name: ground-claims
+description: Ground a public claim in evidence. Use before claiming anything about a tool's behavior, an incident, or code you did not run.
+metadata:
+  internal: true
+---
+
 # Grounded analysis
 
 - [Source evidence for user-facing claims](#source-evidence-for-user-facing-claims)

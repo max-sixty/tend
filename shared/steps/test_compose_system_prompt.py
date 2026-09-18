@@ -14,7 +14,7 @@ def test_renders_shared_prompt_in_claude_syntax_and_appends_extra(
     output = tmp_path / "github-output"
     shared.write_text(
         "Act as **${BOT_NAME}**. Keep `$GH_TOKEN` intact.\n"
-        "Read `${SKILL:running-in-ci}` first.\n"
+        "Read `${SKILL:run-tend}` first.\n"
     )
     monkeypatch.setenv("SYSTEM_PROMPT_FILE", str(shared))
     monkeypatch.setenv("BOT_NAME", "tend-bot")
@@ -28,6 +28,6 @@ def test_renders_shared_prompt_in_claude_syntax_and_appends_extra(
     assert match
     assert match.group(2) == (
         "Act as **tend-bot**. Keep `$GH_TOKEN` intact.\n"
-        "Read `/tend-ci-runner:running-in-ci` first.\n\n"
+        "Read `/tend-ci-runner:run-tend` first.\n\n"
         "One more rule."
     )
