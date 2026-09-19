@@ -207,9 +207,10 @@ bot_name: my-project-bot
 # which holds `$TMPDIR`. `/tmp` itself is read-only there and no config key
 # makes it writable, so a tool that hard-codes a path under `/tmp` fails
 # inside the sandbox even where it works in a `setup:` step. The .NET SDK is
-# one: its first-run configurer builds a named `Mutex` under `/tmp`, so
-# `dotnet build`, `restore` and `new` abort with `EROFS` even though
-# `dotnet --info` succeeds.
+# one: its first-run configurer builds a named `Mutex` under `/tmp`, so every
+# SDK command that runs it — `build`, `restore`, `test`, `run`, `new`, `nuget`
+# — aborts with `EROFS`. Only the host-level queries (`--info`, `--version`,
+# `--list-sdks`) skip it, so the SDK looks usable.
 #
 # Tend appends a pinned `uv` fallback after the `setup:` PATH. It installs no
 # other language toolchain. These keys make deliberate additions inside the
