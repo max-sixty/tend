@@ -1103,7 +1103,11 @@ def test_run_tend_names_every_pinned_instruction_path() -> None:
     assert heading in skill, f"{heading!r} was renamed — repoint this test"
     section = skill.split(heading, 1)[1].split("\n## ", 1)[0]
 
-    missing = sorted(name for name in pinned if f"`{name}" not in section)
+    missing = sorted(
+        name
+        for name in pinned
+        if f"`{name}`" not in section and f"`{name}/`" not in section
+    )
     assert not missing, (
         "pinned by restore-sensitive-config.sh but absent from the skill's "
         f"list, so a session stages the base version over the PR's: {missing}"
