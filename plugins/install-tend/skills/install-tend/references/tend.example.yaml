@@ -205,9 +205,11 @@ bot_name: my-project-bot
 #
 # The sandbox refuses `AF_UNIX` sockets: creating one returns `EPERM`,
 # and the boundary asserts that at startup, so it is not something a config
-# key relaxes. Pipes between a process and its own children are unaffected.
-# A build tool that drives worker processes over a Unix socket loses them,
-# and MSBuild loses them silently — a multi-project `dotnet build` prints
+# key relaxes. Anonymous pipes and `socketpair()` are unaffected; anything
+# that opens a named socket is not, however closely its two ends are
+# related. So a build tool that drives worker processes over one loses them
+# — and .NET's "named pipes" are `AF_UNIX` sockets, so MSBuild loses its
+# worker nodes silently: a multi-project `dotnet build` prints
 # `Build FAILED.` with `0 Error(s)` and no diagnostic. `-m:1` keeps MSBuild
 # in one process and makes real errors visible again.
 #
