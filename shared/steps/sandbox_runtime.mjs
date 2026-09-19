@@ -67,7 +67,25 @@ async function main() {
       allowLocalBinding: false,
     },
     filesystem: {
-      denyRead: [runnerHome, runnerWorkspace],
+      // /tmp is denied rather than shared, which is what makes it writable:
+      // SRT mounts a tmpfs over a read-denied directory, so the sandbox gets
+      // its own empty /tmp and the runner's never appears inside. Tooling
+      // hard-codes paths under /tmp with no environment variable to move them
+      // — NuGet's build mutex and zsh's here-documents among them — so a
+      // read-only /tmp buys a per-tool workaround every time one surfaces,
+      // while a shared writable one is a channel: a consumer's cache action
+      // would save whatever the sandbox wrote there into the base branch's
+      // cache scope, which the default branch's CI then restores and builds
+      // from. A private tmpfs gives the tooling what it wants and carries
+      // nothing back out. It is RAM-backed, so bulk scratch belongs in
+      // TMPDIR, which points at the sandbox home on disk.
+      //
+      // TMPDIR is what keeps this safe to deny: SRT puts its socat bridge
+      // sockets and its own scratch under `os.tmpdir()`, so they follow
+      // TMPDIR into the sandbox home rather than landing in the directory
+      // the tmpfs covers. Pointing TMPDIR back at /tmp would mount over
+      // them.
+      denyRead: [runnerHome, runnerWorkspace, "/tmp"],
       allowRead: [
         actionPath,
         agentWorkspace,
@@ -81,15 +99,6 @@ async function main() {
       allowWrite: [
         agentWorkspace,
         agentHome,
-        // /tmp is ordinary scratch inside the sandbox. Tooling hard-codes
-        // paths under it with no environment variable to move them — NuGet's
-        // build mutex and zsh's here-documents among them — so a read-only
-        // /tmp buys a per-tool workaround every time one surfaces. Tend's own
-        // runtime and checkout containers sit under /var/tmp, which this list
-        // does not cover and the sandbox therefore cannot write, and
-        // dispose_sandbox_resources.py removes what the sandbox uid leaves
-        // here before any later runner step reads /tmp.
-        "/tmp",
         ...(autoMemory ? [autoMemory] : []),
       ],
       denyWrite: [],

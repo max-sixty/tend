@@ -286,6 +286,11 @@ bot_name: my-project-bot
 #     sandbox_setup:
 #       - 'if [ "$GITHUB_WORKFLOW" = tend-weekly ]; then nix --version; fi'
 #
+#   The sandbox has a `/tmp` of its own: an empty tmpfs, so nothing a `setup:`
+#   step left in the runner's `/tmp` is visible here, and nothing written here
+#   reaches the runner. It is RAM-backed and counts against the job's memory,
+#   so write anything bulky under `$TMPDIR`, which is the sandbox home on disk.
+#
 # ## Memory Gist (experimental, Claude harness)
 #
 # `memory_gist: true` restores Claude Code's model-authored auto memory from a

@@ -97,7 +97,7 @@ jobs:
   # the real boundary: shared paths cross, runner-home paths do not, same-name
   # system fallbacks are blocked, and Tend preserves a shared uv. It then drives
   # sandbox_setup and both harness adapters inside their real SRT lifecycle, and
-  # ends on the dispose step that clears what the sandbox wrote to /tmp.
+  # ends on the dispose step that deletes the runner-owned containers.
   test-sandbox:
     runs-on: ubuntu-24.04
     steps:
@@ -121,7 +121,7 @@ jobs:
         run: bash proxy/test-setup-sandbox.sh verify-srt
       - name: Refuse unsafe sandbox configuration
         run: bash proxy/test-setup-sandbox.sh verify-refusals
-      - name: Dispose the sandbox's scratch
+      - name: Dispose the sandbox's containers
         run: bash proxy/test-setup-sandbox.sh verify-dispose
       - name: Clean up sandbox fixtures
         if: always()

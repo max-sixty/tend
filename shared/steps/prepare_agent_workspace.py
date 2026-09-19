@@ -336,8 +336,9 @@ def main() -> int:
         )
         if mode not in {"base", "review", "mention"}:
             raise ValueError(f"unsupported checkout mode: {mode}")
-        # /var/tmp rather than /tmp: both are 1777, but the sandbox may write
-        # /tmp, and only the clone inside this container is its to write.
+        # /var/tmp rather than /tmp: the sandbox's /tmp is a tmpfs of its own,
+        # so a container there would be invisible to it. Only the clone inside
+        # this one is handed over.
         workspace_container = Path(
             tempfile.mkdtemp(prefix="tend-agent-workspace-", dir="/var/tmp")
         )

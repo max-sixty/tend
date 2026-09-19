@@ -331,14 +331,15 @@ PY
 
   dummy_token=$(sed -n 's/^GITHUB_TOKEN=//p' "$AGENT_ENV_FILE")
   test -n "$dummy_token"
-  # What the runner keeps in the shared /tmp while the agent runs, protected by
-  # nothing but the sticky bit.
+  # What the runner keeps in its own /tmp while the agent runs. The sandbox's
+  # /tmp is a tmpfs of its own, so this file is not merely unwritable inside —
+  # it is not there at all, which is what the probe asserts.
   runner_owned="/tmp/tend-runner-owned-$GITHUB_RUN_ID"
   touch "$runner_owned"
-  # The three /tmp and /var/tmp probes below all aim at 1777 directories, where
-  # only SRT's bind and the sticky bit can deny them. Aimed at the 755 runtime
-  # or workspace container instead, the write probe would be refused on file
-  # permissions alone and would hold whether or not the boundary was there.
+  # The /tmp and /var/tmp probes below aim at 1777 directories, where only
+  # SRT's mounts can deny them. Aimed at the 755 runtime or workspace container
+  # instead, the write probe would be refused on file permissions alone and
+  # would hold whether or not the boundary was there.
   setup_commands=$(printf '%s\n' \
     'touch "$TEND_RUNNER_WORKSPACE/.tend-srt-wrote-here" 2>/dev/null || true' \
     'printf "%s\n" "$HTTP_PROXY" > .tend-setup-proxy' \
@@ -349,7 +350,7 @@ PY
     'test -z "${GITHUB_ENV:-}"' \
     'touch /tmp/tend-sandbox-scratch' \
     'if touch /var/tmp/tend-unscoped 2>/dev/null; then exit 91; fi' \
-    "if rm -f '$runner_owned' 2>/dev/null; then exit 92; fi" \
+    "if [ -e '$runner_owned' ]; then exit 92; fi" \
     'touch "$TMPDIR/tend-scratch-probe"' \
     "test \"\$GITHUB_TOKEN\" = \"$dummy_token\"")
 
@@ -384,6 +385,9 @@ PY
   sudo -u "$SANDBOX" grep -qxF "HTTP_PROXY=$setup_proxy" "$claude_env"
   sudo -u "$SANDBOX" grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$claude_env"
   sudo -u "$SANDBOX" test -f /home/tend-sandbox/tmp/tend-scratch-probe
+  # The sandbox wrote /tmp/tend-sandbox-scratch and the write succeeded; it
+  # landed in the tmpfs SRT mounts over /tmp, which went with the process tree.
+  test ! -e /tmp/tend-sandbox-scratch
   sudo -u "$SANDBOX" grep -qxF "GITHUB_TOKEN=$dummy_token" "$claude_env"
   if sudo -u "$SANDBOX" grep -q '^GITHUB_ENV=' "$claude_env"; then
     echo "::error::runner command-file path crossed into Claude"
@@ -443,19 +447,17 @@ PY
   echo "[test-setup-sandbox] complete Claude and Codex SRT lifecycles verified"
 }
 
-# The real dispose step, against the real filesystem: /tmp is the sandbox's to
-# write and the runner's to keep, so ownership is all that separates what goes
-# from what stays. The runner-owned file the sandbox failed to unlink in
-# verify_srt is the one that has to survive this too.
+# The real dispose step, against the real filesystem: the two /var/tmp
+# containers go. The runner-owned /tmp file is asserted again here as a
+# regression guard — the sandbox never saw it, so only a step that went
+# looking through /tmp again could remove it.
 verify_dispose() {
-  test "$(stat -c %U /tmp/tend-sandbox-scratch)" = "$SANDBOX"
   PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s \
     shared/steps/dispose_sandbox_resources.py
-  test ! -e /tmp/tend-sandbox-scratch
   test ! -e "$TEND_AGENT_CONTAINER"
   test ! -e "$TEND_RUNTIME_ROOT"
   test -f "/tmp/tend-runner-owned-$GITHUB_RUN_ID"
-  echo "[test-setup-sandbox] sandbox scratch disposed, runner entries kept"
+  echo "[test-setup-sandbox] sandbox containers disposed, runner entries kept"
 }
 
 cleanup() {
