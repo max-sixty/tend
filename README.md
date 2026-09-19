@@ -99,6 +99,13 @@ workflows:
     enabled: false
 ```
 
+A fork carries these workflows, schedules included. Where the fork has Actions
+enabled, each scheduled tick adds a run to its Actions tab. The jobs in those
+runs check the repository's owner and skip, so the runs use no runner time and
+start no agent. GitHub turns a public fork's scheduled workflows off after 60
+days without activity, and the fork's owner can turn them off sooner by
+disabling its `tend-*` workflows (`gh workflow disable`).
+
 ## How it works
 
 `uvx tend@latest init` reads `.config/tend.yaml` and writes `tend-*.yaml` workflow
