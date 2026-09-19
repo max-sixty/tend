@@ -203,6 +203,13 @@ bot_name: my-project-bot
 # home-scoped installs the agent needs, such as `cargo install`,
 # `pip install --user`, or `uv tool install`.
 #
+# The sandbox can write to the disposable checkout and to the sandbox home,
+# which is where `$TMPDIR` points. `/tmp` itself is read-only there and no key
+# widens that set, so a tool that hard-codes a path under `/tmp` fails inside
+# the sandbox even where it works in a `setup:` step. The .NET SDK is one: its
+# first-run configurer builds a named `Mutex` under `/tmp`, so `dotnet build`,
+# `restore` and `new` abort with `EROFS` even though `dotnet --info` succeeds.
+#
 # Tend appends a pinned `uv` fallback after the `setup:` PATH. It installs no
 # other language toolchain. These keys make deliberate additions inside the
 # sandbox:
