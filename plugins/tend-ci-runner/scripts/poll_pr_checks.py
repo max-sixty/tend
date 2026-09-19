@@ -25,9 +25,11 @@ RED_CONCLUSIONS = {
     "ACTION_REQUIRED",
     "ERROR",
 }
-# Terminal without having produced a result. Neither red nor green: the check
-# was killed before it concluded, so what it would have concluded is unknown.
-UNVERIFIED_CONCLUSIONS = {"CANCELLED", "STALE"}
+# The conclusions that pass. Anything else terminal and not red produced no
+# result — CANCELLED or STALE, a COMPLETED check carrying no conclusion, or a
+# conclusion GitHub adds later — so it is neither red nor green. Naming green
+# rather than the no-result set keeps the unrecognized case fail-closed.
+GREEN_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 GRAPHQL_QUERY = """
 query($owner: String!, $name: String!, $oid: GitObjectID!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -136,7 +138,7 @@ def reduce_rollup(
             f"{context['name']} {context['url']}"
             for context in current
             if context["status"] == "COMPLETED"
-            and context["conclusion"] in UNVERIFIED_CONCLUSIONS
+            and context["conclusion"] not in (RED_CONCLUSIONS | GREEN_CONCLUSIONS)
         ],
     }
 
@@ -282,9 +284,10 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
     belongs to a cancelled Actions run. A run that can't be read decides nothing,
     unless another failure is already real.
 
-    A check whose own conclusion is CANCELLED or STALE never ran, so it cannot
-    withhold on its merits. It approves under the same policy, named as
-    unverified so the approval doesn't read as a check that passed.
+    A check that settled without a result — cancelled, stale, or a conclusion
+    outside the passing set — never reached a verdict, so it cannot withhold on
+    its merits. It approves under the same policy, named as unverified so the
+    approval doesn't read as a check that passed.
 
     Whether *sha* is still the head is not judged here: the review skill posts
     every review behind `review_preflight.py post`, which refuses a moved head.
@@ -333,9 +336,9 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
 
 
 def _unverified_note(rollup: dict[str, list[str]]) -> None:
-    """Name checks that were cancelled before concluding, beside another verdict."""
+    """Name checks that settled without a result, beside another verdict."""
     if rollup["unverified"]:
-        print("cancelled before concluding (no result):")
+        print("settled without a result (cancelled, stale, or unrecognized):")
         print(*rollup["unverified"], sep="\n")
 
 
@@ -362,7 +365,7 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
         head_note(pr=pr, repo=repo, sha=sha)
         return 1
     if settled and last["unverified"]:
-        print(f"cancelled before concluding on {sha} — UNVERIFIED, not green:")
+        print(f"no result from these checks on {sha} — UNVERIFIED, not green:")
         print(*last["unverified"], sep="\n")
         head_note(pr=pr, repo=repo, sha=sha)
         return 2

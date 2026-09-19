@@ -443,6 +443,32 @@ def test_approval_names_a_cancelled_check_it_approves_over(
     assert "bench" in result.stdout
 
 
+@pytest.mark.parametrize("conclusion", ["", "SOME_LATER_CONCLUSION"])
+def test_a_conclusion_in_neither_set_is_not_green(
+    env: dict[str, str], conclusion: str
+) -> None:
+    """Green is what the enum says passes, not whatever the red and unverified
+    sets happen to leave over. A conclusion GitHub adds later, or a COMPLETED
+    check carrying none, is a result this poll never read."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion=conclusion)))
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout
+    assert "bench https://github.com/o/r/actions/runs/100/job/1" in result.stdout
+
+
+@pytest.mark.parametrize("conclusion", ["NEUTRAL", "SKIPPED"])
+def test_non_blocking_conclusions_still_read_green(
+    env: dict[str, str], conclusion: str
+) -> None:
+    """A check that concluded without failing gates nothing, and naming green
+    explicitly must not start gating on it."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion=conclusion)))
+
+    assert _poll(env).returncode == 0, f"{conclusion} gated"
+
+
 def test_superseded_failure_yields_to_its_replacement(env: dict[str, str]) -> None:
     """A concurrency-cancelled run's FAILURE stays on the commit forever; only
     the latest check run per (name, workflow) counts. A same-named FAILURE
