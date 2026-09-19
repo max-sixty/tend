@@ -112,9 +112,8 @@
 
 {# Skip a job when running outside the canonical owner. Compares
    `github.repository_owner` against the configured owner: `secrets` isn't
-   available in `jobs.<job_id>.if`, and `github.event.repository.fork` is null
-   for `schedule` events, so the owner string is the only check that works
-   across all the affected event types.
+   available in `jobs.<job_id>.if`, and the `github` context carries the owner
+   for every event, whatever that event's payload holds.
 
    Two shapes:
    - fork_guard_if(cfg): emits `    if: <expr>` on its own line, or nothing
