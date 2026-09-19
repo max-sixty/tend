@@ -213,10 +213,18 @@ bot_name: my-project-bot
 # `--list-sdks`) skip it, so the SDK looks usable.
 #
 # A single command can still get a writable `/tmp` for itself by running in a
-# private mount namespace — `unshare --map-root-user --mount`, then
-# `mount -t tmpfs tmpfs /tmp` — which adds an empty filesystem rather than
-# relaxing this one. It applies only to the command it wraps, so each such
-# command carries it.
+# private mount namespace, which adds an empty filesystem rather than relaxing
+# this one. The checkout is under `/tmp` too, so the new filesystem hides it
+# and it has to be carried across; without that the build fails a second time,
+# now on a project file it can no longer resolve. The namespace lasts only as
+# long as the command it wraps, so each such command carries the whole thing:
+#
+#     unshare --map-root-user --mount sh -c '
+#       mkdir -p "$TMPDIR/ws" && mount --bind "$GITHUB_WORKSPACE" "$TMPDIR/ws"
+#       mount -t tmpfs tmpfs /tmp
+#       mkdir -p "$GITHUB_WORKSPACE"
+#       mount --bind "$TMPDIR/ws" "$GITHUB_WORKSPACE"
+#       exec dotnet test -m:1'
 #
 # The sandbox also refuses `AF_UNIX` sockets: creating one returns `EPERM`,
 # and the boundary asserts that at startup, so it is not something a config
