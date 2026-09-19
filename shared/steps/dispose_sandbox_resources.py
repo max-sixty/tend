@@ -63,9 +63,18 @@ def scratch_entries(sandbox: str) -> list[Path]:
     `setup:` action's state, whatever the runner image keeps here — stays.
     """
     uid = pwd.getpwnam(sandbox).pw_uid
-    return sorted(
-        entry for entry in SANDBOX_SCRATCH.iterdir() if entry.lstat().st_uid == uid
-    )
+    owned = []
+    for entry in sorted(SANDBOX_SCRATCH.iterdir()):
+        try:
+            owner = entry.lstat().st_uid
+        except FileNotFoundError:
+            # Someone else's temp file, removed between the listing and the
+            # stat. Already gone is what this step wants; /tmp is shared, so
+            # reading it races anything else still running on the runner.
+            continue
+        if owner == uid:
+            owned.append(entry)
+    return owned
 
 
 def targets() -> list[Path]:

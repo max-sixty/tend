@@ -69,6 +69,28 @@ def test_the_scratch_sweep_selects_on_the_owning_uid(
     assert dispose.scratch_entries("tend-sandbox") == []
 
 
+def test_an_entry_that_vanishes_mid_sweep_is_not_an_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """/tmp is shared, so the listing can name a file another process removes.
+
+    The stand-in supplies a listing that is already stale, which is what the
+    real `iterdir` hands back when a runner process deletes its own temp file
+    between the listing and the stat.
+    """
+    (tmp_path / "tend-agent-scratch").touch()
+    scratch(monkeypatch, tmp_path, os.getuid())
+    monkeypatch.setattr(
+        dispose,
+        "SANDBOX_SCRATCH",
+        SimpleNamespace(
+            iterdir=lambda: [tmp_path / "vanished", tmp_path / "tend-agent-scratch"]
+        ),
+    )
+
+    assert dispose.scratch_entries("tend-sandbox") == [tmp_path / "tend-agent-scratch"]
+
+
 def test_disposes_only_after_the_sandbox_uid_is_empty(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

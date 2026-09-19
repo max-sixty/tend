@@ -406,9 +406,11 @@ After SRT exits, the trusted supervisor kills and verifies the complete sandbox
 UID process tree, then copies only size-bounded fixed outputs. The next fixed
 action step deletes the dedicated `/var/tmp/tend-agent-workspace-*` container
 and every top-level `/tmp` entry the sandbox UID owns, so no post-sandbox step
-executes a file from that checkout and the agent's scratch is gone before a
-later step or a `setup:` action's POST step could read it. A run whose reap
-failed keeps both: the job has already failed, and the live writer is the
+executes a file from that checkout and the agent's own scratch is gone before a
+later step or a `setup:` action's POST step could read it. Ownership separates
+the two at `/tmp`'s top level alone: what the agent wrote inside a directory
+the runner or a `setup:` action already owned there stays. A run whose reap
+failed keeps everything: the job has already failed, and the live writer is the
 reason not to delete underneath it.
 
 **Credential isolation.** Both harness actions run the agent as a separate
