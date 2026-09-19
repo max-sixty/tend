@@ -212,6 +212,12 @@ bot_name: my-project-bot
 # — aborts with `EROFS`. Only the host-level queries (`--info`, `--version`,
 # `--list-sdks`) skip it, so the SDK looks usable.
 #
+# A single command can still get a writable `/tmp` for itself by running in a
+# private mount namespace — `unshare --map-root-user --mount`, then
+# `mount -t tmpfs tmpfs /tmp` — which adds an empty filesystem rather than
+# relaxing this one. It applies only to the command it wraps, so each such
+# command carries it.
+#
 # The sandbox also refuses `AF_UNIX` sockets: creating one returns `EPERM`,
 # and the boundary asserts that at startup, so it is not something a config
 # key relaxes. Pipes between a process and its own children are unaffected.
