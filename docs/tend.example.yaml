@@ -212,6 +212,14 @@ bot_name: my-project-bot
 # — aborts with `EROFS`. Only the host-level queries (`--info`, `--version`,
 # `--list-sdks`) skip it, so the SDK looks usable.
 #
+# The sandbox also refuses `AF_UNIX` sockets: creating one returns `EPERM`,
+# and the boundary asserts that at startup, so it is not something a config
+# key relaxes. Pipes between a process and its own children are unaffected.
+# A build tool that drives worker processes over a Unix socket loses them,
+# and MSBuild loses them silently — a multi-project `dotnet build` prints
+# `Build FAILED.` with `0 Error(s)` and no diagnostic. `-m:1` keeps MSBuild
+# in one process and makes real errors visible again.
+#
 # Tend appends a pinned `uv` fallback after the `setup:` PATH. It installs no
 # other language toolchain. These keys make deliberate additions inside the
 # sandbox:
