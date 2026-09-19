@@ -364,7 +364,8 @@ def test_terminal_non_success_conclusions_count_red(
     env: dict[str, str], conclusion: str
 ) -> None:
     """A job that never started (STARTUP_FAILURE) or needs action is terminal
-    and red — left out of both buckets it would read as green."""
+    and red — outside RED_CONCLUSIONS it would read as unverified, withholding
+    a verdict the check did reach."""
     _serve(env, _resp(_check_run("build", conclusion=conclusion)))
 
     result = _poll(env)
