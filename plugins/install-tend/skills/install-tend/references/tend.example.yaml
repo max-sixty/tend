@@ -203,6 +203,38 @@ bot_name: my-project-bot
 # home-scoped installs the agent needs, such as `cargo install`,
 # `pip install --user`, or `uv tool install`.
 #
+# The sandbox can write to the disposable checkout and to the sandbox home,
+# which holds `$TMPDIR`. `/tmp` itself is read-only there and no config key
+# makes it writable, so a tool that hard-codes a path under `/tmp` fails
+# inside the sandbox even where it works in a `setup:` step. The .NET SDK is
+# one: its first-run configurer builds a named `Mutex` under `/tmp`, so every
+# SDK command that runs it — `build`, `restore`, `test`, `run`, `new`, `nuget`
+# — aborts with `EROFS`. Only the host-level queries (`--info`, `--version`,
+# `--list-sdks`) skip it, so the SDK looks usable.
+#
+# A single command can still get a writable `/tmp` for itself by running in a
+# private mount namespace, which adds an empty filesystem rather than relaxing
+# this one. The checkout is under `/tmp` too, so the new filesystem hides it
+# and it has to be carried across; without that the build fails a second time,
+# now on a project file it can no longer resolve. The namespace lasts only as
+# long as the command it wraps, so each such command carries the whole thing:
+#
+#     unshare --map-root-user --mount sh -c '
+#       set -e
+#       mkdir -p "$TMPDIR/ws" && mount --bind "$GITHUB_WORKSPACE" "$TMPDIR/ws"
+#       mount -t tmpfs tmpfs /tmp
+#       mkdir -p "$GITHUB_WORKSPACE"
+#       mount --bind "$TMPDIR/ws" "$GITHUB_WORKSPACE"
+#       exec dotnet test -m:1'
+#
+# The sandbox also refuses `AF_UNIX` sockets: creating one returns `EPERM`,
+# and the boundary asserts that at startup, so it is not something a config
+# key relaxes. Pipes between a process and its own children are unaffected.
+# A build tool that drives worker processes over a Unix socket loses them,
+# and MSBuild loses them silently — a multi-project `dotnet build` prints
+# `Build FAILED.` with `0 Error(s)` and no diagnostic. `-m:1` keeps MSBuild
+# in one process and makes real errors visible again.
+#
 # Tend appends a pinned `uv` fallback after the `setup:` PATH. It installs no
 # other language toolchain. These keys make deliberate additions inside the
 # sandbox:
