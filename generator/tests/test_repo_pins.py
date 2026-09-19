@@ -1079,3 +1079,36 @@ def test_report_failure_is_told_the_running_version(harness: str) -> None:
 
     assert env["TEND_ACTION_REF"] == "${{ github.action_ref }}"
     assert env["TEND_ACTION_REPOSITORY"] == "${{ github.action_repository }}"
+
+
+def test_run_tend_names_every_pinned_instruction_path() -> None:
+    """`run-tend`'s restore list covers every path the restore actually pins.
+
+    The dangerous direction is a pinned path the skill omits: the session reads
+    the worktree as the PR's own version, and the "never stage one of these"
+    rule doesn't reach it, so a `git add` commits the base content back over
+    the PR's edit. Nothing else pairs the two — the restore is shell, the rule
+    is prose.
+    """
+    script = (REPO_ROOT / "shared/steps/lib/pin-instruction-paths.sh").read_text()
+    declaration = re.search(r"^INSTRUCTION_PATHSPECS=\((.*)\)$", script, re.MULTILINE)
+    assert declaration, "INSTRUCTION_PATHSPECS is no longer one array literal"
+    pinned = {
+        spec.strip("'").removeprefix(":(glob)**/").removesuffix("/**")
+        for spec in declaration.group(1).split()
+    }
+
+    skill = (REPO_ROOT / "plugins/tend-ci-runner/skills/run-tend/SKILL.md").read_text()
+    heading = "## Instruction paths read as the base version on a PR"
+    assert heading in skill, f"{heading!r} was renamed — repoint this test"
+    section = skill.split(heading, 1)[1].split("\n## ", 1)[0]
+
+    missing = sorted(
+        name
+        for name in pinned
+        if f"`{name}`" not in section and f"`{name}/`" not in section
+    )
+    assert not missing, (
+        "pinned by restore-sensitive-config.sh but absent from the skill's "
+        f"list, so a session stages the base version over the PR's: {missing}"
+    )
