@@ -234,6 +234,29 @@ bot_name: my-project-bot
 #     sandbox_env:
 #       RUST_BACKTRACE: "1"
 #
+#   Every command the sandbox runs inherits these values, and on `tend-review`
+#   and on a mention on a pull request those commands include the pull request's
+#   own code: `sandbox_setup:` builds that tree before the agent starts. Tend's
+#   own GitHub and model credentials never reach the sandbox — a runner-side
+#   proxy injects them into the requests that need them; the one exception is
+#   Codex under subscription auth, which receives an expiring access-only
+#   token. A third-party credential has no such route, so a secret given here
+#   is readable by anyone who can open a pull request.
+#
+#   Give the agent the narrowest credential that does the job: that is the
+#   mitigation that holds everywhere, because the value sits in the agent's env
+#   on every workflow, and no event confines the session to text: a session on
+#   any event can check out a pull request or run a reproduction from an issue
+#   body. Withholding it from the events that carry unreviewed code closes the
+#   largest path. The value renders into the workflow verbatim, so a GitHub
+#   Actions expression works here — name the events that get it rather than
+#   the ones that don't, and keep the secret on the `&&` side, since an empty
+#   string is falsy and `<cond> && '' || secrets.X` hands over the secret
+#   whatever `<cond>` says:
+#
+#     sandbox_env:
+#       MY_TOKEN: ${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}
+#
 #   Setup-step env changes do not cross automatically, except under a `GITHUB_*`
 #   name — those ride the GitHub context, so don't give a secret one. If a build
 #   needs an env change (for example `JAVA_HOME` rather than `java` on PATH),
