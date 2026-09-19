@@ -118,7 +118,9 @@ fix that landed between the run and the session inverts the reading: the code
 being cited as the cause may be the code added *because* of the failure.
 
 ```bash
-SHA=$(gh api "repos/{owner}/{repo}/actions/runs/<id>" --jq .head_sha)
+# Bail if the run lookup fails: an empty `ref=` serves the default branch,
+# which is the reading this rule exists to prevent.
+SHA=$(gh api "repos/{owner}/{repo}/actions/runs/<id>" --jq .head_sha) || exit 1
 gh api "repos/{owner}/{repo}/contents/<path>?ref=$SHA" \
   -H 'Accept: application/vnd.github.raw'
 ```
@@ -126,8 +128,9 @@ gh api "repos/{owner}/{repo}/contents/<path>?ref=$SHA" \
 Fetch it rather than reaching for `git show <sha>:<path>`: the checkout holds
 only what a ref reaches, so the head of a squash-merged or deleted branch is
 absent from it, and `git show` then fails into the same wrong answer — the
-`fatal:` goes to stderr while a `| grep -c` downstream prints `0` and exits
-`0`, which reads as "the guard was absent at that run".
+`fatal:` goes to stderr while a `| grep -c` downstream prints `0`,
+indistinguishable from a genuine no-match, which reads as "the guard was
+absent at that run".
 
 **Links must be fetched, not guessed.** Before pasting any URL, run `curl -sI
 <url> | head -1` and confirm `200`. Docs-site slugs are treacherous —
