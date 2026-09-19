@@ -136,7 +136,9 @@ if [ "${#stale[@]}" -gt 0 ]; then
   /usr/bin/sudo /usr/bin/apt-get "${apt_options[@]}" install -y --allow-downgrades "${stale[@]}"
 fi
 
-runtime_root=$(/usr/bin/mktemp -d /tmp/tend-runtime.XXXXXX)
+# /var/tmp rather than /tmp: both are 1777, but the sandbox may write /tmp, and
+# the runtime it executes from has to stay read-only to it.
+runtime_root=$(/usr/bin/mktemp -d /var/tmp/tend-runtime.XXXXXX)
 # Publish the cleanup target before any fallible install work. The later
 # always() cleanup can then remove a partial runtime too.
 echo "TEND_RUNTIME_ROOT=$runtime_root" >> "$GITHUB_ENV"

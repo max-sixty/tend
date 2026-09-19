@@ -49,9 +49,11 @@ async function main() {
   }
 
   const { SandboxManager } = await import(`file://${entry}`);
-  // SRT otherwise replaces TMPDIR with its default /tmp/claude path when
-  // filesystem isolation is enabled. Keep its generated child environment on
-  // Tend's already-writable scratch directory.
+  // With filesystem isolation on, SRT sets TMPDIR in the child environment to
+  // CLAUDE_CODE_TMPDIR or its own /tmp/claude default, whichever it finds,
+  // overriding the agent environment file. Tend's scratch directory is the one
+  // the supervisor reads the step summary from and the one the shipped skills
+  // name, so hand SRT that path rather than letting it choose.
   process.env.CLAUDE_CODE_TMPDIR = agentTmpDir;
   const command = `/usr/bin/python3 -E -s ${quote(lifecycle)}`;
   const config = {
@@ -79,6 +81,15 @@ async function main() {
       allowWrite: [
         agentWorkspace,
         agentHome,
+        // /tmp is ordinary scratch inside the sandbox. Tooling hard-codes
+        // paths under it with no environment variable to move them — NuGet's
+        // build mutex and zsh's here-documents among them — so a read-only
+        // /tmp buys a per-tool workaround every time one surfaces. Tend's own
+        // runtime and checkout containers sit under /var/tmp, which this list
+        // does not cover and the sandbox therefore cannot write, and
+        // dispose_sandbox_resources.py removes what the sandbox uid leaves
+        // here before any later runner step reads /tmp.
+        "/tmp",
         ...(autoMemory ? [autoMemory] : []),
       ],
       denyWrite: [],

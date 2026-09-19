@@ -307,7 +307,7 @@ The harness has four states and only four transitions:
 
 Each transition is a bottleneck with one job:
 
-- **Content ingress** creates a full remote clone inside a dedicated `/tmp`
+- **Content ingress** creates a full remote clone inside a dedicated `/var/tmp`
   container with no hardlinks or object-store alternates and with runner/system
   Git config and attributes disabled. It selects the exact base, PR merge/head,
   or open-PR head ref, pins startup configuration to the exact chosen base
@@ -316,7 +316,13 @@ Each transition is a bottleneck with one job:
   `RUNNER_TEMP` remains unreadable except for the exact read-only event payload
   named by `GITHUB_EVENT_PATH`. SRT, the Codex binaries, and the immutable agent
   environment live in one dedicated runner-owned, sandbox-readable runtime
-  directory; the sandbox cannot write it.
+  directory; the sandbox cannot write it. Both containers sit under `/var/tmp`
+  rather than `/tmp`, which is ordinary writable scratch inside the sandbox
+  because tooling hard-codes paths there with no way to redirect them. What the
+  sandbox may write follows the policy rather than the directory: `/tmp`, the
+  agent's own checkout and home, and, where the memory experiment is on, the
+  one `/var/tmp` directory that experiment owns. `/tmp` is sticky, so the
+  sandbox can add entries beside the runner's but cannot unlink or rename one.
 - **Launch and lifetime** invokes the consumer's `sandbox_setup:` and the whole
   Claude or Codex turn as one command under the pinned Anthropic Sandbox
   Runtime. Tend supplies absolute `node`, `bwrap`, `socat`, `rg`, and seccomp
@@ -398,8 +404,14 @@ non-sudo sandbox user in the same SRT process lifetime as the agent.
 
 After SRT exits, the trusted supervisor kills and verifies the complete sandbox
 UID process tree, then copies only size-bounded fixed outputs. The next fixed
-action step deletes the dedicated `/tmp/tend-agent-workspace-*` container; no
-post-sandbox step executes a file from that checkout.
+action step deletes the dedicated `/var/tmp/tend-agent-workspace-*` container
+and every top-level `/tmp` entry the sandbox UID owns, so no post-sandbox step
+executes a file from that checkout and the agent's own scratch is gone before a
+later step or a `setup:` action's POST step could read it. Ownership separates
+the two at `/tmp`'s top level alone: what the agent wrote inside a directory
+the runner or a `setup:` action already owned there stays. A run whose reap
+failed keeps everything: the job has already failed, and the live writer is the
+reason not to delete underneath it.
 
 **Credential isolation.** Both harness actions run the agent as a separate
 non-sudo `tend-sandbox` user, sharing the GitHub proxy machinery under the

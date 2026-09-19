@@ -363,14 +363,16 @@ runs:
     # This trusted step restores before Claude starts, signs the baseline with a
     # per-run key that never crosses into the sandbox env, then hands only the
     # memory directory to the sandbox uid. Failure leaves Claude running without
-    # shared memory.
+    # shared memory. The directory goes in /var/tmp because it ends up
+    # sandbox-owned, and the dispose step — which runs before the save below —
+    # clears that uid's /tmp entries.
     - name: Restore experimental memory Gist
       id: auto_memory
       if: inputs.memory_gist == 'true'
       continue-on-error: true
       shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
       run: |
-        memory_dir=$(/usr/bin/mktemp -d /tmp/tend-auto-memory.XXXXXXXXXX)
+        memory_dir=$(/usr/bin/mktemp -d /var/tmp/tend-auto-memory.XXXXXXXXXX)
         key_file=""
         cleanup_restore() {
           /usr/bin/sudo /usr/bin/rm -rf -- "$memory_dir"

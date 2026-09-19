@@ -73,7 +73,7 @@ Step 1 anchor instead, so its spend covers the same band that step censuses.
 
 ## Session Log Paths
 
-Artifact paths: `-tmp-tend-agent-workspace-*-checkout/<session-id>.jsonl`
+Artifact paths: `-var-tmp-tend-agent-workspace-*-checkout/<session-id>.jsonl`
 
 `review-reviewers` runs produce one session log per matrix repo in
 `.github/workflows/review-reviewers.yaml`.

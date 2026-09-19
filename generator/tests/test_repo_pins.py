@@ -736,29 +736,6 @@ def test_codex_refresher_keeps_the_secret_writer_pat_out_of_the_model_step() -> 
     assert publish["env"]["CODEX_OUTCOME"] == "${{ steps.codex.outcome }}"
 
 
-def test_bundled_runner_instructions_have_no_unscoped_tmp_paths() -> None:
-    """`/tmp` is not writable in the sandbox; `$TMPDIR` is.
-
-    A bare `/tmp` anywhere the runner reads — instructions, script, helper — sends
-    the session to a path that fails on write, so the ban is repo-wide rather
-    than a rule any one file states. A line that says `/tmp` is read-only is
-    that rule, not an instance of the failure, so it is exempt.
-    """
-    runner = REPO_ROOT / "plugins" / "tend-ci-runner"
-    unscoped_tmp = re.compile(r"(?<![\w-])/tmp(?:/|\b)")
-    offenders = sorted(
-        {
-            path.relative_to(REPO_ROOT)
-            for path in runner.rglob("*")
-            if path.suffix in {".md", ".py", ".sh"}
-            for line in path.read_text().splitlines()
-            if unscoped_tmp.search(line) and "read-only" not in line
-        }
-    )
-
-    assert offenders == []
-
-
 def test_bundled_runner_instructions_never_return_with_cd_dash() -> None:
     """`cd -` cannot bring a session back to where a recipe started.
 
