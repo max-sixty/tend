@@ -220,6 +220,7 @@ bot_name: my-project-bot
 # long as the command it wraps, so each such command carries the whole thing:
 #
 #     unshare --map-root-user --mount sh -c '
+#       set -e
 #       mkdir -p "$TMPDIR/ws" && mount --bind "$GITHUB_WORKSPACE" "$TMPDIR/ws"
 #       mount -t tmpfs tmpfs /tmp
 #       mkdir -p "$GITHUB_WORKSPACE"
