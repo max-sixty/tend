@@ -245,13 +245,14 @@ bot_name: my-project-bot
 #
 #   Give the agent the narrowest credential that does the job: that is the
 #   mitigation that holds everywhere, because the value sits in the agent's env
-#   on every workflow, including the ones that read attacker-supplied text
-#   without running attacker-supplied code. Withholding it from the events that
-#   carry unreviewed code closes the largest path. The value renders into the
-#   workflow verbatim, so a GitHub Actions expression works here — name the
-#   events that get it rather than the ones that don't, and keep the secret on
-#   the `&&` side, since an empty string is falsy and `<cond> && '' ||
-#   secrets.X` hands over the secret whatever `<cond>` says:
+#   on every workflow, and no event confines the session to text: a session on
+#   any event can check out a pull request or run a reproduction from an issue
+#   body. Withholding it from the events that carry unreviewed code closes the
+#   largest path. The value renders into the workflow verbatim, so a GitHub
+#   Actions expression works here — name the events that get it rather than
+#   the ones that don't, and keep the secret on the `&&` side, since an empty
+#   string is falsy and `<cond> && '' || secrets.X` hands over the secret
+#   whatever `<cond>` says:
 #
 #     sandbox_env:
 #       MY_TOKEN: ${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}
