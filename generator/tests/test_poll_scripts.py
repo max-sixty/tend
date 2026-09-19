@@ -372,12 +372,75 @@ def test_terminal_non_success_conclusions_count_red(
     assert result.returncode == 1, f"{conclusion} did not read as red"
 
 
-def test_cancelled_is_not_a_verdict(env: dict[str, str]) -> None:
-    _serve(env, _resp(_check_run("tests"), _check_run("old", conclusion="CANCELLED")))
+@pytest.mark.parametrize("conclusion", ["CANCELLED", "STALE"])
+def test_cancelled_is_not_a_verdict(env: dict[str, str], conclusion: str) -> None:
+    """A check killed before it concluded never ran, so it is neither red nor
+    green. Folded into green it reports a gating check as having passed when
+    a concurrent push cancelled it mid-run."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion=conclusion)))
 
     result = _poll(env)
 
-    assert result.returncode == 0, result.stdout
+    assert result.returncode == 2, result.stdout
+    assert "UNVERIFIED" in result.stdout
+    assert "bench https://github.com/o/r/actions/runs/100/job/1" in result.stdout
+
+
+def test_cancelled_beside_a_real_failure_still_reads_red(env: dict[str, str]) -> None:
+    """A failure is the stronger verdict, but the cancelled check is named too
+    so the reader knows the picture is partial."""
+    _serve(
+        env,
+        _resp(
+            _check_run("lint", conclusion="FAILURE", run_id=101),
+            _check_run("bench", conclusion="CANCELLED"),
+        ),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 1, result.stdout
+    assert "lint https://github.com/o/r/actions/runs/101/job/1" in result.stdout
+    assert "bench https://github.com/o/r/actions/runs/100/job/1" in result.stdout
+
+
+def test_cancelled_replaced_at_the_same_sha_is_green(env: dict[str, str]) -> None:
+    """Supersession still decides the group: a rerun that concluded green at the
+    same SHA leaves nothing unverified."""
+    _serve(
+        env,
+        _resp(
+            _check_run(
+                "bench",
+                conclusion="CANCELLED",
+                run_id=111,
+                started="2026-01-01T00:00:00Z",
+            ),
+            _check_run(
+                "bench",
+                conclusion="SUCCESS",
+                run_id=222,
+                started="2026-01-01T00:10:00Z",
+            ),
+        ),
+    )
+
+    assert _poll(env).returncode == 0, "a superseded cancellation still gated"
+
+
+def test_approval_names_a_cancelled_check_it_approves_over(
+    env: dict[str, str],
+) -> None:
+    """Approving over a check that never ran is the existing policy; doing so
+    without saying which check is the defect."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion="CANCELLED")))
+
+    result = _approval(env)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.startswith("approve:")
+    assert "unverified" in result.stdout
+    assert "bench" in result.stdout
 
 
 def test_superseded_failure_yields_to_its_replacement(env: dict[str, str]) -> None:

@@ -25,6 +25,9 @@ RED_CONCLUSIONS = {
     "ACTION_REQUIRED",
     "ERROR",
 }
+# Terminal without having produced a result. Neither red nor green: the check
+# was killed before it concluded, so what it would have concluded is unknown.
+UNVERIFIED_CONCLUSIONS = {"CANCELLED", "STALE"}
 GRAPHQL_QUERY = """
 query($owner: String!, $name: String!, $oid: GitObjectID!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -65,7 +68,7 @@ def reduce_rollup(
     workflow: str,
     allow_filtered_empty: bool = False,
 ) -> dict[str, list[str]] | None:
-    """Filter and collapse raw contexts to pending and failed check names."""
+    """Filter and collapse raw contexts to pending, failed and unverified names."""
     contexts: list[dict[str, str]] = []
     own_run = f"/runs/{run_id}/" if run_id else ""
     for node in nodes:
@@ -101,7 +104,11 @@ def reduce_rollup(
         contexts.append(context)
 
     if not contexts:
-        return {"pending": [], "failed": []} if allow_filtered_empty else None
+        return (
+            {"pending": [], "failed": [], "unverified": []}
+            if allow_filtered_empty
+            else None
+        )
 
     groups: dict[tuple[str, str], list[dict[str, str]]] = {}
     for context in contexts:
@@ -124,6 +131,12 @@ def reduce_rollup(
             for context in current
             if context["status"] == "COMPLETED"
             and context["conclusion"] in RED_CONCLUSIONS
+        ],
+        "unverified": [
+            f"{context['name']} {context['url']}"
+            for context in current
+            if context["status"] == "COMPLETED"
+            and context["conclusion"] in UNVERIFIED_CONCLUSIONS
         ],
     }
 
@@ -269,6 +282,10 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
     belongs to a cancelled Actions run. A run that can't be read decides nothing,
     unless another failure is already real.
 
+    A check whose own conclusion is CANCELLED or STALE never ran, so it cannot
+    withhold on its merits. It approves under the same policy, named as
+    unverified so the approval doesn't read as a check that passed.
+
     Whether *sha* is still the head is not judged here: the review skill posts
     every review behind `review_preflight.py post`, which refuses a moved head.
     """
@@ -301,14 +318,25 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
             return 2
         if not failures:
             print(f"approve: every failure on {sha} is a cancelled run; unverified:")
-            print(*rollup["pending"], sep="\n")
+            print(*rollup["pending"], *rollup["unverified"], sep="\n")
             return 0
     if failures:
         print(f"withhold: red on {sha}:")
         print(*failures, sep="\n")
         return 1
+    if rollup["unverified"]:
+        print(f"approve: no failing check on {sha}; unverified:")
+        print(*rollup["unverified"], sep="\n")
+        return 0
     print(f"approve: no failing check on {sha}")
     return 0
+
+
+def _unverified_note(rollup: dict[str, list[str]]) -> None:
+    """Name checks that were cancelled before concluding, beside another verdict."""
+    if rollup["unverified"]:
+        print("cancelled before concluding (no result):")
+        print(*rollup["unverified"], sep="\n")
 
 
 def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
@@ -330,8 +358,14 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
     if settled and last["failed"]:
         print(f"red on {sha}:")
         print(*last["failed"], sep="\n")
+        _unverified_note(last)
         head_note(pr=pr, repo=repo, sha=sha)
         return 1
+    if settled and last["unverified"]:
+        print(f"cancelled before concluding on {sha} — UNVERIFIED, not green:")
+        print(*last["unverified"], sep="\n")
+        head_note(pr=pr, repo=repo, sha=sha)
+        return 2
     if settled:
         print(f"green: every gating check on {sha} settled green")
         head_note(pr=pr, repo=repo, sha=sha)
@@ -345,6 +379,7 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
     if last["failed"]:
         print("failures observed so far (unconfirmed while checks pend):")
         print(*last["failed"], sep="\n")
+    _unverified_note(last)
     head_note(pr=pr, repo=repo, sha=sha)
     return 3
 
