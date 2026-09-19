@@ -112,12 +112,22 @@ event, so any workflow it triggered ran and is still in the run list.
 
 **A claim about what a past run executed is read at that run's own commit.**
 The checkout is the current default branch; a run from earlier is not. Before
-explaining a failure in terms of a branch, guard, or helper, read it at the
-run's head — `gh api repos/{owner}/{repo}/actions/runs/<id> --jq .head_sha`,
-then `git show <sha>:<path>` — and pin the body's links to that SHA rather than
-to `HEAD`. A fix that landed between the run and the session inverts the
-reading: the code being cited as the cause may be the code added *because* of
-the failure.
+explaining a failure in terms of a branch, guard, or helper, read the file at
+the run's head, and pin the body's links to that SHA rather than to `HEAD`. A
+fix that landed between the run and the session inverts the reading: the code
+being cited as the cause may be the code added *because* of the failure.
+
+```bash
+SHA=$(gh api "repos/{owner}/{repo}/actions/runs/<id>" --jq .head_sha)
+gh api "repos/{owner}/{repo}/contents/<path>?ref=$SHA" \
+  -H 'Accept: application/vnd.github.raw'
+```
+
+Fetch it rather than reaching for `git show <sha>:<path>`: the checkout holds
+only what a ref reaches, so the head of a squash-merged or deleted branch is
+absent from it, and `git show` then fails into the same wrong answer — the
+`fatal:` goes to stderr while a `| grep -c` downstream prints `0` and exits
+`0`, which reads as "the guard was absent at that run".
 
 **Links must be fetched, not guessed.** Before pasting any URL, run `curl -sI
 <url> | head -1` and confirm `200`. Docs-site slugs are treacherous —
