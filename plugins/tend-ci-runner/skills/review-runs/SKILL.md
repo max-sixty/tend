@@ -101,6 +101,15 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 
   Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `$TMPDIR/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The listing reaches back weeks, so most rows are already fixed and the closure read is what separates them. What it cannot close stays live: each Dependabot security update's `name` carries a per-update ID that never recurs, so no later run repeats its subject and those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the listing reached.
 
+- a tend workflow whose queue is dead. A run parked in GitHub's pre-job `waiting` state holds its concurrency group without ever concluding, so under `cancel-in-progress: false` every later tick takes the single pending slot and is replaced by its successor — the workflow stops running and nothing fails. Step 1's census cannot see the parked run, which admits a row only on a non-null `conclusion`, and the replacements it causes read there as ordinary concurrency.
+
+  ```bash
+  gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=waiting&per_page=50" \
+    --jq '.workflow_runs[] | {id, name, created_at, html_url}'
+  ```
+
+  A tend run still `waiting` after several of its own scheduling intervals is wedged. `pending_deployments` on it confirms which kind: `wait_timer: 0` with an empty `reviewers` is an environment gate with nothing left to release it, so `gh run cancel <id>` is the remedy and the pending successor starts. `queued` is a different state and not this shape — `gh run cancel` there answers `Cannot cancel a workflow run that is completed` while the runs API still reports the run `queued`. That is GitHub bookkeeping holding nothing live; leave it rather than fighting it.
+
 - an open Dependabot security alert with no PR or tracker proposing its fix — same closure as the red rows above, so an alert whose fix needs a maintainer decision stops re-surfacing once it is tracked. Dependabot opens that PR itself for most alerts, so the ones that reach this sweep are the ones where it could not — and nothing else in tend looks: `weekly` reviews the dependency PRs that exist, and the defining property here is that none was created.
 
   ```bash
