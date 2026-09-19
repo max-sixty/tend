@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import dispose_sandbox_resources as dispose
 import pytest
@@ -11,39 +13,71 @@ def result(args: list[str], returncode: int = 0) -> subprocess.CompletedProcess[
     return subprocess.CompletedProcess(args, returncode)
 
 
+def scratch(monkeypatch: pytest.MonkeyPatch, directory: Path, uid: int) -> None:
+    """Point the /tmp sweep at a directory this suite owns."""
+    monkeypatch.setattr(dispose, "SANDBOX_SCRATCH", directory)
+    monkeypatch.setattr(
+        dispose.pwd, "getpwnam", lambda _name: SimpleNamespace(pw_uid=uid)
+    )
+
+
 def test_accepts_only_the_dedicated_workspace_shape() -> None:
-    expected = Path("/tmp/tend-agent-workspace-abc123")
+    expected = Path("/var/tmp/tend-agent-workspace-abc123")
     assert dispose.workspace_container(expected / "checkout") == expected
 
     for path in (
-        Path("/tmp/tend-agent-workspace-abc123"),
-        Path("/tmp/unrelated/checkout"),
-        Path("/var/tmp/tend-agent-workspace-abc123/checkout"),
+        Path("/var/tmp/tend-agent-workspace-abc123"),
+        Path("/var/tmp/unrelated/checkout"),
+        Path("/tmp/tend-agent-workspace-abc123/checkout"),
     ):
         with pytest.raises(ValueError):
             dispose.workspace_container(path)
 
 
 def test_accepts_only_the_dedicated_runtime_shape() -> None:
-    expected = Path("/tmp/tend-runtime.aB123z")
+    expected = Path("/var/tmp/tend-runtime.aB123z")
     assert dispose.runtime_container(expected) == expected
 
     for path in (
-        Path("/tmp/tend-runtime"),
-        Path("/tmp/tend-runtime.bad/name"),
-        Path("/var/tmp/tend-runtime.abc123"),
+        Path("/var/tmp/tend-runtime"),
+        Path("/var/tmp/tend-runtime.bad/name"),
+        Path("/tmp/tend-runtime.abc123"),
     ):
         with pytest.raises(ValueError):
             dispose.runtime_container(path)
 
 
-def test_disposes_only_after_the_sandbox_uid_is_empty(
-    monkeypatch: pytest.MonkeyPatch,
+def test_the_scratch_sweep_selects_on_the_owning_uid(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    workspace = Path("/tmp/tend-agent-workspace-abc123/checkout")
+    """Every entry here belongs to the suite, so only the uid can be varied.
+
+    `verify_dispose` in `proxy/test-setup-sandbox.sh` is where a runner-owned
+    entry sits beside a sandbox-owned one; chowning a fixture needs the root
+    that test has and this one does not.
+    """
+    (tmp_path / "tend-agent-scratch").mkdir()
+    (tmp_path / "pytest-of-runner").mkdir()
+
+    scratch(monkeypatch, tmp_path, os.getuid())
+    assert dispose.scratch_entries("tend-sandbox") == [
+        tmp_path / "pytest-of-runner",
+        tmp_path / "tend-agent-scratch",
+    ]
+
+    scratch(monkeypatch, tmp_path, os.getuid() + 1)
+    assert dispose.scratch_entries("tend-sandbox") == []
+
+
+def test_disposes_only_after_the_sandbox_uid_is_empty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    workspace = Path("/var/tmp/tend-agent-workspace-abc123/checkout")
     monkeypatch.setenv("TEND_AGENT_WORKSPACE", str(workspace))
-    monkeypatch.setenv("TEND_RUNTIME_ROOT", "/tmp/tend-runtime.r1a2b3")
+    monkeypatch.setenv("TEND_RUNTIME_ROOT", "/var/tmp/tend-runtime.r1a2b3")
     monkeypatch.setenv("SANDBOX", "tend-sandbox")
+    (tmp_path / "nuget-mutex").touch()
+    scratch(monkeypatch, tmp_path, os.getuid())
     calls: list[list[str]] = []
 
     def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -61,8 +95,9 @@ def test_disposes_only_after_the_sandbox_uid_is_empty(
             "/usr/bin/rm",
             "-rf",
             "--",
-            "/tmp/tend-agent-workspace-abc123",
-            "/tmp/tend-runtime.r1a2b3",
+            "/var/tmp/tend-agent-workspace-abc123",
+            "/var/tmp/tend-runtime.r1a2b3",
+            str(tmp_path / "nuget-mutex"),
         ],
     ]
 
@@ -71,7 +106,7 @@ def test_refuses_to_dispose_while_a_sandbox_process_lives(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(
-        "TEND_AGENT_WORKSPACE", "/tmp/tend-agent-workspace-abc123/checkout"
+        "TEND_AGENT_WORKSPACE", "/var/tmp/tend-agent-workspace-abc123/checkout"
     )
     monkeypatch.setenv("SANDBOX", "tend-sandbox")
     calls: list[list[str]] = []
@@ -90,7 +125,7 @@ def test_disposes_partial_runtime_when_workspace_was_never_prepared(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("TEND_AGENT_WORKSPACE", raising=False)
-    monkeypatch.setenv("TEND_RUNTIME_ROOT", "/tmp/tend-runtime.abc123")
+    monkeypatch.setenv("TEND_RUNTIME_ROOT", "/var/tmp/tend-runtime.abc123")
     monkeypatch.delenv("SANDBOX", raising=False)
     calls: list[list[str]] = []
 
@@ -108,6 +143,6 @@ def test_disposes_partial_runtime_when_workspace_was_never_prepared(
             "/usr/bin/rm",
             "-rf",
             "--",
-            "/tmp/tend-runtime.abc123",
+            "/var/tmp/tend-runtime.abc123",
         ]
     ]

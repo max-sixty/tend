@@ -295,7 +295,7 @@ def test_a_mention_on_an_issue_never_asks_the_pull_request_endpoint(
         raise urllib.error.HTTPError(path, 404, "Not Found", {}, None)
 
     clone_workspace = prepare.clone_workspace
-    # The step roots the agent workspace at the runner's own /tmp, which a
+    # The step roots the agent workspace at the runner's own /var/tmp, which a
     # suite run inside a tend session cannot write to. Keep the real call and
     # move only its parent, so the assertions below still read a real clone.
     mkdtemp = prepare.tempfile.mkdtemp

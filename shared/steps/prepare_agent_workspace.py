@@ -5,7 +5,7 @@
 """Create the only repository tree the agent is allowed to access.
 
 The Actions checkout is trusted orchestration state.  This step clones the
-same repository into a dedicated ``/tmp`` container without local object
+same repository into a dedicated ``/var/tmp`` container without local object
 sharing, selects the event topology with runner/system Git configuration
 disabled, removes every temporary credential, and exports the resulting path
 as ``TEND_AGENT_WORKSPACE``.  The dedicated parent holds that clone alone and
@@ -336,8 +336,10 @@ def main() -> int:
         )
         if mode not in {"base", "review", "mention"}:
             raise ValueError(f"unsupported checkout mode: {mode}")
+        # /var/tmp rather than /tmp: both are 1777, but the sandbox may write
+        # /tmp, and only the clone inside this container is its to write.
         workspace_container = Path(
-            tempfile.mkdtemp(prefix="tend-agent-workspace-", dir="/tmp")
+            tempfile.mkdtemp(prefix="tend-agent-workspace-", dir="/var/tmp")
         )
         destination = workspace_container / "checkout"
         if destination == runner_workspace or destination.is_relative_to(

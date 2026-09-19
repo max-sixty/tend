@@ -25,7 +25,7 @@ Nearly every task takes some of these, so work out which apply before you start:
 
 ## Temporary Files
 
-Tend sets `$TMPDIR` to `/home/tend-sandbox/tmp`, the writable scratch directory; writes land only there and in the checkout, which sits under a `/tmp` container that is itself read-only, so a scratch path written by hand under `/tmp` fails with `Read-only file system` even though the mode reads `drwxrwxrwt`. A compound command without `set -e` runs on past that failure. Shell commands expand `$TMPDIR`; file-writing tools need the absolute path.
+Write scratch files under `$TMPDIR`, which Tend sets to `/home/tend-sandbox/tmp`. Shell commands expand `$TMPDIR`; file-writing tools need the absolute path.
 
 ## Conduct
 

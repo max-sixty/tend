@@ -24,7 +24,9 @@ plant() {
   bin="$HOME/.cargo-install/tend-probe/bin"
   seeded="$HOME/.tend-seeded/bin"
   shared="/opt/tend-sandbox-test-$GITHUB_RUN_ID/bin"
-  TEND_AGENT_CONTAINER=$(mktemp -d /tmp/tend-agent-workspace-test.XXXXXX)
+  # /var/tmp, where prepare_agent_workspace puts the real container, so the
+  # assertions below read the same boundary the action builds.
+  TEND_AGENT_CONTAINER=$(mktemp -d /var/tmp/tend-agent-workspace-test.XXXXXX)
   TEND_AGENT_WORKSPACE="$TEND_AGENT_CONTAINER/checkout"
   TEND_RUNNER_WORKSPACE="$GITHUB_WORKSPACE"
   TEND_TEST_ACTION_PATH="$TEND_AGENT_CONTAINER/action"
@@ -329,6 +331,10 @@ PY
 
   dummy_token=$(sed -n 's/^GITHUB_TOKEN=//p' "$AGENT_ENV_FILE")
   test -n "$dummy_token"
+  # The /tmp and /var/tmp probes below both aim at 1777 directories, where only
+  # SRT's bind can deny the write. Aimed at the 755 runtime or workspace
+  # container instead, the second would pass on file permissions alone and hold
+  # whether or not the boundary was still there.
   setup_commands=$(printf '%s\n' \
     'touch "$TEND_RUNNER_WORKSPACE/.tend-srt-wrote-here" 2>/dev/null || true' \
     'printf "%s\n" "$HTTP_PROXY" > .tend-setup-proxy' \
@@ -337,7 +343,8 @@ PY
     'chmod +x ~/.local/bin/tend-probe' \
     'tend-probe > .tend-setup-tool' \
     'test -z "${GITHUB_ENV:-}"' \
-    'if touch /tmp/tend-unscoped 2>/dev/null; then exit 91; fi' \
+    'touch /tmp/tend-sandbox-scratch' \
+    'if touch /var/tmp/tend-unscoped 2>/dev/null; then exit 91; fi' \
     'touch "$TMPDIR/tend-scratch-probe"' \
     "test \"\$GITHUB_TOKEN\" = \"$dummy_token\"")
 
@@ -431,6 +438,24 @@ PY
   echo "[test-setup-sandbox] complete Claude and Codex SRT lifecycles verified"
 }
 
+# The real dispose step, against the real filesystem: /tmp is the sandbox's to
+# write and the runner's to keep, so ownership is all that separates what goes
+# from what stays.
+verify_dispose() {
+  local keep
+  keep="/tmp/tend-runner-keeps-$GITHUB_RUN_ID"
+  touch "$keep"
+  test "$(stat -c %U /tmp/tend-sandbox-scratch)" = "$SANDBOX"
+  PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s \
+    shared/steps/dispose_sandbox_resources.py
+  test ! -e /tmp/tend-sandbox-scratch
+  test ! -e "$TEND_AGENT_CONTAINER"
+  test ! -e "$TEND_RUNTIME_ROOT"
+  test -f "$keep"
+  rm -f "$keep"
+  echo "[test-setup-sandbox] sandbox scratch disposed, runner entries kept"
+}
+
 cleanup() {
   local shared
   shared="/opt/tend-sandbox-test-$GITHUB_RUN_ID/bin"
@@ -455,9 +480,10 @@ case "${1:-}" in
   verify) verify ;;
   verify-refusals) verify_refusals ;;
   verify-srt) verify_srt ;;
+  verify-dispose) verify_dispose ;;
   cleanup) cleanup ;;
   *)
-    echo "usage: $0 {plant|setup|install-agent-uv|verify|verify-refusals|verify-srt|cleanup}" >&2
+    echo "usage: $0 {plant|setup|install-agent-uv|verify|verify-refusals|verify-srt|verify-dispose|cleanup}" >&2
     exit 2
     ;;
 esac
