@@ -26,7 +26,7 @@ gh issue comment "$ISSUE" --body-file "$TMPDIR/comment-body.md"
 
 **Line wrapping:** GitHub renders newlines literally in issue bodies, PR descriptions, and comments — a line break in the source becomes a `<br>` in the output, so a paragraph hard-wrapped at ~72 chars ships with mid-sentence breaks. Write each paragraph as a single long line and let the browser reflow. Code blocks, bullet lists, and tables keep their newlines as-is.
 
-**Links.** Always use markdown links for files, issues, PRs, and docs. **Any link containing `#L` must use a commit SHA, never `blob/main/...#L42`** — line numbers shift silently, so the link stays valid but starts pointing at different code than the comment describes. Get the SHA with `git rev-parse HEAD` before composing the link.
+**Links.** Always use markdown links for files, issues, PRs, and docs. **Any link containing `#L` must use a commit SHA, never `blob/main/...#L42`** — line numbers shift silently, so the link stays valid but starts pointing at different code than the comment describes. Get the SHA with `git rev-parse HEAD` before composing the link — except where the body explains a past run, whose links pin to that run's head instead, per **Recurring hallucination shapes** in `/tend-ci-runner:ground-claims`.
 
 - **File-level link (no `#L` anchor)**: `blob/main/src/foo.rs` is fine
 - **Line reference**: `blob/<sha>/src/foo.rs#L42` — commit SHA required, never `blob/main/...#L42`
