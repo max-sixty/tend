@@ -224,12 +224,20 @@
           GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}
 {%- endmacro %}
 
+{# The unreact half runs *after* the agent, with the PAT in `env:`, so it takes
+   the discipline every post-agent step in the harness actions takes: an
+   absolute shell, a neutralized `$BASH_ENV`, and the pinned PATH ahead of its
+   first command, so neither `gh` nor `head` resolves through a directory the
+   job's earlier steps prepended. `react_eyes` runs before the agent and keeps
+   the plain form. #}
 {% macro unreact_eyes(cfg, target, if_condition='') %}
       - name: Remove the eyes reaction
 {% if if_condition %}
 <<step_if(if_condition)>>
 {% endif %}
+        shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
         run: |
+          PATH=/usr/sbin:/usr/bin:/sbin:/bin
           REACTION_ID=$(gh api --paginate \
             "repos/$REPO/$TARGET/reactions?content=eyes&per_page=100" \
             --jq ".[] | select(.user.login == \"$BOT_NAME\") | .id" | head -n1)
@@ -238,6 +246,7 @@
               || echo "::warning::could not remove the eyes reaction"
           fi
         env:
+          BASH_ENV: ""
           REPO: ${{ github.repository }}
           TARGET: <<target>>
           BOT_NAME: <<cfg.bot_name>>
@@ -253,8 +262,21 @@
    `allow_unsafe_pr_checkout` opts into checkout's fork-PR guard: v7 refuses to
    check out a fork's `refs/pull/N/{merge,head}` under `pull_request_target`
    (the "pwn request" guard) unless this input is set. Only review feeds a fork
-   ref straight to the action, so only it sets this; mention checks out the base
-   repo then `gh pr checkout`s, never handing the action a fork ref.
+   ref straight to the action, so only it sets this; mention never hands the
+   action a fork ref, because the event topology it needs is built in the
+   disposable clone by `prepare_agent_workspace.py` rather than here.
+
+   `persist-credentials: false` keeps the bot PAT off the runner's disk.
+   Without it `actions/checkout` writes it into
+   `$GITHUB_WORKSPACE/.git/config` as `http.https://github.com/.extraheader`
+   and leaves it there for the whole job, which makes that file the most
+   valuable thing SRT's `denyRead` on the runner checkout is hiding — and
+   removing it beats hiding it. Nothing tend runs afterwards reads it: every
+   later step takes the PAT through `env:`, `prepare_agent_workspace.py`
+   clones from the remote under its own token and touches the runner checkout
+   only for a local `git rev-parse HEAD`, and the config restore runs `git
+   restore` inside the disposable clone. The token input stays, because the
+   fetch itself still needs it on a private repository.
 
    `clean=False` drops checkout's `git clean -ffdx && git reset --hard`, which
    would otherwise delete what an earlier step wrote into the workspace. Review
@@ -276,6 +298,12 @@
 {% endif %}
           fetch-depth: 0
           fetch-tags: true
+          # The token authenticates this fetch and is not written into
+          # .git/config afterwards: nothing later in the job reads a persisted
+          # credential, and one left there puts the bot PAT on the runner's
+          # disk for the rest of the run. A `setup:` step that does its own
+          # authenticated git operation here has to supply its own token.
+          persist-credentials: false
           token: ${{ secrets.<<bot_token_secret>> }}
 {%- endmacro %}
 

@@ -340,6 +340,12 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          # The token authenticates this fetch and is not written into
+          # .git/config afterwards: nothing later in the job reads a persisted
+          # credential, and one left there puts the bot PAT on the runner's
+          # disk for the rest of the run. A `setup:` step that does its own
+          # authenticated git operation here has to supply its own token.
+          persist-credentials: false
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: astral-sh/setup-uv@v6
@@ -395,7 +401,9 @@ jobs:
           && ((github.event.comment && contains(github.event.comment.body, '@test-bot'))
               || (github.event.client_payload.kind == 'pull_request_review_comment'
                   && needs.verify.outputs.reason == 'mention'))
+        shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
         run: |
+          PATH=/usr/sbin:/usr/bin:/sbin:/bin
           REACTION_ID=$(gh api --paginate \
             "repos/$REPO/$TARGET/reactions?content=eyes&per_page=100" \
             --jq ".[] | select(.user.login == \"$BOT_NAME\") | .id" | head -n1)
@@ -404,6 +412,7 @@ jobs:
               || echo "::warning::could not remove the eyes reaction"
           fi
         env:
+          BASH_ENV: ""
           REPO: ${{ github.repository }}
           TARGET: ${{ github.event_name == 'issue_comment'
             && format('issues/comments/{0}', github.event.comment.id)

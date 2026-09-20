@@ -432,7 +432,8 @@ never see, such as the checkout credential in `.git/config`.
 user against the stable Actions checkout: the default branch, or in
 `tend-review` the PR's reviewed base. That tree is never replaced or handed to
 the agent, and files `setup:` writes there reach the agent only as a copy, and
-only where a `sandbox_import` entry names them. A contributor's build backend and dependencies therefore
+only where a `sandbox_import` entry names them. A contributor's build backend
+and dependencies therefore
 execute only from the disposable event checkout, through `sandbox_setup:` or
 the agent itself, inside SRT. Both harnesses run `sandbox_setup:` as the
 non-sudo sandbox user in the same SRT process lifetime as the agent.
@@ -442,8 +443,11 @@ UID process tree, then copies only size-bounded fixed outputs. The next fixed
 action step deletes the dedicated `/var/tmp/tend-agent-workspace-*` container
 and the per-run runtime directory, so no post-sandbox step executes a file from
 that checkout. The agent's scratch needs no step of its own: its `/tmp` was a
-tmpfs private to the reaped process tree, and its home goes with the disposable
-user. What the sandbox wrote leaves only as inert data through the fixed,
+tmpfs private to the reaped process tree, and on a GitHub-hosted runner its
+home goes with the discarded VM. On a self-hosted runner nothing deletes the
+`tend-sandbox` user, so `/home/tend-sandbox` persists between jobs under one
+shared uid, and what one run leaves there the next run's agent can read.
+What the sandbox wrote leaves only as inert data through the fixed,
 bounded reads above — no later step executes it, and no path the sandbox can
 write is one a runner step or a `setup:` action's POST step reaches by a name
 it picks up implicitly. A run whose reap failed deletes nothing: the job has
@@ -481,7 +485,9 @@ PATH. Tend does not infer which files under the
 runner home are runtimes rather than secrets; later home-scoped changes must be
 made as the sandbox user with `sandbox_setup:`. A generic failure shim keeps a
 dropped home-selected command from silently falling through to a different
-same-named system tool.
+same-named system tool. `sandbox_import` does not make that judgement either:
+its copies run as the sandbox uid, so host permissions answer the question
+instead of a list here.
 
 **Session-log upload.** The token-usage step uploads the agent's session JSONL
 only after the SRT process tree and sandbox UID are quiescent. One privileged

@@ -132,6 +132,18 @@ bot_name: my-project-bot
 # setup that must see the PR's manifests (installing its dependencies) goes in
 # `sandbox_setup:` below, which runs inside either harness's sandbox.
 #
+# The checkout runs with `persist-credentials: false`, so no token is left in
+# `.git/config` — keeping the bot PAT off the runner's disk for the length of
+# the job. Nothing tend runs needs it, but a `setup:` step doing its own
+# authenticated git operation in that checkout (fetching a private submodule,
+# pushing) has to pass a token itself:
+#
+#     setup:
+#       - run: git fetch --recurse-submodules
+#         env:
+#           GIT_CONFIG_PARAMETERS: "'url.https://x-access-token:${{ secrets.MY_TOKEN }}@github.com/.insteadof=https://github.com/'"
+#
+#
 # `tend-notifications` decides up front whether the agent needs to boot and
 # injects an `if:` guard on every setup step so a run with no unread
 # notifications or possible PR conflicts does no setup either. A user-supplied
