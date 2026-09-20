@@ -214,14 +214,20 @@ bot_name: my-project-bot
 # and after, so a cache action's POST step saves the tree the runner built.
 #
 # **What that means for you.** Anything `setup:` leaves readable in the
-# runner's home or checkout — a registry login, a cloud credential file, a
-# token exported to `$GITHUB_ENV` or set in the job's `env:` — is readable by
-# the agent, and so by anyone who can open a pull request. Log in only in steps
-# tend does not run; on a self-hosted runner, the runner account's whole home
-# is what the agent sees. Tend masks two directories inside that home: the
-# Actions runner's own installation, which holds its service credentials, and
-# GitHub's file-command directory, which holds every `$GITHUB_ENV` and
-# `$GITHUB_OUTPUT` line an earlier step wrote.
+# runner's home or checkout — a registry login, a cloud credential file — is
+# readable by the agent, and so by anyone who can open a pull request. So is
+# anything an earlier step exported to `$GITHUB_ENV` or the job set in `env:`:
+# those are environment variables by the time the agent starts, and it gets the
+# job's environment. Log in only in steps tend does not run, and keep a secret
+# out of `$GITHUB_ENV` and out of job-level `env:` on tend's own workflows. On
+# a self-hosted runner, the runner account's whole home is what the agent sees.
+#
+# Tend masks what the runner keeps for itself inside that home: the Actions
+# runner's own files and directories, which hold its service credentials
+# (everything in its installation except the `_work` tree the job runs in), and
+# GitHub's file-command directory, which is what keeps a `$GITHUB_OUTPUT` or
+# `$GITHUB_STATE` value that never became an environment variable — an app
+# token an action produced, say — out of the agent's reach.
 #
 # So a toolchain, a dependency cache or a build cache `setup:` prepared is
 # already warm for the agent, at its own path, with nothing to configure.

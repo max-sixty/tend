@@ -333,11 +333,19 @@ Each transition is a bottleneck with one job:
   and both are derived from the running job rather than listed, so neither can
   grow into a catalogue tend maintains:
 
-  - the Actions runner's own installation, found by walking this step's ppid
-    chain to the `Runner.Worker` that owns it, which holds its service
-    credentials;
-  - GitHub's file-command directory, `dirname "$GITHUB_ENV"`, which holds every
-    `$GITHUB_ENV` and `$GITHUB_OUTPUT` line an earlier step wrote.
+  - what the Actions runner keeps for itself. Its installation is found by
+    walking this step's ppid chain to the `Runner.Worker` that owns it, and
+    every entry in that installation is masked except one the job's own paths
+    live under — because the default self-hosted layout puts `_work`, and so
+    the checkout and `RUNNER_TEMP`, inside it, beside `.credentials` and
+    `_diag`. A directory takes a mode-0 tmpfs and a file a read-only bind of
+    `/dev/null`;
+  - GitHub's file-command directory, `dirname "$GITHUB_ENV"`. What that keeps
+    back is a `$GITHUB_OUTPUT` or `$GITHUB_STATE` value no step turned into an
+    environment variable — an app token an action produced is the common one.
+    A `$GITHUB_ENV` export *is* an environment variable by the time the agent
+    launches, and crosses on the environment's own rules; `docs/tend.example.yaml`
+    tells consumers so rather than letting this mask imply otherwise.
 
   Tend's own runner-side secrets never live under that tree: the proxy confdir
   holding its CA private key, the auto-memory baseline key and the Codex

@@ -56,14 +56,21 @@ def configure(
     codex.parent.mkdir()
     codex.write_text("runner\n")
     runner_home = tmp_path / "home/runner"
-    file_commands = runner_home / "work/_temp/_runner_file_commands"
+    # The default self-hosted layout, which is the hard case: the runner's
+    # installation holds its own credentials AND the job's whole `_work` tree.
+    installed_runner = runner_home / "actions-runner"
+    workspace = installed_runner / "_work/repo/repo"
+    file_commands = installed_runner / "_work/_temp/_runner_file_commands"
     file_commands.mkdir(parents=True)
-    installed_runner = runner_home / "runners/2.999.0"
-    installed_runner.mkdir(parents=True)
+    workspace.mkdir(parents=True)
+    (installed_runner / "bin").mkdir()
+    (installed_runner / "_diag").mkdir()
+    (installed_runner / ".credentials").write_text("runner service identity\n")
     monkeypatch.setattr(launch, "runner_install_directory", lambda: installed_runner)
     environment = {
         "SANDBOX": "tend-sandbox",
         "TEND_RUNNER_HOME": str(runner_home),
+        "GITHUB_WORKSPACE": str(workspace),
         "GITHUB_ENV": str(file_commands / "set_env_0"),
         "RUNNER_TEMP": str(runner_temp),
         "GITHUB_OUTPUT": str(output),
@@ -217,6 +224,31 @@ def test_no_agent_owned_result_is_read_until_the_uid_is_quiescent(
     assert output.read_text() == "sandbox_reaped=false\n"
     assert summary.read_bytes() == b""
     assert not (tmp_path / "runner-temp/tend-agent-export/claude-stream.json").exists()
+
+
+def test_the_runner_mask_never_takes_the_job_s_own_tree_with_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The default self-hosted layout keeps `_work` inside the installation.
+
+    Masking that installation whole would cover the checkout, `RUNNER_TEMP` and
+    the tool cache — every run on such a runner would die, and the error would
+    name a mask rather than the layout. What the runner keeps for itself is
+    masked entry by entry instead.
+    """
+    configure(tmp_path, monkeypatch, harness="claude")
+    runner_home = tmp_path / "home/runner"
+    installed = runner_home / "actions-runner"
+
+    masks = launch.view_masks(runner_home)
+
+    assert installed / ".credentials" in masks
+    assert installed / "_diag" in masks
+    assert installed / "bin" in masks
+    assert installed / "_work" not in masks
+    assert installed / "_work/_temp/_runner_file_commands" in masks
+    workspace = Path(os.environ["GITHUB_WORKSPACE"])
+    assert not any(workspace.is_relative_to(mask) for mask in masks)
 
 
 def test_runner_cancellation_is_raised_through_the_reap_path() -> None:

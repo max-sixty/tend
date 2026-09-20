@@ -165,18 +165,43 @@ def runner_install_directory() -> Path:
     )
 
 
-def view_masks(home: Path) -> list[Path]:
-    """The directories inside the job's home the agent must not read.
+def runner_private_entries(install: Path, keep: list[Path]) -> list[Path]:
+    """The runner's own files and directories, minus any the job works in.
 
-    Both come from the job rather than from a list. Anything outside the home
-    needs no mask: only inside the view does the agent read with the runner
-    account's own permissions.
+    The default self-hosted layout puts ``_work`` — the checkout,
+    ``RUNNER_TEMP`` and the tool cache — *inside* the runner's installation,
+    beside ``.credentials`` and ``_diag``. Masking that installation whole
+    would take the job's own tree with it, so this masks its entries one by one
+    and keeps an entry a job path lives under. It is still read off the running
+    job rather than listed, so it cannot go stale or grow into a catalogue; the
+    exclusion is the job's own paths, which Actions names.
     """
+    return [
+        entry
+        for entry in sorted(install.iterdir())
+        if not any(path == entry or path.is_relative_to(entry) for path in keep)
+    ]
+
+
+def view_masks(home: Path) -> list[Path]:
+    """What inside the job's home the agent must not read.
+
+    All of it comes from the job rather than from a list. Anything outside the
+    home needs no mask: only inside the view does the agent read with the
+    runner account's own permissions.
+    """
+    workspace = Path(required("GITHUB_WORKSPACE")).resolve()
+    runner_temp = Path(required("RUNNER_TEMP")).resolve()
     candidates = [
-        runner_install_directory(),
-        # Every `$GITHUB_ENV` and `$GITHUB_OUTPUT` line any earlier step wrote,
-        # which is where an action output or a `setup:` export lands.
-        Path(required("GITHUB_ENV")).parent,
+        *runner_private_entries(
+            runner_install_directory(), keep=[workspace, runner_temp]
+        ),
+        # `$GITHUB_OUTPUT` and `$GITHUB_STATE` values that no step turned into
+        # an environment variable — an `actions/create-github-app-token` output
+        # is the common one. A `$GITHUB_ENV` export is a variable by the time
+        # the agent launches and crosses on the environment's own rules, which
+        # `docs/tend.example.yaml` states rather than implying this covers it.
+        Path(required("GITHUB_ENV")).parent.resolve(),
     ]
     return [path for path in candidates if path == home or path.is_relative_to(home)]
 

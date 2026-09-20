@@ -15,11 +15,12 @@ What it builds, at ``$HOME`` of the runner account:
    The agent reads exactly what the job's ``setup:`` steps left, at the paths
    they left it, and every write it makes lands in an upper directory that no
    trusted process ever reads. The host filesystem is byte-for-byte unchanged.
-3. Two read-only, mode-0 **tmpfs masks** over the parts of that home the agent
-   must not read: the runner's own install directory (its service credentials)
-   and GitHub's file-command directory (whatever earlier steps wrote to
-   ``$GITHUB_ENV``/``$GITHUB_OUTPUT``). Both are derived from the running job
-   rather than listed, so neither grows into a catalogue.
+3. **Masks** over the parts of that home the agent must not read: what the
+   Actions runner keeps for itself, and GitHub's file-command directory. A
+   directory gets an empty, mode-0 tmpfs and a file a read-only bind of
+   ``/dev/null``. Which paths those are is derived from the running job by
+   :mod:`launch_sandbox_runtime` rather than listed here, so the set cannot
+   grow into a catalogue.
 
 Why the overlay is mounted here rather than asked of the Sandbox Runtime: bwrap
 resolves every bind source through its copy of the parent mount namespace, so a
@@ -41,6 +42,10 @@ kernel's overflow id; that is the documented ceiling of this design.
 Floors: kernel 5.19 (idmapped layers under overlayfs) and util-linux 2.39
 (``X-mount.idmap``). Both are met by the hosted ubuntu-24.04 image. A runner
 that misses either fails the run naming the floor; there is no fallback path.
+The kernel floor announces itself — ``mount_setattr`` errors — but the
+util-linux one does not, because ``X-`` options are userspace options an older
+``mount(8)`` records and ignores, so :func:`build_view` stats the result rather
+than trusting the exit status.
 """
 
 from __future__ import annotations
@@ -140,6 +145,19 @@ def build_view(*, home: Path, stage: Path, sandbox: pwd.struct_passwd) -> None:
             str(lower),
         ]
     )
+    # `X-` options are userspace options: a `mount(8)` older than util-linux
+    # 2.39 records `X-mount.idmap` and ignores it rather than refusing, so the
+    # bind comes up un-idmapped, the overlay mounts over it, and `findmnt`
+    # reports everything this expects. The failure would surface much later, as
+    # an unwritable view, with nothing naming the cause. One stat says whether
+    # the map took: the home belongs to the runner on disk and must read back
+    # as the sandbox account's through the mount.
+    if lower.stat().st_uid != sandbox.pw_uid:
+        fail(
+            f"{home} still reads as uid {lower.stat().st_uid} through the "
+            f"idmapped bind, not {sandbox.pw_uid}: this mount(8) does not "
+            "implement X-mount.idmap, which needs util-linux 2.39"
+        )
     run(
         [
             MOUNT,
@@ -163,12 +181,21 @@ def build_view(*, home: Path, stage: Path, sandbox: pwd.struct_passwd) -> None:
 
 
 def mask(path: Path, *, home: Path) -> None:
-    """Cover one directory inside the view with an empty, unreadable tmpfs."""
+    """Cover one path inside the view so the agent reads nothing through it.
+
+    A directory takes an empty, unreadable tmpfs. A file takes a read-only bind
+    of ``/dev/null``, because a tmpfs needs a directory to mount on and the
+    runner's own credentials are files — ``.credentials``, ``.runner`` — beside
+    the directories.
+    """
     if path != home and not path.is_relative_to(home):
         fail(f"{path} is not inside {home}, so masking it is not this view's business")
-    if not path.is_dir():
-        fail(f"{path} is not a directory, so the view cannot mask it")
-    run([MOUNT, "-t", "tmpfs", "-o", "ro,nosuid,nodev,mode=0", "tmpfs", str(path)])
+    if path.is_dir():
+        run([MOUNT, "-t", "tmpfs", "-o", "ro,nosuid,nodev,mode=0", "tmpfs", str(path)])
+    elif path.is_file():
+        run([MOUNT, "--bind", "-o", "ro", "/dev/null", str(path)])
+    else:
+        fail(f"{path} is neither a file nor a directory, so the view cannot mask it")
 
 
 def verify(*, home: Path, masks: list[Path]) -> None:
@@ -181,12 +208,21 @@ def verify(*, home: Path, masks: list[Path]) -> None:
     to the host namespace would put the agent's writes in front of every later
     step.
     """
-    for path, expected in [(home, "overlay")] + [(path, "tmpfs") for path in masks]:
-        fstype, propagation = mount_facts(path)
-        if fstype != expected:
-            fail(f"{path} is on {fstype}, expected {expected}")
-        if propagation != "private":
-            fail(f"the mount at {path} is {propagation}, not private to this job")
+    fstype, propagation = mount_facts(home)
+    if fstype != "overlay":
+        fail(f"{home} is on {fstype}, expected overlay")
+    if propagation != "private":
+        fail(f"the mount at {home} is {propagation}, not private to this job")
+    # Checked by what each mask now is rather than by the filesystem under it:
+    # a masked directory lists nothing, and a masked file is the character
+    # device the bind put there. Both are the property the agent meets, so
+    # neither can pass while the thing it covers is still readable.
+    for path in masks:
+        if path.is_dir():
+            if any(path.iterdir()):
+                fail(f"{path} still lists its contents")
+        elif not path.is_char_device():
+            fail(f"{path} still reads as a regular file")
 
 
 def drop_privilege(sandbox: pwd.struct_passwd) -> list[str]:

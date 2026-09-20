@@ -18,10 +18,9 @@ def probe_view(workspace: Path) -> None:
     Three properties, each the failure the view would otherwise have silently:
     the checkout is there and writable (the whole point), the runner's own
     credentials are masked out of the home it shares, and so is the directory
-    GitHub's file commands write, whose contents are whatever earlier steps put
-    in ``$GITHUB_ENV``. A run that got the real home instead of a view would
-    pass the first and fail the other two; one that got no home at all fails the
-    first.
+    GitHub's file commands write. A run that got the real home instead of a
+    view would pass the first and fail the other two; one that got no home at
+    all fails the first.
     """
     if not (workspace / ".git/config").is_file():
         raise RuntimeError(f"the view holds no checkout at {workspace}")
@@ -34,17 +33,23 @@ def probe_view(workspace: Path) -> None:
             f"the view is not writable at {workspace}: {problem}"
         ) from None
 
-    for masked in masked_directories():
+    for masked in masked_paths():
         try:
-            entries = os.listdir(masked)
+            revealed = os.listdir(masked) if masked.is_dir() else masked.read_bytes()
         except OSError:
             continue
-        if entries:
+        if revealed:
             raise RuntimeError(f"the view did not mask {masked}")
 
 
-def masked_directories() -> list[Path]:
-    """The directories `enter_view.py` covers, as the sandbox can name them."""
+def masked_paths() -> list[Path]:
+    """What `enter_view.py` covers, as the sandbox can name it.
+
+    A masked directory lists nothing and a masked file reads empty, so the
+    check above holds for both without knowing which it was — and a mask that
+    did not take is caught here from inside as well as by `enter_view`'s own
+    verification outside.
+    """
     return [
         Path(path)
         for path in os.environ.get("TEND_VIEW_MASKS", "").split(os.pathsep)
