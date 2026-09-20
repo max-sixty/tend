@@ -207,7 +207,15 @@ def view_masks(home: Path) -> list[Path]:
 
 
 def stage_runtime_bundle(runtime_root: Path) -> tuple[Path, Path, Path, Path | None]:
-    """Copy the trusted lifecycle behind a sandbox-traversable path."""
+    """Copy the trusted lifecycle behind a sandbox-traversable path.
+
+    Once per runtime container, and it says so by failing: every directory and
+    file here is created exclusively, so a second lifecycle in one job stops at
+    ``FileExistsError`` rather than executing a bundle the first one left. No
+    generated workflow runs two, and ``proxy/test-setup-sandbox.sh``, which
+    does, clears the container between them — which is also what gives the
+    second one a fresh view.
+    """
     source_root = Path(required("ACTION_PATH")).resolve(strict=True)
     bundle_root = runtime_root / "action"
     shared_root = bundle_root / "shared"

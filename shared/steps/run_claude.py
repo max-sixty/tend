@@ -455,8 +455,8 @@ def main() -> int:
     stderr_log = Path(env["TEND_RUN_DIR"]) / "tend-claude-stderr.log"
 
     # Written inside SRT so the agent can read it back. It lands in the consumer's
-    # checkout untracked, next to the `.claude/skills/` they do track;
-    # setup_sandbox.py's global gitignore for the sandbox user keeps a broad
+    # checkout untracked, next to the `.claude/skills/` they do track; the
+    # global gitignore `agent_lifecycle.configure_git` sets keeps a broad
     # `git add -A` from committing `bypassPermissions` into the session's PR.
     # `tee` receives the body through its own pipe rather than the step's stdin.
     subprocess.run(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import agent_lifecycle
@@ -22,6 +23,32 @@ def contained_sandbox_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     nothing when the variable is absent, which it is.
     """
     monkeypatch.setenv("TEND_INSIDE_SANDBOX", "")
+
+
+def test_an_existing_global_ignore_file_keeps_its_own_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`core.excludesFile` now resolves in the job's own home, so setting it
+    would drop whatever the runner image or a `setup:` step established — for
+    every command the session runs, not just Tend's."""
+    consumer = tmp_path / "consumer-ignore"
+    consumer.write_text("*.tmp\n")
+    calls: list[list[str]] = []
+
+    def run(args: list[str], **kwargs: object):
+        calls.append(args)
+        if args[3:] == ["--get", "core.excludesFile"]:
+            return subprocess.CompletedProcess(args, 0, f"{consumer}\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(agent_lifecycle.subprocess, "run", run)
+
+    agent_lifecycle.exclude("/.claude/settings.local.json")
+
+    assert consumer.read_text() == "*.tmp\n/.claude/settings.local.json\n"
+    assert not any(
+        "core.excludesFile" in args and "--get" not in args for args in calls
+    )
 
 
 @pytest.fixture(autouse=True)

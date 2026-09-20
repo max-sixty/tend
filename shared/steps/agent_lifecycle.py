@@ -131,21 +131,46 @@ def configure_git() -> None:
     home, which exists as a writable tree only once the view is up. ``git
     config --global`` therefore edits the runner's own ``.gitconfig`` through
     the view: the consumer's settings are preserved, Tend's are added, and the
-    file on the runner's disk is untouched. The ignore file stays in the
-    sandbox's own home, which is not a tree a pull request can plant anything
-    in.
+    file on the runner's disk is untouched.
     """
-    ignore = Path(os.environ["AGENT_HOME"]) / ".config/git/ignore"
-    ignore.parent.mkdir(parents=True, exist_ok=True)
-    ignore.write_text("/.claude/settings.local.json\n", encoding="utf-8")
     login = os.environ["BOT_NAME"]
     bot_id = os.environ["BOT_ID"]
     for name, value in (
-        ("core.excludesFile", str(ignore)),
         ("user.name", login),
         ("user.email", f"{bot_id}+{login}@users.noreply.github.com"),
     ):
         subprocess.run(["/usr/bin/git", "config", "--global", name, value], check=True)
+    exclude("/.claude/settings.local.json")
+
+
+def exclude(pattern: str) -> None:
+    """Add one global ignore rule without taking a consumer's own away.
+
+    ``core.excludesFile`` is single-valued and now resolves in the job's own
+    home, so setting it would drop whatever global ignore file the runner image
+    or a ``setup:`` step established — for the session only, since the write
+    lands in the view, but for every command the session runs. Where one is
+    already configured the rule is appended to it; where none is, the file goes
+    in the sandbox account's own home, which is not a tree a pull request can
+    plant anything in.
+    """
+    configured = subprocess.run(
+        ["/usr/bin/git", "config", "--global", "--get", "core.excludesFile"],
+        check=False,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if configured:
+        with Path(configured).expanduser().open("a", encoding="utf-8") as handle:
+            handle.write(f"{pattern}\n")
+        return
+    ignore = Path(os.environ["AGENT_HOME"]) / ".config/git/ignore"
+    ignore.parent.mkdir(parents=True, exist_ok=True)
+    ignore.write_text(f"{pattern}\n", encoding="utf-8")
+    subprocess.run(
+        ["/usr/bin/git", "config", "--global", "core.excludesFile", str(ignore)],
+        check=True,
+    )
 
 
 def main() -> int:

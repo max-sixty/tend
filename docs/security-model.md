@@ -457,9 +457,8 @@ base-branch versions are written back, fork-added paths removed, and a
 fork-planted symlink replaced rather than written through. The root path list
 and ordering mirror claude-code-action's `restore-config.ts`. The PR's own
 versions stay readable at `git show HEAD:<path>` for a review that wants to see
-what it changed; nothing copies them into the worktree, since a copy made by
-the runner user would follow a fork-planted symlink into files the agent must
-never see, such as the checkout credential in `.git/config`.
+what it changed; nothing copies them into the worktree, because nothing needs
+to.
 
 **Setup runs on reviewed code.** Consumer `setup:` steps execute as the runner
 user against the stable Actions checkout: the default branch, or in

@@ -9,9 +9,8 @@
 # (src/github/operations/restore-config.ts) minus the instruction files, which
 # lib/pin-instruction-paths.sh covers at every depth for both harnesses. The
 # PR's own versions stay readable at `git show HEAD:<path>`; nothing copies
-# them anywhere, since a copy made here runs as the runner user and would
-# follow a fork-planted symlink into files the agent must never see, such as
-# the checkout credential in .git/config.
+# them anywhere, because nothing needs to — a session that wants to see what
+# the PR changed reads them from the object store.
 #
 # Known limitation: a PR that legitimately edits .claude/ or CLAUDE.md will have
 # those edits reverted for the duration of this run. Same tradeoff
