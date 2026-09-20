@@ -8,6 +8,7 @@ built against.
 
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import urllib.error
@@ -254,7 +255,7 @@ def test_the_api_call_holds_no_credential_of_its_own(
     monkeypatch.setattr(
         event_checkout.urllib.request,
         "urlopen",
-        lambda request, timeout: captured.append(request) or _json_response(),
+        lambda request, timeout: captured.append(request) or io.BytesIO(b"{}"),
     )
 
     event_checkout.api_json("/repos/owner/repo/pulls/7")
@@ -264,14 +265,3 @@ def test_the_api_call_holds_no_credential_of_its_own(
         "Bearer ghp_tendproxydummy000000000000000000000"
     )
     assert request.full_url.startswith("https://api.github.com/")
-
-
-class _json_response:
-    def read(self) -> bytes:
-        return b"{}"
-
-    def __enter__(self) -> _json_response:
-        return self
-
-    def __exit__(self, *_exception: object) -> None:
-        return None

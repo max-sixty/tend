@@ -86,7 +86,11 @@ def identity_map(kind: str, low: int, high: int) -> list[str]:
     if not 0 <= low < high < ID_CEILING:
         raise ValueError(f"{kind} ids {low} and {high} are outside the mappable range")
     entries = [f"{kind}:{low}:{high}:1", f"{kind}:{high}:{low}:1"]
-    for start, count in ((0, low), (low + 1, high - low - 1), (high + 1, ID_CEILING - high - 1)):
+    for start, count in (
+        (0, low),
+        (low + 1, high - low - 1),
+        (high + 1, ID_CEILING - high - 1),
+    ):
         if count:
             entries.append(f"{kind}:{start}:{start}:{count}")
     return entries
@@ -126,7 +130,16 @@ def build_view(*, home: Path, stage: Path, sandbox: pwd.struct_passwd) -> None:
     if set(",:") & set(str(stage)):
         fail(f"view stage path must not contain ',' or ':': {stage}")
 
-    run([MOUNT, "--bind", "-o", f"ro,X-mount.idmap={swap_map(runner, sandbox)}", str(home), str(lower)])
+    run(
+        [
+            MOUNT,
+            "--bind",
+            "-o",
+            f"ro,X-mount.idmap={swap_map(runner, sandbox)}",
+            str(home),
+            str(lower),
+        ]
+    )
     run(
         [
             MOUNT,
