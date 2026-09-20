@@ -371,7 +371,16 @@ Each transition is a bottleneck with one job:
   is caught from the other side too.
 
   That adds `unshare`, `mount`, `findmnt` and `setpriv` to the boundary, run as
-  root from a fixed argv with no consumer-controlled text. It also sets the
+  root from a fixed argv with no consumer-controlled text. It also makes one
+  file under `ACTION_PATH` — `shared/steps/enter_view.py` — a file root
+  executes, which nothing under that path was before. What keeps that safe is
+  the action pinning: a generated workflow names
+  `max-sixty/tend/<harness>@X.Y.Z`, so `ACTION_PATH` is an immutable,
+  runner-owned tag checkout. A workflow that pointed the harness action at a
+  local path instead would make its own checkout root-executable — still
+  reviewed code, because every generated checkout takes the base tree and the
+  PR's own topology is selected inside the sandbox, but the pinning is what
+  makes it not depend on that. It also sets the
   floor: kernel 5.19 for idmapped overlayfs layers and util-linux 2.39 for
   `X-mount.idmap`. A runner below either fails the run naming the floor; there
   is no fallback path.
