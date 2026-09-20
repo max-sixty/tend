@@ -4,7 +4,7 @@ Inside the shared SRT lifecycle, composes the agent's settings and launch env,
 supervises it to exit or timeout, then turns the finished stream-json into the
 step's exit code and ``::error::`` annotation.
 
-Reads (env): ``RUNNER_TEMP``,
+Reads (env): ``TEND_RUN_DIR``,
 ``GITHUB_WORKSPACE``, ``TEND_MODEL``,
 ``TEND_EFFORT``, ``TEND_ARGS``, ``TEND_ALLOWED_TOOLS``,
 ``TEND_SYSTEM_PROMPT``, ``TEND_PROMPT``, ``TEND_TIMEOUT_SEC``,
@@ -13,7 +13,7 @@ Reads (env): ``RUNNER_TEMP``,
 ``GITHUB_*`` context from Actions. ``GITHUB_STEP_SUMMARY`` is read only when
 rendering the transcript.
 The trusted outer supervisor reaps the sandbox UID, copies the fixed
-``RUNNER_TEMP/tend-stream.json`` file through a no-follow bounded read, and
+``TEND_RUN_DIR/tend-stream.json`` file through a no-follow bounded read, and
 publishes the runner-owned path plus ``sandbox_reaped``.
 
 Decisions this module owns:
@@ -434,7 +434,7 @@ def main() -> int:
     if os.environ.get("TEND_INSIDE_SANDBOX") != "1":
         raise RuntimeError("run_claude may run only inside the SRT lifecycle")
     env = _common.require_env(
-        "RUNNER_TEMP",
+        "TEND_RUN_DIR",
         "GITHUB_WORKSPACE",
         "TEND_MODEL",
         "TEND_ALLOWED_TOOLS",
@@ -447,8 +447,12 @@ def main() -> int:
         "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
     )
     workspace = Path(env["GITHUB_WORKSPACE"])
-    stream_json = Path(env["RUNNER_TEMP"]) / "tend-stream.json"
-    stderr_log = Path(env["RUNNER_TEMP"]) / "tend-claude-stderr.log"
+    # TEND_RUN_DIR, not RUNNER_TEMP: the supervisor reads both files back
+    # after the reap, so they have to land outside the view, where a write
+    # reaches nothing but its own upper layer. RUNNER_TEMP is the job's own and
+    # is inside it.
+    stream_json = Path(env["TEND_RUN_DIR"]) / "tend-stream.json"
+    stderr_log = Path(env["TEND_RUN_DIR"]) / "tend-claude-stderr.log"
 
     # Written inside SRT so the agent can read it back. It lands in the consumer's
     # checkout untracked, next to the `.claude/skills/` they do track;

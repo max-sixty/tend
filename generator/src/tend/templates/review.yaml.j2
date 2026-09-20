@@ -17,15 +17,15 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-24.04
 <<environment()>>
-<<cache_mode()>>
     permissions:
 <<permissions()>>
     steps:
 <<react_eyes('issues/${{ github.event.pull_request.number }}')>>
 
-      # The runner checkout remains on the reviewed base tree for local setup
-      # actions and their POST chains. The harness creates and selects the PR
-      # topology in an independent disposable clone.
+      # The runner checkout stays on the reviewed base tree, which is what
+      # `setup:` and any local action's POST chain run against. The harness
+      # moves it to the PR's own topology inside the sandbox, through a
+      # copy-on-write view, so this copy is never the one the agent changed.
 <<checkout(cfg)>>
 <<setup>>
 <<agent_step(cfg, block_input('prompt', prompt), checkout_mode='review', base_branch='${{ github.event.pull_request.base.ref }}')>>

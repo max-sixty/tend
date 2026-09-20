@@ -204,7 +204,7 @@ def subject_sha() -> str | None:
     a commit, ``schedule`` and ``workflow_dispatch``. An event that names a
     thread gets ``None``, because ``GITHUB_SHA`` is the default branch's tip
     there and the run is not about it: a mention on a PR has the PR's head
-    checked out in the disposable clone. :func:`subject_number` has that
+    checked out in the event tree. :func:`subject_number` has that
     subject.
 
     ``GITHUB_SHA`` is likewise the wrong commit for the events that do carry

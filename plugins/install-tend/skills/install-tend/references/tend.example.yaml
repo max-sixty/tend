@@ -204,30 +204,42 @@ bot_name: my-project-bot
 # ## Sandbox setup (both harnesses)
 #
 # `setup:` above runs as the RUNNER user, around the composite action. The
-# harness creates a disposable event checkout and runs the agent as a separate,
-# non-sudo user inside Anthropic Sandbox Runtime with a fixed env allowlist.
-# The runner checkout remains on reviewed code for `setup:` and local-action
-# POST cleanup. Shared system/hosted-toolcache paths and independently
-# seeded paths already present under the sandbox home carry over. Files that
-# `setup:` writes into the runner checkout or runner home do not: the agent
-# receives an independent disposable checkout, and the runner home may contain
-# credentials. Use `sandbox_setup:` for dependencies, generated files, or
-# home-scoped installs the agent needs, such as `cargo install`,
-# `pip install --user`, or `uv tool install`, and `sandbox_import:` to copy a
-# cache `setup:` already populated instead of fetching it twice.
+# agent then runs as a separate, non-sudo user inside Anthropic Sandbox
+# Runtime — but in the job's own checkout and home directory, at the same
+# paths, with the same PATH and environment your `setup:` steps prepared.
 #
-# Tend appends a pinned `uv` fallback after the `setup:` PATH. It installs no
+# It reaches them through a copy-on-write view: it sees what `setup:` left and
+# can write anywhere, and nothing it writes reaches the runner or a later step.
+# The host filesystem is byte-for-byte what `setup:` left it, before the agent
+# and after, so a cache action's POST step saves the tree the runner built.
+#
+# **What that means for you.** Anything `setup:` leaves readable in the
+# runner's home or checkout — a registry login, a cloud credential file, a
+# token exported to `$GITHUB_ENV` or set in the job's `env:` — is readable by
+# the agent, and so by anyone who can open a pull request. Log in only in steps
+# tend does not run; on a self-hosted runner, the runner account's whole home
+# is what the agent sees. Tend masks two directories inside that home: the
+# Actions runner's own installation, which holds its service credentials, and
+# GitHub's file-command directory, which holds every `$GITHUB_ENV` and
+# `$GITHUB_OUTPUT` line an earlier step wrote.
+#
+# So a toolchain, a dependency cache or a build cache `setup:` prepared is
+# already warm for the agent, at its own path, with nothing to configure.
+# `sandbox_setup:` is for what must run against the PULL REQUEST's tree, which
+# `setup:` cannot see: installing the dependencies its manifests name,
+# generating files from its sources.
+#
+# Tend appends a pinned `uv` fallback after the job's PATH. It installs no
 # other language toolchain. These keys make deliberate additions inside the
 # sandbox:
 #
 # - `sandbox_path`: directories prepended to the sandbox PATH. A leading `~`
-#   expands to the sandbox home. Use it for a system directory the installer did
-#   not add to PATH, or for a tool installed by `sandbox_setup:` off PATH:
+#   expands to the SANDBOX's own home, which is where `sandbox_setup:` installs
+#   things that must not touch the job's tree. The job's own PATH is already
+#   there entry for entry, so this is only for a directory nothing put on it:
 #
 #     sandbox_path:
 #       - /opt/my-tool/bin
-#
-#   A runner-home source path outside the disposable checkout is refused.
 #
 # - `sandbox_env`: NAME: VALUE pairs added to the agent's launch env. Reserved
 #   keys are rejected at `init`, and again inside the sandbox so a hand-edited
@@ -239,10 +251,14 @@ bot_name: my-project-bot
 #   - credential and Codex configuration variables — `GH_TOKEN`,
 #     `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
 #     `OPENAI_API_KEY`, `CODEX_API_KEY`, `CODEX_AUTH_JSON`, `CODEX_HOME`
-#   - the disposable checkout identity — `GITHUB_WORKSPACE`
+#   - the checkout identity — `GITHUB_WORKSPACE`
 #   - prompt suppression — `CLAUDE_CODE_REMOTE`
 #   - the sandbox's own locations — `HOME`, `PATH`, `TMPDIR`,
-#     `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`
+#     `CLAUDE_CONFIG_DIR`, `CODEX_HOME`
+#
+#   A `GITHUB_*` name is rejected too: these values are applied over the job's
+#   own environment, so they win, and the GitHub context is the one thing a run
+#   must not be able to tell itself a different story about.
 #
 #     sandbox_env:
 #       RUST_BACKTRACE: "1"
@@ -270,19 +286,20 @@ bot_name: my-project-bot
 #     sandbox_env:
 #       MY_TOKEN: ${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}
 #
-#   Setup-step env changes do not cross automatically, except under a `GITHUB_*`
-#   name — those ride the GitHub context, so don't give a secret one. If a build
-#   needs an env change (for example `JAVA_HOME` rather than `java` on PATH),
-#   add it explicitly.
+#   Setup-step env changes cross on their own: the agent gets the job's whole
+#   environment, so a `JAVA_HOME` or `PNPM_HOME` an action exported is already
+#   there. `sandbox_env:` is for a value you want only inside the sandbox, or
+#   one you want to override the job's with.
 #
 # - `sandbox_setup`: shell commands run as the sandbox user after the toolchain
-#   and plugins install and before the agent runs, with the disposable checkout
-#   as cwd. It shares one SRT process lifetime with the agent. The disposable
-#   checkout holds the PR's tree, so this is where installing the
-#   project's dependencies belongs (`uv sync`, `npm ci`), alongside other
-#   on-disk effects like warming a cache. Env-only tweaks don't persist across
-#   the command's shell — use sandbox_path/sandbox_env. End installer commands
-#   by running the tool so a broken install fails before the agent starts:
+#   and plugins install and before the agent runs, with the job's checkout
+#   as cwd. It shares one SRT process lifetime with the agent. The checkout
+#   holds the PR's tree by then, so this is where installing the project's
+#   dependencies belongs (`uv sync`, `npm ci`) — against a cache `setup:`
+#   already warmed, since the agent sees it at its own path. Env-only tweaks
+#   don't persist across the command's shell — use sandbox_path/sandbox_env.
+#   End installer commands by running the tool so a broken install fails before
+#   the agent starts:
 #
 #     sandbox_setup:
 #       - uv tool install pre-commit
@@ -303,57 +320,8 @@ bot_name: my-project-bot
 #   step left in the runner's `/tmp` is visible here, and nothing written here
 #   reaches the runner. It is RAM-backed and counts against the job's memory,
 #   so write anything bulky under `$TMPDIR`, which is the sandbox home on disk.
-#
-# - `sandbox_import`: directories `setup:` prepared on the runner that the
-#   agent may use, so a dependency cache does not have to be re-fetched inside
-#   the sandbox. Each is COPIED, never moved and never handed over: the
-#   runner's own filesystem is what `setup:` left it, before the agent and
-#   after. The copy reads each file as the sandbox user, so a file it cannot
-#   read — a 0600 credential sitting in a cache directory — fails the run
-#   naming it, and you narrow the import. Two forms:
-#
-#   - An absolute path, or one starting `~`, which is the RUNNER's home — the
-#     opposite of `sandbox_path`, whose `~` is the sandbox home. It is copied
-#     to `~/imports/<last path component>` in the SANDBOX's home. Two entries
-#     with the same last component are refused, naming both.
-#   - A relative path, resolved against the runner checkout and copied to the
-#     same relative path inside the agent's disposable clone.
-#
-#     sandbox_import:
-#       - ~/.cache/uv
-#       - node_modules
-#     sandbox_env:
-#       UV_CACHE_DIR: /home/tend-sandbox/imports/uv
-#
-#   **The copy lands at a new path, and that decides what a cache is worth.**
-#   Read this list before importing anything, because the failure is a silent
-#   rebuild rather than an error:
-#
-#   - Content-addressed caches are fully warm wherever they land, because they
-#     key on hashes rather than paths. Point the tool at the copy with
-#     `sandbox_env`: Go's `GOCACHE` and `GOMODCACHE`, Maven's `~/.m2`,
-#     Gradle's `~/.gradle`, npm's cache, uv's `UV_CACHE_DIR`.
-#   - A relative `node_modules` is fully warm: Node resolution is relative and
-#     nothing in it records an absolute path.
-#   - Cargo gets the download and the registry index, and no compiled
-#     artifacts. Registry fingerprints record the absolute source path under
-#     `CARGO_HOME`, so a copy at a different path marks every dependency
-#     `Dirty: the path to the source changed`, and a dirty dependency
-#     invalidates everything above it — an imported `target/` will rebuild.
-#     Import the cargo home for the fetch, and expect to compile.
-#   - Do not import a `.venv`. Its `pyvenv.cfg` and console-script shebangs
-#     carry absolute paths, so a copied one is broken rather than cold. Import
-#     `~/.cache/uv`, point `UV_CACHE_DIR` at it, and run `uv sync` in
-#     `sandbox_setup:`.
-#
-#   The copy costs real time and real disk: a multi-gigabyte directory is tens
-#   of seconds per run, and `cp -a` turns pnpm's and uv's hardlinks into
-#   separate files, so the copy is larger than the original.
-#
-#   Refused: a path that does not exist or is not a directory; `..` in an
-#   entry; a bare `~`, `/`, or `.`; a `$` that no shell will expand; anything
-#   under the checkout's `.git`; a relative entry the event tree already
-#   carries, or whose destination resolves through a symlink in it.
+#   Everywhere else — the checkout, the runner's home, `$RUNNER_TEMP` — is the
+#   job's own, writable, and discarded when the run ends.
 #
 # ## Memory Gist (experimental, Claude harness)
 #

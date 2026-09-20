@@ -1,4 +1,19 @@
-"""Trusted outer supervisor for one SRT-contained Tend lifecycle."""
+"""Trusted outer supervisor for one SRT-contained Tend lifecycle.
+
+The launch chain this builds is::
+
+    sudo unshare --mount --propagation private
+      python3 enter_view.py …            # root: the copy-on-write view
+        setpriv --reuid <sandbox>        # exec, so one process tree throughout
+          env -i <agent env>
+            node sandbox_runtime.mjs     # SRT, then bwrap, then the lifecycle
+
+:mod:`enter_view` is what puts the agent in the job's own home and checkout;
+everything from ``setpriv`` down is the boundary Tend already had. The
+supervisor stays outside all of it: it stages the bundle, composes the
+environment, reaps the sandbox uid however the run ends, and exports what the
+later steps read.
+"""
 
 from __future__ import annotations
 
@@ -15,48 +30,6 @@ from types import FrameType
 import _sandbox
 from _safe_files import read_regular_nofollow
 
-PASSTHROUGH = {
-    "ACTION_PATH",
-    "AGENT_ENV_FILE",
-    "AGENT_HOME",
-    "AUTH_MODE",
-    "BOT_ID",
-    "BOT_NAME",
-    "CI",
-    "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
-    "CODEX_BIN",
-    "CODEX_PROXY_URL",
-    "EFFORT",
-    "EXTRA_ARGS",
-    "MODEL",
-    "NODE_BIN",
-    "PROMPT",
-    "SANDBOX",
-    "SHOW_FULL_OUTPUT",
-    "TEND_AGENT_WORKSPACE",
-    "TEND_ALLOWED_TOOLS",
-    "TEND_ARGS",
-    "TEND_AUTO_MEMORY_SETTINGS",
-    "TEND_AUTO_MEMORY_DIRECTORY",
-    "TEND_BOUNDARY_PROBE_URL",
-    "TEND_BOUNDARY_PROBE_EXECUTABLE",
-    "TEND_CODEX_RUNNER",
-    "TEND_CODEX_ROOT",
-    "TEND_EFFORT",
-    "TEND_HARNESS",
-    "TEND_LIFECYCLE",
-    "TEND_MODEL",
-    "TEND_PROMPT",
-    "TEND_PROXY_PORT",
-    "TEND_RUNNER_HOME",
-    "TEND_RUNNER_WORKSPACE",
-    "TEND_RUN_DIR",
-    "TEND_SANDBOX_SETUP",
-    "TEND_SRT_ENTRY",
-    "TEND_SRT_SECCOMP",
-    "TEND_SYSTEM_PROMPT",
-    "TEND_TIMEOUT_SEC",
-}
 MAX_FIXED_EXPORT = 64 * 1024 * 1024
 MAX_FINAL_MESSAGE = 256 * 1024
 MAX_STEP_SUMMARY = 512 * 1024
@@ -66,10 +39,20 @@ RUNTIME_STEP_FILES = (
     "_prompt.py",
     "_sandbox.py",
     "agent_lifecycle.py",
+    "event_checkout.py",
     "run_claude.py",
     "sandbox_runtime.mjs",
     "sandbox_setup.py",
 )
+#: Staged with the step bodies because `event_checkout` runs them inside SRT.
+RUNTIME_SHELL_FILES = (
+    "restore-sensitive-config.sh",
+    "lib/pin-instruction-paths.sh",
+)
+#: The Actions runner's own executables. The one that is an ancestor of this
+#: process names the directory holding the runner's service credentials, which
+#: is the one thing inside the job's home the agent must not read.
+RUNNER_EXECUTABLES = frozenset({"Runner.Worker", "Runner.Listener"})
 
 
 class Cancelled(BaseException):
@@ -140,7 +123,65 @@ def mkdir_traversable(path: Path) -> None:
     path.chmod(0o755)
 
 
-def stage_runtime_bundle(runtime_root: Path) -> tuple[Path, Path, Path | None]:
+def parent_pid(pid: int) -> int:
+    """Read one process's parent from procfs.
+
+    The comm field is the process name in parentheses and may itself contain
+    spaces or a closing parenthesis, so the fields are counted from the last
+    one rather than by splitting the whole line.
+    """
+    stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+    return int(stat.rsplit(")", 1)[1].split()[1])
+
+
+def runner_install_directory() -> Path:
+    """Locate the Actions runner's installation from this process's ancestry.
+
+    Derived rather than configured, so it follows the runner wherever GitHub or
+    a self-hosted operator puts it, and so the set of paths the view masks
+    cannot grow into a list Tend maintains. Every step body runs as a
+    descendant of ``Runner.Worker``; not finding one means this is not a job
+    Tend understands, which fails the run rather than guessing.
+    """
+    pid = os.getpid()
+    seen: set[int] = set()
+    while pid > 1 and pid not in seen:
+        seen.add(pid)
+        try:
+            executable = Path(os.readlink(f"/proc/{pid}/exe"))
+        except OSError:
+            executable = None
+        if executable is not None and executable.name in RUNNER_EXECUTABLES:
+            if executable.parent.name != "bin":
+                raise ValueError(
+                    f"the Actions runner at {executable} is not in a bin/ "
+                    "directory, so its installation cannot be located"
+                )
+            return executable.parent.parent
+        pid = parent_pid(pid)
+    raise ValueError(
+        "no Actions runner process among this step's ancestors; Tend cannot "
+        "identify the directory holding the runner's own credentials"
+    )
+
+
+def view_masks(home: Path) -> list[Path]:
+    """The directories inside the job's home the agent must not read.
+
+    Both come from the job rather than from a list. Anything outside the home
+    needs no mask: only inside the view does the agent read with the runner
+    account's own permissions.
+    """
+    candidates = [
+        runner_install_directory(),
+        # Every `$GITHUB_ENV` and `$GITHUB_OUTPUT` line any earlier step wrote,
+        # which is where an action output or a `setup:` export lands.
+        Path(required("GITHUB_ENV")).parent,
+    ]
+    return [path for path in candidates if path == home or path.is_relative_to(home)]
+
+
+def stage_runtime_bundle(runtime_root: Path) -> tuple[Path, Path, Path, Path | None]:
     """Copy the trusted lifecycle behind a sandbox-traversable path."""
     source_root = Path(required("ACTION_PATH")).resolve(strict=True)
     bundle_root = runtime_root / "action"
@@ -148,13 +189,16 @@ def stage_runtime_bundle(runtime_root: Path) -> tuple[Path, Path, Path | None]:
     step_root = shared_root / "steps"
     for directory in (bundle_root, shared_root, step_root):
         mkdir_traversable(directory)
-    for name in RUNTIME_STEP_FILES:
+    for name in RUNTIME_STEP_FILES + RUNTIME_SHELL_FILES:
         body = read_regular_nofollow(
             source_root / "shared/steps" / name, max_bytes=MAX_RUNTIME_FILE
         )
         if body is None:
             raise ValueError(f"runtime bundle source is missing: shared/steps/{name}")
-        write_trusted(step_root / name, body, mode=0o644)
+        destination = step_root / name
+        if destination.parent != step_root:
+            mkdir_traversable(destination.parent)
+        write_trusted(destination, body, mode=0o644)
 
     codex_runner: Path | None = None
     if os.environ.get("TEND_CODEX_RUNNER"):
@@ -167,39 +211,67 @@ def stage_runtime_bundle(runtime_root: Path) -> tuple[Path, Path, Path | None]:
         mkdir_traversable(codex_runner.parent)
         write_trusted(codex_runner, body, mode=0o644)
 
-    return bundle_root, step_root / "agent_lifecycle.py", codex_runner
+    return source_root, bundle_root, step_root / "agent_lifecycle.py", codex_runner
 
 
 def main() -> int:
     sandbox = required("SANDBOX")
     runner_temp = Path(required("RUNNER_TEMP")).resolve(strict=True)
+    runner_home = Path(required("TEND_RUNNER_HOME")).resolve(strict=True)
     real_output = Path(required("GITHUB_OUTPUT"))
     export_dir = runner_temp / "tend-agent-export"
     export_dir.mkdir(mode=0o700)
     run_dir = Path(required("TEND_RUN_DIR"))
     step_summary_dir = Path(required("TEND_AGENT_TMP_DIR"))
     runtime_root = Path(required("TEND_RUNTIME_ROOT")).resolve(strict=True)
-    bundle_root, lifecycle, codex_runner = stage_runtime_bundle(runtime_root)
-
-    environment = _sandbox.launch_env(required("AGENT_ENV_FILE"))
-    passthrough = {
-        name: os.environ[name] for name in sorted(PASSTHROUGH) if os.environ.get(name)
-    }
-    passthrough["ACTION_PATH"] = str(bundle_root)
-    passthrough["TEND_LIFECYCLE"] = str(lifecycle)
-    if codex_runner is not None:
-        passthrough["TEND_CODEX_RUNNER"] = str(codex_runner)
-    environment.extend(f"{name}={value}" for name, value in passthrough.items())
-    environment.extend(
-        [
-            f"GITHUB_STEP_SUMMARY={step_summary_dir / 'step-summary.md'}",
-            f"RUNNER_TEMP={run_dir}",
-        ]
+    source_root, bundle_root, lifecycle, codex_runner = stage_runtime_bundle(
+        runtime_root
     )
+
+    masks = view_masks(runner_home)
+    environment = _sandbox.launch_env(required("AGENT_ENV_FILE"))
+    # Values the sandbox reads that name something this step computed, so they
+    # are appended last and win.
+    overrides = {
+        "ACTION_PATH": str(bundle_root),
+        "TEND_LIFECYCLE": str(lifecycle),
+        # So the lifecycle's own probe can check the masks took effect rather
+        # than re-deriving where they should be.
+        "TEND_VIEW_MASKS": os.pathsep.join(str(path) for path in masks),
+        # The step summary and the run directory are read back after the reap,
+        # so both have to sit outside the view — a write into the view reaches
+        # nothing but its own upper layer.
+        "GITHUB_STEP_SUMMARY": str(step_summary_dir / "step-summary.md"),
+        "TEND_RUN_DIR": str(run_dir),
+    }
+    if codex_runner is not None:
+        overrides["TEND_CODEX_RUNNER"] = str(codex_runner)
+    environment.extend(f"{name}={value}" for name, value in overrides.items())
+
     argv = [
         "/usr/bin/sudo",
-        "-u",
+        "/usr/bin/unshare",
+        "--mount",
+        "--propagation",
+        "private",
+        "--",
+        "/usr/bin/python3",
+        "-E",
+        "-s",
+        str(source_root / "shared/steps/enter_view.py"),
+        "--home",
+        str(runner_home),
+        # Inside the per-run runtime container, which the dispose step already
+        # removes, and mode 0700 under its 0755 parent so the upper layer is
+        # invisible to the sandbox that writes into it.
+        "--stage",
+        str(runtime_root / "view"),
+        "--user",
         sandbox,
+        *(argument for path in masks for argument in ("--mask", str(path))),
+        # Everything past this point is what `enter_view` execs once the view
+        # is up, behind the `setpriv` it composes from the account it resolved.
+        "--",
         "/usr/bin/env",
         "-i",
         *environment,

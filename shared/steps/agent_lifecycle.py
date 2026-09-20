@@ -8,7 +8,48 @@ import subprocess
 import sys
 from pathlib import Path
 
+import event_checkout
 import sandbox_setup
+
+
+def probe_view(workspace: Path) -> None:
+    """Fail unless the copy-on-write view is the tree this process is in.
+
+    Three properties, each the failure the view would otherwise have silently:
+    the checkout is there and writable (the whole point), the runner's own
+    credentials are masked out of the home it shares, and so is the directory
+    GitHub's file commands write, whose contents are whatever earlier steps put
+    in ``$GITHUB_ENV``. A run that got the real home instead of a view would
+    pass the first and fail the other two; one that got no home at all fails the
+    first.
+    """
+    if not (workspace / ".git/config").is_file():
+        raise RuntimeError(f"the view holds no checkout at {workspace}")
+    probe = workspace / ".tend-view-probe"
+    try:
+        probe.write_text("", encoding="utf-8")
+        probe.unlink()
+    except OSError as problem:
+        raise RuntimeError(
+            f"the view is not writable at {workspace}: {problem}"
+        ) from None
+
+    for masked in masked_directories():
+        try:
+            entries = os.listdir(masked)
+        except OSError:
+            continue
+        if entries:
+            raise RuntimeError(f"the view did not mask {masked}")
+
+
+def masked_directories() -> list[Path]:
+    """The directories `enter_view.py` covers, as the sandbox can name them."""
+    return [
+        Path(path)
+        for path in os.environ.get("TEND_VIEW_MASKS", "").split(os.pathsep)
+        if path
+    ]
 
 
 def probe_boundary() -> None:
@@ -20,17 +61,7 @@ def probe_boundary() -> None:
     else:
         raise RuntimeError("SRT capability probe created an AF_UNIX socket")
 
-    runner_workspace = Path(os.environ["TEND_RUNNER_WORKSPACE"])
-    try:
-        (runner_workspace / ".git/config").read_bytes()
-    except OSError:
-        pass
-    else:
-        raise RuntimeError("SRT capability probe read the runner checkout")
-
-    agent_workspace = Path(os.environ["TEND_AGENT_WORKSPACE"])
-    if not (agent_workspace / ".git/config").is_file():
-        raise RuntimeError("SRT capability probe cannot read the agent checkout")
+    probe_view(Path(os.environ["GITHUB_WORKSPACE"]))
 
     probe_url = os.environ.get("TEND_BOUNDARY_PROBE_URL")
     if probe_url:
@@ -78,9 +109,40 @@ def probe_boundary() -> None:
             raise RuntimeError("SRT capability probe cannot execute the harness tool")
 
 
+def configure_git() -> None:
+    """Give the agent a commit identity and a gitignore, inside the view.
+
+    Global rather than local to the checkout because the agent also commits
+    from clones it makes itself, which inherit nothing; without it every commit
+    fails with ``Author identity unknown``. The address is the bot's GitHub
+    noreply one, so commits attribute to the account whose token pushes them.
+
+    Set here rather than by a runner-side step because ``HOME`` is the job's
+    home, which exists as a writable tree only once the view is up. ``git
+    config --global`` therefore edits the runner's own ``.gitconfig`` through
+    the view: the consumer's settings are preserved, Tend's are added, and the
+    file on the runner's disk is untouched. The ignore file stays in the
+    sandbox's own home, which is not a tree a pull request can plant anything
+    in.
+    """
+    ignore = Path(os.environ["AGENT_HOME"]) / ".config/git/ignore"
+    ignore.parent.mkdir(parents=True, exist_ok=True)
+    ignore.write_text("/.claude/settings.local.json\n", encoding="utf-8")
+    login = os.environ["BOT_NAME"]
+    bot_id = os.environ["BOT_ID"]
+    for name, value in (
+        ("core.excludesFile", str(ignore)),
+        ("user.name", login),
+        ("user.email", f"{bot_id}+{login}@users.noreply.github.com"),
+    ):
+        subprocess.run(["/usr/bin/git", "config", "--global", name, value], check=True)
+
+
 def main() -> int:
     probe_boundary()
     os.environ["TEND_INSIDE_SANDBOX"] = "1"
+    configure_git()
+    event_checkout.main()
     setup_code = sandbox_setup.main()
     if setup_code:
         return setup_code

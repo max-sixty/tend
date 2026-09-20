@@ -65,10 +65,12 @@ Four pieces:
      scripts under `shared/steps/`.
 
    Both harness runners resolve the bot's numeric ID at runtime, run security
-   and rate-limit preflight, prepare an independent event checkout, run
-   `sandbox_setup:` and the complete agent turn in one SRT process tree, reap
-   it, and upload bounded session logs. The generated workflow's checkout stays
-   runner-owned on reviewed code for setup and local-action POST chains.
+   and rate-limit preflight, build a copy-on-write view of the runner's home,
+   then select the event's topology, run `sandbox_setup:` and the complete
+   agent turn in one SRT process tree, reap it, and upload bounded session
+   logs. The generated workflow's checkout stays runner-owned on reviewed code
+   for setup and local-action POST chains; the agent sees it through the view,
+   so what it writes never reaches the runner's copy.
 
    `max-sixty/tend/codex/refresh@X.Y.Z` is the Codex support action. A generated
    serialized workflow runs it weekly to rotate Plus/Pro credentials and
@@ -186,7 +188,6 @@ session runs the pin.
 | Composite action call | Generator | generated workflow |
 | Runner setup (system tools, Actions cache) | Consumer | `setup:` in `.config/tend.yaml` |
 | Event-tree setup (dependencies, generated files) | Consumer | `sandbox_setup:` in `.config/tend.yaml` |
-| Which runner-prepared directories the agent gets | Consumer | `sandbox_import:` in `.config/tend.yaml` |
 | Bot identity, auth config | Consumer | `.config/tend.yaml` |
 | Skills (generic) | Tend | `tend-ci-runner` plugin (marketplace) |
 | Skills (project-specific) | Consumer | `.claude/skills/` in their repo |

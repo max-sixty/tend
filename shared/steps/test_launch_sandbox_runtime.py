@@ -18,9 +18,12 @@ RUNTIME_STEP_FILES = (
     "_prompt.py",
     "_sandbox.py",
     "agent_lifecycle.py",
+    "event_checkout.py",
     "run_claude.py",
     "sandbox_runtime.mjs",
     "sandbox_setup.py",
+    "restore-sensitive-config.sh",
+    "lib/pin-instruction-paths.sh",
 )
 
 
@@ -47,12 +50,21 @@ def configure(
     steps = action / "shared/steps"
     steps.mkdir(parents=True)
     for name in RUNTIME_STEP_FILES:
+        (steps / name).parent.mkdir(parents=True, exist_ok=True)
         (steps / name).write_text(f"{name}\n")
     codex = action / "codex/runner.py"
     codex.parent.mkdir()
     codex.write_text("runner\n")
+    runner_home = tmp_path / "home/runner"
+    file_commands = runner_home / "work/_temp/_runner_file_commands"
+    file_commands.mkdir(parents=True)
+    installed_runner = runner_home / "runners/2.999.0"
+    installed_runner.mkdir(parents=True)
+    monkeypatch.setattr(launch, "runner_install_directory", lambda: installed_runner)
     environment = {
         "SANDBOX": "tend-sandbox",
+        "TEND_RUNNER_HOME": str(runner_home),
+        "GITHUB_ENV": str(file_commands / "set_env_0"),
         "RUNNER_TEMP": str(runner_temp),
         "GITHUB_OUTPUT": str(output),
         "TEND_RUN_DIR": str(run_dir),
@@ -106,8 +118,9 @@ def test_claude_exports_only_fixed_runner_owned_files(
 ) -> None:
     run_dir, output, summary = configure(tmp_path, monkeypatch, harness="claude")
     monkeypatch.setenv("GITHUB_TOKEN", "runner-token-must-not-cross")
-    monkeypatch.setenv("OPENAI_API_KEY", "runner-key-must-not-cross")
+    monkeypatch.setenv("ACTIONS_RUNTIME_TOKEN", "runner-service-must-not-cross")
     monkeypatch.setenv("GITHUB_ACTOR", "octocat")
+    monkeypatch.setenv("JAVA_HOME", "/usr/lib/jvm/temurin-21")
     calls = fake_runtime(monkeypatch, run_dir, harness="claude")
 
     assert launch.main() == 0
@@ -124,8 +137,11 @@ def test_claude_exports_only_fixed_runner_owned_files(
     runtime = next(args for args in calls if "sandbox_runtime.mjs" in args[-1])
     assert "GITHUB_TOKEN=dummy" in runtime
     assert "GITHUB_ACTOR=octocat" in runtime
+    # The job's own environment crosses whole, which is how a consumer's
+    # `setup:` reaches the agent without anyone listing what it exported.
+    assert "JAVA_HOME=/usr/lib/jvm/temurin-21" in runtime
     assert not any("runner-token-must-not-cross" in arg for arg in runtime)
-    assert not any("runner-key-must-not-cross" in arg for arg in runtime)
+    assert not any("runner-service-must-not-cross" in arg for arg in runtime)
     assert not any(arg.startswith("GITHUB_OUTPUT=") for arg in runtime)
     assert f"TMPDIR={run_dir.parent / 'tmp'}" in runtime
     assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'tmp/step-summary.md'}" in runtime
@@ -162,7 +178,11 @@ def test_runtime_bundle_is_staged_outside_the_private_action(
     assert (bundle / "shared/steps/sandbox_setup.py").read_text() == (
         "sandbox_setup.py\n"
     )
+    assert (bundle / "shared/steps/lib/pin-instruction-paths.sh").read_text() == (
+        "lib/pin-instruction-paths.sh\n"
+    )
     assert (bundle / "shared/steps").stat().st_mode & 0o777 == 0o755
+    assert (bundle / "shared/steps/lib").stat().st_mode & 0o777 == 0o755
 
 
 def test_agent_step_summary_symlink_is_not_followed(

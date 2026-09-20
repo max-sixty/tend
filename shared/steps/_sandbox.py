@@ -6,15 +6,35 @@ inside the lifecycle inherits that environment unchanged. Trusted preparation
 commands that run before SRT use :func:`agent_env` and receive no GitHub
 context.
 
-Pass ``GITHUB_*`` through as a denylist rather than an explicit allowlist: most
-``GITHUB_*`` vars are informational (``GITHUB_ACTOR``, ``GITHUB_API_URL``,
-``GITHUB_REF_NAME``, ``GITHUB_WORKSPACE``, …) and a denylist picks up future
-additions automatically. Skills depend on them for run-self-reference (branch
-names, gist headings, dedup of own check runs) and owner-correct URL
-construction. Apart from :data:`WITHHELD`, every ``GITHUB_*`` Actions defines is
-public rather than a secret; a ``GITHUB_*``-named variable a consumer's
-``setup:`` step writes to ``$GITHUB_ENV`` crosses on the same rule, so a secret
-must not be given a ``GITHUB_*`` name.
+The agent runs in the job's own home and checkout, so it gets the job's own
+environment too: whatever a consumer's ``setup:`` steps exported — ``JAVA_HOME``,
+``DOTNET_ROOT``, ``PNPM_HOME``, ``GOROOT``, ``CARGO_INCREMENTAL`` — crosses
+without Tend naming any of them. That is what stops this becoming a list a
+consumer has to complete before their toolchain works, and it is why the
+exclusions below are GitHub-defined namespaces rather than Tend's judgement
+about which variables matter.
+
+What does not cross, and why:
+
+- :data:`WITHHELD_PREFIXES` — ``ACTIONS_*`` is the runner's own service
+  channel (``ACTIONS_RUNTIME_TOKEN``, the cache and results URLs), and
+  ``INPUT_*`` is how an action's inputs, some of them secrets, reach a step.
+- :data:`WITHHELD` — ``GITHUB_TOKEN``, whose real value must never leave the
+  proxy, and the five file-command paths the runner re-reads after the step
+  exits. The sandbox must not be handed a channel into a later step's
+  environment, PATH, outputs, state, or job summary. The view masks the
+  directory those paths live in as well; that stops reads of what earlier steps
+  wrote, where withholding the names stops writes to what later steps read.
+- Every name the agent environment file already defines. The file is the half
+  that routes the sandbox through the proxy and hands it dummy credentials, so
+  the job's ambient ``HOME``, ``PATH`` or ``HTTPS_PROXY`` must not land on top
+  of it.
+
+Order follows from that last point: the job context first, the file second, so
+the file wins wherever it sets anything. A consumer's ``sandbox_env:`` is part
+of the file, which is what makes it an override of the job environment rather
+than a suggestion — and is why ``setup_sandbox.py`` refuses a ``GITHUB_*`` name
+there, so the context a run reads about itself stays the runner's.
 """
 
 from __future__ import annotations
@@ -22,22 +42,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-#: The GitHub context names that must not cross the uid boundary.
-#:
-#: ``GITHUB_TOKEN`` — the agent env file carries a dummy; the real PAT lives in
-#: the proxy. (The file's dummy must not be overridden, so this entry is
-#: load-bearing.)
-#:
-#: ``GITHUB_WORKSPACE`` — the context names the trusted Actions checkout; the
-#: agent env file supplies the disposable clone instead.
-#:
-#: ``GITHUB_{ENV,PATH,OUTPUT,STATE,STEP_SUMMARY}`` — paths the runner re-reads
-#: after the step exits; the sandbox must not be handed a channel into later
-#: steps' env / PATH / outputs / job summary.
+#: Namespaces GitHub defines and the sandbox must not receive.
+WITHHELD_PREFIXES = ("ACTIONS_", "INPUT_")
+
+#: The individual names that must not cross the uid boundary.
 WITHHELD = frozenset(
     {
         "GITHUB_TOKEN",
-        "GITHUB_WORKSPACE",
         "GITHUB_ENV",
         "GITHUB_PATH",
         "GITHUB_OUTPUT",
@@ -72,25 +83,22 @@ def agent_env(agent_env_file: str | os.PathLike[str]) -> list[str]:
 def launch_env(agent_env_file: str | os.PathLike[str]) -> list[str]:
     """The ``NAME=VALUE`` arguments for the outer SRT launch.
 
-    The file's lines (proxy routing, CA trust, dummy credentials, and the
-    consumer's own ``sandbox_env:`` additions) come first, then the GitHub
-    context.
+    The job's environment first, then the file's lines (proxy routing, CA
+    trust, dummy credentials, and the consumer's own ``sandbox_env:``
+    additions), which is the order the module docstring explains.
 
-    That order is the reason this composes both halves rather than handing back
-    the context alone. ``env`` takes the final assignment of a name, and the
-    file is the half a consumer writes, so the context has to follow it or a
-    ``sandbox_env: {GITHUB_WORKFLOW: …}`` would decide what the run thinks it
-    is. As two lists that was a rule each caller had to remember; here it is the
-    function's postcondition. A caller may append names of its own afterwards —
-    they win, which is what tend's own ``BOT_*``/``TEND_*`` assignments want,
-    since those have to beat the file — provided none is ``GITHUB_*``-named or a
-    key the file defines, which would put the context or the sandbox's routing
-    back in play.
+    A caller may append names of its own afterwards — they win, which is what
+    Tend's own staged-bundle paths want — provided none is a key the file
+    defines, which would put the sandbox's routing back in play.
 
     Reads the environment when called, so call it in the step that forwards it.
     """
-    return agent_env(agent_env_file) + [
+    lines = agent_env(agent_env_file)
+    defined = {line.split("=", 1)[0] for line in lines if "=" in line}
+    return [
         f"{name}={value}"
         for name, value in os.environ.items()
-        if name.startswith("GITHUB_") and name not in WITHHELD
-    ]
+        if name not in defined
+        and name not in WITHHELD
+        and not name.startswith(WITHHELD_PREFIXES)
+    ] + lines

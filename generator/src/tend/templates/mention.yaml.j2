@@ -69,7 +69,6 @@ jobs:
           <<not_bookkeeping()>>))
     runs-on: ubuntu-24.04
 <<environment()>>
-<<cache_mode()>>
     permissions:
       contents: read
     outputs:
@@ -109,7 +108,6 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-24.04
 <<environment()>>
-<<cache_mode()>>
     permissions:
 <<permissions()>>
     steps:

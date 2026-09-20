@@ -13,7 +13,6 @@ jobs:
     if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && <<not_bookkeeping()>>
     runs-on: ubuntu-24.04
 <<environment()>>
-<<cache_mode()>>
     permissions:
 <<permissions()>>
     steps:

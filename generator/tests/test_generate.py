@@ -123,7 +123,7 @@ def _eyes_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:
 def test_local_setup_action_keeps_runner_checkout_stable(
     tmp_path: Path, name: str, job: str
 ) -> None:
-    """PR topology is selected only inside the harness's disposable clone."""
+    """PR topology is selected only inside the harness's sandbox."""
     extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     steps = yaml.safe_load(GENERATORS[name](cfg).content)["jobs"][job]["steps"]
@@ -554,30 +554,6 @@ def test_operational_secrets_imply_environment(tmp_path: Path) -> None:
                 if reads_secret
                 else "names the environment but holds no secret"
             )
-
-
-def test_agent_jobs_never_write_the_actions_cache(tmp_path: Path) -> None:
-    """Every job that names the environment refuses cache saves.
-
-    A save from a tend job lands in the scope the default branch's CI restores
-    from, because every tend trigger runs with the default branch or the PR
-    base as `GITHUB_REF`, never an isolated PR ref. Keyed on the environment
-    because that is what marks a job as one the agent runs in — install-test
-    and the relay run no agent and are left alone.
-    """
-    cfg = Config.load(
-        _minimal_config(
-            tmp_path, 'workflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n'
-        )
-    )
-    missing = [
-        f"{wf.filename}:{job_name}"
-        for wf in generate_all(cfg, with_install_test=True)
-        for job_name, job in yaml.safe_load(wf.content)["jobs"].items()
-        if job.get("environment")
-        and job.get("env", {}).get("ACTIONS_CACHE_MODE") != "read"
-    ]
-    assert not missing, f"jobs that can still save an Actions cache: {missing}"
 
 
 def test_custom_prompt(tmp_path: Path) -> None:
@@ -1029,7 +1005,7 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     assert "client_payload[url]" not in relay_run
     assert "event_type=tend-mention-review" in relay_run
 
-    # The harness selects the PR branch only in its disposable clone.
+    # The harness selects the PR branch only inside its sandbox.
     handle_steps = data["jobs"]["handle"]["steps"]
 
     # Prompt keeps the review-kind and mention/participation branches apart,
@@ -1696,9 +1672,6 @@ def test_sandbox_levers_regtest(regtest: object, tmp_path: Path) -> None:
         sandbox_env:
           RUST_BACKTRACE: "1"
           CARGO_TERM_COLOR: always
-        sandbox_import:
-          - ~/.cache/uv
-          - node_modules
         sandbox_setup:
           - rustup component add clippy
           - cargo fetch --locked

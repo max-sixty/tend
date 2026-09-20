@@ -450,14 +450,14 @@ def launch(
         launch_error: Exception | None = None,
         **overrides: str,
     ) -> Launch:
-        runner_temp = tmp_path / "runner-temp"
+        runner_temp = tmp_path / "agent-run"
         workspace = tmp_path / "workspace"
         runner_temp.mkdir(exist_ok=True)
         workspace.mkdir(exist_ok=True)
         monkeypatch.setenv("CI", "true")
         monkeypatch.setenv("TEND_INSIDE_SANDBOX", "1")
         env = {
-            "RUNNER_TEMP": str(runner_temp),
+            "TEND_RUN_DIR": str(runner_temp),
             "GITHUB_WORKSPACE": str(workspace),
             "TEND_MODEL": "opus",
             "TEND_EFFORT": "",
@@ -777,7 +777,7 @@ def test_main_refuses_to_start_without_an_input_it_needs_late(
     ordinary run green and surface months later, mid-outage, as a bare exit 1.
     """
     for name in (
-        "RUNNER_TEMP",
+        "TEND_RUN_DIR",
         "GITHUB_WORKSPACE",
         "TEND_MODEL",
         "TEND_ALLOWED_TOOLS",

@@ -143,8 +143,18 @@ runtime_root=$(/usr/bin/mktemp -d /var/tmp/tend-runtime.XXXXXX)
 # always() cleanup can then remove a partial runtime too.
 echo "TEND_RUNTIME_ROOT=$runtime_root" >> "$GITHUB_ENV"
 srt_root="$runtime_root/srt"
-npm_userconfig=$(/usr/bin/mktemp "$RUNNER_TEMP/tend-npm-user.XXXXXX")
-npm_globalconfig=$(/usr/bin/mktemp "$RUNNER_TEMP/tend-npm-global.XXXXXX")
+# Where Tend's own runner-side secrets live for the rest of the job: the proxy
+# confdir holding its CA private key, the auto-memory baseline key, the Codex
+# credentials. The agent works in the runner's home through a copy-on-write
+# view, in which it reads with the runner account's own permissions, so
+# anything of Tend's left under $RUNNER_TEMP would be readable by it. This
+# directory is outside that tree, where the sandbox uid is plain "other" —
+# 0700 under the 0755 container it cannot enter.
+private_dir="$runtime_root/private"
+/usr/bin/mkdir -m 700 "$private_dir"
+echo "TEND_PRIVATE_DIR=$private_dir" >> "$GITHUB_ENV"
+npm_userconfig=$(/usr/bin/mktemp "$private_dir/tend-npm-user.XXXXXX")
+npm_globalconfig=$(/usr/bin/mktemp "$private_dir/tend-npm-global.XXXXXX")
 /usr/bin/env -i \
   PATH="${node_bin%/node}:/usr/sbin:/usr/bin:/sbin:/bin" HOME="$RUNNER_TEMP" \
   "$node_bin" "$npm_cli" install --prefix "$srt_root" \

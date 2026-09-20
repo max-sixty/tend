@@ -76,16 +76,6 @@ inputs:
     description: >-
       Newline-separated NAME=VALUE pairs added to the sandbox agent's launch
       environment. Credential and proxy-routing names are reserved.
-  sandbox_import:
-    default: ""
-    description: >-
-      Newline-separated directories the runner's `setup:` prepared that the
-      agent may use. An absolute path, or one starting `~` (the runner's
-      home), is copied to `~/imports/<basename>` in the sandbox; a relative
-      path is resolved against the runner checkout and copied to the same
-      relative path in the agent's clone. Copies, so the runner's own
-      filesystem is unchanged, and each file is read as the sandbox user, so
-      one it cannot read fails the run.
   sandbox_setup:
     default: ""
     description: >-
@@ -229,18 +219,6 @@ runs:
           echo "TEND_CODEX_ROOT=$codex_root"
         } >> "$GITHUB_ENV"
 
-    - name: Prepare disposable agent workspace
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/prepare_agent_workspace.py"
-      env:
-        BASH_ENV: ""
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-        TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
-        TEND_BASE_BRANCH: ${{ inputs.base_branch }}
-
-    # Covered by the job's `ACTIONS_CACHE_MODE: read`, and to be deleted when
-    # `actions/cache` releases the bump that makes that effective — see the
-    # matching note in claude/action.yaml.
     - name: Cache mitmproxy
       uses: actions/cache@v6
       with:
@@ -268,7 +246,6 @@ runs:
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
         TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
         TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
-        TEND_SANDBOX_IMPORT: ${{ inputs.sandbox_import }}
         # The sandbox's global Git identity, so the agent's commits attribute
         # to the bot without every session configuring one for itself.
         TEND_BOT_LOGIN: ${{ steps.bot.outputs.login }}
@@ -282,9 +259,8 @@ runs:
           LANG=C.UTF-8 \
           GITHUB_ENV="$GITHUB_ENV" \
           GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
-          TEND_AGENT_WORKSPACE="$TEND_AGENT_WORKSPACE" \
-          TEND_RUNNER_WORKSPACE="$TEND_RUNNER_WORKSPACE" \
           RUNNER_TEMP="$RUNNER_TEMP" \
+          TEND_PRIVATE_DIR="$TEND_PRIVATE_DIR" \
           TEND_GH_TOKEN="$TEND_GH_TOKEN" \
           TEND_GITHUB_ONLY="$TEND_GITHUB_ONLY" \
           ACTION_PATH="$ACTION_PATH" \
@@ -296,7 +272,6 @@ runs:
           PYTHONNOUSERSITE=1 \
           TEND_SANDBOX_PATH="$TEND_SANDBOX_PATH" \
           TEND_SANDBOX_ENV="$TEND_SANDBOX_ENV" \
-          TEND_SANDBOX_IMPORT="$TEND_SANDBOX_IMPORT" \
           TEND_BOT_LOGIN="$TEND_BOT_LOGIN" \
           TEND_BOT_ID="$TEND_BOT_ID" \
           "${TEND_UV_DIR}/uv" run --no-cache --no-config \
@@ -318,8 +293,8 @@ runs:
       run: |
         set +x
         PATH=/usr/sbin:/usr/bin:/sbin:/bin
-        SERVER_INFO_FILE="$RUNNER_TEMP/tend-codex-proxy.json"
-        PROXY_LOG_FILE="$RUNNER_TEMP/tend-codex-proxy.log"
+        SERVER_INFO_FILE="$TEND_PRIVATE_DIR/tend-codex-proxy.json"
+        PROXY_LOG_FILE="$TEND_PRIVATE_DIR/tend-codex-proxy.log"
         rm -f -- "$SERVER_INFO_FILE" "$PROXY_LOG_FILE"
         if [ -z "$PROXY_API_KEY" ]; then
           echo "::error::OPENAI_API_KEY is unset. Set the OPENAI_API_KEY repo secret."
@@ -429,6 +404,11 @@ runs:
         TEND_CODEX_RUNNER: ${{ github.action_path }}/runner.py
         TEND_SANDBOX_SETUP: ${{ inputs.sandbox_setup }}
         ACTION_PATH: ${{ github.action_path }}/..
+        # The event topology is selected inside the sandbox, by
+        # shared/steps/event_checkout.py, so these cross the boundary with the
+        # rest of the launch environment rather than driving a runner-side step.
+        TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
+        TEND_BASE_BRANCH: ${{ inputs.base_branch }}
       # runner.py preserves the final message even when codex exits non-zero.
       # Base64 keeps arbitrary agent output in one GITHUB_OUTPUT line; consumers
       # decode it with `base64 -d`.

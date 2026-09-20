@@ -2,11 +2,14 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""Delete the event checkout and the per-run runtime after the reap.
+"""Delete the per-run runtime container after the reap.
 
-Both are named containers under ``/var/tmp``. The sandbox's own scratch needs
-no step here: its ``/tmp`` is a tmpfs that exists only inside the sandbox's
-mount namespace, and its home goes with the disposable user.
+One named container under ``/var/tmp``, holding the staged lifecycle bundle,
+Tend's own runner-side secrets, and the view's upper layer — everything the
+sandbox wrote that reached disk at all. The sandbox's own scratch needs no step
+here: its ``/tmp`` is a tmpfs that exists only inside the sandbox's mount
+namespace, its home goes with the disposable user, and the view itself was
+never more than mounts in a namespace that died with the process tree.
 """
 
 from __future__ import annotations
@@ -17,28 +20,12 @@ import subprocess
 from pathlib import Path
 
 CONTAINER_PARENT = Path("/var/tmp")
-WORKSPACE_CONTAINER = re.compile(r"tend-agent-workspace-[A-Za-z0-9._-]+\Z")
 RUNTIME_CONTAINER = re.compile(r"tend-runtime\.[A-Za-z0-9]+\Z")
 
 
 def fail(message: str) -> int:
     print(f"::error::{message}", flush=True)
     return 1
-
-
-def workspace_container(workspace: Path) -> Path:
-    """Return the dedicated /var/tmp container or reject a broader target."""
-    if workspace.name != "checkout":
-        raise ValueError("TEND_AGENT_WORKSPACE must end in /checkout")
-    container = workspace.parent
-    if container.parent != CONTAINER_PARENT or not WORKSPACE_CONTAINER.fullmatch(
-        container.name
-    ):
-        raise ValueError(
-            "TEND_AGENT_WORKSPACE must be inside a "
-            "tend-agent-workspace-* /var/tmp container"
-        )
-    return container
 
 
 def runtime_container(runtime: Path) -> Path:
@@ -54,14 +41,8 @@ def runtime_container(runtime: Path) -> Path:
 
 def targets() -> list[Path]:
     """Resolve every resource that this run got far enough to create."""
-    resources: list[Path] = []
-    workspace = os.environ.get("TEND_AGENT_WORKSPACE", "")
-    if workspace:
-        resources.append(workspace_container(Path(workspace)))
     runtime = os.environ.get("TEND_RUNTIME_ROOT", "")
-    if runtime:
-        resources.append(runtime_container(Path(runtime)))
-    return resources
+    return [runtime_container(Path(runtime))] if runtime else []
 
 
 def main() -> int:

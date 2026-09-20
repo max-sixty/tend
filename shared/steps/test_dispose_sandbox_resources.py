@@ -11,19 +11,6 @@ def result(args: list[str], returncode: int = 0) -> subprocess.CompletedProcess[
     return subprocess.CompletedProcess(args, returncode)
 
 
-def test_accepts_only_the_dedicated_workspace_shape() -> None:
-    expected = Path("/var/tmp/tend-agent-workspace-abc123")
-    assert dispose.workspace_container(expected / "checkout") == expected
-
-    for path in (
-        Path("/var/tmp/tend-agent-workspace-abc123"),
-        Path("/var/tmp/unrelated/checkout"),
-        Path("/tmp/tend-agent-workspace-abc123/checkout"),
-    ):
-        with pytest.raises(ValueError):
-            dispose.workspace_container(path)
-
-
 def test_accepts_only_the_dedicated_runtime_shape() -> None:
     expected = Path("/var/tmp/tend-runtime.aB123z")
     assert dispose.runtime_container(expected) == expected
@@ -40,8 +27,6 @@ def test_accepts_only_the_dedicated_runtime_shape() -> None:
 def test_disposes_only_after_the_sandbox_uid_is_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    workspace = Path("/var/tmp/tend-agent-workspace-abc123/checkout")
-    monkeypatch.setenv("TEND_AGENT_WORKSPACE", str(workspace))
     monkeypatch.setenv("TEND_RUNTIME_ROOT", "/var/tmp/tend-runtime.r1a2b3")
     monkeypatch.setenv("SANDBOX", "tend-sandbox")
     calls: list[list[str]] = []
@@ -61,7 +46,6 @@ def test_disposes_only_after_the_sandbox_uid_is_empty(
             "/usr/bin/rm",
             "-rf",
             "--",
-            "/var/tmp/tend-agent-workspace-abc123",
             "/var/tmp/tend-runtime.r1a2b3",
         ],
     ]
@@ -70,9 +54,7 @@ def test_disposes_only_after_the_sandbox_uid_is_empty(
 def test_refuses_to_dispose_while_a_sandbox_process_lives(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(
-        "TEND_AGENT_WORKSPACE", "/var/tmp/tend-agent-workspace-abc123/checkout"
-    )
+    monkeypatch.setenv("TEND_RUNTIME_ROOT", "/var/tmp/tend-runtime.abc123")
     monkeypatch.setenv("SANDBOX", "tend-sandbox")
     calls: list[list[str]] = []
 
@@ -86,10 +68,9 @@ def test_refuses_to_dispose_while_a_sandbox_process_lives(
     assert calls == [["/usr/bin/pgrep", "-u", "tend-sandbox"]]
 
 
-def test_disposes_partial_runtime_when_workspace_was_never_prepared(
+def test_disposes_the_runtime_when_the_launch_never_happened(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("TEND_AGENT_WORKSPACE", raising=False)
     monkeypatch.setenv("TEND_RUNTIME_ROOT", "/var/tmp/tend-runtime.abc123")
     monkeypatch.delenv("SANDBOX", raising=False)
     calls: list[list[str]] = []

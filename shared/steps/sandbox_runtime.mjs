@@ -27,24 +27,16 @@ async function main() {
   const entry = absolute("TEND_SRT_ENTRY");
   const seccomp = absolute("TEND_SRT_SECCOMP");
   const lifecycle = absolute("TEND_LIFECYCLE");
-  const agentWorkspace = absolute("TEND_AGENT_WORKSPACE");
-  const runnerWorkspace = absolute("TEND_RUNNER_WORKSPACE");
+  const workspace = absolute("GITHUB_WORKSPACE");
   const agentHome = absolute("AGENT_HOME");
   const agentTmpDir = absolute("TMPDIR");
   const runnerHome = absolute("TEND_RUNNER_HOME");
-  const actionPath = absolute("ACTION_PATH");
-  const eventPath = absolute("GITHUB_EVENT_PATH");
-  const agentEnv = absolute("AGENT_ENV_FILE");
   const autoMemory = process.env.TEND_AUTO_MEMORY_DIRECTORY;
-  const codexRoot = process.env.TEND_CODEX_ROOT;
   if (autoMemory && !autoMemory.startsWith("/")) {
     throw new Error("TEND_AUTO_MEMORY_DIRECTORY must be absolute");
   }
-  if (codexRoot && !codexRoot.startsWith("/")) {
-    throw new Error("TEND_CODEX_ROOT must be absolute");
-  }
 
-  for (const path of [entry, seccomp, lifecycle, agentWorkspace, agentHome]) {
+  for (const path of [entry, seccomp, lifecycle, workspace, agentHome]) {
     await access(path);
   }
 
@@ -85,22 +77,18 @@ async function main() {
       // TMPDIR into the sandbox home rather than landing in the directory
       // the tmpfs covers. Pointing TMPDIR back at /tmp would mount over
       // them.
-      denyRead: [runnerHome, runnerWorkspace, "/tmp"],
-      allowRead: [
-        actionPath,
-        agentWorkspace,
-        agentHome,
-        eventPath,
-        agentEnv,
-        seccomp,
-        ...(autoMemory ? [autoMemory] : []),
-        ...(codexRoot ? [codexRoot] : []),
-      ],
-      allowWrite: [
-        agentWorkspace,
-        agentHome,
-        ...(autoMemory ? [autoMemory] : []),
-      ],
+      denyRead: ["/tmp"],
+      // Nothing else is denied, so nothing needs re-admitting: with `/` bound
+      // read-only, every path is readable unless a denied directory covers it.
+      allowRead: [],
+      // The runner's home is the job's home and holds the checkout, and the
+      // agent works in both. What makes that safe is not this list but
+      // `enter_view.py`: the home it names here is a copy-on-write view, so a
+      // write lands in an upper layer that dies with the process tree and the
+      // runner's own filesystem is byte-for-byte unchanged. bwrap binds
+      // whatever the parent mount namespace has at this path, which is the
+      // overlay, so SRT needs to know none of that.
+      allowWrite: [runnerHome, agentHome, ...(autoMemory ? [autoMemory] : [])],
       denyWrite: [],
       allowGitConfig: true,
     },
@@ -108,7 +96,7 @@ async function main() {
     seccomp: { applyPath: seccomp },
     bwrapPath: "/usr/bin/bwrap",
     socatPath: "/usr/bin/socat",
-    git: { safeDirectories: [agentWorkspace] },
+    git: { safeDirectories: [workspace] },
   };
 
   let child;
@@ -140,13 +128,13 @@ async function main() {
       "/usr/bin/bash",
       undefined,
       undefined,
-      agentWorkspace,
+      workspace,
       { commandId: "tend-agent-lifecycle", commandText: command },
     );
     console.log(`::stop-commands::${token}`);
     commandsStopped = true;
     child = spawn(wrapped.argv[0], wrapped.argv.slice(1), {
-      cwd: agentWorkspace,
+      cwd: workspace,
       env: { ...process.env, ...wrapped.env },
       stdio: ["ignore", "pipe", "pipe"],
     });

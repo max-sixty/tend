@@ -42,11 +42,6 @@ jobs:
     environment:
       name: tend
       deployment: false
-    env:
-      # Restore from the Actions cache, never save to it. This job runs with
-      # the default branch or the PR base as GITHUB_REF, so a save here lands
-      # in the scope the default branch's own CI restores from.
-      ACTIONS_CACHE_MODE: read
     permissions:
       contents: read
     outputs:
@@ -299,11 +294,6 @@ jobs:
     environment:
       name: tend
       deployment: false
-    env:
-      # Restore from the Actions cache, never save to it. This job runs with
-      # the default branch or the PR base as GITHUB_REF, so a save here lands
-      # in the scope the default branch's own CI restores from.
-      ACTIONS_CACHE_MODE: read
     permissions:
       contents: write
       pull-requests: write
@@ -377,9 +367,6 @@ jobs:
           sandbox_env: |2
             RUST_BACKTRACE=1
             CARGO_TERM_COLOR=always
-          sandbox_import: |2
-            ~/.cache/uv
-            node_modules
           sandbox_setup: |2
             rustup component add clippy
             cargo fetch --locked

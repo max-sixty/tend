@@ -52,9 +52,6 @@
 {% if cfg.sandbox_env %}
           <<block_input('sandbox_env', cfg.sandbox_env.items()|map('join', '=')|join('\n'))>>
 {% endif %}
-{% if cfg.sandbox_import %}
-          <<block_input('sandbox_import', cfg.sandbox_import|join('\n'))>>
-{% endif %}
 {% if cfg.sandbox_setup %}
           <<block_input('sandbox_setup', cfg.sandbox_setup|join('\n'))>>
 {% endif %}
@@ -95,39 +92,6 @@
     environment:
       name: <<tend_environment>>
       deployment: false
-{%- endmacro %}
-
-{# Job-level `env:` at column 4, beside `environment()`: every job that names
-   the environment runs the agent or decides whether to, and none of them may
-   write the Actions cache.
-
-   A tend job's cache *save* lands in the scope the default branch's CI
-   restores from. Every tend trigger runs with the default branch or the PR
-   base as `GITHUB_REF` — `schedule`, `issues`, `issue_comment`,
-   `workflow_run`, `repository_dispatch`, `pull_request_target`, never an
-   isolated PR ref — so whatever a tend job saved would be restored and built
-   by a later run on reviewed code.
-
-   This is a statement of that rule, not the thing that enforces it: what the
-   agent writes never reaches a host path a cache action covers, because it
-   runs as its own uid inside SRT and `sandbox_import` copies into the sandbox
-   rather than handing over anything on the runner. The variable adds the
-   guarantee for a consumer's `setup:` steps too, and it starts working when
-   the actions release their bump — `@actions/cache` 6.2.0 reads it and skips
-   the save while leaving restores alone, and `actions/cache` and
-   `Swatinem/rust-cache` have both taken that bump on their default branches,
-   but the tags consumers pin (`actions/cache@v6.1.0`, `Swatinem/rust-cache@v2`)
-   bundle 6.1.x and ignore it.
-
-   One tend cache is caught by it too — the harness's own pinned mitmproxy
-   download — and is left to go cold rather than carved out; the note on that
-   step in claude/action.yaml says to delete the step instead. #}
-{% macro cache_mode() %}
-    env:
-      # Restore from the Actions cache, never save to it. This job runs with
-      # the default branch or the PR base as GITHUB_REF, so a save here lands
-      # in the scope the default branch's own CI restores from.
-      ACTIONS_CACHE_MODE: read
 {%- endmacro %}
 
 {# Permissions block at column 6. `issues` defaults to True because every
@@ -259,12 +223,13 @@
    the configured default branch, or review's pr_ref dispatch. `if_condition`
    gates the step for notifications' empty-inbox path.
 
-   `allow_unsafe_pr_checkout` opts into checkout's fork-PR guard: v7 refuses to
-   check out a fork's `refs/pull/N/{merge,head}` under `pull_request_target`
-   (the "pwn request" guard) unless this input is set. Only review feeds a fork
-   ref straight to the action, so only it sets this; mention never hands the
-   action a fork ref, because the event topology it needs is built in the
-   disposable clone by `prepare_agent_workspace.py` rather than here.
+   No caller passes a pull request's own ref: every workflow checks out
+   reviewed code, and `shared/steps/event_checkout.py` moves the tree to the
+   event's topology inside the sandbox. So checkout's fork-PR guard
+   (`allow-unsafe-pr-checkout`, which v7 requires before it will check out a
+   fork's `refs/pull/N/{merge,head}` under `pull_request_target`) is never
+   opted out of, and `clean`'s `git clean -ffdx && git reset --hard` never has
+   an earlier step's work to delete.
 
    `persist-credentials: false` keeps the bot PAT off the runner's disk.
    Without it `actions/checkout` writes it into
@@ -272,16 +237,11 @@
    and leaves it there for the whole job, which makes that file the most
    valuable thing SRT's `denyRead` on the runner checkout is hiding — and
    removing it beats hiding it. Nothing tend runs afterwards reads it: every
-   later step takes the PAT through `env:`, `prepare_agent_workspace.py`
-   clones from the remote under its own token and touches the runner checkout
-   only for a local `git rev-parse HEAD`, and the config restore runs `git
-   restore` inside the disposable clone. The token input stays, because the
-   fetch itself still needs it on a private repository.
-
-   `clean=False` drops checkout's `git clean -ffdx && git reset --hard`, which
-   would otherwise delete what an earlier step wrote into the workspace. Review
-   sets it on its second checkout, where `setup:` has already run. #}
-{% macro checkout(cfg, ref=None, if_condition='', allow_unsafe_pr_checkout=False, clean=True) %}
+   later step takes the PAT through `env:`, and the event checkout and the
+   config restore both run inside the sandbox, where the credentials are
+   dummies the proxy replaces on the way out. The token input stays, because
+   the fetch itself still needs it on a private repository. #}
+{% macro checkout(cfg, ref=None, if_condition='') %}
       - uses: actions/checkout@v7
 {% if if_condition %}
         if: <<if_condition>>
@@ -289,12 +249,6 @@
         with:
 {% if ref %}
           ref: <<ref>>
-{% endif %}
-{% if allow_unsafe_pr_checkout %}
-          allow-unsafe-pr-checkout: true
-{% endif %}
-{% if not clean %}
-          clean: false
 {% endif %}
           fetch-depth: 0
           fetch-tags: true

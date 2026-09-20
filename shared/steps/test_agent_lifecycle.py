@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import agent_lifecycle
+import event_checkout
 import pytest
 import sandbox_setup
 
@@ -23,10 +24,17 @@ def contained_sandbox_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEND_INSIDE_SANDBOX", "")
 
 
+@pytest.fixture(autouse=True)
+def before_the_harness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Everything `main` runs inside the view before it reaches a harness."""
+    monkeypatch.setattr(agent_lifecycle, "probe_boundary", lambda: None)
+    monkeypatch.setattr(agent_lifecycle, "configure_git", lambda: None)
+    monkeypatch.setattr(event_checkout, "main", lambda: 0)
+
+
 @pytest.fixture
 def past_setup(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Both gates `main` clears before it reaches the harness branch."""
-    monkeypatch.setattr(agent_lifecycle, "probe_boundary", lambda: None)
+    """The last gate `main` clears before it reaches the harness branch."""
     monkeypatch.setattr(sandbox_setup, "main", lambda: 0)
 
 
@@ -56,7 +64,6 @@ def test_setup_failure_reaches_no_harness(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A non-zero `sandbox_setup` is the turn's exit code, not a harness boot."""
-    monkeypatch.setattr(agent_lifecycle, "probe_boundary", lambda: None)
     monkeypatch.setattr(sandbox_setup, "main", lambda: 3)
     monkeypatch.setenv("TEND_HARNESS", "codex")
     monkeypatch.delenv("TEND_CODEX_RUNNER", raising=False)

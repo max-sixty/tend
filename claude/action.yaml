@@ -106,16 +106,6 @@ inputs:
       Newline-separated NAME=VALUE pairs added to the sandbox agent's launch
       environment. Reserved keys (proxy routing, CA trust, dummy credentials,
       PATH) are rejected — use `sandbox_path` to extend PATH.
-  sandbox_import:
-    default: ""
-    description: >-
-      Newline-separated directories the runner's `setup:` prepared that the
-      agent may use. An absolute path, or one starting `~` (the runner's
-      home), is copied to `~/imports/<basename>` in the sandbox; a relative
-      path is resolved against the runner checkout and copied to the same
-      relative path in the agent's clone. Copies, so the runner's own
-      filesystem is unchanged, and each file is read as the sandbox user, so
-      one it cannot read fails the run.
   sandbox_setup:
     default: ""
     description: >-
@@ -222,15 +212,6 @@ runs:
         SRT_VERSION: ${{ inputs.sandbox_runtime_version }}
         TEND_RUNNER_ENVIRONMENT: ${{ runner.environment }}
 
-    - name: Prepare disposable agent workspace
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/prepare_agent_workspace.py"
-      env:
-        BASH_ENV: ""
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-        TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
-        TEND_BASE_BRANCH: ${{ inputs.base_branch }}
-
     # Compose the system prompt (shared/system-prompt.md, rendered in Claude's
     # skill syntax, plus the consumer's system_prompt_append).
     # SYSTEM_PROMPT_FILE is passed in so the script is path-agnostic; this
@@ -260,19 +241,12 @@ runs:
     # path resolves. See ../proxy/setup_sandbox.py and
     # ../proxy/inject_credentials.py.
     #
-    # Runs after the disposable checkout is prepared and before the Claude
-    # lifecycle — install, plugins, and the run all execute as the sandbox user. Cache the proxy's
+    # Runs before the Claude lifecycle — install, plugins, and the run all
+    # execute as the sandbox user. Cache the proxy's
     # mitmproxy download (a sizeable dependency) in an isolated uv cache dir,
     # keyed on the pinned version. First run populates; every run after restores
     # in seconds instead of a cold ~20s resolve. This cache belongs only to the
     # proxy; agent and consumer uv caches stay separate.
-    # The job's `ACTIONS_CACHE_MODE: read` covers this step too, which today
-    # is inert: the released `actions/cache@v6.1.0` bundles `@actions/cache`
-    # 6.1.x and ignores the variable. When it ships the 6.2.0 bump its default
-    # branch already carries, this cache stops saving and every run pays the
-    # cold mitmproxy resolve (~20s). Delete this step then. Don't carve it out
-    # with a step-level `write`: one cache mode across every tend job is worth
-    # more than the seconds, and a second mode is a mechanism to maintain.
     - name: Cache mitmproxy
       uses: actions/cache@v6
       with:
@@ -305,7 +279,6 @@ runs:
         # the agent env file. sandbox_setup (commands) runs in a later step.
         TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
         TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
-        TEND_SANDBOX_IMPORT: ${{ inputs.sandbox_import }}
         # The sandbox's global Git identity, so the agent's commits attribute
         # to the bot without every session configuring one for itself.
         TEND_BOT_LOGIN: ${{ steps.bot.outputs.login }}
@@ -319,9 +292,8 @@ runs:
           LANG=C.UTF-8 \
           GITHUB_ENV="$GITHUB_ENV" \
           GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
-          TEND_AGENT_WORKSPACE="$TEND_AGENT_WORKSPACE" \
-          TEND_RUNNER_WORKSPACE="$TEND_RUNNER_WORKSPACE" \
           RUNNER_TEMP="$RUNNER_TEMP" \
+          TEND_PRIVATE_DIR="$TEND_PRIVATE_DIR" \
           TEND_GH_TOKEN="$TEND_GH_TOKEN" \
           TEND_ANTHROPIC_OAUTH_TOKEN="$TEND_ANTHROPIC_OAUTH_TOKEN" \
           TEND_ANTHROPIC_API_KEY="$TEND_ANTHROPIC_API_KEY" \
@@ -334,7 +306,6 @@ runs:
           PYTHONNOUSERSITE=1 \
           TEND_SANDBOX_PATH="$TEND_SANDBOX_PATH" \
           TEND_SANDBOX_ENV="$TEND_SANDBOX_ENV" \
-          TEND_SANDBOX_IMPORT="$TEND_SANDBOX_IMPORT" \
           TEND_BOT_LOGIN="$TEND_BOT_LOGIN" \
           TEND_BOT_ID="$TEND_BOT_ID" \
           "${TEND_UV_DIR}/uv" run --no-cache --no-config \
@@ -400,7 +371,7 @@ runs:
           fi
         }
         trap cleanup_restore EXIT
-        key_file=$(/usr/bin/mktemp "${RUNNER_TEMP}/tend-auto-memory-key.XXXXXXXXXX")
+        key_file=$(/usr/bin/mktemp "${TEND_PRIVATE_DIR}/tend-auto-memory-key.XXXXXXXXXX")
         /usr/bin/openssl rand -hex 32 > "$key_file"
         TEND_AUTO_MEMORY_DIRECTORY="$memory_dir"
         TEND_AUTO_MEMORY_BASELINE_KEY=$(/usr/bin/cat "$key_file")
@@ -471,6 +442,11 @@ runs:
         TEND_LIFECYCLE: ${{ github.action_path }}/../shared/steps/agent_lifecycle.py
         TEND_SANDBOX_SETUP: ${{ inputs.sandbox_setup }}
         ACTION_PATH: ${{ github.action_path }}/..
+        # The event topology is selected inside the sandbox, by
+        # shared/steps/event_checkout.py, so these cross the boundary with the
+        # rest of the launch environment rather than driving a runner-side step.
+        TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
+        TEND_BASE_BRANCH: ${{ inputs.base_branch }}
       run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/launch_sandbox_runtime.py"
 
     - name: Dispose sandbox resources

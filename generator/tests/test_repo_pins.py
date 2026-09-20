@@ -294,7 +294,7 @@ HARDENED_SHELL = "/usr/bin/bash --noprofile --norc -e -o pipefail {0}"
 # could influence. The agent runs as its own uid, but the steps that follow run
 # as the runner, which holds the bot PAT and — under codex — the model key. A
 # consumer's `setup:` has already prepended its own directories to the job
-# PATH, and `sandbox_import` hands the sandbox a runner directory, so a bare
+# PATH, and the agent writes the job's own home through a view, so a bare
 # command name in a post-agent step is a name the sandbox could come to answer.
 #
 # Every such step therefore either `uses:` an action or is a `run:` with an
@@ -426,8 +426,8 @@ def test_npm_installs_use_distinct_empty_config_files() -> None:
     install = (
         REPO_ROOT / "shared" / "steps" / "install-sandbox-runtime.sh"
     ).read_text()
-    assert 'mktemp "$RUNNER_TEMP/tend-npm-user.XXXXXX"' in install
-    assert 'mktemp "$RUNNER_TEMP/tend-npm-global.XXXXXX"' in install
+    assert 'mktemp "$private_dir/tend-npm-user.XXXXXX"' in install
+    assert 'mktemp "$private_dir/tend-npm-global.XXXXXX"' in install
     assert (
         '--userconfig "$npm_userconfig" --globalconfig "$npm_globalconfig"' in install
     )
