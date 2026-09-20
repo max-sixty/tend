@@ -8,6 +8,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -236,6 +237,12 @@ def test_runtime_bundle_carries_every_module_it_imports() -> None:
 # Mirrors LAUNCH_ATTEMPTS in sandbox_runtime.mjs.
 LAUNCH_ATTEMPTS = 3
 
+# The tests below run sandbox_runtime.mjs for real, and its first statement
+# refuses any other platform; the stand-in lifecycle spawns /usr/bin/bash too.
+linux_only = pytest.mark.skipif(
+    sys.platform != "linux", reason="sandbox_runtime.mjs requires Linux"
+)
+
 FAKE_SRT = """
 import fs from "node:fs";
 
@@ -319,6 +326,7 @@ def run_sandbox_runtime(
     return completed, json.loads(state.read_text())
 
 
+@linux_only
 def test_a_transient_sandbox_launch_failure_is_retried(tmp_path: Path) -> None:
     """SRT's bridge-socket wait is a race the run should not be lost to.
 
@@ -336,6 +344,7 @@ def test_a_transient_sandbox_launch_failure_is_retried(tmp_path: Path) -> None:
     assert counts["wrap"] == 1
 
 
+@linux_only
 def test_sandbox_launch_retries_are_bounded_and_keep_the_cause(
     tmp_path: Path,
 ) -> None:
@@ -352,6 +361,7 @@ def test_sandbox_launch_retries_are_bounded_and_keep_the_cause(
     )
 
 
+@linux_only
 def test_a_failed_cleanup_does_not_abandon_the_remaining_attempts(
     tmp_path: Path,
 ) -> None:
