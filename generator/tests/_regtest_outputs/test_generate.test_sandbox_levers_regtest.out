@@ -371,6 +371,9 @@ jobs:
           sandbox_env: |2
             RUST_BACKTRACE=1
             CARGO_TERM_COLOR=always
+          sandbox_import: |2
+            ~/.cache/uv
+            node_modules
           sandbox_setup: |2
             rustup component add clippy
             cargo fetch --locked

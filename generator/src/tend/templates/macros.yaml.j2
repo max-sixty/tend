@@ -52,6 +52,9 @@
 {% if cfg.sandbox_env %}
           <<block_input('sandbox_env', cfg.sandbox_env.items()|map('join', '=')|join('\n'))>>
 {% endif %}
+{% if cfg.sandbox_import %}
+          <<block_input('sandbox_import', cfg.sandbox_import|join('\n'))>>
+{% endif %}
 {% if cfg.sandbox_setup %}
           <<block_input('sandbox_setup', cfg.sandbox_setup|join('\n'))>>
 {% endif %}
@@ -105,12 +108,13 @@
    isolated PR ref — so whatever a tend job saved would be restored and built
    by a later run on reviewed code.
 
-   This states the rule; it is not what enforces it. What the agent writes
-   never reaches a host path a cache action covers, because it runs as its own
-   uid inside SRT and nothing on the runner is handed over to it. The variable
-   extends the guarantee to a consumer's `setup:` steps, and starts working
-   when the actions release their bump — `@actions/cache` 6.2.0 reads it and
-   skips the save while leaving restores alone, and `actions/cache` and
+   This is a statement of that rule, not the thing that enforces it: what the
+   agent writes never reaches a host path a cache action covers, because it
+   runs as its own uid inside SRT and `sandbox_import` copies into the sandbox
+   rather than handing over anything on the runner. The variable adds the
+   guarantee for a consumer's `setup:` steps too, and it starts working when
+   the actions release their bump — `@actions/cache` 6.2.0 reads it and skips
+   the save while leaving restores alone, and `actions/cache` and
    `Swatinem/rust-cache` have both taken that bump on their default branches,
    but the tags consumers pin (`actions/cache@v6.1.0`, `Swatinem/rust-cache@v2`)
    bundle 6.1.x and ignore it.

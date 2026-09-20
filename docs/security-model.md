@@ -325,6 +325,39 @@ Each transition is a bottleneck with one job:
   runner. What the sandbox may write is therefore its own `/tmp`, its checkout
   and home, and, where the memory experiment is on, the one `/var/tmp`
   directory that experiment owns.
+- **Named imports** carry directories the consumer's `setup:` prepared into
+  the sandbox, and carry nothing back. Each `sandbox_import` entry is copied
+  into the sandbox home or the disposable clone — never moved and never
+  chowned — so the runner's filesystem is byte-for-byte what `setup:` left it,
+  both while the agent runs and after it. There is nothing to undo, so there
+  is no cleanup step whose failure could matter, and nothing the agent writes
+  has a path back out.
+
+  **Per-inode permissions decide; the ancestor chain is bypassed.** The copy
+  runs as the sandbox uid, which is what makes the boundary exact rather than
+  enumerated: a file the sandbox user may not read is refused by the kernel,
+  so tend needs no list of which directories under a runner home hold
+  credentials, and cannot be behind one. A refused read fails the run naming
+  the path rather than importing part of a tree. It cannot reach the source by
+  that uid's own traversal, though — `/home/runner` is 0750 on a hosted runner
+  and the sandbox account is in none of the runner's groups — so a privileged
+  step binds the source into a private mount namespace at a path the uid can
+  traverse, and drops to that uid before the copy. The bypass is exactly the
+  ancestor chain: `~/.cargo/registry` becomes reachable, and a 0600
+  `~/.cargo/credentials.toml` inside it still does not.
+
+  That adds `unshare`, `mount` and `setpriv` to the boundary. They run as root
+  from a fixed argv around a single `cp`, with the consumer's paths passed as
+  environment rather than script text, and the namespace dies with that `cp` —
+  no unmount to fail open, no host metadata changed. What remains checked is
+  only what a copy cannot decide for itself: the entry exists and is a
+  directory, it is not inside the checkout's `.git`, and a relative entry's
+  destination inside the clone is canonical, so a symlink a pull request
+  planted at `target` cannot choose where the copy lands.
+
+  The cost is honest and stated in `docs/tend.example.yaml`: a copy per run,
+  and a destination path that differs from the source, which decides what a
+  given cache is still worth to the agent.
 - **Launch and lifetime** invokes the consumer's `sandbox_setup:` and the whole
   Claude or Codex turn as one command under the pinned Anthropic Sandbox
   Runtime. Tend supplies absolute `node`, `bwrap`, `socat`, `rg`, and seccomp
@@ -398,8 +431,8 @@ never see, such as the checkout credential in `.git/config`.
 **Setup runs on reviewed code.** Consumer `setup:` steps execute as the runner
 user against the stable Actions checkout: the default branch, or in
 `tend-review` the PR's reviewed base. That tree is never replaced or handed to
-the agent, and files `setup:` writes there do not appear in the independent
-agent checkout. A contributor's build backend and dependencies therefore
+the agent, and files `setup:` writes there reach the agent only as a copy, and
+only where a `sandbox_import` entry names them. A contributor's build backend and dependencies therefore
 execute only from the disposable event checkout, through `sandbox_setup:` or
 the agent itself, inside SRT. Both harnesses run `sandbox_setup:` as the
 non-sudo sandbox user in the same SRT process lifetime as the agent.

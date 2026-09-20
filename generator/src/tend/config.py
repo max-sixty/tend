@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import click
 from ruamel.yaml import YAML, YAMLError
@@ -48,6 +48,7 @@ KNOWN_TOP_LEVEL = {
     "setup",
     "sandbox_setup",
     "sandbox_env",
+    "sandbox_import",
     "sandbox_path",
     "workflows",
 }
@@ -244,6 +245,12 @@ class Config:
     sandbox_path: list[str] = field(default_factory=list)
     sandbox_env: dict[str, str] = field(default_factory=dict)
     sandbox_setup: list[str] = field(default_factory=list)
+    # Directories `setup:` prepared on the runner that the agent may use. An
+    # absolute (or `~`-prefixed) entry is handed over at its own path and
+    # destroyed after the run; a relative one is moved out of the runner
+    # checkout into the agent's disposable clone. The refusals that need the
+    # runner's own home and PATH live in `proxy/setup_sandbox.py`.
+    sandbox_import: list[str] = field(default_factory=list)
     # Opt-in experiment that persists Claude Code's model-authored auto memory
     # in a bot-owned secret Gist. The Gist ID stays in a fixed environment
     # secret so a public repository does not publish the unlisted URL.
@@ -477,6 +484,8 @@ class Config:
                 )
             sandbox_env[name] = coerced
 
+        sandbox_import = _parse_sandbox_import(raw.get("sandbox_import", []) or [])
+
         sandbox_setup = raw.get("sandbox_setup", []) or []
         if not isinstance(sandbox_setup, list) or not all(
             isinstance(c, str) and c.strip() for c in sandbox_setup
@@ -673,6 +682,7 @@ class Config:
             setup=setup,
             sandbox_path=sandbox_path,
             sandbox_env=sandbox_env,
+            sandbox_import=sandbox_import,
             sandbox_setup=sandbox_setup,
             memory_gist=memory_gist,
             workflows=workflows,
@@ -695,6 +705,47 @@ def _parse_args(raw: object, key: str) -> list[str]:
             "without trailing whitespace "
             '(e.g. ["--max-turns", "50"])'
         )
+    return list(raw)
+
+
+def _parse_sandbox_import(raw: object) -> list[str]:
+    """Validate `sandbox_import` as far as generation can see.
+
+    Whether an entry names a credential store, a directory on the runner's
+    PATH, or anything at all depends on the runner, so those refusals live in
+    `proxy/setup_sandbox.py` and fail the run. What is decidable here is the
+    spelling: a form that could never resolve, or one whose meaning would
+    depend on a shell that never runs.
+    """
+    if not isinstance(raw, list) or not all(
+        isinstance(entry, str) and entry.strip() and entry == entry.strip()
+        for entry in raw
+    ):
+        raise click.ClickException(
+            "sandbox_import must be a list of non-empty directory paths "
+            'without surrounding whitespace (e.g. sandbox_import: ["target"])'
+        )
+    for entry in raw:
+        if "\n" in entry:
+            raise click.ClickException(
+                f"sandbox_import entry '{entry}' must be a single line"
+            )
+        if "$" in entry:
+            raise click.ClickException(
+                f"sandbox_import entry '{entry}' is used literally, not through "
+                "a shell. Write `~/...` for a path under the runner's home, or "
+                "a path relative to the checkout."
+            )
+        if ".." in PurePosixPath(entry).parts:
+            raise click.ClickException(
+                f"sandbox_import entry '{entry}' must not contain '..'"
+            )
+        if entry in {"~", "/", ".", "./"}:
+            raise click.ClickException(
+                f"sandbox_import entry '{entry}' names the runner's home, the "
+                "filesystem root, or the whole checkout. Name the directory "
+                "the agent needs."
+            )
     return list(raw)
 
 

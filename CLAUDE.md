@@ -186,6 +186,7 @@ session runs the pin.
 | Composite action call | Generator | generated workflow |
 | Runner setup (system tools, Actions cache) | Consumer | `setup:` in `.config/tend.yaml` |
 | Event-tree setup (dependencies, generated files) | Consumer | `sandbox_setup:` in `.config/tend.yaml` |
+| Which runner-prepared directories the agent gets | Consumer | `sandbox_import:` in `.config/tend.yaml` |
 | Bot identity, auth config | Consumer | `.config/tend.yaml` |
 | Skills (generic) | Tend | `tend-ci-runner` plugin (marketplace) |
 | Skills (project-specific) | Consumer | `.claude/skills/` in their repo |

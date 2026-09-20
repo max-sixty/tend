@@ -1687,7 +1687,7 @@ def test_workflow_with_local_setup_regtest(
 
 
 def test_sandbox_levers_regtest(regtest: object, tmp_path: Path) -> None:
-    """Snapshot the rendered agent step with all three sandbox levers set, to
+    """Snapshot the rendered agent step with every sandbox lever set, to
     lock the block-scalar shape threaded to the composite action."""
     extra = dedent("""\
         sandbox_path:
@@ -1696,6 +1696,9 @@ def test_sandbox_levers_regtest(regtest: object, tmp_path: Path) -> None:
         sandbox_env:
           RUST_BACKTRACE: "1"
           CARGO_TERM_COLOR: always
+        sandbox_import:
+          - ~/.cache/uv
+          - node_modules
         sandbox_setup:
           - rustup component add clippy
           - cargo fetch --locked

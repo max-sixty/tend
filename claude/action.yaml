@@ -106,6 +106,16 @@ inputs:
       Newline-separated NAME=VALUE pairs added to the sandbox agent's launch
       environment. Reserved keys (proxy routing, CA trust, dummy credentials,
       PATH) are rejected — use `sandbox_path` to extend PATH.
+  sandbox_import:
+    default: ""
+    description: >-
+      Newline-separated directories the runner's `setup:` prepared that the
+      agent may use. An absolute path, or one starting `~` (the runner's
+      home), is copied to `~/imports/<basename>` in the sandbox; a relative
+      path is resolved against the runner checkout and copied to the same
+      relative path in the agent's clone. Copies, so the runner's own
+      filesystem is unchanged, and each file is read as the sandbox user, so
+      one it cannot read fails the run.
   sandbox_setup:
     default: ""
     description: >-
@@ -295,6 +305,7 @@ runs:
         # the agent env file. sandbox_setup (commands) runs in a later step.
         TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
         TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
+        TEND_SANDBOX_IMPORT: ${{ inputs.sandbox_import }}
         # The sandbox's global Git identity, so the agent's commits attribute
         # to the bot without every session configuring one for itself.
         TEND_BOT_LOGIN: ${{ steps.bot.outputs.login }}
@@ -323,6 +334,7 @@ runs:
           PYTHONNOUSERSITE=1 \
           TEND_SANDBOX_PATH="$TEND_SANDBOX_PATH" \
           TEND_SANDBOX_ENV="$TEND_SANDBOX_ENV" \
+          TEND_SANDBOX_IMPORT="$TEND_SANDBOX_IMPORT" \
           TEND_BOT_LOGIN="$TEND_BOT_LOGIN" \
           TEND_BOT_ID="$TEND_BOT_ID" \
           "${TEND_UV_DIR}/uv" run --no-cache --no-config \

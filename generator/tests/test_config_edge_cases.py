@@ -1133,6 +1133,60 @@ def test_sandbox_setup_non_list_rejected(tmp_path: Path) -> None:
         Config.load(path)
 
 
+def test_sandbox_import_keeps_both_forms(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        sandbox_import:
+          - ~/.cargo/registry
+          - /opt/shared-cache
+          - target
+    """),
+    )
+
+    assert Config.load(path).sandbox_import == [
+        "~/.cargo/registry",
+        "/opt/shared-cache",
+        "target",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    [
+        # Quoted: a bare `~` is YAML's null, which the list check refuses first.
+        ('"~"', "names the runner's home"),
+        ('"/"', "names the runner's home"),
+        ('"."', "names the runner's home"),
+        ("../outside", "must not contain"),
+        ("~/../../etc", "must not contain"),
+        ("$HOME/.cargo", "used literally"),
+        ('" "', "without surrounding whitespace"),
+    ],
+)
+def test_sandbox_import_refuses_a_spelling_that_cannot_resolve(
+    tmp_path: Path, entry: str, message: str
+) -> None:
+    """The refusals `init` can make without knowing the runner.
+
+    Whether an entry is a credential store or sits on the runner's PATH
+    depends on the machine, so `proxy/setup_sandbox.py` owns those and fails
+    the run; what is decidable here is the spelling.
+    """
+    path = _write_config(tmp_path, f"bot_name: my-bot\nsandbox_import:\n  - {entry}\n")
+
+    with pytest.raises(ClickException, match=message):
+        Config.load(path)
+
+
+def test_sandbox_import_non_list_rejected(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, "bot_name: my-bot\nsandbox_import: target\n")
+
+    with pytest.raises(ClickException, match="sandbox_import must be a list"):
+        Config.load(path)
+
+
 def test_sandbox_levers_apply_to_codex(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

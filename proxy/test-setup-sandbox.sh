@@ -23,6 +23,11 @@ plant() {
   local bin seeded shared workspace_explicit workspace_path
   bin="$HOME/.cargo-install/tend-probe/bin"
   seeded="$HOME/.tend-seeded/bin"
+  # What `sandbox_import` copies: one directory under the runner home, which
+  # SRT otherwise denies wholesale, and one inside the runner checkout.
+  TEND_IMPORT_DIR="$HOME/.tend-import/cache"
+  mkdir -p "$TEND_IMPORT_DIR"
+  printf 'warm-cache\n' >"$TEND_IMPORT_DIR/warm"
   shared="/opt/tend-sandbox-test-$GITHUB_RUN_ID/bin"
   # /var/tmp, where prepare_agent_workspace puts the real container, so the
   # assertions below read the same boundary the action builds.
@@ -41,6 +46,17 @@ plant() {
     "$GITHUB_WORKSPACE/proxy" \
     "$GITHUB_WORKSPACE/shared" \
     "$TEND_TEST_ACTION_PATH/"
+  # The checkout-relative form. Created after the clone above, so the clone
+  # does not already carry the destination.
+  TEND_IMPORT_REL="$GITHUB_WORKSPACE/.tend-import-rel"
+  mkdir -p "$TEND_IMPORT_REL"
+  printf 'copied\n' >"$TEND_IMPORT_REL/payload"
+  # The invariant, recorded before the agent exists: the host filesystem is
+  # byte-for-byte what `setup:` left it. `verify` re-reads this after the
+  # sandbox has written into its own copy.
+  TEND_IMPORT_SUM=$(find "$TEND_IMPORT_DIR" "$TEND_IMPORT_REL" \
+    -printf '%P %s %m\n' | sort | sha256sum)
+  test -n "$TEND_IMPORT_SUM"
   workspace_explicit="$TEND_AGENT_WORKSPACE/.tend-explicit/bin"
   workspace_path="$TEND_AGENT_WORKSPACE/.tend-path/bin"
   mkdir -p "$bin" "$seeded" "$workspace_explicit" "$workspace_path"
@@ -84,6 +100,9 @@ plant() {
     echo "TEND_AGENT_CONTAINER=$TEND_AGENT_CONTAINER"
     echo "TEND_RUNNER_WORKSPACE=$TEND_RUNNER_WORKSPACE"
     echo "TEND_TEST_ACTION_PATH=$TEND_TEST_ACTION_PATH"
+    echo "TEND_IMPORT_DIR=$TEND_IMPORT_DIR"
+    echo "TEND_IMPORT_REL=$TEND_IMPORT_REL"
+    echo "TEND_IMPORT_SUM=$TEND_IMPORT_SUM"
   } >> "$GITHUB_ENV"
 }
 
@@ -101,6 +120,7 @@ setup() {
   # config value threaded through setup_sandbox.py into the file, composed by
   # the lib, landing in a real sandbox under a real uid.
   export TEND_SANDBOX_ENV="GITHUB_WORKFLOW=spoofed-by-sandbox-env"
+  export TEND_SANDBOX_IMPORT="$TEND_IMPORT_DIR"$'\n.tend-import-rel'
   MITMPROXY_VERSION=$(yq -e '.inputs.mitmproxy_version.default' claude/action.yaml)
   export MITMPROXY_VERSION
   UV_VERSION=$(yq -e '.inputs.uv_version.default' claude/action.yaml) \
@@ -184,6 +204,10 @@ install_agent_uv() {
 verify() {
   local blocked_output rc
   local -a agent_env
+  # Both forms arrived, as copies the sandbox user owns.
+  test "$(sudo -u "$SANDBOX" cat /home/tend-sandbox/imports/cache/warm)" = warm-cache
+  test "$(sudo -u "$SANDBOX" cat \
+    "$TEND_AGENT_WORKSPACE/.tend-import-rel/payload")" = copied
   mapfile -t agent_env <"$AGENT_ENV_FILE"
   blocked_output=$(sudo -u "$SANDBOX" env "${agent_env[@]}" tend-probe 2>&1) \
     && rc=0 || rc=$?
@@ -343,6 +367,9 @@ PY
   setup_commands=$(printf '%s\n' \
     'touch "$TEND_RUNNER_WORKSPACE/.tend-srt-wrote-here" 2>/dev/null || true' \
     'printf "%s\n" "$HTTP_PROXY" > .tend-setup-proxy' \
+    'test "$(cat ~/imports/cache/warm)" = warm-cache' \
+    'printf "agent\n" > ~/imports/cache/written-by-sandbox' \
+    'printf "agent\n" > .tend-import-rel/written-by-sandbox' \
     'mkdir -p ~/.local/bin' \
     'printf "#!/bin/sh\necho probe\n" > ~/.local/bin/tend-probe' \
     'chmod +x ~/.local/bin/tend-probe' \
@@ -388,6 +415,14 @@ PY
   # The sandbox wrote /tmp/tend-sandbox-scratch and the write succeeded; it
   # landed in the tmpfs SRT mounts over /tmp, which went with the process tree.
   test ! -e /tmp/tend-sandbox-scratch
+  # The invariant. The sandbox wrote into both of its copies above; the host
+  # sources must be exactly what `plant` recorded, and must not carry that
+  # write. Trivially true under a copy — which is the point of asserting it,
+  # since it is what any future handover mechanism has to keep.
+  test "$(find "$TEND_IMPORT_DIR" "$TEND_IMPORT_REL" -printf '%P %s %m\n' \
+    | sort | sha256sum)" = "$TEND_IMPORT_SUM"
+  test ! -e "$TEND_IMPORT_DIR/written-by-sandbox"
+  test ! -e "$TEND_IMPORT_REL/written-by-sandbox"
   sudo -u "$SANDBOX" grep -qxF "GITHUB_TOKEN=$dummy_token" "$claude_env"
   if sudo -u "$SANDBOX" grep -q '^GITHUB_ENV=' "$claude_env"; then
     echo "::error::runner command-file path crossed into Claude"
@@ -471,6 +506,7 @@ cleanup() {
     /usr/bin/sudo rmdir -- "$TEND_AGENT_CONTAINER" 2>/dev/null || true
   fi
   /usr/bin/sudo rm -f "/tmp/tend-runner-owned-$GITHUB_RUN_ID"
+  rm -rf -- "$HOME/.tend-import" "${TEND_IMPORT_REL:-}"
   /usr/bin/sudo rm -f /usr/local/bin/tend-probe "$shared/tend-shared" "$shared/uv"
   /usr/bin/sudo rmdir "$shared" "${shared%/bin}" 2>/dev/null || true
   /usr/bin/sudo rm -f /etc/skel/.tend-seeded/bin/tend-seeded

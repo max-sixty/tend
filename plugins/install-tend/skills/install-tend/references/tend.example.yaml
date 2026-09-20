@@ -201,7 +201,8 @@ bot_name: my-project-bot
 # receives an independent disposable checkout, and the runner home may contain
 # credentials. Use `sandbox_setup:` for dependencies, generated files, or
 # home-scoped installs the agent needs, such as `cargo install`,
-# `pip install --user`, or `uv tool install`.
+# `pip install --user`, or `uv tool install`, and `sandbox_import:` to copy a
+# cache `setup:` already populated instead of fetching it twice.
 #
 # Tend appends a pinned `uv` fallback after the `setup:` PATH. It installs no
 # other language toolchain. These keys make deliberate additions inside the
@@ -290,6 +291,57 @@ bot_name: my-project-bot
 #   step left in the runner's `/tmp` is visible here, and nothing written here
 #   reaches the runner. It is RAM-backed and counts against the job's memory,
 #   so write anything bulky under `$TMPDIR`, which is the sandbox home on disk.
+#
+# - `sandbox_import`: directories `setup:` prepared on the runner that the
+#   agent may use, so a dependency cache does not have to be re-fetched inside
+#   the sandbox. Each is COPIED, never moved and never handed over: the
+#   runner's own filesystem is what `setup:` left it, before the agent and
+#   after. The copy reads each file as the sandbox user, so a file it cannot
+#   read — a 0600 credential sitting in a cache directory — fails the run
+#   naming it, and you narrow the import. Two forms:
+#
+#   - An absolute path, or one starting `~`, which is the RUNNER's home — the
+#     opposite of `sandbox_path`, whose `~` is the sandbox home. It is copied
+#     to `~/imports/<last path component>` in the SANDBOX's home. Two entries
+#     with the same last component are refused, naming both.
+#   - A relative path, resolved against the runner checkout and copied to the
+#     same relative path inside the agent's disposable clone.
+#
+#     sandbox_import:
+#       - ~/.cache/uv
+#       - node_modules
+#     sandbox_env:
+#       UV_CACHE_DIR: /home/tend-sandbox/imports/uv
+#
+#   **The copy lands at a new path, and that decides what a cache is worth.**
+#   Read this list before importing anything, because the failure is a silent
+#   rebuild rather than an error:
+#
+#   - Content-addressed caches are fully warm wherever they land, because they
+#     key on hashes rather than paths. Point the tool at the copy with
+#     `sandbox_env`: Go's `GOCACHE` and `GOMODCACHE`, Maven's `~/.m2`,
+#     Gradle's `~/.gradle`, npm's cache, uv's `UV_CACHE_DIR`.
+#   - A relative `node_modules` is fully warm: Node resolution is relative and
+#     nothing in it records an absolute path.
+#   - Cargo gets the download and the registry index, and no compiled
+#     artifacts. Registry fingerprints record the absolute source path under
+#     `CARGO_HOME`, so a copy at a different path marks every dependency
+#     `Dirty: the path to the source changed`, and a dirty dependency
+#     invalidates everything above it — an imported `target/` will rebuild.
+#     Import the cargo home for the fetch, and expect to compile.
+#   - Do not import a `.venv`. Its `pyvenv.cfg` and console-script shebangs
+#     carry absolute paths, so a copied one is broken rather than cold. Import
+#     `~/.cache/uv`, point `UV_CACHE_DIR` at it, and run `uv sync` in
+#     `sandbox_setup:`.
+#
+#   The copy costs real time and real disk: a multi-gigabyte directory is tens
+#   of seconds per run, and `cp -a` turns pnpm's and uv's hardlinks into
+#   separate files, so the copy is larger than the original.
+#
+#   Refused: a path that does not exist or is not a directory; `..` in an
+#   entry; a bare `~`, `/`, or `.`; a `$` that no shell will expand; anything
+#   under the checkout's `.git`; a relative entry the event tree already
+#   carries, or whose destination resolves through a symlink in it.
 #
 # ## Memory Gist (experimental, Claude harness)
 #

@@ -10,6 +10,12 @@ hands only that disposable clone to ``tend-sandbox``, and starts mitmproxy with
 the real GitHub credential and, for Claude, the real model credential. The
 runner checkout remains runner-owned and the agent receives only dummy
 credentials.
+
+``sandbox_import`` is the one other thing that crosses: directories the
+consumer's ``setup:`` prepared, which :func:`apply_imports` copies into the
+sandbox as the sandbox uid. It copies rather than hands over, so the host
+filesystem is what ``setup:`` left it both before and after the agent runs,
+and host permissions rather than a list here decide what a copy may read.
 """
 
 from __future__ import annotations
@@ -70,6 +76,36 @@ RESERVED_SANDBOX_ENV = {
     "CODEX_HOME",
     "TMPDIR",
 }
+# One private mount namespace per import. `/home/runner` is 0750 on a
+# GitHub-hosted runner — observed, not inferred: `6fe17c93` (#1047) records a
+# `git config --global` sudo'd as the sandbox user dying on its own cwd with
+# `fatal: failed to stat`, exit 128. `tend-sandbox` is a bare `useradd -m`
+# account in none of the runner's groups, so it cannot traverse that home at
+# all, and both import forms live under it — the `~/…` one directly, and the
+# checkout-relative one because `GITHUB_WORKSPACE` is `/home/runner/work/…`.
+#
+# So bind the source where the sandbox uid can reach it, and drop to that uid
+# for the copy itself. What this bypasses is the ancestor chain, and only
+# that: every inode inside the source is still opened with the sandbox uid's
+# own credentials, so a 0600 `~/.cargo/credentials.toml` still fails the run
+# by name. `exec` leaves `cp` as the only process in the namespace, so the
+# namespace and its mount die with it — nothing to unmount, nothing that can
+# fail open on a cancellation, and no host metadata changed.
+#
+# Don't simplify this away. Copying as root and chowning afterwards loses the
+# property the design rests on (the 0600 file copies, then becomes readable);
+# `chmod o+x /home/runner` for the duration is a host change whose restore can
+# fail open; and adding the runner's group to the copy would let 0640
+# group-readable files cross.
+#
+# Paths arrive through the environment rather than the script text, so a
+# consumer-configured path is data to `sh` rather than script.
+IMPORT_COPY = """set -e
+/usr/bin/mount --bind "$TEND_IMPORT_SOURCE" "$TEND_IMPORT_STAGE"
+exec /usr/bin/setpriv \
+  --reuid "$TEND_IMPORT_UID" --regid "$TEND_IMPORT_GID" --clear-groups \
+  /usr/bin/cp -a "$TEND_IMPORT_STAGE/." "$TEND_IMPORT_DESTINATION"
+"""
 BLOCKED_COMMAND = """#!/bin/sh
 printf "tend: %s came from the runner home and is unavailable; install it into ~/.local/bin with sandbox_setup, or point sandbox_path at a copy outside the runner home\n" "${0##*/}" >&2
 exit 127
@@ -460,6 +496,164 @@ def strip_checkout_credentials(paths: Paths) -> bool:
     return True
 
 
+@dataclass(frozen=True)
+class ImportPlan:
+    """Where each `sandbox_import` entry is copied to.
+
+    Copies, never moves and never chowns: the host filesystem is what
+    `setup:` left it, before the agent and after. That is what removes the
+    cleanup step, the self-hosted gate, and every refusal that existed to
+    bound what a change of ownership would hand over.
+
+    It also removes the need to guess which files under the runner home are
+    secrets. `cp -a` runs as the sandbox uid, so the kernel decides what
+    crosses: a 0600 credential is refused by host permissions rather than by
+    a list tend maintains and keeps up to date.
+    """
+
+    copies: list[tuple[Path, Path]]
+
+
+def plan_imports(raw: str, *, paths: Paths) -> ImportPlan:
+    """Resolve each `sandbox_import` entry to a (source, destination) pair.
+
+    An absolute or `~`-prefixed entry names a directory on the runner and
+    lands under the sandbox home at `imports/<basename>`. The destination is
+    derived rather than configurable — one path rule, and a second field can
+    be added the day a caller needs one. It is not the source's path, so a
+    tool that records absolute paths has to be pointed at the copy with
+    `sandbox_env`; `docs/tend.example.yaml` says which tools care.
+
+    A relative entry is resolved against the runner checkout and lands at the
+    same relative path inside the disposable clone.
+    """
+    destinations: dict[Path, str] = {}
+    copies: list[tuple[Path, Path]] = []
+    for entry in [entry for entry in raw.split("\n") if entry]:
+        if entry.startswith(("/", "~")):
+            source, destination = _runner_import(entry, paths=paths)
+        else:
+            source, destination = _checkout_import(entry, paths=paths)
+        if not source.is_dir():
+            raise ValueError(
+                f"sandbox_import '{entry}' is not a directory on the runner"
+            )
+        if destination in destinations:
+            raise ValueError(
+                f"sandbox_import '{entry}' and '{destinations[destination]}' "
+                f"both copy to {destination}. Rename one, or import the "
+                "directory that holds both."
+            )
+        destinations[destination] = entry
+        copies.append((source, destination))
+    return ImportPlan(copies)
+
+
+def _runner_import(entry: str, *, paths: Paths) -> tuple[Path, Path]:
+    """An absolute or `~`-prefixed entry: a runner path, copied to the sandbox.
+
+    `~` is the *runner's* home, where `setup:` put the directory — the
+    opposite of `sandbox_path`, whose `~` is the sandbox home. It stays
+    supported because a bare `/home/runner` is only right on a GitHub-hosted
+    image and nothing here is hosted-only any more.
+
+    The basename comes from the entry as written, so the destination is the
+    name the consumer used even where the source resolves through a symlink.
+    """
+    if entry == "~":
+        raise ValueError("sandbox_import '~' is the whole runner home")
+    if entry.startswith("~") and not entry.startswith("~/"):
+        raise ValueError(
+            f"sandbox_import '{entry}': `~` here is the runner's own home, so "
+            "write `~/...` or an absolute path"
+        )
+    written = paths.runner_home / entry[2:] if entry.startswith("~/") else Path(entry)
+    if ".." in written.parts:
+        raise ValueError(f"sandbox_import '{entry}' must not contain '..'")
+    name = written.name
+    if not name:
+        raise ValueError(f"sandbox_import '{entry}' names no directory")
+    return resolved(written), AGENT_HOME / "imports" / name
+
+
+def _checkout_import(entry: str, *, paths: Paths) -> tuple[Path, Path]:
+    """A checkout-relative entry, and where it lands in the agent's clone."""
+    if ".." in Path(entry).parts:
+        raise ValueError(f"sandbox_import '{entry}' must not contain '..'")
+    if Path(entry).parts[:1] == (".git",):
+        raise ValueError(
+            f"sandbox_import '{entry}' is inside the runner checkout's `.git`. "
+            "The agent's clone has a git directory of its own."
+        )
+    # The destination sits in the event tree, which on a review is the pull
+    # request's own. A symlink at any component of it — `target`, or `crates`
+    # in `crates/core/target` — would land the copy wherever the pull request
+    # pointed. Requiring the path to be exactly canonical refuses every such
+    # spelling; a leaf that resolves to itself and exists is the ordinary
+    # collision below.
+    destination = paths.workspace / entry
+    if resolved(destination) != destination:
+        raise ValueError(
+            f"sandbox_import '{entry}' resolves outside the agent's checkout "
+            "through a symlink in the event tree"
+        )
+    if destination.exists():
+        raise ValueError(
+            f"sandbox_import '{entry}' already exists in the agent's checkout, "
+            "so the event tree carries it. Drop the entry."
+        )
+    return resolved(paths.runner_workspace / entry), destination
+
+
+def apply_imports(plan: ImportPlan, *, paths: Paths) -> None:
+    """Copy each import as the sandbox uid, after the workspace handoff.
+
+    As the sandbox uid, so per-file permissions decide what crosses and a file
+    the sandbox may not read fails the run by name rather than arriving in the
+    copy. After the handoff, because that is what makes the clone writable by
+    this uid; the sandbox home already is.
+
+    The copy runs through :data:`IMPORT_COPY`, which explains the mount
+    namespace it needs and what that does and does not bypass. The staging
+    mount point sits in the disposable container, which is 0755 and which the
+    dispose step deletes wholesale, so it needs no cleanup of its own.
+    """
+    if not plan.copies:
+        return
+    account = pwd.getpwnam(SANDBOX)
+    stage = paths.workspace.parent / "import-stage"
+    stage.mkdir(exist_ok=True)
+    stage.chmod(0o755)
+    for source, destination in plan.copies:
+        sudo("/usr/bin/mkdir", "-p", str(destination), user=SANDBOX)
+        result = sudo(
+            "/usr/bin/env",
+            f"TEND_IMPORT_SOURCE={source}",
+            f"TEND_IMPORT_STAGE={stage}",
+            f"TEND_IMPORT_DESTINATION={destination}",
+            f"TEND_IMPORT_UID={account.pw_uid}",
+            f"TEND_IMPORT_GID={account.pw_gid}",
+            "/usr/bin/unshare",
+            "--mount",
+            "--propagation",
+            "private",
+            "--",
+            "/bin/sh",
+            "-c",
+            IMPORT_COPY,
+            check=False,
+            capture=True,
+        )
+        if result.returncode != 0:
+            raise ValueError(
+                f"could not copy {source} to {destination} "
+                f"({(result.stderr or '').strip()}). The copy reads each file "
+                "with the sandbox user's own permissions, so narrow the import "
+                "to what the agent needs."
+            )
+        log(f"copied {source} to {destination}")
+
+
 def handoff_workspace(paths: Paths) -> bool:
     """Give the sandbox UID only its disposable checkout."""
     if paths.workspace == paths.runner_workspace or within(
@@ -639,6 +833,9 @@ def main() -> int:
         anthropic_dummy = ("ANTHROPIC_API_KEY", API_KEY_DUMMY)
 
     try:
+        # Planned before anything here writes, so a bad entry stops the run
+        # rather than half-configuring the sandbox.
+        imports = plan_imports(os.environ.get("TEND_SANDBOX_IMPORT", ""), paths=paths)
         extras = configured_paths(os.environ.get("TEND_SANDBOX_PATH", ""), paths=paths)
         plan = plan_agent_path(
             runner_tool_path=runner_tool_path,
@@ -668,6 +865,12 @@ def main() -> int:
         return 1
     if not handoff_workspace(paths):
         return 1
+    # After the handoff, which is what makes the clone writable by the uid
+    # the copies run as.
+    try:
+        apply_imports(imports, paths=paths)
+    except (OSError, ValueError) as problem:
+        return error(str(problem))
     if not start_proxy(paths, version=version):
         return 1
     auth = "GitHub" if github_only else "GitHub + Anthropic"
