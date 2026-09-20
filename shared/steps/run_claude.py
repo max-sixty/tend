@@ -447,17 +447,18 @@ def main() -> int:
         "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
     )
     workspace = Path(env["GITHUB_WORKSPACE"])
-    # TEND_RUN_DIR, not RUNNER_TEMP: the supervisor reads both files back
-    # after the reap, so they have to land outside the view, where a write
-    # reaches nothing but its own upper layer. RUNNER_TEMP is the job's own and
-    # is inside it.
+    # Outside the view, so the supervisor can read both back after the reap.
     stream_json = Path(env["TEND_RUN_DIR"]) / "tend-stream.json"
     stderr_log = Path(env["TEND_RUN_DIR"]) / "tend-claude-stderr.log"
 
     # Written inside SRT so the agent can read it back. It lands in the consumer's
-    # checkout untracked, next to the `.claude/skills/` they do track; the
-    # global gitignore `agent_lifecycle.configure_git` sets keeps a broad
-    # `git add -A` from committing `bypassPermissions` into the session's PR.
+    # checkout untracked, next to the `.claude/skills/` they do track, so the
+    # exclude keeps a broad `git add -A` from committing `bypassPermissions`
+    # into the session's PR.
+    exclude = workspace / ".git/info/exclude"
+    exclude.parent.mkdir(exist_ok=True)
+    with exclude.open("a", encoding="utf-8") as stream:
+        stream.write("/.claude/settings.local.json\n")
     # `tee` receives the body through its own pipe rather than the step's stdin.
     subprocess.run(
         ["mkdir", "-p", str(workspace / ".claude")],

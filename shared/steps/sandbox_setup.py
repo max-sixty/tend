@@ -3,9 +3,8 @@
 ``sandbox_setup:`` commands run immediately before the harness process, as the
 same non-sudo user, in the same checkout and with the same environment. Their
 on-disk effects therefore reach the agent without creating a second execution
-boundary. What ``setup:`` built is already there, at its own paths, through the
-copy-on-write view; this is where anything that needs the pull request's own
-tree belongs, which ``setup:`` runs too early to see.
+boundary. What ``setup:`` built is already there; this is for what needs the
+pull request's own tree.
 
 Environment-only changes made by the command shell do not persist into the
 harness. Use ``sandbox_path:`` and ``sandbox_env:`` for those; use

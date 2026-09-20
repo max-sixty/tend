@@ -1,23 +1,11 @@
-"""Select the event's topology in the job's checkout, inside the sandbox.
+"""Move the job's checkout to the event's topology, inside the sandbox.
 
-The agent works in ``$GITHUB_WORKSPACE`` — the checkout the generated workflow
-made, seen through the copy-on-write view :mod:`enter_view` builds. That
-checkout arrives on reviewed code (the base branch or the PR's base), and this
-step moves it to whatever the event names: the pull request's merge or head ref
-for a review, the head branch of the PR a mention names, the base branch
-otherwise. It then restores the startup configuration a PR head must not choose
-for itself.
-
-This runs inside the SRT boundary, as the sandbox uid, between the boundary
-probe and ``sandbox_setup:``. That placement is the point: fetching a pull
-request means Git parsing a packfile a contributor controls, and it now happens
-in the sandbox rather than as the runner. Nothing here holds a credential
-either — the agent's ``GITHUB_TOKEN`` is a dummy and the proxy attaches the real
-one to every request that leaves for GitHub, which is the same path the agent's
-own pushes take later.
-
-Writes land in the view's upper layer, so the runner's checkout is unchanged
-whatever this selects, and a later step reads the tree the workflow checked out.
+The checkout arrives on reviewed code; this selects the PR's merge or head ref
+for a review, the head branch of the PR a mention names, and the base branch
+otherwise, then restores the startup configuration a PR head must not choose.
+It runs as the sandbox uid, so Git parses a contributor's packfile there, and
+it holds no credential: the proxy authenticates every request. Writes land in
+the view, so the runner's own checkout is unchanged.
 """
 
 from __future__ import annotations
@@ -48,31 +36,6 @@ def required(name: str) -> str:
     return value
 
 
-def git_environment(extra: dict[str, str] | None = None) -> dict[str, str]:
-    """The environment for one Git command in the event tree.
-
-    Only ``GIT_TERMINAL_PROMPT`` is forced: a fetch that wants credentials must
-    fail rather than block the job, and there are none to give it — the proxy
-    authenticates on the way out.
-
-    Everything else is the sandbox's own environment, including the
-    configuration SRT composes and the runner's own ``~/.gitconfig``, which
-    ``HOME`` now points at through the view. That is deliberate, and it is what
-    the old ``GIT_CONFIG_NOSYSTEM``/``GIT_CONFIG_GLOBAL=/dev/null`` pair bought
-    when this ran as the runner: it kept a global ``filter.lfs.smudge`` or a
-    ``core.hooksPath`` from executing against a contributor's
-    ``.gitattributes`` **as the runner user**. Here the same command runs as
-    the sandbox uid inside SRT, and the agent runs arbitrary Git in this same
-    tree a moment later, so a stricter environment for these few commands would
-    describe a boundary that is not there rather than add one.
-    """
-    environment = dict(os.environ)
-    environment["GIT_TERMINAL_PROMPT"] = "0"
-    if extra:
-        environment.update(extra)
-    return environment
-
-
 def git(
     *args: str,
     cwd: Path,
@@ -82,7 +45,6 @@ def git(
     return subprocess.run(
         ["/usr/bin/git", *args],
         cwd=cwd,
-        env=git_environment(),
         check=check,
         text=True,
         stdout=subprocess.PIPE if capture else None,
@@ -227,7 +189,7 @@ def restore_sensitive_config(workspace: Path, base_sha: str) -> None:
     subprocess.run(
         [BASH, "--noprofile", "--norc", str(RESTORE_SENSITIVE_CONFIG)],
         cwd=workspace,
-        env=git_environment({"BASH_ENV": "", "TEND_CONFIG_BASE_SHA": base_sha}),
+        env={**os.environ, "BASH_ENV": "", "TEND_CONFIG_BASE_SHA": base_sha},
         check=True,
     )
 

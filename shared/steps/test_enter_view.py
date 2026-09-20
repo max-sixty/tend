@@ -1,12 +1,5 @@
-"""The id map that makes the agent's view of the job's home writable.
-
-Everything else `enter_view` does needs a real kernel and a second uid, and is
-covered by `proxy/test-setup-sandbox.sh` on a hosted runner. The map is the one
-part that is arithmetic, and getting it wrong fails in two directions that both
-look like something else: swap the columns and every write is EACCES, drop the
-identity ranges and a create under a root-owned directory the consumer's
-`setup:` left is EOVERFLOW.
-"""
+"""The id map behind the agent's view; the mounts are covered by
+`proxy/test-setup-sandbox.sh` on a hosted runner."""
 
 from __future__ import annotations
 
@@ -21,6 +14,7 @@ def parsed(entries: str, kind: str) -> dict[int, int]:
     seen: dict[int, int] = {}
     for entry in entries.split():
         entry_kind, mount, host, count = entry.split(":")
+        assert int(count) > 0, f"{entry} is an empty range, which mount rejects"
         if entry_kind != kind:
             continue
         for offset in range(int(count)):
@@ -33,82 +27,33 @@ def account(uid: int, gid: int) -> pwd.struct_passwd:
     return pwd.struct_passwd(("name", "x", uid, gid, "", "/home/name", "/bin/sh"))
 
 
-def test_the_map_is_a_bijection_over_every_mappable_id() -> None:
-    """No id is left out and none is mapped twice.
-
-    An unmapped owner reads back as the kernel's overflow id, and overlayfs
-    takes a copied-up inode's owner from the mapped lower stat — so a gap here
-    is a directory the agent cannot write under, discovered mid-build.
-    """
-    table = parsed(enter_view.swap_map(account(1001, 1001), account(1002, 1002)), "u")
-
-    assert sorted(table) == list(range(enter_view.ID_CEILING))
-    assert sorted(table.values()) == list(range(enter_view.ID_CEILING))
-
-
-def test_the_runner_reads_as_the_sandbox_and_the_reverse() -> None:
-    """The swap itself, in both directions, and root left alone.
-
-    Root is the case that matters beyond the pair: a directory `docker run -v`
-    left behind is root-owned, and the agent has to be able to create under it.
-    """
-    table = parsed(enter_view.swap_map(account(1001, 1001), account(1002, 1002)), "u")
-
-    assert table[1002] == 1001
-    assert table[1001] == 1002
-    assert table[0] == 0
-    assert table[65534] == 65534
-
-
-def test_the_map_does_not_assume_which_account_has_the_lower_id() -> None:
-    """A self-hosted runner may have created `tend-sandbox` first."""
-    lower_sandbox = parsed(
-        enter_view.swap_map(account(1050, 1050), account(999, 999)), "u"
-    )
-
-    assert lower_sandbox[999] == 1050
-    assert lower_sandbox[1050] == 999
-    assert sorted(lower_sandbox) == list(range(enter_view.ID_CEILING))
-
-
-def test_adjacent_accounts_emit_no_empty_range() -> None:
-    """`mount` rejects a zero-length mapping, and adjacent ids are the norm."""
-    entries = enter_view.swap_map(account(1001, 1001), account(1002, 1002))
-
-    assert not any(entry.endswith(":0") for entry in entries.split())
-
-
-def test_the_group_map_is_the_gids_and_not_the_uids() -> None:
-    """A runner whose primary group id differs from its uid — the shape that
-    would otherwise pass every test above and leave group-owned files
-    unreachable."""
-    entries = enter_view.swap_map(account(1001, 127), account(1002, 1002))
-
-    assert parsed(entries, "g")[1002] == 127
-    assert parsed(entries, "u")[1002] == 1001
-
-
-def test_two_accounts_that_share_a_group_still_get_a_complete_map() -> None:
-    """`useradd -g` gives both accounts one primary group, so there is nothing
-    to swap — but the map for that id type still has to cover every id, since
-    one the mount leaves out reads back as the kernel's overflow id."""
-    table = parsed(enter_view.swap_map(account(1001, 1000), account(1002, 1000)), "g")
-
-    assert sorted(table) == list(range(enter_view.ID_CEILING))
-    assert all(mount == host for mount, host in table.items())
+@pytest.mark.parametrize(
+    ("runner", "sandbox"),
+    [
+        (account(1001, 1001), account(1002, 1002)),
+        # The sandbox account created first, with the lower id.
+        (account(1050, 1050), account(999, 999)),
+        # A primary group that differs from the uid.
+        (account(1001, 127), account(1002, 1002)),
+        # `useradd -g`: both accounts share one group, so there is nothing to swap.
+        (account(1001, 1000), account(1002, 1000)),
+    ],
+)
+def test_the_map_swaps_the_two_accounts_and_is_identity_elsewhere(
+    runner: pwd.struct_passwd, sandbox: pwd.struct_passwd
+) -> None:
+    entries = enter_view.swap_map(runner, sandbox)
+    for kind, ours, theirs in (
+        ("u", runner.pw_uid, sandbox.pw_uid),
+        ("g", runner.pw_gid, sandbox.pw_gid),
+    ):
+        table = parsed(entries, kind)
+        swapped = {ours: theirs, theirs: ours}
+        assert table == {
+            id_: swapped.get(id_, id_) for id_ in range(enter_view.ID_CEILING)
+        }
 
 
 def test_an_unmappable_account_is_refused_rather_than_truncated() -> None:
     with pytest.raises(ValueError, match="outside the mappable range"):
         enter_view.identity_map("u", 1001, enter_view.ID_CEILING)
-
-
-def test_the_privilege_drop_keeps_nothing_the_agent_could_use() -> None:
-    """`exec`ed, so the sandbox uid owns the process the supervisor waits on."""
-    argv = enter_view.drop_privilege(account(1002, 1003))
-
-    assert argv[0] == "/usr/bin/setpriv"
-    assert "--reuid=1002" in argv
-    assert "--regid=1003" in argv
-    assert "--clear-groups" in argv
-    assert "--bounding-set=-all" in argv

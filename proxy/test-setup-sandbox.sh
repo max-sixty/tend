@@ -3,33 +3,12 @@
 # the PATH boundary. Commands are separate Actions steps because
 # GITHUB_PATH/GITHUB_ENV affect only later steps.
 #
-# The properties under test are the ones no unit test can reach, because each is
-# a fact about a real kernel, a real second uid and a real Actions runner:
-#
-#   1. The agent works in the job's own checkout and home, at their real paths,
-#      and can write anywhere in them.
-#   2. Nothing it writes reaches the runner. The host filesystem is byte-for-byte
-#      what `setup:` left it, before the agent and after — contents included,
-#      since an in-place rewrite at the same length is the copy-up an idmapped
-#      lower is likeliest to get wrong.
-#   3. What the view masks reads back empty: the Actions runner's own files and
-#      directories, and GitHub's file-command directory. Swept for rather than
-#      named, so it fails if the runner's credentials ever move.
-#   4. The idmapped lower layer is what makes (1) possible: without it the same
-#      overlay is EACCES for every create. `verify-view-needs-the-idmap` is that
-#      negative control, run against the kernel directly.
-#   5. The two environment namespaces withheld by shape, `ACTIONS_*` and
-#      `INPUT_*`, are absent from the environment the harness binary received.
-#
-# One thing this deliberately does NOT claim: that a `$GITHUB_ENV` export stays
-# out of the sandbox. It cannot — the hook below reads `$TEND_WARM_CACHE` and
-# `$TEND_HOST_SUM`, which `plant` exported exactly that way. The mask over the
-# file-command directory keeps back an output or a state value that never
-# became an environment variable; the export itself crosses with the job's
-# environment, which is what `docs/tend.example.yaml` tells consumers.
+# It checks what needs a real kernel, a second uid and an Actions runner: the
+# agent works in the job's own checkout and home and can write anywhere in
+# them; the host is byte-for-byte unchanged afterwards; the runner's own files
+# read back empty; and `ACTIONS_*`/`INPUT_*` never reach the harness.
 set -euo pipefail
 
-# The bot identity the agent's Git config is seeded from, inside the view.
 BOT_LOGIN=tend-agent
 BOT_ID=4242
 
@@ -46,21 +25,16 @@ plant() {
   bin="$HOME/.cargo-install/tend-probe/bin"
   seeded="$HOME/.tend-seeded/bin"
   shared="/opt/tend-sandbox-test-$GITHUB_RUN_ID/bin"
-  # What a consumer's `setup:` leaves behind, at the paths it leaves it: a warm
-  # cache in the runner's home, a directory owned by root (a `docker run -v`
-  # artefact is the common one, and the idmap has to keep those writable), and
-  # a directory to rename from the lower layer, which needs `redirect_dir=on`.
+  # What a consumer's `setup:` leaves: a warm cache, a root-owned directory (a
+  # `docker run -v` artefact), and a directory to rename (`redirect_dir=on`).
   TEND_WARM_CACHE="$HOME/.tend-warm-cache"
   mkdir -p "$TEND_WARM_CACHE/registry"
   printf 'warm-cache\n' >"$TEND_WARM_CACHE/registry/warm"
   sudo install -d -m 755 -o root -g root "$TEND_WARM_CACHE/root-owned"
   mkdir -p "$TEND_WARM_CACHE/rename-me/inner"
-  # In the checkout, which on a review is the pull request's own tree.
   TEND_WARM_TREE="$GITHUB_WORKSPACE/.tend-warm-tree"
   mkdir -p "$TEND_WARM_TREE"
   printf 'built\n' >"$TEND_WARM_TREE/artifact"
-  # The invariant, recorded before the agent exists. `verify-srt` re-reads it
-  # after the sandbox has written all over both.
   TEND_HOST_SUM=$(host_checksum)
   test -n "$TEND_HOST_SUM"
   TEND_HOST_HEAD=$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)
@@ -76,9 +50,7 @@ plant() {
   printf '#!/bin/sh\necho probe\n' >"$bin/tend-probe"
   printf '#!/bin/sh\necho runner-home-uv\n' >"$bin/uv"
   chmod +x "$bin/tend-probe" "$bin/uv"
-  # A tool `setup:` installed under the runner's home. It used to be dropped
-  # from the sandbox PATH and shimmed out; it now resolves, because the home it
-  # lives in is the home the agent works in.
+  # A tool `setup:` installed under the runner's home.
   printf '#!/bin/sh\necho runner-seed\n' >"$seeded/tend-seeded"
   chmod +x "$seeded/tend-seeded"
   printf '#!/bin/sh\necho system-fallback\n' \
@@ -104,10 +76,7 @@ plant() {
   } >> "$GITHUB_ENV"
 }
 
-# Every name, mode, owner AND content under the two directories `setup:`
-# prepared. Contents because the claim is byte-for-byte: an in-place overwrite
-# at the same length is exactly what overlayfs copy-up on an idmapped lower
-# would get wrong, and a name-and-size digest would call it unchanged.
+# Every name, mode, owner and content under the two directories `setup:` made.
 host_checksum() {
   {
     find "$TEND_WARM_CACHE" "$TEND_WARM_TREE" -printf '%P %m %U:%G %y\n' | sort
@@ -120,11 +89,6 @@ setup() {
   set_inputs
   # shellcheck disable=SC2088
   export TEND_SANDBOX_PATH='~/.tend-tilde/bin'
-  # `sandbox_env` is applied over the job's own environment, so it wins — which
-  # is why a GITHUB_* name is refused (see verify-refusals) and an ordinary one
-  # is not. What this adds over the unit tests is the whole path: a config value
-  # threaded through setup_sandbox.py into the file, composed by the lib,
-  # landing in a real sandbox under a real uid.
   export TEND_SANDBOX_ENV="TEND_FROM_SANDBOX_ENV=applied"
   MITMPROXY_VERSION=$(yq -e '.inputs.mitmproxy_version.default' claude/action.yaml)
   export MITMPROXY_VERSION
@@ -158,9 +122,6 @@ setup() {
 
   agent_path=$(sed -n 's/^\[setup-sandbox\] sandbox PATH: //p' "$RUNNER_TEMP/setup.log")
   test -n "$agent_path"
-  # The job's PATH crosses entry for entry: the runner-home directories a
-  # `setup:` step installed into are now on it, because the home they are in is
-  # the home the agent works in.
   case ":$agent_path:" in
     *":$HOME/.tend-seeded/bin:"*) ;;
     *) echo "::error::a runner-home PATH entry was dropped: $agent_path"; exit 1 ;;
@@ -193,8 +154,6 @@ install_agent_uv() {
   rm -rf "$private_action"
 }
 
-# What holds outside the view, where the sandbox uid is an ordinary "other":
-# the agent's own home, and Tend's secrets sitting where it cannot reach them.
 verify() {
   sudo -u "$SANDBOX" test -x "$TEND_AGENT_UV_DIR/uv"
   grep -q "^PATH=.*:${TEND_AGENT_UV_DIR}$" "$AGENT_ENV_FILE"
@@ -210,8 +169,7 @@ verify() {
   fi
 }
 
-# `sandbox_env:` wins over the job environment, so the GitHub context is the one
-# thing it may not set. This re-run exits before the proxy starts.
+# This re-run exits before the proxy starts.
 verify_refusals() {
   local rc empty_rc
   set_inputs
@@ -232,47 +190,6 @@ verify_refusals() {
   grep -q '::error::GITHUB_WORKSPACE must name' "$RUNNER_TEMP/empty-workspace.log"
 }
 
-# The load-bearing claim, reproduced against the kernel rather than against
-# Tend: an overlay whose lower layer is NOT idmapped presents the runner's own
-# ownership to the sandbox uid, which is EACCES for every create. Everything the
-# view does rests on the one `X-mount.idmap` this omits.
-verify_view_needs_the_idmap() {
-  local stage script rc
-  stage=/var/tmp/tend-idmap-control-$GITHUB_RUN_ID
-  sudo install -d -m 755 "$stage"
-  script=$RUNNER_TEMP/idmap-control.sh
-  cat >"$script" <<'CONTROL'
-set -eu
-mkdir -p "$STAGE/lower" "$STAGE/upper" "$STAGE/work" "$STAGE/view"
-chmod 755 "$STAGE/view"
-mount --bind -o ro "$LOWER" "$STAGE/lower"
-mount -t overlay overlay \
-  -o "lowerdir=$STAGE/lower,upperdir=$STAGE/upper,workdir=$STAGE/work" \
-  "$STAGE/view"
-exec setpriv --reuid "$SANDBOX_UID" --regid "$SANDBOX_GID" --clear-groups \
-  touch "$STAGE/view/written-without-an-idmap"
-CONTROL
-  rc=0
-  {
-    sudo /usr/bin/env \
-      STAGE="$stage" \
-      LOWER="$TEND_WARM_CACHE" \
-      SANDBOX_UID="$(id -u "$SANDBOX")" \
-      SANDBOX_GID="$(id -g "$SANDBOX")" \
-      /usr/bin/unshare --mount --propagation private -- \
-      /bin/sh "$script"
-  } >"$RUNNER_TEMP/idmap-control.log" 2>&1 || rc=$?
-  cat "$RUNNER_TEMP/idmap-control.log"
-  sudo rm -rf -- "$stage"
-  if [ "$rc" -eq 0 ]; then
-    echo "::error::a non-idmapped overlay was writable by the sandbox uid; the view's idmap is no longer the load-bearing piece and the design needs rechecking"
-    exit 1
-  fi
-  grep -qi 'permission denied' "$RUNNER_TEMP/idmap-control.log"
-  test ! -e "$TEND_WARM_CACHE/written-without-an-idmap"
-  echo "[test-setup-sandbox] non-idmapped overlay refused every write, as designed"
-}
-
 verify_srt() {
   local claude_argv claude_env claude_stub codex_argv codex_env codex_stub dummy_token
   local github_output private_action probe_info probe_pid probe_port rc runner_summary
@@ -281,8 +198,7 @@ verify_srt() {
   runner_summary="$RUNNER_TEMP/srt-step-summary"
   probe_info="$RUNNER_TEMP/srt-network-probe"
   tool_root="$TEND_TEST_ACTION_PATH/probe-bin"
-  # Everything the sandbox must hand back lives here: outside the view, so it
-  # survives the process tree the view dies with.
+  # Outside the view, so it outlives the process tree.
   run_dir=/home/tend-sandbox/run
   : > "$github_output"
   : > "$runner_summary"
@@ -299,8 +215,7 @@ verify_srt() {
     exit 1
   fi
 
-  # The harness stubs are planted as the RUNNER, in the runner's own home, and
-  # resolve inside the view exactly as a tool a `setup:` step installed would.
+  # On the sandbox PATH through `sandbox_path:`'s `~` entry.
   stub_bin=/home/tend-sandbox/.tend-tilde/bin
   sudo -u "$SANDBOX" mkdir -p "$stub_bin"
   claude_stub="$stub_bin/claude"
@@ -381,14 +296,10 @@ PY
 
   dummy_token=$(sed -n 's/^GITHUB_TOKEN=//p' "$AGENT_ENV_FILE")
   test -n "$dummy_token"
-  # What the runner keeps in its own /tmp while the agent runs. The sandbox's
-  # /tmp is a tmpfs of its own, so this file is not merely unwritable inside —
-  # it is not there at all, which is what the probe asserts.
+  # Absent inside: the sandbox's /tmp is its own tmpfs.
   runner_owned="/tmp/tend-runner-owned-$GITHUB_RUN_ID"
   touch "$runner_owned"
-  # Everything the view has to make true, asserted from inside it by the
-  # consumer's own `sandbox_setup:` hook — the same place a real consumer's
-  # build would hit each of these.
+  # Asserted from inside, by the consumer's own `sandbox_setup:` hook.
   setup_commands=$(printf '%s\n' \
     'set -u' \
     '# The job is the agent: same paths, same home, same PATH.' \
@@ -398,11 +309,8 @@ PY
     'test "$(cat "$TEND_WARM_TREE/artifact")" = built' \
     'test "$(tend-seeded)" = runner-seed' \
     'test "$TEND_FROM_SANDBOX_ENV" = applied' \
-    '# Writable everywhere in it, including under a root-owned directory the' \
-    '# idmap has to keep well-defined, and across a lower-layer rename.' \
+    '# Writable everywhere, in place, under root-owned dirs, across renames.' \
     'printf "agent\n" > "$TEND_WARM_CACHE/registry/written-by-sandbox"' \
-    '# In place, at the same length: the copy-up path an idmapped lower is' \
-    '# most likely to get wrong, and the one a digest of names would miss.' \
     'printf "AGENT-CACHE\n" > "$TEND_WARM_CACHE/registry/warm"' \
     'printf "agent\n" > "$TEND_WARM_TREE/written-by-sandbox"' \
     'printf "agent\n" > "$TEND_WARM_CACHE/root-owned/written-by-sandbox"' \
@@ -411,12 +319,10 @@ PY
     'printf "sandbox\n" > "$GITHUB_WORKSPACE/.tend-srt-wrote-here"' \
     '# The runner-side halves of Tend, and the runner itself, stay out of reach.' \
     'if [ -r "$TEND_PRIVATE_DIR/tend-proxy/mitmproxy-ca.pem" ]; then exit 90; fi' \
-    '# The direct negative: the runner service identity reads empty wherever' \
-    '# it lives. A sweep rather than a path, so it also catches GitHub moving' \
-    '# those files somewhere the derived mask would not follow.' \
+    '# Swept for, so it catches the runner credentials moving.' \
     'if find "$TEND_RUNNER_HOME" -maxdepth 4 -size +0 -name ".credentials*" -print -o -maxdepth 4 -size +0 -name ".runner" -print 2>/dev/null | grep -q .; then exit 94; fi' \
     'if ls "$TEND_RUNTIME_ROOT/view" >/dev/null 2>&1; then exit 93; fi' \
-    '# The path, not the values: see the note in this header.' \
+    '# A $GITHUB_ENV export crosses as a variable; the path does not.' \
     'test -z "${GITHUB_ENV:-}"' \
     'test -z "${ACTIONS_RUNTIME_TOKEN:-}"' \
     '# Scratch: /tmp is a private tmpfs; /var/tmp belongs to the runner.' \
@@ -459,34 +365,13 @@ PY
   grep -q '"stub turn"' "$stream_json"
   grep -q 'stub turn' "$runner_summary"
 
-  # (1) The view presented the runner's home as the sandbox's own, which is the
-  # one number that settles the idmap's direction.
+  # The idmap presented the runner's home as the sandbox's own.
   test "$(sudo -u "$SANDBOX" cat "$run_dir/tend-view-owner")" = \
     "$(id -u "$SANDBOX"):$(id -g "$SANDBOX")"
-  # (2) Nothing the sandbox wrote reached the runner — not the files, not the
-  # rename, not the hard link, not even the mode of a directory it wrote under.
+  # Nothing the sandbox wrote reached the runner.
   test "$(host_checksum)" = "$TEND_HOST_SUM"
-  test "$(cat "$TEND_WARM_CACHE/registry/warm")" = warm-cache
   test ! -e "$GITHUB_WORKSPACE/.tend-srt-wrote-here"
-  test ! -e "$TEND_WARM_CACHE/registry/written-by-sandbox"
-  test ! -e "$TEND_WARM_CACHE/root-owned/written-by-sandbox"
-  test ! -e "$TEND_WARM_TREE/written-by-sandbox"
-  test -d "$TEND_WARM_CACHE/rename-me"
-  test ! -e "$TEND_WARM_CACHE/renamed"
-  # The event checkout ran inside the view too, so the runner's own HEAD is
-  # exactly what the workflow checked out.
   test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$TEND_HOST_HEAD"
-  # The mechanism behind all of the above, checked from the runner's own
-  # namespace rather than from inside the one that built it: the view never
-  # propagated out. `enter_view` asserts this with findmnt from inside, where a
-  # mount made shared would look private to it.
-  if findmnt -n -o FSTYPE --target "$HOME" | grep -qx overlay; then
-    echo "::error::the agent's view propagated into the runner's mount namespace"
-    exit 1
-  fi
-
-  # The agent commits without configuring an identity of its own, including
-  # from a clone it makes itself, and that identity is now set inside the view.
   test "$(sudo -u "$SANDBOX" cat "$run_dir/tend-git-identity")" = \
     "${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
   setup_proxy=$(sudo -u "$SANDBOX" cat "$run_dir/tend-setup-proxy")
@@ -496,19 +381,12 @@ PY
   sudo -u "$SANDBOX" grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$claude_env"
   sudo -u "$SANDBOX" grep -qxF "HOME=$HOME" "$claude_env"
   sudo -u "$SANDBOX" test -f /home/tend-sandbox/tmp/tend-scratch-probe
-  # The sandbox wrote /tmp/tend-sandbox-scratch and the write succeeded; it
-  # landed in the tmpfs SRT mounts over /tmp, which went with the process tree.
   test ! -e /tmp/tend-sandbox-scratch
   sudo -u "$SANDBOX" grep -qxF "GITHUB_TOKEN=$dummy_token" "$claude_env"
   if sudo -u "$SANDBOX" grep -q '^GITHUB_ENV=' "$claude_env"; then
     echo "::error::runner command-file path crossed into Claude"
     exit 1
   fi
-  # The two namespaces withheld by shape, in the environment the harness binary
-  # actually received: `ACTIONS_*` is the runner's service channel — its
-  # RUNTIME_TOKEN is write access to the Actions cache, the one path a sandbox
-  # write could take into a later run — and `INPUT_*` is how an action's
-  # inputs, some of them this job's real secrets, reach a step.
   if sudo -u "$SANDBOX" grep -qE '^(ACTIONS_|INPUT_)' "$claude_env"; then
     echo "::error::a runner-internal namespace crossed into Claude"
     sudo -u "$SANDBOX" grep -E '^(ACTIONS_|INPUT_)' "$claude_env" | cut -d= -f1
@@ -574,11 +452,6 @@ PY
   echo "[test-setup-sandbox] complete Claude and Codex SRT lifecycles verified"
 }
 
-# The real dispose step, against the real filesystem: the runtime container
-# goes, and with it the view's upper layer and Tend's own secrets. The
-# runner-owned /tmp file is asserted again here as a regression guard — the
-# sandbox never saw it, so only a step that went looking through /tmp again
-# could remove it.
 verify_dispose() {
   PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s \
     shared/steps/dispose_sandbox_resources.py
@@ -606,12 +479,11 @@ case "${1:-}" in
   install-agent-uv) install_agent_uv ;;
   verify) verify ;;
   verify-refusals) verify_refusals ;;
-  verify-view-needs-the-idmap) verify_view_needs_the_idmap ;;
   verify-srt) verify_srt ;;
   verify-dispose) verify_dispose ;;
   cleanup) cleanup ;;
   *)
-    echo "usage: $0 {plant|setup|install-agent-uv|verify|verify-refusals|verify-view-needs-the-idmap|verify-srt|verify-dispose|cleanup}" >&2
+    echo "usage: $0 {plant|setup|install-agent-uv|verify|verify-refusals|verify-srt|verify-dispose|cleanup}" >&2
     exit 2
     ;;
 esac

@@ -453,7 +453,7 @@ def launch(
         runner_temp = tmp_path / "agent-run"
         workspace = tmp_path / "workspace"
         runner_temp.mkdir(exist_ok=True)
-        workspace.mkdir(exist_ok=True)
+        (workspace / ".git").mkdir(parents=True, exist_ok=True)
         monkeypatch.setenv("CI", "true")
         monkeypatch.setenv("TEND_INSIDE_SANDBOX", "1")
         env = {
@@ -621,6 +621,8 @@ def test_launch_writes_settings_inside_the_existing_sandbox(launch: Launcher) ->
     mkdir = result.command("mkdir")
     assert mkdir.argv[0] == "mkdir"
     assert mkdir.kwargs["stdin"] is subprocess.DEVNULL
+    exclude = Path(tee.argv[-1]).parents[1] / ".git/info/exclude"
+    assert exclude.read_text() == "/.claude/settings.local.json\n"
 
 
 def test_launch_captures_the_streams_into_runner_owned_files(

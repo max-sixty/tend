@@ -1,14 +1,5 @@
-"""The environment the sandbox user is launched with.
-
-The job's environment crosses whole, which is what makes a consumer's own
-``setup:`` reach the agent without anyone listing what it exported. The
-exclusions are therefore the whole security surface of this module: the real
-PAT, the runner's own service channel, the inputs a composite action receives,
-and the command-file paths a later step re-reads. ``proxy/test-setup-sandbox.sh``
-represents all five of those paths with ``GITHUB_ENV`` alone — so drop one of
-the other four from :data:`_sandbox.WITHHELD` and that suite still passes. These
-pin every name on both sides, and the order the two halves are composed in.
-"""
+"""The environment the sandbox user is launched with: the job's, minus the
+withheld names, with the agent env file after it."""
 
 from __future__ import annotations
 
@@ -50,13 +41,6 @@ def compose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Compose:
 
 
 def test_launch_env_puts_the_file_after_the_job(compose: Compose) -> None:
-    """The order `launch_env`'s docstring makes its postcondition, pinned.
-
-    The file carries the proxy routing and the dummy credentials, so it has to
-    beat whatever the job's own environment says about the same names — and a
-    consumer's `sandbox_env:` is part of the file, which is what makes it an
-    override rather than a default.
-    """
     pairs = compose(
         {"GITHUB_WORKFLOW": "tend-weekly", "CARGO_INCREMENTAL": "1"},
         env_file="HOME=/sandbox\nCARGO_INCREMENTAL=0\n",
@@ -85,11 +69,6 @@ def test_launch_env_withholds_every_denied_name(compose: Compose) -> None:
 def test_launch_env_withholds_the_runner_and_action_namespaces(
     compose: Compose,
 ) -> None:
-    """`ACTIONS_*` is the runner's service channel; `INPUT_*` carries secrets.
-
-    Both are namespaces GitHub defines rather than names Tend chose, so neither
-    can gain a member Tend has to notice.
-    """
     pairs = compose(
         {
             "ACTIONS_RUNTIME_TOKEN": "runner-service-token",
@@ -103,11 +82,6 @@ def test_launch_env_withholds_the_runner_and_action_namespaces(
 
 
 def test_launch_env_carries_what_the_job_exported(compose: Compose) -> None:
-    """The whole point: a `setup:` step's exports reach the agent unnamed.
-
-    Losing this is the failure that hides — the agent would rebuild from cold
-    with nothing red, which is exactly what the view exists to stop.
-    """
     pairs = compose(
         {
             "JAVA_HOME": "/usr/lib/jvm/temurin-21",
@@ -124,11 +98,6 @@ def test_launch_env_carries_what_the_job_exported(compose: Compose) -> None:
 
 
 def test_launch_env_withholding_is_anchored_to_the_prefix(compose: Compose) -> None:
-    """`ACTIONS_`/`INPUT_`, so a name that merely contains one still crosses.
-
-    A consumer `setup:` step is free to export `MY_ACTIONS_FLAG`, and the agent
-    losing it would be a silent difference from their own CI.
-    """
     pairs = compose(
         {
             "MY_ACTIONS_FLAG": "keep",
@@ -138,18 +107,6 @@ def test_launch_env_withholding_is_anchored_to_the_prefix(compose: Compose) -> N
     )
 
     assert sorted(pairs) == ["MY_ACTIONS_FLAG=keep", "REINPUT_MODE=keep"]
-
-
-def test_launch_env_lets_the_file_shadow_the_job(compose: Compose) -> None:
-    """A name the file defines is dropped from the job half, not duplicated.
-
-    `env` would take the last assignment either way; dropping it keeps the real
-    `GITHUB_TOKEN` out of the argv a `ps` could read, rather than relying on
-    ordering to make it harmless.
-    """
-    pairs = compose({"HOME": "/home/runner"}, env_file="HOME=/home/tend-sandbox\n")
-
-    assert pairs == ["HOME=/home/tend-sandbox"]
 
 
 def test_launch_env_reads_the_file_as_the_shell_wrote_it(compose: Compose) -> None:

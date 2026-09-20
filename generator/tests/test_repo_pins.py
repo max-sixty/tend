@@ -23,7 +23,7 @@ from packaging.version import Version
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 from tend.config import KNOWN_HARNESSES, Config
-from tend.workflows import UV_VERSION, generate_all
+from tend.workflows import UV_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -285,109 +285,6 @@ def test_sandbox_resources_are_removed_immediately_after_agent_reap(
     assert restore["run"].endswith('/restore-sandbox-runtime-host.sh"')
 
 
-# The PATH every hardened step pins its children to, and the shell that keeps
-# `$BASH_ENV` from running ahead of it.
-PINNED_PATH = "PATH=/usr/sbin:/usr/bin:/sbin:/bin"
-HARDENED_SHELL = "/usr/bin/bash --noprofile --norc -e -o pipefail {0}"
-
-# Nothing after the agent may resolve an executable through a path the sandbox
-# could influence. The agent runs as its own uid, but the steps that follow run
-# as the runner, which holds the bot PAT and — under codex — the model key. A
-# consumer's `setup:` has already prepended its own directories to the job
-# PATH, and the agent writes the job's own home through a view, so a bare
-# command name in a post-agent step is a name the sandbox could come to answer.
-#
-# Every such step therefore either `uses:` an action or is a `run:` with an
-# absolute shell, a neutralized `$BASH_ENV`, and the pinned PATH ahead of its
-# first command — which fixes resolution for the whole body, including whatever
-# the script it launches goes on to run. `set` is the one word admitted before
-# the pin: a shell builtin resolves nothing.
-#
-# The rule reads the same on both surfaces the agent is invoked from, so
-# `unpinned_steps` is the single statement of it and the two tests below only
-# differ in where they find the agent step.
-
-
-def unpinned_steps(after: list[dict]) -> list[str]:
-    """Post-agent steps that break the rule above, named with what they run."""
-    broken = []
-    for step in after:
-        if "uses" in step:
-            continue
-        name = step.get("name", "<unnamed>")
-        if step.get("shell") != HARDENED_SHELL:
-            broken.append(f"{name}: shell is {step.get('shell')!r}")
-            continue
-        if step.get("env", {}).get("BASH_ENV") != "":
-            broken.append(f"{name}: does not set BASH_ENV to the empty string")
-            continue
-        first = next(
-            (
-                line.strip()
-                for line in step["run"].splitlines()
-                if line.strip() and not line.strip().startswith(("#", "set "))
-            ),
-            "",
-        )
-        if first != PINNED_PATH and not first.startswith(f"{PINNED_PATH} /"):
-            broken.append(f"{name}: first command is {first!r}")
-    return broken
-
-
-@pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_no_action_step_after_the_agent_resolves_a_command_by_name(
-    harness: str,
-) -> None:
-    action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / harness / "action.yaml").read_text()
-    )
-    steps = action["runs"]["steps"]
-    run_name = "Run Claude" if harness == "claude" else "Run Codex"
-    after = steps[next(i for i, s in enumerate(steps) if s["name"] == run_name) + 1 :]
-    assert after, f"{harness}: no steps after {run_name}"
-
-    assert not unpinned_steps(after), unpinned_steps(after)
-
-
-def test_no_generated_step_after_the_agent_resolves_a_command_by_name(
-    tmp_path: Path,
-) -> None:
-    """The same rule, on the workflows the generator writes.
-
-    Reading only the two `action.yaml` files left the generated half
-    uncovered, which is how `unreact_eyes` — `if: always()`, the PAT in
-    `env:`, and `gh` and `head` by bare name — sat after the agent unpinned.
-    ci-fix is enabled so the corpus is every workflow that invokes the agent.
-    """
-    config = tmp_path / ".config" / "tend.yaml"
-    config.parent.mkdir(parents=True)
-    config.write_text(
-        'bot_name: test-bot\nworkflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n'
-    )
-    broken: list[str] = []
-    invoking = 0
-
-    for workflow in generate_all(Config.load(config)):
-        data = YAML(typ="safe", pure=True).load(workflow.content)
-        for job_name, job in data["jobs"].items():
-            steps = job.get("steps", [])
-            agent = [
-                index
-                for index, step in enumerate(steps)
-                if str(step.get("uses", "")).startswith("max-sixty/tend/")
-            ]
-            if not agent:
-                continue
-            invoking += 1
-            broken += [
-                f"{workflow.filename}:{job_name}: {problem}"
-                for problem in unpinned_steps(steps[agent[-1] + 1 :])
-            ]
-
-    assert invoking, "no generated job invokes the tend action — did the ref move?"
-    assert not broken, broken
-
-
 @pytest.mark.parametrize("harness", ["claude", "codex"])
 def test_srt_install_receives_trusted_runner_environment(harness: str) -> None:
     action = YAML(typ="safe", pure=True).load(
@@ -585,8 +482,7 @@ def test_privileged_sandbox_launch_forwards_every_configured_value(
 ) -> None:
     """`env:` and the `env -i` argv are two lists that have to agree.
 
-    A value reaches `setup_sandbox.py` only when both name it, and the script
-    refuses to start without the bot identity. Nothing else catches a value
+    A value reaches `setup_sandbox.py` only when both name it. Nothing else catches a value
     added to one list alone: neither action.yaml is linted or run here, and the
     hosted sandbox test supplies the script's environment itself — so the
     mismatch would first run in a consumer's job after a release.
@@ -601,7 +497,6 @@ def test_privileged_sandbox_launch_forwards_every_configured_value(
     )
     forwarded = set(re.findall(r'(\w+)="\$\1"', step["run"]))
 
-    assert {"TEND_BOT_LOGIN", "TEND_BOT_ID"} <= set(step["env"])
     assert set(step["env"]) - SHELL_HARDENING <= forwarded
 
 

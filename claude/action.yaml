@@ -279,10 +279,6 @@ runs:
         # the agent env file. sandbox_setup (commands) runs in a later step.
         TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
         TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
-        # The sandbox's global Git identity, so the agent's commits attribute
-        # to the bot without every session configuring one for itself.
-        TEND_BOT_LOGIN: ${{ steps.bot.outputs.login }}
-        TEND_BOT_ID: ${{ steps.bot.outputs.id }}
       run: |
         set +x
         /usr/bin/env -i \
@@ -306,8 +302,6 @@ runs:
           PYTHONNOUSERSITE=1 \
           TEND_SANDBOX_PATH="$TEND_SANDBOX_PATH" \
           TEND_SANDBOX_ENV="$TEND_SANDBOX_ENV" \
-          TEND_BOT_LOGIN="$TEND_BOT_LOGIN" \
-          TEND_BOT_ID="$TEND_BOT_ID" \
           "${TEND_UV_DIR}/uv" run --no-cache --no-config \
             --no-python-downloads --python /usr/bin/python3 --script \
             "${{ github.action_path }}/../proxy/setup_sandbox.py"
@@ -353,9 +347,8 @@ runs:
     # This trusted step restores before Claude starts, signs the baseline with a
     # per-run key that never crosses into the sandbox env, then hands only the
     # memory directory to the sandbox uid. Failure leaves Claude running without
-    # shared memory. The directory goes in /var/tmp, beside tend's other
-    # runner-owned containers, so the save step below reads back what the agent
-    # wrote without depending on the sandbox's write policy at all.
+    # shared memory. The directory goes in /var/tmp because the sandbox's /tmp
+    # is a tmpfs of its own.
     - name: Restore experimental memory Gist
       id: auto_memory
       if: inputs.memory_gist == 'true'
@@ -442,9 +435,7 @@ runs:
         TEND_LIFECYCLE: ${{ github.action_path }}/../shared/steps/agent_lifecycle.py
         TEND_SANDBOX_SETUP: ${{ inputs.sandbox_setup }}
         ACTION_PATH: ${{ github.action_path }}/..
-        # The event topology is selected inside the sandbox, by
-        # shared/steps/event_checkout.py, so these cross the boundary with the
-        # rest of the launch environment rather than driving a runner-side step.
+        # Read by shared/steps/event_checkout.py, inside the sandbox.
         TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
         TEND_BASE_BRANCH: ${{ inputs.base_branch }}
       run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/launch_sandbox_runtime.py"
@@ -471,13 +462,12 @@ runs:
       continue-on-error: true
       shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
       run: |
-        PATH=/usr/sbin:/usr/bin:/sbin:/bin
         runner_owner="$(/usr/bin/id -u):$(/usr/bin/id -g)"
         /usr/bin/sudo /usr/bin/chown --recursive --no-dereference \
           "$runner_owner" "$TEND_AUTO_MEMORY_DIRECTORY"
         TEND_AUTO_MEMORY_BASELINE_KEY=$(/usr/bin/cat "$TEND_AUTO_MEMORY_KEY_FILE")
         export TEND_AUTO_MEMORY_BASELINE_KEY
-        if ! /usr/bin/python3 -E -s \
+        if ! PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s \
           "${{ github.action_path }}/../shared/steps/gist_memory.py" \
           save; then
           echo "::warning::Experimental auto memory save failed; Claude's result is unchanged"
@@ -493,7 +483,7 @@ runs:
       if: always() && steps.auto_memory.outcome == 'success'
       continue-on-error: true
       shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/sudo /usr/bin/rm -rf -- "$TEND_AUTO_MEMORY_DIRECTORY" "$TEND_AUTO_MEMORY_KEY_FILE"
+      run: /usr/bin/sudo /usr/bin/rm -rf -- "$TEND_AUTO_MEMORY_DIRECTORY" "$TEND_AUTO_MEMORY_KEY_FILE"
       env:
         BASH_ENV: ""
 
@@ -514,15 +504,14 @@ runs:
     - name: Token usage
       if: always()
       id: tokens
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       env:
-        BASH_ENV: ""
         MODEL: ${{ inputs.model }}
         STREAM_JSON: ${{ steps.claude.outputs.stream_json }}
         # The session-log copy reads an agent-owned tree as root, so it runs
         # only once the supervisor has reaped the sandbox uid.
         SANDBOX_REAPED: ${{ steps.claude.outputs.sandbox_reaped }}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness claude
+      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness claude
 
     # Gate on the job being red, not on the agent step specifically. A dozen
     # steps run before the agent — the rate-limit preflight, auth validation,

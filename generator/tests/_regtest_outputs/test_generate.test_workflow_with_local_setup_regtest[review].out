@@ -42,20 +42,13 @@ jobs:
           TARGET: issues/${{ github.event.pull_request.number }}
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
 
-      # The runner checkout stays on the reviewed base tree, which is what
-      # `setup:` and any local action's POST chain run against. The harness
-      # moves it to the PR's own topology inside the sandbox, through a
-      # copy-on-write view, so this copy is never the one the agent changed.
+      # The runner checkout stays on the reviewed base tree for `setup:` and
+      # local actions' POST chains; the harness moves the agent's view of it to
+      # the PR's topology.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
-          # The token authenticates this fetch and is not written into
-          # .git/config afterwards: nothing later in the job reads a persisted
-          # credential, and one left there puts the bot PAT on the runner's
-          # disk for the rest of the run. A `setup:` step that does its own
-          # authenticated git operation here has to supply its own token.
-          persist-credentials: false
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: ./.github/actions/tend-setup
@@ -74,9 +67,7 @@ jobs:
 
       - name: Remove the eyes reaction
         if: always()
-        shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
         run: |
-          PATH=/usr/sbin:/usr/bin:/sbin:/bin
           REACTION_ID=$(gh api --paginate \
             "repos/$REPO/$TARGET/reactions?content=eyes&per_page=100" \
             --jq ".[] | select(.user.login == \"$BOT_NAME\") | .id" | head -n1)
@@ -85,7 +76,6 @@ jobs:
               || echo "::warning::could not remove the eyes reaction"
           fi
         env:
-          BASH_ENV: ""
           REPO: ${{ github.repository }}
           TARGET: issues/${{ github.event.pull_request.number }}
           BOT_NAME: test-bot

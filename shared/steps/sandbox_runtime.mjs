@@ -59,35 +59,14 @@ async function main() {
       allowLocalBinding: false,
     },
     filesystem: {
-      // /tmp is denied rather than shared, which is what makes it writable:
-      // SRT mounts a tmpfs over a read-denied directory, so the sandbox gets
-      // its own empty /tmp and the runner's never appears inside. Tooling
-      // hard-codes paths under /tmp with no environment variable to move them
-      // — NuGet's build mutex and zsh's here-documents among them — so a
-      // read-only /tmp buys a per-tool workaround every time one surfaces,
-      // while a shared writable one is a channel: a consumer's cache action
-      // would save whatever the sandbox wrote there into the base branch's
-      // cache scope, which the default branch's CI then restores and builds
-      // from. A private tmpfs gives the tooling what it wants and carries
-      // nothing back out. It is RAM-backed, so bulk scratch belongs in
-      // TMPDIR, which points at the sandbox home on disk.
-      //
-      // TMPDIR is what keeps this safe to deny: SRT puts its socat bridge
-      // sockets and its own scratch under `os.tmpdir()`, so they follow
-      // TMPDIR into the sandbox home rather than landing in the directory
-      // the tmpfs covers. Pointing TMPDIR back at /tmp would mount over
-      // them.
+      // Denying /tmp makes SRT mount a private tmpfs there: writable scratch
+      // for tools that hard-code /tmp, and nothing reaches the runner's /tmp
+      // (a cache action there would save it). SRT's own sockets follow TMPDIR,
+      // which points into the sandbox home, so the tmpfs covers none of them.
       denyRead: ["/tmp"],
-      // Nothing else is denied, so nothing needs re-admitting: with `/` bound
-      // read-only, every path is readable unless a denied directory covers it.
       allowRead: [],
-      // The runner's home is the job's home and holds the checkout, and the
-      // agent works in both. What makes that safe is not this list but
-      // `enter_view.py`: the home it names here is a copy-on-write view, so a
-      // write lands in an upper layer that dies with the process tree and the
-      // runner's own filesystem is byte-for-byte unchanged. bwrap binds
-      // whatever the parent mount namespace has at this path, which is the
-      // overlay, so SRT needs to know none of that.
+      // The runner's home is the copy-on-write view `enter_view.py` mounted;
+      // bwrap binds whatever the parent namespace has at this path.
       allowWrite: [runnerHome, agentHome, ...(autoMemory ? [autoMemory] : [])],
       denyWrite: [],
       allowGitConfig: true,

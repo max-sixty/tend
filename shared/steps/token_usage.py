@@ -29,9 +29,7 @@ interactive harness so downstream consumers (review-reviewers' evidence gist,
 token_report.py, dashboards) don't branch on harness.
 
 It also publishes the ``artifact_name`` the upload step uses; see
-:func:`artifact_name`. The name lives here rather than in a step of its own
-because every step after the agent runs with an absolute interpreter and a
-pinned ``PATH``, and a one-line ``jq`` step was the one that did not.
+:func:`artifact_name`.
 
 Every record also names the run it came from, so spend can be grouped by
 subject; see :func:`run_context`. The job summary stays counts-only, because

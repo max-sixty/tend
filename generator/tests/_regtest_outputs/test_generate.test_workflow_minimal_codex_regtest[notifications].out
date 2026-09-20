@@ -243,12 +243,6 @@ jobs:
           ref: main
           fetch-depth: 0
           fetch-tags: true
-          # The token authenticates this fetch and is not written into
-          # .git/config afterwards: nothing later in the job reads a persisted
-          # credential, and one left there puts the bot PAT on the runner's
-          # disk for the rest of the run. A `setup:` step that does its own
-          # authenticated git operation here has to supply its own token.
-          persist-credentials: false
           token: ${{ secrets.TEND_BOT_TOKEN }}
       - uses: max-sixty/tend/codex@X.Y.Z
         if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'

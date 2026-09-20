@@ -1,51 +1,27 @@
 """Give the agent a copy-on-write view of the runner's home, then drop into it.
 
-This runs as root inside ``unshare --mount --propagation private``, started by
-:mod:`launch_sandbox_runtime`, and ends in ``exec`` — so the whole boundary is
-one process tree and the mounts below die with it. There is no cleanup step,
-and nothing here can fail open: a mount that does not come up fails the run
-before any process runs as the sandbox uid.
+Runs as root inside ``unshare --mount --propagation private`` and ends in
+``exec``, so the mounts die with the process tree and need no cleanup.
 
-What it builds, at ``$HOME`` of the runner account:
+The view is an overlay mounted over the home itself. Its lower layer is a
+read-only bind of that home, **idmapped** so the runner's uid/gid and the
+sandbox's swap places; its upper layer sits in the runtime container. The agent
+reads what ``setup:`` left at the paths it left it, and its writes never reach
+the runner's disk. bwrap resolves binds through the parent mount namespace, so
+SRT's ``allowWrite`` re-bind of the home picks up the overlay unchanged.
 
-1. A read-only **idmapped** bind of the runner's home, staged out of the way.
-   The idmap swaps the runner's uid/gid with the sandbox's and is the identity
-   everywhere else, so the tree presents as sandbox-owned.
-2. An **overlay** whose lower layer is that bind, mounted over the home itself.
-   The agent reads exactly what the job's ``setup:`` steps left, at the paths
-   they left it, and every write it makes lands in an upper directory that no
-   trusted process ever reads. The host filesystem is byte-for-byte unchanged.
-3. **Masks** over the parts of that home the agent must not read: what the
-   Actions runner keeps for itself, and GitHub's file-command directory. A
-   directory gets an empty, mode-0 tmpfs and a file a read-only bind of
-   ``/dev/null``. Which paths those are is derived from the running job by
-   :mod:`launch_sandbox_runtime` rather than listed here, so the set cannot
-   grow into a catalogue.
+The idmap is what makes the view writable: overlayfs checks the accessing
+task's credentials against the lower inode's owner, so a ``runner:runner``
+lower refuses every create by the sandbox uid. It is a swap with identity
+elsewhere because overlayfs gives a copied-up inode the mapped lower owner, and
+an unmapped one (a root-owned directory ``setup:`` left) refuses the copy-up.
+Ids at or above :data:`ID_CEILING` stay unmapped.
 
-Why the overlay is mounted here rather than asked of the Sandbox Runtime: bwrap
-resolves every bind source through its copy of the parent mount namespace, so a
-mount made before launch is what it binds. SRT's own filesystem config is
-same-path binds only, and its ``allowWrite`` re-bind of the home picks up this
-overlay without SRT knowing it exists.
+``--mask`` paths inside the home are covered — a directory by an empty tmpfs, a
+file by ``/dev/null`` — and ``agent_lifecycle.probe_view`` checks from inside
+that the view is writable and the masks took.
 
-**The idmap is what makes the view writable.** Overlayfs checks the accessing
-task's own credentials against the overlay inode, which mirrors the lower
-inode's owner and mode; the mounter's credentials feed only a second check. A
-``runner:runner`` lower is therefore EACCES for every create by the sandbox uid,
-whoever mounted it. The swap repairs that, and it is a swap rather than a single
-mapping because overlayfs takes a copied-up inode's owner from the mapped lower
-stat: an unmapped owner is ``INVALID_UID``, which ``notify_change`` refuses, so
-a root-owned directory ``setup:`` left behind would refuse every create beneath
-it. Ids at or above :data:`ID_CEILING` are outside the map and present as the
-kernel's overflow id; that is the documented ceiling of this design.
-
-Floors: kernel 5.19 (idmapped layers under overlayfs) and util-linux 2.39
-(``X-mount.idmap``). Both are met by the hosted ubuntu-24.04 image. A runner
-that misses either fails the run naming the floor; there is no fallback path.
-The kernel floor announces itself — ``mount_setattr`` errors — but the
-util-linux one does not, because ``X-`` options are userspace options an older
-``mount(8)`` records and ignores, so :func:`build_view` stats the result rather
-than trusting the exit status.
+Floors: kernel 5.19 and util-linux 2.39 (``X-mount.idmap``).
 """
 
 from __future__ import annotations
@@ -57,42 +33,20 @@ import subprocess
 import sys
 from pathlib import Path
 
-#: Ids below this are mapped one-to-one (apart from the swap); ids at or above
-#: it are not mapped at all and present as the kernel's overflow id. 64Ki
-#: covers every account a runner image creates, the containers a ``setup:``
-#: step starts, and root.
 ID_CEILING = 65536
-
 MOUNT = "/usr/bin/mount"
-UMOUNT = "/usr/bin/umount"
-FINDMNT = "/usr/bin/findmnt"
 
 
-def fail(message: str) -> None:
-    print(f"::error::view: {message}", flush=True)
-    raise SystemExit(1)
-
-
-def run(argv: list[str]) -> str:
+def run(*argv: str) -> None:
     result = subprocess.run(argv, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "").strip()
-        fail(f"{' '.join(argv[:2])} failed: {detail}")
-    return result.stdout
+    if result.returncode:
+        raise OSError(f"{' '.join(argv[:3])} failed: {result.stderr.strip()}")
 
 
 def identity_map(kind: str, low: int, high: int) -> list[str]:
-    """Spell one id swap plus identity either side of it, for ``X-mount.idmap``.
+    """Swap ``low`` and ``high``, identity elsewhere, as ``X-mount.idmap`` entries.
 
-    Each entry is ``<kind>:<id in the mount>:<id on disk>:<count>``, so the two
-    one-id entries read "where the disk says `high`, the mount says `low`" and
-    the reverse.
-
-    Two ids that are already equal need no swap, only the identity — which is
-    the shape when the two accounts share a primary group, as they do wherever
-    ``tend-sandbox`` was created with ``useradd -g``. The map for that id type
-    still has to be complete, because an id the mount does not map reads back
-    as the kernel's overflow id.
+    Each entry is ``<kind>:<id in the mount>:<id on disk>:<count>``.
     """
     if not 0 <= low <= high < ID_CEILING:
         raise ValueError(f"{kind} ids {low} and {high} are outside the mappable range")
@@ -115,152 +69,36 @@ def swap_map(runner: pwd.struct_passwd, sandbox: pwd.struct_passwd) -> str:
     return " ".join(uids + gids)
 
 
-def mount_facts(path: Path) -> tuple[str, str]:
-    """Return the filesystem type and propagation of the mount holding ``path``."""
-    fields = run([FINDMNT, "-n", "-o", "FSTYPE,PROPAGATION", "--target", str(path)])
-    parts = fields.split()
-    if len(parts) != 2:
-        fail(f"findmnt gave no mount for {path}")
-    return parts[0], parts[1]
-
-
-def build_view(*, home: Path, stage: Path, sandbox: pwd.struct_passwd) -> None:
-    owner = home.stat().st_uid
-    try:
-        runner = pwd.getpwuid(owner)
-    except KeyError:
-        fail(f"{home} is owned by uid {owner}, which is not an account")
-    if runner.pw_uid == sandbox.pw_uid:
-        fail(f"{home} is already the sandbox account's home")
+def build_view(home: Path, stage: Path, sandbox: pwd.struct_passwd) -> None:
+    home_stat = home.stat()
+    runner = pwd.getpwuid(home_stat.st_uid)
     lower, upper, work = stage / "lower", stage / "upper", stage / "work"
-    for directory in (stage, lower, upper, work):
-        directory.mkdir(mode=0o700, exist_ok=True)
-        os.chmod(directory, 0o700)
-    # The overlay option string is comma- and colon-separated, so a stage path
-    # carrying either would be read as further options rather than as a path.
-    # It is tend's own mktemp directory, never a consumer's, so this is an
-    # assertion and not a sanitizer.
-    if set(",:") & set(str(stage)):
-        fail(f"view stage path must not contain ',' or ':': {stage}")
-
-    run(
-        [
-            MOUNT,
-            "--bind",
-            "-o",
-            f"ro,X-mount.idmap={swap_map(runner, sandbox)}",
-            str(home),
-            str(lower),
-        ]
-    )
-    # `X-` options are userspace options: a `mount(8)` older than util-linux
-    # 2.39 records `X-mount.idmap` and ignores it rather than refusing, so the
-    # bind comes up un-idmapped, the overlay mounts over it, and `findmnt`
-    # reports everything this expects. The failure would surface much later, as
-    # an unwritable view, with nothing naming the cause. One stat says whether
-    # the map took: the home belongs to the runner on disk and must read back
-    # as the sandbox account's through the mount.
-    if lower.stat().st_uid != sandbox.pw_uid:
-        fail(
-            f"{home} still reads as uid {lower.stat().st_uid} through the "
-            f"idmapped bind, not {sandbox.pw_uid}: this mount(8) does not "
-            "implement X-mount.idmap, which needs util-linux 2.39"
-        )
-    run(
-        [
-            MOUNT,
-            "-t",
-            "overlay",
-            "overlay",
-            "-o",
-            # redirect_dir, because renaming a directory that still lives on the
-            # lower layer is EXDEV without it and cargo renames inside its
-            # registry. Ubuntu's module defaults it off and only a real-root
-            # mounter may turn it on.
-            f"lowerdir={lower},upperdir={upper},workdir={work},redirect_dir=on",
-            str(home),
-        ]
-    )
-    # The overlay holds its own reference to the lower layer, so detaching the
-    # path it was mounted at leaves nothing for a later process to find.
-    run([UMOUNT, "-l", str(lower)])
-    if os.path.ismount(lower):
-        fail(f"the staged lower layer is still mounted at {lower}")
+    stage.mkdir(mode=0o700)
+    for directory in (lower, upper, work):
+        directory.mkdir()
+    # The merged root takes the upper directory's owner and mode, so it has to
+    # match the home as the idmap presents it.
+    os.chown(upper, sandbox.pw_uid, sandbox.pw_gid)
+    os.chmod(upper, home_stat.st_mode & 0o7777)
+    idmap = swap_map(runner, sandbox)
+    run(MOUNT, "--bind", "-o", f"ro,X-mount.idmap={idmap}", str(home), str(lower))
+    # redirect_dir: renaming a directory that lives on the lower layer (cargo
+    # does, in its registry) is EXDEV without it.
+    options = f"lowerdir={lower},upperdir={upper},workdir={work},redirect_dir=on"
+    run(MOUNT, "-t", "overlay", "overlay", "-o", options, str(home))
+    # The overlay holds its own reference, and the bind still shows what the
+    # masks below cover.
+    run("/usr/bin/umount", "-l", str(lower))
 
 
-def mask(path: Path, *, home: Path) -> None:
-    """Cover one path inside the view so the agent reads nothing through it.
-
-    A directory takes an empty, unreadable tmpfs. A file takes a read-only bind
-    of ``/dev/null``, because a tmpfs needs a directory to mount on and the
-    runner's own credentials are files — ``.credentials``, ``.runner`` — beside
-    the directories.
-    """
-    if path != home and not path.is_relative_to(home):
-        fail(f"{path} is not inside {home}, so masking it is not this view's business")
+def mask(path: Path) -> None:
     if path.is_dir():
-        run([MOUNT, "-t", "tmpfs", "-o", "ro,nosuid,nodev,mode=0", "tmpfs", str(path)])
-    elif path.is_file():
-        run([MOUNT, "--bind", "-o", "ro", "/dev/null", str(path)])
+        run(MOUNT, "-t", "tmpfs", "-o", "ro,mode=0555", "tmpfs", str(path))
     else:
-        fail(f"{path} is neither a file nor a directory, so the view cannot mask it")
+        run(MOUNT, "--bind", "-o", "ro", "/dev/null", str(path))
 
 
-def verify(*, home: Path, masks: list[Path]) -> None:
-    """Refuse to run the agent unless every mount this view needs is in place.
-
-    Checked after the mounts rather than trusted from their exit status, and
-    before the drop to the sandbox uid, so the one failure mode that would be
-    silent — the agent running against the runner's real home — cannot happen.
-    The propagation check is the other half of that: a view that propagated back
-    to the host namespace would put the agent's writes in front of every later
-    step.
-    """
-    fstype, propagation = mount_facts(home)
-    if fstype != "overlay":
-        fail(f"{home} is on {fstype}, expected overlay")
-    if propagation != "private":
-        fail(f"the mount at {home} is {propagation}, not private to this job")
-    # Each mask is checked twice over, because either check alone passes on a
-    # mask that never mounted: a directory that happens to be empty — which
-    # `_runner_file_commands` often is at this moment — lists nothing whether
-    # or not the tmpfs is there, and a filesystem check says a mount happened
-    # without saying it hid anything. A masked file needs only the one, since
-    # nothing the runner keeps is already a character device.
-    for path in masks:
-        if path.is_dir():
-            fstype, _ = mount_facts(path)
-            if fstype != "tmpfs":
-                fail(f"{path} is on {fstype}, so nothing was mounted over it")
-            if any(path.iterdir()):
-                fail(f"{path} still lists its contents")
-        elif not path.is_char_device():
-            fail(f"{path} still reads as a regular file")
-
-
-def drop_privilege(sandbox: pwd.struct_passwd) -> list[str]:
-    """The prefix that turns the root process building the view into the agent.
-
-    Composed here, where the account has already been resolved, so the ids are
-    numeric and nothing downstream has to look them up. ``exec`` all the way
-    means the sandbox uid owns the same process the supervisor is waiting on,
-    which is what the reap and the cancellation path already assume.
-
-    The bounding set goes because nothing in the lifecycle execs a setuid
-    binary, so it buys the sandbox nothing and costs it the one route to
-    privilege that survives a uid change. bwrap is unaffected: creating a user
-    namespace resets the bounding set inside it.
-    """
-    return [
-        "/usr/bin/setpriv",
-        f"--reuid={sandbox.pw_uid}",
-        f"--regid={sandbox.pw_gid}",
-        "--clear-groups",
-        "--bounding-set=-all",
-    ]
-
-
-def main(argv: list[str]) -> int:
+def main(argv: list[str]) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--home", required=True, type=Path)
     parser.add_argument("--stage", required=True, type=Path)
@@ -269,31 +107,29 @@ def main(argv: list[str]) -> int:
     parser.add_argument("command", nargs=argparse.REMAINDER)
     options = parser.parse_args(argv)
 
-    command = options.command[1:] if options.command[:1] == ["--"] else options.command
-    if not command:
-        fail("no command to exec after building the view")
-    if os.geteuid() != 0:
-        fail("must run as root, under `unshare --mount --propagation private`")
-
-    home = options.home.resolve(strict=True)
     sandbox = pwd.getpwnam(options.user)
-    build_view(home=home, stage=options.stage, sandbox=sandbox)
-    masks = [path.resolve(strict=False) for path in options.mask]
-    for path in masks:
-        mask(path, home=home)
-    verify(home=home, masks=masks)
-    # Re-resolve the working directory through the mounts just made: a cwd
-    # inherited from the runner still points at the host's inode, which would
-    # put the first reads of the lifecycle outside the view it is meant to run
-    # in.
-    os.chdir(home)
-    argv = drop_privilege(sandbox) + command
+    build_view(options.home, options.stage, sandbox)
+    for path in options.mask:
+        mask(path)
+    # A cwd inherited from the runner still names the host's inode.
+    os.chdir(options.home)
+    command = options.command[1:] if options.command[:1] == ["--"] else options.command
+    argv = [
+        "/usr/bin/setpriv",
+        f"--reuid={sandbox.pw_uid}",
+        f"--regid={sandbox.pw_gid}",
+        "--clear-groups",
+        # Nothing in the lifecycle execs a setuid binary. bwrap is unaffected:
+        # a new user namespace resets the bounding set inside it.
+        "--bounding-set=-all",
+        *command,
+    ]
     os.execv(argv[0], argv)
 
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main(sys.argv[1:]))
+        main(sys.argv[1:])
     except (KeyError, OSError, ValueError) as problem:
         print(f"::error::view: {problem}", flush=True)
         raise SystemExit(1) from None

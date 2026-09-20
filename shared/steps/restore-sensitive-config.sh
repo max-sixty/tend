@@ -8,20 +8,14 @@
 # The root list is claude-code-action's restore-config.ts set
 # (src/github/operations/restore-config.ts) minus the instruction files, which
 # lib/pin-instruction-paths.sh covers at every depth for both harnesses. The
-# PR's own versions stay readable at `git show HEAD:<path>`; nothing copies
-# them anywhere, because nothing needs to — a session that wants to see what
-# the PR changed reads them from the object store.
+# PR's own versions stay readable at `git show HEAD:<path>`.
 #
 # Known limitation: a PR that legitimately edits .claude/ or CLAUDE.md will have
 # those edits reverted for the duration of this run. Same tradeoff
 # claude-code-action makes — narrow UX cost for closing the RCE surface.
 #
-# Invoked by event_checkout.py inside the sandbox, immediately after it selects
-# the event's topology. That bottleneck verifies TEND_CONFIG_BASE_SHA, so this
-# script does not re-derive topology or need a credential. It runs as the
-# sandbox uid, with the sandbox's own Git configuration in scope — see
-# event_checkout.py's `git_environment` for why that is deliberate — against a
-# tree whose writes reach nothing but the view.
+# Invoked by event_checkout.py inside the sandbox, which selects and verifies
+# TEND_CONFIG_BASE_SHA.
 #
 # Input (env): TEND_CONFIG_BASE_SHA. Empty means this is not a PR worktree.
 set -eo pipefail

@@ -246,10 +246,6 @@ runs:
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
         TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
         TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
-        # The sandbox's global Git identity, so the agent's commits attribute
-        # to the bot without every session configuring one for itself.
-        TEND_BOT_LOGIN: ${{ steps.bot.outputs.login }}
-        TEND_BOT_ID: ${{ steps.bot.outputs.id }}
       run: |
         set +x
         /usr/bin/env -i \
@@ -272,8 +268,6 @@ runs:
           PYTHONNOUSERSITE=1 \
           TEND_SANDBOX_PATH="$TEND_SANDBOX_PATH" \
           TEND_SANDBOX_ENV="$TEND_SANDBOX_ENV" \
-          TEND_BOT_LOGIN="$TEND_BOT_LOGIN" \
-          TEND_BOT_ID="$TEND_BOT_ID" \
           "${TEND_UV_DIR}/uv" run --no-cache --no-config \
             --no-python-downloads --python /usr/bin/python3 --script \
             "${{ github.action_path }}/../proxy/setup_sandbox.py"
@@ -404,9 +398,7 @@ runs:
         TEND_CODEX_RUNNER: ${{ github.action_path }}/runner.py
         TEND_SANDBOX_SETUP: ${{ inputs.sandbox_setup }}
         ACTION_PATH: ${{ github.action_path }}/..
-        # The event topology is selected inside the sandbox, by
-        # shared/steps/event_checkout.py, so these cross the boundary with the
-        # rest of the launch environment rather than driving a runner-side step.
+        # Read by shared/steps/event_checkout.py, inside the sandbox.
         TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
         TEND_BASE_BRANCH: ${{ inputs.base_branch }}
       # runner.py preserves the final message even when codex exits non-zero.
@@ -456,12 +448,11 @@ runs:
     - name: Token usage
       if: always()
       id: tokens
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       env:
-        BASH_ENV: ""
         MODEL: ${{ inputs.model }}
         SANDBOX_REAPED: ${{ steps.codex.outputs.sandbox_reaped }}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness codex
+      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness codex
 
     - name: Mark event notification read
       if: success()

@@ -307,104 +307,49 @@ The harness has three states and three transitions:
 Each transition is a bottleneck with one job:
 
 - **The view** puts the agent in the job's own checkout and home, at their real
-  paths, with the job's own PATH and environment. A root-side step builds it in
-  a private mount namespace the agent's process tree inherits: a read-only
-  *idmapped* bind of the runner's home as the lower layer of an overlay mounted
-  over that home, with the upper layer in the per-run `/var/tmp` runtime
-  container. The agent reads what `setup:` left and may write anywhere; every
-  write lands in the upper layer, which no trusted process ever reads. The
-  runner's filesystem is byte-for-byte what `setup:` left it, while the agent
-  runs and after it — so a cache action's POST step saves the tree the runner
-  built, and there is no cleanup step whose failure could matter. The namespace
-  dies with the process tree; nothing is copied, chowned or unmounted.
+  paths, with the job's PATH and environment. Before dropping to the sandbox
+  uid, a root step (`shared/steps/enter_view.py`) mounts an overlay over the
+  runner's home in a private mount namespace: the lower layer is a read-only
+  bind of that home, *idmapped* so the runner's and the sandbox's ids swap, and
+  the upper layer sits in the per-run `/var/tmp` runtime container. The agent
+  reads what `setup:` left and writes anywhere; every write lands in the upper
+  layer, so the runner's filesystem stays byte-for-byte what `setup:` left and
+  no cleanup step can fail open. The namespace dies with the process tree.
 
-  The idmap is what makes the view writable, and it is also what sets the read
-  policy. Overlayfs checks the accessing task's own credentials against the
-  overlay inode, which mirrors the lower inode's owner and mode, so a
-  `runner:runner` lower is EACCES for the sandbox uid however it was mounted.
-  Mapping the runner's ids to the sandbox's repairs that — and makes the agent
-  the runner account for file permissions on this tree. **Anything `setup:`
-  leaves readable in the runner's home or checkout is readable by the agent,
-  and so by anyone who can open a pull request.** That is stated to consumers
-  in `docs/tend.example.yaml`; the mitigation is to log in only in steps tend
-  does not run.
+  The idmap makes the agent the runner account for file permissions on that
+  tree. **Anything `setup:` leaves readable in the runner's home or checkout is
+  readable by the agent, and so by anyone who can open a pull request.**
+  `docs/tend.example.yaml` tells consumers to log in only in steps tend does
+  not run. Two things in the home are masked, both derived from the running
+  job: the Actions runner's installation, found from the `Runner.Worker`
+  ancestor (every entry except one a job path lives under, since the default
+  self-hosted layout keeps `_work` there), and GitHub's file-command
+  directory, which holds `$GITHUB_OUTPUT` and `$GITHUB_STATE` values no step
+  exported. A `$GITHUB_ENV` export is an environment variable by launch and
+  crosses. Tend's own runner-side secrets (the proxy CA key, the auto-memory
+  key, the Codex credentials) sit in a 0700 directory in the runtime container,
+  outside the home. The hosted integration test asserts they are unreadable
+  from inside, and sweeps the home for a runner credential the mask missed.
 
-  Two directories inside that home are masked with empty, mode-0 tmpfs mounts,
-  and both are derived from the running job rather than listed, so neither can
-  grow into a catalogue tend maintains:
-
-  - what the Actions runner keeps for itself. Its installation is found by
-    walking this step's ppid chain to the `Runner.Worker` that owns it, and
-    every entry in that installation is masked except one the job's own paths
-    live under — because the default self-hosted layout puts `_work`, and so
-    the checkout and `RUNNER_TEMP`, inside it, beside `.credentials` and
-    `_diag`. A directory takes a mode-0 tmpfs and a file a read-only bind of
-    `/dev/null`;
-  - GitHub's file-command directory, `dirname "$GITHUB_ENV"`. What that keeps
-    back is a `$GITHUB_OUTPUT` or `$GITHUB_STATE` value no step turned into an
-    environment variable — an app token an action produced is the common one.
-    A `$GITHUB_ENV` export *is* an environment variable by the time the agent
-    launches, and crosses on the environment's own rules; `docs/tend.example.yaml`
-    tells consumers so rather than letting this mask imply otherwise.
-
-  Tend's own runner-side secrets never live under that tree: the proxy confdir
-  holding its CA private key, the auto-memory baseline key and the Codex
-  credentials all sit in a 0700 directory inside the runtime container, where
-  the sandbox uid is plain "other". The hosted integration test asserts each of
-  those is unreadable from inside, so the placement rule is a failing test
-  rather than a review item.
-
-  The residual the derivation cannot cover is GitHub moving the runner's
-  credentials out of the runner's installation, which the mask follows and a
-  new location elsewhere in the home would not. The integration test sweeps for
-  it: from inside the view, no `.credentials*` or `.runner` anywhere in the
-  home reads back non-empty. That turns the one thing this design has to keep
-  watching into a red run rather than a note.
-
-  Before any process runs as the sandbox uid, the root-side step verifies with
-  `findmnt` that the home is on an `overlay`, that each mask is on a `tmpfs`,
-  and that the mount is private to this namespace — then `exec`s `setpriv` down
-  to the sandbox account with an empty capability bounding set. A mount that did
-  not come up fails the run; there is no path on which the agent gets the real
-  home. Inside SRT the lifecycle's own probe re-checks that the checkout is
-  writable and both masks are empty, so a view that was built but did not take
-  is caught from the other side too.
-
-  That adds `unshare`, `mount`, `findmnt` and `setpriv` to the boundary, run as
-  root from a fixed argv with no consumer-controlled text. It also makes one
-  file under `ACTION_PATH` — `shared/steps/enter_view.py` — a file root
-  executes, which nothing under that path was before. What keeps that safe is
-  the action pinning: a generated workflow names
-  `max-sixty/tend/<harness>@X.Y.Z`, so `ACTION_PATH` is an immutable,
-  runner-owned tag checkout. A workflow that pointed the harness action at a
-  local path instead would make its own checkout root-executable — still
-  reviewed code, because every generated checkout takes the base tree and the
-  PR's own topology is selected inside the sandbox, but the pinning is what
-  makes it not depend on that. It also sets the
-  floor: kernel 5.19 for idmapped overlayfs layers and util-linux 2.39 for
-  `X-mount.idmap`. A runner below either fails the run naming the floor; there
-  is no fallback path.
-- **Content ingress** now happens inside the sandbox. The workflow's own
-  checkout arrives on reviewed code — the default branch, or on a review the
-  PR's base — and the lifecycle's first step selects the event's topology in
-  it: the PR's merge or head ref, the head branch of the PR a mention names, or
-  the base branch. It then pins startup configuration to the chosen base
-  commit. Git therefore parses a contributor's packfile as the sandbox uid
-  rather than as the runner, and the fetch authenticates the way the agent's
-  own pushes do, through the credential proxy, holding no token of its own.
-  SRT, the Codex binaries, and the immutable agent environment live in one
-  dedicated runner-owned, sandbox-readable runtime directory; the sandbox
-  cannot write it. It sits under `/var/tmp` rather than `/tmp`, because the
-  sandbox gets a `/tmp` of its own: SRT mounts a tmpfs over it, so tooling that
-  hard-codes a path there — NuGet's build mutex, zsh's here-documents — writes
-  to an empty directory that exists only inside the sandbox's mount namespace
-  and dies with it. The runner's `/tmp` never appears inside, and nothing
-  written to the sandbox's reaches the runner.
+  This adds `unshare`, `mount` and `setpriv` to the boundary, run as root from a
+  fixed argv, and makes `enter_view.py` a file root executes; the action's
+  `@X.Y.Z` pin keeps `ACTION_PATH` an immutable tag checkout. It needs kernel
+  5.19 and util-linux 2.39, with no fallback.
+- **Content ingress** happens inside the sandbox. The workflow's checkout
+  arrives on reviewed code, and the lifecycle's first step selects the event's
+  topology in it — the PR's merge or head ref, a mentioned PR's head branch, or
+  the base branch — then pins startup configuration to the chosen base commit.
+  Git parses a contributor's packfile as the sandbox uid, and the fetch
+  authenticates through the credential proxy. SRT, the Codex binaries, and the
+  immutable agent environment live in one runner-owned, sandbox-readable
+  runtime directory under `/var/tmp`; the sandbox cannot write it. SRT mounts a
+  private tmpfs over `/tmp`, so tooling that hard-codes a path there writes to
+  a directory that dies with the sandbox.
 - **Launch and lifetime** invokes the consumer's `sandbox_setup:` and the whole
   Claude or Codex turn as one command under the pinned Anthropic Sandbox
   Runtime. Tend supplies absolute `node`, `bwrap`, `socat`, `rg`, and seccomp
-  paths, treats dependency warnings as fatal, and probes AF_UNIX denial, a
-  writable checkout and both masked directories before setup executes. The boundary's own code
+  paths, treats dependency warnings as fatal, and probes AF_UNIX denial and
+  the view (writable, masks empty) before setup executes. The boundary's own code
   is pinned as tightly as its configuration: `bwrap`, `socat` and `rg` install
   at named Debian versions from a dated Ubuntu archive snapshot, and the
   Sandbox Runtime's npm tree resolves as of the same instant, so neither the
@@ -428,16 +373,13 @@ Each transition is a bottleneck with one job:
   process. The supervisor reads fixed result and skill-summary files, and the
   later token step copies bounded session data, all through no-follow reads;
   the agent never receives GitHub's command-file paths. Codex then stops its
-  runner-owned Responses proxy, and one fixed cleanup deletes both the event
-  checkout and the per-run SRT/package directory before restoring any
-  temporary GitHub-hosted runner policy. Subsequent steps consume the bounded
-  exports or the sandbox user's session tree; none executes from the event
-  checkout or the deleted runtime.
+  runner-owned Responses proxy, and one fixed cleanup deletes the per-run
+  runtime directory before restoring any temporary GitHub-hosted runner policy.
+  Subsequent steps consume the bounded exports or the sandbox user's session
+  tree; none executes from the deleted runtime.
 
-The Actions checkout is therefore orchestration state, not an agent
-workspace. Local `setup:` composites and all their POST chains continue to see
-the same reviewed tree, so Tend no longer checks out a PR over them and no
-longer needs a post-agent restore or recursive ownership repair.
+Local `setup:` composites and all their POST chains therefore see the same
+reviewed tree they started on, with no post-agent restore.
 
 **Action distribution integrity.** Generated workflows pin the composite
 action to the generator's own release version
@@ -466,36 +408,23 @@ base-branch versions are written back, fork-added paths removed, and a
 fork-planted symlink replaced rather than written through. The root path list
 and ordering mirror claude-code-action's `restore-config.ts`. The PR's own
 versions stay readable at `git show HEAD:<path>` for a review that wants to see
-what it changed; nothing copies them into the worktree, because nothing needs
-to.
+what it changed.
 
 **Setup runs on reviewed code.** Consumer `setup:` steps execute as the runner
 user against the stable Actions checkout: the default branch, or in
-`tend-review` the PR's reviewed base. The PR's own tree lands in that checkout
-only inside the sandbox, as the lifecycle's first step — so a contributor's
-build backend and dependencies execute only there, through `sandbox_setup:` or
-the agent itself. Both harnesses run `sandbox_setup:` as the non-sudo sandbox
-user in the same SRT process lifetime as the agent. What `setup:` wrote is
-visible to all of it, at the paths it wrote them, and nothing any of it writes
-reaches the runner's copy.
+`tend-review` the PR's reviewed base. The PR's own tree reaches that checkout
+only inside the sandbox, so a contributor's build backend and dependencies
+execute only there, through `sandbox_setup:` or the agent itself, as the
+non-sudo sandbox user in the same SRT process lifetime.
 
 After SRT exits, the trusted supervisor kills and verifies the complete sandbox
 UID process tree, then copies only size-bounded fixed outputs. The next fixed
-action step deletes the per-run `/var/tmp/tend-runtime.*` directory, which is
-where the staged lifecycle bundle, Tend's own runner-side secrets and the
-view's upper layer all live — so no post-sandbox step executes a file the
-sandbox wrote. The event checkout needs no deletion: it is the runner's own
-tree, and the sandbox's changes to it were never on disk outside the view. The
-agent's scratch needs no step either: its `/tmp` was a tmpfs private to the
-reaped process tree, and on a GitHub-hosted runner its home goes with the
-discarded VM. On a self-hosted runner nothing deletes the
-`tend-sandbox` user, so `/home/tend-sandbox` persists between jobs under one
-shared uid, and what one run leaves there the next run's agent can read.
-What the sandbox wrote leaves only as inert data through the fixed,
-bounded reads above — no later step executes it, and no path the sandbox can
-write is one a runner step or a `setup:` action's POST step reaches by a name
-it picks up implicitly. A run whose reap failed deletes nothing: the job has
-already failed, and the live writer is the reason not to delete underneath it.
+action step deletes the per-run `/var/tmp/tend-runtime.*` directory, which
+holds the staged lifecycle bundle, Tend's runner-side secrets and the view's
+upper layer. On a self-hosted runner nothing deletes the `tend-sandbox` user,
+so `/home/tend-sandbox` persists between jobs under one shared uid, and what
+one run leaves there the next run's agent can read. A run whose reap failed
+deletes nothing: the live writer is the reason not to delete underneath it.
 
 **Credential isolation.** Both harness actions run the agent as a separate
 non-sudo `tend-sandbox` user, sharing the GitHub proxy machinery under the
@@ -512,22 +441,17 @@ Tend can stop it during teardown. The agent holds only a dummy PAT and the
 local inference endpoint. Under subscription auth, it additionally receives an
 expiring access-only `auth.json`, but not the rotating refresh token. A
 different UID with no sudo cannot read either proxy's
-`/proc/<pid>/environ`; the runner checkout and its persisted checkout
-credential never enter the sandbox; and the PAT and API credentials are never
+`/proc/<pid>/environ`; the persisted checkout credential is stripped before
+launch; and the PAT and API credentials are never
 written to the agent's env or disk. The injection
 allowlist is exact-match on the connection's real destination, so a request to
 a lookalike host gets no token. The GitHub proxy is launched by a pinned `uv`
 that Tend installs into its own directory, off `$PATH`, so the process holding the PAT
 starts from a known binary rather than whatever a consumer's
 `setup:` happened to leave on the runner. (`claude` is Node and ignores the
-system trust store, so it trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) Shared
-the job's PATH crosses entry for entry, and every directory on it resolves
-inside the view to whatever `setup:` installed there. Tend appends a pinned
-`uv` fallback after those paths before `sandbox_setup:` runs, and prepends the
-sandbox home's own `bin`. Tend makes no judgement about which files under the
-runner home are runtimes rather than secrets, and no longer needs one: the view
-hands the whole tree over under the runner account's own permissions, which is
-the read policy stated to consumers rather than a list maintained here.
+system trust store, so it trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) The
+job's PATH crosses entry for entry, with the sandbox home's `bin` prepended and
+a pinned `uv` fallback appended.
 
 **Session-log upload.** The token-usage step uploads the agent's session JSONL
 only after the SRT process tree and sandbox UID are quiescent. One privileged

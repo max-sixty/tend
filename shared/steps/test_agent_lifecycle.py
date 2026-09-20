@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import subprocess
+import os
 from pathlib import Path
 
 import agent_lifecycle
@@ -23,32 +23,6 @@ def contained_sandbox_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     nothing when the variable is absent, which it is.
     """
     monkeypatch.setenv("TEND_INSIDE_SANDBOX", "")
-
-
-def test_an_existing_global_ignore_file_keeps_its_own_rules(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """`core.excludesFile` now resolves in the job's own home, so setting it
-    would drop whatever the runner image or a `setup:` step established — for
-    every command the session runs, not just Tend's."""
-    consumer = tmp_path / "consumer-ignore"
-    consumer.write_text("*.tmp\n")
-    calls: list[list[str]] = []
-
-    def run(args: list[str], **kwargs: object):
-        calls.append(args)
-        if args[3:] == ["--get", "core.excludesFile"]:
-            return subprocess.CompletedProcess(args, 0, f"{consumer}\n", "")
-        return subprocess.CompletedProcess(args, 0, "", "")
-
-    monkeypatch.setattr(agent_lifecycle.subprocess, "run", run)
-
-    agent_lifecycle.exclude("/.claude/settings.local.json")
-
-    assert consumer.read_text() == "*.tmp\n/.claude/settings.local.json\n"
-    assert not any(
-        "core.excludesFile" in args and "--get" not in args for args in calls
-    )
 
 
 @pytest.fixture(autouse=True)
@@ -105,3 +79,31 @@ def test_an_unknown_harness_is_not_silently_a_no_op(
 
     with pytest.raises(ValueError, match="gemini"):
         agent_lifecycle.main()
+
+
+@pytest.mark.parametrize(
+    ("mask", "hidden"),
+    [
+        ("empty-dir", True),
+        # A file mask is a /dev/null bind, which cannot be opened on bwrap's
+        # nodev remount; /dev/null stands in for it here.
+        (os.devnull, True),
+        ("full-dir", False),
+        ("plain-file", False),
+        ("missing", False),
+    ],
+)
+def test_the_view_probe_accepts_only_a_mask_that_took(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mask: str, hidden: bool
+) -> None:
+    (tmp_path / "empty-dir").mkdir()
+    (tmp_path / "full-dir").mkdir()
+    (tmp_path / "full-dir/.credentials").write_text("runner identity\n")
+    (tmp_path / "plain-file").write_text("runner identity\n")
+    monkeypatch.setenv("TEND_VIEW_MASKS", str(tmp_path / mask))
+
+    if hidden:
+        agent_lifecycle.probe_view(tmp_path)
+    else:
+        with pytest.raises(RuntimeError, match="did not mask"):
+            agent_lifecycle.probe_view(tmp_path)

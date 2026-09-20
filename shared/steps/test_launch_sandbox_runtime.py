@@ -56,8 +56,7 @@ def configure(
     codex.parent.mkdir()
     codex.write_text("runner\n")
     runner_home = tmp_path / "home/runner"
-    # The default self-hosted layout, which is the hard case: the runner's
-    # installation holds its own credentials AND the job's whole `_work` tree.
+    # The default self-hosted layout: the installation holds `_work` too.
     installed_runner = runner_home / "actions-runner"
     workspace = installed_runner / "_work/repo/repo"
     file_commands = installed_runner / "_work/_temp/_runner_file_commands"
@@ -144,17 +143,14 @@ def test_claude_exports_only_fixed_runner_owned_files(
     runtime = next(args for args in calls if "sandbox_runtime.mjs" in args[-1])
     assert "GITHUB_TOKEN=dummy" in runtime
     assert "GITHUB_ACTOR=octocat" in runtime
-    # The job's own environment crosses whole, which is how a consumer's
-    # `setup:` reaches the agent without anyone listing what it exported.
+    # The job's own environment crosses whole.
     assert "JAVA_HOME=/usr/lib/jvm/temurin-21" in runtime
     assert not any("runner-token-must-not-cross" in arg for arg in runtime)
     assert not any("runner-service-must-not-cross" in arg for arg in runtime)
     assert not any(arg.startswith("GITHUB_OUTPUT=") for arg in runtime)
     assert f"TMPDIR={run_dir.parent / 'tmp'}" in runtime
     assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'tmp/step-summary.md'}" in runtime
-    # The agent env file says the sandbox account's home, because the install
-    # steps that read it run before the view exists. The launch says the job's,
-    # which is the whole point of the view — and `env` takes the last one.
+    # `env` takes the last assignment, and the launch's HOME is the job's.
     runner_home = tmp_path / "home/runner"
     assert runtime.index(f"HOME={runner_home}") > runtime.index(
         "HOME=/home/tend-sandbox"
@@ -229,13 +225,7 @@ def test_no_agent_owned_result_is_read_until_the_uid_is_quiescent(
 def test_the_runner_mask_never_takes_the_job_s_own_tree_with_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The default self-hosted layout keeps `_work` inside the installation.
-
-    Masking that installation whole would cover the checkout, `RUNNER_TEMP` and
-    the tool cache — every run on such a runner would die, and the error would
-    name a mask rather than the layout. What the runner keeps for itself is
-    masked entry by entry instead.
-    """
+    """The default self-hosted layout keeps `_work` inside the installation."""
     configure(tmp_path, monkeypatch, harness="claude")
     runner_home = tmp_path / "home/runner"
     installed = runner_home / "actions-runner"

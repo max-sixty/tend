@@ -7,19 +7,9 @@
 This program runs as the privileged Actions runner. It creates the
 ``tend-sandbox`` account, composes the environment the agent launches with, and
 starts mitmproxy holding the real GitHub credential and, for Claude, the real
-model credential. The agent receives only dummies.
-
-What it no longer does is decide which of the runner's directories the agent
-may see. The agent runs in the job's own home and checkout, at their real
-paths, through the copy-on-write view ``shared/steps/enter_view.py`` builds at
-launch — so there is nothing to copy, nothing to hand over, and no PATH to
-translate across a home-directory boundary. The environment composed here is
-the job's own, with the proxy routing and dummy credentials laid over it.
-
-Tend's own runner-side secrets stay out of that view: the proxy's confdir holds
-its CA *private key*, so it lives under ``TEND_PRIVATE_DIR`` — a 0700 directory
-in the per-run runtime container, outside the overlaid tree, where the sandbox
-uid is plain "other" and cannot enter.
+model credential. The agent receives only dummies. The proxy's confdir holds
+its CA private key, so it lives under ``TEND_PRIVATE_DIR``, outside the home
+the agent sees through the view.
 """
 
 from __future__ import annotations
@@ -43,10 +33,8 @@ PROXY_CA_CERT = Path("/usr/local/share/ca-certificates/tend-proxy.crt")
 TEND_RUN_DIR = AGENT_HOME / "run"
 AGENT_TMP_DIR = AGENT_HOME / "tmp"
 TEND_AGENT_UV_DIR = AGENT_HOME / ".tend-uv/bin"
-#: Each harness's own state — plugins, settings, credentials, the session log
-#: the token step reads — stays in the sandbox's own home rather than following
-#: ``HOME`` into the view, where a write would die with the process tree and
-#: the runner-side steps that stage it could not reach it at all.
+#: Harness state stays in the sandbox's own home: runner-side steps stage it
+#: before the view exists and read the session log after it is gone.
 CLAUDE_CONFIG_DIR = AGENT_HOME / ".claude"
 CODEX_HOME = AGENT_HOME / ".codex"
 ALLOW_HOSTS = (
@@ -167,12 +155,7 @@ class Paths:
 
 
 def configured_paths(raw: str) -> list[str]:
-    """Expand consumer-provided sandbox PATH prefixes.
-
-    ``~`` is the sandbox account's own home — the one directory the agent has
-    that is not the job's. The job's own PATH needs no entry here; it crosses
-    whole.
-    """
+    """Expand consumer-provided sandbox PATH prefixes; ``~`` is the sandbox's home."""
     entries: list[str] = []
     for entry in raw.split("\n"):
         if not entry:
@@ -186,14 +169,7 @@ def configured_paths(raw: str) -> list[str]:
 
 
 def agent_path(*, runner_tool_path: str, extras: list[str]) -> list[str]:
-    """The sandbox PATH: the job's own, plus the two directories Tend installs.
-
-    The job's PATH is carried through unchanged, entry for entry. Every one of
-    those directories resolves inside the view to what ``setup:`` installed
-    there — a rustup shim in ``~/.cargo/bin``, a toolchain the runner image
-    ships — so a consumer needs no ``sandbox_path:`` entry for anything their
-    own CI already finds.
-    """
+    """The sandbox PATH: the job's own, plus the two directories Tend installs."""
     entries = list(extras)
     append_unique(entries, str(AGENT_HOME / ".local/bin"))
     for entry in runner_tool_path.split(os.pathsep):
@@ -209,21 +185,16 @@ def agent_path(*, runner_tool_path: str, extras: list[str]) -> list[str]:
 def base_agent_env(path: str, anthropic_dummy: tuple[str, str] | None) -> list[str]:
     """Return the newline-delimited assignments laid over the job environment.
 
-    ``HOME`` is the sandbox account's home here, not the runner's: these
-    assignments are also what the runner-side install steps hand to
-    ``sudo -u tend-sandbox``, and those run before the view exists. The
-    supervisor sets the runner's home at the launch itself.
+    ``HOME`` and ``XDG_*`` name the sandbox's own home, because the runner-side
+    install steps hand these to ``sudo -u tend-sandbox`` before the view exists
+    (and the runner's ``XDG_CONFIG_HOME`` would leak through ``sudo``). The
+    supervisor points them at the job's home at the launch.
     """
     values = {
         "HOME": str(AGENT_HOME),
         "PATH": path,
         "CLAUDE_CONFIG_DIR": str(CLAUDE_CONFIG_DIR),
         "CODEX_HOME": str(CODEX_HOME),
-        # Under the sandbox home for the same reason ``HOME`` is: the
-        # runner-side install steps run as this uid before the view exists, and
-        # the runner exports ``XDG_CONFIG_HOME=/home/runner/.config``, which
-        # leaks through ``sudo`` and which this uid cannot write. The supervisor
-        # points all four back at the job's home at the launch itself.
         "XDG_CONFIG_HOME": str(AGENT_HOME / ".config"),
         "XDG_CACHE_HOME": str(AGENT_HOME / ".cache"),
         "XDG_DATA_HOME": str(AGENT_HOME / ".local/share"),
@@ -258,10 +229,6 @@ def consumer_env(raw: str) -> list[str]:
         name = line.split("=", 1)[0]
         if name in RESERVED_SANDBOX_ENV:
             raise ValueError(f"sandbox_env may not set reserved key '{name}'")
-        # These assignments are applied over the job's environment, so they win
-        # wherever they collide with it — which is what makes `sandbox_env:` an
-        # override rather than a default. The GitHub context is the one thing a
-        # run must not be able to lie to itself about, so it is not available.
         if name.startswith("GITHUB_"):
             raise ValueError(
                 f"sandbox_env may not set '{name}': the GITHUB_* context "
@@ -313,24 +280,14 @@ def ensure_sandbox_user() -> None:
 
 
 def prepare_agent_home() -> None:
-    """Create the directories the sandbox account owns outside the view.
-
-    Everything the supervisor reads back after the reap lives here: a write
-    into the view reaches nothing but its own upper layer.
-    """
+    """Create the sandbox-owned directories outside the view."""
     for directory in (TEND_RUN_DIR, AGENT_TMP_DIR, CLAUDE_CONFIG_DIR, CODEX_HOME):
         sudo("/usr/bin/mkdir", "-p", str(directory), user=SANDBOX)
     log(f"run dir {TEND_RUN_DIR}")
 
 
 def strip_checkout_credentials(paths: Paths) -> bool:
-    """Remove every persisted checkout credential and verify none resolves.
-
-    The generated workflow checks out with ``persist-credentials: false``, so
-    on Tend's own checkout there is nothing here to find. A consumer's
-    ``setup:`` may run a second ``actions/checkout`` without it, and the agent
-    now reads that tree, so this verifies rather than assumes.
-    """
+    """Remove every persisted checkout credential and verify none resolves."""
     git = ["/usr/bin/git", "-C", str(paths.workspace), "config", "--local"]
     command(
         [*git, "--unset-all", "http.https://github.com/.extraheader"],

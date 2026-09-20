@@ -188,20 +188,12 @@
           GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}
 {%- endmacro %}
 
-{# The unreact half runs *after* the agent, with the PAT in `env:`, so it takes
-   the discipline every post-agent step in the harness actions takes: an
-   absolute shell, a neutralized `$BASH_ENV`, and the pinned PATH ahead of its
-   first command, so neither `gh` nor `head` resolves through a directory the
-   job's earlier steps prepended. `react_eyes` runs before the agent and keeps
-   the plain form. #}
 {% macro unreact_eyes(cfg, target, if_condition='') %}
       - name: Remove the eyes reaction
 {% if if_condition %}
 <<step_if(if_condition)>>
 {% endif %}
-        shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
         run: |
-          PATH=/usr/sbin:/usr/bin:/sbin:/bin
           REACTION_ID=$(gh api --paginate \
             "repos/$REPO/$TARGET/reactions?content=eyes&per_page=100" \
             --jq ".[] | select(.user.login == \"$BOT_NAME\") | .id" | head -n1)
@@ -210,7 +202,6 @@
               || echo "::warning::could not remove the eyes reaction"
           fi
         env:
-          BASH_ENV: ""
           REPO: ${{ github.repository }}
           TARGET: <<target>>
           BOT_NAME: <<cfg.bot_name>>
@@ -219,28 +210,10 @@
 
 {# Shared `actions/checkout@v7` step. Omitting `ref` takes the event's own ref,
    which under `pull_request_target` is the PR's base branch — what mention and
-   review's first checkout both want. Callers needing a specific tree pass one:
-   the configured default branch, or review's pr_ref dispatch. `if_condition`
-   gates the step for notifications' empty-inbox path.
-
-   No caller passes a pull request's own ref: every workflow checks out
-   reviewed code, and `shared/steps/event_checkout.py` moves the tree to the
-   event's topology inside the sandbox. So checkout's fork-PR guard
-   (`allow-unsafe-pr-checkout`, which v7 requires before it will check out a
-   fork's `refs/pull/N/{merge,head}` under `pull_request_target`) is never
-   opted out of, and `clean`'s `git clean -ffdx && git reset --hard` never has
-   an earlier step's work to delete.
-
-   `persist-credentials: false` keeps the bot PAT off the runner's disk.
-   Without it `actions/checkout` writes it into
-   `$GITHUB_WORKSPACE/.git/config` as `http.https://github.com/.extraheader`
-   and leaves it there for the whole job, which makes that file the most
-   valuable thing SRT's `denyRead` on the runner checkout is hiding — and
-   removing it beats hiding it. Nothing tend runs afterwards reads it: every
-   later step takes the PAT through `env:`, and the event checkout and the
-   config restore both run inside the sandbox, where the credentials are
-   dummies the proxy replaces on the way out. The token input stays, because
-   the fetch itself still needs it on a private repository. #}
+   review want. The other callers pass the configured default branch.
+   `if_condition` gates the step for notifications' empty-inbox path. No caller
+   passes a pull request's own ref: `shared/steps/event_checkout.py` moves the
+   tree to the event's topology inside the sandbox. #}
 {% macro checkout(cfg, ref=None, if_condition='') %}
       - uses: actions/checkout@v7
 {% if if_condition %}
@@ -252,12 +225,6 @@
 {% endif %}
           fetch-depth: 0
           fetch-tags: true
-          # The token authenticates this fetch and is not written into
-          # .git/config afterwards: nothing later in the job reads a persisted
-          # credential, and one left there puts the bot PAT on the runner's
-          # disk for the rest of the run. A `setup:` step that does its own
-          # authenticated git operation here has to supply its own token.
-          persist-credentials: false
           token: ${{ secrets.<<bot_token_secret>> }}
 {%- endmacro %}
 

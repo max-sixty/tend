@@ -2,15 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""Delete the per-run runtime container after the reap.
-
-One named container under ``/var/tmp``, holding the staged lifecycle bundle,
-Tend's own runner-side secrets, and the view's upper layer — everything the
-sandbox wrote that reached disk at all. The sandbox's own scratch needs no step
-here: its ``/tmp`` is a tmpfs that exists only inside the sandbox's mount
-namespace, its home goes with the disposable user, and the view itself was
-never more than mounts in a namespace that died with the process tree.
-"""
+"""Delete the per-run runtime container, and with it the view's upper layer."""
 
 from __future__ import annotations
 

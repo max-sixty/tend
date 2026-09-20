@@ -37,9 +37,6 @@ def _paths(tmp_path: Path) -> setup_sandbox.Paths:
 
 
 def test_configured_path_expands_the_sandbox_home() -> None:
-    """`~` is the sandbox account's home, the one directory that is not the
-    job's. A runner-home entry needs no `sandbox_path:` at all now, so there is
-    nothing left here to refuse."""
     assert setup_sandbox.configured_paths("~\n~/.local/bin\n/opt/tools") == [
         str(setup_sandbox.AGENT_HOME),
         str(setup_sandbox.AGENT_HOME / ".local/bin"),
@@ -48,12 +45,6 @@ def test_configured_path_expands_the_sandbox_home() -> None:
 
 
 def test_agent_path_carries_the_job_path_entry_for_entry() -> None:
-    """Every directory the job's own steps resolve tools from stays on PATH.
-
-    That is what makes a toolchain `setup:` installed — rustup's shims in
-    `~/.cargo/bin`, a runner image's node — resolve for the agent exactly as it
-    does for the consumer's own CI, with no entry named anywhere in config.
-    """
     job_path = "/home/runner/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
 
     entries = setup_sandbox.agent_path(
@@ -90,9 +81,6 @@ def test_consumer_environment_rejects_unsafe_records(raw: str, message: str) -> 
 
 
 def test_consumer_environment_refuses_to_redescribe_the_run() -> None:
-    """`sandbox_env:` is applied over the job environment, so it wins — which
-    makes it the one place a run could be made to lie to itself about which
-    event, repository or workflow it is."""
     with pytest.raises(ValueError, match="describes the run"):
         setup_sandbox.consumer_env("GITHUB_WORKFLOW=something-else")
 
@@ -112,9 +100,7 @@ def test_every_fixed_agent_assignment_is_reserved() -> None:
 
 
 def test_agent_state_stays_out_of_the_view() -> None:
-    """`HOME` follows the job's home at the launch, so anything Tend has to read
-    back after the reap is addressed by its own variable instead: a write into
-    the view reaches nothing but an upper layer that dies with the run."""
+    """Tend reads these back after the reap, so they cannot follow `HOME`."""
     assignments = setup_sandbox.base_agent_env("/usr/bin", None)
 
     assert f"HOME={setup_sandbox.AGENT_HOME}" in assignments
@@ -144,10 +130,8 @@ def test_github_only_agent_environment_has_no_model_credential() -> None:
 def test_tend_secrets_never_live_where_the_agent_can_read_them(
     tmp_path: Path,
 ) -> None:
-    """The proxy's confdir holds its CA private key, and the agent reads the
-    runner's home with the runner account's own permissions. So these live in
-    the runtime container, outside the overlaid tree, where the sandbox uid is
-    plain "other"."""
+    """The proxy's confdir holds its CA private key; the agent reads the
+    runner's home as the runner."""
     paths = _paths(tmp_path)
 
     for path in (paths.confdir, paths.proxy_log, paths.proxy_pid):

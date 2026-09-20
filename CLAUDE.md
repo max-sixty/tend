@@ -65,12 +65,11 @@ Four pieces:
      scripts under `shared/steps/`.
 
    Both harness runners resolve the bot's numeric ID at runtime, run security
-   and rate-limit preflight, build a copy-on-write view of the runner's home,
-   then select the event's topology, run `sandbox_setup:` and the complete
-   agent turn in one SRT process tree, reap it, and upload bounded session
-   logs. The generated workflow's checkout stays runner-owned on reviewed code
-   for setup and local-action POST chains; the agent sees it through the view,
-   so what it writes never reaches the runner's copy.
+   and rate-limit preflight, then select the event's topology, run
+   `sandbox_setup:` and the complete agent turn in one SRT process tree over a
+   copy-on-write view of the runner's home, reap it, and upload bounded session
+   logs. The generated workflow's checkout stays on reviewed code for setup and
+   local-action POST chains; nothing the agent writes reaches it.
 
    `max-sixty/tend/codex/refresh@X.Y.Z` is the Codex support action. A generated
    serialized workflow runs it weekly to rotate Plus/Pro credentials and

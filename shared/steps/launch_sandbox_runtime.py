@@ -8,9 +8,7 @@ The launch chain this builds is::
           env -i <agent env>
             node sandbox_runtime.mjs     # SRT, then bwrap, then the lifecycle
 
-:mod:`enter_view` is what puts the agent in the job's own home and checkout;
-everything from ``setpriv`` down is the boundary Tend already had. The
-supervisor stays outside all of it: it stages the bundle, composes the
+The supervisor stays outside it: it stages the bundle, composes the
 environment, reaps the sandbox uid however the run ends, and exports what the
 later steps read.
 """
@@ -49,10 +47,6 @@ RUNTIME_SHELL_FILES = (
     "restore-sensitive-config.sh",
     "lib/pin-instruction-paths.sh",
 )
-#: The Actions runner's own executables. The one that is an ancestor of this
-#: process names the directory holding the runner's service credentials, which
-#: is the one thing inside the job's home the agent must not read.
-RUNNER_EXECUTABLES = frozenset({"Runner.Worker", "Runner.Listener"})
 
 
 class Cancelled(BaseException):
@@ -123,99 +117,42 @@ def mkdir_traversable(path: Path) -> None:
     path.chmod(0o755)
 
 
-def parent_pid(pid: int) -> int:
-    """Read one process's parent from procfs.
-
-    The comm field is the process name in parentheses and may itself contain
-    spaces or a closing parenthesis, so the fields are counted from the last
-    one rather than by splitting the whole line.
-    """
-    stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
-    return int(stat.rsplit(")", 1)[1].split()[1])
-
-
 def runner_install_directory() -> Path:
-    """Locate the Actions runner's installation from this process's ancestry.
-
-    Derived rather than configured, so it follows the runner wherever GitHub or
-    a self-hosted operator puts it, and so the set of paths the view masks
-    cannot grow into a list Tend maintains. Every step body runs as a
-    descendant of ``Runner.Worker``; not finding one means this is not a job
-    Tend understands, which fails the run rather than guessing.
-    """
+    """The Actions runner's installation, read off this step's ancestry."""
     pid = os.getpid()
-    seen: set[int] = set()
-    while pid > 1 and pid not in seen:
-        seen.add(pid)
-        try:
+    while pid > 1:
+        with contextlib.suppress(OSError):
             executable = Path(os.readlink(f"/proc/{pid}/exe"))
-        except OSError:
-            executable = None
-        if executable is not None and executable.name in RUNNER_EXECUTABLES:
-            if executable.parent.name != "bin":
-                raise ValueError(
-                    f"the Actions runner at {executable} is not in a bin/ "
-                    "directory, so its installation cannot be located"
-                )
-            return executable.parent.parent
-        pid = parent_pid(pid)
-    raise ValueError(
-        "no Actions runner process among this step's ancestors; Tend cannot "
-        "identify the directory holding the runner's own credentials"
-    )
-
-
-def runner_private_entries(install: Path, keep: list[Path]) -> list[Path]:
-    """The runner's own files and directories, minus any the job works in.
-
-    The default self-hosted layout puts ``_work`` — the checkout,
-    ``RUNNER_TEMP`` and the tool cache — *inside* the runner's installation,
-    beside ``.credentials`` and ``_diag``. Masking that installation whole
-    would take the job's own tree with it, so this masks its entries one by one
-    and keeps an entry a job path lives under. It is still read off the running
-    job rather than listed, so it cannot go stale or grow into a catalogue; the
-    exclusion is the job's own paths, which Actions names.
-    """
-    return [
-        entry
-        for entry in sorted(install.iterdir())
-        if not any(path == entry or path.is_relative_to(entry) for path in keep)
-    ]
+            if executable.name == "Runner.Worker":
+                return executable.parent.parent
+        # The name field may hold spaces or ")", so count from the last ")".
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+        pid = int(stat.rsplit(")", 1)[1].split()[1])
+    raise ValueError("no Actions runner process among this step's ancestors")
 
 
 def view_masks(home: Path) -> list[Path]:
     """What inside the job's home the agent must not read.
 
-    All of it comes from the job rather than from a list. Anything outside the
-    home needs no mask: only inside the view does the agent read with the
-    runner account's own permissions.
+    The runner installation's entries (its credentials, its logs) except any a
+    job path lives under, since the default self-hosted layout keeps ``_work``
+    there; and the file-command directory, for ``$GITHUB_OUTPUT`` and
+    ``$GITHUB_STATE`` values no step turned into an environment variable.
     """
-    workspace = Path(required("GITHUB_WORKSPACE")).resolve()
-    runner_temp = Path(required("RUNNER_TEMP")).resolve()
-    candidates = [
-        *runner_private_entries(
-            runner_install_directory(), keep=[workspace, runner_temp]
-        ),
-        # `$GITHUB_OUTPUT` and `$GITHUB_STATE` values that no step turned into
-        # an environment variable — an `actions/create-github-app-token` output
-        # is the common one. A `$GITHUB_ENV` export is a variable by the time
-        # the agent launches and crosses on the environment's own rules, which
-        # `docs/tend.example.yaml` states rather than implying this covers it.
-        Path(required("GITHUB_ENV")).parent.resolve(),
+    keep = [
+        Path(required(name)).resolve() for name in ("GITHUB_WORKSPACE", "RUNNER_TEMP")
     ]
-    return [path for path in candidates if path == home or path.is_relative_to(home)]
+    masks = [
+        entry
+        for entry in sorted(runner_install_directory().iterdir())
+        if not any(path.is_relative_to(entry) for path in keep)
+    ]
+    masks.append(Path(required("GITHUB_ENV")).parent.resolve())
+    return [path for path in masks if path.is_relative_to(home)]
 
 
 def stage_runtime_bundle(runtime_root: Path) -> tuple[Path, Path, Path, Path | None]:
-    """Copy the trusted lifecycle behind a sandbox-traversable path.
-
-    Once per runtime container, and it says so by failing: every directory and
-    file here is created exclusively, so a second lifecycle in one job stops at
-    ``FileExistsError`` rather than executing a bundle the first one left. No
-    generated workflow runs two, and ``proxy/test-setup-sandbox.sh``, which
-    does, clears the container between them — which is also what gives the
-    second one a fresh view.
-    """
+    """Copy the trusted lifecycle behind a sandbox-traversable path."""
     source_root = Path(required("ACTION_PATH")).resolve(strict=True)
     bundle_root = runtime_root / "action"
     shared_root = bundle_root / "shared"
@@ -263,24 +200,16 @@ def main() -> int:
 
     masks = view_masks(runner_home)
     environment = _sandbox.launch_env(required("AGENT_ENV_FILE"))
-    # Values the sandbox reads that name something this step computed, so they
-    # are appended last and win.
+    # Appended last, so they win over the agent env file.
     overrides = {
         "ACTION_PATH": str(bundle_root),
         "TEND_LIFECYCLE": str(lifecycle),
-        # So the lifecycle's own probe can check the masks took effect rather
-        # than re-deriving where they should be.
         "TEND_VIEW_MASKS": os.pathsep.join(str(path) for path in masks),
-        # The step summary and the run directory are read back after the reap,
-        # so both have to sit outside the view — a write into the view reaches
-        # nothing but its own upper layer.
+        # Read back after the reap, so outside the view.
         "GITHUB_STEP_SUMMARY": str(step_summary_dir / "step-summary.md"),
         "TEND_RUN_DIR": str(run_dir),
-        # The agent works in the job's home, so its home-shaped paths are the
-        # job's too: `~/.config/gh`, `~/.cache/uv` and the rest are whatever
-        # `setup:` left. The agent env file points these at the sandbox
-        # account's own home instead, because the install steps that read that
-        # file run before the view exists.
+        # The job's home, which the agent env file cannot name: the install
+        # steps that read it run before the view exists.
         "HOME": str(runner_home),
         "XDG_CONFIG_HOME": str(runner_home / ".config"),
         "XDG_CACHE_HOME": str(runner_home / ".cache"),
@@ -304,16 +233,11 @@ def main() -> int:
         str(source_root / "shared/steps/enter_view.py"),
         "--home",
         str(runner_home),
-        # Inside the per-run runtime container, which the dispose step already
-        # removes, and mode 0700 under its 0755 parent so the upper layer is
-        # invisible to the sandbox that writes into it.
         "--stage",
         str(runtime_root / "view"),
         "--user",
         sandbox,
         *(argument for path in masks for argument in ("--mask", str(path))),
-        # Everything past this point is what `enter_view` execs once the view
-        # is up, behind the `setpriv` it composes from the account it resolved.
         "--",
         "/usr/bin/env",
         "-i",

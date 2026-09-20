@@ -1,10 +1,5 @@
-"""Event-topology contracts for the checkout the agent works in.
-
-The tree is the job's own, seen through the view, so these drive real Git
-repositories rather than mocks: the step is now the only thing that moves HEAD
-before the agent runs, and it moves the checkout a consumer's `setup:` already
-built against.
-"""
+"""Event-topology contracts for the checkout the agent works in, against real
+Git repositories."""
 
 from __future__ import annotations
 
@@ -111,9 +106,7 @@ def test_mention_checks_out_the_api_head_with_a_push_upstream(
 def test_a_second_mention_in_one_job_does_not_collide_on_the_remote(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The checkout is the job's own and outlives one topology selection, where
-    the disposable clone this replaced was fresh every time. A `tend-head`
-    remote left by an earlier selection must not fail the next one."""
+    """A `tend-head` remote left by an earlier selection must not fail the next."""
     origin, workspace, base, head = repository(tmp_path)
     monkeypatch.setattr(
         event_checkout,
@@ -245,11 +238,7 @@ def test_a_mention_on_an_issue_never_asks_the_pull_request_endpoint(
 def test_the_api_call_holds_no_credential_of_its_own(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The dummy is what leaves this process; the proxy attaches the real one.
-
-    The same route the agent's own pushes take, which is what moving the
-    topology selection inside the sandbox bought.
-    """
+    """The dummy is what leaves this process; the proxy attaches the real one."""
     captured: list[object] = []
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_tendproxydummy000000000000000000000")
     monkeypatch.setattr(
