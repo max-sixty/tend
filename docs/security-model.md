@@ -354,6 +354,13 @@ Each transition is a bottleneck with one job:
   those is unreadable from inside, so the placement rule is a failing test
   rather than a review item.
 
+  The residual the derivation cannot cover is GitHub moving the runner's
+  credentials out of the runner's installation, which the mask follows and a
+  new location elsewhere in the home would not. The integration test sweeps for
+  it: from inside the view, no `.credentials*` or `.runner` anywhere in the
+  home reads back non-empty. That turns the one thing this design has to keep
+  watching into a red run rather than a note.
+
   Before any process runs as the sandbox uid, the root-side step verifies with
   `findmnt` that the home is on an `overlay`, that each mask is on a `tmpfs`,
   and that the mount is private to this namespace — then `exec`s `setpriv` down

@@ -92,10 +92,15 @@ plant() {
   } >> "$GITHUB_ENV"
 }
 
-# Every name, size and mode under the two directories `setup:` prepared. The
-# agent writes into both; this must not move.
+# Every name, mode, owner AND content under the two directories `setup:`
+# prepared. Contents because the claim is byte-for-byte: an in-place overwrite
+# at the same length is exactly what overlayfs copy-up on an idmapped lower
+# would get wrong, and a name-and-size digest would call it unchanged.
 host_checksum() {
-  find "$TEND_WARM_CACHE" "$TEND_WARM_TREE" -printf '%P %s %m\n' | sort | sha256sum
+  {
+    find "$TEND_WARM_CACHE" "$TEND_WARM_TREE" -printf '%P %m %U:%G %y\n' | sort
+    find "$TEND_WARM_CACHE" "$TEND_WARM_TREE" -type f -exec sha256sum {} + | sort
+  } | sha256sum
 }
 
 setup() {
@@ -384,6 +389,9 @@ PY
     '# Writable everywhere in it, including under a root-owned directory the' \
     '# idmap has to keep well-defined, and across a lower-layer rename.' \
     'printf "agent\n" > "$TEND_WARM_CACHE/registry/written-by-sandbox"' \
+    '# In place, at the same length: the copy-up path an idmapped lower is' \
+    '# most likely to get wrong, and the one a digest of names would miss.' \
+    'printf "AGENT-CACHE\n" > "$TEND_WARM_CACHE/registry/warm"' \
     'printf "agent\n" > "$TEND_WARM_TREE/written-by-sandbox"' \
     'printf "agent\n" > "$TEND_WARM_CACHE/root-owned/written-by-sandbox"' \
     'mv "$TEND_WARM_CACHE/rename-me" "$TEND_WARM_CACHE/renamed"' \
@@ -391,6 +399,10 @@ PY
     'printf "sandbox\n" > "$GITHUB_WORKSPACE/.tend-srt-wrote-here"' \
     '# The runner-side halves of Tend, and the runner itself, stay out of reach.' \
     'if [ -r "$TEND_PRIVATE_DIR/tend-proxy/mitmproxy-ca.pem" ]; then exit 90; fi' \
+    '# The direct negative: the runner service identity reads empty wherever' \
+    '# it lives. A sweep rather than a path, so it also catches GitHub moving' \
+    '# those files somewhere the derived mask would not follow.' \
+    'if find "$TEND_RUNNER_HOME" -maxdepth 4 -size +0 -name ".credentials*" -print -o -maxdepth 4 -size +0 -name ".runner" -print 2>/dev/null | grep -q .; then exit 94; fi' \
     'if ls "$TEND_RUNTIME_ROOT/view" >/dev/null 2>&1; then exit 93; fi' \
     'test -z "${GITHUB_ENV:-}"' \
     'test -z "${ACTIONS_RUNTIME_TOKEN:-}"' \
@@ -439,6 +451,7 @@ PY
   # (2) Nothing the sandbox wrote reached the runner — not the files, not the
   # rename, not the hard link, not even the mode of a directory it wrote under.
   test "$(host_checksum)" = "$TEND_HOST_SUM"
+  test "$(cat "$TEND_WARM_CACHE/registry/warm")" = warm-cache
   test ! -e "$GITHUB_WORKSPACE/.tend-srt-wrote-here"
   test ! -e "$TEND_WARM_CACHE/registry/written-by-sandbox"
   test ! -e "$TEND_WARM_CACHE/root-owned/written-by-sandbox"

@@ -34,6 +34,11 @@ def probe_view(workspace: Path) -> None:
         ) from None
 
     for masked in masked_paths():
+        # Present first: a mask names something `enter_view` mounted on, so a
+        # path that is not there is a mask that landed somewhere else — and
+        # "absent" would otherwise read as "masked" for the rest of this check.
+        if not masked.exists():
+            raise RuntimeError(f"the view masked nothing at {masked}")
         try:
             revealed = os.listdir(masked) if masked.is_dir() else masked.read_bytes()
         except OSError:
