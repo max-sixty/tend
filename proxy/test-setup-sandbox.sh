@@ -20,6 +20,13 @@
 #      negative control, run against the kernel directly.
 #   5. The two environment namespaces withheld by shape, `ACTIONS_*` and
 #      `INPUT_*`, are absent from the environment the harness binary received.
+#
+# One thing this deliberately does NOT claim: that a `$GITHUB_ENV` export stays
+# out of the sandbox. It cannot — the hook below reads `$TEND_WARM_CACHE` and
+# `$TEND_HOST_SUM`, which `plant` exported exactly that way. The mask over the
+# file-command directory keeps back an output or a state value that never
+# became an environment variable; the export itself crosses with the job's
+# environment, which is what `docs/tend.example.yaml` tells consumers.
 set -euo pipefail
 
 # The bot identity the agent's Git config is seeded from, inside the view.
@@ -409,6 +416,7 @@ PY
     '# those files somewhere the derived mask would not follow.' \
     'if find "$TEND_RUNNER_HOME" -maxdepth 4 -size +0 -name ".credentials*" -print -o -maxdepth 4 -size +0 -name ".runner" -print 2>/dev/null | grep -q .; then exit 94; fi' \
     'if ls "$TEND_RUNTIME_ROOT/view" >/dev/null 2>&1; then exit 93; fi' \
+    '# The path, not the values: see the note in this header.' \
     'test -z "${GITHUB_ENV:-}"' \
     'test -z "${ACTIONS_RUNTIME_TOKEN:-}"' \
     '# Scratch: /tmp is a private tmpfs; /var/tmp belongs to the runner.' \
@@ -468,6 +476,14 @@ PY
   # The event checkout ran inside the view too, so the runner's own HEAD is
   # exactly what the workflow checked out.
   test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$TEND_HOST_HEAD"
+  # The mechanism behind all of the above, checked from the runner's own
+  # namespace rather than from inside the one that built it: the view never
+  # propagated out. `enter_view` asserts this with findmnt from inside, where a
+  # mount made shared would look private to it.
+  if findmnt -n -o FSTYPE --target "$HOME" | grep -qx overlay; then
+    echo "::error::the agent's view propagated into the runner's mount namespace"
+    exit 1
+  fi
 
   # The agent commits without configuring an identity of its own, including
   # from a clone it makes itself, and that identity is now set inside the view.
