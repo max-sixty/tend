@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import json
 import os
 import signal
 import subprocess
@@ -230,3 +231,138 @@ def test_runtime_bundle_carries_every_module_it_imports() -> None:
             f"{source.name} imports {sorted(local - bundled)}, which "
             "RUNTIME_STEP_FILES does not stage into the sandbox bundle"
         )
+
+
+# Mirrors LAUNCH_ATTEMPTS in sandbox_runtime.mjs.
+LAUNCH_ATTEMPTS = 3
+
+FAKE_SRT = """
+import fs from "node:fs";
+
+const state = process.env.FAKE_SRT_STATE;
+const failures = Number(process.env.FAKE_SRT_FAILURES);
+const resetFailures = Number(process.env.FAKE_SRT_RESET_FAILURES);
+
+function record(name) {
+  const counts = JSON.parse(fs.readFileSync(state, "utf8"));
+  counts[name] = (counts[name] ?? 0) + 1;
+  fs.writeFileSync(state, JSON.stringify(counts));
+  return counts[name];
+}
+
+export const SandboxManager = {
+  async initialize() {
+    if (record("initialize") <= failures) {
+      throw new Error("Failed to create bridge sockets after 5 attempts");
+    }
+  },
+  async checkDependenciesAsync() {
+    return { errors: [], warnings: [] };
+  },
+  async wrapWithSandboxArgv() {
+    record("wrap");
+    return { argv: ["/usr/bin/bash", "-c", "echo lifecycle-ran"], env: {} };
+  },
+  async reset() {
+    if (record("reset") <= resetFailures) {
+      throw new Error("Cleanup failed in initializationPromise");
+    }
+  },
+};
+"""
+
+
+def run_sandbox_runtime(
+    tmp_path: Path, *, failures: int, reset_failures: int = 0
+) -> tuple[subprocess.CompletedProcess[str], dict[str, int]]:
+    """Drive the real sandbox_runtime.mjs against a stand-in SandboxManager.
+
+    `TEND_SRT_ENTRY` is the module the runtime imports, so a fake entry
+    exercises the launch path itself rather than a copy of its logic.
+    """
+    root = tmp_path / "srt"
+    workspace = root / "workspace"
+    home = root / "home"
+    for directory in (root, workspace, home):
+        directory.mkdir()
+    entry = root / "fake-srt.mjs"
+    entry.write_text(FAKE_SRT)
+    state = root / "state.json"
+    state.write_text("{}")
+    for name in ("seccomp.json", "lifecycle.py", "event.json", "agent-env"):
+        (root / name).touch()
+
+    completed = subprocess.run(
+        ["node", str(Path(__file__).resolve().parent / "sandbox_runtime.mjs")],
+        env={
+            "PATH": os.environ["PATH"],
+            "FAKE_SRT_STATE": str(state),
+            "FAKE_SRT_FAILURES": str(failures),
+            "FAKE_SRT_RESET_FAILURES": str(reset_failures),
+            "TEND_SRT_ENTRY": str(entry),
+            "TEND_SRT_SECCOMP": str(root / "seccomp.json"),
+            "TEND_LIFECYCLE": str(root / "lifecycle.py"),
+            "TEND_AGENT_WORKSPACE": str(workspace),
+            "TEND_RUNNER_WORKSPACE": str(root / "runner-workspace"),
+            "AGENT_HOME": str(home),
+            "TMPDIR": str(root),
+            "TEND_RUNNER_HOME": str(root / "runner-home"),
+            "ACTION_PATH": str(root),
+            "GITHUB_EVENT_PATH": str(root / "event.json"),
+            "AGENT_ENV_FILE": str(root / "agent-env"),
+            "TEND_PROXY_PORT": "8899",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed, json.loads(state.read_text())
+
+
+def test_a_transient_sandbox_launch_failure_is_retried(tmp_path: Path) -> None:
+    """SRT's bridge-socket wait is a race the run should not be lost to.
+
+    `initializeLinuxNetworkBridge` probes five times on an `i * 100` ms
+    backoff, so socat has 600 ms to bind both sockets — and Tend's config,
+    an external `httpProxyPort` with no `socksProxyPort`, is the branch that
+    spawns two of them into that budget. Losing the launch costs the whole
+    run: zero turns, no review posted, and no session log to read.
+    """
+    completed, counts = run_sandbox_runtime(tmp_path, failures=1)
+
+    assert completed.returncode == 0, completed.stderr
+    assert "lifecycle-ran" in completed.stdout
+    assert counts["initialize"] == 2
+    assert counts["wrap"] == 1
+
+
+def test_sandbox_launch_retries_are_bounded_and_keep_the_cause(
+    tmp_path: Path,
+) -> None:
+    """A sandbox that never comes up still fails, on SRT's own diagnosis."""
+    completed, counts = run_sandbox_runtime(tmp_path, failures=LAUNCH_ATTEMPTS)
+
+    assert completed.returncode == 1
+    assert "lifecycle-ran" not in completed.stdout
+    assert counts["initialize"] == LAUNCH_ATTEMPTS
+    assert "wrap" not in counts
+    assert (
+        "tend sandbox runtime: Failed to create bridge sockets after 5 attempts"
+        in completed.stderr
+    )
+
+
+def test_a_failed_cleanup_does_not_abandon_the_remaining_attempts(
+    tmp_path: Path,
+) -> None:
+    """SRT lets its own post-error reset() reject, so ours must tolerate that.
+
+    Surfacing the cleanup failure instead would lose both the retry and the
+    launch error the retry exists to report.
+    """
+    completed, counts = run_sandbox_runtime(tmp_path, failures=1, reset_failures=1)
+
+    assert completed.returncode == 0, completed.stderr
+    assert "lifecycle-ran" in completed.stdout
+    assert counts["initialize"] == 2
+    assert "cleanup after attempt 1 failed" in completed.stderr
