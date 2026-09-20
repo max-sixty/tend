@@ -9,12 +9,17 @@
 #   1. The agent works in the job's own checkout and home, at their real paths,
 #      and can write anywhere in them.
 #   2. Nothing it writes reaches the runner. The host filesystem is byte-for-byte
-#      what `setup:` left it, before the agent and after.
-#   3. The two directories the view masks — the Actions runner's own install
-#      directory and GitHub's file-command directory — are empty inside it.
+#      what `setup:` left it, before the agent and after — contents included,
+#      since an in-place rewrite at the same length is the copy-up an idmapped
+#      lower is likeliest to get wrong.
+#   3. What the view masks reads back empty: the Actions runner's own files and
+#      directories, and GitHub's file-command directory. Swept for rather than
+#      named, so it fails if the runner's credentials ever move.
 #   4. The idmapped lower layer is what makes (1) possible: without it the same
 #      overlay is EACCES for every create. `verify-view-needs-the-idmap` is that
 #      negative control, run against the kernel directly.
+#   5. The two environment namespaces withheld by shape, `ACTIONS_*` and
+#      `INPUT_*`, are absent from the environment the harness binary received.
 set -euo pipefail
 
 # The bot identity the agent's Git config is seeded from, inside the view.
@@ -433,6 +438,8 @@ PY
     BOT_NAME="$BOT_LOGIN" BOT_ID="$BOT_ID" CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0 \
     GITHUB_TOKEN=runner-token-must-not-cross \
     ACTIONS_RUNTIME_TOKEN=runner-service-must-not-cross \
+    ACTIONS_RESULTS_URL=https://results.invalid/ \
+    INPUT_GITHUB_TOKEN=runner-input-must-not-cross \
     GITHUB_OUTPUT="$github_output" \
     GITHUB_STEP_SUMMARY="$runner_summary" \
     /usr/bin/python3 -E -s \
@@ -479,6 +486,22 @@ PY
   sudo -u "$SANDBOX" grep -qxF "GITHUB_TOKEN=$dummy_token" "$claude_env"
   if sudo -u "$SANDBOX" grep -q '^GITHUB_ENV=' "$claude_env"; then
     echo "::error::runner command-file path crossed into Claude"
+    exit 1
+  fi
+  # The two namespaces withheld by shape, in the environment the harness binary
+  # actually received: `ACTIONS_*` is the runner's service channel — its
+  # RUNTIME_TOKEN is write access to the Actions cache, the one path a sandbox
+  # write could take into a later run — and `INPUT_*` is how an action's
+  # inputs, some of them this job's real secrets, reach a step.
+  if sudo -u "$SANDBOX" grep -qE '^(ACTIONS_|INPUT_)' "$claude_env"; then
+    echo "::error::a runner-internal namespace crossed into Claude"
+    sudo -u "$SANDBOX" grep -E '^(ACTIONS_|INPUT_)' "$claude_env" | cut -d= -f1
+    exit 1
+  fi
+  if sudo -u "$SANDBOX" grep -qE \
+    'runner-token-must-not-cross|runner-service-must-not-cross|runner-input-must-not-cross' \
+    "$claude_env"; then
+    echo "::error::a runner credential crossed into Claude"
     exit 1
   fi
   for want in -p --model stub-model --permission-mode bypassPermissions \
