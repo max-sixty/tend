@@ -605,6 +605,12 @@ def test_launch_only_adds_harness_names_inside_srt(
 
 
 def test_launch_writes_settings_inside_the_existing_sandbox(launch: Launcher) -> None:
+    """The exact file, so a key that silently stops being written is caught.
+
+    The two ``syncClaudeAi*`` keys are the ones worth naming: they are what
+    holds the bot's claude.ai account out of the session, only ``false`` is
+    honored, and the feature they refuse turns on server-side.
+    """
     result = launch(stream=_ev_result())
     tee = result.command("tee")
 
@@ -617,6 +623,8 @@ def test_launch_writes_settings_inside_the_existing_sandbox(launch: Launcher) ->
         },
         "skipDangerousModePermissionPrompt": True,
         "attribution": {"commit": "", "pr": ""},
+        "syncClaudeAiSkills": False,
+        "syncClaudeAiPlugins": False,
     }
     mkdir = result.command("mkdir")
     assert mkdir.argv[0] == "mkdir"
