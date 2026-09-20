@@ -402,6 +402,7 @@ PY
     '# Hand the proof back outside the view, where the runner can read it.' \
     "printf '%s\n' \"\$HTTP_PROXY\" > $run_dir/tend-setup-proxy" \
     "stat -c %u:%g \"\$TEND_RUNNER_HOME\" > $run_dir/tend-view-owner" \
+    "git config --global user.email > $run_dir/tend-git-identity" \
     "test \"\$GITHUB_TOKEN\" = \"$dummy_token\"")
 
   rm -rf -- "$RUNNER_TEMP/tend-agent-export"
@@ -448,6 +449,10 @@ PY
   # exactly what the workflow checked out.
   test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$TEND_HOST_HEAD"
 
+  # The agent commits without configuring an identity of its own, including
+  # from a clone it makes itself, and that identity is now set inside the view.
+  test "$(sudo -u "$SANDBOX" cat "$run_dir/tend-git-identity")" = \
+    "${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
   setup_proxy=$(sudo -u "$SANDBOX" cat "$run_dir/tend-setup-proxy")
   test -n "$setup_proxy"
   test "$setup_proxy" != 'http://127.0.0.1:8899'
@@ -469,7 +474,7 @@ PY
     sudo -u "$SANDBOX" grep -qxF -- "$want" "$claude_argv"
   done
 
-  rm -rf -- "$TEND_RUNTIME_ROOT/action" "$TEND_RUNTIME_ROOT/view"
+  sudo rm -rf -- "$TEND_RUNTIME_ROOT/action" "$TEND_RUNTIME_ROOT/view"
   rm -rf -- "$RUNNER_TEMP/tend-agent-export"
   : > "$github_output"
   rc=0
