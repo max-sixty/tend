@@ -53,10 +53,18 @@ def git_environment(extra: dict[str, str] | None = None) -> dict[str, str]:
 
     Only ``GIT_TERMINAL_PROMPT`` is forced: a fetch that wants credentials must
     fail rather than block the job, and there are none to give it — the proxy
-    authenticates on the way out. Everything else is the sandbox's own
-    environment, including the configuration SRT composes, because the agent
-    runs Git in this same tree a moment later and a second, stricter
-    environment here would only describe a boundary that is not there.
+    authenticates on the way out.
+
+    Everything else is the sandbox's own environment, including the
+    configuration SRT composes and the runner's own ``~/.gitconfig``, which
+    ``HOME`` now points at through the view. That is deliberate, and it is what
+    the old ``GIT_CONFIG_NOSYSTEM``/``GIT_CONFIG_GLOBAL=/dev/null`` pair bought
+    when this ran as the runner: it kept a global ``filter.lfs.smudge`` or a
+    ``core.hooksPath`` from executing against a contributor's
+    ``.gitattributes`` **as the runner user**. Here the same command runs as
+    the sandbox uid inside SRT, and the agent runs arbitrary Git in this same
+    tree a moment later, so a stricter environment for these few commands would
+    describe a boundary that is not there rather than add one.
     """
     environment = dict(os.environ)
     environment["GIT_TERMINAL_PROMPT"] = "0"

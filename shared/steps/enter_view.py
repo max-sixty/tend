@@ -87,9 +87,17 @@ def identity_map(kind: str, low: int, high: int) -> list[str]:
     Each entry is ``<kind>:<id in the mount>:<id on disk>:<count>``, so the two
     one-id entries read "where the disk says `high`, the mount says `low`" and
     the reverse.
+
+    Two ids that are already equal need no swap, only the identity — which is
+    the shape when the two accounts share a primary group, as they do wherever
+    ``tend-sandbox`` was created with ``useradd -g``. The map for that id type
+    still has to be complete, because an id the mount does not map reads back
+    as the kernel's overflow id.
     """
-    if not 0 <= low < high < ID_CEILING:
+    if not 0 <= low <= high < ID_CEILING:
         raise ValueError(f"{kind} ids {low} and {high} are outside the mappable range")
+    if low == high:
+        return [f"{kind}:0:0:{ID_CEILING}"]
     entries = [f"{kind}:{low}:{high}:1", f"{kind}:{high}:{low}:1"]
     for start, count in (
         (0, low),
@@ -213,12 +221,17 @@ def verify(*, home: Path, masks: list[Path]) -> None:
         fail(f"{home} is on {fstype}, expected overlay")
     if propagation != "private":
         fail(f"the mount at {home} is {propagation}, not private to this job")
-    # Checked by what each mask now is rather than by the filesystem under it:
-    # a masked directory lists nothing, and a masked file is the character
-    # device the bind put there. Both are the property the agent meets, so
-    # neither can pass while the thing it covers is still readable.
+    # Each mask is checked twice over, because either check alone passes on a
+    # mask that never mounted: a directory that happens to be empty — which
+    # `_runner_file_commands` often is at this moment — lists nothing whether
+    # or not the tmpfs is there, and a filesystem check says a mount happened
+    # without saying it hid anything. A masked file needs only the one, since
+    # nothing the runner keeps is already a character device.
     for path in masks:
         if path.is_dir():
+            fstype, _ = mount_facts(path)
+            if fstype != "tmpfs":
+                fail(f"{path} is on {fstype}, so nothing was mounted over it")
             if any(path.iterdir()):
                 fail(f"{path} still lists its contents")
         elif not path.is_char_device():

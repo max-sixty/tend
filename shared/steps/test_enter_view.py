@@ -88,6 +88,16 @@ def test_the_group_map_is_the_gids_and_not_the_uids() -> None:
     assert parsed(entries, "u")[1002] == 1001
 
 
+def test_two_accounts_that_share_a_group_still_get_a_complete_map() -> None:
+    """`useradd -g` gives both accounts one primary group, so there is nothing
+    to swap — but the map for that id type still has to cover every id, since
+    one the mount leaves out reads back as the kernel's overflow id."""
+    table = parsed(enter_view.swap_map(account(1001, 1000), account(1002, 1000)), "g")
+
+    assert sorted(table) == list(range(enter_view.ID_CEILING))
+    assert all(mount == host for mount, host in table.items())
+
+
 def test_an_unmappable_account_is_refused_rather_than_truncated() -> None:
     with pytest.raises(ValueError, match="outside the mappable range"):
         enter_view.identity_map("u", 1001, enter_view.ID_CEILING)

@@ -19,8 +19,10 @@
 #
 # Invoked by event_checkout.py inside the sandbox, immediately after it selects
 # the event's topology. That bottleneck verifies TEND_CONFIG_BASE_SHA, so this
-# script does not re-derive topology or need a credential; it runs as the
-# sandbox uid, against a tree whose writes reach nothing but the view.
+# script does not re-derive topology or need a credential. It runs as the
+# sandbox uid, with the sandbox's own Git configuration in scope — see
+# event_checkout.py's `git_environment` for why that is deliberate — against a
+# tree whose writes reach nothing but the view.
 #
 # Input (env): TEND_CONFIG_BASE_SHA. Empty means this is not a PR worktree.
 set -eo pipefail
