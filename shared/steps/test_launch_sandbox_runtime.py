@@ -145,6 +145,14 @@ def test_claude_exports_only_fixed_runner_owned_files(
     assert not any(arg.startswith("GITHUB_OUTPUT=") for arg in runtime)
     assert f"TMPDIR={run_dir.parent / 'tmp'}" in runtime
     assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'tmp/step-summary.md'}" in runtime
+    # The agent env file says the sandbox account's home, because the install
+    # steps that read it run before the view exists. The launch says the job's,
+    # which is the whole point of the view — and `env` takes the last one.
+    runner_home = tmp_path / "home/runner"
+    assert runtime.index(f"HOME={runner_home}") > runtime.index(
+        "HOME=/home/tend-sandbox"
+    )
+    assert f"XDG_CACHE_HOME={runner_home / '.cache'}" in runtime
 
 
 def test_codex_base64_encodes_the_fixed_final_message(

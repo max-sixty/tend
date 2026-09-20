@@ -254,7 +254,8 @@ bot_name: my-project-bot
 #   - the checkout identity — `GITHUB_WORKSPACE`
 #   - prompt suppression — `CLAUDE_CODE_REMOTE`
 #   - the sandbox's own locations — `HOME`, `PATH`, `TMPDIR`,
-#     `CLAUDE_CONFIG_DIR`, `CODEX_HOME`
+#     `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`,
+#     `XDG_DATA_HOME`, `XDG_STATE_HOME`
 #
 #   A `GITHUB_*` name is rejected too: these values are applied over the job's
 #   own environment, so they win, and the GitHub context is the one thing a run

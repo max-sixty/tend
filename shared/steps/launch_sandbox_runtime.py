@@ -243,6 +243,16 @@ def main() -> int:
         # nothing but its own upper layer.
         "GITHUB_STEP_SUMMARY": str(step_summary_dir / "step-summary.md"),
         "TEND_RUN_DIR": str(run_dir),
+        # The agent works in the job's home, so its home-shaped paths are the
+        # job's too: `~/.config/gh`, `~/.cache/uv` and the rest are whatever
+        # `setup:` left. The agent env file points these at the sandbox
+        # account's own home instead, because the install steps that read that
+        # file run before the view exists.
+        "HOME": str(runner_home),
+        "XDG_CONFIG_HOME": str(runner_home / ".config"),
+        "XDG_CACHE_HOME": str(runner_home / ".cache"),
+        "XDG_DATA_HOME": str(runner_home / ".local/share"),
+        "XDG_STATE_HOME": str(runner_home / ".local/state"),
     }
     if codex_runner is not None:
         overrides["TEND_CODEX_RUNNER"] = str(codex_runner)

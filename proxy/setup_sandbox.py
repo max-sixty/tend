@@ -60,6 +60,10 @@ RESERVED_SANDBOX_ENV = {
     "HOME",
     "PATH",
     "CLAUDE_CONFIG_DIR",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
     "HTTPS_PROXY",
     "HTTP_PROXY",
     "https_proxy",
@@ -215,6 +219,15 @@ def base_agent_env(path: str, anthropic_dummy: tuple[str, str] | None) -> list[s
         "PATH": path,
         "CLAUDE_CONFIG_DIR": str(CLAUDE_CONFIG_DIR),
         "CODEX_HOME": str(CODEX_HOME),
+        # Under the sandbox home for the same reason ``HOME`` is: the
+        # runner-side install steps run as this uid before the view exists, and
+        # the runner exports ``XDG_CONFIG_HOME=/home/runner/.config``, which
+        # leaks through ``sudo`` and which this uid cannot write. The supervisor
+        # points all four back at the job's home at the launch itself.
+        "XDG_CONFIG_HOME": str(AGENT_HOME / ".config"),
+        "XDG_CACHE_HOME": str(AGENT_HOME / ".cache"),
+        "XDG_DATA_HOME": str(AGENT_HOME / ".local/share"),
+        "XDG_STATE_HOME": str(AGENT_HOME / ".local/state"),
         "HTTPS_PROXY": PROXY_URL,
         "HTTP_PROXY": PROXY_URL,
         "https_proxy": PROXY_URL,
