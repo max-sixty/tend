@@ -14,6 +14,7 @@ concurrency:
 jobs:
   refresh:
 <<fork_guard_if(cfg)>><<environment()>>
+<<cache_mode()>>
     runs-on: ubuntu-24.04
     permissions:
       contents: read

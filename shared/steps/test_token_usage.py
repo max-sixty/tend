@@ -411,6 +411,31 @@ def test_codex_counts_an_absent_token_count_as_zero() -> None:
     assert usage["turns"] == 0
 
 
+def test_artifact_name_keys_on_the_thread_then_the_job(
+    monkeypatch: pytest.MonkeyPatch, actions_env: Path
+) -> None:
+    """One name per thread where the event has one, so a later run on that
+    thread lists this run's log by name; one per job otherwise, so matrix legs
+    don't collide at upload.
+    """
+    monkeypatch.setenv("INVOCATION_ID", "0123456789abcdef")
+
+    assert token_usage.artifact_name("claude") == "claude-session-logs-n851"
+    assert token_usage.artifact_name("codex") == "codex-session-logs-n851"
+
+    # tend-mention-relay re-posts a review as a dispatch carrying the PR
+    # number, so a relayed review keys the same thread as a comment on it.
+    actions_env.write_text(json.dumps({"client_payload": {"pr": "851"}}))
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "repository_dispatch")
+    assert token_usage.artifact_name("claude") == "claude-session-logs-n851"
+
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
+    assert token_usage.artifact_name("claude") == "claude-session-logs-01234567"
+
+    monkeypatch.delenv("INVOCATION_ID")
+    assert token_usage.artifact_name("claude") == "claude-session-logs"
+
+
 def test_claude_main_publishes_the_record_three_ways(
     tmp_path: Path,
     logs_dir: Path,
@@ -423,7 +448,8 @@ def test_claude_main_publishes_the_record_three_ways(
 
     The session JSONL only reaches the log dir through the consolidating copy,
     so a broken copy shows up here as an all-zero record rather than a partial
-    one.
+    one. The artifact name is the step's other output, and the upload step
+    that reads it runs whatever this one did, so it is published first.
     """
     agent_home = tmp_path / "agent-home"
     _session_jsonl(agent_home / ".claude" / "projects")
@@ -433,6 +459,7 @@ def test_claude_main_publishes_the_record_three_ways(
     for name in [name for name in os.environ if name.startswith("GITHUB_")]:
         if name not in GITHUB_FILE_VARS:
             monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
     monkeypatch.setenv("AGENT_HOME", str(agent_home))
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path / "runner-temp"))
     monkeypatch.setenv("MODEL", "opus")
@@ -441,6 +468,7 @@ def test_claude_main_publishes_the_record_three_ways(
 
     assert token_usage.main() == 0
 
+    assert github_files.outputs()["artifact_name"] == "claude-session-logs"
     record = json.loads(github_files.outputs()["usage"])
     assert record["output_tokens"] == 4500
     assert record["partial"] is True

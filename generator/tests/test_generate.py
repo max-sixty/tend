@@ -556,6 +556,30 @@ def test_operational_secrets_imply_environment(tmp_path: Path) -> None:
             )
 
 
+def test_agent_jobs_never_write_the_actions_cache(tmp_path: Path) -> None:
+    """Every job that names the environment refuses cache saves.
+
+    A save from a tend job lands in the scope the default branch's CI restores
+    from, because every tend trigger runs with the default branch or the PR
+    base as `GITHUB_REF`, never an isolated PR ref. Keyed on the environment
+    because that is what marks a job as one the agent runs in — install-test
+    and the relay run no agent and are left alone.
+    """
+    cfg = Config.load(
+        _minimal_config(
+            tmp_path, 'workflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n'
+        )
+    )
+    missing = [
+        f"{wf.filename}:{job_name}"
+        for wf in generate_all(cfg, with_install_test=True)
+        for job_name, job in yaml.safe_load(wf.content)["jobs"].items()
+        if job.get("environment")
+        and job.get("env", {}).get("ACTIONS_CACHE_MODE") != "read"
+    ]
+    assert not missing, f"jobs that can still save an Actions cache: {missing}"
+
+
 def test_custom_prompt(tmp_path: Path) -> None:
     extra = dedent("""\
         workflows:

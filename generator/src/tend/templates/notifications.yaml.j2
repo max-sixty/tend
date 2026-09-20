@@ -13,6 +13,7 @@ jobs:
     if: <<fork_guard_prefix(cfg)>><<tend_enabled>>
     runs-on: ubuntu-24.04
 <<environment()>>
+<<cache_mode()>>
     permissions:
 <<permissions()>>
     steps:

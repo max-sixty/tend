@@ -23,6 +23,11 @@ jobs:
     environment:
       name: tend
       deployment: false
+    env:
+      # Restore from the Actions cache, never save to it. This job runs with
+      # the default branch or the PR base as GITHUB_REF, so a save here lands
+      # in the scope the default branch's own CI restores from.
+      ACTIONS_CACHE_MODE: read
     permissions:
       contents: write
       pull-requests: write

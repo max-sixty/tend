@@ -228,6 +228,9 @@ runs:
         TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
         TEND_BASE_BRANCH: ${{ inputs.base_branch }}
 
+    # Covered by the job's `ACTIONS_CACHE_MODE: read`, and to be deleted when
+    # `actions/cache` releases the bump that makes that effective — see the
+    # matching note in claude/action.yaml.
     - name: Cache mitmproxy
       uses: actions/cache@v6
       with:
@@ -461,11 +464,12 @@ runs:
     - name: Token usage
       if: always()
       id: tokens
-      shell: bash
+      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
       env:
+        BASH_ENV: ""
         MODEL: ${{ inputs.model }}
         SANDBOX_REAPED: ${{ steps.codex.outputs.sandbox_reaped }}
-      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness codex
+      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness codex
 
     - name: Mark event notification read
       if: success()
@@ -494,19 +498,14 @@ runs:
         TEND_ACTION_REF: ${{ github.action_ref }}
         TEND_ACTION_REPOSITORY: ${{ github.action_repository }}
 
-    - name: Compute artifact name
-      if: always()
-      id: artifact
-      shell: bash
-      run: |
-        suffix="${INVOCATION_ID:+"-${INVOCATION_ID:0:8}"}"
-        echo "name=codex-session-logs${suffix}" >> "$GITHUB_OUTPUT"
-
+    # The Token usage step names the artifact (`artifact_name` in
+    # token_usage.py). The fallback covers a token step that died before its
+    # first output: an empty name fails the upload.
     - name: Upload session logs
       if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: ${{ steps.artifact.outputs.name }}
+        name: ${{ steps.tokens.outputs.artifact_name || 'codex-session-logs' }}
         path: ${{ runner.temp }}/tend-codex-logs/
         retention-days: 30
         if-no-files-found: warn

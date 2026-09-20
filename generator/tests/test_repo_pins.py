@@ -285,6 +285,64 @@ def test_sandbox_resources_are_removed_immediately_after_agent_reap(
     assert restore["run"].endswith('/restore-sandbox-runtime-host.sh"')
 
 
+# The PATH every hardened step pins its children to, and the shell that keeps
+# `$BASH_ENV` from running ahead of it.
+PINNED_PATH = "PATH=/usr/sbin:/usr/bin:/sbin:/bin"
+HARDENED_SHELL = "/usr/bin/bash --noprofile --norc -e -o pipefail {0}"
+
+
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_no_step_after_the_agent_resolves_a_command_by_name(harness: str) -> None:
+    """Nothing after the agent may resolve an executable through a path the
+    sandbox could influence.
+
+    The agent runs as its own uid, but the steps that follow run as the runner,
+    which holds the bot PAT and — under codex — the model key. A consumer's
+    `setup:` has already prepended its own directories to the job PATH, and
+    `sandbox_path` may point the sandbox at one of them, so a bare command name
+    in a post-agent step is a name the sandbox can answer. Every such step
+    therefore either `uses:` an action or pins `PATH` ahead of its first
+    command, which fixes resolution for the whole body — including whatever the
+    script it launches goes on to run.
+
+    `set` is the one word admitted before the pin: it is a shell builtin, so it
+    resolves nothing.
+    """
+    action = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / harness / "action.yaml").read_text()
+    )
+    steps = action["runs"]["steps"]
+    run_name = "Run Claude" if harness == "claude" else "Run Codex"
+    after = steps[next(i for i, s in enumerate(steps) if s["name"] == run_name) + 1 :]
+    assert after, f"{harness}: no steps after {run_name}"
+
+    unpinned = []
+    for step in after:
+        if "uses" in step:
+            continue
+        name = step["name"]
+        assert step.get("shell") == HARDENED_SHELL, name
+        assert step.get("env", {}).get("BASH_ENV") == "", name
+        first = next(
+            (
+                line.strip()
+                for line in step["run"].splitlines()
+                if line.strip() and not line.strip().startswith(("#", "set "))
+            ),
+            "",
+        )
+        if first == PINNED_PATH:
+            continue
+        if first.startswith(f"{PINNED_PATH} /"):
+            continue
+        unpinned.append(f"{name}: {first}")
+
+    assert not unpinned, (
+        f"{harness}: post-agent steps whose first command does not run under "
+        f"`{PINNED_PATH}`: {unpinned}"
+    )
+
+
 @pytest.mark.parametrize("harness", ["claude", "codex"])
 def test_srt_install_receives_trusted_runner_environment(harness: str) -> None:
     action = YAML(typ="safe", pure=True).load(

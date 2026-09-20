@@ -40,6 +40,10 @@ jobs:
     environment:
       name: tend
       deployment: false
+    env:
+      # What `cache_mode()` stamps into every generated job that names the
+      # environment; this file is hand-maintained, so it carries it too.
+      ACTIONS_CACHE_MODE: read
     permissions:
       issues: write
     steps:
@@ -87,6 +91,8 @@ jobs:
     environment:
       name: tend
       deployment: false
+    env:
+      ACTIONS_CACHE_MODE: read
     permissions:
       contents: write
       pull-requests: write
