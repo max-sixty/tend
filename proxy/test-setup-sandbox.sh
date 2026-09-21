@@ -305,6 +305,9 @@ PY
   # Absent inside: the sandbox's /tmp is its own tmpfs.
   runner_owned="/tmp/tend-runner-owned-$GITHUB_RUN_ID"
   touch "$runner_owned"
+  # SRT re-binds its default write path whenever the launching namespace has
+  # it; world-writable, so a bind would let the sandbox's write through.
+  install -d -m 1777 /tmp/claude
   # Asserted from inside, by the consumer's own `sandbox_setup:` hook.
   setup_commands=$(printf '%s\n' \
     'set -u' \
@@ -338,6 +341,7 @@ PY
     'touch /tmp/tend-sandbox-scratch' \
     'if touch /var/tmp/tend-unscoped 2>/dev/null; then exit 91; fi' \
     "if [ -e '$runner_owned' ]; then exit 92; fi" \
+    'mkdir -p /tmp/claude && touch /tmp/claude/tend-sandbox-wrote' \
     'touch "$TMPDIR/tend-scratch-probe"' \
     '# Hand the proof back outside the view, where the runner can read it.' \
     "printf '%s\n' \"\$HTTP_PROXY\" > $run_dir/tend-setup-proxy" \
@@ -363,12 +367,29 @@ PY
     ACTIONS_RUNTIME_TOKEN=runner-service-must-not-cross \
     ACTIONS_RESULTS_URL=https://results.invalid/ \
     INPUT_GITHUB_TOKEN=runner-input-must-not-cross \
+    TEND_JOB_ONLY=tend-job-env-marker \
     GITHUB_OUTPUT="$github_output" \
     GITHUB_STEP_SUMMARY="$runner_summary" \
     /usr/bin/python3 -E -s \
       "$TEND_TEST_ACTION_PATH/shared/steps/launch_sandbox_runtime.py" || rc=$?
   test "$rc" -eq 0
   grep -qx 'sandbox_reaped=true' "$github_output"
+  # The job's environment crossed in a file `enter_view` removed, not on the
+  # command line `sudo` logs — whose entry for this launch has to be there for
+  # the marker's absence to mean anything.
+  test ! -e "$TEND_PRIVATE_DIR/tend-launch-env"
+  # Compared out here: the marker on `sudo`'s own command line would be logged.
+  test "$(sudo -u "$SANDBOX" sed -n 's/^TEND_JOB_ONLY=//p' "$claude_env")" = \
+    tend-job-env-marker
+  # To a file first: under pipefail, `grep -q` quitting early SIGPIPEs the
+  # journal and fails the pipeline whether or not it matched.
+  # shellcheck disable=SC2024 # the runner writes the copy; only the read is root's
+  sudo journalctl -q -t sudo --no-pager > "$RUNNER_TEMP/sudo-journal"
+  grep -q 'enter_view\.py' "$RUNNER_TEMP/sudo-journal"
+  if grep -q tend-job-env-marker "$RUNNER_TEMP/sudo-journal"; then
+    echo "::error::the job environment reached sudo's log"
+    exit 1
+  fi
   stream_json=$(sed -n 's/^stream_json=//p' "$github_output")
   test -n "$stream_json"
   grep -q '"stub turn"' "$stream_json"
@@ -391,6 +412,7 @@ PY
   sudo -u "$SANDBOX" grep -qxF "HOME=$HOME" "$claude_env"
   sudo -u "$SANDBOX" test -f /home/tend-sandbox/tmp/tend-scratch-probe
   test ! -e /tmp/tend-sandbox-scratch
+  test ! -e /tmp/claude/tend-sandbox-wrote
   sudo -u "$SANDBOX" grep -qxF "GITHUB_TOKEN=$dummy_token" "$claude_env"
   if sudo -u "$SANDBOX" grep -q '^GITHUB_ENV=' "$claude_env"; then
     echo "::error::runner command-file path crossed into Claude"
@@ -475,7 +497,8 @@ cleanup() {
   if [ -n "${TEND_TEST_ACTION_PATH:-}" ]; then
     /usr/bin/sudo rm -rf -- "$TEND_TEST_ACTION_PATH"
   fi
-  /usr/bin/sudo rm -f "/tmp/tend-runner-owned-$GITHUB_RUN_ID"
+  /usr/bin/sudo rm -f "/tmp/tend-runner-owned-$GITHUB_RUN_ID" /tmp/claude/tend-sandbox-wrote
+  rmdir /tmp/claude 2>/dev/null || true
   /usr/bin/sudo rm -rf -- "${TEND_WARM_CACHE:-}" "${TEND_WARM_TREE:-}"
   rm -rf -- "$HOME/.tend-seeded" "$HOME/.cargo-install/tend-probe"
   /usr/bin/sudo rm -f /usr/local/bin/tend-probe "$shared/tend-shared" "$shared/uv"

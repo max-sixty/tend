@@ -5,8 +5,12 @@ The launch chain this builds is::
     sudo unshare --mount --propagation private
       python3 enter_view.py …            # root: the copy-on-write view
         setpriv --reuid <sandbox>        # exec, so one process tree throughout
-          env -i <agent env>
-            node sandbox_runtime.mjs     # SRT, then bwrap, then the lifecycle
+          node sandbox_runtime.mjs       # SRT, then bwrap, then the lifecycle
+
+The agent's environment crosses in a 0600 file in the private directory,
+which ``enter_view`` reads, removes and ``execve``s with. On the command line
+it would be in ``sudo``'s log and readable from ``/proc`` by any process on
+the host, and it carries the job's whole environment.
 
 The supervisor stays outside it: it stages the bundle, composes the
 environment, reaps the sandbox uid however the run ends, and exports what the
@@ -219,6 +223,8 @@ def main() -> int:
     if codex_runner is not None:
         overrides["TEND_CODEX_RUNNER"] = str(codex_runner)
     environment.extend(f"{name}={value}" for name, value in overrides.items())
+    env_file = Path(required("TEND_PRIVATE_DIR")) / "tend-launch-env"
+    write_trusted(env_file, b"\0".join(os.fsencode(line) for line in environment))
 
     argv = [
         "/usr/bin/sudo",
@@ -237,11 +243,10 @@ def main() -> int:
         str(runtime_root / "view"),
         "--user",
         sandbox,
+        "--env-file",
+        str(env_file),
         *(argument for path in masks for argument in ("--mask", str(path))),
         "--",
-        "/usr/bin/env",
-        "-i",
-        *environment,
         required("NODE_BIN"),
         str(bundle_root / "shared/steps/sandbox_runtime.mjs"),
     ]
