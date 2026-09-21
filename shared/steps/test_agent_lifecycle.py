@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import agent_lifecycle
@@ -89,10 +88,9 @@ def test_an_unknown_harness_is_not_silently_a_no_op(
 @pytest.mark.parametrize(
     ("mask", "hidden"),
     [
-        ("empty-dir", True),
-        # A file mask is a /dev/null bind, which cannot be opened on bwrap's
-        # nodev remount; /dev/null stands in for it here.
-        (os.devnull, True),
+        # What `InaccessiblePaths=` leaves: the name, with mode 000.
+        ("masked-dir", True),
+        ("masked-file", True),
         ("full-dir", False),
         ("plain-file", False),
         ("missing", False),
@@ -101,14 +99,18 @@ def test_an_unknown_harness_is_not_silently_a_no_op(
 def test_the_view_probe_accepts_only_a_mask_that_took(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mask: str, hidden: bool
 ) -> None:
-    (tmp_path / "empty-dir").mkdir()
+    (tmp_path / "masked-dir").mkdir(mode=0)
+    (tmp_path / "masked-file").touch(mode=0)
     (tmp_path / "full-dir").mkdir()
     (tmp_path / "full-dir/.credentials").write_text("runner identity\n")
     (tmp_path / "plain-file").write_text("runner identity\n")
     monkeypatch.setenv("TEND_VIEW_MASKS", str(tmp_path / mask))
 
-    if hidden:
-        agent_lifecycle.probe_view(tmp_path)
-    else:
-        with pytest.raises(RuntimeError, match="did not mask"):
+    try:
+        if hidden:
             agent_lifecycle.probe_view(tmp_path)
+        else:
+            with pytest.raises(RuntimeError, match="did not mask"):
+                agent_lifecycle.probe_view(tmp_path)
+    finally:
+        (tmp_path / "masked-dir").chmod(0o700)

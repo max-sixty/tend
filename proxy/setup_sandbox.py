@@ -29,6 +29,9 @@ SANDBOX = "tend-sandbox"
 AGENT_HOME = Path(f"/home/{SANDBOX}")
 PROXY_PORT = 8899
 PROXY_URL = f"http://127.0.0.1:{PROXY_PORT}"
+#: The agent's loopback is its own network namespace's, so a server it starts
+#: there is reached directly and never through the proxy.
+NO_PROXY = "localhost,127.0.0.1,::1"
 PROXY_CA_CERT = Path("/usr/local/share/ca-certificates/tend-proxy.crt")
 TEND_RUN_DIR = AGENT_HOME / "run"
 AGENT_TMP_DIR = AGENT_HOME / "tmp"
@@ -159,6 +162,8 @@ def base_agent_env(path: str, anthropic_dummy: tuple[str, str] | None) -> list[s
         "HTTP_PROXY": PROXY_URL,
         "https_proxy": PROXY_URL,
         "http_proxy": PROXY_URL,
+        "NO_PROXY": NO_PROXY,
+        "no_proxy": NO_PROXY,
         "NODE_EXTRA_CA_CERTS": str(PROXY_CA_CERT),
         "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
         "REQUESTS_CA_BUNDLE": "/etc/ssl/certs/ca-certificates.crt",

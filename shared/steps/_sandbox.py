@@ -1,11 +1,9 @@
-"""Compose the environment at the single runner-to-SRT boundary.
+"""Compose the environment at the single runner-to-sandbox boundary.
 
 The outer supervisor crosses the UID boundary once, with exactly this environment
-and nothing inherited.
-SRT then finalizes proxy variables for its network namespace, and every command
-inside the lifecycle inherits that environment unchanged. Trusted preparation
-commands that run before SRT use :func:`agent_env` and receive no GitHub
-context.
+and nothing inherited, and every command inside the lifecycle inherits it
+unchanged. Trusted preparation commands that run before the launch use
+:func:`agent_env` and receive no GitHub context.
 
 The agent gets the job's own environment, so whatever ``setup:`` exported
 crosses without Tend naming it, except :data:`WITHHELD_PREFIXES` (``ACTIONS_*``
@@ -49,7 +47,7 @@ def agent_env(agent_env_file: str | os.PathLike[str]) -> list[str]:
 
 
 def launch_env(agent_env_file: str | os.PathLike[str]) -> list[str]:
-    """The ``NAME=VALUE`` entries for the outer SRT launch, file last.
+    """The ``NAME=VALUE`` entries for the agent's launch, file last.
 
     Reads the environment when called, so call it in the step that forwards it.
     """

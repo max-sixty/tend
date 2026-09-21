@@ -21,7 +21,7 @@ def fail(message: str) -> int:
 
 
 def runtime_container(runtime: Path) -> Path:
-    """Accept only the mktemp shape used by install-sandbox-runtime.sh."""
+    """Accept only the mktemp shape used by create-runtime-root.sh."""
     if runtime.parent != CONTAINER_PARENT or not RUNTIME_CONTAINER.fullmatch(
         runtime.name
     ):
@@ -56,11 +56,15 @@ def main() -> int:
                 return fail("could not verify that sandbox processes were reaped")
         if not resources:
             return 0
+        # A view the launch never unmounted (its supervisor was SIGKILLed) is
+        # an overlay of the job's home: `rm` skips it and fails, rather than
+        # walking the home as root.
         subprocess.run(
             [
                 "/usr/bin/sudo",
                 "/usr/bin/rm",
                 "-rf",
+                "--one-file-system",
                 "--",
                 *(str(resource) for resource in resources),
             ],
