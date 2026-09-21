@@ -14,8 +14,14 @@ The idmap is what makes the view writable: overlayfs checks the accessing
 task's credentials against the lower inode's owner, so a ``runner:runner``
 lower refuses every create by the sandbox uid. It is a swap with identity
 elsewhere because overlayfs gives a copied-up inode the mapped lower owner, and
-an unmapped one (a root-owned directory ``setup:`` left) refuses the copy-up.
-Ids at or above :data:`ID_CEILING` stay unmapped.
+an unmapped one (a root-owned file ``setup:`` left) refuses the copy-up. Ids at
+or above :data:`ID_CEILING` stay unmapped.
+
+Swapping the two accounts and leaving every other id alone is what bounds the
+view: the agent writes wherever the runner could, and no further. A directory
+only root can write stays unwritable, and a root-owned file only root can read
+stays unreadable — mapping uid 0 as well would hand the agent both, which is
+more than the account whose home this is has.
 
 ``--mask`` paths inside the home are covered — a directory by an empty tmpfs, a
 file by ``/dev/null`` — and ``agent_lifecycle.probe_view`` checks from inside

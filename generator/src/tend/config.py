@@ -451,6 +451,15 @@ class Config:
                 raise click.ClickException(
                     f"sandbox_env may not set reserved key '{name}'.{hint}"
                 )
+            # `consumer_env` in proxy/setup_sandbox.py refuses the whole
+            # namespace inside the sandbox. Refusing it here too is what the
+            # consumer sees: otherwise `init` accepts the key and the run it
+            # stamps fails, once, in a job.
+            if name.startswith("GITHUB_"):
+                raise click.ClickException(
+                    f"sandbox_env may not set '{name}': the GITHUB_* context "
+                    "describes the run and comes from Actions."
+                )
             # Coerce a YAML scalar (1, true) to its string form; reject a
             # non-scalar (a list/dict would otherwise str() into a Python repr
             # and silently smuggle garbage into the agent env line). `bool` is

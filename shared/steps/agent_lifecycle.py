@@ -130,6 +130,15 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, RuntimeError, ValueError) as problem:
+    # `CalledProcessError` for the git this module and `event_checkout` run,
+    # `TypeError` for `event_checkout`'s topology diagnostics: a traceback here
+    # is the job's only account of why the turn never started.
+    except (
+        OSError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+        subprocess.CalledProcessError,
+    ) as problem:
         print(f"agent lifecycle: {problem}", file=sys.stderr)
         raise SystemExit(1) from None

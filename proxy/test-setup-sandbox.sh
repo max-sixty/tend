@@ -4,8 +4,8 @@
 # GITHUB_PATH/GITHUB_ENV affect only later steps.
 #
 # It checks what needs a real kernel, a second uid and an Actions runner: the
-# agent works in the job's own checkout and home and can write anywhere in
-# them; the host is byte-for-byte unchanged afterwards; the runner's own files
+# agent works in the job's own checkout and home and writes wherever the runner
+# could; the host is byte-for-byte unchanged afterwards; the runner's own files
 # read back empty; and `ACTIONS_*`/`INPUT_*` never reach the harness.
 set -euo pipefail
 
@@ -36,6 +36,7 @@ plant() {
   mkdir -p "$TEND_WARM_CACHE/registry"
   printf 'warm-cache\n' >"$TEND_WARM_CACHE/registry/warm"
   sudo install -d -m 755 -o root -g root "$TEND_WARM_CACHE/root-owned"
+  printf 'root-owned\n' | sudo tee "$TEND_WARM_CACHE/root-owned/planted" >/dev/null
   mkdir -p "$TEND_WARM_CACHE/rename-me/inner"
   TEND_WARM_TREE="$GITHUB_WORKSPACE/.tend-warm-tree"
   mkdir -p "$TEND_WARM_TREE"
@@ -314,12 +315,15 @@ PY
     'test "$(cat "$TEND_WARM_TREE/artifact")" = built' \
     'test "$(tend-seeded)" = runner-seed' \
     'test "$TEND_FROM_SANDBOX_ENV" = applied' \
-    '# Writable everywhere, in place, under root-owned dirs, across renames.' \
+    '# Writable in place, and across renames of a lower-layer directory.' \
     'printf "agent\n" > "$TEND_WARM_CACHE/registry/written-by-sandbox"' \
     'printf "AGENT-CACHE\n" > "$TEND_WARM_CACHE/registry/warm"' \
     'printf "agent\n" > "$TEND_WARM_TREE/written-by-sandbox"' \
-    'printf "agent\n" > "$TEND_WARM_CACHE/root-owned/written-by-sandbox"' \
     'mv "$TEND_WARM_CACHE/rename-me" "$TEND_WARM_CACHE/renamed"' \
+    '# A directory only root can write is readable, and stays unwritable: the' \
+    '# idmap swaps the two accounts and leaves every other id alone.' \
+    'test "$(cat "$TEND_WARM_CACHE/root-owned/planted")" = root-owned' \
+    'if printf "x\n" > "$TEND_WARM_CACHE/root-owned/by-sandbox" 2>/dev/null; then exit 95; fi' \
     'ln "$TEND_WARM_CACHE/registry/warm" "$TEND_WARM_TREE/linked"' \
     'printf "sandbox\n" > "$GITHUB_WORKSPACE/.tend-srt-wrote-here"' \
     '# The runner-side halves of Tend, and the runner itself, stay out of reach.' \

@@ -121,7 +121,7 @@ inputs:
       Internal generator contract selecting base, review, or mention topology.
   base_branch:
     default: "main"
-    description: Base branch used to seed the disposable agent clone.
+    description: Base branch the agent checks out when the event names no pull request.
   sandbox_runtime_version:
     default: "0.0.76"
     description: Pinned Anthropic Sandbox Runtime version.

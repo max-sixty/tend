@@ -195,8 +195,9 @@ bot_name: my-project-bot
 # agent then runs as a separate, non-sudo user inside Anthropic Sandbox
 # Runtime, in the job's own checkout and home, with the job's PATH and
 # environment. It sees them through a copy-on-write view: what `setup:`
-# prepared (a toolchain, a warm cache) is there at its own path, the agent can
-# write anywhere, and nothing it writes reaches the runner or a later step.
+# prepared (a toolchain, a warm cache) is there at its own path, the agent
+# writes wherever the runner itself could — a path only root can write is not
+# one of them — and nothing it writes reaches the runner or a later step.
 #
 # So anything `setup:` leaves readable in the runner's home or checkout (a
 # registry login, a cloud credential file), and anything exported to

@@ -808,7 +808,7 @@ def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert len(list(wf_dir.glob("tend-*.yaml"))) == 8
 
 
-def test_review_delegates_pr_topology_to_disposable_clone(tmp_path: Path) -> None:
+def test_review_delegates_pr_topology_to_the_sandbox(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
