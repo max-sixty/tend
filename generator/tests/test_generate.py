@@ -184,26 +184,6 @@ def test_generated_workflows_survive_the_whitespace_hooks(
             assert line == line.rstrip(), f"{wf.filename}:{n}: trailing whitespace"
 
 
-def test_sandbox_levers_rendered_for_claude(tmp_path: Path) -> None:
-    """sandbox_env renders as an action input and the workflow still parses;
-    the value lands under the agent step's `with:`."""
-    extra = dedent("""\
-        sandbox_env:
-          RUST_BACKTRACE: "1"
-    """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    wf = generate_mention(cfg)
-    data = yaml.safe_load(wf.content)
-    with_blocks = [
-        s["with"]
-        for job in data["jobs"].values()
-        for s in job.get("steps", [])
-        if "sandbox_env" in s.get("with", {})
-    ]
-    assert len(with_blocks) == 1
-    assert with_blocks[0]["sandbox_env"].strip() == "RUST_BACKTRACE=1"
-
-
 def _agent_step_inputs(content: str) -> list[set[str]]:
     """The `with:` keys of each operational agent action in a workflow.
 
@@ -218,13 +198,6 @@ def _agent_step_inputs(content: str) -> list[set[str]]:
         if step.get("uses", "").split("@", 1)[0]
         in {"max-sixty/tend/claude", "max-sixty/tend/codex"}
     ]
-
-
-def test_sandbox_env_absent_by_default(tmp_path: Path) -> None:
-    cfg = Config.load(_minimal_config(tmp_path))
-    for wf in generate_all(cfg):
-        for inputs in _agent_step_inputs(wf.content):
-            assert "sandbox_env" not in inputs
 
 
 def test_memory_gist_is_an_explicit_experimental_claude_only_input(
@@ -275,20 +248,6 @@ def test_memory_gist_follows_a_per_workflow_claude_override(
     workflows = {wf.filename: wf.content for wf in generate_all(cfg)}
     assert "memory_gist:" in workflows["tend-nightly.yaml"]
     assert "memory_gist:" not in workflows["tend-review.yaml"]
-
-
-def test_sandbox_levers_rendered_for_codex(tmp_path: Path) -> None:
-    """Codex shares the proxy sandbox, so its action receives the levers."""
-    extra = dedent("""\
-        harness: codex
-        model: gpt-5.5
-        sandbox_env:
-          RUST_BACKTRACE: "1"
-    """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    for wf in generate_all(cfg):
-        for inputs in _agent_step_inputs(wf.content):
-            assert "sandbox_env" in inputs
 
 
 def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
@@ -359,6 +318,22 @@ def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
     assert build["shell"] == "bash"
     assert build["working-directory"] == "./crates/core"
     assert build["env"] == {"RUSTFLAGS": "-D warnings"}
+
+
+def test_setup_step_long_expression_stays_on_one_line(tmp_path: Path) -> None:
+    """A gated secret's expression can run past any fold width. Folded, it
+    would break with a trailing space and read differently from the config."""
+    events = " || ".join(f"github.event_name == 'event_{i}'" for i in range(12))
+    expression = f"${{{{ ({events}) && secrets.MY_TOKEN || '' }}}}"
+    extra = dedent(f"""\
+        setup:
+          - run: echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"
+            env:
+              MY_TOKEN: "{expression}"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    for wf in without_relay(generate_all(cfg)):
+        assert f"MY_TOKEN: {expression}\n" in wf.content, wf.filename
 
 
 @pytest.mark.parametrize(
@@ -1637,6 +1612,8 @@ def test_deprecated_sandbox_keys_regtest(regtest: object, tmp_path: Path) -> Non
     extra = dedent("""\
         setup:
           - uses: astral-sh/setup-uv@v10.1.0
+        sandbox_env:
+          MY_TOKEN: "${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}"
         sandbox_path:
           - ~/.cargo/bin
           - /opt/tools/bin
@@ -1649,22 +1626,28 @@ def test_deprecated_sandbox_keys_regtest(regtest: object, tmp_path: Path) -> Non
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
-def test_sandbox_env_regtest(regtest: object, tmp_path: Path) -> None:
-    """Snapshot the rendered agent step with `sandbox_env` set, to lock the
-    block-scalar shape threaded to the composite action."""
-    extra = dedent("""\
-        sandbox_env:
-          RUST_BACKTRACE: "1"
-          CARGO_TERM_COLOR: always
-    """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    print(generate_mention(cfg).content, end="", file=regtest)  # type: ignore[arg-type]
-
-
 def test_mention_relay_regtest(regtest: object, tmp_path: Path) -> None:
     """Snapshot tend-mention-relay, which is not in `GENERATORS`."""
     cfg = Config.load(_minimal_config(tmp_path))
     print(generate_mention_relay(cfg).content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_overrides_change_only_what_they_name(tmp_path: Path) -> None:
+    """Applying an override re-serializes the whole workflow, which must not
+    refold its long scalars: a refolded `>-` block gains line breaks in its
+    value. Mention's are the longest the templates render."""
+
+    def mention(extra: str = "") -> dict:
+        cfg = Config.load(_minimal_config(tmp_path, extra))
+        wf = next(wf for wf in generate_all(cfg) if wf.filename == "tend-mention.yaml")
+        return yaml.safe_load(wf.content)
+
+    plain = mention()
+    overridden = mention(
+        "workflows:\n  mention:\n    jobs:\n      handle:\n        env: {X: '1'}\n"
+    )
+    assert overridden["jobs"]["handle"].pop("env") == {"X": "1"}
+    assert overridden == plain
 
 
 def test_extras_apply_path_regtest(regtest: object, tmp_path: Path) -> None:

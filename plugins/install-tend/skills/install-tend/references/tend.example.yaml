@@ -236,48 +236,41 @@ bot_name: my-project-bot
 #     setup:
 #       - run: echo "/opt/my-tool/bin" >> "$GITHUB_PATH"
 #
-# `sandbox_env` lays NAME: VALUE pairs over the agent's launch env, and over
-# nothing a runner step sees. Reserved keys are rejected at `init`, and again
-# inside the sandbox so a hand-edited workflow can't smuggle one past:
+# A variable a `setup:` step exports to `$GITHUB_ENV` is in the agent's
+# environment the same way:
 #
-# - proxy routing — `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `http_proxy`,
-#   `https_proxy`, `no_proxy`
-# - CA trust — `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`
-# - credential and Codex configuration variables — `GH_TOKEN`,
-#   `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
-#   `OPENAI_API_KEY`, `CODEX_API_KEY`, `CODEX_AUTH_JSON`, `CODEX_HOME`
-# - the checkout identity — `GITHUB_WORKSPACE`
-# - prompt suppression — `CLAUDE_CODE_REMOTE`
-# - the sandbox's own locations — `HOME`, `PATH`, `TMPDIR`,
-#   `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`,
-#   `XDG_DATA_HOME`, `XDG_STATE_HOME`
-# - the GitHub context — any `GITHUB_*` name
+#     setup:
+#       - run: echo "RUST_BACKTRACE=1" >> "$GITHUB_ENV"
 #
-#     sandbox_env:
-#       RUST_BACKTRACE: "1"
-#
-# Every command the sandbox runs inherits these values, and on `tend-review`
-# and on a mention on a pull request those commands include the pull request's
-# own code whenever the agent builds or tests that tree. Tend's own GitHub and
-# model credentials never reach the sandbox — a runner-side proxy injects them
-# into the requests that need them; the one exception is Codex under
-# subscription auth, which receives an expiring access-only token. A
-# third-party credential has no such route, so a secret given here is readable
-# by anyone who can open a pull request.
+# Tend's proxy routing, CA trust, and dummy credentials win over a variable of
+# the same name. Every command the sandbox runs inherits that environment, and
+# on `tend-review` and on a mention on a pull request those commands include
+# the pull request's own code whenever the agent builds or tests that tree.
+# Tend's own GitHub and model credentials never reach the sandbox — a
+# runner-side proxy injects them into the requests that need them; the one
+# exception is Codex under subscription auth, which receives an expiring
+# access-only token. A third-party credential has no such route, so a secret
+# exported for the agent is readable by anyone who can open a pull request.
 #
 # Give the agent the narrowest credential that does the job: that is the
 # mitigation that holds everywhere, because the value sits in the agent's env
 # on every workflow, and no event confines the session to text: a session on
 # any event can check out a pull request or run a reproduction from an issue
 # body. Withholding it from the events that carry unreviewed code closes the
-# largest path. The value renders into the workflow verbatim, so a GitHub
-# Actions expression works here — name the events that get it rather than the
+# largest path. Hand the secret to the step through its `env:`, where a GitHub
+# Actions expression can gate it — name the events that get it rather than the
 # ones that don't, and keep the secret on the `&&` side, since an empty string
 # is falsy and `<cond> && '' || secrets.X` hands over the secret whatever
-# `<cond>` says:
+# `<cond>` says. Every step after it sees the value as well, so add it last:
 #
-#     sandbox_env:
-#       MY_TOKEN: ${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}
+#     setup:
+#       - run: echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"
+#         env:
+#           MY_TOKEN: ${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}
+#
+# `$GITHUB_ENV` reads one `NAME=VALUE` per line, so a value that expands to
+# more than one line sets variables of its own. A multi-line secret needs
+# GitHub's `NAME<<DELIMITER` form, with a delimiter the value cannot contain.
 #
 # ## Memory Gist (experimental, Claude harness)
 #

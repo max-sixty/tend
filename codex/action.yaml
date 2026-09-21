@@ -67,11 +67,6 @@ inputs:
     description: >-
       Pinned fallback `uv` version. The agent PATH appends it after any
       consumer-provided version.
-  sandbox_env:
-    default: ""
-    description: >-
-      Newline-separated NAME=VALUE pairs added to the sandbox agent's launch
-      environment. Credential and proxy-routing names are reserved.
   checkout_mode:
     default: "base"
     description: >-
@@ -246,7 +241,6 @@ runs:
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
-        TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
       run: |
         set +x
         /usr/bin/env -i \
@@ -267,7 +261,6 @@ runs:
           UV_CACHE_DIR="$UV_CACHE_DIR" \
           UV_NO_CONFIG=1 \
           PYTHONNOUSERSITE=1 \
-          TEND_SANDBOX_ENV="$TEND_SANDBOX_ENV" \
           "${TEND_UV_DIR}/uv" run --no-cache --no-config \
             --no-python-downloads --python /usr/bin/python3 --script \
             "${{ github.action_path }}/../proxy/setup_sandbox.py"

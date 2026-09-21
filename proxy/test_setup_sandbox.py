@@ -54,39 +54,6 @@ def test_agent_path_never_repeats_an_entry() -> None:
     assert entries.count("/usr/bin") == 1
 
 
-@pytest.mark.parametrize(
-    ("raw", "message"),
-    [
-        ("PATH=/tmp/bin", "reserved key 'PATH'"),
-        ("TMPDIR=/somewhere", "reserved key 'TMPDIR'"),
-        ("CLAUDE_CONFIG_DIR=/elsewhere", "reserved key 'CLAUDE_CONFIG_DIR'"),
-        ("NOT_AN_ASSIGNMENT", "not NAME=VALUE"),
-    ],
-)
-def test_consumer_environment_rejects_unsafe_records(raw: str, message: str) -> None:
-    with pytest.raises(ValueError, match=message):
-        setup_sandbox.consumer_env(raw)
-
-
-def test_consumer_environment_refuses_to_redescribe_the_run() -> None:
-    with pytest.raises(ValueError, match="describes the run"):
-        setup_sandbox.consumer_env("GITHUB_WORKFLOW=something-else")
-
-
-def test_consumer_environment_preserves_values_after_the_first_equals() -> None:
-    assert setup_sandbox.consumer_env("TEND_VALUE=a=b\n") == ["TEND_VALUE=a=b"]
-
-
-def test_every_fixed_agent_assignment_is_reserved() -> None:
-    assignments = setup_sandbox.base_agent_env(
-        "/usr/bin", ("ANTHROPIC_API_KEY", "dummy")
-    )
-    assert {line.split("=", 1)[0] for line in assignments} <= (
-        setup_sandbox.RESERVED_SANDBOX_ENV
-    )
-    assert f"TMPDIR={setup_sandbox.AGENT_TMP_DIR}" in assignments
-
-
 def test_agent_state_stays_out_of_the_view() -> None:
     """Tend reads these back after the reap, so they cannot follow `HOME`."""
     assignments = setup_sandbox.base_agent_env("/usr/bin", None)
@@ -94,6 +61,7 @@ def test_agent_state_stays_out_of_the_view() -> None:
     assert f"HOME={setup_sandbox.AGENT_HOME}" in assignments
     assert f"CLAUDE_CONFIG_DIR={setup_sandbox.CLAUDE_CONFIG_DIR}" in assignments
     assert f"CODEX_HOME={setup_sandbox.CODEX_HOME}" in assignments
+    assert f"TMPDIR={setup_sandbox.AGENT_TMP_DIR}" in assignments
     assert setup_sandbox.CLAUDE_CONFIG_DIR.is_relative_to(setup_sandbox.AGENT_HOME)
     assert setup_sandbox.CODEX_HOME.is_relative_to(setup_sandbox.AGENT_HOME)
     assert setup_sandbox.TEND_RUN_DIR.is_relative_to(setup_sandbox.AGENT_HOME)
@@ -106,10 +74,6 @@ def test_github_only_agent_environment_has_no_model_credential() -> None:
         line.startswith(("ANTHROPIC_API_KEY=", "CLAUDE_CODE_OAUTH_TOKEN="))
         for line in assignments
     )
-    assert "OPENAI_API_KEY" in setup_sandbox.RESERVED_SANDBOX_ENV
-    assert "CODEX_API_KEY" in setup_sandbox.RESERVED_SANDBOX_ENV
-    assert "CODEX_AUTH_JSON" in setup_sandbox.RESERVED_SANDBOX_ENV
-    assert "CODEX_HOME" in setup_sandbox.RESERVED_SANDBOX_ENV
     # The job's own, so the agent's checkout is the one the workflow made.
     assert not any(line.startswith("GITHUB_WORKSPACE=") for line in assignments)
     assert "NO_PROXY=localhost,127.0.0.1,::1" in assignments

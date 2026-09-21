@@ -46,9 +46,6 @@
 {% if cfg.args %}
           <<block_input('args', cfg.args|join('\n'))>>
 {% endif %}
-{% if cfg.sandbox_env %}
-          <<block_input('sandbox_env', cfg.sandbox_env.items()|map('join', '=')|join('\n'))>>
-{% endif %}
           <<prompt_body>>
 {%- endmacro %}
 
