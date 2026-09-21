@@ -80,6 +80,14 @@ async function main() {
     await access(path);
   }
 
+  // SRT resolves its mandatory deny paths against THIS process's cwd, which
+  // `enter_view.py` left at the home so no inherited cwd names the host's inode
+  // through the overlay. `.gitconfig`, the shell rc files and `.claude/commands`
+  // are on that list, so a home cwd masks the runner's own `~/.gitconfig` with
+  // `/dev/null` and `git config --global` then fails the lifecycle outright.
+  // The checkout is the tree those protections are written for.
+  process.chdir(workspace);
+
   const { SandboxManager } = await import(`file://${entry}`);
   // With filesystem isolation on, SRT sets TMPDIR in the child environment to
   // CLAUDE_CODE_TMPDIR or its own /tmp/claude default, whichever it finds,

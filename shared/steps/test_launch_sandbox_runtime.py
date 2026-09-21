@@ -346,7 +346,7 @@ def run_sandbox_runtime(
     entry.write_text(FAKE_SRT)
     state = root / "state.json"
     state.write_text("{}")
-    for name in ("seccomp.json", "lifecycle.py", "event.json", "agent-env"):
+    for name in ("seccomp.json", "lifecycle.py"):
         (root / name).touch()
 
     completed = subprocess.run(
@@ -359,14 +359,10 @@ def run_sandbox_runtime(
             "TEND_SRT_ENTRY": str(entry),
             "TEND_SRT_SECCOMP": str(root / "seccomp.json"),
             "TEND_LIFECYCLE": str(root / "lifecycle.py"),
-            "TEND_AGENT_WORKSPACE": str(workspace),
-            "TEND_RUNNER_WORKSPACE": str(root / "runner-workspace"),
+            "GITHUB_WORKSPACE": str(workspace),
             "AGENT_HOME": str(home),
             "TMPDIR": str(root),
             "TEND_RUNNER_HOME": str(root / "runner-home"),
-            "ACTION_PATH": str(root),
-            "GITHUB_EVENT_PATH": str(root / "event.json"),
-            "AGENT_ENV_FILE": str(root / "agent-env"),
             "TEND_PROXY_PORT": "8899",
         },
         capture_output=True,
