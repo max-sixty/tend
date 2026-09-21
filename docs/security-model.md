@@ -506,6 +506,22 @@ the composite action and the tend marketplace, not from the PR. An attacker
 can influence what the agent *reads* (the diff, the issue body) but not the
 *instructions* it follows or the *tools* it has access to.
 
+The account the session signs in as is the other source that could add to that
+set without review. Claude Code syncs the skills and plugins enabled on the
+signed-in claude.ai account into a session, and separately auto-fetches that
+account's MCP cloud connectors, headless runs included — so anything enabled on
+the bot's account would become an instruction and tool source for every
+consumer's CI session, in a process that pushes commits and posts as the bot,
+reviewed by nobody in either repository. The session settings
+`shared/steps/run_claude.py` writes refuse all three: `syncClaudeAiSkills` and
+`syncClaudeAiPlugins` false, `disableClaudeAiConnectors` true. Its test asserts
+that settings file exactly, so a key that silently stops being written fails
+the suite rather than quietly reopening the surface. The sync pair is honored
+only as `false`, and from `.claude/settings.local.json` or `--settings` rather
+than project `settings.json` — the layer the action already writes. The feature
+it refuses turns on server-side per account, so the refusal has to be in place
+ahead of it rather than written in response to it.
+
 **GitHub's log masking.** Secrets stored in GitHub are automatically redacted
 from workflow logs. This is exact-match only — if a token appears
 base64-encoded or embedded in JSON, the redaction misses it.

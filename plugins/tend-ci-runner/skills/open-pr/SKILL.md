@@ -41,6 +41,12 @@ Describe the current PR for a maintainer deciding whether to merge it. Follow **
 
 If an existing PR addresses the same problem, work on that PR instead.
 
+### Closing keywords
+
+`Closes #N` / `Fixes #N` belong on a PR that settles the whole report. Where it settles part of one — a second cause the issue names, a cleanup the code cannot decide — write `Refs #N` and name what is left in the body, so merging leaves the remainder in the open queue for a later run to find. A body that needs a "what this leaves" paragraph is the signal.
+
+GitHub acts on the keyword in the squashed commit message as well as in the PR body, so both carry the same choice.
+
 ### Dedup recheck immediately before `gh pr create`
 
 A separate mention on a different issue/PR can trigger a concurrent run asking for the same fix. Those runs are not serialized — each has its own concurrency group — so both may read an empty `gh pr list` at session start and then each open their own PR minutes later, producing near-duplicates. A long workflow queue (`tend-mention` can wait hours) also lets a sibling run open *and merge* a PR before this run starts — already-merged duplicates need to be in scope too. Re-run the check **as the last step before `gh pr create`**, with `--state all` so closed and merged siblings show up:

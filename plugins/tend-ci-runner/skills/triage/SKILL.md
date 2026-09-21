@@ -84,12 +84,14 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
    ```bash
    git checkout -b fix/issue-$ARGUMENTS
    git add -A
+   # <trailer>: `Closes #$ARGUMENTS` where the fix settles the whole report,
+   # `Refs #$ARGUMENTS` where it settles part of one.
    git commit -m "fix: <description>
 
-   Closes #$ARGUMENTS"
+   <trailer>"
    git push -u origin fix/issue-$ARGUMENTS
    ```
-   Compose the body at `$TMPDIR/pr-body.md`. Write for a maintainer deciding whether the current fix resolves the issue: explain the causal finding, the resulting behavior change, and the reproduction test that now passes. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`, and end with `Closes #$ARGUMENTS — automated triage` so merging closes the issue.
+   Compose the body at `$TMPDIR/pr-body.md`. Write for a maintainer deciding whether the current fix resolves the issue: explain the causal finding, the resulting behavior change, and the reproduction test that now passes. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`, and end with the commit's trailer plus ` — automated triage`: `Closes #$ARGUMENTS — automated triage` where the fix settles the whole report, `Refs #$ARGUMENTS — automated triage` where it settles part of one, with the body naming what it leaves. See **Closing keywords** in `/tend-ci-runner:open-pr`.
 
    <example>
    <bad reason="Restates the report, narrates the investigation, and claims a generic test run">
@@ -109,6 +111,17 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
    A retry dropped the resolved workspace root, so its second attempt read from the process directory and failed outside the repository. Retry state now keeps the root, so both attempts address the same workspace. The regression test reproduces the second-attempt failure before the change and passes after it.
 
    Closes #123 — automated triage
+   ```
+
+   </good>
+   <good reason="A partial fix names what it leaves and references the issue instead of closing it">
+
+   Good, where the fix settles part of the report:
+
+   ```markdown
+   A retry dropped the resolved workspace root, so its second attempt read from the process directory and failed outside the repository. Retry state now keeps the root, and the regression test covers the second attempt. The report's other half — the retry budget resetting between attempts — runs through a different code path and is untouched here.
+
+   Refs #123 — automated triage
    ```
 
    </good>
