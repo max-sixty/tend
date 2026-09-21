@@ -178,12 +178,14 @@ def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
 
     Both existed to reach an agent with its own home and checkout. Under the
     copy-on-write view it runs with the job's PATH and sees what `setup:`
-    built, so their documented migration is to move each entry into `setup:`,
-    and this performs it: appended after the consumer's own steps, paths first,
-    since `sandbox_setup` ran with the `sandbox_path` directories on PATH. A
-    leading `~` named the sandbox's home, which under the view is the job's
-    `$HOME`. Each command keeps its own step, under the `-eo pipefail` shell it
-    ran in.
+    built, so their documented migration is to move the entries into `setup:`,
+    and this performs it: one step per key, appended after the consumer's own
+    steps, paths first, since `sandbox_setup` ran with the `sandbox_path`
+    directories on PATH. A leading `~` named the sandbox's home, which under
+    the view is the job's `$HOME`. The runner puts a later `$GITHUB_PATH` line
+    ahead of an earlier one, so the directories are written last-first to keep
+    the first entry first. The commands share one `-eo pipefail` bash, as they
+    did, so a `cd`, `export` or `source` still reaches the ones after it.
 
     Warned about rather than refused, at the maintainer's call and against the
     no-backward-compatibility rule in CLAUDE.md, so that nothing breaks in a
@@ -199,36 +201,36 @@ def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
             "Warning: `sandbox_path` is deprecated and will be refused in a "
             "later release. The agent now runs with the job's own PATH, so "
             "a directory a `setup:` step adds reaches it; its entries are "
-            "added from `setup:` steps after yours for now. Add each "
+            "added from a `setup:` step after yours for now. Add each "
             "directory yourself (e.g. "
             '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`) and delete '
             "the key.",
             err=True,
         )
-    for directory in paths:
-        if directory == "~" or directory.startswith("~/"):
-            directory = "$HOME" + directory[1:]
-        steps.append(SetupStep(fields={"run": f'echo "{directory}" >> "$GITHUB_PATH"'}))
+        directories = [
+            "$HOME" + d[1:] if d == "~" or d.startswith("~/") else d for d in paths
+        ]
+        run = "\n".join(f'echo "{d}" >> "$GITHUB_PATH"' for d in reversed(directories))
+        steps.append(SetupStep(fields={"run": run}))
     commands = _deprecated_list(raw, "sandbox_setup")
     if commands:
         click.echo(
             "Warning: `sandbox_setup` is deprecated and will be refused in a "
             "later release. The agent now works in the job's own checkout "
             "and home, so what `setup:` builds reaches it; its commands run "
-            "as `setup:` steps after yours for now. Those are ordinary "
-            "workflow steps, and tend puts nothing on their PATH, so a "
-            "command that calls `uv` needs a step that installs it, such as "
-            "`astral-sh/setup-uv`, earlier in your `setup:`. Move each into "
-            "`setup:` as a `run:` step (e.g. "
-            "`- run: rustup component add clippy`) and delete the key. "
-            "`setup:` runs on reviewed code; what a pull "
+            "in one `setup:` step after yours for now. That is an ordinary "
+            "workflow step, and tend puts nothing on its PATH, so a command "
+            "that calls `uv` needs a step that installs it, such as "
+            "`astral-sh/setup-uv`, earlier in your `setup:`. Move the "
+            "commands into `setup:` as `run:` steps (e.g. "
+            "`- run: rustup component add clippy`) and delete the key; a "
+            "`cd`, `export` or `source` reaches only the rest of its own "
+            "step. `setup:` runs on reviewed code; what a pull "
             "request itself changes, such as a new dependency in its "
             "lockfile, the agent installs in the session.",
             err=True,
         )
-    steps.extend(
-        SetupStep(fields={"run": command, "shell": "bash"}) for command in commands
-    )
+        steps.append(SetupStep(fields={"run": "\n".join(commands), "shell": "bash"}))
     return steps
 
 

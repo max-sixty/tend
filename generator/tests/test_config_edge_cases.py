@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from textwrap import dedent
 
@@ -1131,6 +1132,7 @@ def test_deprecated_sandbox_keys_warn_and_become_setup_steps(
           - run: echo consumer
         sandbox_setup:
           - rustup component add clippy
+          - export TOOLCHAIN=stable
         sandbox_path:
           - ~/.cargo/bin
           - /opt/tools/bin
@@ -1138,11 +1140,18 @@ def test_deprecated_sandbox_keys_warn_and_become_setup_steps(
     )
     cfg = Config.load(path)
 
+    # The runner puts a later `$GITHUB_PATH` line ahead of an earlier one, so
+    # last-first keeps `~/.cargo/bin` first on PATH, as `sandbox_path` had it.
     assert [step.fields for step in cfg.setup] == [
         {"run": "echo consumer"},
-        {"run": 'echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"'},
-        {"run": 'echo "/opt/tools/bin" >> "$GITHUB_PATH"'},
-        {"run": "rustup component add clippy", "shell": "bash"},
+        {
+            "run": 'echo "/opt/tools/bin" >> "$GITHUB_PATH"\n'
+            'echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"'
+        },
+        {
+            "run": "rustup component add clippy\nexport TOOLCHAIN=stable",
+            "shell": "bash",
+        },
     ]
     warned = capsys.readouterr().err
     assert "`sandbox_setup` is deprecated" in warned
@@ -1150,6 +1159,32 @@ def test_deprecated_sandbox_keys_warn_and_become_setup_steps(
     assert "`sandbox_path` is deprecated" in warned
     assert '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`' in warned
     assert "unknown config key" not in warned
+
+
+def test_migrated_sandbox_setup_commands_share_one_shell(tmp_path: Path) -> None:
+    """`sandbox_setup` ran its entries in one `-eo pipefail` bash, so an
+    `export` reached the entries after it and a failure stopped the rest. The
+    migrated step keeps both, run as GitHub runs a `shell: bash` step."""
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        sandbox_setup:
+          - export GREETING=hi
+          - test "$GREETING" = hi
+          - echo reached
+          - "false"
+          - echo unreachable
+    """),
+    )
+    (step,) = Config.load(path).setup
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step.fields["run"]],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode, result.stdout) == (1, "reached\n")
 
 
 def test_deprecated_sandbox_setup_must_be_a_list(tmp_path: Path) -> None:

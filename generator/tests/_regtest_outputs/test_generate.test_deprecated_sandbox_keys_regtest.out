@@ -247,14 +247,13 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.1.0
         if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
-      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: |-
+          echo "/opt/tools/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
         if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
-      - run: echo "/opt/tools/bin" >> "$GITHUB_PATH"
-        if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
-      - run: uv sync --frozen
-        if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
-        shell: bash
-      - run: curl -LsSf https://example.invalid/install.sh | sh
+      - run: |-
+          uv sync --frozen
+          curl -LsSf https://example.invalid/install.sh | sh
         if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
         shell: bash
       - uses: max-sixty/tend/claude@X.Y.Z
