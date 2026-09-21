@@ -193,8 +193,9 @@ bot_name: my-project-bot
 # ## The agent's sandbox (both harnesses)
 #
 # `setup:` above runs as the RUNNER user, around the composite action. The
-# agent then runs as a separate, non-sudo user inside a hardened systemd unit,
-# in the job's own checkout and home, with the job's PATH and environment. It sees them through a copy-on-write view: what `setup:`
+# agent then runs as a separate, non-sudo user inside a hardened systemd
+# unit, in the job's own checkout and home, with the job's PATH and
+# environment. It sees them through a copy-on-write view: what `setup:`
 # prepared (a toolchain, a warm cache) is there at its own path, the agent
 # writes wherever the runner itself could — a path only root can write is not
 # one of them — and nothing it writes reaches the runner or a later step. The
