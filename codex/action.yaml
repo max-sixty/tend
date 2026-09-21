@@ -216,7 +216,6 @@ runs:
           echo "NODE_BIN=$NODE_BIN"
           echo "CODEX_BIN=$CODEX_BIN"
           echo "CODEX_PROXY_BIN=$CODEX_PROXY_BIN"
-          echo "TEND_CODEX_ROOT=$codex_root"
         } >> "$GITHUB_ENV"
 
     - name: Cache mitmproxy
