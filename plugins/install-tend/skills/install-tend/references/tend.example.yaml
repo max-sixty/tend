@@ -114,9 +114,13 @@ bot_name: my-project-bot
 
 # ## Setup steps
 #
-# Build tools, caches, and environment variables that run before Claude in every
-# workflow. A `setup:` entry mirrors a GitHub Actions step: give it exactly
-# one of `uses` or `run`, plus any of these optional fields:
+# Build tools and environment variables that run before Claude in every
+# workflow, as the runner user. A cache restored here into the runner checkout
+# or the runner home never reaches the agent — it works in a disposable
+# checkout of its own — so the restore is download time and nothing else. See
+# `sandbox_setup:` below for what does carry over and how to prepare what
+# doesn't. A `setup:` entry mirrors a GitHub Actions step: give it exactly one
+# of `uses` or `run`, plus any of these optional fields:
 #
 #     name, id, if, with, env, shell, working-directory,
 #     continue-on-error, timeout-minutes
