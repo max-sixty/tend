@@ -149,15 +149,15 @@ claude /install-tend</code></pre>
     <div class="marginalia">
       <div class="margin-note">merge</div>
       <div class="body">
-        <p>A hijacked session can't land code. A GitHub ruleset stops the bot from merging or pushing to your protected branches, so every change reaches them through a human. Before each run, tend asks GitHub whether the bot could get past that ruleset, and refuses to start if it could or if there's no ruleset.</p>
+        <p>A hijacked session can't land code. A GitHub ruleset blocks the bot from your protected branches, and tend checks before every run that the bot can't bypass it.</p>
       </div>
     </div>
 
     <div class="marginalia">
       <div class="margin-note">tokens</div>
       <div class="body">
-        <p>A hijacked session can't take the bot's credentials with it either. The agent, and anything it runs, sits in a locked-down sandbox as an unprivileged user. The bot's GitHub token and your Claude credential stay outside, in a proxy that adds them to requests bound for GitHub and Anthropic. They live in a GitHub environment that only your protected branches can reach, so a workflow the agent pushes to another branch can't read them either.</p>
-        <p>A hijacked session can still act as the bot, and send out anything the agent can read, until the run ends. <a href="https://github.com/max-sixty/tend/blob/main/docs/security-model.md">Read the full threat model →</a></p>
+        <p>Nor can it take the bot's credentials. The agent runs in a locked-down sandbox, a proxy outside adds the credentials to its requests, and workflows on unprotected branches can't read them.</p>
+        <p>Until the run ends, it can still act as the bot and send out what the agent can read. <a href="https://github.com/max-sixty/tend/blob/main/docs/security-model.md">Full threat model →</a></p>
       </div>
     </div>
   </section>
