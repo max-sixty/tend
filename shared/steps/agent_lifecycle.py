@@ -89,6 +89,47 @@ def probe_boundary(workspace: Path) -> None:
             raise RuntimeError("SRT capability probe cannot execute the harness tool")
 
 
+def exclude_sandbox_masks(workspace: Path) -> None:
+    """Keep SRT's mandatory write masks out of the checkout's untracked set.
+
+    SRT resolves those protections against its own cwd, which is the checkout —
+    the tree they are written for. A protected path the repository already has
+    is re-bound read-only and stays a regular file; one it lacks (`.bashrc`,
+    `.mcp.json`, `.claude/commands`) becomes a `/dev/null` bind instead, and git
+    refuses to index a character device, so `git add -A` fails outright on a
+    path no session put there. Excluding them restores the idiom and leaves the
+    protections in place.
+    """
+    listing = subprocess.run(
+        [
+            "/usr/bin/git",
+            "-C",
+            str(workspace),
+            "status",
+            "--porcelain",
+            "-z",
+            "--untracked-files=all",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    # `-z` is what makes the split safe: it drops porcelain v1's C-style
+    # quoting, so a path is its own bytes and never a re-encoded spelling.
+    masks = [
+        entry[3:]
+        for entry in listing.stdout.split("\0")
+        if entry.startswith("?? ") and (workspace / entry[3:]).is_char_device()
+    ]
+    if not masks:
+        return
+    exclude = workspace / ".git/info/exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    with exclude.open("a", encoding="utf-8") as stream:
+        for mask in masks:
+            stream.write(f"/{mask}\n")
+
+
 def configure_git(login: str, bot_id: str) -> None:
     """Commit as the bot, from the checkout and from any clone the agent makes.
 
@@ -108,6 +149,7 @@ def main() -> int:
     os.environ["TEND_INSIDE_SANDBOX"] = "1"
     configure_git(env["BOT_NAME"], env["BOT_ID"])
     event_checkout.main()
+    exclude_sandbox_masks(Path(env["GITHUB_WORKSPACE"]))
     setup_code = sandbox_setup.main()
     if setup_code:
         return setup_code

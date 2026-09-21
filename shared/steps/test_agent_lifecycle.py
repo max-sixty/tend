@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import agent_lifecycle
@@ -130,3 +131,51 @@ def test_the_view_probe_accepts_only_a_mask_that_took(
     else:
         with pytest.raises(RuntimeError, match="did not mask"):
             agent_lifecycle.probe_view(tmp_path)
+
+
+def _repository(root: Path) -> None:
+    for argv in (
+        ["init", "--initial-branch=main"],
+        ["config", "user.email", "bot@example.invalid"],
+        ["config", "user.name", "bot"],
+    ):
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(root), *argv], check=True, capture_output=True
+        )
+    (root / "tracked.txt").write_text("content\n")
+    subprocess.run(
+        ["/usr/bin/git", "-C", str(root), "add", "tracked.txt"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["/usr/bin/git", "-C", str(root), "commit", "-m", "init"],
+        check=True,
+        capture_output=True,
+    )
+
+
+def test_an_srt_mask_leaves_the_checkout_addable(tmp_path: Path) -> None:
+    """`git add -A` must survive SRT's masks landing in the tree it commits from.
+
+    SRT resolves its mandatory write protections against the checkout, so every
+    protected path the repository lacks becomes a `/dev/null` bind that git
+    refuses to index. Creating one needs CAP_MKNOD, which the sandbox account
+    does not hold; a symlink to `/dev/null` is a character device by the same
+    `stat`, so it stands in for the bind here.
+    """
+    _repository(tmp_path)
+    (tmp_path / ".bashrc").symlink_to(os.devnull)
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude/commands").symlink_to(os.devnull)
+    (tmp_path / "untracked.txt").write_text("a session's own new file\n")
+
+    agent_lifecycle.exclude_sandbox_masks(tmp_path)
+
+    untracked = subprocess.run(
+        ["/usr/bin/git", "-C", str(tmp_path), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert untracked == "?? untracked.txt\n"
