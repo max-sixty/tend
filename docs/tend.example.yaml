@@ -147,14 +147,14 @@ bot_name: my-project-bot
 # `uses`:
 #
 #     setup:
-#       - uses: astral-sh/setup-uv@v10.1.0
+#       - uses: astral-sh/setup-uv@v10.2.0
 #
 #     # renders as (in tend-notifications):
-#     #   - uses: astral-sh/setup-uv@v10.1.0
+#     #   - uses: astral-sh/setup-uv@v10.2.0
 #     #     if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
 #     #
 #     # in other workflows:
-#     #   - uses: astral-sh/setup-uv@v10.1.0
+#     #   - uses: astral-sh/setup-uv@v10.2.0
 #
 # `uses` with action inputs and step-level env:
 #
