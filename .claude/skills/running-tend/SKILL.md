@@ -360,7 +360,24 @@ bump, use an isolated Plus/Pro login to run the refresh action and require both
 the full and access-only credentials to rotate. Inspect Codex's auth manager
 too: an unparsable access token must fall through to the stale `last_refresh`,
 and that refresh must use the refresh token without requiring the old access
-token. Report the relevant release notes crossed by the bump in its PR.
+token. Reach that inspection by diffing `codex-rs/login`'s blob SHAs between the
+two tags, never by filtering `repos/openai/codex/compare/<old>...<new>`: that
+endpoint caps `files` at 300 and `--paginate` does not lift it, so a window of a
+few hundred commits drops the directory from the list and reports an all-clear
+it cannot support.
+
+```bash
+login_blobs() { gh api "repos/openai/codex/git/trees/$1?recursive=1" \
+  --jq 'if .truncated then error("tree truncated") else .tree[] | select(.type == "blob" and (.path | startswith("codex-rs/login/"))) | "\(.path) \(.sha)" end' | sort; }
+diff <(login_blobs rust-v<old>) <(login_blobs rust-v<new>)
+```
+
+The tags carry a `rust-v` prefix the pin does not. Sorting by path puts each
+changed blob's before and after lines together, so a modification reads
+distinctly from an addition. Read every blob the diff names; empty output is a
+real all-clear, because the listing has no 300-file cap and the guard halts on
+the one limit it does have rather than returning a short tree. Report the
+relevant release notes crossed by the bump in its PR.
 
 ### `uses:` refs
 
