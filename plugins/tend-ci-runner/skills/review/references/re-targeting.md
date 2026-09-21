@@ -3,7 +3,7 @@
 **A push mid-review re-targets the review.** Everything read so far still holds for the code it was read against, and the delta is the only new information — however many pushes it spans. Read it in full, in chunks if it is long, then post against the new head, keeping the hidden draft marker if the review carries one:
 
 - Review the delta to the standard **Review** sets — it is new code, and the review you post covers it. A skim is not enough.
-- Run **Second pass** again over the updated merged tree. The second pass must see the delta before **Submit** can post against the new head.
+- Run **Second pass** again, over the delta's commits in the updated merged tree. The second pass must see the delta before **Submit** can post against the new head.
 - Findings the delta left alone stand. Post them.
 - Findings the delta fixed drop out. If that empties the review and the delta itself reads clean, approve the new head: an empty-body approval is a verdict here, not the absence of one.
 - Finish without posting only when you can't judge the delta — it rewrites what you just reviewed, or it is a review's worth of new code in its own right. The queued run then reviews the new head in full.
