@@ -326,14 +326,8 @@ jobs:
             || format('pulls/comments/{0}', github.event.client_payload.id) }}
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
 
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-          token: ${{ secrets.TEND_BOT_TOKEN }}
-
-      - uses: astral-sh/setup-uv@v6
-
+      # Before checkout and `setup:`, so the delay measures the wait for this
+      # job to start rather than the time its setup takes.
       - name: Compute queue delay
         id: delay
         run: |
@@ -347,6 +341,14 @@ jobs:
           # A relayed event's timestamp comes from verify, which read it off
           # the API record ? the dispatch payload never carries one to spoof.
           EVENT_TS: ${{ github.event.comment.updated_at || needs.verify.outputs.ts || github.event.issue.updated_at }}
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.TEND_BOT_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v6
 
       - uses: max-sixty/tend/claude@X.Y.Z
         with:

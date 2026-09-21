@@ -1090,10 +1090,15 @@ def test_mention_handle_has_queue_delay(tmp_path: Path) -> None:
     assert "steps.delay.outputs.seconds" in mention.content, (
         "prompt must reference queue delay"
     )
-    # Delay step must come before the tend action (output must be available)
-    delay_idx = mention.content.index("Compute queue delay")
-    tend_idx = mention.content.index(f"max-sixty/tend/claude@{ACTION_VERSION}")
-    assert delay_idx < tend_idx, "delay step must precede tend action"
+    # Ahead of checkout, and so of `setup:` and the tend action: the delay
+    # measures the wait for the job to start, not the job's own setup.
+    delay_idx = handle_steps.index(delay_steps[0])
+    checkout_idx = next(
+        i
+        for i, s in enumerate(handle_steps)
+        if s.get("uses", "").startswith("actions/checkout@")
+    )
+    assert delay_idx < checkout_idx, "delay step must precede checkout"
 
 
 def test_mention_queue_delay_guards_empty_event_ts(tmp_path: Path) -> None:
