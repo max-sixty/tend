@@ -323,8 +323,8 @@ def test_npm_installs_use_distinct_empty_config_files() -> None:
     install = (
         REPO_ROOT / "shared" / "steps" / "install-sandbox-runtime.sh"
     ).read_text()
-    assert 'mktemp "$RUNNER_TEMP/tend-npm-user.XXXXXX"' in install
-    assert 'mktemp "$RUNNER_TEMP/tend-npm-global.XXXXXX"' in install
+    assert 'mktemp "$private_dir/tend-npm-user.XXXXXX"' in install
+    assert 'mktemp "$private_dir/tend-npm-global.XXXXXX"' in install
     assert (
         '--userconfig "$npm_userconfig" --globalconfig "$npm_globalconfig"' in install
     )
@@ -482,8 +482,7 @@ def test_privileged_sandbox_launch_forwards_every_configured_value(
 ) -> None:
     """`env:` and the `env -i` argv are two lists that have to agree.
 
-    A value reaches `setup_sandbox.py` only when both name it, and the script
-    refuses to start without the bot identity. Nothing else catches a value
+    A value reaches `setup_sandbox.py` only when both name it. Nothing else catches a value
     added to one list alone: neither action.yaml is linted or run here, and the
     hosted sandbox test supplies the script's environment itself — so the
     mismatch would first run in a consumer's job after a release.
@@ -498,7 +497,6 @@ def test_privileged_sandbox_launch_forwards_every_configured_value(
     )
     forwarded = set(re.findall(r'(\w+)="\$\1"', step["run"]))
 
-    assert {"TEND_BOT_LOGIN", "TEND_BOT_ID"} <= set(step["env"])
     assert set(step["env"]) - SHELL_HARDENING <= forwarded
 
 

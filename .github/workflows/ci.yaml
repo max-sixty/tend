@@ -89,19 +89,20 @@ jobs:
           grep -qF 'HTTP(S) proxy listening at 127.0.0.1:' "$log"
           test -f "$confdir/mitmproxy-ca-cert.pem"
 
-  # setup_sandbox.py and the SRT lifecycle need a second uid, sudo, and a runner
-  # PATH to derive from, so no Python test reaches the full boundary. Running
-  # them for real leaves the runner changed — the disposable clone belongs to
-  # the sandbox UID, the proxy CA is in the system trust store, and mitmdump
-  # remains on 8899 — so a later step must expect that state. This job exercises
-  # the real boundary: shared paths cross, runner-home paths do not, same-name
-  # system fallbacks are blocked, and Tend preserves a shared uv. It then drives
-  # sandbox_setup and both harness adapters inside their real SRT lifecycle, and
-  # ends on the dispose step that clears what the sandbox wrote to /tmp.
+  # The copy-on-write view, setup_sandbox.py and the SRT lifecycle need a real
+  # kernel, a second uid and sudo, so no Python test reaches the boundary.
+  # Running them leaves the proxy CA in the system trust store and mitmdump on
+  # 8899, so a later step must expect that state. See the script's header for
+  # what it checks.
   test-sandbox:
     runs-on: ubuntu-24.04
     steps:
+      # The lifecycle's `base` checkout sets the branch's upstream, so
+      # `origin/<base>` has to exist — as it does under the generated
+      # workflows, whose own checkout fetches everything.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Install pinned Sandbox Runtime capabilities
         shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
         run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/bash shared/steps/install-sandbox-runtime.sh
@@ -121,7 +122,7 @@ jobs:
         run: bash proxy/test-setup-sandbox.sh verify-srt
       - name: Refuse unsafe sandbox configuration
         run: bash proxy/test-setup-sandbox.sh verify-refusals
-      - name: Dispose the sandbox's scratch
+      - name: Dispose the sandbox's runtime container
         run: bash proxy/test-setup-sandbox.sh verify-dispose
       - name: Clean up sandbox fixtures
         if: always()
