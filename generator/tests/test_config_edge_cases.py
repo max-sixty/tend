@@ -1114,28 +1114,48 @@ def test_sandbox_env_invalid_name_rejected(tmp_path: Path) -> None:
         Config.load(path)
 
 
-@pytest.mark.parametrize(
-    ("key", "migration"),
-    [
-        ("sandbox_setup", "`- run: rustup component add clippy`"),
-        ("sandbox_path", '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`'),
-    ],
-)
-def test_a_removed_sandbox_key_is_refused_with_its_migration(
-    tmp_path: Path, key: str, migration: str
+def test_deprecated_sandbox_keys_warn_and_become_setup_steps(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Warned past as unknown, the key would silently stop taking effect.
+    """A deprecated key keeps working, as the `setup:` steps it migrates to.
 
-    Nightly regeneration reads this message inside an agent session, so it has
-    to carry the whole fix.
+    Nightly regeneration reads the warning inside an agent session, so it has
+    to carry the whole migration; and dropping the entries instead would stop
+    installing what the consumer's agent relies on.
     """
-    path = _write_config(tmp_path, f"bot_name: my-bot\n{key}:\n  - value\n")
-    with pytest.raises(ClickException) as refused:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        setup:
+          - run: echo consumer
+        sandbox_setup:
+          - rustup component add clippy
+        sandbox_path:
+          - ~/.cargo/bin
+          - /opt/tools/bin
+    """),
+    )
+    cfg = Config.load(path)
+
+    assert [step.fields for step in cfg.setup] == [
+        {"run": "echo consumer"},
+        {"run": 'echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"'},
+        {"run": 'echo "/opt/tools/bin" >> "$GITHUB_PATH"'},
+        {"run": "rustup component add clippy", "shell": "bash"},
+    ]
+    warned = capsys.readouterr().err
+    assert "`sandbox_setup` is deprecated" in warned
+    assert "`- run: rustup component add clippy`" in warned
+    assert "`sandbox_path` is deprecated" in warned
+    assert '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`' in warned
+    assert "unknown config key" not in warned
+
+
+def test_deprecated_sandbox_setup_must_be_a_list(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, "bot_name: my-bot\nsandbox_setup: echo hi\n")
+    with pytest.raises(ClickException, match="sandbox_setup must be a list"):
         Config.load(path)
-    message = refused.value.message
-    assert f"`{key}` was removed" in message
-    assert migration in message
-    assert "delete the key" in message
 
 
 def test_sandbox_levers_apply_to_codex(

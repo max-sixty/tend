@@ -47,6 +47,9 @@ KNOWN_TOP_LEVEL = {
     "secrets",
     "setup",
     "sandbox_env",
+    # Deprecated; see `_migrated_sandbox_steps`.
+    "sandbox_path",
+    "sandbox_setup",
     "workflows",
 }
 KNOWN_HARNESSES = {"claude", "codex"}
@@ -85,33 +88,6 @@ REMOVED_SECRETS_KEYS = {
     "claude_token": CLAUDE_TOKEN_SECRET,
     "anthropic_api_key": ANTHROPIC_API_KEY_SECRET,
     "openai_key": OPENAI_KEY_SECRET,
-}
-# Removed top-level keys, each with the migration. Refused rather than warned
-# past as unknown: every one changed what a run does, so a config still carrying
-# it would silently do something else.
-REMOVED_TOP_LEVEL = {
-    "enabled": (
-        "Top-level `enabled` was removed; pausing is now the "
-        "TEND_ENABLED repository variable. To keep tend paused, run "
-        "`gh variable set TEND_ENABLED --body false` before removing "
-        "the key."
-    ),
-    "sandbox_setup": (
-        "`sandbox_setup` was removed: the agent now works in the job's "
-        "own checkout and home, so what `setup:` builds reaches it. Move "
-        "each command into `setup:` as a `run:` step (e.g. "
-        "`- run: rustup component add clippy`) and delete the key. "
-        "`setup:` runs on reviewed code; what a pull request itself "
-        "changes, such as a new dependency in its lockfile, the agent "
-        "installs in the session."
-    ),
-    "sandbox_path": (
-        "`sandbox_path` was removed: the agent now runs with the job's own "
-        "PATH, so a directory a `setup:` step adds reaches it. Add each "
-        "directory in a `setup:` step (e.g. "
-        '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`) and delete '
-        "the key."
-    ),
 }
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 # POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
@@ -186,6 +162,71 @@ class SetupStep:
     """
 
     fields: dict
+
+
+def _deprecated_list(raw: dict, key: str) -> list[str]:
+    values = raw.get(key) or []
+    if not isinstance(values, list) or not all(
+        isinstance(value, str) and value.strip() for value in values
+    ):
+        raise click.ClickException(f"{key} must be a list of non-empty strings")
+    return values
+
+
+def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
+    """`setup:` steps doing what the deprecated `sandbox_path`/`sandbox_setup` did.
+
+    Both existed to reach an agent with its own home and checkout. Under the
+    copy-on-write view it runs with the job's PATH and sees what `setup:`
+    built, so their documented migration is to move each entry into `setup:`,
+    and this performs it: appended after the consumer's own steps, paths first,
+    since `sandbox_setup` ran with the `sandbox_path` directories on PATH. A
+    leading `~` named the sandbox's home, which under the view is the job's
+    `$HOME`. Each command keeps its own step, under the `-eo pipefail` shell it
+    ran in.
+
+    Warned about rather than refused, at the maintainer's call and against the
+    no-backward-compatibility rule in CLAUDE.md, so that nothing breaks in a
+    consumer before it migrates; a warning that dropped the entries would
+    silently stop installing what its agent relies on.
+    TODO(2026-10-21): refuse both keys, with these messages as the migration,
+    once the consumers that set them have moved their entries into `setup:`.
+    """
+    steps: list[SetupStep] = []
+    paths = _deprecated_list(raw, "sandbox_path")
+    if paths:
+        click.echo(
+            "Warning: `sandbox_path` is deprecated and will be refused in a "
+            "later release. The agent now runs with the job's own PATH, so "
+            "a directory a `setup:` step adds reaches it; its entries are "
+            "added from `setup:` steps after yours for now. Add each "
+            "directory yourself (e.g. "
+            '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`) and delete '
+            "the key.",
+            err=True,
+        )
+    for directory in paths:
+        if directory == "~" or directory.startswith("~/"):
+            directory = "$HOME" + directory[1:]
+        steps.append(SetupStep(fields={"run": f'echo "{directory}" >> "$GITHUB_PATH"'}))
+    commands = _deprecated_list(raw, "sandbox_setup")
+    if commands:
+        click.echo(
+            "Warning: `sandbox_setup` is deprecated and will be refused in a "
+            "later release. The agent now works in the job's own checkout "
+            "and home, so what `setup:` builds reaches it; its commands run "
+            "as `setup:` steps after yours for now, as the runner and before "
+            "tend installs its own `uv` fallback. Move each into `setup:` as "
+            "a `run:` step (e.g. `- run: rustup component add clippy`) and "
+            "delete the key. `setup:` runs on reviewed code; what a pull "
+            "request itself changes, such as a new dependency in its "
+            "lockfile, the agent installs in the session.",
+            err=True,
+        )
+    steps.extend(
+        SetupStep(fields={"run": command, "shell": "bash"}) for command in commands
+    )
+    return steps
 
 
 @dataclass
@@ -344,9 +385,15 @@ class Config:
         if not isinstance(memory_gist, bool):
             raise click.ClickException("memory_gist must be true or false")
 
-        for key, migration in REMOVED_TOP_LEVEL.items():
-            if key in raw:
-                raise click.ClickException(migration)
+        # Refused rather than warned past as unknown: a config that paused tend
+        # would otherwise regenerate running workflows.
+        if "enabled" in raw:
+            raise click.ClickException(
+                "Top-level `enabled` was removed; pausing is now the "
+                "TEND_ENABLED repository variable. To keep tend paused, run "
+                "`gh variable set TEND_ENABLED --body false` before removing "
+                "the key."
+            )
 
         unknown = set(raw.keys()) - KNOWN_TOP_LEVEL
         for key in sorted(unknown):
@@ -423,6 +470,7 @@ class Config:
                     )
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
+        setup.extend(_migrated_sandbox_steps(raw))
 
         sandbox_env_raw = raw.get("sandbox_env", {}) or {}
         if not isinstance(sandbox_env_raw, dict):

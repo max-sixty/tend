@@ -1631,6 +1631,24 @@ def test_workflow_with_local_setup_regtest(
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
+def test_deprecated_sandbox_keys_regtest(regtest: object, tmp_path: Path) -> None:
+    """Snapshot the `setup:` steps the deprecated keys migrate to, after the
+    consumer's own, in the workflow whose pre-check guards every setup step."""
+    extra = dedent("""\
+        setup:
+          - uses: astral-sh/setup-uv@v10.1.0
+        sandbox_path:
+          - ~/.cargo/bin
+          - /opt/tools/bin
+        sandbox_setup:
+          - uv sync --frozen
+          - curl -LsSf https://example.invalid/install.sh | sh
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    wf = GENERATORS["notifications"](cfg)
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
 def test_sandbox_env_regtest(regtest: object, tmp_path: Path) -> None:
     """Snapshot the rendered agent step with `sandbox_env` set, to lock the
     block-scalar shape threaded to the composite action."""
