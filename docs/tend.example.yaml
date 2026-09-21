@@ -265,6 +265,10 @@ bot_name: my-project-bot
 #         env:
 #           MY_TOKEN: ${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}
 #
+# `$GITHUB_ENV` reads one `NAME=VALUE` per line, so a value that expands to
+# more than one line sets variables of its own. A multi-line secret needs
+# GitHub's `NAME<<DELIMITER` form, with a delimiter the value cannot contain.
+#
 # ## Memory Gist (experimental, Claude harness)
 #
 # `memory_gist: true` restores Claude Code's model-authored auto memory from a
