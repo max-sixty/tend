@@ -142,9 +142,10 @@ on every `tend@latest init`.
 
 Tend gives an agent write access to a repository and points it at input anyone
 can write: pull requests, issues, comments. The design assumes a session can be
-hijacked, and bounds what a hijacked session can do. It cannot land code, read
-the long-lived credentials it acts with, or change the runner's checkout and
-home.
+hijacked, and bounds what a hijacked session can do: it cannot land code, and
+it cannot take the credentials it acts with beyond the end of the run. Merge
+restriction holds the first; credential isolation, the sandbox, and the
+environment gate together hold the second.
 
 **Merge restriction** is the primary boundary. A GitHub ruleset lets only
 admins update protected branches, so the bot cannot merge anything, its own
