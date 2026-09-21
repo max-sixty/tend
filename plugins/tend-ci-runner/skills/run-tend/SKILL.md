@@ -21,7 +21,7 @@ This skill carries the rules every session needs. The rest are separate skills i
 
 **As soon as you know what the task will do, load every skill its actions will hit.** Loading them is a requirement, not a suggestion: they hold what keeps the action from going out wrong, and a session that skips one usually can't tell what it got wrong. Load them in the run that takes the action rather than working from memory of a past one. If an action you did not plan for comes up later, load its skill before taking it.
 
-Nearly every task takes some of these, so work out which apply before you start: `/tend-ci-runner:respond-on-thread`, `/tend-ci-runner:post-to-github`, `/tend-ci-runner:open-pr`, `/tend-ci-runner:push-commits`, `/tend-ci-runner:monitor-ci`. `/tend-ci-runner:ground-claims` is keyed on what you will say rather than on an action, so enumerating your actions never reaches it: load it before publishing any claim this session did not verify, which is most posts. The rest turn on a situation you may not be in — another repository, a request aimed at someone else's work, a bug to fix — so scan the listing when one arises.
+Nearly every task takes some of these, so work out which apply before you start: `/tend-ci-runner:respond-on-thread`, `/tend-ci-runner:post-to-github`, `/tend-ci-runner:open-pr`, `/tend-ci-runner:push-commits`, `/tend-ci-runner:monitor-ci`. Load `/tend-ci-runner:ground-claims` before publishing anything that carries a factual claim — it keys on what you say, not on an action you plan. The rest turn on a situation you may not be in — another repository, a request aimed at someone else's work, a bug to fix — so scan the listing when one arises.
 
 ## Temporary Files
 
