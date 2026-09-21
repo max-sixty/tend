@@ -58,7 +58,7 @@
    alike. Its cache stays off because the post-job save would store the job's
    later uv downloads under this step's key and restore them on every run. #}
 {% macro setup_tend_uv() %}
-      - uses: <<setup_uv_action>>
+      - uses: astral-sh/setup-uv@v10.1.0
         id: tend_uv
         env:
           UV_NO_MODIFY_PATH: "1"

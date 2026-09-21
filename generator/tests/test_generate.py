@@ -1633,11 +1633,10 @@ def test_workflow_with_local_setup_regtest(
 
 def test_deprecated_sandbox_keys_regtest(regtest: object, tmp_path: Path) -> None:
     """Snapshot the `setup:` steps the deprecated keys migrate to, after the
-    consumer's own, in the workflow whose pre-check guards every setup step.
-    The consumer's only step is a composite, so tend's pinned uv goes first."""
+    consumer's own, in the workflow whose pre-check guards every setup step."""
     extra = dedent("""\
         setup:
-          - uses: ./.github/actions/tend-setup
+          - uses: astral-sh/setup-uv@v10.1.0
         sandbox_path:
           - ~/.cargo/bin
           - /opt/tools/bin
