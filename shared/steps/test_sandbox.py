@@ -1,12 +1,5 @@
-"""The environment the sandbox user is launched with.
-
-The denylist is the only thing keeping the real PAT and the runner's own
-command-file paths out of a uid that runs consumer code, and
-``proxy/test-setup-sandbox.sh`` represents all five withheld paths with
-``GITHUB_ENV`` alone — so drop one of the other four from :data:`WITHHELD` and
-that suite still passes. These pin every name on both sides, and the order the
-two halves are composed in.
-"""
+"""The environment the sandbox user is launched with: the job's, minus the
+withheld names, with the agent env file after it."""
 
 from __future__ import annotations
 
@@ -33,12 +26,11 @@ Compose = Callable[..., list[str]]
 
 @pytest.fixture
 def compose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Compose:
-    """`launch_env` given exactly *env* as the GitHub context, and *env_file*."""
+    """`launch_env` given exactly *env* as the job environment, and *env_file*."""
 
     def build(env: dict[str, str], env_file: str = "") -> list[str]:
         for name in list(os.environ):
-            if name.startswith("GITHUB_"):
-                monkeypatch.delenv(name)
+            monkeypatch.delenv(name)
         for name, value in env.items():
             monkeypatch.setenv(name, value)
         path = tmp_path / "agent-env"
@@ -48,17 +40,16 @@ def compose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Compose:
     return build
 
 
-def test_launch_env_puts_the_context_after_the_file(compose: Compose) -> None:
-    """The order `launch_env`'s docstring makes its postcondition, pinned."""
+def test_launch_env_puts_the_file_after_the_job(compose: Compose) -> None:
     pairs = compose(
-        {"GITHUB_WORKFLOW": "tend-weekly"},
-        env_file="HOME=/sandbox\nGITHUB_WORKFLOW=spoofed-by-sandbox-env\n",
+        {"GITHUB_WORKFLOW": "tend-weekly", "CARGO_INCREMENTAL": "1"},
+        env_file="HOME=/sandbox\nCARGO_INCREMENTAL=0\n",
     )
 
     assert pairs == [
-        "HOME=/sandbox",
-        "GITHUB_WORKFLOW=spoofed-by-sandbox-env",
         "GITHUB_WORKFLOW=tend-weekly",
+        "HOME=/sandbox",
+        "CARGO_INCREMENTAL=0",
     ]
 
 
@@ -75,36 +66,47 @@ def test_launch_env_withholds_every_denied_name(compose: Compose) -> None:
     assert sorted(pairs) == sorted(f"{k}={v}" for k, v in carried.items())
 
 
-def test_launch_env_carries_a_name_the_denylist_never_heard_of(
+def test_launch_env_withholds_the_runner_and_action_namespaces(
     compose: Compose,
 ) -> None:
-    """A denylist, not an allowlist: a GITHUB_* Actions adds later crosses.
-
-    Losing this is the failure that hides — the agent and the setup commands
-    would each be missing a name nobody notices until a skill reaches for it.
-    """
-    assert compose({"GITHUB_A_NAME_FROM_2030": "value"}) == [
-        "GITHUB_A_NAME_FROM_2030=value"
-    ]
-
-
-def test_launch_env_is_anchored_to_the_prefix(compose: Compose) -> None:
-    """`GITHUB_`, so a name that merely contains it stays on the runner.
-
-    `MY_GITHUB_TOKEN` and `GITHUBBER_TOKEN` are the shapes that matter: a
-    consumer `setup:` step is free to export either, and neither may ride across
-    on a prefix the match got wrong at one end or the other.
-    """
     pairs = compose(
         {
-            "MY_GITHUB_TOKEN": "real",
-            "GITHUBBER_TOKEN": "also-real",
-            "NOT_GITHUB": "x",
+            "ACTIONS_RUNTIME_TOKEN": "runner-service-token",
+            "ACTIONS_CACHE_URL": "https://cache.invalid/",
+            "INPUT_GITHUB_TOKEN": "the-real-pat",
             "GITHUB_ACTOR": "someone",
         }
     )
 
     assert pairs == ["GITHUB_ACTOR=someone"]
+
+
+def test_launch_env_carries_what_the_job_exported(compose: Compose) -> None:
+    pairs = compose(
+        {
+            "JAVA_HOME": "/usr/lib/jvm/temurin-21",
+            "PNPM_HOME": "/home/runner/setup-pnpm",
+            "GITHUB_A_NAME_FROM_2030": "value",
+        }
+    )
+
+    assert sorted(pairs) == [
+        "GITHUB_A_NAME_FROM_2030=value",
+        "JAVA_HOME=/usr/lib/jvm/temurin-21",
+        "PNPM_HOME=/home/runner/setup-pnpm",
+    ]
+
+
+def test_launch_env_withholding_is_anchored_to_the_prefix(compose: Compose) -> None:
+    pairs = compose(
+        {
+            "MY_ACTIONS_FLAG": "keep",
+            "REINPUT_MODE": "keep",
+            "ACTIONS_STEP_DEBUG": "drop",
+        }
+    )
+
+    assert sorted(pairs) == ["MY_ACTIONS_FLAG=keep", "REINPUT_MODE=keep"]
 
 
 def test_launch_env_reads_the_file_as_the_shell_wrote_it(compose: Compose) -> None:
@@ -131,6 +133,8 @@ def test_launch_env_carries_a_value_that_is_not_utf_8(
     the step before the launch. Asserted through a real subprocess, because the
     round trip is `subprocess`'s `os.fsencode`, not anything this module does.
     """
+    for name in list(os.environ):
+        monkeypatch.delenv(name)
     path = tmp_path / "agent-env"
     path.write_bytes(b"TEND_X=raw\xe9byte\n")
 

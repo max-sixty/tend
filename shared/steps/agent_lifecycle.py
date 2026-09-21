@@ -8,10 +8,31 @@ import subprocess
 import sys
 from pathlib import Path
 
+import _common
+import event_checkout
 import sandbox_setup
 
 
-def probe_boundary() -> None:
+def probe_view(workspace: Path) -> None:
+    """Fail unless the view survived into SRT: writable, and every mask empty."""
+    probe = workspace / ".tend-view-probe"
+    try:
+        probe.write_text("", encoding="utf-8")
+    except OSError as problem:
+        raise RuntimeError(
+            f"the view is not writable at {workspace}: {problem}"
+        ) from None
+    probe.unlink()
+    for path in filter(None, os.environ["TEND_VIEW_MASKS"].split(os.pathsep)):
+        masked = Path(path)
+        # A file mask is /dev/null, which bwrap's nodev remount makes
+        # unopenable, so it is recognised by type rather than read.
+        empty_dir = masked.is_dir() and not os.listdir(masked)
+        if not (masked.is_char_device() or empty_dir):
+            raise RuntimeError(f"the view did not mask {masked}")
+
+
+def probe_boundary(workspace: Path) -> None:
     """Fail unless SRT's Linux seccomp and read boundary are effective."""
     try:
         socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -20,17 +41,7 @@ def probe_boundary() -> None:
     else:
         raise RuntimeError("SRT capability probe created an AF_UNIX socket")
 
-    runner_workspace = Path(os.environ["TEND_RUNNER_WORKSPACE"])
-    try:
-        (runner_workspace / ".git/config").read_bytes()
-    except OSError:
-        pass
-    else:
-        raise RuntimeError("SRT capability probe read the runner checkout")
-
-    agent_workspace = Path(os.environ["TEND_AGENT_WORKSPACE"])
-    if not (agent_workspace / ".git/config").is_file():
-        raise RuntimeError("SRT capability probe cannot read the agent checkout")
+    probe_view(workspace)
 
     probe_url = os.environ.get("TEND_BOUNDARY_PROBE_URL")
     if probe_url:
@@ -78,9 +89,25 @@ def probe_boundary() -> None:
             raise RuntimeError("SRT capability probe cannot execute the harness tool")
 
 
+def configure_git(login: str, bot_id: str) -> None:
+    """Commit as the bot, from the checkout and from any clone the agent makes.
+
+    ``HOME`` is the job's, so this edits the runner's ``.gitconfig`` through
+    the view: the consumer's settings stay and the runner's disk is untouched.
+    """
+    for name, value in (
+        ("user.name", login),
+        ("user.email", f"{bot_id}+{login}@users.noreply.github.com"),
+    ):
+        subprocess.run(["/usr/bin/git", "config", "--global", name, value], check=True)
+
+
 def main() -> int:
-    probe_boundary()
+    env = _common.require_env("GITHUB_WORKSPACE", "BOT_NAME", "BOT_ID")
+    probe_boundary(Path(env["GITHUB_WORKSPACE"]))
     os.environ["TEND_INSIDE_SANDBOX"] = "1"
+    configure_git(env["BOT_NAME"], env["BOT_ID"])
+    event_checkout.main()
     setup_code = sandbox_setup.main()
     if setup_code:
         return setup_code
@@ -93,7 +120,7 @@ def main() -> int:
 
         return run_claude.main()
     if harness == "codex":
-        runner = Path(os.environ["TEND_CODEX_RUNNER"])
+        runner = Path(_common.require_env("TEND_CODEX_RUNNER")["TEND_CODEX_RUNNER"])
         return subprocess.run(
             ["/usr/bin/python3", "-E", "-s", str(runner), "run"], check=False
         ).returncode
@@ -103,6 +130,15 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, RuntimeError, ValueError) as problem:
+    # `CalledProcessError` for the git this module and `event_checkout` run,
+    # `TypeError` for `event_checkout`'s topology diagnostics: a traceback here
+    # is the job's only account of why the turn never started.
+    except (
+        OSError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+        subprocess.CalledProcessError,
+    ) as problem:
         print(f"agent lifecycle: {problem}", file=sys.stderr)
         raise SystemExit(1) from None
