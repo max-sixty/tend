@@ -28,9 +28,6 @@ session-log artifact), the ``usage`` step output (compact JSON), and a
 interactive harness so downstream consumers (review-reviewers' evidence gist,
 token_report.py, dashboards) don't branch on harness.
 
-It also publishes the ``artifact_name`` the upload step uses; see
-:func:`artifact_name`.
-
 Every record also names the run it came from, so spend can be grouped by
 subject; see :func:`run_context`. The job summary stays counts-only, because
 the run page it is rendered on already names the run.
@@ -145,9 +142,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Account a run's token usage.")
     parser.add_argument("--harness", choices=("claude", "codex"), required=True)
     harness = parser.parse_args().harness
-
-    # First, so a later failure still leaves the upload step a name to use.
-    _common.set_output("artifact_name", artifact_name(harness))
 
     model = os.environ.get("MODEL", "")
     if harness == "claude":
@@ -271,27 +265,6 @@ def run_context() -> dict[str, Any]:
         "number": _common.subject_number(),
         "head_sha": _common.subject_sha(),
     }
-
-
-def artifact_name(harness: str) -> str:
-    """The session-log artifact's name, so a later run can find this one.
-
-    A run whose event is about an issue or PR takes a constant ``-n<number>``,
-    which a later run on the same thread resolves with one
-    ``GET /actions/artifacts?name=…`` (``/tend-ci-runner:read-session-logs``).
-    The thread workflows are single-job, and the repo's shared issue/PR number
-    space means one number keys the thread across every event that reaches it,
-    a relayed review among them. Everything else — ``schedule``,
-    ``workflow_run``, a dispatch with no thread — takes the per-job
-    ``INVOCATION_ID``, so matrix legs don't collide. Matrixing a thread
-    workflow would collide two legs on the constant name and fail at upload.
-    """
-    number = _common.subject_number()
-    if number is not None:
-        return f"{harness}-session-logs-n{number}"
-    invocation = os.environ.get("INVOCATION_ID", "")[:8]
-    suffix = f"-{invocation}" if invocation else ""
-    return f"{harness}-session-logs{suffix}"
 
 
 def claude_step(model: str) -> tuple[dict[str, Any], Path]:

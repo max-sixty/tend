@@ -20,12 +20,9 @@ RUNTIME_STEP_FILES = (
     "_prompt.py",
     "_sandbox.py",
     "agent_lifecycle.py",
-    "event_checkout.py",
     "run_claude.py",
     "sandbox_runtime.mjs",
     "sandbox_setup.py",
-    "restore-sensitive-config.sh",
-    "lib/pin-instruction-paths.sh",
 )
 
 
@@ -48,33 +45,16 @@ def configure(
     summary.touch()
     runtime_root = tmp_path / "runtime"
     runtime_root.mkdir()
-    private = runtime_root / "private"
-    private.mkdir(mode=0o700)
     action = tmp_path / "private/action"
     steps = action / "shared/steps"
     steps.mkdir(parents=True)
     for name in RUNTIME_STEP_FILES:
-        (steps / name).parent.mkdir(parents=True, exist_ok=True)
         (steps / name).write_text(f"{name}\n")
     codex = action / "codex/runner.py"
     codex.parent.mkdir()
     codex.write_text("runner\n")
-    runner_home = tmp_path / "home/runner"
-    # The default self-hosted layout: the installation holds `_work` too.
-    installed_runner = runner_home / "actions-runner"
-    workspace = installed_runner / "_work/repo/repo"
-    file_commands = installed_runner / "_work/_temp/_runner_file_commands"
-    file_commands.mkdir(parents=True)
-    workspace.mkdir(parents=True)
-    (installed_runner / "bin").mkdir()
-    (installed_runner / "_diag").mkdir()
-    (installed_runner / ".credentials").write_text("runner service identity\n")
-    monkeypatch.setattr(launch, "runner_install_directory", lambda: installed_runner)
     environment = {
         "SANDBOX": "tend-sandbox",
-        "TEND_RUNNER_HOME": str(runner_home),
-        "GITHUB_WORKSPACE": str(workspace),
-        "GITHUB_ENV": str(file_commands / "set_env_0"),
         "RUNNER_TEMP": str(runner_temp),
         "GITHUB_OUTPUT": str(output),
         "TEND_RUN_DIR": str(run_dir),
@@ -85,7 +65,6 @@ def configure(
         "AGENT_HOME": str(run_dir.parent),
         "GITHUB_STEP_SUMMARY": str(summary),
         "TEND_RUNTIME_ROOT": str(runtime_root),
-        "TEND_PRIVATE_DIR": str(private),
         "ACTION_PATH": str(action),
         "TEND_LIFECYCLE": str(steps / "agent_lifecycle.py"),
     }
@@ -124,20 +103,13 @@ def fake_runtime(
     return calls
 
 
-def launched_environment(runtime: list[str]) -> list[str]:
-    """The entries the launch handed `enter_view`, from the file its argv names."""
-    env_file = Path(runtime[runtime.index("--env-file") + 1])
-    return [entry.decode() for entry in env_file.read_bytes().split(b"\0")]
-
-
 def test_claude_exports_only_fixed_runner_owned_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_dir, output, summary = configure(tmp_path, monkeypatch, harness="claude")
     monkeypatch.setenv("GITHUB_TOKEN", "runner-token-must-not-cross")
-    monkeypatch.setenv("ACTIONS_RUNTIME_TOKEN", "runner-service-must-not-cross")
+    monkeypatch.setenv("OPENAI_API_KEY", "runner-key-must-not-cross")
     monkeypatch.setenv("GITHUB_ACTOR", "octocat")
-    monkeypatch.setenv("JAVA_HOME", "/usr/lib/jvm/temurin-21")
     calls = fake_runtime(monkeypatch, run_dir, harness="claude")
 
     assert launch.main() == 0
@@ -152,27 +124,13 @@ def test_claude_exports_only_fixed_runner_owned_files(
     ).read_bytes() == b"diagnostic\n"
     assert summary.read_bytes() == b"skill result\n\n"
     runtime = next(args for args in calls if "sandbox_runtime.mjs" in args[-1])
-    env_file = Path(runtime[runtime.index("--env-file") + 1])
-    assert env_file.parent == tmp_path / "runtime/private"
-    assert env_file.stat().st_mode & 0o777 == 0o600
-    entries = launched_environment(runtime)
-    assert "GITHUB_TOKEN=dummy" in entries
-    assert "GITHUB_ACTOR=octocat" in entries
-    # The job's own environment crosses whole, and none of it on the command
-    # line `sudo` logs.
-    assert "JAVA_HOME=/usr/lib/jvm/temurin-21" in entries
-    assert not any("JAVA_HOME" in arg or "octocat" in arg for arg in runtime)
-    assert not any("runner-token-must-not-cross" in entry for entry in entries)
-    assert not any("runner-service-must-not-cross" in entry for entry in entries)
-    assert not any(entry.startswith("GITHUB_OUTPUT=") for entry in entries)
-    assert f"TMPDIR={run_dir.parent / 'tmp'}" in entries
-    assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'tmp/step-summary.md'}" in entries
-    # A later entry wins, and the launch's HOME is the job's.
-    runner_home = tmp_path / "home/runner"
-    assert entries.index(f"HOME={runner_home}") > entries.index(
-        "HOME=/home/tend-sandbox"
-    )
-    assert f"XDG_CACHE_HOME={runner_home / '.cache'}" in entries
+    assert "GITHUB_TOKEN=dummy" in runtime
+    assert "GITHUB_ACTOR=octocat" in runtime
+    assert not any("runner-token-must-not-cross" in arg for arg in runtime)
+    assert not any("runner-key-must-not-cross" in arg for arg in runtime)
+    assert not any(arg.startswith("GITHUB_OUTPUT=") for arg in runtime)
+    assert f"TMPDIR={run_dir.parent / 'tmp'}" in runtime
+    assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'tmp/step-summary.md'}" in runtime
 
 
 def test_codex_base64_encodes_the_fixed_final_message(
@@ -200,18 +158,13 @@ def test_runtime_bundle_is_staged_outside_the_private_action(
     runtime = next(args for args in calls if "sandbox_runtime.mjs" in args[-1])
     bundle = tmp_path / "runtime/action"
     assert runtime[-1] == str(bundle / "shared/steps/sandbox_runtime.mjs")
-    entries = launched_environment(runtime)
-    assert f"ACTION_PATH={bundle}" in entries
-    assert f"TEND_LIFECYCLE={bundle / 'shared/steps/agent_lifecycle.py'}" in entries
-    assert f"TEND_CODEX_RUNNER={bundle / 'codex/runner.py'}" in entries
+    assert f"ACTION_PATH={bundle}" in runtime
+    assert f"TEND_LIFECYCLE={bundle / 'shared/steps/agent_lifecycle.py'}" in runtime
+    assert f"TEND_CODEX_RUNNER={bundle / 'codex/runner.py'}" in runtime
     assert (bundle / "shared/steps/sandbox_setup.py").read_text() == (
         "sandbox_setup.py\n"
     )
-    assert (bundle / "shared/steps/lib/pin-instruction-paths.sh").read_text() == (
-        "lib/pin-instruction-paths.sh\n"
-    )
     assert (bundle / "shared/steps").stat().st_mode & 0o777 == 0o755
-    assert (bundle / "shared/steps/lib").stat().st_mode & 0o777 == 0o755
 
 
 def test_agent_step_summary_symlink_is_not_followed(
@@ -238,25 +191,6 @@ def test_no_agent_owned_result_is_read_until_the_uid_is_quiescent(
     assert output.read_text() == "sandbox_reaped=false\n"
     assert summary.read_bytes() == b""
     assert not (tmp_path / "runner-temp/tend-agent-export/claude-stream.json").exists()
-
-
-def test_the_runner_mask_never_takes_the_job_s_own_tree_with_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The default self-hosted layout keeps `_work` inside the installation."""
-    configure(tmp_path, monkeypatch, harness="claude")
-    runner_home = tmp_path / "home/runner"
-    installed = runner_home / "actions-runner"
-
-    masks = launch.view_masks(runner_home)
-
-    assert installed / ".credentials" in masks
-    assert installed / "_diag" in masks
-    assert installed / "bin" in masks
-    assert installed / "_work" not in masks
-    assert installed / "_work/_temp/_runner_file_commands" in masks
-    workspace = Path(os.environ["GITHUB_WORKSPACE"])
-    assert not any(workspace.is_relative_to(mask) for mask in masks)
 
 
 def test_runner_cancellation_is_raised_through_the_reap_path() -> None:
@@ -362,7 +296,7 @@ def run_sandbox_runtime(
     entry.write_text(FAKE_SRT)
     state = root / "state.json"
     state.write_text("{}")
-    for name in ("seccomp.json", "lifecycle.py"):
+    for name in ("seccomp.json", "lifecycle.py", "event.json", "agent-env"):
         (root / name).touch()
 
     completed = subprocess.run(
@@ -375,10 +309,14 @@ def run_sandbox_runtime(
             "TEND_SRT_ENTRY": str(entry),
             "TEND_SRT_SECCOMP": str(root / "seccomp.json"),
             "TEND_LIFECYCLE": str(root / "lifecycle.py"),
-            "GITHUB_WORKSPACE": str(workspace),
+            "TEND_AGENT_WORKSPACE": str(workspace),
+            "TEND_RUNNER_WORKSPACE": str(root / "runner-workspace"),
             "AGENT_HOME": str(home),
             "TMPDIR": str(root),
             "TEND_RUNNER_HOME": str(root / "runner-home"),
+            "ACTION_PATH": str(root),
+            "GITHUB_EVENT_PATH": str(root / "event.json"),
+            "AGENT_ENV_FILE": str(root / "agent-env"),
             "TEND_PROXY_PORT": "8899",
         },
         capture_output=True,

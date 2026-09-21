@@ -203,9 +203,8 @@ def subject_sha() -> str | None:
     ref the run was queued on — for the events that name neither a thread nor
     a commit, ``schedule`` and ``workflow_dispatch``. An event that names a
     thread gets ``None``, because ``GITHUB_SHA`` is the default branch's tip
-    there and the run is not about it: a mention on a PR has the PR's head
-    checked out in the event tree. :func:`subject_number` has that
-    subject.
+    there and the run is not about it: a mention on a PR ``gh pr checkout``s
+    the PR's head straight after. :func:`subject_number` has that subject.
 
     ``GITHUB_SHA`` is likewise the wrong commit for the events that do carry
     their own, which is why the payload wins: a ``pull_request_target`` run

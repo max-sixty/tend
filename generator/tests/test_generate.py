@@ -123,7 +123,7 @@ def _eyes_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:
 def test_local_setup_action_keeps_runner_checkout_stable(
     tmp_path: Path, name: str, job: str
 ) -> None:
-    """PR topology is selected only inside the harness's sandbox."""
+    """PR topology is selected only inside the harness's disposable clone."""
     extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     steps = yaml.safe_load(GENERATORS[name](cfg).content)["jobs"][job]["steps"]
@@ -808,7 +808,7 @@ def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert len(list(wf_dir.glob("tend-*.yaml"))) == 8
 
 
-def test_review_delegates_pr_topology_to_the_sandbox(tmp_path: Path) -> None:
+def test_review_delegates_pr_topology_to_disposable_clone(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
@@ -1005,7 +1005,7 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     assert "client_payload[url]" not in relay_run
     assert "event_type=tend-mention-review" in relay_run
 
-    # The harness selects the PR branch only inside its sandbox.
+    # The harness selects the PR branch only in its disposable clone.
     handle_steps = data["jobs"]["handle"]["steps"]
 
     # Prompt keeps the review-kind and mention/participation branches apart,
@@ -1663,7 +1663,7 @@ def test_workflow_with_local_setup_regtest(
 
 
 def test_sandbox_levers_regtest(regtest: object, tmp_path: Path) -> None:
-    """Snapshot the rendered agent step with every sandbox lever set, to
+    """Snapshot the rendered agent step with all three sandbox levers set, to
     lock the block-scalar shape threaded to the composite action."""
     extra = dedent("""\
         sandbox_path:
