@@ -516,11 +516,11 @@ reviewed by nobody in either repository. The session settings
 `shared/steps/run_claude.py` writes refuse all three: `syncClaudeAiSkills` and
 `syncClaudeAiPlugins` false, `disableClaudeAiConnectors` true. Its test asserts
 that settings file exactly, so a key that silently stops being written fails
-the suite rather than quietly reopening the surface. The
-sync pair is honored only as `false`, and only from the session's own
-`.claude/settings.local.json` or `--settings` — the feature it refuses turns on
-server-side per account, so the refusal has to be in place ahead of it rather
-than written in response to it.
+the suite rather than quietly reopening the surface. The sync pair is honored
+only as `false`, and from `.claude/settings.local.json` or `--settings` rather
+than project `settings.json` — the layer the action already writes. The feature
+it refuses turns on server-side per account, so the refusal has to be in place
+ahead of it rather than written in response to it.
 
 **GitHub's log masking.** Secrets stored in GitHub are automatically redacted
 from workflow logs. This is exact-match only — if a token appears
