@@ -16,8 +16,7 @@ Reads (env):
                       stderr log was written
   SANDBOX_REAPED    - ``true`` after the harness has stopped every sandbox
                       process; agent-owned session trees are copied only then
-  GITHUB_REPOSITORY - the record's ``repo``; on claude it also gates the raw
-                      stream-json copy to tend's own repo
+  GITHUB_REPOSITORY - the record's ``repo``
   GITHUB_WORKFLOW, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_EVENT_NAME,
   GITHUB_SHA, GITHUB_EVENT_PATH
                     - the rest of :func:`run_context`
@@ -302,20 +301,7 @@ def claude_step(model: str) -> tuple[dict[str, Any], Path]:
 
     stream_json = os.environ.get("STREAM_JSON", "")
     stream = Path(stream_json) if stream_json else None
-    usage = claude_usage(stream=stream, logs_dir=logs_dir, model=model)
-
-    # Preserve the raw stream-json (the only place `type: "result"` cost events
-    # live) alongside the session JSONL so token under-reporting (#302) can be
-    # diagnosed against an actual stream. Gated to tend's own repo so consumers
-    # don't pay for an upload that only serves a tend-internal diagnostic. Drop
-    # once #302 is resolved.
-    if (
-        os.environ.get("GITHUB_REPOSITORY") == "max-sixty/tend"
-        and stream is not None
-        and stream.is_file()
-    ):
-        best_effort("cp", str(stream), str(logs_dir / "claude-stream.json"))
-    return usage, logs_dir
+    return claude_usage(stream=stream, logs_dir=logs_dir, model=model), logs_dir
 
 
 def codex_step(model: str) -> tuple[dict[str, Any], Path]:
