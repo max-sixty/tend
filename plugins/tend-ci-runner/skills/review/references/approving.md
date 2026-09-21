@@ -1,9 +1,9 @@
 # Approving
 
-- [Before the APPROVE](#before-the-approve)
+- [Before the `APPROVE`](#before-the-approve)
 - [After the approval](#after-the-approval)
 
-## Before the APPROVE
+## Before the `APPROVE`
 
 Run the approval check against the commit this session reviewed, in the foreground with `timeout: 600000` — a failure showing while other checks still run makes it wait for them:
 
@@ -14,8 +14,8 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \
 
 It judges the latest run of each check outside this run and this workflow, and prints one verdict:
 
-- **`approve:`** — post the APPROVE. When it lists checks as unverified, those checks produced no result — cancelled themselves, or still running behind a cancelled run's failure — so nothing red stands but they did not pass either; name them in the review body.
-- **`withhold:`** — a check failed on its own merits. Skip the close-out and finish. If **no prior substantive bot review** stands on this PR, post a brief COMMENT stating the diff assessment and the failing check that withholds approval, so a clean dependency bump isn't left with no review signal; an earlier substantive review already stands as the verdict. On a bot PR where you intend to push the fix yourself (**Push fixes**), post that COMMENT before pushing, while the checks it names are still the current ones.
+- **`approve:`** — post the `APPROVE`. When it lists checks as unverified, those checks produced no result — cancelled themselves, or still running behind a cancelled run's failure — so nothing red stands but they did not pass either; name them in the review body.
+- **`withhold:`** — a check failed on its own merits. Skip the close-out and finish. If **no prior substantive bot review** stands on this PR, post a brief `COMMENT` stating the diff assessment and the failing check that withholds approval, so a clean dependency bump isn't left with no review signal; an earlier substantive review already stands as the verdict. On a bot PR where you intend to push the fix yourself (**Push fixes**), post that `COMMENT` before pushing, while the checks it names are still the current ones.
 
 Any other exit decided nothing: don't approve, and report the approval as unverified.
 
@@ -28,7 +28,7 @@ An approval you post at a re-targeted head is yours to stand behind: the queued 
 Poll the pinned commit to terminal per `/tend-ci-runner:monitor-ci`, then handle the outcome:
 
 - **All required checks passed** -> done.
-- **A check failed** and it's related to the PR -> post a follow-up COMMENT review with analysis and inline suggestions, then dismiss the bot's approval:
+- **A check failed** and it's related to the PR -> post a follow-up `COMMENT` review with analysis and inline suggestions, then dismiss the bot's approval:
   ```bash
   uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
     dismiss <number> "CI failed — <reason>"
