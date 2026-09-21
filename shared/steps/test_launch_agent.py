@@ -98,6 +98,8 @@ def configure(
         environment["TEND_CODEX_RUNNER"] = str(codex)
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
+    # A tend session running this suite sets it, and `launch` reads it.
+    monkeypatch.delenv("TEND_AUTO_MEMORY_DIRECTORY", raising=False)
     return run_dir, output, summary
 
 
@@ -298,6 +300,18 @@ def test_a_failed_launch_still_reaps_and_unwinds_only_what_it_built(
         str(tmp_path / "runtime/view/merged"),
     ]
     assert not (tmp_path / "runtime/private/tend-launch-env").exists()
+
+
+def test_a_failed_overlay_mount_leaves_no_bind_of_the_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, _output, _summary = configure(tmp_path, monkeypatch, harness="claude")
+    launched = fake_launch(monkeypatch, run_dir, harness="claude", failing="overlay")
+
+    assert launch.main() == 1
+
+    unmounts = [call[1:] for call in launched.calls if "/usr/bin/umount" in call]
+    assert unmounts == [["/usr/bin/umount", "-l", str(tmp_path / "runtime/view/lower")]]
 
 
 def test_agent_step_summary_symlink_is_not_followed(

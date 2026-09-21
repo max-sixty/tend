@@ -276,13 +276,16 @@ def mount_view(home: Path, stage: Path, sandbox: pwd.struct_passwd) -> Path:
     upper.chmod(home_stat.st_mode & 0o7777)
     sudo("/usr/bin/chown", f"{sandbox.pw_uid}:{sandbox.pw_gid}", str(upper))
     idmap = swap_map(runner, sandbox)
-    sudo(MOUNT, "--bind", "-o", f"ro,X-mount.idmap={idmap}", str(home), str(lower))
-    # redirect_dir: renaming a directory that lives on the lower layer (cargo
-    # does, in its registry) is EXDEV without it.
-    options = f"lowerdir={lower},upperdir={upper},workdir={work},redirect_dir=on"
-    sudo(MOUNT, "-t", "overlay", "overlay", "-o", options, str(merged))
-    # The overlay holds its own reference.
-    sudo("/usr/bin/umount", "-l", str(lower))
+    with contextlib.ExitStack() as unwind:
+        sudo(MOUNT, "--bind", "-o", f"ro,X-mount.idmap={idmap}", str(home), str(lower))
+        # Detached whether or not the overlay mounts: the overlay holds its own
+        # reference, and a failed one would otherwise leave this bind of the
+        # home in the host's mount table for dispose's `rm` to walk.
+        unwind.callback(sudo, "/usr/bin/umount", "-l", str(lower))
+        # redirect_dir: renaming a directory that lives on the lower layer
+        # (cargo does, in its registry) is EXDEV without it.
+        options = f"lowerdir={lower},upperdir={upper},workdir={work},redirect_dir=on"
+        sudo(MOUNT, "-t", "overlay", "overlay", "-o", options, str(merged))
     return merged
 
 
@@ -297,6 +300,9 @@ def start_bridge(port: str) -> None:
         "/usr/bin/systemd-run",
         f"--unit={BRIDGE}",
         "--quiet",
+        # As for the agent's unit: a failed transient unit otherwise stays
+        # loaded and holds its name.
+        "--collect",
         f"--socket-property=ListenStream=127.0.0.1:{port}",
         "--socket-property=PrivateNetwork=yes",
         "--property=DynamicUser=yes",
