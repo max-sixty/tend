@@ -142,7 +142,7 @@ regenerating skips them entirely.
 Run this after the regen step, whether or not it produced a PR:
 
 ```bash
-rg -o --no-filename 'max-sixty/tend/[a-z/-]+@[0-9.]+' .github/workflows/ | sort -u
+git grep --untracked -hoE 'max-sixty/tend/[a-z/-]+@[0-9.]+' -- .github/workflows/ | sort -u
 ```
 
 The check is on the versions rather than the line count: pipe the same output

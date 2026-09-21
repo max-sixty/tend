@@ -406,8 +406,8 @@ sessions in the gap each pay attention for text that changes nothing they do.
 
 - **A rule has one home.** Another file that needs it names the section
   instead of restating it — copies drift, and a partial copy drops what the
-  copier left out. Before adding a rule, `rg` a distinctive phrase from it
-  across `plugins/`, `shared/`, and `CLAUDE.md`.
+  copier left out. Before adding a rule, search for a distinctive phrase from
+  it across `plugins/`, `shared/`, and `CLAUDE.md`.
 - **Every workflow that invokes the agent names a skill** (`default_prompt` in
   `config.py`). One without a skill has nowhere to put its own rules, so they
   land in the every-session file instead.
