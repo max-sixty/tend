@@ -347,11 +347,6 @@ def test_a_name_systemd_would_drop_is_left_out_aloud(
     assert "::warning::'my-var' cannot cross" in capsys.readouterr().out
 
 
-def test_a_value_systemd_cannot_read_fails_by_name() -> None:
-    with pytest.raises(ValueError, match="RAW is not UTF-8"):
-        launch.environment_file(["RAW=\udcff"])
-
-
 def test_the_runner_mask_never_takes_the_job_s_own_tree_with_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

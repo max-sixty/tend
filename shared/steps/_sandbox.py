@@ -44,7 +44,8 @@ def agent_env(agent_env_file: str | os.PathLike[str]) -> list[str]:
     # `surrogateescape` because the shell that wrote the file was byte
     # transparent: a non-UTF-8 byte in a consumer's `sandbox_env:` value
     # reaches a preparation command as it was written (`subprocess` re-encodes
-    # it with `os.fsencode`), and the launch refuses it by name.
+    # it with `os.fsencode`); the launch refuses it, since systemd reads its
+    # environment file as UTF-8.
     with Path(agent_env_file).open(
         encoding="utf-8", errors="surrogateescape", newline=""
     ) as handle:

@@ -376,7 +376,7 @@ Each transition is a bottleneck with one job:
   the credential proxy is reachable, and that nothing of either unit or the
   view outlives the run. The unit is built from the runner image's systemd,
   which moves with the image rather than with a Tend commit; `test-sandbox`
-  runs it on both architectures every six hours.
+  runs it every six hours.
 - **Authority brokerage** leaves long-lived credentials in runner-owned
   proxies. The unit's network namespace holds loopback alone. A socket unit
   listens on the credential proxy's port inside it, and `systemd-socket-proxyd`,

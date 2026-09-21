@@ -241,12 +241,8 @@ uv tool run pre-commit autoupdate
 npm --prefix worker ci && npm --prefix worker outdated
 npm --prefix site ci && npm --prefix site outdated
 
-# Versions pinned in a shell script: the sandbox boundary's Debian packages,
-# and worktrunk in the Codex Cloud setup.
+# Versions pinned in a shell script: worktrunk in the Codex Cloud setup.
 git grep -nE '^[A-Za-z_]*VERSION=' -- '*.sh'
-
-# The instant the sandbox boundary resolves its Ubuntu and npm packages as of.
-git grep -n '^PACKAGES_RESOLVED_AT=' -- '*.sh'
 ```
 
 What upstream currently publishes:

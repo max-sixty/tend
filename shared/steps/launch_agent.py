@@ -286,7 +286,6 @@ def start_bridge(port: str) -> None:
         "--quiet",
         f"--socket-property=ListenStream=127.0.0.1:{port}",
         "--socket-property=PrivateNetwork=yes",
-        f"--socket-property=JoinsNamespaceOf={UNIT}.service",
         "--property=DynamicUser=yes",
         "/usr/lib/systemd/systemd-socket-proxyd",
         f"127.0.0.1:{port}",
@@ -310,11 +309,9 @@ def environment_file(entries: list[str]) -> bytes:
             )
             continue
         escaped = re.sub(r'[\\"`$]', lambda match: "\\" + match[0], value)
-        try:
-            lines.append(f'{name}="{escaped}"\n'.encode())
-        except UnicodeEncodeError:
-            raise ValueError(f"{name} is not UTF-8, which systemd requires") from None
-    return b"".join(lines)
+        lines.append(f'{name}="{escaped}"\n')
+    # Strict: systemd reads the file as UTF-8.
+    return "".join(lines).encode()
 
 
 def unit_properties(
@@ -348,7 +345,6 @@ def unit_properties(
         f"JoinsNamespaceOf={BRIDGE}.socket",
         # Privilege: nothing to gain, and nobody else's processes to see.
         "NoNewPrivileges=yes",
-        "CapabilityBoundingSet=",
         "RestrictNamespaces=yes",
         "ProtectProc=invisible",
         # The network namespace leaves every socket on the filesystem

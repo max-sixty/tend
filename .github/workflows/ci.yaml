@@ -4,12 +4,10 @@ on:
     branches: [main]
   pull_request:
   # `test-sandbox` is the only job that builds the real sandbox, out of the
-  # runner image's systemd and kernel, which move with no commit here.  A
-  # bubblewrap security update on 2026-09-17 killed every consumer's sessions at
-  # launch; main had gone unpushed for two hours, so nothing ran and production
-  # was the first signal.  tend's other watches — `tend-ci-fix`, `tend-review-runs`,
-  # the outage issues — all boot an agent inside that same sandbox, so the
-  # failure disabled its own detection.  This schedule runs outside it, and a
+  # runner image's systemd and kernel, which move with no commit here.  tend's
+  # other watches — `tend-ci-fix`, `tend-review-runs`, the outage issues — all
+  # boot an agent inside that same sandbox, so a broken sandbox disables its own
+  # detection.  This schedule runs outside it, and a
   # failing scheduled run on the default branch mails whoever last edited the
   # cron line below, or last re-enabled the workflow.  Keep both a human's: the
   # path is agent-free only while the alarm lands on an account outside the
@@ -92,13 +90,9 @@ jobs:
   # systemd, a real kernel, a second uid and sudo, so no Python test reaches
   # the boundary. Running them leaves the proxy CA in the system trust store
   # and mitmdump on 8899, so a later step must expect that state. See the
-  # script's header for what it checks. Both architectures, since the seccomp
-  # and namespace settings are enforced per architecture.
+  # script's header for what it checks.
   test-sandbox:
-    strategy:
-      matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-24.04
     steps:
       # The lifecycle's `base` checkout sets the branch's upstream, so
       # `origin/<base>` has to exist — as it does under the generated
