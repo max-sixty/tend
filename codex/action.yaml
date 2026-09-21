@@ -67,10 +67,6 @@ inputs:
     description: >-
       Pinned fallback `uv` version. The agent PATH appends it after any
       consumer-provided version.
-  sandbox_path:
-    default: ""
-    description: >-
-      Newline-separated directories prepended to the sandbox agent's PATH.
   sandbox_env:
     default: ""
     description: >-
@@ -239,7 +235,6 @@ runs:
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
-        TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
         TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
       run: |
         set +x
@@ -261,7 +256,6 @@ runs:
           UV_CACHE_DIR="$UV_CACHE_DIR" \
           UV_NO_CONFIG=1 \
           PYTHONNOUSERSITE=1 \
-          TEND_SANDBOX_PATH="$TEND_SANDBOX_PATH" \
           TEND_SANDBOX_ENV="$TEND_SANDBOX_ENV" \
           "${TEND_UV_DIR}/uv" run --no-cache --no-config \
             --no-python-downloads --python /usr/bin/python3 --script \

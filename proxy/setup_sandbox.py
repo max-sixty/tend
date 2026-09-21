@@ -154,24 +154,9 @@ class Paths:
         return self.private_dir / "tend-proxy.pid"
 
 
-def configured_paths(raw: str) -> list[str]:
-    """Expand consumer-provided sandbox PATH prefixes; ``~`` is the sandbox's home."""
-    entries: list[str] = []
-    for entry in raw.split("\n"):
-        if not entry:
-            continue
-        if entry == "~":
-            entry = str(AGENT_HOME)
-        elif entry.startswith("~/"):
-            entry = str(AGENT_HOME / entry[2:])
-        append_unique(entries, entry)
-    return entries
-
-
-def agent_path(*, runner_tool_path: str, extras: list[str]) -> list[str]:
+def agent_path(runner_tool_path: str) -> list[str]:
     """The sandbox PATH: the job's own, plus the two directories Tend installs."""
-    entries = list(extras)
-    append_unique(entries, str(AGENT_HOME / ".local/bin"))
+    entries = [str(AGENT_HOME / ".local/bin")]
     for entry in runner_tool_path.split(os.pathsep):
         if entry:
             append_unique(entries, entry)
@@ -483,10 +468,10 @@ def main() -> int:
         anthropic_dummy = ("ANTHROPIC_API_KEY", API_KEY_DUMMY)
 
     try:
-        extras = configured_paths(os.environ.get("TEND_SANDBOX_PATH", ""))
-        path_entries = agent_path(runner_tool_path=runner_tool_path, extras=extras)
         sandbox_path = write_agent_environment(
-            paths=paths, path_entries=path_entries, anthropic_dummy=anthropic_dummy
+            paths=paths,
+            path_entries=agent_path(runner_tool_path),
+            anthropic_dummy=anthropic_dummy,
         )
     except ValueError as problem:
         return error(str(problem))

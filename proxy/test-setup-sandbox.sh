@@ -93,8 +93,6 @@ host_checksum() {
 setup() {
   local action_run agent_path hostile_python hostile_site
   set_inputs
-  # shellcheck disable=SC2088
-  export TEND_SANDBOX_PATH='~/.tend-tilde/bin'
   export TEND_SANDBOX_ENV="TEND_FROM_SANDBOX_ENV=applied"
   MITMPROXY_VERSION=$(yq -e '.inputs.mitmproxy_version.default' claude/action.yaml)
   export MITMPROXY_VERSION
@@ -131,10 +129,6 @@ setup() {
   case ":$agent_path:" in
     *":$HOME/.tend-seeded/bin:"*) ;;
     *) echo "::error::a runner-home PATH entry was dropped: $agent_path"; exit 1 ;;
-  esac
-  case ":$agent_path:" in
-    *:/home/tend-sandbox/.tend-tilde/bin:*) ;;
-    *) echo "::error::sandbox_path ~ was not expanded: $agent_path"; exit 1 ;;
   esac
   rm "$HOME/.cargo-install/tend-probe/bin/sudo"
 }
@@ -221,8 +215,8 @@ verify_srt() {
     exit 1
   fi
 
-  # On the sandbox PATH through `sandbox_path:`'s `~` entry.
-  stub_bin=/home/tend-sandbox/.tend-tilde/bin
+  # Where the Claude binary installs, first on the sandbox PATH.
+  stub_bin=/home/tend-sandbox/.local/bin
   sudo -u "$SANDBOX" mkdir -p "$stub_bin"
   claude_stub="$stub_bin/claude"
   claude_env="$run_dir/tend-claude-env"

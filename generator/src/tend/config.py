@@ -47,7 +47,6 @@ KNOWN_TOP_LEVEL = {
     "secrets",
     "setup",
     "sandbox_env",
-    "sandbox_path",
     "workflows",
 }
 KNOWN_HARNESSES = {"claude", "codex"}
@@ -87,6 +86,33 @@ REMOVED_SECRETS_KEYS = {
     "anthropic_api_key": ANTHROPIC_API_KEY_SECRET,
     "openai_key": OPENAI_KEY_SECRET,
 }
+# Removed top-level keys, each with the migration. Refused rather than warned
+# past as unknown: every one changed what a run does, so a config still carrying
+# it would silently do something else.
+REMOVED_TOP_LEVEL = {
+    "enabled": (
+        "Top-level `enabled` was removed; pausing is now the "
+        "TEND_ENABLED repository variable. To keep tend paused, run "
+        "`gh variable set TEND_ENABLED --body false` before removing "
+        "the key."
+    ),
+    "sandbox_setup": (
+        "`sandbox_setup` was removed: the agent now works in the job's "
+        "own checkout and home, so what `setup:` builds reaches it. Move "
+        "each command into `setup:` as a `run:` step (e.g. "
+        "`- run: rustup component add clippy`) and delete the key. "
+        "`setup:` runs on reviewed code; what a pull request itself "
+        "changes, such as a new dependency in its lockfile, the agent "
+        "installs in the session."
+    ),
+    "sandbox_path": (
+        "`sandbox_path` was removed: the agent now runs with the job's own "
+        "PATH, so a directory a `setup:` step adds reaches it. Add each "
+        "directory in a `setup:` step (e.g. "
+        '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`) and delete '
+        "the key."
+    ),
+}
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 # POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -95,8 +121,8 @@ _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # credential isolation and routing — letting a consumer override them (via a
 # committed config, but also as a defense against a hand-edited workflow) could
 # redirect the agent's traffic off the injecting proxy or clobber the dummy
-# credentials the proxy swaps for the real secrets. `PATH` is reserved too:
-# use `sandbox_path` (which prepends to the fixed base) instead of replacing it.
+# credentials the proxy swaps for the real secrets. `PATH` is reserved too: the
+# agent's PATH is the job's, which a `setup:` step extends through $GITHUB_PATH.
 # Kept in sync with RESERVED_SANDBOX_ENV in proxy/setup_sandbox.py — the
 # `sandbox-env-reserved-parity` pre-commit hook fails the commit on drift.
 RESERVED_SANDBOX_ENV = {
@@ -236,10 +262,8 @@ class Config:
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
-    # Consumer levers applied to the agent's launch inside either harness's
-    # sandbox. `sandbox_path` prepends dirs to the sandbox PATH; `sandbox_env`
-    # adds NAME=VALUE pairs to the agent's launch env.
-    sandbox_path: list[str] = field(default_factory=list)
+    # NAME=VALUE pairs laid over the agent's launch env inside either harness's
+    # sandbox, and over nothing a runner step sees.
     sandbox_env: dict[str, str] = field(default_factory=dict)
     # Opt-in experiment that persists Claude Code's model-authored auto memory
     # in a bot-owned secret Gist. The Gist ID stays in a fixed environment
@@ -320,27 +344,9 @@ class Config:
         if not isinstance(memory_gist, bool):
             raise click.ClickException("memory_gist must be true or false")
 
-        # Refused rather than warned past as unknown: a config that paused tend
-        # would otherwise regenerate running workflows.
-        if "enabled" in raw:
-            raise click.ClickException(
-                "Top-level `enabled` was removed; pausing is now the "
-                "TEND_ENABLED repository variable. To keep tend paused, run "
-                "`gh variable set TEND_ENABLED --body false` before removing "
-                "the key."
-            )
-        # Refused rather than warned past: dropped silently, the commands
-        # would stop running and the agent would start without what they built.
-        if "sandbox_setup" in raw:
-            raise click.ClickException(
-                "`sandbox_setup` was removed: the agent now works in the job's "
-                "own checkout and home, so what `setup:` builds reaches it. Move "
-                "each command into `setup:` as a `run:` step (e.g. "
-                "`- run: rustup component add clippy`) and delete the key. "
-                "`setup:` runs on reviewed code; what a pull request itself "
-                "changes, such as a new dependency in its lockfile, the agent "
-                "installs in the session."
-            )
+        for key, migration in REMOVED_TOP_LEVEL.items():
+            if key in raw:
+                raise click.ClickException(migration)
 
         unknown = set(raw.keys()) - KNOWN_TOP_LEVEL
         for key in sorted(unknown):
@@ -418,23 +424,6 @@ class Config:
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
 
-        sandbox_path = raw.get("sandbox_path", []) or []
-        if not isinstance(sandbox_path, list) or not all(
-            isinstance(d, str) and d for d in sandbox_path
-        ):
-            raise click.ClickException(
-                "sandbox_path must be a list of non-empty strings "
-                '(e.g. sandbox_path: ["~/.cargo/bin"]); '
-                "`~` expands to the sandbox home"
-            )
-        # A newline in a dir would drop an un-indented continuation line into
-        # the rendered `|` block scalar (which has no indent() filter),
-        # terminating it and breaking the workflow — fail at `init` instead.
-        if any("\n" in d for d in sandbox_path):
-            raise click.ClickException(
-                "sandbox_path entries must each be a single line"
-            )
-
         sandbox_env_raw = raw.get("sandbox_env", {}) or {}
         if not isinstance(sandbox_env_raw, dict):
             raise click.ClickException(
@@ -451,7 +440,8 @@ class Config:
                 )
             if name in RESERVED_SANDBOX_ENV:
                 hint = (
-                    " Use `sandbox_path` to extend PATH."
+                    " The agent runs with the job's PATH; extend it from a "
+                    '`setup:` step with `echo DIR >> "$GITHUB_PATH"`.'
                     if name == "PATH"
                     else " It carries the sandbox's credential isolation and "
                     "cannot be overridden."
@@ -680,7 +670,6 @@ class Config:
             effort=effort,
             args=args,
             setup=setup,
-            sandbox_path=sandbox_path,
             sandbox_env=sandbox_env,
             memory_gist=memory_gist,
             workflows=workflows,

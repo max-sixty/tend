@@ -36,32 +36,20 @@ def _paths(tmp_path: Path) -> setup_sandbox.Paths:
     )
 
 
-def test_configured_path_expands_the_sandbox_home() -> None:
-    assert setup_sandbox.configured_paths("~\n~/.local/bin\n/opt/tools") == [
-        str(setup_sandbox.AGENT_HOME),
-        str(setup_sandbox.AGENT_HOME / ".local/bin"),
-        "/opt/tools",
-    ]
-
-
 def test_agent_path_carries_the_job_path_entry_for_entry() -> None:
     job_path = "/home/runner/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
 
-    entries = setup_sandbox.agent_path(
-        runner_tool_path=job_path, extras=["/opt/consumer/bin"]
-    )
+    entries = setup_sandbox.agent_path(job_path)
 
-    assert entries[0] == "/opt/consumer/bin"
-    assert entries[1] == str(setup_sandbox.AGENT_HOME / ".local/bin")
+    # Where the Claude binary installs.
+    assert entries[0] == str(setup_sandbox.AGENT_HOME / ".local/bin")
     assert "/home/runner/.cargo/bin" in entries
     # Last, so a version the consumer installed stays selected.
     assert entries[-1] == str(setup_sandbox.TEND_AGENT_UV_DIR)
 
 
 def test_agent_path_never_repeats_an_entry() -> None:
-    entries = setup_sandbox.agent_path(
-        runner_tool_path="/usr/bin:/usr/bin:/bin", extras=["/usr/bin"]
-    )
+    entries = setup_sandbox.agent_path("/usr/bin:/usr/bin:/bin")
 
     assert entries.count("/usr/bin") == 1
 

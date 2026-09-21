@@ -983,24 +983,21 @@ def test_workflow_extra_delete_with_null(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sandbox levers (sandbox_path / sandbox_env)
+# sandbox_env
 # ---------------------------------------------------------------------------
 
 
-def test_sandbox_levers_parsed(tmp_path: Path) -> None:
+def test_sandbox_env_parsed(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,
         dedent("""\
         bot_name: my-bot
-        sandbox_path:
-          - ~/.cargo/bin
         sandbox_env:
           RUST_BACKTRACE: "1"
           CARGO_TERM_COLOR: always
     """),
     )
     cfg = Config.load(path)
-    assert cfg.sandbox_path == ["~/.cargo/bin"]
     # Scalar `1` coerces to its string form for the NAME=VALUE env line.
     assert cfg.sandbox_env == {"RUST_BACKTRACE": "1", "CARGO_TERM_COLOR": "always"}
 
@@ -1044,19 +1041,6 @@ def test_sandbox_env_newline_value_rejected(tmp_path: Path) -> None:
     """),
     )
     with pytest.raises(ClickException, match="must be a single line"):
-        Config.load(path)
-
-
-def test_sandbox_path_newline_rejected(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        sandbox_path:
-          - "~/.cargo/bin\\n~/evil"
-    """),
-    )
-    with pytest.raises(ClickException, match="single line"):
         Config.load(path)
 
 
@@ -1104,7 +1088,7 @@ def test_sandbox_env_github_namespace_rejected_at_init(tmp_path: Path) -> None:
         Config.load(path)
 
 
-def test_sandbox_env_path_rejected_points_to_sandbox_path(tmp_path: Path) -> None:
+def test_sandbox_env_path_rejected_points_to_github_path(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,
         dedent("""\
@@ -1113,7 +1097,7 @@ def test_sandbox_env_path_rejected_points_to_sandbox_path(tmp_path: Path) -> Non
           PATH: /whatever
     """),
     )
-    with pytest.raises(ClickException, match="sandbox_path"):
+    with pytest.raises(ClickException, match="GITHUB_PATH"):
         Config.load(path)
 
 
@@ -1130,30 +1114,27 @@ def test_sandbox_env_invalid_name_rejected(tmp_path: Path) -> None:
         Config.load(path)
 
 
-def test_sandbox_path_non_list_rejected(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        "bot_name: my-bot\nsandbox_path: ~/.cargo/bin\n",
-    )
-    with pytest.raises(ClickException, match="sandbox_path must be a list"):
-        Config.load(path)
-
-
-def test_removed_sandbox_setup_is_refused_with_the_migration(tmp_path: Path) -> None:
-    """Warned past as unknown, its commands would silently stop running.
+@pytest.mark.parametrize(
+    ("key", "migration"),
+    [
+        ("sandbox_setup", "`- run: rustup component add clippy`"),
+        ("sandbox_path", '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`'),
+    ],
+)
+def test_a_removed_sandbox_key_is_refused_with_its_migration(
+    tmp_path: Path, key: str, migration: str
+) -> None:
+    """Warned past as unknown, the key would silently stop taking effect.
 
     Nightly regeneration reads this message inside an agent session, so it has
     to carry the whole fix.
     """
-    path = _write_config(
-        tmp_path,
-        "bot_name: my-bot\nsandbox_setup:\n  - rustup component add clippy\n",
-    )
+    path = _write_config(tmp_path, f"bot_name: my-bot\n{key}:\n  - value\n")
     with pytest.raises(ClickException) as refused:
         Config.load(path)
     message = refused.value.message
-    assert "`sandbox_setup` was removed" in message
-    assert "`- run: rustup component add clippy`" in message
+    assert f"`{key}` was removed" in message
+    assert migration in message
     assert "delete the key" in message
 
 

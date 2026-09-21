@@ -92,17 +92,12 @@ inputs:
       Pinned `uv` version. The credential-injection proxy always uses a private
       copy off $PATH. The agent gets a separate fallback after the consumer PATH,
       so a consumer-provided version stays selected.
-  sandbox_path:
-    default: ""
-    description: >-
-      Newline-separated directories prepended to the sandbox agent's PATH,
-      before the agent launches. A leading `~` expands to the sandbox home.
   sandbox_env:
     default: ""
     description: >-
       Newline-separated NAME=VALUE pairs added to the sandbox agent's launch
       environment. Reserved keys (proxy routing, CA trust, dummy credentials,
-      PATH) are rejected — use `sandbox_path` to extend PATH.
+      PATH) are rejected; the agent runs with the job's PATH.
   checkout_mode:
     default: "base"
     description: >-
@@ -263,9 +258,7 @@ runs:
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
-        # Consumer sandbox levers: PATH prepends and env additions, baked into
-        # the agent env file.
-        TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
+        # The consumer's agent-only environment, baked into the agent env file.
         TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
       run: |
         set +x
@@ -288,7 +281,6 @@ runs:
           UV_CACHE_DIR="$UV_CACHE_DIR" \
           UV_NO_CONFIG=1 \
           PYTHONNOUSERSITE=1 \
-          TEND_SANDBOX_PATH="$TEND_SANDBOX_PATH" \
           TEND_SANDBOX_ENV="$TEND_SANDBOX_ENV" \
           "${TEND_UV_DIR}/uv" run --no-cache --no-config \
             --no-python-downloads --python /usr/bin/python3 --script \

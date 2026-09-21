@@ -355,9 +355,6 @@ jobs:
           model: opus
           checkout_mode: mention
           base_branch: ${{ github.event.repository.default_branch }}
-          sandbox_path: |2
-            ~/.cargo/bin
-            /opt/tools/bin
           sandbox_env: |2
             RUST_BACKTRACE=1
             CARGO_TERM_COLOR=always
