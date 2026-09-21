@@ -1080,20 +1080,25 @@ def test_setup_before_pr_checkout_in_mention(tmp_path: Path) -> None:
 
 def test_mention_handle_has_queue_delay(tmp_path: Path) -> None:
     """Handle job computes queue delay so the prompt can detect stale triggers."""
-    cfg = Config.load(_minimal_config(tmp_path))
-    workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    mention = workflows["tend-mention.yaml"]
-    data = yaml.safe_load(mention.content)
-    handle_steps = data["jobs"]["handle"]["steps"]
+    cfg = Config.load(_minimal_config(tmp_path, "setup:\n  - run: sleep 0\n"))
+    mention = generate_mention(cfg)
+    handle_steps = yaml.safe_load(mention.content)["jobs"]["handle"]["steps"]
     delay_steps = [s for s in handle_steps if s.get("id") == "delay"]
     assert len(delay_steps) == 1, "handle job must have a queue delay step"
     assert "steps.delay.outputs.seconds" in mention.content, (
         "prompt must reference queue delay"
     )
-    # Delay step must come before the tend action (output must be available)
-    delay_idx = mention.content.index("Compute queue delay")
-    tend_idx = mention.content.index(f"max-sixty/tend/claude@{ACTION_VERSION}")
-    assert delay_idx < tend_idx, "delay step must precede tend action"
+    # Ahead of checkout and `setup:`: the delay measures the wait for the job
+    # to start, and anything before it reaches the agent as queue time.
+    delay_idx = handle_steps.index(delay_steps[0])
+    checkout_idx = next(
+        i
+        for i, s in enumerate(handle_steps)
+        if s.get("uses", "").startswith("actions/checkout@")
+    )
+    setup_idx = next(i for i, s in enumerate(handle_steps) if s.get("run") == "sleep 0")
+    assert delay_idx < checkout_idx, "delay step must precede checkout"
+    assert delay_idx < setup_idx, "delay step must precede setup"
 
 
 def test_mention_queue_delay_guards_empty_event_ts(tmp_path: Path) -> None:
