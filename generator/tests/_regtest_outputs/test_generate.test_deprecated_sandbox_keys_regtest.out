@@ -245,8 +245,14 @@ jobs:
           fetch-tags: true
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: ./.github/actions/tend-setup
         if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
+      - uses: astral-sh/setup-uv@v10.1.0
+        name: Install uv for sandbox_setup
+        if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
+        with:
+          version: "0.12.17"
+          enable-cache: false
       - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
         if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
       - run: echo "/opt/tools/bin" >> "$GITHUB_PATH"

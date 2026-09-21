@@ -7,7 +7,7 @@ from textwrap import dedent
 
 import pytest
 from click import ClickException
-from tend.config import BOT_TOKEN_SECRET, Config
+from tend.config import BOT_TOKEN_SECRET, SETUP_UV_ACTION, UV_VERSION, Config
 from tend.workflows import generate_all
 
 from tests import _yaml as yaml
@@ -1140,6 +1140,12 @@ def test_deprecated_sandbox_keys_warn_and_become_setup_steps(
 
     assert [step.fields for step in cfg.setup] == [
         {"run": "echo consumer"},
+        # `sandbox_setup` had tend's uv fallback on PATH; no setup step here does.
+        {
+            "uses": SETUP_UV_ACTION,
+            "name": "Install uv for sandbox_setup",
+            "with": {"version": UV_VERSION, "enable-cache": False},
+        },
         {"run": 'echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"'},
         {"run": 'echo "/opt/tools/bin" >> "$GITHUB_PATH"'},
         {"run": "rustup component add clippy", "shell": "bash"},
@@ -1150,6 +1156,25 @@ def test_deprecated_sandbox_keys_warn_and_become_setup_steps(
     assert "`sandbox_path` is deprecated" in warned
     assert '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`' in warned
     assert "unknown config key" not in warned
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        # The consumer's own uv stays the one on PATH.
+        "setup:\n  - uses: astral-sh/setup-uv@v7\nsandbox_setup:\n  - uv sync\n",
+        # Nothing to run, so nothing to install uv for.
+        "sandbox_path:\n  - /opt/tools/bin\n",
+    ],
+)
+def test_migration_adds_no_uv_where_nothing_needs_one(
+    tmp_path: Path, extra: str
+) -> None:
+    cfg = Config.load(_write_config(tmp_path, f"bot_name: my-bot\n{extra}"))
+
+    assert [step.fields["uses"] for step in cfg.setup if "uses" in step.fields] == [
+        "astral-sh/setup-uv@v7"
+    ] * ("setup:" in extra)
 
 
 def test_deprecated_sandbox_setup_must_be_a_list(tmp_path: Path) -> None:

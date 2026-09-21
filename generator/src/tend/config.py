@@ -8,6 +8,7 @@ from pathlib import Path
 
 import click
 from ruamel.yaml import YAML, YAMLError
+from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 # ruamel.yaml parses YAML 1.2 by default, which fixes PyYAML's `on:` → True
 # trap and the Norway problem (yes/no/on/off coerced to bool).
@@ -89,6 +90,12 @@ REMOVED_SECRETS_KEYS = {
     "anthropic_api_key": ANTHROPIC_API_KEY_SECRET,
     "openai_key": OPENAI_KEY_SECRET,
 }
+# The uv tend installs, and the action that installs it in a workflow: the one
+# pin behind tend's own script steps and the deprecated-`sandbox_setup`
+# migration. `test_repo_pins` holds the version to both harness actions'
+# `uv_version` default, which is also the agent's fallback.
+UV_VERSION = "0.12.17"
+SETUP_UV_ACTION = "astral-sh/setup-uv@v10.1.0"
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 # POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -173,7 +180,7 @@ def _deprecated_list(raw: dict, key: str) -> list[str]:
     return values
 
 
-def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
+def _migrated_sandbox_steps(raw: dict, setup: list[SetupStep]) -> list[SetupStep]:
     """`setup:` steps doing what the deprecated `sandbox_path`/`sandbox_setup` did.
 
     Both existed to reach an agent with its own home and checkout. Under the
@@ -183,7 +190,10 @@ def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
     since `sandbox_setup` ran with the `sandbox_path` directories on PATH. A
     leading `~` named the sandbox's home, which under the view is the job's
     `$HOME`. Each command keeps its own step, under the `-eo pipefail` shell it
-    ran in.
+    ran in. `sandbox_setup` also ran with tend's `uv` fallback on PATH, which a
+    runner step lacks, so tend's pinned `uv` goes first unless one of the
+    consumer's own steps is `astral-sh/setup-uv`; a composite that installs uv
+    inside it gets a second, harmless one.
 
     Warned about rather than refused, at the maintainer's call and against the
     no-backward-compatibility rule in CLAUDE.md, so that nothing breaks in a
@@ -194,6 +204,24 @@ def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
     """
     steps: list[SetupStep] = []
     paths = _deprecated_list(raw, "sandbox_path")
+    commands = _deprecated_list(raw, "sandbox_setup")
+    setup_uv = SETUP_UV_ACTION.split("@", 1)[0] + "@"
+    if commands and not any(
+        str(step.fields.get("uses", "")).startswith(setup_uv) for step in setup
+    ):
+        steps.append(
+            SetupStep(
+                fields={
+                    "uses": SETUP_UV_ACTION,
+                    "name": "Install uv for sandbox_setup",
+                    # Quoted, or a version like `0.10` would reach YAML as a float.
+                    "with": {
+                        "version": DoubleQuotedScalarString(UV_VERSION),
+                        "enable-cache": False,
+                    },
+                }
+            )
+        )
     if paths:
         click.echo(
             "Warning: `sandbox_path` is deprecated and will be refused in a "
@@ -209,18 +237,18 @@ def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
         if directory == "~" or directory.startswith("~/"):
             directory = "$HOME" + directory[1:]
         steps.append(SetupStep(fields={"run": f'echo "{directory}" >> "$GITHUB_PATH"'}))
-    commands = _deprecated_list(raw, "sandbox_setup")
     if commands:
         click.echo(
             "Warning: `sandbox_setup` is deprecated and will be refused in a "
             "later release. The agent now works in the job's own checkout "
             "and home, so what `setup:` builds reaches it; its commands run "
-            "as `setup:` steps after yours for now, as the runner and before "
-            "tend installs its own `uv` fallback. Move each into `setup:` as "
-            "a `run:` step (e.g. `- run: rustup component add clippy`) and "
-            "delete the key. `setup:` runs on reviewed code; what a pull "
-            "request itself changes, such as a new dependency in its "
-            "lockfile, the agent installs in the session.",
+            "as `setup:` steps after yours for now, as the runner, after an "
+            "`astral-sh/setup-uv` step when your `setup:` has none. Move each "
+            "into `setup:` as a `run:` step (e.g. "
+            "`- run: rustup component add clippy`), with `astral-sh/setup-uv` "
+            "before any that calls `uv`, and delete the key. `setup:` runs on "
+            "reviewed code; what a pull request itself changes, such as a new "
+            "dependency in its lockfile, the agent installs in the session.",
             err=True,
         )
     steps.extend(
@@ -470,7 +498,7 @@ class Config:
                     )
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
-        setup.extend(_migrated_sandbox_steps(raw))
+        setup.extend(_migrated_sandbox_steps(raw, setup))
 
         sandbox_env_raw = raw.get("sandbox_env", {}) or {}
         if not isinstance(sandbox_env_raw, dict):
