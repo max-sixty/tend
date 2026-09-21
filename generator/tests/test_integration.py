@@ -575,15 +575,18 @@ def _fake_gh_all_pass(*args: str, **kwargs: str) -> subprocess.CompletedProcess[
     if url == "repos/owner/repo" and ".default_branch" in args:
         return _make_completed("main\n")
     if "rules/branches" in url:
+        # `--paginate --slurp`: an array of pages, here one.
         return _make_completed(
             json.dumps(
                 [
-                    {
-                        "type": "update",
-                        "ruleset_id": 1,
-                        "ruleset_source_type": "Repository",
-                        "ruleset_source": "owner/repo",
-                    }
+                    [
+                        {
+                            "type": "update",
+                            "ruleset_id": 1,
+                            "ruleset_source_type": "Repository",
+                            "ruleset_source": "owner/repo",
+                        }
+                    ]
                 ]
             )
         )

@@ -12,9 +12,9 @@ Each consumer repo should document its specific configuration (admin accounts,
 token names, protected environments) in its own
 `.claude/skills/running-tend/SKILL.md`, the consumer-owned overlay the rest of
 the docs name. Not a `docs/agent-notes.md` of its own: PR instruction
-pinning covers `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.claude/`, and
-`.agents/` at any depth under both harnesses
-(`shared/steps/restore-sensitive-config.sh`), so notes parked outside those
+pinning covers `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`,
+`AGENTS.override.md`, `.claude/`, and `.agents/` at any depth under both
+harnesses (`shared/steps/restore-sensitive-config.sh`), so notes parked outside those
 paths are read from the PR's own tree.
 
 ## Threats
@@ -79,14 +79,19 @@ now. Turning the setting off is therefore invisible to the nightly run until
 the repository publishes again — at which point the check fails. Closing that
 window takes an admin-run `tend check`.
 
-**Merge restriction.** A GitHub ruleset (or branch protection) prevents the
-bot from merging to protected branches (the default branch plus any in
-`protected_branches`) regardless of review status. The composite action's
-preflight verifies this as the bot itself: `current_user_can_bypass` on
-each applying ruleset is GitHub's own evaluation of the bot's standing —
-teams, custom roles, and org-level rulesets included — and the run aborts
-if the bot can bypass every restrict-updates ruleset, or if the branch is
-unprotected entirely.
+**Merge restriction.** A restrict-updates ruleset whose bypass list stops
+above write keeps the bot from updating the protected branches (the default
+branch plus any in `protected_branches`), so it cannot merge, whatever the
+review status. Branch protection that requires reviews does not qualify: the
+bot holds write, so its own approval counts on a pull request someone else
+opened, and it can then merge that pull request. The composite action's
+preflight verifies the ruleset as the bot itself: `current_user_can_bypass`
+on each applying ruleset is GitHub's own evaluation of the bot's standing —
+teams, custom roles, and org-level rulesets included — and the run aborts if
+no restrict-updates ruleset applies or the bot can bypass every one. Only
+when GitHub will not answer, because the rules listing or every ruleset in it
+is unreadable, does the preflight settle for the branch being protected at
+all.
 
 **Environment-gated secrets.** A job that names a GitHub Environment runs
 only if the run's `GITHUB_REF` matches the environment's deployment branch
@@ -409,10 +414,10 @@ trust any third-party action's publisher; pinning to `X.Y.Z` (or a commit
 SHA) bounds that trust to a reviewed, immutable point.
 
 **Config pinning.** Before the agent starts, both harnesses restore every
-`CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.claude/`, and `.agents/` at any
-depth from the PR base branch. Their CLIs load nearby instruction files and
-skills from those directories. Both harnesses also restore RCE-relevant config
-at the root: `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, and
+`CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md`, `.claude/`,
+and `.agents/` at any depth from the PR base branch. Their CLIs load nearby
+instruction files and skills from those directories. Both harnesses also
+restore RCE-relevant config at the root: `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, and
 `.husky`. A malicious PR's `SessionStart` hook, MCP server, or injected skill
 is reverted before an agent reads it. The restoration is
 `git restore --source=<exact base commit>` in shell:
@@ -548,12 +553,15 @@ that tend-mention's relay uses — both start only the default branch's
 reviewed workflow files, with the engagement checks applied to the record
 GitHub holds rather than to the payload.
 
-**Data exfiltration via side channels.** An attacker who gets code execution
-can exfiltrate repository contents and agent-visible context via DNS queries,
-HTTP requests to an external server, or workflow logs. The unit's network
-namespace removes direct network access, but Tend's credential proxy currently
-tunnels arbitrary destinations because the agent needs general package and
-GitHub access; destination allowlisting is deferred. Credential isolation keeps the PAT and API
+**Data exfiltration.** An attacker who gets code execution can send
+repository contents and anything else the agent can read to a server of their
+choosing, or publish it through what the run leaves behind: the workflow log,
+the job summary, the uploaded session logs, or a post to GitHub as the bot.
+The unit's network namespace removes direct network access, DNS included, but
+Tend's credential proxy connects to any host the agent names, the runner's
+loopback included, because the agent needs general package and GitHub access;
+destination allowlisting is deferred.
+Credential isolation keeps the PAT and API
 credentials out of what a hijacked session can send. A Codex subscription
 session can send its expiring access token, but it never receives the rotating
 refresh token or the PAT that rewrites environment secrets.

@@ -47,6 +47,7 @@ _BASE = {
     "docs/CLAUDE.md": "docs instructions\n",
     "docs/CLAUDE.local.md": "docs local instructions\n",
     "nested/AGENTS.md": "nested instructions\n",
+    "services/AGENTS.override.md": "services override\n",
     "tools/CLAUDE.md": "tools instructions\n",
     "moved/CLAUDE.md": "moved instructions\n",
     "apps/api/.agents/skills/deploy/SKILL.md": "api skill\n",
@@ -155,6 +156,8 @@ def _tampered_checkout(tmp_path: Path) -> tuple[Path, Path, Path]:
         _write(repo / ".claude/skills/fork-only/SKILL.md", "EVIL\n")
         _write(repo / ".claude/escape", f"-> {outside / 'CLAUDE.md'}")
         _write(repo / "CLAUDE.local.md", "EVIL\n")
+        _write(repo / "AGENTS.override.md", "EVIL\n")
+        _write(repo / "services/AGENTS.override.md", "EVIL services\n")
         _write(repo / "site/CLAUDE.md", "EVIL site\n")
         shutil.rmtree(repo / "docs")
         _write(repo / "docs", f"-> {outside}")

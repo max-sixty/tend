@@ -140,24 +140,44 @@ on every `tend@latest init`.
 
 ## Security
 
-Tend gives an agent write access to a repository. The security model has seven
-layers:
+Tend gives an agent write access to a repository and points it at input anyone
+can write: pull requests, issues, comments. The design assumes a session can be
+hijacked, and bounds what a hijacked session can do: it cannot land code, and
+it cannot take the credentials it acts with beyond the end of the run. Merge
+restriction holds the first; credential isolation, the sandbox, and the
+environment gate together hold the second.
 
-**Merge restriction** is the primary boundary. A GitHub ruleset prevents the
-bot from merging to protected branches — bot-authored PRs require human
-approval. The bot proves this against itself on every run: preflight asks
-GitHub whether the bot's own credentials can bypass any ruleset covering the
-default branch (`current_user_can_bypass` — GitHub's evaluation, so teams,
-custom roles, and org-level rulesets are all accounted for) and refuses to
-start unless the answer is no. `tend check` verifies the setup;
-`tend check --fix` creates the ruleset.
+**Merge restriction** is the primary boundary. A GitHub ruleset lets only
+admins update protected branches, so the bot cannot merge anything, its own
+PRs included. Branch protection that requires reviews is not enough: the bot's
+own approval counts on a PR someone else opened. The bot proves the ruleset
+against itself on every run: preflight asks GitHub whether the bot's own
+credentials can bypass the restrict-updates rulesets covering the default
+branch (`current_user_can_bypass` — GitHub's evaluation, so teams, custom
+roles, and org-level rulesets are all accounted for) and refuses to start
+unless one answers no. `tend check` verifies the setup; `tend check --fix`
+creates the ruleset.
 
-**Immutable releases** lock the assets and tag of each release published
-after the setting is enabled. The body is not locked — a write-access actor
-can still edit an immutable release's notes. `tend check` requires the setting and
-`--fix` enables it before the next release. Reading the setting takes
-repository admin, so a run as the bot checks the newest release's own
-`immutable` flag instead.
+**Credential isolation** — the bot's GitHub token and the long-lived model
+credential never enter the agent's process. Tend's proxy on the runner holds
+the bot token and Claude's model credential, and adds each only to requests
+bound for its exact host. API-key Codex auth goes through OpenAI's proxy, which
+forwards only Responses API calls upstream. The agent holds placeholders,
+except that subscription-mode Codex receives an expiring access-only token,
+never the rotating refresh token. GitHub authentication applies to any
+repository the bot account can access, including repositories other than the
+one that started the run.
+
+**Sandbox** — both harnesses run the event checkout and the whole agent turn,
+including any build or test it runs from the event's code, as one process tree
+inside a hardened systemd unit, under a separate non-sudo user. The system is
+read-only, all network traffic goes through the credential proxy, and the
+agent cannot gain privileges, create namespaces, or see other users' processes.
+The proxy connects to any host but adds credentials only for GitHub and the
+model API. The agent works in a copy-on-write view of the job's checkout and
+home, so its writes never reach the job's own files, and the steps after it see
+the tree that setup left. Its own home sits outside the view, and on a
+self-hosted runner that home persists between jobs.
 
 **Environment-gated credentials** — a workflow the bot can cause to run
 reaches no credential: not the bot token, not the model auth, not a release
@@ -174,25 +194,19 @@ steers. It flags any repo-level secret not explicitly listed in
 `tend check --fix` creates the environment and sets its policy; moving the
 secrets into it stays manual — their values can't be read back.
 
-**Disposable execution boundary** — both harnesses run the event checkout and
-the whole agent turn as one process tree inside a hardened systemd unit, under
-a separate non-sudo user, in a copy-on-write view of the job's checkout and
-home. The runner's own checkout stays unchanged for setup and
-POST cleanup.
-Tend's exact-host proxy holds the bot token; Claude model auth uses the
-same mechanism, while API-key Codex auth uses OpenAI's proxy that forwards only
-Responses API calls upstream. The proxies authenticate the agent without
-placing the PAT or API credentials in its environment. Subscription-mode Codex
-instead receives an expiring access-only token, never the rotating refresh
-token. GitHub authentication applies to any repository the bot account can
-access, including repositories other than the one that started the run.
-
 **Config pinning** — before the agent starts, both harnesses restore every
-`CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.claude/`, and `.agents/` in the
-tree, at any depth, from the base branch. Both harnesses also restore
-`.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, and `.husky`, blocking
-startup-time code execution and prompt injection from a PR's own copy of these
-files.
+`CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md`, `.claude/`,
+and `.agents/` in the tree, at any depth, from the base branch. Both harnesses
+also restore `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, and
+`.husky`, blocking startup-time code execution and prompt injection from a PR's
+own copy of these files.
+
+**Immutable releases** lock the assets and tag of each release published
+after the setting is enabled. The body is not locked — a write-access actor
+can still edit an immutable release's notes. `tend check` requires the setting and
+`--fix` enables it before the next release. Reading the setting takes
+repository admin, so a run as the bot checks the newest release's own
+`immutable` flag instead.
 
 **Rate limiting** — Burst detection (10 PRs and 10 issues per 20 minutes,
 checked independently) and daily spike detection halt the bot before runaway

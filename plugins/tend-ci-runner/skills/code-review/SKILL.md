@@ -16,7 +16,7 @@ A structured, Tend-owned pass over a diff that returns ranked findings on every 
 
 If a target was passed (PR number, branch, ref range, path, or a free-form scope instruction), review that. Otherwise run `git diff @{upstream}...HEAD` (falling back to `git diff main...HEAD` or `git diff HEAD~1`); if there are uncommitted changes, or the range diff is empty, also run `git diff HEAD`. That unified diff is the review scope.
 
-Read the unique project instruction files that govern the changed code: root and nested `CLAUDE.md`, `CLAUDE.local.md`, and `AGENTS.md` files in directories that contain changed files. Read a symlinked source only once. Nested instructions apply only to files at or below their directory.
+Read the unique project instruction files that govern the changed code: root and nested `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, and `AGENTS.override.md` files in directories that contain changed files. Read a symlinked source only once. Nested instructions apply only to files at or below their directory.
 
 ## Phase 1 — Find candidates
 

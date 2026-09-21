@@ -6,12 +6,12 @@
 # Instruction files are trusted at any depth, not only the root.
 # Claude Code loads the CLAUDE.md, CLAUDE.local.md, or AGENTS.md nearest the
 # file the agent opens, and the skills under any directory's .claude/; Codex
-# reads the AGENTS.md beside the files it opens and discovers skills under
-# .agents/. So a fork's `site/CLAUDE.md` reaches the session as readily as a
+# reads the AGENTS.override.md, or failing that the AGENTS.md, beside the files
+# it opens, and discovers skills under .agents/. So a fork's `site/CLAUDE.md` reaches the session as readily as a
 # root one. The bare directory pathspecs catch a fork symlink planted at the
 # `.claude` or `.agents` component itself, which the contents globs can't match.
 # shellcheck disable=SC2034  # read by the sourcing scripts
-INSTRUCTION_PATHSPECS=(':(glob)**/CLAUDE.md' ':(glob)**/CLAUDE.local.md' ':(glob)**/AGENTS.md' ':(glob)**/.claude' ':(glob)**/.claude/**' ':(glob)**/.agents' ':(glob)**/.agents/**')
+INSTRUCTION_PATHSPECS=(':(glob)**/CLAUDE.md' ':(glob)**/CLAUDE.local.md' ':(glob)**/AGENTS.md' ':(glob)**/AGENTS.override.md' ':(glob)**/.claude' ':(glob)**/.claude/**' ':(glob)**/.agents' ':(glob)**/.agents/**')
 
 # pin_to_base <ref> <pathspec>... — make the worktree match <ref> for every
 # path the pathspecs cover. One `git restore --source` call does all of it: it

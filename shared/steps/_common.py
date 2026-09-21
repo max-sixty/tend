@@ -90,13 +90,17 @@ def gh_json(*args: str, input: str | None = None) -> Any:
     return json.loads(gh(*args, input=input))
 
 
+class UnexpectedShape(Exception):
+    """A ``gh`` read whose body parsed, but not into what the endpoint serves."""
+
+
 # What a `gh` read can fail with, for a step that tolerates one failing.
 # Catching the non-zero exit alone is not enough: a GitHub blip can answer a
-# request with an HTML error page under a 200, so `gh` exits zero and the parse
-# is what fails. The shell bodies got both for free — they read through
-# `gh --jq`, which made `gh` itself fail on an unparsable body, and their
-# `|| true` swallowed that too.
-GH_READ_FAILED = (subprocess.CalledProcessError, json.JSONDecodeError)
+# request with an HTML error page, or an error object, under a 200, so `gh`
+# exits zero and the parse or its shape is what fails. The shell bodies got
+# both for free — they read through `gh --jq`, which made `gh` itself fail on
+# an unparsable body, and their `|| true` swallowed that too.
+GH_READ_FAILED = (subprocess.CalledProcessError, json.JSONDecodeError, UnexpectedShape)
 
 
 def gh_paginated(path: str) -> list[Any]:
@@ -105,9 +109,13 @@ def gh_paginated(path: str) -> list[Any]:
     ``--paginate`` alone prints one JSON document per page, which is not a
     document; ``--slurp`` makes it the array of pages, flattened here. It also
     refuses ``--jq``, which is the point — the filtering stays in Python, where
-    a test sees the predicate rather than a jq string.
+    a test sees the predicate rather than a jq string. Anything but an array of
+    pages raises :class:`UnexpectedShape`: a short listing would read as an
+    answer.
     """
     pages = gh_json("api", "--paginate", "--slurp", path)
+    if not isinstance(pages, list) or not all(isinstance(p, list) for p in pages):
+        raise UnexpectedShape(f"{path}: not an array of pages")
     return [item for page in pages for item in page]
 
 

@@ -251,17 +251,12 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
         raise SystemExit(1)
 
     fixed_any = False
-    bp_fixable = [
-        r
-        for r in failures
-        if r.name.startswith("branch-protection:")
-        and "bot can still merge" in r.message
-    ]
+    bp_fixable = [r for r in failures if r.name.startswith("branch-protection:")]
     if bp_fixable:
         branches_desc = ", ".join(r.name.split(":", 1)[1] for r in bp_fixable)
         click.echo()
         click.echo(
-            f"Creating 'Merge access' ruleset — only admins can merge ({branches_desc})..."
+            f"Setting 'Merge access' ruleset — only admins can merge ({branches_desc})..."
         )
         fix_result = fix_branch_protection(repo, default_branch, cfg.protected_branches)
         _print_check_results([fix_result])

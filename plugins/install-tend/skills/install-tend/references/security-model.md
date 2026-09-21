@@ -15,8 +15,9 @@ every role that can bypass a ruleset. The merge half is re-proven on every
 run: preflight, holding the bot's own token, reads `current_user_can_bypass`
 on each ruleset covering the default branch — GitHub's evaluation of the
 bot's standing, teams and custom roles included — and aborts unless some
-restrict-updates ruleset answers `never` or the branch is otherwise
-protected.
+restrict-updates ruleset answers `never`. Branch protection that requires
+reviews does not count: the bot's own approval satisfies it on a pull request
+someone else opened.
 
 The two admin-gated operations are:
 
@@ -93,7 +94,8 @@ triggers were probed rather than inferred, is the source repo's
 `docs/security-model.md` linked above; install does not configure release
 secrets.
 
-The composite action refuses to start if the default branch is unprotected.
+The composite action refuses to start unless that ruleset covers the default
+branch.
 
 Everything else (config pinning, rate limiting, fixed prompts) is defense
 in depth.
