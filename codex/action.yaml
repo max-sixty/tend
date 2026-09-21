@@ -76,10 +76,6 @@ inputs:
     description: >-
       Newline-separated NAME=VALUE pairs added to the sandbox agent's launch
       environment. Credential and proxy-routing names are reserved.
-  sandbox_setup:
-    default: ""
-    description: >-
-      Shell commands run as the sandbox user after tools and plugins install.
   checkout_mode:
     default: "base"
     description: >-
@@ -395,7 +391,6 @@ runs:
         TEND_HARNESS: codex
         TEND_LIFECYCLE: ${{ github.action_path }}/../shared/steps/agent_lifecycle.py
         TEND_CODEX_RUNNER: ${{ github.action_path }}/runner.py
-        TEND_SANDBOX_SETUP: ${{ inputs.sandbox_setup }}
         ACTION_PATH: ${{ github.action_path }}/..
         # Read by shared/steps/event_checkout.py, inside the sandbox.
         TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}

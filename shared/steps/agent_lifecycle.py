@@ -1,4 +1,4 @@
-"""Run setup and one harness inside a single Sandbox Runtime boundary."""
+"""Check out the event's tree, then run one harness, inside one SRT boundary."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from pathlib import Path
 
 import _common
 import event_checkout
-import sandbox_setup
 
 
 def probe_view(workspace: Path) -> None:
@@ -108,13 +107,8 @@ def main() -> int:
     os.environ["TEND_INSIDE_SANDBOX"] = "1"
     configure_git(env["BOT_NAME"], env["BOT_ID"])
     event_checkout.main()
-    setup_code = sandbox_setup.main()
-    if setup_code:
-        return setup_code
 
     harness = os.environ.get("TEND_HARNESS", "")
-    if harness == "probe":
-        return 0
     if harness == "claude":
         import run_claude
 

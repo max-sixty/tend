@@ -423,6 +423,23 @@ def runner_home() -> Path:
     return Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
 
 
+def require_checkout_in_view(paths: Paths) -> None:
+    """Refuse a checkout the copy-on-write view cannot cover.
+
+    The view is an overlay of the runner account's home, so a checkout outside
+    it would be read-only to the agent, and the launch would fail later, in the
+    sandbox, on a probe that cannot say why.
+    """
+    if not paths.workspace.is_relative_to(paths.runner_home):
+        raise ValueError(
+            f"the job's checkout ({paths.workspace}) is outside the runner "
+            f"account's home ({paths.runner_home}). The agent works in the "
+            "checkout through a copy-on-write view of that home, so a "
+            "self-hosted runner whose work folder is elsewhere is not "
+            "supported yet; configure the runner's work folder under its home"
+        )
+
+
 def main() -> int:
     runner_tool_path = os.environ.pop(
         "TEND_RUNNER_TOOL_PATH", os.environ.get("PATH", "")
@@ -448,6 +465,7 @@ def main() -> int:
             github_env=required_path("GITHUB_ENV"),
             runner_home=runner_home(),
         )
+        require_checkout_in_view(paths)
     except ValueError as problem:
         return error(str(problem))
 

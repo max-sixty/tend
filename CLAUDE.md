@@ -65,11 +65,11 @@ Four pieces:
      scripts under `shared/steps/`.
 
    Both harness runners resolve the bot's numeric ID at runtime, run security
-   and rate-limit preflight, then select the event's topology, run
-   `sandbox_setup:` and the complete agent turn in one SRT process tree over a
-   copy-on-write view of the runner's home, reap it, and upload bounded session
-   logs. The generated workflow's checkout stays on reviewed code for setup and
-   local-action POST chains; nothing the agent writes reaches it.
+   and rate-limit preflight, then select the event's topology and run the
+   complete agent turn in one SRT process tree over a copy-on-write view of
+   the runner's home, reap it, and upload bounded session logs. The generated
+   workflow's checkout stays on reviewed code for setup and local-action POST
+   chains; nothing the agent writes reaches it.
 
    `max-sixty/tend/codex/refresh@X.Y.Z` is the Codex support action. A generated
    serialized workflow runs it weekly to rotate Plus/Pro credentials and
@@ -97,9 +97,10 @@ Four pieces:
    runs the agent checks the `TEND_ENABLED` repository variable in its `if:`.
 
 Generated workflows are standalone — full `steps:` jobs, not
-`workflow_call`. The generator owns the entire file. Trusted runner setup
-(system tools and Actions caches) is defined in `setup:`; dependency setup
-against the event tree is defined in `sandbox_setup:` and runs inside SRT.
+`workflow_call`. The generator owns the entire file. Setup (system tools,
+dependencies, Actions caches) is defined in `setup:` and runs on reviewed code;
+the agent sees what it built through the view, and installs whatever the
+event's own tree changes in the session.
 
 ## Structure
 
@@ -185,8 +186,7 @@ session runs the pin.
 | Permissions | Generator | generated workflow |
 | Checkout | Generator | generated workflow |
 | Composite action call | Generator | generated workflow |
-| Runner setup (system tools, Actions cache) | Consumer | `setup:` in `.config/tend.yaml` |
-| Event-tree setup (dependencies, generated files) | Consumer | `sandbox_setup:` in `.config/tend.yaml` |
+| Setup (system tools, dependencies, Actions cache) | Consumer | `setup:` in `.config/tend.yaml` |
 | Bot identity, auth config | Consumer | `.config/tend.yaml` |
 | Skills (generic) | Tend | `tend-ci-runner` plugin (marketplace) |
 | Skills (project-specific) | Consumer | `.claude/skills/` in their repo |
@@ -222,9 +222,8 @@ workflows:
 ```
 
 Workflow-level (`workflow_extra`) and job-level (`jobs.<name>`) overrides
-are supported; step-level is not — `setup:` handles trusted runner steps and
-`sandbox_setup:` handles event-workspace commands. No allowlist of override
-keys; unknown job names produce a warning.
+are supported; step-level is not — `setup:` handles injected steps. No
+allowlist of override keys; unknown job names produce a warning.
 
 When overrides are present, the generator renders the base template,
 parses it, merges the overrides, and re-serializes. Output YAML formatting

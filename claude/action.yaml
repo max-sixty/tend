@@ -97,24 +97,12 @@ inputs:
     description: >-
       Newline-separated directories prepended to the sandbox agent's PATH,
       before the agent launches. A leading `~` expands to the sandbox home.
-      Reaches a dir under the sandbox home, the checkout, or a system location.
-      Other runner-home entries are refused because that home may contain
-      credentials; use sandbox_setup for home-scoped installs.
   sandbox_env:
     default: ""
     description: >-
       Newline-separated NAME=VALUE pairs added to the sandbox agent's launch
       environment. Reserved keys (proxy routing, CA trust, dummy credentials,
       PATH) are rejected — use `sandbox_path` to extend PATH.
-  sandbox_setup:
-    default: ""
-    description: >-
-      Shell commands run as the sandbox user after the toolchain and plugins
-      install and before the agent runs, with the agent's launch env and the
-      workspace as cwd. For on-disk setup (installing a tool, warming a cache);
-      env-only tweaks don't persist — use sandbox_path/sandbox_env for those.
-      It is also how a tool that setup installed under the runner's home reaches
-      the agent: install it again here under the sandbox user's home.
   checkout_mode:
     default: "base"
     description: >-
@@ -276,7 +264,7 @@ runs:
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
         # Consumer sandbox levers: PATH prepends and env additions, baked into
-        # the agent env file. sandbox_setup (commands) runs in a later step.
+        # the agent env file.
         TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
         TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
       run: |
@@ -435,7 +423,6 @@ runs:
         SHOW_FULL_OUTPUT: ${{ inputs.show_full_output }}
         TEND_HARNESS: claude
         TEND_LIFECYCLE: ${{ github.action_path }}/../shared/steps/agent_lifecycle.py
-        TEND_SANDBOX_SETUP: ${{ inputs.sandbox_setup }}
         ACTION_PATH: ${{ github.action_path }}/..
         # Read by shared/steps/event_checkout.py, inside the sandbox.
         TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
@@ -517,7 +504,7 @@ runs:
 
     # Gate on the job being red, not on the agent step specifically. A dozen
     # steps run before the agent — the rate-limit preflight, auth validation,
-    # and proxy and sandbox build — while `sandbox_setup:` runs inside the same
+    # and proxy and sandbox build — while the event checkout runs inside the same
     # lifecycle step. Any of them failing strands the same work, so each needs to reach the outage
     # tracker. Keying on `steps.claude.outcome` meant a pre-agent failure went
     # out as a red run and nothing else; a rate-limit preflight abort held
@@ -529,8 +516,8 @@ runs:
     # after the security gate refused to let it operate there. Its failure is
     # also persistent — red until a human fixes branch protection, so an issue
     # titled "Bot temporarily unavailable" would collect a row per trigger —
-    # but that argument doesn't single it out: `Validate auth configured` and
-    # the consumer's `sandbox_setup:` fail the same way and stay in. Bounding
+    # but that argument doesn't single it out: `Validate auth configured` fails
+    # the same way and stays in. Bounding
     # that repeated append belongs in `report_failure.py`, where it covers
     # every such step at once (#859); enumerating more step ids here would go
     # stale as steps move.

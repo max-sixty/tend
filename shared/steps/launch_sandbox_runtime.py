@@ -44,7 +44,6 @@ RUNTIME_STEP_FILES = (
     "event_checkout.py",
     "run_claude.py",
     "sandbox_runtime.mjs",
-    "sandbox_setup.py",
 )
 #: Staged with the step bodies because `event_checkout` runs them inside SRT.
 RUNTIME_SHELL_FILES = (

@@ -157,6 +157,23 @@ def test_proxy_uvx_isolated_from_consumer_python_and_uv_configuration(
     assert command[-3:] == ["mitmproxy==1.2.3", "mitmdump", "--version"]
 
 
+def test_a_checkout_outside_the_runner_home_is_refused_by_name(
+    tmp_path: Path,
+) -> None:
+    """The view covers the home; a self-hosted work folder elsewhere is not."""
+    inside = _paths(tmp_path)
+    setup_sandbox.require_checkout_in_view(inside)
+
+    elsewhere = tmp_path / "opt/actions-runner/_work/repo/repo"
+    elsewhere.mkdir(parents=True)
+    outside = setup_sandbox.Paths(**{**vars(inside), "workspace": elsewhere.resolve()})
+    with pytest.raises(ValueError) as refused:
+        setup_sandbox.require_checkout_in_view(outside)
+    assert str(elsewhere.resolve()) in str(refused.value)
+    assert str(inside.runner_home) in str(refused.value)
+    assert "self-hosted" in str(refused.value)
+
+
 def test_runner_home_does_not_trust_an_empty_environment_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -983,7 +983,7 @@ def test_workflow_extra_delete_with_null(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sandbox levers (sandbox_path / sandbox_env / sandbox_setup)
+# Sandbox levers (sandbox_path / sandbox_env)
 # ---------------------------------------------------------------------------
 
 
@@ -997,15 +997,12 @@ def test_sandbox_levers_parsed(tmp_path: Path) -> None:
         sandbox_env:
           RUST_BACKTRACE: "1"
           CARGO_TERM_COLOR: always
-        sandbox_setup:
-          - rustup component add clippy
     """),
     )
     cfg = Config.load(path)
     assert cfg.sandbox_path == ["~/.cargo/bin"]
     # Scalar `1` coerces to its string form for the NAME=VALUE env line.
     assert cfg.sandbox_env == {"RUST_BACKTRACE": "1", "CARGO_TERM_COLOR": "always"}
-    assert cfg.sandbox_setup == ["rustup component add clippy"]
 
 
 def test_sandbox_env_coerces_scalar_value(tmp_path: Path) -> None:
@@ -1142,13 +1139,22 @@ def test_sandbox_path_non_list_rejected(tmp_path: Path) -> None:
         Config.load(path)
 
 
-def test_sandbox_setup_non_list_rejected(tmp_path: Path) -> None:
+def test_removed_sandbox_setup_is_refused_with_the_migration(tmp_path: Path) -> None:
+    """Warned past as unknown, its commands would silently stop running.
+
+    Nightly regeneration reads this message inside an agent session, so it has
+    to carry the whole fix.
+    """
     path = _write_config(
         tmp_path,
-        "bot_name: my-bot\nsandbox_setup: echo hi\n",
+        "bot_name: my-bot\nsandbox_setup:\n  - rustup component add clippy\n",
     )
-    with pytest.raises(ClickException, match="sandbox_setup must be a list"):
+    with pytest.raises(ClickException) as refused:
         Config.load(path)
+    message = refused.value.message
+    assert "`sandbox_setup` was removed" in message
+    assert "`- run: rustup component add clippy`" in message
+    assert "delete the key" in message
 
 
 def test_sandbox_levers_apply_to_codex(
@@ -1160,8 +1166,8 @@ def test_sandbox_levers_apply_to_codex(
         bot_name: my-bot
         harness: codex
         model: gpt-5.5
-        sandbox_setup:
-          - echo hi
+        sandbox_env:
+          RUST_BACKTRACE: "1"
     """),
     )
     Config.load(path)
@@ -1177,8 +1183,8 @@ def test_sandbox_levers_no_warn_with_claude_override(
         bot_name: my-bot
         harness: codex
         model: gpt-5.5
-        sandbox_setup:
-          - echo hi
+        sandbox_env:
+          RUST_BACKTRACE: "1"
         workflows:
           review:
             harness: claude

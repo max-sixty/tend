@@ -361,9 +361,6 @@ jobs:
           sandbox_env: |2
             RUST_BACKTRACE=1
             CARGO_TERM_COLOR=always
-          sandbox_setup: |2
-            rustup component add clippy
-            cargo fetch --locked
           prompt: >-
             ${{ steps.delay.outputs.seconds
             && format('This job started {0}s after the triggering event (over ~40s means it was queued). ',

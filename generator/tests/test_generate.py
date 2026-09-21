@@ -185,15 +185,13 @@ def test_generated_workflows_survive_the_whitespace_hooks(
 
 
 def test_sandbox_levers_rendered_for_claude(tmp_path: Path) -> None:
-    """sandbox_path/sandbox_env/sandbox_setup render as action inputs and the
-    workflow still parses; the values land under the agent step's `with:`."""
+    """sandbox_path/sandbox_env render as action inputs and the workflow still
+    parses; the values land under the agent step's `with:`."""
     extra = dedent("""\
         sandbox_path:
           - ~/.cargo/bin
         sandbox_env:
           RUST_BACKTRACE: "1"
-        sandbox_setup:
-          - rustup component add clippy
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = generate_mention(cfg)
@@ -208,7 +206,6 @@ def test_sandbox_levers_rendered_for_claude(tmp_path: Path) -> None:
     with_block = with_blocks[0]
     assert with_block["sandbox_path"].strip() == "~/.cargo/bin"
     assert with_block["sandbox_env"].strip() == "RUST_BACKTRACE=1"
-    assert with_block["sandbox_setup"].strip() == "rustup component add clippy"
 
 
 def _agent_step_inputs(content: str) -> list[set[str]]:
@@ -228,7 +225,7 @@ def _agent_step_inputs(content: str) -> list[set[str]]:
 
 
 def test_sandbox_levers_absent_by_default(tmp_path: Path) -> None:
-    levers = {"sandbox_path", "sandbox_env", "sandbox_setup"}
+    levers = {"sandbox_path", "sandbox_env"}
     cfg = Config.load(_minimal_config(tmp_path))
     for wf in generate_all(cfg):
         for inputs in _agent_step_inputs(wf.content):
@@ -654,16 +651,13 @@ def test_multi_line_prompt_generates_parseable_yaml(
         assert "${{ github.event." not in prompt
 
 
-@pytest.mark.parametrize("lever", ["sandbox_path", "sandbox_setup"])
-def test_sandbox_levers_survive_an_indented_first_line(
-    tmp_path: Path, lever: str
-) -> None:
-    """The `sandbox_*` inputs are consumer-supplied lists rendered into the same
-    block scalar as the prompt, and had the same bug: an entry whose first line
-    is indented made every later entry look like the end of the scalar. Only
-    `sandbox_env` is exempt, and only because it refuses a newline outright.
+def test_sandbox_path_survives_an_indented_first_line(tmp_path: Path) -> None:
+    """`sandbox_path` is a consumer-supplied list rendered into the same block
+    scalar as the prompt, and had the same bug: an entry whose first line is
+    indented made every later entry look like the end of the scalar.
+    `sandbox_env` is exempt only because it refuses a newline outright.
     """
-    extra = f'{lever}:\n  - "  indented entry"\n  - second entry\n'
+    extra = 'sandbox_path:\n  - "  indented entry"\n  - second entry\n'
     workflows = without_relay(
         generate_all(Config.load(_minimal_config(tmp_path, extra)))
     )
@@ -672,9 +666,9 @@ def test_sandbox_levers_survive_an_indented_first_line(
             s
             for job in yaml.safe_load(wf.content)["jobs"].values()
             for s in job["steps"]
-            if lever in s.get("with", {})
+            if "sandbox_path" in s.get("with", {})
         )
-        assert step["with"][lever] == "  indented entry\nsecond entry\n"
+        assert step["with"]["sandbox_path"] == "  indented entry\nsecond entry\n"
 
 
 def test_multi_line_prompt_survives_the_override_round_trip(tmp_path: Path) -> None:
@@ -1672,9 +1666,6 @@ def test_sandbox_levers_regtest(regtest: object, tmp_path: Path) -> None:
         sandbox_env:
           RUST_BACKTRACE: "1"
           CARGO_TERM_COLOR: always
-        sandbox_setup:
-          - rustup component add clippy
-          - cargo fetch --locked
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     print(generate_mention(cfg).content, end="", file=regtest)  # type: ignore[arg-type]

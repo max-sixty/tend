@@ -315,7 +315,10 @@ Each transition is a bottleneck with one job:
   reads what `setup:` left and writes wherever the runner could — a path only
   root can write is not one of them. Every write lands in the upper layer, so
   the runner's filesystem stays byte-for-byte what `setup:` left and no cleanup
-  step can fail open. The namespace dies with the process tree.
+  step can fail open. The namespace dies with the process tree. Because the
+  overlay is of the home, the job's checkout must sit inside it; the sandbox
+  setup step refuses a self-hosted work folder elsewhere by name rather than
+  letting the agent start on a checkout it cannot write.
 
   The idmap makes the agent the runner account for file permissions on that
   tree. **Anything `setup:` leaves readable in the runner's home or checkout is
@@ -352,11 +355,11 @@ Each transition is a bottleneck with one job:
   runtime directory under `/var/tmp`; the sandbox cannot write it. SRT mounts a
   private tmpfs over `/tmp`, so tooling that hard-codes a path there writes to
   a directory that dies with the sandbox.
-- **Launch and lifetime** invokes the consumer's `sandbox_setup:` and the whole
-  Claude or Codex turn as one command under the pinned Anthropic Sandbox
-  Runtime. Tend supplies absolute `node`, `bwrap`, `socat`, `rg`, and seccomp
-  paths, treats dependency warnings as fatal, and probes AF_UNIX denial and
-  the view (writable, masks empty) before setup executes. SRT's built-in write
+- **Launch and lifetime** invokes the event checkout and the whole Claude or
+  Codex turn as one command under the pinned Anthropic Sandbox Runtime. Tend
+  supplies absolute `node`, `bwrap`, `socat`, `rg`, and seccomp paths, treats
+  dependency warnings as fatal, and probes AF_UNIX denial and the view
+  (writable, masks empty) before anything from the event runs. SRT's built-in write
   protections (shell rc files, `.gitconfig`, `.git/hooks`, `.mcp.json`,
   `.claude/commands`, …) resolve against a directory outside every writable
   path, so they bind nothing: they stop an unsandboxed process from later
@@ -426,8 +429,8 @@ what it changed.
 user against the stable Actions checkout: the default branch, or in
 `tend-review` the PR's reviewed base. The PR's own tree reaches that checkout
 only inside the sandbox, so a contributor's build backend and dependencies
-execute only there, through `sandbox_setup:` or the agent itself, as the
-non-sudo sandbox user in the same SRT process lifetime.
+execute only there, when the agent builds or tests that tree, as the non-sudo
+sandbox user in the same SRT process lifetime.
 
 After SRT exits, the trusted supervisor kills and verifies the complete sandbox
 UID process tree, then copies only size-bounded fixed outputs. The next fixed

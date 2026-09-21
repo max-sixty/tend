@@ -46,7 +46,6 @@ KNOWN_TOP_LEVEL = {
     "protected_branches",
     "secrets",
     "setup",
-    "sandbox_setup",
     "sandbox_env",
     "sandbox_path",
     "workflows",
@@ -237,14 +236,11 @@ class Config:
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
-    # Consumer levers that reach inside either harness's sandbox, before the
-    # agent launches (runner-side `setup:` doesn't — it runs as the runner user
-    # around the composite action). `sandbox_path` prepends dirs to the sandbox
-    # PATH; `sandbox_env` adds NAME=VALUE pairs to the agent's launch env;
-    # `sandbox_setup` runs shell commands as the sandbox user.
+    # Consumer levers applied to the agent's launch inside either harness's
+    # sandbox. `sandbox_path` prepends dirs to the sandbox PATH; `sandbox_env`
+    # adds NAME=VALUE pairs to the agent's launch env.
     sandbox_path: list[str] = field(default_factory=list)
     sandbox_env: dict[str, str] = field(default_factory=dict)
-    sandbox_setup: list[str] = field(default_factory=list)
     # Opt-in experiment that persists Claude Code's model-authored auto memory
     # in a bot-owned secret Gist. The Gist ID stays in a fixed environment
     # secret so a public repository does not publish the unlisted URL.
@@ -332,6 +328,18 @@ class Config:
                 "TEND_ENABLED repository variable. To keep tend paused, run "
                 "`gh variable set TEND_ENABLED --body false` before removing "
                 "the key."
+            )
+        # Refused rather than warned past: dropped silently, the commands
+        # would stop running and the agent would start without what they built.
+        if "sandbox_setup" in raw:
+            raise click.ClickException(
+                "`sandbox_setup` was removed: the agent now works in the job's "
+                "own checkout and home, so what `setup:` builds reaches it. Move "
+                "each command into `setup:` as a `run:` step (e.g. "
+                "`- run: rustup component add clippy`) and delete the key. "
+                "`setup:` runs on reviewed code; what a pull request itself "
+                "changes, such as a new dependency in its lockfile, the agent "
+                "installs in the session."
             )
 
         unknown = set(raw.keys()) - KNOWN_TOP_LEVEL
@@ -486,15 +494,6 @@ class Config:
                     f"sandbox_env value for '{name}' must be a single line"
                 )
             sandbox_env[name] = coerced
-
-        sandbox_setup = raw.get("sandbox_setup", []) or []
-        if not isinstance(sandbox_setup, list) or not all(
-            isinstance(c, str) and c.strip() for c in sandbox_setup
-        ):
-            raise click.ClickException(
-                "sandbox_setup must be a list of non-empty shell command strings "
-                '(e.g. sandbox_setup: ["rustup component add clippy"])'
-            )
 
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in (raw.get("workflows") or {}).items():
@@ -683,7 +682,6 @@ class Config:
             setup=setup,
             sandbox_path=sandbox_path,
             sandbox_env=sandbox_env,
-            sandbox_setup=sandbox_setup,
             memory_gist=memory_gist,
             workflows=workflows,
             allowed_repo_secrets=allowed,

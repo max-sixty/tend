@@ -128,9 +128,10 @@ bot_name: my-project-bot
 # it from one entry with `uses`.
 #
 # Setup runs against reviewed code — the default branch, or in `tend-review`
-# the PR's base branch, checked out before the PR's own tree lands. Project
-# setup that must see the PR's manifests (installing its dependencies) goes in
-# `sandbox_setup:` below, which runs inside either harness's sandbox.
+# the PR's base branch, checked out before the PR's own tree lands. What it
+# builds reaches the agent (see "The agent's sandbox" below); what the PR itself
+# changes, such as a new dependency in its lockfile, the agent installs in the
+# session.
 #
 # `tend-notifications` decides up front whether the agent needs to boot and
 # injects an `if:` guard on every setup step so a run with no unread
@@ -189,7 +190,7 @@ bot_name: my-project-bot
 #     #     env:
 #     #       RUSTFLAGS: -D warnings
 
-# ## Sandbox setup (both harnesses)
+# ## The agent's sandbox (both harnesses)
 #
 # `setup:` above runs as the RUNNER user, around the composite action. The
 # agent then runs as a separate, non-sudo user inside Anthropic Sandbox
@@ -197,7 +198,15 @@ bot_name: my-project-bot
 # environment. It sees them through a copy-on-write view: what `setup:`
 # prepared (a toolchain, a warm cache) is there at its own path, the agent
 # writes wherever the runner itself could — a path only root can write is not
-# one of them — and nothing it writes reaches the runner or a later step.
+# one of them — and nothing it writes reaches the runner or a later step. The
+# sandbox's `/tmp` is its own RAM-backed tmpfs; write anything bulky under
+# `$TMPDIR`.
+#
+# The view covers the runner account's home, so the job's checkout has to sit
+# inside it, as it does on GitHub-hosted runners. A self-hosted runner whose
+# work folder is outside that home is not supported yet: the job fails in its
+# "Set up credential-isolation sandbox" step, naming both paths. Configuring
+# the runner's work folder under its home avoids it.
 #
 # So anything `setup:` leaves readable in the runner's home or checkout (a
 # registry login, a cloud credential file), and anything exported to
@@ -248,7 +257,7 @@ bot_name: my-project-bot
 #
 #   Every command the sandbox runs inherits these values, and on `tend-review`
 #   and on a mention on a pull request those commands include the pull request's
-#   own code: `sandbox_setup:` builds that tree before the agent starts. Tend's
+#   own code whenever the agent builds or tests that tree. Tend's
 #   own GitHub and model credentials never reach the sandbox — a runner-side
 #   proxy injects them into the requests that need them; the one exception is
 #   Codex under subscription auth, which receives an expiring access-only
@@ -268,32 +277,6 @@ bot_name: my-project-bot
 #
 #     sandbox_env:
 #       MY_TOKEN: ${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}
-#
-# - `sandbox_setup`: shell commands run as the sandbox user after the toolchain
-#   and plugins install and before the agent runs, with the checkout as cwd. It
-#   shares one SRT process lifetime with the agent. The checkout holds the PR's
-#   tree by then, so this is where installing the project's dependencies
-#   belongs (`uv sync`, `npm ci`). Env-only tweaks don't persist across the
-#   command's shell — use sandbox_path/sandbox_env. End installer commands by
-#   running the tool so a broken install fails before the agent starts:
-#
-#     sandbox_setup:
-#       - uv tool install pre-commit
-#       - pre-commit --version
-#
-#   One block runs for every workflow, and the commands see the same GitHub
-#   context the agent does — `$GITHUB_WORKFLOW`, `$GITHUB_EVENT_NAME`,
-#   `$GITHUB_REPOSITORY` and the rest of `GITHUB_*`, straight from Actions — so
-#   a command can scope itself to the workflows or events that need it.
-#   `$GITHUB_WORKFLOW` is the same string a `setup:` step matches with
-#   `if: github.workflow == '...'`, so a gated install and its assertion name
-#   the same workflows:
-#
-#     sandbox_setup:
-#       - 'if [ "$GITHUB_WORKFLOW" = tend-weekly ]; then nix --version; fi'
-#
-#   The sandbox's `/tmp` is its own RAM-backed tmpfs; write anything bulky
-#   under `$TMPDIR`.
 #
 # ## Memory Gist (experimental, Claude harness)
 #

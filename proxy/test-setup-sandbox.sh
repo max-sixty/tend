@@ -197,9 +197,9 @@ verify_refusals() {
 }
 
 verify_srt() {
-  local claude_argv claude_env claude_stub codex_argv codex_env codex_stub dummy_token
-  local github_output private_action probe_info probe_pid probe_port rc runner_summary
-  local runner_owned setup_commands setup_proxy stream_json tool_root run_dir stub_bin
+  local agent_proxy claude_argv claude_env claude_stub codex_argv codex_env codex_stub
+  local dummy_token github_output inside private_action probe_info probe_pid probe_port
+  local rc runner_owned runner_summary stream_json tool_root run_dir stub_bin
   github_output="$RUNNER_TEMP/srt-github-output"
   runner_summary="$RUNNER_TEMP/srt-step-summary"
   probe_info="$RUNNER_TEMP/srt-network-probe"
@@ -227,15 +227,6 @@ verify_srt() {
   claude_stub="$stub_bin/claude"
   claude_env="$run_dir/tend-claude-env"
   claude_argv="$run_dir/tend-claude-argv"
-  printf '%s\n' \
-    '#!/usr/bin/env bash' \
-    "env > '$claude_env'" \
-    "printf '%s\\n' \"\$@\" > '$claude_argv'" \
-    'sleep 300 &' \
-    'printf "%s\n" "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"stub turn\"}]}}"' \
-    'printf "%s\n" "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}"' \
-    | sudo -u "$SANDBOX" tee "$claude_stub" >/dev/null
-  sudo -u "$SANDBOX" chmod +x "$claude_stub"
 
   codex_stub="$stub_bin/codex-stub"
   codex_argv="$run_dir/tend-codex-argv"
@@ -308,9 +299,10 @@ PY
   # SRT re-binds its default write path whenever the launching namespace has
   # it; world-writable, so a bind would let the sandbox's write through.
   install -d -m 1777 /tmp/claude
-  # Asserted from inside, by the consumer's own `sandbox_setup:` hook.
-  setup_commands=$(printf '%s\n' \
-    'set -u' \
+  # Asserted from inside, by the Claude stub, which starts where the agent does:
+  # after the event checkout, in the lifecycle's environment and cwd. A failed
+  # assertion is the stub's exit code, which fails the launch below.
+  inside=$(printf '%s\n' \
     '# The job is the agent: same paths, same home, same PATH.' \
     'test "$PWD" = "$GITHUB_WORKSPACE"' \
     'test "$HOME" = "$TEND_RUNNER_HOME"' \
@@ -351,17 +343,30 @@ PY
     'mkdir -p /tmp/claude && touch /tmp/claude/tend-sandbox-wrote' \
     'touch "$TMPDIR/tend-scratch-probe"' \
     '# Hand the proof back outside the view, where the runner can read it.' \
-    "printf '%s\n' \"\$HTTP_PROXY\" > $run_dir/tend-setup-proxy" \
     "stat -c %u:%g \"\$TEND_RUNNER_HOME\" > $run_dir/tend-view-owner" \
     "git config --global user.email > $run_dir/tend-git-identity" \
     "test \"\$GITHUB_TOKEN\" = \"$dummy_token\"")
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    "$inside" \
+    "env > '$claude_env'" \
+    "printf '%s\\n' \"\$@\" > '$claude_argv'" \
+    'sleep 300 &' \
+    'printf "%s\n" "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"stub turn\"}]}}"' \
+    'printf "%s\n" "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}"' \
+    | sudo -u "$SANDBOX" tee "$claude_stub" >/dev/null
+  sudo -u "$SANDBOX" chmod +x "$claude_stub"
 
   rm -rf -- "$RUNNER_TEMP/tend-agent-export"
+  # A checkout without `.claude/`, as most consumers' are. Resolved against the
+  # checkout, SRT's `.claude/commands` protection mounted a read-only directory
+  # over the missing `.claude`, where `run_claude` writes its settings file.
+  mv "$GITHUB_WORKSPACE/.claude" "$RUNNER_TEMP/tend-claude-aside"
   rc=0
   ACTION_PATH="$private_action" \
     TEND_HARNESS=claude \
     TEND_LIFECYCLE="$private_action/shared/steps/agent_lifecycle.py" \
-    TEND_SANDBOX_SETUP="$setup_commands" \
     TEND_CHECKOUT_MODE=base \
     TEND_BASE_BRANCH="$BASE_BRANCH" \
     TEND_BOUNDARY_PROBE_URL="http://127.0.0.1:$probe_port/" \
@@ -379,6 +384,7 @@ PY
     GITHUB_STEP_SUMMARY="$runner_summary" \
     /usr/bin/python3 -E -s \
       "$TEND_TEST_ACTION_PATH/shared/steps/launch_sandbox_runtime.py" || rc=$?
+  mv "$RUNNER_TEMP/tend-claude-aside" "$GITHUB_WORKSPACE/.claude"
   test "$rc" -eq 0
   grep -qx 'sandbox_reaped=true' "$github_output"
   # The job's environment crossed in a file `enter_view` removed, not on the
@@ -411,10 +417,10 @@ PY
   test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$TEND_HOST_HEAD"
   test "$(sudo -u "$SANDBOX" cat "$run_dir/tend-git-identity")" = \
     "${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
-  setup_proxy=$(sudo -u "$SANDBOX" cat "$run_dir/tend-setup-proxy")
-  test -n "$setup_proxy"
-  test "$setup_proxy" != 'http://127.0.0.1:8899'
-  sudo -u "$SANDBOX" grep -qxF "HTTP_PROXY=$setup_proxy" "$claude_env"
+  # SRT's in-namespace listener, not the host proxy the runner reaches.
+  agent_proxy=$(sudo -u "$SANDBOX" sed -n 's/^HTTP_PROXY=//p' "$claude_env")
+  test -n "$agent_proxy"
+  test "$agent_proxy" != 'http://127.0.0.1:8899'
   sudo -u "$SANDBOX" grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$claude_env"
   sudo -u "$SANDBOX" grep -qxF "HOME=$HOME" "$claude_env"
   sudo -u "$SANDBOX" test -f /home/tend-sandbox/tmp/tend-scratch-probe
@@ -450,7 +456,6 @@ PY
     TEND_HARNESS=codex \
     TEND_LIFECYCLE="$private_action/shared/steps/agent_lifecycle.py" \
     TEND_CODEX_RUNNER="$private_action/codex/runner.py" \
-    TEND_SANDBOX_SETUP='' \
     TEND_CHECKOUT_MODE=base \
     TEND_BASE_BRANCH="$BASE_BRANCH" \
     TEND_BOUNDARY_PROBE_URL="http://127.0.0.1:$probe_port/" \
@@ -474,7 +479,7 @@ PY
     'tend-srt-network-ok'
   test "$(sudo -u "$SANDBOX" cat "$run_dir/tend-codex-local-network")" = \
     'tend-srt-local-ok'
-  sudo -u "$SANDBOX" grep -qxF "HTTP_PROXY=$setup_proxy" "$codex_env"
+  sudo -u "$SANDBOX" grep -qxF "HTTP_PROXY=$agent_proxy" "$codex_env"
   sudo -u "$SANDBOX" grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$codex_env"
   sudo -u "$SANDBOX" grep -qx 'NO_PROXY=' "$codex_env"
   sudo -u "$SANDBOX" grep -qx 'no_proxy=' "$codex_env"

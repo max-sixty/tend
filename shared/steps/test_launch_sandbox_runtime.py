@@ -23,7 +23,6 @@ RUNTIME_STEP_FILES = (
     "event_checkout.py",
     "run_claude.py",
     "sandbox_runtime.mjs",
-    "sandbox_setup.py",
     "restore-sensitive-config.sh",
     "lib/pin-instruction-paths.sh",
 )
@@ -204,8 +203,8 @@ def test_runtime_bundle_is_staged_outside_the_private_action(
     assert f"ACTION_PATH={bundle}" in entries
     assert f"TEND_LIFECYCLE={bundle / 'shared/steps/agent_lifecycle.py'}" in entries
     assert f"TEND_CODEX_RUNNER={bundle / 'codex/runner.py'}" in entries
-    assert (bundle / "shared/steps/sandbox_setup.py").read_text() == (
-        "sandbox_setup.py\n"
+    assert (bundle / "shared/steps/event_checkout.py").read_text() == (
+        "event_checkout.py\n"
     )
     assert (bundle / "shared/steps/lib/pin-instruction-paths.sh").read_text() == (
         "lib/pin-instruction-paths.sh\n"
