@@ -368,13 +368,16 @@ it cannot support.
 
 ```bash
 login_blobs() { gh api "repos/openai/codex/git/trees/$1?recursive=1" \
-  --jq '.tree[] | select(.type == "blob" and (.path | startswith("codex-rs/login/"))) | "\(.sha) \(.path)"' | sort; }
+  --jq '.tree[] | select(.type == "blob" and (.path | startswith("codex-rs/login/"))) | "\(.path) \(.sha)"' | sort; }
 diff <(login_blobs rust-v<old>) <(login_blobs rust-v<new>)
 ```
 
-The tags carry a `rust-v` prefix the pin does not. Read every blob the diff
-names; empty output is a proven all-clear, since a tree listing carries no file
-cap. Report the relevant release notes crossed by the bump in its PR.
+The tags carry a `rust-v` prefix the pin does not. Sorting by path puts each
+changed blob's before and after lines together, so a modification reads
+distinctly from an addition. Read every blob the diff names; empty output is a
+real all-clear, because a tree listing has no 300-file cap and sets
+`truncated` rather than silently dropping entries. Report the relevant release
+notes crossed by the bump in its PR.
 
 ### `uses:` refs
 
