@@ -134,7 +134,7 @@ REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0
     -f event=APPROVE -f commit_id="$REVIEWED" -f body=""
 ```
 
-If there are actionable findings, submit them as a review with inline suggestions for concrete fixes. The review is a decision surface for the author, not a record of the reviewer's work: publish only distinct points that require a change or decision, with enough mechanism and evidence to make each credible and actionable. Correct paths, unaffected behavior, verification inventory, and search history stay in the session. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend` for any supporting detail.
+If there are actionable findings, submit them as a review with inline suggestions for concrete fixes. GitHub labels the review approved or commented above its body, so the body opens with the first finding. The review is a decision surface for the author, not a record of the reviewer's work: publish only distinct points that require a change or decision, with enough mechanism and evidence to make each credible and actionable. Correct paths, unaffected behavior, verification inventory, and search history stay in the session. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend` for any supporting detail.
 
 Don't explain what the code does — the author wrote it. Don't nitpick formatting — that's what linters are for. Explain why the consequence warrants a change.
 
