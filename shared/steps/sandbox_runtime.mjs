@@ -18,8 +18,48 @@ function absolute(name) {
   return value;
 }
 
+function describe(error) {
+  return error instanceof Error ? error.message : error;
+}
+
 function quote(value) {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+// SRT gives socat 600 ms total to bind the bridge sockets
+// (`initializeLinuxNetworkBridge` probes five times on an `i * 100` ms
+// backoff), and Tend's config is the expensive branch: an external
+// `httpProxyPort` with no `socksProxyPort` makes SRT allocate its own mux
+// port for SOCKS, so the two ports differ, a second socat is spawned, and
+// both sockets have to appear inside that one budget. A runner slow to start
+// them loses the whole job before the agent exists. Retrying is clean here:
+// SRT clears its own state on an initialization error so the call can be
+// re-entered, each attempt names fresh random socket paths, and nothing has
+// run in the sandbox yet, so there is no partial work to reconcile.
+const LAUNCH_ATTEMPTS = 3;
+
+async function initializeSandbox(SandboxManager, config) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await SandboxManager.initialize(config, undefined, false);
+      return;
+    } catch (error) {
+      if (attempt >= LAUNCH_ATTEMPTS) throw error;
+      console.error(
+        `tend sandbox runtime: launch attempt ${attempt} failed (${describe(error)}); retrying`,
+      );
+      // SRT's own error path calls reset() and lets it reject unobserved.
+      // Await one here so the failed attempt's proxy servers are closed
+      // before the next allocates its own, but keep a cleanup failure from
+      // replacing the launch error this loop exists to report.
+      await SandboxManager.reset().catch((cleanup) => {
+        console.error(
+          `tend sandbox runtime: cleanup after attempt ${attempt} failed (${describe(cleanup)})`,
+        );
+      });
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+    }
+  }
 }
 
 async function main() {
@@ -90,7 +130,7 @@ async function main() {
   const token = `tend-${randomUUID()}`;
   let commandsStopped = false;
   try {
-    await SandboxManager.initialize(config, undefined, false);
+    await initializeSandbox(SandboxManager, config);
     const dependencies = await SandboxManager.checkDependenciesAsync({
       command: "/usr/bin/rg",
     });
@@ -142,6 +182,6 @@ async function main() {
 try {
   process.exitCode = await main();
 } catch (error) {
-  console.error(`tend sandbox runtime: ${error instanceof Error ? error.message : error}`);
+  console.error(`tend sandbox runtime: ${describe(error)}`);
   process.exitCode = 1;
 }

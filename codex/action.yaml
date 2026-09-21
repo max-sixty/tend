@@ -63,7 +63,7 @@ inputs:
     description: >-
       Pinned mitmproxy version for the credential-injection proxy.
   uv_version:
-    default: "0.12.13"
+    default: "0.12.17"
     description: >-
       Pinned fallback `uv` version. The agent PATH appends it after any
       consumer-provided version.

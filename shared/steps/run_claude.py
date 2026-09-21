@@ -80,6 +80,20 @@ def settings(allowed_tools: str) -> dict[str, Any]:
     (which supersedes the deprecated ``includeCoAuthoredBy``) empties Claude
     Code's ``Co-Authored-By: Claude`` trailer and ``Generated with Claude Code``
     PR footer, so the bot's commits and PRs are attributed to the bot alone.
+
+    ``syncClaudeAiSkills``/``syncClaudeAiPlugins``/``disableClaudeAiConnectors``
+    keep the skills, plugins and MCP connectors enabled on the bot's claude.ai
+    account out of the session. The account is a surface nobody reviews
+    per-repo — a skill or connector enabled there would otherwise load into
+    every consumer's CI session, in a process that pushes commits and posts as
+    the bot. The session's instructions and tools come from the plugin and the
+    repo, so what the account would add is unreviewed by construction. The sync
+    keys are honored from ``.claude/settings.local.json`` and ``--settings`` for
+    that workspace or invocation (not from project ``settings.json``), and only
+    ``false`` is honored — the feature turns on server-side per account, so this
+    has to be written ahead of that rather than in response to it.
+    ``disableClaudeAiConnectors`` is honored true from any source, and covers
+    the auto-fetched connectors only; nothing here passes one explicitly.
     """
     return {
         "permissions": {
@@ -88,6 +102,9 @@ def settings(allowed_tools: str) -> dict[str, Any]:
         },
         "skipDangerousModePermissionPrompt": True,
         "attribution": {"commit": "", "pr": ""},
+        "syncClaudeAiSkills": False,
+        "syncClaudeAiPlugins": False,
+        "disableClaudeAiConnectors": True,
     }
 
 
