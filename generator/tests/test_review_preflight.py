@@ -255,8 +255,11 @@ def test_start_records_one_snapshot_and_prepares_the_incremental(pr: Fixture) ->
         "already_reviewed": False,
         "incremental_path": context["incremental_path"],
     }
-    assert "pr-2" in Path(context["incremental_path"]).read_text()
-    assert "base-2" not in Path(context["incremental_path"]).read_text()
+    incremental = Path(context["incremental_path"]).read_text()
+    assert "pr-2" in incremental
+    assert "+b" in incremental
+    assert "base-2" not in incremental
+    assert "base.txt" not in incremental
     assert pr.pinned() == moved
 
 

@@ -40,7 +40,7 @@ These snapshot fields decide how much of the workflow runs:
 
 - **`already_reviewed`** — a bot review already stands on this exact commit. Finish without posting, unless the conversation holds an unanswered question directed at the bot; then proceed so the review can answer it.
 - **`is_draft`** — follow `references/draft-mode.md`: a lighter review submitted as `COMMENT` only, carrying the hidden draft marker, with no CI polling and no pushes.
-- **`incremental_path`** — the bot reviewed an earlier commit on this PR, and the file named holds the commits and per-file line counts pushed since. Read the whole file, and judge what was pushed from it and from the PR's three-dot diff (`gh pr diff <number>`, merge-base→head, the same diff **Read and understand the change** uses). Neither leaks base-branch churn: the incremental excludes everything reachable from the base tip, so a base merge's own commits are not counted as new PR work, and base-merge commits never enter the three-dot diff.
+- **`incremental_path`** — the bot reviewed an earlier commit on this PR, and the file named holds what was pushed since: each commit with its per-file line counts and its patch, then the base merges. Read the whole file, as a pair of logs the way `references/re-targeting.md` reads a delta file. Those commits are this review's subject. The rest of the PR was reviewed at the earlier commit and is now context for them, read from the PR's three-dot diff (`gh pr diff <number>`, merge-base→head, the same diff **Read and understand the change** uses). Neither leaks base-branch churn: the incremental excludes everything reachable from the base tip, so a base merge's own commits are not counted as new PR work, and base-merge commits never enter the three-dot diff.
 
 The incremental scopes the *review*, not anything this run writes about the PR as a whole: if you also edit the PR description, scope its claims to the merge base per **Keeping PR titles and descriptions current** in `/tend-ci-runner:open-pr`.
 
@@ -106,7 +106,7 @@ Flag duplicates — reuse is almost always better than a parallel implementation
 
 ### 5. Second pass
 
-Run a `/tend-ci-runner:code-review` pass over the PR's merged tree. Every review that reaches this step runs one — trivial diffs included; **Review**'s depth-scaling sets how deep the pass goes, never whether it happens. It's a structured second pass — correctness and cleanup angles, then a verify pass — that returns findings rather than posting anything, and it supplements **Review**'s manual checks rather than replacing them.
+Run a `/tend-ci-runner:code-review` pass in the PR's merged tree, over the PR's diff or, when an incremental applies, over the commits it holds. Every review that reaches this step runs one — trivial diffs included; **Review**'s depth-scaling sets how deep the pass goes, never whether it happens. It's a structured second pass — correctness and cleanup angles, then a verify pass — that returns findings rather than posting anything, and it supplements **Review**'s manual checks rather than replacing them.
 
 Scale its depth to how core the change is:
 
@@ -247,7 +247,7 @@ Before the push, review the fix itself per **Review the change before the push**
 
 **PRs with no human author** (this bot's own, and third-party bot PRs like Dependabot or renovate): Nobody else will act on the feedback — a third-party bot doesn't read it, and on your own PR you are the author. A review that only describes the fix leaves the PR red and pushes the work onto a maintainer — the opposite of the point. If you can articulate the fix, apply it: commit and push it to the PR branch. "Not a one-token change" and "more than one syntactically valid form exists" are **not** reasons to defer — pick the option most consistent with the surrounding code and the repo's existing conventions, push it, and note any alternative in the review. Having to choose is a reason to defer only when *no defensible default exists*: a genuine semantic ambiguity that needs maintainer intent, not merely a fix that took thought to derive. If the review already worked out the answer, that answer is pushable. Rebase onto the latest target branch first if the branch is behind.
 
-The bar for another fix rises with each round. Every fix is a new diff for the queued run to review, and a fresh pass over a whole PR usually finds something, so the rounds don't end on their own. One adjustment after the first review is often fine. After a couple, push only for a significant problem, one that would do harm if the PR merged as it stands, and leave the rest; a finding a maintainer should weigh before merging still goes in the review.
+The bar for another fix rises with each round. Every fix is a new diff for the queued run to review, and a review usually finds something, so the rounds don't end on their own. One adjustment after the first review is often fine. After a couple, push only for a significant problem, one that would do harm if the PR merged as it stands, and leave the rest; a finding a maintainer should weigh before merging still goes in the review.
 
 If the rounds are thrashing, with findings of one kind recurring or each fix drawing the next finding, hold your own view of the change with less confidence. Lean the way the project leans, and say in the review that the approach is what's in question.
 

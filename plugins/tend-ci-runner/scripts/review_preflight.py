@@ -77,6 +77,7 @@ def _write_delta(reviewed: str, current_head: str, base_sha: str) -> tuple[int, 
         (
             "log",
             "-p",
+            "--numstat",
             "--no-merges",
             "--format=%h %s",
             f"{reviewed}..{current_head}",
@@ -99,29 +100,6 @@ def _write_delta(reviewed: str, current_head: str, base_sha: str) -> tuple[int, 
             if result.returncode:
                 return result.returncode, path
     return 0, path
-
-
-def _write_incremental(
-    reviewed: str, current_head: str, base_sha: str
-) -> tuple[int, str]:
-    with tempfile.NamedTemporaryFile(mode="w", delete=False) as incremental:
-        path = incremental.name
-        result = subprocess.run(
-            [
-                "git",
-                "log",
-                "--no-merges",
-                "--numstat",
-                "--format=%h %s",
-                f"{reviewed}..{current_head}",
-                "--not",
-                base_sha,
-            ],
-            stdout=incremental,
-            text=True,
-            check=False,
-        )
-    return result.returncode, path
 
 
 def _emit_json(value: dict[str, Any]) -> bool:
@@ -180,9 +158,7 @@ def _start(pr: str) -> int:
             ["git", "fetch", "--no-tags", "--quiet", "origin", base_sha],
             check=False,
         )
-        status, incremental_path = _write_incremental(
-            last_review_sha, head_sha, base_sha
-        )
+        status, incremental_path = _write_delta(last_review_sha, head_sha, base_sha)
         if status:
             return status
 
