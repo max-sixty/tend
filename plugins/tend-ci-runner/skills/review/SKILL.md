@@ -174,7 +174,7 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
 
 **Attribute a withheld approval to whatever actually decided it.** Cite the repo's instructions as the reason only when you can name the file and heading they live in. When the call is your own judgment, identify the risky consequence and the human decision it needs; judgment is sufficient authority without inventing a repository policy.
 
-**Self-authored PRs** (`self_authored` in the pre-flight JSON): Complete steps 2–5 — self-review catches real issues (lint failures, edge cases) and is intentionally valuable. Do NOT attempt an `APPROVE` — GitHub rejects self-approvals. That covers the pre-flight close-out approvals too: on a self-authored PR the threads are the only thing to close out. Submit as `COMMENT` when there are concerns, or stay silent and skip to **Monitor CI**. After earlier rounds of your own findings, the rising bar under **Push fixes** sets what still counts as a concern. The self-review exists to find concerns, not to publish a clean-path verdict or proof that earlier findings were resolved. Always post a current CI failure as a `COMMENT` because it is itself a concern.
+**Self-authored PRs** (`self_authored` in the pre-flight JSON): Complete steps 2–5 — self-review catches real issues (lint failures, edge cases) and is intentionally valuable. Do NOT attempt an `APPROVE` — GitHub rejects self-approvals. That covers the pre-flight close-out approvals too: on a self-authored PR the threads are the only thing to close out. Submit as `COMMENT` when there are concerns, or stay silent and skip to **Monitor CI**. After earlier rounds of your own findings, **Push fixes** says which findings still earn a push and which still go in the review. The self-review exists to find concerns, not to publish a clean-path verdict or proof that earlier findings were resolved. Always post a current CI failure as a `COMMENT` because it is itself a concern.
 
 **Not confident enough to approve** (unfamiliar module, subtle logic): Add a `+1` reaction instead — no review needed unless there are specific observations.
 
@@ -249,7 +249,7 @@ Before the push, review the fix itself per **Review the change before the push**
 
 The bar for another fix rises with each round. Every fix is a new diff for the queued run to review, and a fresh pass over a whole PR usually finds something, so the rounds don't end on their own. One adjustment after the first review is often fine. After a couple, push only for a significant problem, one that would do harm if the PR merged as it stands, and leave the rest; a finding a maintainer should weigh before merging still goes in the review.
 
-If the rounds are thrashing, with findings of one kind recurring or each fix drawing the next finding, hold your own view of the change with less confidence. Lean the way the project leans, which is often toward the simpler option and leaving the decision for another day, and say in the review that the approach is what's in question.
+If the rounds are thrashing, with findings of one kind recurring or each fix drawing the next finding, hold your own view of the change with less confidence. Lean the way the project leans, and say in the review that the approach is what's in question.
 
 **Human PRs**: Post inline suggestions first. Additionally, offer to push a commit when the fixes are mechanical and correctness is obvious. Only push after the author accepts.
 
