@@ -112,7 +112,7 @@ def test_a_listing_of_entries_that_are_not_rules_aborts(
     _repo(fake_gh, rules=[{"type": "update"}, "not a rule"])
 
     assert security_preflight.main() == 1
-    assert "::error::No restrict-updates ruleset covers 'main'." in (
+    assert "::error::No restrict-updates ruleset covers 'main', so" in (
         capsys.readouterr().out
     )
 
@@ -181,6 +181,29 @@ def test_an_unreadable_ruleset_falls_back_to_the_protected_floor(
     )
 
 
+def test_a_ruleset_body_without_the_bypass_field_falls_back_to_the_floor(
+    fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An error object under a 200 carries no bypass verdict, so it is unread
+    like a failed call rather than an answer that the bot can bypass."""
+    _repo(fake_gh, rules=[_update_rule(1)], protected=True)
+    fake_gh.respond("api", f"repos/{REPO}/rulesets/1", with_={"message": "502"})
+
+    assert security_preflight.main() == 0
+    assert "default branch 'main' is protected" in capsys.readouterr().out
+
+
+def test_a_null_bypass_verdict_counts_as_bypassable(
+    fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A present field is GitHub's answer, and any answer but "never" fails."""
+    _repo(fake_gh, rules=[_update_rule(1)])
+    _bypass(fake_gh, 1, None)
+
+    assert security_preflight.main() == 1
+    assert "::error::The bot can bypass every" in capsys.readouterr().out
+
+
 def test_aborts_on_a_branch_protected_by_required_reviews_alone(
     fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -194,7 +217,8 @@ def test_aborts_on_a_branch_protected_by_required_reviews_alone(
 
     assert security_preflight.main() == 1
     assert (
-        "::error::No restrict-updates ruleset covers 'main'." in capsys.readouterr().out
+        "::error::No restrict-updates ruleset covers 'main', so"
+        in capsys.readouterr().out
     )
 
 

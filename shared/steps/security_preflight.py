@@ -16,9 +16,10 @@ then merge that pull request.
 
 Decisions this encodes:
 
-- A ruleset whose ``current_user_can_bypass`` cannot be read proves nothing
-  either way, so it neither blocks nor counts as bypassable; the run falls
-  through to the ``.protected`` floor if no other update rule settles it.
+- A ruleset whose ``current_user_can_bypass`` cannot be read — the call
+  fails, or the body doesn't carry the field — proves nothing either way, so
+  it neither blocks nor counts as bypassable; the run falls through to the
+  ``.protected`` floor if no other update rule settles it.
 - Any readable value other than ``never`` counts as bypassable, JSON ``null``
   included — an answer that isn't "never" is not a restriction.
 - A rules listing that cannot be read, or that comes back as anything but an
@@ -45,10 +46,11 @@ BYPASS_ERROR = (
 )
 
 NO_RULESET_ERROR = (
-    "No restrict-updates ruleset covers '{branch}'. Required reviews don't stop "
-    "the bot: it holds write, so its own approval counts on a PR someone else "
-    "opened, and it can then merge that PR. Run `tend check --fix` as a repo "
-    "admin to create the ruleset. See docs/security-model.md in the Tend repo."
+    "No restrict-updates ruleset covers '{branch}', so nothing confirms the bot "
+    "can't merge PRs into it. Branch protection that only requires reviews "
+    "doesn't count: the bot holds write, so its own approval counts on a PR "
+    "someone else opened. Run `tend check --fix` as a repo admin to create the "
+    "ruleset. See docs/security-model.md in the Tend repo."
 )
 
 UNPROTECTED_ERROR = (
@@ -104,12 +106,11 @@ def main() -> int:
             ruleset = _common.gh_json("api", f"repos/{repo}/rulesets/{ruleset_id}")
         except _common.GH_READ_FAILED:
             continue
-        can_bypass = (
-            ruleset.get("current_user_can_bypass")
-            if isinstance(ruleset, dict)
-            else None
-        )
-        if can_bypass == "never":
+        # A body without the field, such as an error object under a 200, is
+        # as unread as a failed call.
+        if not isinstance(ruleset, dict) or "current_user_can_bypass" not in ruleset:
+            continue
+        if ruleset["current_user_can_bypass"] == "never":
             print(
                 "Security preflight passed: bot cannot bypass the restrict-updates "
                 f"ruleset on '{default_branch}'",
