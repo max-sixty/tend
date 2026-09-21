@@ -9,6 +9,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +121,9 @@ def fake_runtime(
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(subprocess, "run", run)
+    if not reaped:
+        # This sandbox never goes quiet: one pass, not the whole poll deadline.
+        monkeypatch.setattr(launch, "REAP_DEADLINE_SEC", 0.0)
     return calls
 
 
@@ -224,6 +228,46 @@ def test_agent_step_summary_symlink_is_not_followed(
 
     assert launch.main() == 0
     assert summary.read_bytes() == b""
+
+
+def test_reap_waits_for_the_kill_to_take_effect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`pkill` returns once the signals are queued, not once the UID is gone.
+
+    A process the kernel is still tearing down — or a zombie whose parent has
+    not reaped it yet — answers `pgrep` for a moment after the kill, and a
+    single sample reads that as a sandbox that refused to die.
+    """
+    statuses = iter([0, 0, 1])
+    calls: list[list[str]] = []
+
+    def run(args: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        if args[:2] == ["/usr/bin/pgrep", "-u"]:
+            return subprocess.CompletedProcess(args, next(statuses))
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    assert launch.reap("tend-sandbox") is True
+    assert sum(call[:2] == ["/usr/bin/pgrep", "-u"] for call in calls) == 3
+
+
+def test_reap_gives_up_at_its_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A UID that never goes quiet fails the reap rather than hanging the job."""
+    calls: list[list[str]] = []
+
+    def run(args: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(launch, "REAP_DEADLINE_SEC", 0.0)
+
+    assert launch.reap("tend-sandbox") is False
+    assert sum(call[:2] == ["/usr/bin/pgrep", "-u"] for call in calls) == 1
 
 
 def test_no_agent_owned_result_is_read_until_the_uid_is_quiescent(
