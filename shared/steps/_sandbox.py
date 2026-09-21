@@ -1,6 +1,7 @@
 """Compose the environment at the single runner-to-SRT boundary.
 
-The outer supervisor crosses the UID boundary once with a clean ``env -i``.
+The outer supervisor crosses the UID boundary once, with exactly this environment
+and nothing inherited.
 SRT then finalizes proxy variables for its network namespace, and every command
 inside the lifecycle inherits that environment unchanged. Trusted preparation
 commands that run before SRT use :func:`agent_env` and receive no GitHub
@@ -56,13 +57,13 @@ def agent_env(agent_env_file: str | os.PathLike[str]) -> list[str]:
 
 
 def launch_env(agent_env_file: str | os.PathLike[str]) -> list[str]:
-    """The ``NAME=VALUE`` arguments for the outer SRT launch, file last.
+    """The ``NAME=VALUE`` entries for the outer SRT launch, file last.
 
     Reads the environment when called, so call it in the step that forwards it.
     """
     lines = agent_env(agent_env_file)
     # A name the file defines stays out of the job half, so the real value a
-    # dummy replaces never reaches the launch argv the parent `sudo` holds.
+    # dummy replaces is never written into the launch environment file.
     defined = {line.split("=", 1)[0] for line in lines}
     return [
         f"{name}={value}"
