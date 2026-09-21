@@ -323,7 +323,7 @@ PY
     '# A directory only root can write is readable, and stays unwritable: the' \
     '# idmap swaps the two accounts and leaves every other id alone.' \
     'test "$(cat "$TEND_WARM_CACHE/root-owned/planted")" = root-owned' \
-    'if printf "x\n" > "$TEND_WARM_CACHE/root-owned/by-sandbox" 2>/dev/null; then exit 95; fi' \
+    'if { printf "x\n" > "$TEND_WARM_CACHE/root-owned/by-sandbox"; } 2>/dev/null; then exit 95; fi' \
     'ln "$TEND_WARM_CACHE/registry/warm" "$TEND_WARM_TREE/linked"' \
     'printf "sandbox\n" > "$GITHUB_WORKSPACE/.tend-srt-wrote-here"' \
     '# The runner-side halves of Tend, and the runner itself, stay out of reach.' \

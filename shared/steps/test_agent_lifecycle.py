@@ -28,8 +28,14 @@ def contained_sandbox_flag(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def before_the_harness(monkeypatch: pytest.MonkeyPatch) -> None:
     """Everything `main` runs inside the view before it reaches a harness."""
-    monkeypatch.setattr(agent_lifecycle, "probe_boundary", lambda: None)
-    monkeypatch.setattr(agent_lifecycle, "configure_git", lambda: None)
+    for name, value in (
+        ("GITHUB_WORKSPACE", "/workspace"),
+        ("BOT_NAME", "tend-bot"),
+        ("BOT_ID", "42"),
+    ):
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(agent_lifecycle, "probe_boundary", lambda _workspace: None)
+    monkeypatch.setattr(agent_lifecycle, "configure_git", lambda _login, _id: None)
     monkeypatch.setattr(event_checkout, "main", lambda: 0)
 
 
@@ -70,6 +76,23 @@ def test_setup_failure_reaches_no_harness(
     monkeypatch.delenv("TEND_CODEX_RUNNER", raising=False)
 
     assert agent_lifecycle.main() == 3
+
+
+def test_a_missing_input_fails_by_name_before_anything_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A launch that dropped a variable is a wiring bug in tend, not the turn's.
+
+    Read deep inside, it would surface as a bare ``KeyError`` from whichever
+    step first reached it, after the probe had already run.
+    """
+    monkeypatch.delenv("BOT_ID")
+    monkeypatch.setattr(
+        agent_lifecycle, "probe_boundary", lambda _workspace: pytest.fail("probed")
+    )
+
+    with pytest.raises(SystemExit, match="BOT_ID"):
+        agent_lifecycle.main()
 
 
 def test_an_unknown_harness_is_not_silently_a_no_op(

@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import _common
 import event_checkout
 import sandbox_setup
 
@@ -31,7 +32,7 @@ def probe_view(workspace: Path) -> None:
             raise RuntimeError(f"the view did not mask {masked}")
 
 
-def probe_boundary() -> None:
+def probe_boundary(workspace: Path) -> None:
     """Fail unless SRT's Linux seccomp and read boundary are effective."""
     try:
         socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -40,7 +41,7 @@ def probe_boundary() -> None:
     else:
         raise RuntimeError("SRT capability probe created an AF_UNIX socket")
 
-    probe_view(Path(os.environ["GITHUB_WORKSPACE"]))
+    probe_view(workspace)
 
     probe_url = os.environ.get("TEND_BOUNDARY_PROBE_URL")
     if probe_url:
@@ -88,14 +89,12 @@ def probe_boundary() -> None:
             raise RuntimeError("SRT capability probe cannot execute the harness tool")
 
 
-def configure_git() -> None:
+def configure_git(login: str, bot_id: str) -> None:
     """Commit as the bot, from the checkout and from any clone the agent makes.
 
     ``HOME`` is the job's, so this edits the runner's ``.gitconfig`` through
     the view: the consumer's settings stay and the runner's disk is untouched.
     """
-    login = os.environ["BOT_NAME"]
-    bot_id = os.environ["BOT_ID"]
     for name, value in (
         ("user.name", login),
         ("user.email", f"{bot_id}+{login}@users.noreply.github.com"),
@@ -104,9 +103,10 @@ def configure_git() -> None:
 
 
 def main() -> int:
-    probe_boundary()
+    env = _common.require_env("GITHUB_WORKSPACE", "BOT_NAME", "BOT_ID")
+    probe_boundary(Path(env["GITHUB_WORKSPACE"]))
     os.environ["TEND_INSIDE_SANDBOX"] = "1"
-    configure_git()
+    configure_git(env["BOT_NAME"], env["BOT_ID"])
     event_checkout.main()
     setup_code = sandbox_setup.main()
     if setup_code:
@@ -120,7 +120,7 @@ def main() -> int:
 
         return run_claude.main()
     if harness == "codex":
-        runner = Path(os.environ["TEND_CODEX_RUNNER"])
+        runner = Path(_common.require_env("TEND_CODEX_RUNNER")["TEND_CODEX_RUNNER"])
         return subprocess.run(
             ["/usr/bin/python3", "-E", "-s", str(runner), "run"], check=False
         ).returncode

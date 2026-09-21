@@ -312,9 +312,10 @@ Each transition is a bottleneck with one job:
   runner's home in a private mount namespace: the lower layer is a read-only
   bind of that home, *idmapped* so the runner's and the sandbox's ids swap, and
   the upper layer sits in the per-run `/var/tmp` runtime container. The agent
-  reads what `setup:` left and writes anywhere; every write lands in the upper
-  layer, so the runner's filesystem stays byte-for-byte what `setup:` left and
-  no cleanup step can fail open. The namespace dies with the process tree.
+  reads what `setup:` left and writes wherever the runner could — a path only
+  root can write is not one of them. Every write lands in the upper layer, so
+  the runner's filesystem stays byte-for-byte what `setup:` left and no cleanup
+  step can fail open. The namespace dies with the process tree.
 
   The idmap makes the agent the runner account for file permissions on that
   tree. **Anything `setup:` leaves readable in the runner's home or checkout is
