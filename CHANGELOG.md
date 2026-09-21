@@ -6,6 +6,12 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.2.13
+
+### Fixed
+
+- **The copy-on-write view from 0.2.12 is reverted, so the agent again works in a disposable clone of the event's tree with its own home, as in 0.2.11.** Under 0.2.12 the sandbox's write protections appeared as `/dev/null` entries in the checkout the agent commits from, so `git add -A` failed in every session, and the experimental memory-gist save failed on every run. The rest of 0.2.12's entry reverts with it. What `setup:` prepares is no longer visible to the agent, so dependency setup moved from `sandbox_setup:` to `setup:` for 0.2.12 needs to move back. `sandbox_env:` values reach the sandbox on `sudo`'s command line again rather than in a `0600` file, and `init` no longer rejects `GITHUB_*` names or `CLAUDE_CONFIG_DIR` in `sandbox_env:`. ([#1339](https://github.com/max-sixty/tend/pull/1339))
+
 ## 0.2.12
 
 ### Improved
