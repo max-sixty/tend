@@ -112,7 +112,7 @@ def test_github_only_agent_environment_has_no_model_credential() -> None:
     assert "CODEX_HOME" in setup_sandbox.RESERVED_SANDBOX_ENV
     # The job's own, so the agent's checkout is the one the workflow made.
     assert not any(line.startswith("GITHUB_WORKSPACE=") for line in assignments)
-    assert not any(line.startswith(("NO_PROXY=", "no_proxy=")) for line in assignments)
+    assert "NO_PROXY=localhost,127.0.0.1,::1" in assignments
 
 
 def test_tend_secrets_never_live_where_the_agent_can_read_them(

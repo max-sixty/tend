@@ -2,7 +2,7 @@
 
 The launch tests replace ``subprocess.run``: what is under test is the harness
 argv, fixed inner files, bound, and process-group reap. The hosted sandbox test
-drives the same code through the complete SRT lifecycle.
+drives the same code through the complete sandbox lifecycle.
 
 The verdict tests need no agent, no credential and no second uid — every input
 is a file or a scalar — so each branch is reachable from a fixture.
@@ -582,11 +582,11 @@ def test_launch_adds_the_restored_auto_memory_settings(
     assert argv[1:3] == ["-u", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"]
 
 
-def test_launch_only_adds_harness_names_inside_srt(
+def test_launch_only_adds_harness_names_inside_the_sandbox(
     launch: Launcher,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The curated and SRT-adjusted environment is inherited, not replayed."""
+    """The curated launch environment is inherited, not replayed."""
     # The auto-memory settings path of whatever tend run is hosting this suite.
     # The fixture has to overwrite it, or the crossing below carries that run's
     # flags into a launch the test never configured for them.
@@ -812,5 +812,5 @@ def test_main_refuses_to_create_a_second_execution_boundary(
 ) -> None:
     monkeypatch.delenv("TEND_INSIDE_SANDBOX", raising=False)
 
-    with pytest.raises(RuntimeError, match="only inside the SRT lifecycle"):
+    with pytest.raises(RuntimeError, match="only inside the sandbox lifecycle"):
         run_claude.main()

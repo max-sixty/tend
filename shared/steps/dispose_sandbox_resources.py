@@ -21,7 +21,7 @@ def fail(message: str) -> int:
 
 
 def runtime_container(runtime: Path) -> Path:
-    """Accept only the mktemp shape used by install-sandbox-runtime.sh."""
+    """Accept only the mktemp shape used by create-runtime-root.sh."""
     if runtime.parent != CONTAINER_PARENT or not RUNTIME_CONTAINER.fullmatch(
         runtime.name
     ):

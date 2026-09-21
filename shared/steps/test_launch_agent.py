@@ -1,18 +1,22 @@
-"""Contracts for the single trusted post-sandbox result bottleneck."""
+"""Contracts for the single trusted launch and post-sandbox result bottleneck.
+
+What the unit's settings do to the agent needs systemd, a kernel and a second
+uid, so `proxy/test-setup-sandbox.sh` covers it on a hosted runner.
+"""
 
 from __future__ import annotations
 
 import ast
 import base64
-import json
 import os
+import pwd
+import re
 import signal
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
-import launch_sandbox_runtime as launch
+import launch_agent as launch
 import pytest
 
 RUNTIME_STEP_FILES = (
@@ -22,7 +26,6 @@ RUNTIME_STEP_FILES = (
     "agent_lifecycle.py",
     "event_checkout.py",
     "run_claude.py",
-    "sandbox_runtime.mjs",
     "restore-sensitive-config.sh",
     "lib/pin-instruction-paths.sh",
 )
@@ -69,6 +72,9 @@ def configure(
     (installed_runner / "_diag").mkdir()
     (installed_runner / ".credentials").write_text("runner service identity\n")
     monkeypatch.setattr(launch, "runner_install_directory", lambda: installed_runner)
+    # The sandbox account exists only on a runner; the map it feeds is tested
+    # on its own below.
+    monkeypatch.setattr(launch.pwd, "getpwnam", lambda _name: pwd.getpwuid(os.getuid()))
     environment = {
         "SANDBOX": "tend-sandbox",
         "TEND_RUNNER_HOME": str(runner_home),
@@ -79,14 +85,13 @@ def configure(
         "TEND_RUN_DIR": str(run_dir),
         "TEND_AGENT_TMP_DIR": str(agent_tmp),
         "AGENT_ENV_FILE": str(agent_env),
-        "NODE_BIN": "/trusted/node",
+        "TEND_PROXY_PORT": "8899",
         "TEND_HARNESS": harness,
         "AGENT_HOME": str(run_dir.parent),
         "GITHUB_STEP_SUMMARY": str(summary),
         "TEND_RUNTIME_ROOT": str(runtime_root),
         "TEND_PRIVATE_DIR": str(private),
         "ACTION_PATH": str(action),
-        "TEND_LIFECYCLE": str(steps / "agent_lifecycle.py"),
     }
     if harness == "codex":
         environment["TEND_CODEX_RUNNER"] = str(codex)
@@ -95,21 +100,46 @@ def configure(
     return run_dir, output, summary
 
 
-def fake_runtime(
+class Launch:
+    """The commands the supervisor ran, and what the agent's unit was handed."""
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+        self.environment = b""
+
+    @property
+    def unit(self) -> list[str]:
+        return next(args for args in self.calls if f"--unit={launch.UNIT}" in args)
+
+    def setting(self, name: str) -> list[str]:
+        prefix = f"--property={name}="
+        return [arg.removeprefix(prefix) for arg in self.unit if arg.startswith(prefix)]
+
+
+def fake_launch(
     monkeypatch: pytest.MonkeyPatch,
     run_dir: Path,
     *,
     harness: str,
     write_summary: bool = True,
     reaped: bool = True,
-) -> list[list[str]]:
-    calls: list[list[str]] = []
+    failing: str | None = None,
+) -> Launch:
+    """Stand in for every command, running the agent's unit as a callback.
+
+    ``failing`` names a command whose argv containing it exits non-zero.
+    """
+    launched = Launch()
 
     def run(args: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
-        calls.append(args)
+        launched.calls.append(args)
+        if failing is not None and failing in args:
+            raise subprocess.CalledProcessError(32, args)
         if args[:2] == ["/usr/bin/pgrep", "-u"]:
             return subprocess.CompletedProcess(args, 1 if reaped else 0)
-        if "sandbox_runtime.mjs" in args[-1]:
+        if f"--unit={launch.UNIT}" in args:
+            env_file = Path(launched.setting("EnvironmentFile")[0])
+            launched.environment = env_file.read_bytes()
             if harness == "claude":
                 (run_dir / "tend-stream.json").write_bytes(b'{"type":"result"}\n')
                 (run_dir / "tend-claude-stderr.log").write_bytes(b"diagnostic\n")
@@ -120,24 +150,18 @@ def fake_runtime(
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(subprocess, "run", run)
-    return calls
-
-
-def launched_environment(runtime: list[str]) -> list[str]:
-    """The entries the launch handed `enter_view`, from the file its argv names."""
-    env_file = Path(runtime[runtime.index("--env-file") + 1])
-    return [entry.decode() for entry in env_file.read_bytes().split(b"\0")]
+    return launched
 
 
 def test_claude_exports_only_fixed_runner_owned_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run_dir, output, summary = configure(tmp_path, monkeypatch, harness="claude")
     monkeypatch.setenv("GITHUB_TOKEN", "runner-token-must-not-cross")
     monkeypatch.setenv("ACTIONS_RUNTIME_TOKEN", "runner-service-must-not-cross")
     monkeypatch.setenv("GITHUB_ACTOR", "octocat")
     monkeypatch.setenv("JAVA_HOME", "/usr/lib/jvm/temurin-21")
-    calls = fake_runtime(monkeypatch, run_dir, harness="claude")
+    launched = fake_launch(monkeypatch, run_dir, harness="claude")
 
     assert launch.main() == 0
 
@@ -150,35 +174,46 @@ def test_claude_exports_only_fixed_runner_owned_files(
         tmp_path / "runner-temp/tend-claude-stderr.log"
     ).read_bytes() == b"diagnostic\n"
     assert summary.read_bytes() == b"skill result\n\n"
-    runtime = next(args for args in calls if "sandbox_runtime.mjs" in args[-1])
-    env_file = Path(runtime[runtime.index("--env-file") + 1])
+
+    env_file = Path(launched.setting("EnvironmentFile")[0])
     assert env_file.parent == tmp_path / "runtime/private"
-    assert env_file.stat().st_mode & 0o777 == 0o600
-    entries = launched_environment(runtime)
-    assert "GITHUB_TOKEN=dummy" in entries
-    assert "GITHUB_ACTOR=octocat" in entries
+    # Removed once the unit has read it: it holds the job's whole environment.
+    assert not env_file.exists()
+    entries = launched.environment.decode().splitlines()
+    assert 'GITHUB_TOKEN="dummy"' in entries
+    assert 'GITHUB_ACTOR="octocat"' in entries
     # The job's own environment crosses whole, and none of it on the command
     # line `sudo` logs.
-    assert "JAVA_HOME=/usr/lib/jvm/temurin-21" in entries
-    assert not any("JAVA_HOME" in arg or "octocat" in arg for arg in runtime)
-    assert not any("runner-token-must-not-cross" in entry for entry in entries)
-    assert not any("runner-service-must-not-cross" in entry for entry in entries)
+    assert 'JAVA_HOME="/usr/lib/jvm/temurin-21"' in entries
+    assert not any(
+        "JAVA_HOME" in arg or "octocat" in arg
+        for call in launched.calls
+        for arg in call
+    )
+    assert b"runner-token-must-not-cross" not in launched.environment
+    assert b"runner-service-must-not-cross" not in launched.environment
     assert not any(entry.startswith("GITHUB_OUTPUT=") for entry in entries)
-    assert f"TMPDIR={run_dir.parent / 'tmp'}" in entries
-    assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'tmp/step-summary.md'}" in entries
+    assert f'TMPDIR="{run_dir.parent / "tmp"}"' in entries
+    assert f'GITHUB_STEP_SUMMARY="{run_dir.parent / "tmp/step-summary.md"}"' in entries
     # A later entry wins, and the launch's HOME is the job's.
     runner_home = tmp_path / "home/runner"
-    assert entries.index(f"HOME={runner_home}") > entries.index(
-        "HOME=/home/tend-sandbox"
+    assert entries.index(f'HOME="{runner_home}"') > entries.index(
+        'HOME="/home/tend-sandbox"'
     )
-    assert f"XDG_CACHE_HOME={runner_home / '.cache'}" in entries
+    assert f'XDG_CACHE_HOME="{runner_home / ".cache"}"' in entries
+
+    # Nothing the agent prints between these two lines is a workflow command.
+    printed = capsys.readouterr().out
+    token = re.search(r"^::stop-commands::(tend-[0-9a-f]+)$", printed, re.MULTILINE)
+    assert token is not None
+    assert f"\n::{token[1]}::\n" in printed
 
 
 def test_codex_base64_encodes_the_fixed_final_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_dir, output, summary = configure(tmp_path, monkeypatch, harness="codex")
-    fake_runtime(monkeypatch, run_dir, harness="codex")
+    fake_launch(monkeypatch, run_dir, harness="codex")
 
     assert launch.main() == 0
 
@@ -192,17 +227,15 @@ def test_runtime_bundle_is_staged_outside_the_private_action(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_dir, _output, _summary = configure(tmp_path, monkeypatch, harness="codex")
-    calls = fake_runtime(monkeypatch, run_dir, harness="codex")
+    launched = fake_launch(monkeypatch, run_dir, harness="codex")
 
     assert launch.main() == 0
 
-    runtime = next(args for args in calls if "sandbox_runtime.mjs" in args[-1])
     bundle = tmp_path / "runtime/action"
-    assert runtime[-1] == str(bundle / "shared/steps/sandbox_runtime.mjs")
-    entries = launched_environment(runtime)
-    assert f"ACTION_PATH={bundle}" in entries
-    assert f"TEND_LIFECYCLE={bundle / 'shared/steps/agent_lifecycle.py'}" in entries
-    assert f"TEND_CODEX_RUNNER={bundle / 'codex/runner.py'}" in entries
+    assert launched.unit[-1] == str(bundle / "shared/steps/agent_lifecycle.py")
+    entries = launched.environment.decode().splitlines()
+    assert f'ACTION_PATH="{bundle}"' in entries
+    assert f'TEND_CODEX_RUNNER="{bundle / "codex/runner.py"}"' in entries
     assert (bundle / "shared/steps/event_checkout.py").read_text() == (
         "event_checkout.py\n"
     )
@@ -213,6 +246,56 @@ def test_runtime_bundle_is_staged_outside_the_private_action(
     assert (bundle / "shared/steps/lib").stat().st_mode & 0o777 == 0o755
 
 
+def test_the_unit_binds_the_view_over_the_home_and_hides_the_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, _output, _summary = configure(tmp_path, monkeypatch, harness="claude")
+    launched = fake_launch(monkeypatch, run_dir, harness="claude")
+
+    assert launch.main() == 0
+
+    home = tmp_path / "home/runner"
+    view = tmp_path / "runtime/view/merged"
+    assert launched.setting("BindPaths") == [f"{view}:{home}"]
+    assert launched.setting("ReadWritePaths") == [f"{home} {run_dir.parent}"]
+    assert set(map(Path, launched.setting("InaccessiblePaths"))) == set(
+        launch.view_masks(home)
+    )
+    # The view and the bridge come down after the unit, and after the reap.
+    commands = [" ".join(call) for call in launched.calls]
+    unit_at = commands.index(" ".join(launched.unit))
+    reap_at = next(i for i, c in enumerate(commands) if "/usr/bin/pkill" in c)
+    assert unit_at < reap_at
+    bridge = f"{launch.BRIDGE}.socket {launch.BRIDGE}.service"
+    assert commands[reap_at + 2 :] == [
+        f"/usr/bin/sudo /usr/bin/systemctl stop {bridge}",
+        f"/usr/bin/sudo /usr/bin/umount {view}",
+    ]
+
+
+def test_a_failed_launch_still_reaps_and_unwinds_only_what_it_built(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, output, _summary = configure(tmp_path, monkeypatch, harness="claude")
+    launched = fake_launch(
+        monkeypatch,
+        run_dir,
+        harness="claude",
+        failing="--socket-property=PrivateNetwork=yes",
+    )
+
+    assert launch.main() == 1
+
+    assert output.read_text().startswith("sandbox_reaped=true\n")
+    assert not any(f"--unit={launch.UNIT}" in call for call in launched.calls)
+    assert not any("/usr/bin/systemctl" in call for call in launched.calls)
+    assert launched.calls[-1][-2:] == [
+        "/usr/bin/umount",
+        str(tmp_path / "runtime/view/merged"),
+    ]
+    assert not (tmp_path / "runtime/private/tend-launch-env").exists()
+
+
 def test_agent_step_summary_symlink_is_not_followed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -220,7 +303,7 @@ def test_agent_step_summary_symlink_is_not_followed(
     secret = tmp_path / "runner-secret"
     secret.write_text("must not cross\n")
     (run_dir.parent / "tmp/step-summary.md").symlink_to(secret)
-    fake_runtime(monkeypatch, run_dir, harness="codex", write_summary=False)
+    fake_launch(monkeypatch, run_dir, harness="codex", write_summary=False)
 
     assert launch.main() == 0
     assert summary.read_bytes() == b""
@@ -230,13 +313,43 @@ def test_no_agent_owned_result_is_read_until_the_uid_is_quiescent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_dir, output, summary = configure(tmp_path, monkeypatch, harness="claude")
-    fake_runtime(monkeypatch, run_dir, harness="claude", reaped=False)
+    fake_launch(monkeypatch, run_dir, harness="claude", reaped=False)
 
     assert launch.main() == 1
 
     assert output.read_text() == "sandbox_reaped=false\n"
     assert summary.read_bytes() == b""
     assert not (tmp_path / "runner-temp/tend-agent-export/claude-stream.json").exists()
+
+
+def test_the_environment_file_quotes_what_systemd_would_unescape() -> None:
+    """systemd reads a double-quoted value literally but for these four escapes.
+
+    Checked against systemd 255 on ubuntu-24.04: each value below reached the
+    unit byte for byte.
+    """
+    body = launch.environment_file(
+        ["PLAIN=a b=c", 'TRICKY=$HOME `x` "q" \\n\\', "LINES=one\ntwo\n", "EMPTY="]
+    )
+
+    assert body == (
+        b'PLAIN="a b=c"\n'
+        b'TRICKY="\\$HOME \\`x\\` \\"q\\" \\\\n\\\\"\n'
+        b'LINES="one\ntwo\n"\n'
+        b'EMPTY=""\n'
+    )
+
+
+def test_a_name_systemd_would_drop_is_left_out_aloud(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert launch.environment_file(["my-var=1", "KEPT=2"]) == b'KEPT="2"\n'
+    assert "::warning::'my-var' cannot cross" in capsys.readouterr().out
+
+
+def test_a_value_systemd_cannot_read_fails_by_name() -> None:
+    with pytest.raises(ValueError, match="RAW is not UTF-8"):
+        launch.environment_file(["RAW=\udcff"])
 
 
 def test_the_runner_mask_never_takes_the_job_s_own_tree_with_it(
@@ -258,6 +371,54 @@ def test_the_runner_mask_never_takes_the_job_s_own_tree_with_it(
     assert not any(workspace.is_relative_to(mask) for mask in masks)
 
 
+def parsed(entries: str, kind: str) -> dict[int, int]:
+    """The map as `{id seen in the mount: id on disk}` for one id type."""
+    seen: dict[int, int] = {}
+    for entry in entries.split():
+        entry_kind, mount, host, count = entry.split(":")
+        assert int(count) > 0, f"{entry} is an empty range, which mount rejects"
+        if entry_kind != kind:
+            continue
+        for offset in range(int(count)):
+            assert int(mount) + offset not in seen, f"{entry} overlaps an earlier range"
+            seen[int(mount) + offset] = int(host) + offset
+    return seen
+
+
+def account(uid: int, gid: int) -> pwd.struct_passwd:
+    return pwd.struct_passwd(("name", "x", uid, gid, "", "/home/name", "/bin/sh"))
+
+
+@pytest.mark.parametrize(
+    ("runner", "sandbox"),
+    [
+        (account(1001, 1001), account(1002, 1002)),
+        # The sandbox account created first, with the lower id.
+        (account(1050, 1050), account(999, 999)),
+        # A primary group that differs from the uid.
+        (account(1001, 127), account(1002, 1002)),
+        # `useradd -g`: both accounts share one group, so there is nothing to swap.
+        (account(1001, 1000), account(1002, 1000)),
+    ],
+)
+def test_the_map_swaps_the_two_accounts_and_is_identity_elsewhere(
+    runner: pwd.struct_passwd, sandbox: pwd.struct_passwd
+) -> None:
+    entries = launch.swap_map(runner, sandbox)
+    for kind, ours, theirs in (
+        ("u", runner.pw_uid, sandbox.pw_uid),
+        ("g", runner.pw_gid, sandbox.pw_gid),
+    ):
+        table = parsed(entries, kind)
+        swapped = {ours: theirs, theirs: ours}
+        assert table == {id_: swapped.get(id_, id_) for id_ in range(launch.ID_CEILING)}
+
+
+def test_an_unmappable_account_is_refused_rather_than_truncated() -> None:
+    with pytest.raises(ValueError, match="outside the mappable range"):
+        launch.identity_map("u", 1001, launch.ID_CEILING)
+
+
 def test_runner_cancellation_is_raised_through_the_reap_path() -> None:
     previous = signal.getsignal(signal.SIGTERM)
 
@@ -273,7 +434,7 @@ def test_runtime_bundle_carries_every_module_it_imports() -> None:
 
     Nothing in the sandbox can reach back to the action checkout, so a bundled
     module that imports a sibling left out of `RUNTIME_STEP_FILES` fails at
-    `import` inside SRT — a green unit suite and a red agent turn.
+    `import` inside the unit — a green unit suite and a red agent turn.
     """
     steps = Path(__file__).resolve().parent
     bundled = {name for name in launch.RUNTIME_STEP_FILES if name.endswith(".py")}
@@ -297,171 +458,3 @@ def test_runtime_bundle_carries_every_module_it_imports() -> None:
             f"{source.name} imports {sorted(local - bundled)}, which "
             "RUNTIME_STEP_FILES does not stage into the sandbox bundle"
         )
-
-
-# Mirrors LAUNCH_ATTEMPTS in sandbox_runtime.mjs.
-LAUNCH_ATTEMPTS = 3
-
-# The tests below run sandbox_runtime.mjs for real, and its first statement
-# refuses any other platform; the stand-in lifecycle spawns /usr/bin/bash too.
-linux_only = pytest.mark.skipif(
-    sys.platform != "linux", reason="sandbox_runtime.mjs requires Linux"
-)
-
-FAKE_SRT = """
-import fs from "node:fs";
-
-const state = process.env.FAKE_SRT_STATE;
-const failures = Number(process.env.FAKE_SRT_FAILURES);
-const resetFailures = Number(process.env.FAKE_SRT_RESET_FAILURES);
-
-function record(name) {
-  const counts = JSON.parse(fs.readFileSync(state, "utf8"));
-  counts[name] = (counts[name] ?? 0) + 1;
-  fs.writeFileSync(state, JSON.stringify(counts));
-  return counts[name];
-}
-
-let allowWrite;
-
-export const SandboxManager = {
-  async initialize(config) {
-    allowWrite = config.filesystem.allowWrite;
-    if (record("initialize") <= failures) {
-      throw new Error("Failed to create bridge sockets after 5 attempts");
-    }
-  },
-  async checkDependenciesAsync() {
-    return { errors: [], warnings: [] };
-  },
-  async wrapWithSandboxArgv() {
-    record("wrap");
-    // The cwd SRT resolves its mandatory write protections against, read
-    // where SRT reads it: while generating the wrapped command.
-    fs.writeFileSync(`${state}.wrap`, JSON.stringify({ cwd: process.cwd(), allowWrite }));
-    return { argv: ["/usr/bin/bash", "-c", "echo lifecycle-ran"], env: {} };
-  },
-  async reset() {
-    if (record("reset") <= resetFailures) {
-      throw new Error("Cleanup failed in initializationPromise");
-    }
-  },
-};
-"""
-
-
-def run_sandbox_runtime(
-    tmp_path: Path, *, failures: int, reset_failures: int = 0
-) -> tuple[subprocess.CompletedProcess[str], dict[str, int]]:
-    """Drive the real sandbox_runtime.mjs against a stand-in SandboxManager.
-
-    `TEND_SRT_ENTRY` is the module the runtime imports, so a fake entry
-    exercises the launch path itself rather than a copy of its logic.
-    """
-    root = tmp_path / "srt"
-    runner_home = root / "runner-home"
-    # Inside the runner's home, as on a hosted runner.
-    workspace = runner_home / "work" / "repo"
-    home = root / "home"
-    for directory in (root, workspace, home):
-        directory.mkdir(parents=True)
-    entry = root / "fake-srt.mjs"
-    entry.write_text(FAKE_SRT)
-    state = root / "state.json"
-    state.write_text("{}")
-    for name in ("seccomp.json", "lifecycle.py"):
-        (root / name).touch()
-
-    completed = subprocess.run(
-        ["node", str(Path(__file__).resolve().parent / "sandbox_runtime.mjs")],
-        env={
-            "PATH": os.environ["PATH"],
-            "FAKE_SRT_STATE": str(state),
-            "FAKE_SRT_FAILURES": str(failures),
-            "FAKE_SRT_RESET_FAILURES": str(reset_failures),
-            "TEND_SRT_ENTRY": str(entry),
-            "TEND_SRT_SECCOMP": str(root / "seccomp.json"),
-            "TEND_LIFECYCLE": str(root / "lifecycle.py"),
-            "GITHUB_WORKSPACE": str(workspace),
-            "AGENT_HOME": str(home),
-            "TMPDIR": str(root),
-            "TEND_RUNNER_HOME": str(runner_home),
-            "TEND_PROXY_PORT": "8899",
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return completed, json.loads(state.read_text())
-
-
-@linux_only
-def test_a_transient_sandbox_launch_failure_is_retried(tmp_path: Path) -> None:
-    """SRT's bridge-socket wait is a race the run should not be lost to.
-
-    `initializeLinuxNetworkBridge` probes five times on an `i * 100` ms
-    backoff, so socat has 600 ms to bind both sockets — and Tend's config,
-    an external `httpProxyPort` with no `socksProxyPort`, is the branch that
-    spawns two of them into that budget. Losing the launch costs the whole
-    run: zero turns, no review posted, and no session log to read.
-    """
-    completed, counts = run_sandbox_runtime(tmp_path, failures=1)
-
-    assert completed.returncode == 0, completed.stderr
-    assert "lifecycle-ran" in completed.stdout
-    assert counts["initialize"] == 2
-    assert counts["wrap"] == 1
-
-
-@linux_only
-def test_sandbox_launch_retries_are_bounded_and_keep_the_cause(
-    tmp_path: Path,
-) -> None:
-    """A sandbox that never comes up still fails, on SRT's own diagnosis."""
-    completed, counts = run_sandbox_runtime(tmp_path, failures=LAUNCH_ATTEMPTS)
-
-    assert completed.returncode == 1
-    assert "lifecycle-ran" not in completed.stdout
-    assert counts["initialize"] == LAUNCH_ATTEMPTS
-    assert "wrap" not in counts
-    assert (
-        "tend sandbox runtime: Failed to create bridge sockets after 5 attempts"
-        in completed.stderr
-    )
-
-
-@linux_only
-def test_a_failed_cleanup_does_not_abandon_the_remaining_attempts(
-    tmp_path: Path,
-) -> None:
-    """SRT lets its own post-error reset() reject, so ours must tolerate that.
-
-    Surfacing the cleanup failure instead would lose both the retry and the
-    launch error the retry exists to report.
-    """
-    completed, counts = run_sandbox_runtime(tmp_path, failures=1, reset_failures=1)
-
-    assert completed.returncode == 0, completed.stderr
-    assert "lifecycle-ran" in completed.stdout
-    assert counts["initialize"] == 2
-    assert "cleanup after attempt 1 failed" in completed.stderr
-
-
-@linux_only
-def test_srt_resolves_its_write_protections_outside_every_writable_path(
-    tmp_path: Path,
-) -> None:
-    """SRT's mandatory denies must not land in the checkout, or anywhere writable.
-
-    SRT resolves them against its own cwd and binds only those inside
-    `allowWrite`, so from the checkout they became `/dev/null` character
-    devices that `git add -A` refused, and read-only tracked paths.
-    """
-    completed, _ = run_sandbox_runtime(tmp_path, failures=0)
-    wrap = json.loads((tmp_path / "srt/state.json.wrap").read_text())
-
-    assert completed.returncode == 0, completed.stderr
-    cwd = Path(wrap["cwd"])
-    assert wrap["allowWrite"]
-    for writable in map(Path, wrap["allowWrite"]):
-        assert not cwd.is_relative_to(writable), (cwd, writable)

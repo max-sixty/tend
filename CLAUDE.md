@@ -54,20 +54,20 @@ Four pieces:
    — no floating `v1`). Every action lives under a harness-named path; there
    is no bare-root default. The two harness runners are:
    - `max-sixty/tend/claude@X.Y.Z` (Claude) — runs the official `claude`
-     binary headless (`claude -p`) inside the shared Anthropic Sandbox Runtime
-     boundary; completion is the process exit code plus result event.
+     binary headless (`claude -p`) inside the shared sandbox, a hardened
+     systemd unit; completion is the process exit code plus result event.
      Inputs in `claude/action.yaml`.
    - `max-sixty/tend/codex@X.Y.Z` (Codex) — installs `@openai/codex` and
      shells out to `codex exec`. Skills are staged on disk and an
      `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve
      `/tend-ci-runner:NAME` slash commands. Inputs in `codex/action.yaml`.
-     Shares the cross-harness workspace, SRT lifecycle, preflight, and teardown
-     scripts under `shared/steps/`.
+     Shares the cross-harness workspace, sandbox lifecycle, preflight, and
+     teardown scripts under `shared/steps/`.
 
    Both harness runners resolve the bot's numeric ID at runtime, run security
    and rate-limit preflight, then select the event's topology and run the
-   complete agent turn in one SRT process tree over a copy-on-write view of
-   the runner's home, reap it, and upload bounded session logs. The generated
+   complete agent turn in one systemd unit over a copy-on-write view of the
+   runner's home, reap it, and upload bounded session logs. The generated
    workflow's checkout stays on reviewed code for setup and local-action POST
    chains; nothing the agent writes reaches it.
 
