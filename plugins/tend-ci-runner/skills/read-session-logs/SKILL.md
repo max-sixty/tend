@@ -20,16 +20,15 @@ Review events trigger `tend-mention-relay`, whose runs never carry a session or 
 
 A prior run's session log holds the investigation behind its posted comments: the files it read, the line ranges, the reasoning it weighed but never wrote down. Since the thread already shows the conclusions and reading a prior log costs real tokens, reach for one only when a follow-up depends on that un-posted reasoning: a question about why an earlier decision was made, or a revision to a prior bot conclusion that needs what it considered. For a first engagement or a self-contained request, skip it.
 
-Only issue/PR-triggered runs name their artifacts by thread number, so scheduled and ci-fix (`workflow_run`) runs aren't recallable this way.
+Only issue/PR-triggered Claude runs name their artifacts by thread number, so scheduled, ci-fix (`workflow_run`), and Codex runs aren't recallable this way.
 
-Every run on a thread names its log the same, so the API's exact-match `name` filter returns the whole thread in one call per harness — both, since a repo can run one harness on some workflows and the other elsewhere. Newest first, within the 30-day retention window:
+Every run on a thread names its log the same, so the API's exact-match `name` filter returns the whole thread in one call. Newest first, within the 30-day retention window:
 
 ```bash
 NUM=<issue/PR number you're handling>
-for harness in claude codex; do
-  gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=${harness}-session-logs-n${NUM}&per_page=100" \
-    --jq '.artifacts[] | select(.expired == false) | {run_id: .workflow_run.id, created_at}'
-done | jq -s 'sort_by(.created_at) | reverse'
+gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=claude-session-logs-n${NUM}&per_page=100" \
+  --jq '.artifacts[] | select(.expired == false) | {run_id: .workflow_run.id, created_at}' \
+  | jq -s 'sort_by(.created_at) | reverse'
 ```
 
 Download a chosen run's log and parse it with the recipes in `/install-tend:debug-tend-run`'s `references/claude-logs.md`:

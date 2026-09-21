@@ -1089,24 +1089,6 @@ def test_sandbox_env_reserved_key_rejected(tmp_path: Path) -> None:
         Config.load(path)
 
 
-def test_sandbox_env_github_namespace_rejected_at_init(tmp_path: Path) -> None:
-    """`consumer_env` refuses the namespace inside the sandbox, so `init` must.
-
-    A name it accepts here is one the consumer only hears about from a job that
-    failed, after the workflows are stamped and pushed.
-    """
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        sandbox_env:
-          GITHUB_ANYTHING: mine
-    """),
-    )
-    with pytest.raises(ClickException, match="GITHUB_ANYTHING"):
-        Config.load(path)
-
-
 def test_sandbox_env_path_rejected_points_to_sandbox_path(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,

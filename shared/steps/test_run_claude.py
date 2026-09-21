@@ -450,14 +450,14 @@ def launch(
         launch_error: Exception | None = None,
         **overrides: str,
     ) -> Launch:
-        runner_temp = tmp_path / "agent-run"
+        runner_temp = tmp_path / "runner-temp"
         workspace = tmp_path / "workspace"
         runner_temp.mkdir(exist_ok=True)
-        (workspace / ".git").mkdir(parents=True, exist_ok=True)
+        workspace.mkdir(exist_ok=True)
         monkeypatch.setenv("CI", "true")
         monkeypatch.setenv("TEND_INSIDE_SANDBOX", "1")
         env = {
-            "TEND_RUN_DIR": str(runner_temp),
+            "RUNNER_TEMP": str(runner_temp),
             "GITHUB_WORKSPACE": str(workspace),
             "TEND_MODEL": "opus",
             "TEND_EFFORT": "",
@@ -630,8 +630,6 @@ def test_launch_writes_settings_inside_the_existing_sandbox(launch: Launcher) ->
     mkdir = result.command("mkdir")
     assert mkdir.argv[0] == "mkdir"
     assert mkdir.kwargs["stdin"] is subprocess.DEVNULL
-    exclude = Path(tee.argv[-1]).parents[1] / ".git/info/exclude"
-    assert exclude.read_text() == "/.claude/settings.local.json\n"
 
 
 def test_launch_captures_the_streams_into_runner_owned_files(
@@ -788,7 +786,7 @@ def test_main_refuses_to_start_without_an_input_it_needs_late(
     ordinary run green and surface months later, mid-outage, as a bare exit 1.
     """
     for name in (
-        "TEND_RUN_DIR",
+        "RUNNER_TEMP",
         "GITHUB_WORKSPACE",
         "TEND_MODEL",
         "TEND_ALLOWED_TOOLS",
