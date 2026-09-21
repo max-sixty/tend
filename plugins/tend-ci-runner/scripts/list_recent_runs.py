@@ -149,16 +149,15 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             if conclusion and _parse_time(row["updatedAt"]) >= completed_after:
                 runs_by_id[int(row["databaseId"])] = row
 
-    reruns = sorted(
-        run_id for run_id, row in runs_by_id.items() if row.get("attempt", 1) > 1
-    )
+    reruns = sorted(run_id for run_id, row in runs_by_id.items() if row["attempt"] > 1)
     if reruns:
         print(
             f"WARNING: {len(reruns)} run(s) in this list were re-run — "
             f"{', '.join(str(run_id) for run_id in reruns)}. Each row's conclusion "
-            "is the latest attempt's, so the earlier attempt that prompted the "
-            "re-run left no row here. Read each one's `attempts/1` log before "
-            "counting the window's failures.",
+            "is the latest attempt's, so no earlier attempt has a row here. Read "
+            "every earlier `attempts/N` log before counting the window's failures; "
+            f"one that finished before {_stamp(completed_after)} was already counted "
+            "by the previous sweep.",
             file=sys.stderr,
         )
 

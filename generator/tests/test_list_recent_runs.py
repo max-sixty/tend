@@ -3,8 +3,8 @@
 The window logic is the behaviour under test: the completion window resumes
 at the previous successful run's start, clamps at the cap with a stderr
 WARNING, and falls back to a plain 1h window outside Actions. A re-run row
-draws its own WARNING, because its conclusion is the latest attempt's. The fake `gh`
-serves API fixtures, while an injected clock keeps the window edges
+draws its own WARNING, because its conclusion is the latest attempt's. The
+fake `gh` serves API fixtures, while an injected clock keeps the window edges
 deterministic.
 """
 
@@ -317,6 +317,9 @@ def test_a_rerun_is_flagged_because_its_row_carries_only_the_latest_attempt(
     ]
     assert fetches and all("attempt,databaseId" in line for line in fetches), fetches
     assert "1 run(s) in this list were re-run — 2." in result.stderr
+    # The floor separates an attempt this window has to count from one the
+    # previous sweep already did.
+    assert _iso(NOW - 5400) in result.stderr
 
 
 def test_first_attempt_rows_draw_no_rerun_warning(env: dict[str, str]) -> None:
