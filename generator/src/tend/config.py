@@ -46,8 +46,8 @@ KNOWN_TOP_LEVEL = {
     "protected_branches",
     "secrets",
     "setup",
-    "sandbox_env",
     # Deprecated; see `_migrated_sandbox_steps`.
+    "sandbox_env",
     "sandbox_path",
     "sandbox_setup",
     "workflows",
@@ -93,45 +93,6 @@ _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 # POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-# Env names a consumer's `sandbox_env` may NOT set. These carry the sandbox's
-# credential isolation and routing — letting a consumer override them (via a
-# committed config, but also as a defense against a hand-edited workflow) could
-# redirect the agent's traffic off the injecting proxy or clobber the dummy
-# credentials the proxy swaps for the real secrets. `PATH` is reserved too: the
-# agent's PATH is the job's, which a `setup:` step extends through $GITHUB_PATH.
-# Kept in sync with RESERVED_SANDBOX_ENV in proxy/setup_sandbox.py — the
-# `sandbox-env-reserved-parity` pre-commit hook fails the commit on drift.
-RESERVED_SANDBOX_ENV = {
-    "HOME",
-    "PATH",
-    "CLAUDE_CONFIG_DIR",
-    "XDG_CONFIG_HOME",
-    "XDG_CACHE_HOME",
-    "XDG_DATA_HOME",
-    "XDG_STATE_HOME",
-    "HTTPS_PROXY",
-    "HTTP_PROXY",
-    "https_proxy",
-    "http_proxy",
-    "NO_PROXY",
-    "no_proxy",
-    "NODE_EXTRA_CA_CERTS",
-    "SSL_CERT_FILE",
-    "REQUESTS_CA_BUNDLE",
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "GITHUB_WORKSPACE",
-    "CLAUDE_CODE_REMOTE",
-    "ANTHROPIC_API_KEY",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "OPENAI_API_KEY",
-    "CODEX_API_KEY",
-    "CODEX_AUTH_JSON",
-    "CODEX_HOME",
-    "TMPDIR",
-}
-
-
 ALLOWED_STEP_FIELDS = {
     "uses",
     "run",
@@ -173,28 +134,83 @@ def _deprecated_list(raw: dict, key: str) -> list[str]:
     return values
 
 
-def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
-    """`setup:` steps doing what the deprecated `sandbox_path`/`sandbox_setup` did.
+def _deprecated_env(raw: dict) -> dict[str, str]:
+    values = raw.get("sandbox_env") or {}
+    if not isinstance(values, dict):
+        raise click.ClickException(
+            "sandbox_env must be a mapping of NAME: VALUE "
+            '(e.g. sandbox_env: {RUST_BACKTRACE: "1"})'
+        )
+    env: dict[str, str] = {}
+    for name, value in values.items():
+        if not isinstance(name, str) or not _ENV_NAME.match(name):
+            raise click.ClickException(
+                f"sandbox_env key '{name}' is not a valid environment "
+                "variable name (letters, digits, underscore; not starting "
+                "with a digit)"
+            )
+        # `bool` is an `int` subclass, so it is tested first, and written as
+        # the shell's `true`/`false` rather than Python's `True`/`False`.
+        if isinstance(value, bool):
+            env[name] = "true" if value else "false"
+        elif isinstance(value, (str, int, float)):
+            env[name] = str(value)
+        else:
+            raise click.ClickException(
+                f"sandbox_env value for '{name}' must be a scalar "
+                "(string, number, or boolean)"
+            )
+        # `$GITHUB_ENV` reads one NAME=VALUE per line, so a second line
+        # would set a variable of its own.
+        if "\n" in env[name]:
+            raise click.ClickException(
+                f"sandbox_env value for '{name}' must be a single line"
+            )
+    return env
 
-    Both existed to reach an agent with its own home and checkout. Under the
-    copy-on-write view it runs with the job's PATH and sees what `setup:`
-    built, so their documented migration is to move the entries into `setup:`,
-    and this performs it: one step per key, appended after the consumer's own
-    steps, paths first, since `sandbox_setup` ran with the `sandbox_path`
-    directories on PATH. A leading `~` named the sandbox's home, which under
-    the view is the job's `$HOME`. The runner puts a later `$GITHUB_PATH` line
-    ahead of an earlier one, so the directories are written last-first to keep
-    the first entry first. The commands share one `-eo pipefail` bash, as they
-    did, so a `cd`, `export` or `source` still reaches the ones after it.
+
+def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
+    """`setup:` steps doing what the deprecated `sandbox_*` keys did.
+
+    All three existed to reach an agent with its own environment, home and
+    checkout. Under the copy-on-write view it runs with the job's environment
+    and PATH and sees what `setup:` built, so their documented migration is to
+    move the entries into `setup:`, and this performs it: one step per key,
+    appended after the consumer's own steps, so those still do not see a
+    `sandbox_env` value. Variables and paths come first, since `sandbox_setup`
+    ran with both. A variable's value stays in the step's `env:`, where an
+    Actions expression still evaluates, rather than in its script. A leading
+    `~` named the sandbox's home, which under the view is the job's `$HOME`.
+    The runner puts a later `$GITHUB_PATH` line ahead of an earlier one, so the
+    directories are written last-first to keep the first entry first. The
+    commands share one `-eo pipefail` bash, as they did, so a `cd`, `export` or
+    `source` still reaches the ones after it.
 
     Warned about rather than refused, at the maintainer's call and against the
     no-backward-compatibility rule in CLAUDE.md, so that nothing breaks in a
     consumer before it migrates; a warning that dropped the entries would
     silently stop installing what its agent relies on.
-    TODO(2026-10-21): refuse both keys, with these messages as the migration,
-    once the consumers that set them have moved their entries into `setup:`.
+    TODO(2026-10-21): refuse all three keys, with these messages as the
+    migration, once the consumers that set them have moved their entries into
+    `setup:`.
     """
     steps: list[SetupStep] = []
+    env = _deprecated_env(raw)
+    if env:
+        click.echo(
+            "Warning: `sandbox_env` is deprecated and will be refused in a "
+            "later release. The agent now runs with the job's own "
+            "environment, so a variable a `setup:` step exports to "
+            "`$GITHUB_ENV` reaches it; its entries are exported from a "
+            "`setup:` step after yours for now. Export them yourself from "
+            'the last `setup:` step (e.g. `- run: echo "MY_TOKEN=$MY_TOKEN" '
+            '>> "$GITHUB_ENV"`, with the value under the step\'s `env:` as '
+            "`MY_TOKEN:`, where an expression still works), since every step "
+            "after the export sees the value, and delete the key.",
+            err=True,
+        )
+        run = "\n".join(f'echo "{name}=${name}" >> "$GITHUB_ENV"' for name in env)
+        steps.append(SetupStep(fields={"run": run, "env": env}))
     paths = _deprecated_list(raw, "sandbox_path")
     if paths:
         click.echo(
@@ -308,9 +324,6 @@ class Config:
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
-    # NAME=VALUE pairs laid over the agent's launch env inside either harness's
-    # sandbox, and over nothing a runner step sees.
-    sandbox_env: dict[str, str] = field(default_factory=dict)
     # Opt-in experiment that persists Claude Code's model-authored auto memory
     # in a bot-owned secret Gist. The Gist ID stays in a fixed environment
     # secret so a public repository does not publish the unlisted URL.
@@ -476,67 +489,6 @@ class Config:
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
         setup.extend(_migrated_sandbox_steps(raw))
-
-        sandbox_env_raw = raw.get("sandbox_env", {}) or {}
-        if not isinstance(sandbox_env_raw, dict):
-            raise click.ClickException(
-                "sandbox_env must be a mapping of NAME: VALUE "
-                '(e.g. sandbox_env: {RUST_BACKTRACE: "1"})'
-            )
-        sandbox_env: dict[str, str] = {}
-        for name, value in sandbox_env_raw.items():
-            if not isinstance(name, str) or not _ENV_NAME.match(name):
-                raise click.ClickException(
-                    f"sandbox_env key '{name}' is not a valid environment "
-                    "variable name (letters, digits, underscore; not starting "
-                    "with a digit)"
-                )
-            if name in RESERVED_SANDBOX_ENV:
-                hint = (
-                    " The agent runs with the job's PATH; extend it from a "
-                    '`setup:` step with `echo DIR >> "$GITHUB_PATH"`.'
-                    if name == "PATH"
-                    else " It carries the sandbox's credential isolation and "
-                    "cannot be overridden."
-                )
-                raise click.ClickException(
-                    f"sandbox_env may not set reserved key '{name}'.{hint}"
-                )
-            # `consumer_env` in proxy/setup_sandbox.py refuses the whole
-            # namespace inside the sandbox. Refusing it here too is what the
-            # consumer sees: otherwise `init` accepts the key and the run it
-            # stamps fails, once, in a job.
-            if name.startswith("GITHUB_"):
-                raise click.ClickException(
-                    f"sandbox_env may not set '{name}': the GITHUB_* context "
-                    "describes the run and comes from Actions."
-                )
-            # Coerce a YAML scalar (1, true) to its string form; reject a
-            # non-scalar (a list/dict would otherwise str() into a Python repr
-            # and silently smuggle garbage into the agent env line). `bool` is
-            # an `int` subclass, so handle it first and emit the shell-
-            # conventional lowercase rather than Python's `True`/`False`.
-            if isinstance(value, bool):
-                coerced = "true" if value else "false"
-            elif isinstance(value, str):
-                coerced = value
-            elif isinstance(value, (int, float)):
-                coerced = str(value)
-            else:
-                raise click.ClickException(
-                    f"sandbox_env value for '{name}' must be a scalar "
-                    "(string, number, or boolean)"
-                )
-            # The action splits this input one NAME=VALUE pair per line, so a
-            # value carrying a newline would be read as a pair and a malformed
-            # line rather than one value — fail at `init` instead. (The block
-            # scalar itself is safe: `block_input` indents a continuation line
-            # like any other.)
-            if "\n" in coerced:
-                raise click.ClickException(
-                    f"sandbox_env value for '{name}' must be a single line"
-                )
-            sandbox_env[name] = coerced
 
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in (raw.get("workflows") or {}).items():
@@ -723,7 +675,6 @@ class Config:
             effort=effort,
             args=args,
             setup=setup,
-            sandbox_env=sandbox_env,
             memory_gist=memory_gist,
             workflows=workflows,
             allowed_repo_secrets=allowed,

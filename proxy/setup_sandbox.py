@@ -47,35 +47,6 @@ ALLOW_HOSTS = (
 GITHUB_DUMMY = "ghp_tendproxydummy000000000000000000000"
 OAUTH_DUMMY = "sk-ant-oat01-tendproxydummy0000000000000000000000000000"
 API_KEY_DUMMY = "sk-ant-api03-tendproxydummy0000000000000000000000000000"
-RESERVED_SANDBOX_ENV = {
-    "HOME",
-    "PATH",
-    "CLAUDE_CONFIG_DIR",
-    "XDG_CONFIG_HOME",
-    "XDG_CACHE_HOME",
-    "XDG_DATA_HOME",
-    "XDG_STATE_HOME",
-    "HTTPS_PROXY",
-    "HTTP_PROXY",
-    "https_proxy",
-    "http_proxy",
-    "NO_PROXY",
-    "no_proxy",
-    "NODE_EXTRA_CA_CERTS",
-    "SSL_CERT_FILE",
-    "REQUESTS_CA_BUNDLE",
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "GITHUB_WORKSPACE",
-    "CLAUDE_CODE_REMOTE",
-    "ANTHROPIC_API_KEY",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "OPENAI_API_KEY",
-    "CODEX_API_KEY",
-    "CODEX_AUTH_JSON",
-    "CODEX_HOME",
-    "TMPDIR",
-}
 
 
 def log(message: str) -> None:
@@ -203,29 +174,7 @@ def base_agent_env(path: str, anthropic_dummy: tuple[str, str] | None) -> list[s
     }
     if anthropic_dummy:
         values[anthropic_dummy[0]] = anthropic_dummy[1]
-    if not values.keys() <= RESERVED_SANDBOX_ENV:
-        raise AssertionError("agent environment contains an unreserved key")
     return [f"{name}={value}" for name, value in values.items()]
-
-
-def consumer_env(raw: str) -> list[str]:
-    """Validate the hand-edited workflow boundary for ``sandbox_env``."""
-    assignments: list[str] = []
-    for line in raw.split("\n"):
-        if not line:
-            continue
-        if "=" not in line:
-            raise ValueError(f"sandbox_env line is not NAME=VALUE: '{line}'")
-        name = line.split("=", 1)[0]
-        if name in RESERVED_SANDBOX_ENV:
-            raise ValueError(f"sandbox_env may not set reserved key '{name}'")
-        if name.startswith("GITHUB_"):
-            raise ValueError(
-                f"sandbox_env may not set '{name}': the GITHUB_* context "
-                "describes the run and comes from Actions"
-            )
-        assignments.append(line)
-    return assignments
 
 
 def write_agent_environment(
@@ -233,7 +182,6 @@ def write_agent_environment(
 ) -> str:
     sandbox_path = os.pathsep.join(path_entries)
     assignments = base_agent_env(sandbox_path, anthropic_dummy)
-    assignments.extend(consumer_env(os.environ.get("TEND_SANDBOX_ENV", "")))
     paths.agent_env_file.write_text("\n".join(assignments) + "\n", encoding="utf-8")
     exports = {
         "SANDBOX": SANDBOX,
@@ -472,14 +420,11 @@ def main() -> int:
     else:
         anthropic_dummy = ("ANTHROPIC_API_KEY", API_KEY_DUMMY)
 
-    try:
-        sandbox_path = write_agent_environment(
-            paths=paths,
-            path_entries=agent_path(runner_tool_path),
-            anthropic_dummy=anthropic_dummy,
-        )
-    except ValueError as problem:
-        return error(str(problem))
+    sandbox_path = write_agent_environment(
+        paths=paths,
+        path_entries=agent_path(runner_tool_path),
+        anthropic_dummy=anthropic_dummy,
+    )
     log(f"sandbox PATH: {sandbox_path}")
 
     if not strip_checkout_credentials(paths):
