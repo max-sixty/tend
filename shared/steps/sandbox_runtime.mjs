@@ -108,11 +108,9 @@ async function main() {
     },
     filesystem: {
       // Denying /tmp makes SRT mount a private tmpfs there: writable scratch
-      // for tools that hard-code /tmp. Nothing reaches the runner's /tmp (a
-      // cache action there would save it) because `enter_view.py` gives this
-      // namespace an empty one too, so SRT's default `/tmp/claude` bind finds
-      // nothing of the host's. SRT's own sockets follow TMPDIR, which points
-      // into the sandbox home, so neither tmpfs covers them.
+      // for tools that hard-code /tmp, and nothing reaches the runner's /tmp
+      // (a cache action there would save it). SRT's own sockets follow TMPDIR,
+      // which points into the sandbox home, so the tmpfs covers none of them.
       denyRead: ["/tmp"],
       allowRead: [],
       // The runner's home is the copy-on-write view `enter_view.py` mounted;

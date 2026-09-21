@@ -48,8 +48,6 @@ def configure(
     summary.touch()
     runtime_root = tmp_path / "runtime"
     runtime_root.mkdir()
-    private = runtime_root / "private"
-    private.mkdir(mode=0o700)
     action = tmp_path / "private/action"
     steps = action / "shared/steps"
     steps.mkdir(parents=True)
@@ -85,7 +83,6 @@ def configure(
         "AGENT_HOME": str(run_dir.parent),
         "GITHUB_STEP_SUMMARY": str(summary),
         "TEND_RUNTIME_ROOT": str(runtime_root),
-        "TEND_PRIVATE_DIR": str(private),
         "ACTION_PATH": str(action),
         "TEND_LIFECYCLE": str(steps / "agent_lifecycle.py"),
     }
@@ -124,12 +121,6 @@ def fake_runtime(
     return calls
 
 
-def launched_environment(runtime: list[str]) -> list[str]:
-    """The entries the launch handed `enter_view`, from the file its argv names."""
-    env_file = Path(runtime[runtime.index("--env-file") + 1])
-    return [entry.decode() for entry in env_file.read_bytes().split(b"\0")]
-
-
 def test_claude_exports_only_fixed_runner_owned_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -152,27 +143,21 @@ def test_claude_exports_only_fixed_runner_owned_files(
     ).read_bytes() == b"diagnostic\n"
     assert summary.read_bytes() == b"skill result\n\n"
     runtime = next(args for args in calls if "sandbox_runtime.mjs" in args[-1])
-    env_file = Path(runtime[runtime.index("--env-file") + 1])
-    assert env_file.parent == tmp_path / "runtime/private"
-    assert env_file.stat().st_mode & 0o777 == 0o600
-    entries = launched_environment(runtime)
-    assert "GITHUB_TOKEN=dummy" in entries
-    assert "GITHUB_ACTOR=octocat" in entries
-    # The job's own environment crosses whole, and none of it on the command
-    # line `sudo` logs.
-    assert "JAVA_HOME=/usr/lib/jvm/temurin-21" in entries
-    assert not any("JAVA_HOME" in arg or "octocat" in arg for arg in runtime)
-    assert not any("runner-token-must-not-cross" in entry for entry in entries)
-    assert not any("runner-service-must-not-cross" in entry for entry in entries)
-    assert not any(entry.startswith("GITHUB_OUTPUT=") for entry in entries)
-    assert f"TMPDIR={run_dir.parent / 'tmp'}" in entries
-    assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'tmp/step-summary.md'}" in entries
-    # A later entry wins, and the launch's HOME is the job's.
+    assert "GITHUB_TOKEN=dummy" in runtime
+    assert "GITHUB_ACTOR=octocat" in runtime
+    # The job's own environment crosses whole.
+    assert "JAVA_HOME=/usr/lib/jvm/temurin-21" in runtime
+    assert not any("runner-token-must-not-cross" in arg for arg in runtime)
+    assert not any("runner-service-must-not-cross" in arg for arg in runtime)
+    assert not any(arg.startswith("GITHUB_OUTPUT=") for arg in runtime)
+    assert f"TMPDIR={run_dir.parent / 'tmp'}" in runtime
+    assert f"GITHUB_STEP_SUMMARY={run_dir.parent / 'tmp/step-summary.md'}" in runtime
+    # `env` takes the last assignment, and the launch's HOME is the job's.
     runner_home = tmp_path / "home/runner"
-    assert entries.index(f"HOME={runner_home}") > entries.index(
+    assert runtime.index(f"HOME={runner_home}") > runtime.index(
         "HOME=/home/tend-sandbox"
     )
-    assert f"XDG_CACHE_HOME={runner_home / '.cache'}" in entries
+    assert f"XDG_CACHE_HOME={runner_home / '.cache'}" in runtime
 
 
 def test_codex_base64_encodes_the_fixed_final_message(
@@ -200,10 +185,9 @@ def test_runtime_bundle_is_staged_outside_the_private_action(
     runtime = next(args for args in calls if "sandbox_runtime.mjs" in args[-1])
     bundle = tmp_path / "runtime/action"
     assert runtime[-1] == str(bundle / "shared/steps/sandbox_runtime.mjs")
-    entries = launched_environment(runtime)
-    assert f"ACTION_PATH={bundle}" in entries
-    assert f"TEND_LIFECYCLE={bundle / 'shared/steps/agent_lifecycle.py'}" in entries
-    assert f"TEND_CODEX_RUNNER={bundle / 'codex/runner.py'}" in entries
+    assert f"ACTION_PATH={bundle}" in runtime
+    assert f"TEND_LIFECYCLE={bundle / 'shared/steps/agent_lifecycle.py'}" in runtime
+    assert f"TEND_CODEX_RUNNER={bundle / 'codex/runner.py'}" in runtime
     assert (bundle / "shared/steps/sandbox_setup.py").read_text() == (
         "sandbox_setup.py\n"
     )

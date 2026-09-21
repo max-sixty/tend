@@ -25,8 +25,7 @@ more than the account whose home this is has.
 
 ``--mask`` paths inside the home are covered — a directory by an empty tmpfs, a
 file by ``/dev/null`` — and ``agent_lifecycle.probe_view`` checks from inside
-that the view is writable and the masks took. ``/tmp`` gets an empty tmpfs of
-its own, so nothing SRT binds from under it is the host's.
+that the view is writable and the masks took.
 
 Floors: kernel 5.19 and util-linux 2.39 (``X-mount.idmap``).
 """
@@ -98,21 +97,6 @@ def build_view(home: Path, stage: Path, sandbox: pwd.struct_passwd) -> None:
     run("/usr/bin/umount", "-l", str(lower))
 
 
-def read_environment(path: Path) -> dict[bytes, bytes]:
-    """The agent's environment, from the file the supervisor wrote, which it removes.
-
-    NUL-separated ``NAME=VALUE`` entries; a later one wins, as with ``env``.
-    Opened without following a link, since root reads it. Only the standard
-    library is imported here: a sibling module would be one more file root
-    executes, and the import writes a root-owned ``__pycache__`` into the
-    action checkout.
-    """
-    with open(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
-        raw = stream.read()
-    path.unlink()
-    return dict(entry.split(b"=", 1) for entry in raw.split(b"\0") if entry)
-
-
 def mask(path: Path) -> None:
     if path.is_dir():
         run(MOUNT, "-t", "tmpfs", "-o", "ro,mode=0555", "tmpfs", str(path))
@@ -125,22 +109,14 @@ def main(argv: list[str]) -> None:
     parser.add_argument("--home", required=True, type=Path)
     parser.add_argument("--stage", required=True, type=Path)
     parser.add_argument("--user", required=True)
-    parser.add_argument("--env-file", required=True, type=Path)
     parser.add_argument("--mask", action="append", default=[], type=Path)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     options = parser.parse_args(argv)
-    # First, so no failure below leaves the file behind for the run's length.
-    environment = read_environment(options.env_file)
 
     sandbox = pwd.getpwnam(options.user)
     build_view(options.home, options.stage, sandbox)
     for path in options.mask:
         mask(path)
-    # SRT re-binds its default write path `/tmp/claude` whenever it exists
-    # here, and bwrap binds what this namespace has, so a host `/tmp/claude`
-    # would come back writable under SRT's own private /tmp and outlive the
-    # run. Nothing SRT runs needs the host's /tmp: its sockets follow TMPDIR.
-    run(MOUNT, "-t", "tmpfs", "-o", "mode=1777", "tmpfs", "/tmp")
     # A cwd inherited from the runner still names the host's inode.
     os.chdir(options.home)
     command = options.command[1:] if options.command[:1] == ["--"] else options.command
@@ -154,7 +130,7 @@ def main(argv: list[str]) -> None:
         "--bounding-set=-all",
         *command,
     ]
-    os.execve(argv[0], argv, environment)
+    os.execv(argv[0], argv)
 
 
 if __name__ == "__main__":

@@ -334,12 +334,8 @@ Each transition is a bottleneck with one job:
 
   This adds `unshare`, `mount` and `setpriv` to the boundary, run as root from a
   fixed argv, and makes `enter_view.py` a file root executes; the action's
-  `@X.Y.Z` pin keeps `ACTION_PATH` an immutable tag checkout. The job's
-  environment crosses in a 0600 file in the private directory, which
-  `enter_view.py` removes as it reads it, rather than on the command line,
-  where `sudo` would log it. The view's namespace also gets an empty `/tmp`, so
-  SRT's default `/tmp/claude` write path never binds the host's. It needs
-  kernel 5.19 and util-linux 2.39, with no fallback.
+  `@X.Y.Z` pin keeps `ACTION_PATH` an immutable tag checkout. It needs kernel
+  5.19 and util-linux 2.39, with no fallback.
 - **Content ingress** happens inside the sandbox. The workflow's checkout
   arrives on reviewed code, and the lifecycle's first step selects the event's
   topology in it — the PR's merge or head ref, a mentioned PR's head branch, or
