@@ -89,6 +89,8 @@ def _write_delta(reviewed: str, current_head: str, base_sha: str) -> tuple[int, 
             "--format=base merge: %h %s",
             "--merges",
             f"{reviewed}..{current_head}",
+            "--not",
+            base_sha,
         ),
     )
     with tempfile.NamedTemporaryFile(mode="w", delete=False) as delta:
@@ -138,7 +140,11 @@ def _start(pr: str) -> int:
 
     force_full_review = _event_forces_review()
     force_pushed = bool(review_state.get("force_pushed_since"))
-    last_review_sha = str((review_state.get("last_substantive") or {}).get("sha") or "")
+    last_substantive = review_state.get("last_substantive") or {}
+    last_review_sha = str(last_substantive.get("sha") or "")
+    # A draft-mode review was the lighter pass, so once the PR is ready it is no
+    # base for an incremental: the push after it still gets the full review.
+    lighter_base = bool(last_substantive.get("draft_mode")) and not initial["isDraft"]
     # `at_head`, not `last_review_sha == head_sha`: a force push re-points an
     # earlier review's `.commit_id` at the rewritten head, so the raw comparison
     # reports a commit as reviewed that nothing read.
@@ -149,6 +155,7 @@ def _start(pr: str) -> int:
         and last_review_sha != head_sha
         and not force_full_review
         and not force_pushed
+        and not lighter_base
     ):
         subprocess.run(
             ["git", "fetch", "--no-tags", "--quiet", "origin", f"refs/pull/{pr}/head"],

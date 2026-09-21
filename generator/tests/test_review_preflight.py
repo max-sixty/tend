@@ -263,6 +263,43 @@ def test_start_records_one_snapshot_and_prepares_the_incremental(pr: Fixture) ->
     assert pr.pinned() == moved
 
 
+def test_the_incremental_lists_the_branch_merge_but_not_the_bases_own(
+    pr: Fixture,
+) -> None:
+    """A base that lands PRs as merge commits carries its own merges into the
+    range. Each listed merge is one the reviewer is told to read with `--cc`."""
+    _git(pr.origin, "checkout", "-q", "-b", "side", "main")
+    _commit(pr.origin, "side.txt", "1\n", "side-1")
+    _git(pr.origin, "checkout", "-q", "main")
+    _git(pr.origin, "merge", "--no-ff", "-q", "-m", "Merge pull request #9", "side")
+    pr.push_over_base_merge()
+    pr.reviews(_review(pr.reviewed, "earlier finding"))
+
+    incremental = Path(json.loads(pr.start().stdout)["incremental_path"]).read_text()
+
+    assert "base merge: " in incremental
+    assert "Merge pull request #9" not in incremental
+
+
+@pytest.mark.parametrize("is_draft", [True, False])
+def test_a_draft_mode_review_bases_an_incremental_only_while_the_pr_is_a_draft(
+    pr: Fixture, is_draft: bool
+) -> None:
+    """A draft-mode review is the lighter pass. Once the PR is ready, an
+    incremental over it would review the next push on its own and could approve
+    a PR nothing read in full — and that review then stands at the head, so the
+    queued `ready_for_review` run skips."""
+    pr.push_over_base_merge()
+    view = json.loads(Path(pr.env()["PR_JSON"]).read_text())
+    view["isDraft"] = is_draft
+    pr.write("PR_JSON", view)
+    pr.reviews(_review(pr.reviewed, f"a light pass\n{DRAFT_REVIEW_MARKER}"))
+
+    context = json.loads(pr.start().stdout)
+
+    assert (context["incremental_path"] is not None) is is_draft
+
+
 def test_start_resolves_self_authorship_against_the_bot_login(pr: Fixture) -> None:
     """The skill used to be handed both logins and told to compare them, with a
     warning not to read "authored by the repo owner" as self-authored instead."""
