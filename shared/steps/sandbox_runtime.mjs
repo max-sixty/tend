@@ -4,7 +4,9 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { constants } from "node:os";
+import { dirname } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 function required(name) {
   const value = process.env[name];
@@ -67,26 +69,33 @@ async function main() {
   const entry = absolute("TEND_SRT_ENTRY");
   const seccomp = absolute("TEND_SRT_SECCOMP");
   const lifecycle = absolute("TEND_LIFECYCLE");
-  const agentWorkspace = absolute("TEND_AGENT_WORKSPACE");
-  const runnerWorkspace = absolute("TEND_RUNNER_WORKSPACE");
+  const workspace = absolute("GITHUB_WORKSPACE");
   const agentHome = absolute("AGENT_HOME");
   const agentTmpDir = absolute("TMPDIR");
   const runnerHome = absolute("TEND_RUNNER_HOME");
-  const actionPath = absolute("ACTION_PATH");
-  const eventPath = absolute("GITHUB_EVENT_PATH");
-  const agentEnv = absolute("AGENT_ENV_FILE");
   const autoMemory = process.env.TEND_AUTO_MEMORY_DIRECTORY;
-  const codexRoot = process.env.TEND_CODEX_ROOT;
   if (autoMemory && !autoMemory.startsWith("/")) {
     throw new Error("TEND_AUTO_MEMORY_DIRECTORY must be absolute");
   }
-  if (codexRoot && !codexRoot.startsWith("/")) {
-    throw new Error("TEND_CODEX_ROOT must be absolute");
-  }
 
-  for (const path of [entry, seccomp, lifecycle, agentWorkspace, agentHome]) {
+  for (const path of [entry, seccomp, lifecycle, workspace, agentHome]) {
     await access(path);
   }
+
+  // SRT resolves its mandatory write protections (shell rc files, `.gitconfig`,
+  // `.gitmodules`, `.mcp.json`, `.vscode`, `.claude/commands`, `.git/hooks`, …)
+  // against THIS process's cwd, and applies them inside `allowWrite` only: a
+  // protected path that exists is re-bound read-only, one that doesn't gets a
+  // `/dev/null` bind. They exist to stop a sandboxed write from being run later
+  // by something unsandboxed, and nothing outside this process tree runs what
+  // the agent writes under the home: every write there lands in the view's
+  // upper layer, which only this tree sees and the dispose step deletes. Resolved
+  // against the checkout they leave character devices git refuses to add and
+  // tracked paths neither the agent nor the pull request's checkout can change;
+  // against the home, they mask `~/.gitconfig`. This launcher's own staged
+  // directory is outside every `allowWrite` path, so resolved there they emit
+  // nothing. The lifecycle's cwd is the `spawn` below's, not this one.
+  process.chdir(dirname(fileURLToPath(import.meta.url)));
 
   const { SandboxManager } = await import(`file://${entry}`);
   // With filesystem isolation on, SRT sets TMPDIR in the child environment to
@@ -107,31 +116,17 @@ async function main() {
       allowLocalBinding: false,
     },
     filesystem: {
-      denyRead: [runnerHome, runnerWorkspace],
-      allowRead: [
-        actionPath,
-        agentWorkspace,
-        agentHome,
-        eventPath,
-        agentEnv,
-        seccomp,
-        ...(autoMemory ? [autoMemory] : []),
-        ...(codexRoot ? [codexRoot] : []),
-      ],
-      allowWrite: [
-        agentWorkspace,
-        agentHome,
-        // /tmp is ordinary scratch inside the sandbox. Tooling hard-codes
-        // paths under it with no environment variable to move them — NuGet's
-        // build mutex and zsh's here-documents among them — so a read-only
-        // /tmp buys a per-tool workaround every time one surfaces. Tend's own
-        // runtime and checkout containers sit under /var/tmp, which this list
-        // does not cover and the sandbox therefore cannot write, and
-        // dispose_sandbox_resources.py removes what the sandbox uid leaves
-        // here before any later runner step reads /tmp.
-        "/tmp",
-        ...(autoMemory ? [autoMemory] : []),
-      ],
+      // Denying /tmp makes SRT mount a private tmpfs there: writable scratch
+      // for tools that hard-code /tmp. Nothing reaches the runner's /tmp (a
+      // cache action there would save it) because `enter_view.py` gives this
+      // namespace an empty one too, so SRT's default `/tmp/claude` bind finds
+      // nothing of the host's. SRT's own sockets follow TMPDIR, which points
+      // into the sandbox home, so neither tmpfs covers them.
+      denyRead: ["/tmp"],
+      allowRead: [],
+      // The runner's home is the copy-on-write view `enter_view.py` mounted;
+      // bwrap binds whatever the parent namespace has at this path.
+      allowWrite: [runnerHome, agentHome, ...(autoMemory ? [autoMemory] : [])],
       denyWrite: [],
       allowGitConfig: true,
     },
@@ -139,7 +134,7 @@ async function main() {
     seccomp: { applyPath: seccomp },
     bwrapPath: "/usr/bin/bwrap",
     socatPath: "/usr/bin/socat",
-    git: { safeDirectories: [agentWorkspace] },
+    git: { safeDirectories: [workspace] },
   };
 
   let child;
@@ -171,13 +166,13 @@ async function main() {
       "/usr/bin/bash",
       undefined,
       undefined,
-      agentWorkspace,
+      workspace,
       { commandId: "tend-agent-lifecycle", commandText: command },
     );
     console.log(`::stop-commands::${token}`);
     commandsStopped = true;
     child = spawn(wrapped.argv[0], wrapped.argv.slice(1), {
-      cwd: agentWorkspace,
+      cwd: workspace,
       env: { ...process.env, ...wrapped.env },
       stdio: ["ignore", "pipe", "pipe"],
     });

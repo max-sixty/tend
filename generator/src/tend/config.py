@@ -46,9 +46,10 @@ KNOWN_TOP_LEVEL = {
     "protected_branches",
     "secrets",
     "setup",
-    "sandbox_setup",
     "sandbox_env",
+    # Deprecated; see `_migrated_sandbox_steps`.
     "sandbox_path",
+    "sandbox_setup",
     "workflows",
 }
 KNOWN_HARNESSES = {"claude", "codex"}
@@ -96,13 +97,14 @@ _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # credential isolation and routing — letting a consumer override them (via a
 # committed config, but also as a defense against a hand-edited workflow) could
 # redirect the agent's traffic off the injecting proxy or clobber the dummy
-# credentials the proxy swaps for the real secrets. `PATH` is reserved too:
-# use `sandbox_path` (which prepends to the fixed base) instead of replacing it.
+# credentials the proxy swaps for the real secrets. `PATH` is reserved too: the
+# agent's PATH is the job's, which a `setup:` step extends through $GITHUB_PATH.
 # Kept in sync with RESERVED_SANDBOX_ENV in proxy/setup_sandbox.py — the
 # `sandbox-env-reserved-parity` pre-commit hook fails the commit on drift.
 RESERVED_SANDBOX_ENV = {
     "HOME",
     "PATH",
+    "CLAUDE_CONFIG_DIR",
     "XDG_CONFIG_HOME",
     "XDG_CACHE_HOME",
     "XDG_DATA_HOME",
@@ -160,6 +162,76 @@ class SetupStep:
     """
 
     fields: dict
+
+
+def _deprecated_list(raw: dict, key: str) -> list[str]:
+    values = raw.get(key) or []
+    if not isinstance(values, list) or not all(
+        isinstance(value, str) and value.strip() for value in values
+    ):
+        raise click.ClickException(f"{key} must be a list of non-empty strings")
+    return values
+
+
+def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
+    """`setup:` steps doing what the deprecated `sandbox_path`/`sandbox_setup` did.
+
+    Both existed to reach an agent with its own home and checkout. Under the
+    copy-on-write view it runs with the job's PATH and sees what `setup:`
+    built, so their documented migration is to move the entries into `setup:`,
+    and this performs it: one step per key, appended after the consumer's own
+    steps, paths first, since `sandbox_setup` ran with the `sandbox_path`
+    directories on PATH. A leading `~` named the sandbox's home, which under
+    the view is the job's `$HOME`. The runner puts a later `$GITHUB_PATH` line
+    ahead of an earlier one, so the directories are written last-first to keep
+    the first entry first. The commands share one `-eo pipefail` bash, as they
+    did, so a `cd`, `export` or `source` still reaches the ones after it.
+
+    Warned about rather than refused, at the maintainer's call and against the
+    no-backward-compatibility rule in CLAUDE.md, so that nothing breaks in a
+    consumer before it migrates; a warning that dropped the entries would
+    silently stop installing what its agent relies on.
+    TODO(2026-10-21): refuse both keys, with these messages as the migration,
+    once the consumers that set them have moved their entries into `setup:`.
+    """
+    steps: list[SetupStep] = []
+    paths = _deprecated_list(raw, "sandbox_path")
+    if paths:
+        click.echo(
+            "Warning: `sandbox_path` is deprecated and will be refused in a "
+            "later release. The agent now runs with the job's own PATH, so "
+            "a directory a `setup:` step adds reaches it; its entries are "
+            "added from a `setup:` step after yours for now. Add each "
+            "directory yourself (e.g. "
+            '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`) and delete '
+            "the key.",
+            err=True,
+        )
+        directories = [
+            "$HOME" + d[1:] if d == "~" or d.startswith("~/") else d for d in paths
+        ]
+        run = "\n".join(f'echo "{d}" >> "$GITHUB_PATH"' for d in reversed(directories))
+        steps.append(SetupStep(fields={"run": run}))
+    commands = _deprecated_list(raw, "sandbox_setup")
+    if commands:
+        click.echo(
+            "Warning: `sandbox_setup` is deprecated and will be refused in a "
+            "later release. The agent now works in the job's own checkout "
+            "and home, so what `setup:` builds reaches it; its commands run "
+            "in one `setup:` step after yours for now. That is an ordinary "
+            "workflow step, and tend puts nothing on its PATH, so a command "
+            "that calls `uv` needs a step that installs it, such as "
+            "`astral-sh/setup-uv`, earlier in your `setup:`. Move the "
+            "commands into `setup:` as `run:` steps (e.g. "
+            "`- run: rustup component add clippy`) and delete the key; a "
+            "`cd`, `export` or `source` reaches only the rest of its own "
+            "step. `setup:` runs on reviewed code; what a pull "
+            "request itself changes, such as a new dependency in its "
+            "lockfile, the agent installs in the session.",
+            err=True,
+        )
+        steps.append(SetupStep(fields={"run": "\n".join(commands), "shell": "bash"}))
+    return steps
 
 
 @dataclass
@@ -236,14 +308,9 @@ class Config:
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
-    # Consumer levers that reach inside either harness's sandbox, before the
-    # agent launches (runner-side `setup:` doesn't — it runs as the runner user
-    # around the composite action). `sandbox_path` prepends dirs to the sandbox
-    # PATH; `sandbox_env` adds NAME=VALUE pairs to the agent's launch env;
-    # `sandbox_setup` runs shell commands as the sandbox user.
-    sandbox_path: list[str] = field(default_factory=list)
+    # NAME=VALUE pairs laid over the agent's launch env inside either harness's
+    # sandbox, and over nothing a runner step sees.
     sandbox_env: dict[str, str] = field(default_factory=dict)
-    sandbox_setup: list[str] = field(default_factory=list)
     # Opt-in experiment that persists Claude Code's model-authored auto memory
     # in a bot-owned secret Gist. The Gist ID stays in a fixed environment
     # secret so a public repository does not publish the unlisted URL.
@@ -408,23 +475,7 @@ class Config:
                     )
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
-
-        sandbox_path = raw.get("sandbox_path", []) or []
-        if not isinstance(sandbox_path, list) or not all(
-            isinstance(d, str) and d for d in sandbox_path
-        ):
-            raise click.ClickException(
-                "sandbox_path must be a list of non-empty strings "
-                '(e.g. sandbox_path: ["~/.cargo/bin"]); '
-                "`~` expands to the sandbox home"
-            )
-        # A newline in a dir would drop an un-indented continuation line into
-        # the rendered `|` block scalar (which has no indent() filter),
-        # terminating it and breaking the workflow — fail at `init` instead.
-        if any("\n" in d for d in sandbox_path):
-            raise click.ClickException(
-                "sandbox_path entries must each be a single line"
-            )
+        setup.extend(_migrated_sandbox_steps(raw))
 
         sandbox_env_raw = raw.get("sandbox_env", {}) or {}
         if not isinstance(sandbox_env_raw, dict):
@@ -442,13 +493,23 @@ class Config:
                 )
             if name in RESERVED_SANDBOX_ENV:
                 hint = (
-                    " Use `sandbox_path` to extend PATH."
+                    " The agent runs with the job's PATH; extend it from a "
+                    '`setup:` step with `echo DIR >> "$GITHUB_PATH"`.'
                     if name == "PATH"
                     else " It carries the sandbox's credential isolation and "
                     "cannot be overridden."
                 )
                 raise click.ClickException(
                     f"sandbox_env may not set reserved key '{name}'.{hint}"
+                )
+            # `consumer_env` in proxy/setup_sandbox.py refuses the whole
+            # namespace inside the sandbox. Refusing it here too is what the
+            # consumer sees: otherwise `init` accepts the key and the run it
+            # stamps fails, once, in a job.
+            if name.startswith("GITHUB_"):
+                raise click.ClickException(
+                    f"sandbox_env may not set '{name}': the GITHUB_* context "
+                    "describes the run and comes from Actions."
                 )
             # Coerce a YAML scalar (1, true) to its string form; reject a
             # non-scalar (a list/dict would otherwise str() into a Python repr
@@ -476,15 +537,6 @@ class Config:
                     f"sandbox_env value for '{name}' must be a single line"
                 )
             sandbox_env[name] = coerced
-
-        sandbox_setup = raw.get("sandbox_setup", []) or []
-        if not isinstance(sandbox_setup, list) or not all(
-            isinstance(c, str) and c.strip() for c in sandbox_setup
-        ):
-            raise click.ClickException(
-                "sandbox_setup must be a list of non-empty shell command strings "
-                '(e.g. sandbox_setup: ["rustup component add clippy"])'
-            )
 
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in (raw.get("workflows") or {}).items():
@@ -671,9 +723,7 @@ class Config:
             effort=effort,
             args=args,
             setup=setup,
-            sandbox_path=sandbox_path,
             sandbox_env=sandbox_env,
-            sandbox_setup=sandbox_setup,
             memory_gist=memory_gist,
             workflows=workflows,
             allowed_repo_secrets=allowed,

@@ -46,14 +46,8 @@
 {% if cfg.args %}
           <<block_input('args', cfg.args|join('\n'))>>
 {% endif %}
-{% if cfg.sandbox_path %}
-          <<block_input('sandbox_path', cfg.sandbox_path|join('\n'))>>
-{% endif %}
 {% if cfg.sandbox_env %}
           <<block_input('sandbox_env', cfg.sandbox_env.items()|map('join', '=')|join('\n'))>>
-{% endif %}
-{% if cfg.sandbox_setup %}
-          <<block_input('sandbox_setup', cfg.sandbox_setup|join('\n'))>>
 {% endif %}
           <<prompt_body>>
 {%- endmacro %}
@@ -210,20 +204,11 @@
 
 {# Shared `actions/checkout@v7` step. Omitting `ref` takes the event's own ref,
    which under `pull_request_target` is the PR's base branch — what mention and
-   review's first checkout both want. Callers needing a specific tree pass one:
-   the configured default branch, or review's pr_ref dispatch. `if_condition`
-   gates the step for notifications' empty-inbox path.
-
-   `allow_unsafe_pr_checkout` opts into checkout's fork-PR guard: v7 refuses to
-   check out a fork's `refs/pull/N/{merge,head}` under `pull_request_target`
-   (the "pwn request" guard) unless this input is set. Only review feeds a fork
-   ref straight to the action, so only it sets this; mention checks out the base
-   repo then `gh pr checkout`s, never handing the action a fork ref.
-
-   `clean=False` drops checkout's `git clean -ffdx && git reset --hard`, which
-   would otherwise delete what an earlier step wrote into the workspace. Review
-   sets it on its second checkout, where `setup:` has already run. #}
-{% macro checkout(cfg, ref=None, if_condition='', allow_unsafe_pr_checkout=False, clean=True) %}
+   review want. The other callers pass the configured default branch.
+   `if_condition` gates the step for notifications' empty-inbox path. No caller
+   passes a pull request's own ref: `shared/steps/event_checkout.py` moves the
+   tree to the event's topology inside the sandbox. #}
+{% macro checkout(cfg, ref=None, if_condition='') %}
       - uses: actions/checkout@v7
 {% if if_condition %}
         if: <<if_condition>>
@@ -231,12 +216,6 @@
         with:
 {% if ref %}
           ref: <<ref>>
-{% endif %}
-{% if allow_unsafe_pr_checkout %}
-          allow-unsafe-pr-checkout: true
-{% endif %}
-{% if not clean %}
-          clean: false
 {% endif %}
           fetch-depth: 0
           fetch-tags: true

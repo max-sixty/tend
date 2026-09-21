@@ -4,7 +4,7 @@ Inside the shared SRT lifecycle, composes the agent's settings and launch env,
 supervises it to exit or timeout, then turns the finished stream-json into the
 step's exit code and ``::error::`` annotation.
 
-Reads (env): ``RUNNER_TEMP``,
+Reads (env): ``TEND_RUN_DIR``,
 ``GITHUB_WORKSPACE``, ``TEND_MODEL``,
 ``TEND_EFFORT``, ``TEND_ARGS``, ``TEND_ALLOWED_TOOLS``,
 ``TEND_SYSTEM_PROMPT``, ``TEND_PROMPT``, ``TEND_TIMEOUT_SEC``,
@@ -13,7 +13,7 @@ Reads (env): ``RUNNER_TEMP``,
 ``GITHUB_*`` context from Actions. ``GITHUB_STEP_SUMMARY`` is read only when
 rendering the transcript.
 The trusted outer supervisor reaps the sandbox UID, copies the fixed
-``RUNNER_TEMP/tend-stream.json`` file through a no-follow bounded read, and
+``TEND_RUN_DIR/tend-stream.json`` file through a no-follow bounded read, and
 publishes the runner-owned path plus ``sandbox_reaped``.
 
 Decisions this module owns:
@@ -451,7 +451,7 @@ def main() -> int:
     if os.environ.get("TEND_INSIDE_SANDBOX") != "1":
         raise RuntimeError("run_claude may run only inside the SRT lifecycle")
     env = _common.require_env(
-        "RUNNER_TEMP",
+        "TEND_RUN_DIR",
         "GITHUB_WORKSPACE",
         "TEND_MODEL",
         "TEND_ALLOWED_TOOLS",
@@ -464,13 +464,18 @@ def main() -> int:
         "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
     )
     workspace = Path(env["GITHUB_WORKSPACE"])
-    stream_json = Path(env["RUNNER_TEMP"]) / "tend-stream.json"
-    stderr_log = Path(env["RUNNER_TEMP"]) / "tend-claude-stderr.log"
+    # Outside the view, so the supervisor can read both back after the reap.
+    stream_json = Path(env["TEND_RUN_DIR"]) / "tend-stream.json"
+    stderr_log = Path(env["TEND_RUN_DIR"]) / "tend-claude-stderr.log"
 
     # Written inside SRT so the agent can read it back. It lands in the consumer's
-    # checkout untracked, next to the `.claude/skills/` they do track;
-    # setup_sandbox.py's global gitignore for the sandbox user keeps a broad
-    # `git add -A` from committing `bypassPermissions` into the session's PR.
+    # checkout untracked, next to the `.claude/skills/` they do track, so the
+    # exclude keeps a broad `git add -A` from committing `bypassPermissions`
+    # into the session's PR.
+    exclude = workspace / ".git/info/exclude"
+    exclude.parent.mkdir(exist_ok=True)
+    with exclude.open("a", encoding="utf-8") as stream:
+        stream.write("/.claude/settings.local.json\n")
     # `tee` receives the body through its own pipe rather than the step's stdin.
     subprocess.run(
         ["mkdir", "-p", str(workspace / ".claude")],

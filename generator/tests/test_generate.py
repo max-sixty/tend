@@ -123,7 +123,7 @@ def _eyes_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:
 def test_local_setup_action_keeps_runner_checkout_stable(
     tmp_path: Path, name: str, job: str
 ) -> None:
-    """PR topology is selected only inside the harness's disposable clone."""
+    """PR topology is selected only inside the harness's sandbox."""
     extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     steps = yaml.safe_load(GENERATORS[name](cfg).content)["jobs"][job]["steps"]
@@ -185,15 +185,11 @@ def test_generated_workflows_survive_the_whitespace_hooks(
 
 
 def test_sandbox_levers_rendered_for_claude(tmp_path: Path) -> None:
-    """sandbox_path/sandbox_env/sandbox_setup render as action inputs and the
-    workflow still parses; the values land under the agent step's `with:`."""
+    """sandbox_env renders as an action input and the workflow still parses;
+    the value lands under the agent step's `with:`."""
     extra = dedent("""\
-        sandbox_path:
-          - ~/.cargo/bin
         sandbox_env:
           RUST_BACKTRACE: "1"
-        sandbox_setup:
-          - rustup component add clippy
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = generate_mention(cfg)
@@ -202,13 +198,10 @@ def test_sandbox_levers_rendered_for_claude(tmp_path: Path) -> None:
         s["with"]
         for job in data["jobs"].values()
         for s in job.get("steps", [])
-        if "sandbox_path" in s.get("with", {})
+        if "sandbox_env" in s.get("with", {})
     ]
     assert len(with_blocks) == 1
-    with_block = with_blocks[0]
-    assert with_block["sandbox_path"].strip() == "~/.cargo/bin"
-    assert with_block["sandbox_env"].strip() == "RUST_BACKTRACE=1"
-    assert with_block["sandbox_setup"].strip() == "rustup component add clippy"
+    assert with_blocks[0]["sandbox_env"].strip() == "RUST_BACKTRACE=1"
 
 
 def _agent_step_inputs(content: str) -> list[set[str]]:
@@ -227,12 +220,11 @@ def _agent_step_inputs(content: str) -> list[set[str]]:
     ]
 
 
-def test_sandbox_levers_absent_by_default(tmp_path: Path) -> None:
-    levers = {"sandbox_path", "sandbox_env", "sandbox_setup"}
+def test_sandbox_env_absent_by_default(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     for wf in generate_all(cfg):
         for inputs in _agent_step_inputs(wf.content):
-            assert not levers & inputs
+            assert "sandbox_env" not in inputs
 
 
 def test_memory_gist_is_an_explicit_experimental_claude_only_input(
@@ -290,13 +282,13 @@ def test_sandbox_levers_rendered_for_codex(tmp_path: Path) -> None:
     extra = dedent("""\
         harness: codex
         model: gpt-5.5
-        sandbox_path:
-          - ~/.cargo/bin
+        sandbox_env:
+          RUST_BACKTRACE: "1"
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     for wf in generate_all(cfg):
         for inputs in _agent_step_inputs(wf.content):
-            assert "sandbox_path" in inputs
+            assert "sandbox_env" in inputs
 
 
 def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
@@ -654,29 +646,6 @@ def test_multi_line_prompt_generates_parseable_yaml(
         assert "${{ github.event." not in prompt
 
 
-@pytest.mark.parametrize("lever", ["sandbox_path", "sandbox_setup"])
-def test_sandbox_levers_survive_an_indented_first_line(
-    tmp_path: Path, lever: str
-) -> None:
-    """The `sandbox_*` inputs are consumer-supplied lists rendered into the same
-    block scalar as the prompt, and had the same bug: an entry whose first line
-    is indented made every later entry look like the end of the scalar. Only
-    `sandbox_env` is exempt, and only because it refuses a newline outright.
-    """
-    extra = f'{lever}:\n  - "  indented entry"\n  - second entry\n'
-    workflows = without_relay(
-        generate_all(Config.load(_minimal_config(tmp_path, extra)))
-    )
-    for wf in workflows:
-        step = next(
-            s
-            for job in yaml.safe_load(wf.content)["jobs"].values()
-            for s in job["steps"]
-            if lever in s.get("with", {})
-        )
-        assert step["with"][lever] == "  indented entry\nsecond entry\n"
-
-
 def test_multi_line_prompt_survives_the_override_round_trip(tmp_path: Path) -> None:
     """A workflow carrying `workflow_extra`/`jobs` overrides is re-serialised by
     ruamel rather than emitted by the template, so the block scalar is written a
@@ -808,7 +777,7 @@ def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert len(list(wf_dir.glob("tend-*.yaml"))) == 8
 
 
-def test_review_delegates_pr_topology_to_disposable_clone(tmp_path: Path) -> None:
+def test_review_delegates_pr_topology_to_the_sandbox(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
@@ -1005,7 +974,7 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     assert "client_payload[url]" not in relay_run
     assert "event_type=tend-mention-review" in relay_run
 
-    # The harness selects the PR branch only in its disposable clone.
+    # The harness selects the PR branch only inside its sandbox.
     handle_steps = data["jobs"]["handle"]["steps"]
 
     # Prompt keeps the review-kind and mention/participation branches apart,
@@ -1662,19 +1631,31 @@ def test_workflow_with_local_setup_regtest(
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
-def test_sandbox_levers_regtest(regtest: object, tmp_path: Path) -> None:
-    """Snapshot the rendered agent step with all three sandbox levers set, to
-    lock the block-scalar shape threaded to the composite action."""
+def test_deprecated_sandbox_keys_regtest(regtest: object, tmp_path: Path) -> None:
+    """Snapshot the `setup:` steps the deprecated keys migrate to, after the
+    consumer's own, in the workflow whose pre-check guards every setup step."""
     extra = dedent("""\
+        setup:
+          - uses: astral-sh/setup-uv@v10.1.0
         sandbox_path:
           - ~/.cargo/bin
           - /opt/tools/bin
+        sandbox_setup:
+          - uv sync --frozen
+          - curl -LsSf https://example.invalid/install.sh | sh
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    wf = GENERATORS["notifications"](cfg)
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_sandbox_env_regtest(regtest: object, tmp_path: Path) -> None:
+    """Snapshot the rendered agent step with `sandbox_env` set, to lock the
+    block-scalar shape threaded to the composite action."""
+    extra = dedent("""\
         sandbox_env:
           RUST_BACKTRACE: "1"
           CARGO_TERM_COLOR: always
-        sandbox_setup:
-          - rustup component add clippy
-          - cargo fetch --locked
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     print(generate_mention(cfg).content, end="", file=regtest)  # type: ignore[arg-type]

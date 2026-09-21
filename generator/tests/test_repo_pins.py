@@ -323,8 +323,8 @@ def test_npm_installs_use_distinct_empty_config_files() -> None:
     install = (
         REPO_ROOT / "shared" / "steps" / "install-sandbox-runtime.sh"
     ).read_text()
-    assert 'mktemp "$RUNNER_TEMP/tend-npm-user.XXXXXX"' in install
-    assert 'mktemp "$RUNNER_TEMP/tend-npm-global.XXXXXX"' in install
+    assert 'mktemp "$private_dir/tend-npm-user.XXXXXX"' in install
+    assert 'mktemp "$private_dir/tend-npm-global.XXXXXX"' in install
     assert (
         '--userconfig "$npm_userconfig" --globalconfig "$npm_globalconfig"' in install
     )
@@ -401,6 +401,23 @@ def test_experimental_memory_gist_sync_cannot_replace_the_agent_verdict() -> Non
     save = steps["Save experimental memory Gist"]["run"]
     assert 'gist_memory.py" \\\n  restore;' in restore
     assert 'gist_memory.py" \\\n  save;' in save
+
+
+def test_memory_gist_save_reads_nothing_the_dispose_step_deleted() -> None:
+    """The save's inputs are made outside the home and the runtime container.
+
+    The dispose step deletes the runtime container, private directory and all,
+    right after the agent is reaped and before the save runs. The view shows the
+    agent the runner's home as its own, so `RUNNER_TEMP` would hand it the key.
+    """
+    action = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / "claude" / "action.yaml").read_text()
+    )
+    steps = {step["name"]: step for step in action["runs"]["steps"]}
+    restore = steps["Restore experimental memory Gist"]["run"]
+
+    assert "memory_dir=$(/usr/bin/mktemp -d /var/tmp/tend-auto-memory." in restore
+    assert "key_file=$(/usr/bin/mktemp /var/tmp/tend-auto-memory-key." in restore
 
 
 def test_uv_build_range_admits_the_pinned_uv() -> None:
@@ -482,8 +499,7 @@ def test_privileged_sandbox_launch_forwards_every_configured_value(
 ) -> None:
     """`env:` and the `env -i` argv are two lists that have to agree.
 
-    A value reaches `setup_sandbox.py` only when both name it, and the script
-    refuses to start without the bot identity. Nothing else catches a value
+    A value reaches `setup_sandbox.py` only when both name it. Nothing else catches a value
     added to one list alone: neither action.yaml is linted or run here, and the
     hosted sandbox test supplies the script's environment itself — so the
     mismatch would first run in a consumer's job after a release.
@@ -498,7 +514,6 @@ def test_privileged_sandbox_launch_forwards_every_configured_value(
     )
     forwarded = set(re.findall(r'(\w+)="\$\1"', step["run"]))
 
-    assert {"TEND_BOT_LOGIN", "TEND_BOT_ID"} <= set(step["env"])
     assert set(step["env"]) - SHELL_HARDENING <= forwarded
 
 

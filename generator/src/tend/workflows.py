@@ -15,6 +15,7 @@ import click
 from jinja2 import Environment, PackageLoader, StrictUndefined
 from jinja2.runtime import Macro
 from ruamel.yaml import YAML, YAMLError
+from ruamel.yaml.scalarstring import LiteralScalarString
 
 from tend.config import (
     ANTHROPIC_API_KEY_SECRET,
@@ -188,6 +189,16 @@ _STEP_FIELD_ORDER = [
 ]
 
 
+def _block_multiline(value: object) -> object:
+    """Mark multi-line strings for `|` block style, which the serializer
+    otherwise emits as one double-quoted line of `\\n` escapes."""
+    if isinstance(value, str) and "\n" in value:
+        return LiteralScalarString(value)
+    if isinstance(value, dict):
+        return {k: _block_multiline(v) for k, v in value.items()}
+    return value
+
+
 def _setup_yaml(cfg: Config, condition: str = "") -> str:
     """Render setup steps as YAML at column 6.
 
@@ -209,7 +220,7 @@ def _setup_yaml(cfg: Config, condition: str = "") -> str:
         ordered = {k: fields[k] for k in _STEP_FIELD_ORDER if k in fields}
         for k, v in fields.items():
             ordered.setdefault(k, v)
-        steps.append(ordered)
+        steps.append({k: _block_multiline(v) for k, v in ordered.items()})
     buf = io.StringIO()
     _YAML_BLOCK.dump(steps, buf)
     return "\n" + textwrap.indent(buf.getvalue().rstrip(), "    ") + "\n"
