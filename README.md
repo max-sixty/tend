@@ -175,9 +175,9 @@ steers. It flags any repo-level secret not explicitly listed in
 secrets into it stays manual — their values can't be read back.
 
 **Disposable execution boundary** — both harnesses run the event checkout and
-the whole agent turn as one process tree inside the pinned Anthropic Sandbox
-Runtime, under a separate non-sudo user, in a copy-on-write view of the job's
-checkout and home. The runner's own checkout stays unchanged for setup and
+the whole agent turn as one process tree inside a hardened systemd unit, under
+a separate non-sudo user, in a copy-on-write view of the job's checkout and
+home. The runner's own checkout stays unchanged for setup and
 POST cleanup.
 Tend's exact-host proxy holds the bot token; Claude model auth uses the
 same mechanism, while API-key Codex auth uses OpenAI's proxy that forwards only
