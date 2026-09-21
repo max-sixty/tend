@@ -1,9 +1,12 @@
-"""The id map behind the agent's view; the mounts are covered by
-`proxy/test-setup-sandbox.sh` on a hosted runner."""
+"""The id map and environment behind the agent's view; the mounts are covered
+by `proxy/test-setup-sandbox.sh` on a hosted runner."""
 
 from __future__ import annotations
 
+import ast
 import pwd
+import sys
+from pathlib import Path
 
 import enter_view
 import pytest
@@ -57,3 +60,55 @@ def test_the_map_swaps_the_two_accounts_and_is_identity_elsewhere(
 def test_an_unmappable_account_is_refused_rather_than_truncated() -> None:
     with pytest.raises(ValueError, match="outside the mappable range"):
         enter_view.identity_map("u", 1001, enter_view.ID_CEILING)
+
+
+def test_the_environment_file_is_read_whole_and_then_removed(tmp_path: Path) -> None:
+    """NUL-separated, so a value keeps its `=` and newlines; the last entry wins.
+
+    Removed at once: it holds the job's whole environment, and nothing reads it
+    after the exec.
+    """
+    env_file = tmp_path / "tend-launch-env"
+    env_file.write_bytes(
+        b"\0".join(
+            [b"HOME=/home/tend-sandbox", b"NOTE=a=b\nc", b"HOME=/home/runner", b""]
+        )
+    )
+
+    environment = enter_view.read_environment(env_file)
+
+    assert environment == {b"HOME": b"/home/runner", b"NOTE": b"a=b\nc"}
+    assert not env_file.exists()
+
+
+def test_a_symlinked_environment_file_is_refused(tmp_path: Path) -> None:
+    """Root reads it, so a link would hand the agent any file root can read."""
+    secret = tmp_path / "root-only"
+    secret.write_bytes(b"SECRET=root-only")
+    link = tmp_path / "tend-launch-env"
+    link.symlink_to(secret)
+
+    with pytest.raises(OSError):
+        enter_view.read_environment(link)
+
+
+def test_root_executes_this_one_file_and_the_standard_library() -> None:
+    """It runs as root from the action checkout, so a sibling import is one more
+    file root executes and writes a root-owned `__pycache__` the runner can't
+    clean up — which surfaces only on a real runner.
+    """
+    tree = ast.parse(Path(enter_view.__file__).read_text())
+    imported = {
+        alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    } | {
+        node.module.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+
+    assert imported <= sys.stdlib_module_names | {"__future__"}, sorted(
+        imported - sys.stdlib_module_names
+    )
