@@ -133,7 +133,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             "--created",
             f">={created_since}",
             "--json",
-            "databaseId,conclusion,createdAt,updatedAt,name",
+            "attempt,databaseId,conclusion,createdAt,updatedAt,name",
             "--limit",
             str(RUN_LIMIT),
         )
@@ -148,6 +148,18 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             conclusion = row.get("conclusion")
             if conclusion and _parse_time(row["updatedAt"]) >= completed_after:
                 runs_by_id[int(row["databaseId"])] = row
+
+    reruns = sorted(run_id for run_id, row in runs_by_id.items() if row["attempt"] > 1)
+    if reruns:
+        print(
+            f"WARNING: {len(reruns)} run(s) in this list were re-run — "
+            f"{', '.join(str(run_id) for run_id in reruns)}. Each row's conclusion "
+            "is the latest attempt's, so no earlier attempt has a row here. Read "
+            "every earlier `attempts/N` log before counting the window's failures; "
+            f"one that finished before {_stamp(completed_after)} was already counted "
+            "by the previous sweep.",
+            file=sys.stderr,
+        )
 
     json.dump(list(runs_by_id.values()), sys.stdout, indent=2)
     sys.stdout.write("\n")

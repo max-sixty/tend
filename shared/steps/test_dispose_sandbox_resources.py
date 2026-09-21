@@ -45,6 +45,7 @@ def test_disposes_only_after_the_sandbox_uid_is_empty(
             "/usr/bin/sudo",
             "/usr/bin/rm",
             "-rf",
+            "--one-file-system",
             "--",
             "/var/tmp/tend-runtime.r1a2b3",
         ],
@@ -88,6 +89,7 @@ def test_disposes_the_runtime_when_the_launch_never_happened(
             "/usr/bin/sudo",
             "/usr/bin/rm",
             "-rf",
+            "--one-file-system",
             "--",
             "/var/tmp/tend-runtime.abc123",
         ]

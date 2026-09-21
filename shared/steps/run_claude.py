@@ -1,6 +1,6 @@
 """Runs the agent and decides the step's verdict.
 
-Inside the shared SRT lifecycle, composes the agent's settings and launch env,
+Inside the shared sandbox lifecycle, composes the agent's settings and launch env,
 supervises it to exit or timeout, then turns the finished stream-json into the
 step's exit code and ``::error::`` annotation.
 
@@ -124,8 +124,8 @@ def launch_argv(
 ) -> list[str]:
     """The command that launches the agent inside the existing sandbox.
 
-    The process inherits the environment SRT finalized for its namespace;
-    tend's own ``BOT_*``/``CI`` assignments carry the action's values.
+    The process inherits the lifecycle's environment; tend's own
+    ``BOT_*``/``CI`` assignments carry the action's values.
 
     The model, tools and prompts are argv rather than environment: nothing on
     the far side reads them, and ``--permission-mode`` is what actually sets
@@ -449,7 +449,7 @@ def verdict(
 
 def main() -> int:
     if os.environ.get("TEND_INSIDE_SANDBOX") != "1":
-        raise RuntimeError("run_claude may run only inside the SRT lifecycle")
+        raise RuntimeError("run_claude may run only inside the sandbox lifecycle")
     env = _common.require_env(
         "TEND_RUN_DIR",
         "GITHUB_WORKSPACE",
@@ -468,7 +468,7 @@ def main() -> int:
     stream_json = Path(env["TEND_RUN_DIR"]) / "tend-stream.json"
     stderr_log = Path(env["TEND_RUN_DIR"]) / "tend-claude-stderr.log"
 
-    # Written inside SRT so the agent can read it back. It lands in the consumer's
+    # Written inside the sandbox so the agent can read it back. It lands in the consumer's
     # checkout untracked, next to the `.claude/skills/` they do track, so the
     # exclude keeps a broad `git add -A` from committing `bypassPermissions`
     # into the session's PR.
@@ -490,8 +490,8 @@ def main() -> int:
         check=True,
     )
 
-    # SRT already received the curated agent environment and finalized the
-    # proxy variables for its network namespace. Do not reconstruct it here.
+    # The launch already applied the curated agent environment. Do not
+    # reconstruct it here.
     argv = launch_argv(
         model=env["TEND_MODEL"],
         effort=os.environ.get("TEND_EFFORT", ""),

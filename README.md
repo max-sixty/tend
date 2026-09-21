@@ -124,7 +124,7 @@ Both actions run the same security and rate-limit preflight checks and
 resolve bot identity. They differ in how the agent runs:
 
 - **Claude harness** — runs the official `claude` binary headless
-  (`claude -p`) as a non-sudo user inside Anthropic Sandbox Runtime, behind a local
+  (`claude -p`) as a non-sudo user inside a hardened systemd unit, behind a local
   credential-injecting proxy, so the bot token and Anthropic credential
   never enter the agent's environment. Each workflow's prompt is a slash
   command (`/tend-ci-runner:review`) that loads the matching skill.
@@ -175,9 +175,9 @@ steers. It flags any repo-level secret not explicitly listed in
 secrets into it stays manual — their values can't be read back.
 
 **Disposable execution boundary** — both harnesses run the event checkout and
-the whole agent turn as one process tree inside the pinned Anthropic Sandbox
-Runtime, under a separate non-sudo user, in a copy-on-write view of the job's
-checkout and home. The runner's own checkout stays unchanged for setup and
+the whole agent turn as one process tree inside a hardened systemd unit, under
+a separate non-sudo user, in a copy-on-write view of the job's checkout and
+home. The runner's own checkout stays unchanged for setup and
 POST cleanup.
 Tend's exact-host proxy holds the bot token; Claude model auth uses the
 same mechanism, while API-key Codex auth uses OpenAI's proxy that forwards only
@@ -273,7 +273,7 @@ skills.
 
 ### Claude (default)
 
-Runs the official `claude` binary headless (`claude -p`) in the shared SRT
+Runs the official `claude` binary headless (`claude -p`) in the shared sandbox
 boundary behind a local credential-injecting proxy: the bot token and
 the Anthropic credential live only in the proxy, never in the agent's
 environment. Two auth modes:
@@ -291,14 +291,14 @@ agent itself only ever holds a dummy.
 
 ### Codex (experimental alternative)
 
-Installs `@openai/codex` and invokes `codex exec` in the shared SRT boundary.
+Installs `@openai/codex` and invokes `codex exec` in the shared sandbox boundary.
 GitHub access goes through Tend's exact-host proxy. Under API auth, the OpenAI
 key is read from stdin by OpenAI's narrow Responses API proxy and is never
 placed in the agent's environment. Under subscription auth, the sandbox gets
 an expiring access-only `auth.json`, never the rotating refresh token. A bundled
 `AGENTS.md` teaches Codex to resolve tend's slash commands to skill markdown.
 
-Codex's own nested sandbox is disabled. The pinned Anthropic Sandbox Runtime is
+Codex's own nested sandbox is disabled. One transient systemd unit per run is
 the single filesystem, network, seccomp, and process-lifetime boundary for both
 harnesses.
 
