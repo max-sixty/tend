@@ -258,11 +258,12 @@ Fine-grained PATs allow per-category scoping but don't support outside
 collaborators ([GitHub roadmap
 #601](https://github.com/github/roadmap/issues/601), not shipped).
 
-**Current privilege model: write + branch protection + environment gate.**
-The bot has write access; a merge restriction (ruleset or branch
-protection) is the primary security boundary — without it the bot can merge
-its own PRs — and the `tend` environment keeps the operational secrets out
-of any run the bot can cause on its own. `tend check` verifies both are
+**Current privilege model: write + restrict-updates ruleset + environment
+gate.** The bot has write access; a restrict-updates ruleset only admins can
+bypass is the primary security boundary — without it the bot can merge PRs,
+and required reviews don't stop it, since its own approval counts on a PR
+someone else opened — and the `tend` environment keeps the operational
+secrets out of any run the bot can cause on its own. `tend check` verifies both are
 configured correctly, and `--fix` creates either. See
 `docs/security-model.md` for the full threat model. Alternative models
 (GitHub App, triage+fork) are in `TODO.md`.

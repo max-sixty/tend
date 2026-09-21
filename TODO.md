@@ -106,16 +106,16 @@ consumer's repo *and* their code. Anthropic token has three options:
 
 ## Auth: triage + fork privilege model
 
-Currently only `write + branch protection` exists. The planned `mode` field
+Currently only `write + restrict-updates ruleset` exists. The planned `mode` field
 in `.config/tend.yaml` would select between two models:
 
-| | **Triage + fork** | **Write + branch protection** (current) |
+| | **Triage + fork** | **Write + restrict-updates ruleset** (current) |
 |---|---|---|
 | Bot collaborator level | Triage | Write |
 | Bot pushes code to | Own fork | Target repo branches |
 | Creates PRs | From fork | Same-repo |
 | Approvals count for required reviews | No | Yes |
-| Branch protection required | **No** | **Yes** — primary security boundary |
+| Restrict-updates ruleset required | **No** | **Yes** — primary security boundary |
 | Leaked PAT blast radius | Comments/reviews; fork write only | Full write to target repo |
 | Setup complexity | Low | Medium |
 

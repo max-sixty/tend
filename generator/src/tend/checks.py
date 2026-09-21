@@ -110,10 +110,9 @@ def _gh(
     """Run a gh CLI command. Returns None if gh is not installed.
 
     A shell that forces color makes ``gh`` colorize even a piped body, and the
-    ANSI codes land inside the JSON the callers parse. Most of them read a
-    decode error as "could not verify" and several — ``check_branch_protection``
-    among them — report the check as passing, so an unguarded read turns the
-    security audit green without having verified anything.
+    ANSI codes land inside the JSON the callers parse, and each of them reads a
+    decode error as a failed read, so an unguarded read leaves the security
+    audit unable to verify anything.
     ``CLICOLOR_FORCE=0`` is the setting that defeats it: ``gh`` ranks a forced
     value above ``NO_COLOR``, so ``NO_COLOR`` alone loses.
     """
@@ -319,11 +318,11 @@ def check_tag_protection(repo: str, bot_name: str) -> CheckResult:
 
 
 def check_branch_protection(repo: str, branch: str, bot_name: str) -> CheckResult:
-    """Check if a branch is protected against bot merges.
+    """Check that a restrict-updates ruleset the bot cannot bypass covers a branch.
 
-    Checks both that the branch is protected and that the protection actually
-    prevents the bot from merging (via required reviews or a restrict-updates
-    ruleset).
+    Required reviews alone don't qualify: the bot holds write, so its own
+    approval counts on a pull request someone else opened, and it can then
+    merge that pull request.
     """
     name = f"branch-protection:{branch}"
     result = _gh("api", f"repos/{repo}/branches/{branch}", "--jq", ".protected")
@@ -338,11 +337,10 @@ def check_branch_protection(repo: str, branch: str, bot_name: str) -> CheckResul
             False,
             f"Branch '{branch}' is NOT protected. "
             "The bot must not be able to merge PRs — this is the primary security boundary. "
-            "Add a branch protection rule or ruleset. See docs/security-model.md.",
+            "Run `tend check --fix` to create a restrict-updates ruleset. "
+            "See docs/security-model.md.",
         )
 
-    # Branch is protected — now check if the bot can still merge.
-    # A restrict-updates ruleset is sufficient (and preferred).
     ruleset = _has_restrict_updates_ruleset(repo, branch, bot_name)
     if ruleset is True:
         return CheckResult(
@@ -350,30 +348,6 @@ def check_branch_protection(repo: str, branch: str, bot_name: str) -> CheckResul
             True,
             f"Branch '{branch}' is protected (restrict-updates ruleset)",
         )
-
-    # Fall back to checking branch protection rules for required reviews.
-    prot = _gh("api", f"repos/{repo}/branches/{branch}/protection")
-    if prot is None or prot.returncode != 0:
-        # Can't read details — branch is protected, assume OK.
-        return CheckResult(name, True, f"Branch '{branch}' is protected")
-
-    try:
-        data = json.loads(prot.stdout)
-    except json.JSONDecodeError:
-        return CheckResult(name, True, f"Branch '{branch}' is protected")
-
-    if not isinstance(data, dict):
-        return CheckResult(name, True, f"Branch '{branch}' is protected")
-
-    reviews = data.get("required_pull_request_reviews")
-    if reviews and reviews.get("required_approving_review_count", 0) > 0:
-        return CheckResult(
-            name,
-            True,
-            f"Branch '{branch}' is protected (requires reviews)",
-        )
-
-    # Neither required reviews nor a confirmed restrict-updates ruleset.
     if ruleset is None:
         # Ruleset check was inconclusive — don't false-positive.
         return CheckResult(
@@ -392,10 +366,10 @@ def check_branch_protection(repo: str, branch: str, bot_name: str) -> CheckResul
     return CheckResult(
         name,
         False,
-        f"Branch '{branch}' is protected but the bot can still merge PRs "
-        "(required_approving_review_count is 0, and no restrict-updates ruleset "
-        "the bot cannot bypass). Either require at least 1 approving review, or "
-        "add a 'Restrict updates' ruleset whose bypass actors are all above write. "
+        f"Branch '{branch}' is protected but the bot can still merge PRs: no "
+        "restrict-updates ruleset the bot cannot bypass covers it, and required "
+        "reviews don't stop the bot, whose own approval counts on a PR someone "
+        "else opened. Run `tend check --fix` to create the ruleset. "
         "See docs/security-model.md.",
     )
 
@@ -569,17 +543,24 @@ def _has_restrict_updates_ruleset(repo: str, branch: str, bot_name: str) -> bool
     Uses the per-branch rules endpoint which resolves patterns like
     ~DEFAULT_BRANCH.
     """
-    result = _gh("api", f"repos/{repo}/rules/branches/{branch}")
+    result = _gh(
+        "api", "--paginate", "--slurp", f"repos/{repo}/rules/branches/{branch}"
+    )
     if result is None or result.returncode != 0:
         return None
     try:
-        rules = json.loads(result.stdout)
+        pages = json.loads(result.stdout)
     except (json.JSONDecodeError, ValueError):
         return None
-    if not isinstance(rules, list):
+    if not isinstance(pages, list) or not all(isinstance(p, list) for p in pages):
         return None
 
-    update_rules = [r for r in rules if r.get("type") == "update"]
+    update_rules = [
+        r
+        for page in pages
+        for r in page
+        if isinstance(r, dict) and r.get("type") == "update"
+    ]
     if not update_rules:
         return False
 
@@ -1860,29 +1841,51 @@ def fix_immutable_releases(repo: str) -> CheckResult:
     )
 
 
-def fix_tag_protection(repo: str) -> CheckResult:
-    """Create the canonical admin-gated all-tags ruleset."""
-    result = _gh(
+def _put_ruleset(
+    repo: str, body: str
+) -> tuple[subprocess.CompletedProcess[str] | None, str]:
+    """Create the repo ruleset *body* names, or replace the one already there.
+
+    GitHub refuses a second ruleset under a name the repo already uses, and a
+    failing check can mean exactly that one exists but is disabled, in
+    evaluate mode, or edited to let the bot bypass it. Replacing it drops any
+    rule or branch a maintainer added to it, so the returned verb says which
+    happened: "Created" or "Replaced".
+    """
+    name = json.loads(body)["name"]
+    listed = _gh(
         "api",
+        "--paginate",
         f"repos/{repo}/rulesets",
-        "--method",
-        "POST",
-        "--input",
-        "-",
-        input=_tag_operations_ruleset(),
+        "--jq",
+        f'.[] | select(.source_type == "Repository" and .name == {json.dumps(name)})'
+        " | .id",
     )
+    if listed is None or listed.returncode != 0:
+        return listed, ""
+    existing = listed.stdout.split()
+    if existing:
+        path, method, verb = f"repos/{repo}/rulesets/{existing[0]}", "PUT", "Replaced"
+    else:
+        path, method, verb = f"repos/{repo}/rulesets", "POST", "Created"
+    return _gh("api", path, "--method", method, "--input", "-", input=body), verb
+
+
+def fix_tag_protection(repo: str) -> CheckResult:
+    """Set the canonical admin-gated all-tags ruleset."""
+    result, verb = _put_ruleset(repo, _tag_operations_ruleset())
     if result is None:
         return CheckResult("tag-protection", None, "gh CLI not found")
     if result.returncode != 0:
         return CheckResult(
             "tag-protection",
             False,
-            f"Failed to create tag ruleset: {result.stderr.strip()}",
+            f"Failed to set tag ruleset: {result.stderr.strip()}",
         )
     return CheckResult(
         "tag-protection",
         True,
-        "Created 'Tag operations' ruleset — only admins can create or update tags.",
+        f"{verb} 'Tag operations' ruleset — only admins can create or update tags.",
     )
 
 
@@ -1891,22 +1894,13 @@ def fix_branch_protection(
     default_branch: str,
     extra_branches: list[str] | None = None,
 ) -> CheckResult:
-    """Create a restrict-updates ruleset covering protected branches.
+    """Set the restrict-updates ruleset covering protected branches.
 
     Always covers the default branch. Extra branches from config are included
     in the same ruleset. Only admins can bypass.
     """
     extra = [b for b in (extra_branches or []) if b != default_branch]
-    body = _restrict_updates_ruleset(extra)
-    result = _gh(
-        "api",
-        f"repos/{repo}/rulesets",
-        "--method",
-        "POST",
-        "--input",
-        "-",
-        input=body,
-    )
+    result, verb = _put_ruleset(repo, _restrict_updates_ruleset(extra))
     name = f"branch-protection:{default_branch}"
     if result is None:
         return CheckResult(name, None, "gh CLI not found")
@@ -1914,13 +1908,13 @@ def fix_branch_protection(
         return CheckResult(
             name,
             False,
-            f"Failed to create ruleset: {result.stderr.strip()}",
+            f"Failed to set ruleset: {result.stderr.strip()}",
         )
     branches = [default_branch] + extra
     return CheckResult(
         name,
         True,
-        f"Created 'Merge access' ruleset — only admins can merge ({', '.join(branches)})",
+        f"{verb} 'Merge access' ruleset — only admins can merge ({', '.join(branches)})",
     )
 
 

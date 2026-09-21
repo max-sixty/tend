@@ -17,11 +17,17 @@ def actions_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _repo(fake_gh: FakeGh, *, rules: object, protected: bool | None = None) -> None:
     """Answer the default-branch lookup, the branch's rules, and `.protected`.
 
-    ``rules`` takes an ``int`` to make that call fail, or a string to answer it
-    with a body that is not JSON.
+    ``rules`` is the one page of the listing, an ``int`` to make that call fail,
+    or a string to answer it with a body that is not JSON.
     """
     fake_gh.respond("api", f"repos/{REPO}", with_={"default_branch": "main"})
-    fake_gh.respond("api", f"repos/{REPO}/rules/branches/main", with_=rules)
+    fake_gh.respond(
+        "api",
+        "--paginate",
+        "--slurp",
+        f"repos/{REPO}/rules/branches/main",
+        with_=[rules] if isinstance(rules, list) else rules,
+    )
     if protected is not None:
         fake_gh.respond(
             "api", f"repos/{REPO}/branches/main", with_={"protected": protected}
@@ -53,18 +59,62 @@ def test_update_ruleset_ids_keeps_update_rules_once() -> None:
     assert security_preflight.update_ruleset_ids(rules) == [3, 7]
 
 
-def test_update_ruleset_ids_ignores_a_body_it_cannot_read_as_rules() -> None:
-    """The jq `select` this replaced dropped these; nothing may raise on one.
-
-    The listing is read best-effort, so an error object under a 200, or an
-    entry that names no type or no ruleset id, has to fall through to the
-    `.protected` floor rather than abort a gate whose failure also suppresses
-    the outage report.
-    """
-    assert security_preflight.update_ruleset_ids({"message": "Not Found"}) == []
+def test_update_ruleset_ids_ignores_entries_that_are_not_rules() -> None:
+    """The jq `select` this replaced dropped these; nothing may raise on one."""
     assert security_preflight.update_ruleset_ids(
         [{"ruleset_id": 1}, {"type": "update"}, "not a rule", _update_rule(4)]
     ) == [4]
+
+
+def test_an_update_rule_past_the_first_page_counts(
+    fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The listing serves 30 rules a page."""
+    first = [{"type": "required_signatures", "ruleset_id": 2}] * 30
+    _repo(fake_gh, rules=1)
+    fake_gh.respond(
+        "api",
+        "--paginate",
+        "--slurp",
+        f"repos/{REPO}/rules/branches/main",
+        with_=[first, [_update_rule(1)]],
+    )
+    _bypass(fake_gh, 1, "never")
+
+    assert security_preflight.main() == 0
+    assert "Security preflight passed: bot cannot bypass" in capsys.readouterr().out
+
+
+def test_a_page_answered_with_an_error_object_falls_back_to_the_floor(
+    fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A page GitHub served as an error object leaves the listing unread, not
+    short: a short one would read as "no update rule" and abort the gate."""
+    first = [{"type": "required_signatures", "ruleset_id": 2}] * 30
+    _repo(fake_gh, rules=1, protected=True)
+    fake_gh.respond(
+        "api",
+        "--paginate",
+        "--slurp",
+        f"repos/{REPO}/rules/branches/main",
+        with_=[first, {"message": "502"}],
+    )
+
+    assert security_preflight.main() == 0
+    assert "default branch 'main' is protected" in capsys.readouterr().out
+
+
+def test_a_listing_of_entries_that_are_not_rules_aborts(
+    fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A listing that reads cleanly is GitHub's answer, even when no entry in it
+    is a usable update rule; only an unread listing reaches the floor."""
+    _repo(fake_gh, rules=[{"type": "update"}, "not a rule"])
+
+    assert security_preflight.main() == 1
+    assert "::error::No restrict-updates ruleset covers 'main'." in (
+        capsys.readouterr().out
+    )
 
 
 def test_a_rules_listing_that_is_not_json_falls_back_to_the_protected_floor(
@@ -131,16 +181,20 @@ def test_an_unreadable_ruleset_falls_back_to_the_protected_floor(
     )
 
 
-def test_no_update_rules_passes_on_a_protected_branch(
+def test_aborts_on_a_branch_protected_by_required_reviews_alone(
     fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Required reviews alone contribute no update rule; `.protected` decides."""
-    _repo(fake_gh, rules=[{"type": "pull_request", "ruleset_id": 1}], protected=True)
+    """Required reviews contribute no update rule, and don't restrict the bot.
 
-    assert security_preflight.main() == 0
+    Its own approval counts on a PR someone else opened, so a readable listing
+    with no update rule settles it: the `.protected` floor is never consulted,
+    and the fake `gh` has no answer for it.
+    """
+    _repo(fake_gh, rules=[{"type": "pull_request", "ruleset_id": 1}])
+
+    assert security_preflight.main() == 1
     assert (
-        "Security preflight passed: default branch 'main' is protected"
-        in capsys.readouterr().out
+        "::error::No restrict-updates ruleset covers 'main'." in capsys.readouterr().out
     )
 
 
@@ -176,7 +230,7 @@ def test_surfaces_githubs_own_error_when_a_required_call_fails(
     the whole diagnosis for a misconfigured install, which this gate is the
     step most likely to meet.
     """
-    _repo(fake_gh, rules=[], protected=True)
+    _repo(fake_gh, rules=1, protected=True)
     fake_gh.respond("api", f"repos/{REPO}{failing}", with_=1)
 
     with pytest.raises(subprocess.CalledProcessError):

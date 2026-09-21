@@ -31,6 +31,7 @@ from tend.checks import (
     check_tag_protection,
     detect_canonical_owner,
     detect_repo,
+    fix_branch_protection,
     fix_environment,
     fix_immutable_releases,
     fix_tag_protection,
@@ -114,7 +115,8 @@ def _make_branch_rules(
     source_type: str = "Repository",
     source: str = "owner/repo",
 ) -> str:
-    """Build a JSON array of branch rules (as returned by /rules/branches/{branch})."""
+    """Build a branch-rules listing as `gh api --paginate --slurp` returns
+    /rules/branches/{branch}: an array of pages, here one."""
     rule: dict[str, object]
     rules = []
     for t in rule_types:
@@ -122,7 +124,7 @@ def _make_branch_rules(
         if ruleset_id is not None:
             rule["ruleset_id"] = ruleset_id
         rules.append(rule)
-    return json.dumps(rules)
+    return json.dumps([rules])
 
 
 def _workflow_tree(workflows: dict[str, str | None]) -> str:
@@ -203,7 +205,7 @@ def _gh_ruleset(
     def fake(*args: str, **kwargs: object) -> subprocess.CompletedProcess[str] | None:
         if args[1] == "user":
             return _login_response(login)
-        if "/rules/branches/" in args[1]:
+        if "/rules/branches/" in _url(args):
             return _make_completed(rules)
         if args[1].startswith("users/"):
             if user_id is None:
@@ -362,10 +364,7 @@ def test_branch_protection_no_gh() -> None:
 
 
 def test_branch_protected_ruleset_inconclusive_skips() -> None:
-    """Branch is protected, no reviews, ruleset check inconclusive → SKIP not FAIL."""
-    protection_data = json.dumps(
-        {"required_pull_request_reviews": {"required_approving_review_count": 0}}
-    )
+    """Branch is protected, ruleset check inconclusive → SKIP not FAIL."""
 
     def fake_gh(*args, **kwargs):
         url = _url(args)
@@ -373,14 +372,31 @@ def test_branch_protected_ruleset_inconclusive_skips() -> None:
             return _make_completed("true\n")
         if "rules/branches" in url:
             return _make_completed(returncode=1, stderr="HTTP 403")
-        if "branches/main/protection" in url:
-            return _make_completed(protection_data)
         return _make_completed(returncode=1)
 
     with patch("tend.checks._gh", side_effect=fake_gh):
         result = check_branch_protection("owner/repo", "main", "my-bot")
     assert result.passed is None
     assert "could not verify that the bot cannot bypass" in result.message
+
+
+def test_branch_protected_without_an_update_rule_fails() -> None:
+    """A branch protected by required reviews alone carries no update rule, and
+    reviews don't restrict the bot: its own approval counts on a PR someone
+    else opened, and it holds write, so it can then merge that PR."""
+
+    def fake_gh(*args, **kwargs):
+        url = _url(args)
+        if url == "repos/owner/repo/branches/main" and ".protected" in args:
+            return _make_completed("true\n")
+        if "rules/branches" in url:
+            return _make_completed(_make_branch_rules("pull_request"))
+        return _make_completed(returncode=1)
+
+    with patch("tend.checks._gh", side_effect=fake_gh):
+        result = check_branch_protection("owner/repo", "main", "my-bot")
+    assert result.passed is False
+    assert "bot can still merge" in result.message
 
 
 # `gh` stand-in for the one test that runs `_gh` for real rather than patching
@@ -391,11 +407,11 @@ FAKE_GH_PROTECTION = (
     GH_PREAMBLE
     + r"""
 case "$*" in
-  *"branches/main/protection"*)
-    emit '{"required_pull_request_reviews":{"required_approving_review_count":1}}'
-    ;;
   *"rules/branches/main"*)
-    emit '[]'
+    emit '[[{"type":"update","ruleset_id":1}]]'
+    ;;
+  *"rulesets/1"*)
+    emit '{"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"exempt"}]}'
     ;;
   *"branches/main"*".protected"*)
     printf 'true\n'
@@ -412,9 +428,8 @@ def test_branch_protection_survives_a_colour_forcing_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`gh` ranks a forced colour setting above `NO_COLOR` and paints a piped
-    body, so without the guard in `_gh` every JSON read here fails to decode.
-    The decode handlers report "protected" anyway, so the audit would call the
-    repo's primary security boundary verified without having read it."""
+    body, so without the guard in `_gh` every JSON read here fails to decode,
+    and the audit could not verify the repo's primary security boundary."""
     bindir = fake_bin(tmp_path, gh=FAKE_GH_PROTECTION)
     monkeypatch.setenv("PATH", tool_path(bindir))
     monkeypatch.setenv("GH_CALLS", str(tmp_path / "gh-calls.log"))
@@ -423,9 +438,7 @@ def test_branch_protection_survives_a_colour_forcing_environment(
     result = check_branch_protection("owner/repo", "main", "my-bot")
 
     assert result.passed is True
-    # The verified message, not the "could not read the details" fallback that
-    # an ANSI-wrapped body falls through to.
-    assert "requires reviews" in result.message
+    assert "restrict-updates ruleset" in result.message
 
 
 def test_branch_protection_result_name_includes_branch() -> None:
@@ -667,6 +680,24 @@ def test_branch_rules_non_list_response() -> None:
         return_value=_make_completed('{"message": "Not Found"}'),
     ):
         assert _has_restrict_updates_ruleset("owner/repo", "main", "my-bot") is None
+
+
+def test_branch_rules_page_that_is_not_a_list() -> None:
+    """One page answered with an error object leaves the listing unread → None,
+    rather than a listing that happens to lack the update rule."""
+    pages = json.dumps([[{"type": "deletion", "ruleset_id": 2}], {"message": "502"}])
+    with patch("tend.checks._gh", return_value=_make_completed(pages)):
+        assert _has_restrict_updates_ruleset("owner/repo", "main", "my-bot") is None
+
+
+def test_update_rule_on_a_later_page() -> None:
+    """The listing serves 30 rules a page; an update rule past the first page
+    still protects the branch."""
+    first = [{"type": "required_signatures", "ruleset_id": 2}] * 30
+    pages = json.dumps([first, [{"type": "update", "ruleset_id": 1}]])
+    fake = _gh_ruleset(pages, [_role_actor(ROLE_ID_ADMIN)])
+    with patch("tend.checks._gh", side_effect=fake):
+        assert _has_restrict_updates_ruleset("owner/repo", "main", "my-bot") is True
 
 
 # ---------------------------------------------------------------------------
@@ -1386,6 +1417,45 @@ def test_fix_tag_protection_creates_admin_gated_all_tags_ruleset() -> None:
     assert body["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
 
 
+@pytest.mark.parametrize(
+    ("listed", "path", "method"),
+    [
+        ("", "repos/owner/repo/rulesets", "POST"),
+        ("41\n", "repos/owner/repo/rulesets/41", "PUT"),
+    ],
+    ids=["absent", "present"],
+)
+def test_fix_branch_protection_overwrites_an_existing_merge_access_ruleset(
+    listed: str, path: str, method: str
+) -> None:
+    """GitHub refuses a second ruleset under a name the repo already uses, and
+    a disabled or edited 'Merge access' is what a failing check sends here, so
+    `--fix` overwrites that one rather than creating a duplicate."""
+
+    def fake(*args, **kwargs) -> subprocess.CompletedProcess[str]:
+        if "--jq" in args:
+            assert '.name == "Merge access"' in args[-1]
+            return _make_completed(listed)
+        return _make_completed()
+
+    with patch("tend.checks._gh", side_effect=fake) as gh:
+        result = fix_branch_protection("owner/repo", "main", ["release"])
+
+    assert result.passed is True
+    assert result.message.startswith("Replaced" if method == "PUT" else "Created")
+    write = gh.call_args
+    assert write.args[1] == path
+    assert write.args[write.args.index("--method") + 1] == method
+    body = json.loads(write.kwargs["input"])
+    assert body["name"] == "Merge access"
+    assert body["enforcement"] == "active"
+    assert body["conditions"]["ref_name"]["include"] == [
+        "~DEFAULT_BRANCH",
+        "refs/heads/release",
+    ]
+    assert body["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
+
+
 def _gh_all_pass(*admitted: str, environment_secrets: tuple[str, ...] | None = None):
     """A gh CLI where every check passes, for a repo whose environment admits
     `admitted` (default `main`). The admitted set is a parameter because the
@@ -1919,6 +1989,75 @@ def test_cli_check_fix_repairs_tag_and_release_protection(
     assert result.exit_code == 0, result.output
     fix_tags.assert_called_once_with("owner/repo")
     fix_releases.assert_called_once_with("owner/repo")
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Branch 'main' is NOT protected.",
+        "Branch 'main' is protected but the bot can still merge PRs",
+    ],
+    ids=["unprotected", "reviews-only"],
+)
+def test_cli_check_fix_creates_the_ruleset_for_any_branch_protection_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, message: str
+) -> None:
+    """The ruleset is the fix for every way the branch check fails, an
+    unprotected branch included — the case a new install meets first."""
+    _write_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    failures = [CheckResult("branch-protection:main", False, message)]
+    passes = [CheckResult("branch-protection:main", True, "protected")]
+    with (
+        patch("tend.cli.run_all_checks", side_effect=[failures, passes, passes]),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch(
+            "tend.cli.fix_branch_protection",
+            return_value=CheckResult("branch-protection:main", True, "fixed"),
+        ) as fix_branch,
+    ):
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+
+    assert result.exit_code == 0, result.output
+    fix_branch.assert_called_once_with("owner/repo", "main", [])
+
+
+def test_cli_check_fix_configures_the_environment_from_the_reread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On an unprotected branch the environment check has nothing verified to
+    admit, so it reports unknown; only the re-read after the ruleset lands
+    shows it failing, with the branch the policy must admit."""
+    _write_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    before = [
+        CheckResult("branch-protection:main", False, "NOT protected"),
+        CheckResult("environment", None, "nothing verified"),
+    ]
+    reread = [
+        CheckResult("branch-protection:main", True, "protected"),
+        CheckResult("environment", False, "missing"),
+    ]
+    after = [
+        CheckResult("branch-protection:main", True, "protected"),
+        CheckResult("environment", True, "configured"),
+    ]
+    with (
+        patch("tend.cli.run_all_checks", side_effect=[before, reread, after]),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch(
+            "tend.cli.fix_branch_protection",
+            return_value=CheckResult("branch-protection:main", True, "fixed"),
+        ),
+        patch(
+            "tend.cli.fix_environment",
+            return_value=CheckResult("environment", True, "fixed"),
+        ) as fix_env,
+    ):
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+
+    assert result.exit_code == 0, result.output
+    fix_env.assert_called_once_with("owner/repo", ["main"])
 
 
 # ---------------------------------------------------------------------------
