@@ -318,6 +318,13 @@ PY
     'test "$(cat "$TEND_WARM_TREE/artifact")" = built' \
     'test "$(tend-seeded)" = runner-seed' \
     'test "$TEND_FROM_SANDBOX_ENV" = applied' \
+    '# SRT resolves its mandatory write protections from its own cwd. None reach' \
+    '# the checkout: no /dev/null stub for git to refuse, no read-only path.' \
+    'stubs=$(find "$GITHUB_WORKSPACE" -type c -print)' \
+    'if [ -n "$stubs" ]; then printf "%s\n" "$stubs" >&2; exit 96; fi' \
+    'git add -A --dry-run >/dev/null' \
+    'mkdir -p .claude/commands && printf "x\n" > .claude/commands/tend-probe.md' \
+    'printf "{}\n" > .mcp.json' \
     '# Writable in place, and across renames of a lower-layer directory.' \
     'printf "agent\n" > "$TEND_WARM_CACHE/registry/written-by-sandbox"' \
     'printf "AGENT-CACHE\n" > "$TEND_WARM_CACHE/registry/warm"' \

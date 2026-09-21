@@ -4,7 +4,9 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { constants } from "node:os";
+import { dirname } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 function required(name) {
   const value = process.env[name];
@@ -80,13 +82,20 @@ async function main() {
     await access(path);
   }
 
-  // SRT resolves its mandatory deny paths against THIS process's cwd, which
-  // `enter_view.py` left at the home so no inherited cwd names the host's inode
-  // through the overlay. `.gitconfig`, the shell rc files and `.claude/commands`
-  // are on that list, so a home cwd masks the runner's own `~/.gitconfig` with
-  // `/dev/null` and `git config --global` then fails the lifecycle outright.
-  // The checkout is the tree those protections are written for.
-  process.chdir(workspace);
+  // SRT resolves its mandatory write protections (shell rc files, `.gitconfig`,
+  // `.gitmodules`, `.mcp.json`, `.vscode`, `.claude/commands`, `.git/hooks`, …)
+  // against THIS process's cwd, and applies them inside `allowWrite` only: a
+  // protected path that exists is re-bound read-only, one that doesn't gets a
+  // `/dev/null` bind. They exist to stop a sandboxed write from being run later
+  // by something unsandboxed, and nothing outside this process tree runs what
+  // the agent writes under the home: every write there lands in the view's
+  // upper layer, which only this tree sees and the dispose step deletes. Resolved
+  // against the checkout they leave character devices git refuses to add and
+  // tracked paths neither the agent nor the pull request's checkout can change;
+  // against the home, they mask `~/.gitconfig`. This launcher's own staged
+  // directory is outside every `allowWrite` path, so resolved there they emit
+  // nothing. The lifecycle's cwd is the `spawn` below's, not this one.
+  process.chdir(dirname(fileURLToPath(import.meta.url)));
 
   const { SandboxManager } = await import(`file://${entry}`);
   // With filesystem isolation on, SRT sets TMPDIR in the child environment to

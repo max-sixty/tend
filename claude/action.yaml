@@ -348,7 +348,9 @@ runs:
     # per-run key that never crosses into the sandbox env, then hands only the
     # memory directory to the sandbox uid. Failure leaves Claude running without
     # shared memory. The directory goes in /var/tmp because the sandbox's /tmp
-    # is a tmpfs of its own.
+    # is a tmpfs of its own, and the key beside it as a 0600 runner file: outside
+    # the home, which the view shows the agent as its own, and outside the
+    # runtime container, which the dispose step deletes before the save reads it.
     - name: Restore experimental memory Gist
       id: auto_memory
       if: inputs.memory_gist == 'true'
@@ -364,7 +366,7 @@ runs:
           fi
         }
         trap cleanup_restore EXIT
-        key_file=$(/usr/bin/mktemp "${TEND_PRIVATE_DIR}/tend-auto-memory-key.XXXXXXXXXX")
+        key_file=$(/usr/bin/mktemp /var/tmp/tend-auto-memory-key.XXXXXXXXXX)
         /usr/bin/openssl rand -hex 32 > "$key_file"
         TEND_AUTO_MEMORY_DIRECTORY="$memory_dir"
         TEND_AUTO_MEMORY_BASELINE_KEY=$(/usr/bin/cat "$key_file")

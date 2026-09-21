@@ -323,8 +323,11 @@ function record(name) {
   return counts[name];
 }
 
+let allowWrite;
+
 export const SandboxManager = {
-  async initialize() {
+  async initialize(config) {
+    allowWrite = config.filesystem.allowWrite;
     if (record("initialize") <= failures) {
       throw new Error("Failed to create bridge sockets after 5 attempts");
     }
@@ -334,6 +337,9 @@ export const SandboxManager = {
   },
   async wrapWithSandboxArgv() {
     record("wrap");
+    // The cwd SRT resolves its mandatory write protections against, read
+    // where SRT reads it: while generating the wrapped command.
+    fs.writeFileSync(`${state}.wrap`, JSON.stringify({ cwd: process.cwd(), allowWrite }));
     return { argv: ["/usr/bin/bash", "-c", "echo lifecycle-ran"], env: {} };
   },
   async reset() {
@@ -354,10 +360,12 @@ def run_sandbox_runtime(
     exercises the launch path itself rather than a copy of its logic.
     """
     root = tmp_path / "srt"
-    workspace = root / "workspace"
+    runner_home = root / "runner-home"
+    # Inside the runner's home, as on a hosted runner.
+    workspace = runner_home / "work" / "repo"
     home = root / "home"
     for directory in (root, workspace, home):
-        directory.mkdir()
+        directory.mkdir(parents=True)
     entry = root / "fake-srt.mjs"
     entry.write_text(FAKE_SRT)
     state = root / "state.json"
@@ -378,7 +386,7 @@ def run_sandbox_runtime(
             "GITHUB_WORKSPACE": str(workspace),
             "AGENT_HOME": str(home),
             "TMPDIR": str(root),
-            "TEND_RUNNER_HOME": str(root / "runner-home"),
+            "TEND_RUNNER_HOME": str(runner_home),
             "TEND_PROXY_PORT": "8899",
         },
         capture_output=True,
@@ -438,3 +446,23 @@ def test_a_failed_cleanup_does_not_abandon_the_remaining_attempts(
     assert "lifecycle-ran" in completed.stdout
     assert counts["initialize"] == 2
     assert "cleanup after attempt 1 failed" in completed.stderr
+
+
+@linux_only
+def test_srt_resolves_its_write_protections_outside_every_writable_path(
+    tmp_path: Path,
+) -> None:
+    """SRT's mandatory denies must not land in the checkout, or anywhere writable.
+
+    SRT resolves them against its own cwd and binds only those inside
+    `allowWrite`, so from the checkout they became `/dev/null` character
+    devices that `git add -A` refused, and read-only tracked paths.
+    """
+    completed, _ = run_sandbox_runtime(tmp_path, failures=0)
+    wrap = json.loads((tmp_path / "srt/state.json.wrap").read_text())
+
+    assert completed.returncode == 0, completed.stderr
+    cwd = Path(wrap["cwd"])
+    assert wrap["allowWrite"]
+    for writable in map(Path, wrap["allowWrite"]):
+        assert not cwd.is_relative_to(writable), (cwd, writable)

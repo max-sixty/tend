@@ -327,10 +327,12 @@ Each transition is a bottleneck with one job:
   self-hosted layout keeps `_work` there), and GitHub's file-command
   directory, which holds `$GITHUB_OUTPUT` and `$GITHUB_STATE` values no step
   exported. A `$GITHUB_ENV` export is an environment variable by launch and
-  crosses. Tend's own runner-side secrets (the proxy CA key, the auto-memory
-  key, the Codex credentials) sit in a 0700 directory in the runtime container,
-  outside the home. The hosted integration test asserts they are unreadable
-  from inside, and sweeps the home for a runner credential the mask missed.
+  crosses. Tend's own runner-side secrets (the proxy CA key, the Codex
+  credentials) sit in a 0700 directory in the runtime container, outside the
+  home. The hosted integration test asserts they are unreadable from inside,
+  and sweeps the home for a runner credential the mask missed. The auto-memory
+  key is read after that container is deleted, so it sits beside the memory
+  directory in `/var/tmp` instead, a 0600 runner file.
 
   This adds `unshare`, `mount` and `setpriv` to the boundary, run as root from a
   fixed argv, and makes `enter_view.py` a file root executes; the action's
@@ -354,7 +356,12 @@ Each transition is a bottleneck with one job:
   Claude or Codex turn as one command under the pinned Anthropic Sandbox
   Runtime. Tend supplies absolute `node`, `bwrap`, `socat`, `rg`, and seccomp
   paths, treats dependency warnings as fatal, and probes AF_UNIX denial and
-  the view (writable, masks empty) before setup executes. The boundary's own code
+  the view (writable, masks empty) before setup executes. SRT's built-in write
+  protections (shell rc files, `.gitconfig`, `.git/hooks`, `.mcp.json`,
+  `.claude/commands`, …) resolve against a directory outside every writable
+  path, so they bind nothing: they stop an unsandboxed process from later
+  running what a sandboxed one wrote, and nothing outside the process tree runs
+  what the agent writes in the view. The boundary's own code
   is pinned as tightly as its configuration: `bwrap`, `socat` and `rg` install
   at named Debian versions from a dated Ubuntu archive snapshot, and the
   Sandbox Runtime's npm tree resolves as of the same instant, so neither the

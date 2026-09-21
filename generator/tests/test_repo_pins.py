@@ -403,6 +403,23 @@ def test_experimental_memory_gist_sync_cannot_replace_the_agent_verdict() -> Non
     assert 'gist_memory.py" \\\n  save;' in save
 
 
+def test_memory_gist_save_reads_nothing_the_dispose_step_deleted() -> None:
+    """The save's inputs are made outside the home and the runtime container.
+
+    The dispose step deletes the runtime container, private directory and all,
+    right after the agent is reaped and before the save runs. The view shows the
+    agent the runner's home as its own, so `RUNNER_TEMP` would hand it the key.
+    """
+    action = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / "claude" / "action.yaml").read_text()
+    )
+    steps = {step["name"]: step for step in action["runs"]["steps"]}
+    restore = steps["Restore experimental memory Gist"]["run"]
+
+    assert "memory_dir=$(/usr/bin/mktemp -d /var/tmp/tend-auto-memory." in restore
+    assert "key_file=$(/usr/bin/mktemp /var/tmp/tend-auto-memory-key." in restore
+
+
 def test_uv_build_range_admits_the_pinned_uv() -> None:
     # uv only *warns* when `build-system.requires` doesn't contain the uv
     # running the build, so a stale range survives every release and every
