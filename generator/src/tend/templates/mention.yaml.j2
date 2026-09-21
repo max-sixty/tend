@@ -124,8 +124,10 @@ jobs:
       # carries `should_run`.
 <<react_eyes(reaction_target, if_condition=summoned(cfg.bot_name, 'needs.verify.outputs.reason'))>>
 
-<<checkout(cfg)>>
-<<setup>>
+      # Measures event -> job start, so it goes ahead of anything that
+      # spends job time: checkout and `setup:` (an `apt-get`, a container
+      # pull, a dependency build) would otherwise land inside the figure
+      # the agent reads as queue time.
       - name: Compute queue delay
         id: delay
         run: |
@@ -140,6 +142,8 @@ jobs:
           # the API record — the dispatch payload never carries one to spoof.
           EVENT_TS: ${{ github.event.comment.updated_at || needs.verify.outputs.ts || github.event.issue.updated_at }}
 
+<<checkout(cfg)>>
+<<setup>>
 <<agent_step(cfg, prompt_body, checkout_mode='mention')>>
 
 <<unreact_eyes(cfg, reaction_target, if_condition="always()\n&& " ~ summoned(cfg.bot_name, 'needs.verify.outputs.reason'))>>

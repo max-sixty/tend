@@ -326,12 +326,10 @@ jobs:
             || format('pulls/comments/{0}', github.event.client_payload.id) }}
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
 
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-          token: ${{ secrets.TEND_BOT_TOKEN }}
-
+      # Measures event -> job start, so it goes ahead of anything that
+      # spends job time: checkout and `setup:` (an `apt-get`, a container
+      # pull, a dependency build) would otherwise land inside the figure
+      # the agent reads as queue time.
       - name: Compute queue delay
         id: delay
         run: |
@@ -345,6 +343,12 @@ jobs:
           # A relayed event's timestamp comes from verify, which read it off
           # the API record ? the dispatch payload never carries one to spoof.
           EVENT_TS: ${{ github.event.comment.updated_at || needs.verify.outputs.ts || github.event.issue.updated_at }}
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: max-sixty/tend/codex@X.Y.Z
         with:

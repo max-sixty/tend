@@ -1096,6 +1096,30 @@ def test_mention_handle_has_queue_delay(tmp_path: Path) -> None:
     assert delay_idx < tend_idx, "delay step must precede tend action"
 
 
+def test_mention_queue_delay_measures_to_job_start_not_past_setup(
+    tmp_path: Path,
+) -> None:
+    """Delay must be measured before checkout and setup, not after them.
+
+    Anything between job start and the measurement is reported to the agent as
+    queue time, and `setup:` is where a repo puts `apt-get`, a container pull,
+    or a dependency build — tens of seconds against a ~40s threshold.
+    """
+    extra = "setup:\n  - run: sleep 0\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    wf = generate_mention(cfg)
+    steps = yaml.safe_load(wf.content)["jobs"]["handle"]["steps"]
+    delay_idx = next(i for i, s in enumerate(steps) if s.get("id") == "delay")
+    checkout_idx = next(
+        i
+        for i, s in enumerate(steps)
+        if s.get("uses", "").startswith("actions/checkout@")
+    )
+    setup_idx = next(i for i, s in enumerate(steps) if s.get("run") == "sleep 0")
+    assert delay_idx < checkout_idx, "delay must not count checkout as queue time"
+    assert delay_idx < setup_idx, "delay must not count setup as queue time"
+
+
 def test_mention_queue_delay_guards_empty_event_ts(tmp_path: Path) -> None:
     """date -d "" silently returns now on GNU; guard against empty EVENT_TS."""
     cfg = Config.load(_minimal_config(tmp_path))
