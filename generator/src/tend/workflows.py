@@ -6,6 +6,7 @@ import copy
 import dataclasses
 import importlib.resources
 import io
+import sys
 import textwrap
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -55,7 +56,9 @@ _JINJA = Environment(
 # stability on regen); typ="safe" would sort keys alphabetically.
 _YAML_BLOCK = YAML(typ="rt", pure=True)
 _YAML_BLOCK.default_flow_style = False
-_YAML_BLOCK.width = 200
+# Never fold a long scalar: the break leaves a trailing space on its line, and
+# a long `if:` or `env:` expression stays on the one line its author wrote.
+_YAML_BLOCK.width = sys.maxsize
 _YAML_BLOCK.allow_unicode = True
 # Round-trip explicit quoting on scalars (e.g. `cron: "17 6 * * *"` stays
 # quoted). Without this, ruamel drops quotes on any string that's safe to

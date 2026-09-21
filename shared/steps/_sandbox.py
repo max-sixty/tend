@@ -12,7 +12,7 @@ crosses without Tend naming it, except :data:`WITHHELD_PREFIXES` (``ACTIONS_*``
 is the runner's service channel, ``INPUT_*`` carries an action's inputs) and
 :data:`WITHHELD` (the real ``GITHUB_TOKEN``, and the file-command paths through
 which a step reaches later ones). The agent env file comes after the job's, so
-its proxy routing, dummy credentials, and ``sandbox_env:`` win.
+its proxy routing and dummy credentials win.
 """
 
 from __future__ import annotations
@@ -36,20 +36,12 @@ WITHHELD = frozenset(
 
 def agent_env(agent_env_file: str | os.PathLike[str]) -> list[str]:
     """Read the fixed sandbox environment as ``NAME=VALUE`` arguments."""
-    # Split on newlines alone: a carried value may hold a character `str`
-    # considers a line break (\v, \f, U+2028) and the file does not.
-    # `newline=""` for the same reason, one layer down: the default translates
-    # a lone \r to \n before anything here sees it, so a \r in a `sandbox_env:`
-    # value — which the config layer does not reject — would split one
-    # NAME=VALUE into two `env` arguments, and `env` execs a trailing argument
-    # that is not an assignment as the command to run.
-    # `surrogateescape` because the shell that wrote the file was byte
-    # transparent: a non-UTF-8 byte in a consumer's `sandbox_env:` value must
-    # reach the sandbox as it was written, not fail the step before the launch.
-    # `subprocess` re-encodes it with `os.fsencode`, which round-trips it back.
-    with Path(agent_env_file).open(
-        encoding="utf-8", errors="surrogateescape", newline=""
-    ) as handle:
+    # Split on newlines alone, and read without newline translation: the file
+    # holds one assignment per \n, and a \r, \v or U+2028 in a value (the
+    # job's PATH among them) belongs to that value. Split anywhere else, one
+    # NAME=VALUE becomes two `env` arguments, and `env` execs a trailing
+    # argument that is not an assignment as the command to run.
+    with Path(agent_env_file).open(encoding="utf-8", newline="") as handle:
         lines = handle.read().split("\n")
     if lines and lines[-1] == "":
         lines.pop()

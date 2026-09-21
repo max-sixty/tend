@@ -247,6 +247,10 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.1.0
         if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
+      - run: echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"
+        if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
+        env:
+          MY_TOKEN: ${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}
       - run: |-
           echo "/opt/tools/bin" >> "$GITHUB_PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"

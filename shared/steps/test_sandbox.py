@@ -4,8 +4,6 @@ withheld names, with the agent env file after it."""
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -109,39 +107,16 @@ def test_launch_env_withholding_is_anchored_to_the_prefix(compose: Compose) -> N
     assert sorted(pairs) == ["MY_ACTIONS_FLAG=keep", "REINPUT_MODE=keep"]
 
 
-def test_launch_env_reads_the_file_as_the_shell_wrote_it(compose: Compose) -> None:
+def test_launch_env_reads_the_file_as_it_was_written(compose: Compose) -> None:
     """One element per newline-delimited record, and no phantom trailing one.
 
     `str.splitlines` would also break on \\v, \\f and U+2028 — characters a
     carried value may hold and the file's own framing does not — turning one
     assignment into two arguments, the second of them junk. Universal-newline
-    translation on the read does the same for `\\r`, which `sandbox_env:` does
-    not reject: `env` runs a trailing argument that is not an assignment as the
-    command, so the split turns a stray carriage return into an exec.
+    translation on the read does the same for `\\r`: `env` runs a trailing
+    argument that is not an assignment as the command, so the split turns a
+    stray carriage return into an exec.
     """
     assert compose({}, env_file="A=1\nB=two\vlines\n") == ["A=1", "B=two\vlines"]
     assert compose({}, env_file="FOO=a\rb\n") == ["FOO=a\rb"]
     assert compose({}, env_file="") == []
-
-
-def test_launch_env_carries_a_value_that_is_not_utf_8(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The shell that wrote the file was byte transparent, so this must be too.
-
-    A non-UTF-8 byte in a consumer's `sandbox_env:` value would otherwise fail
-    the step before the launch. Asserted through a real subprocess, because the
-    round trip is `subprocess`'s `os.fsencode`, not anything this module does.
-    """
-    for name in list(os.environ):
-        monkeypatch.delenv(name)
-    path = tmp_path / "agent-env"
-    path.write_bytes(b"TEND_X=raw\xe9byte\n")
-
-    pairs = _sandbox.launch_env(path)
-
-    echo = "import os, sys; sys.stdout.buffer.write(os.fsencode(sys.argv[1]))"
-    echoed = subprocess.run(
-        [sys.executable, "-c", echo, pairs[0]], capture_output=True, check=True
-    )
-    assert echoed.stdout == b"TEND_X=raw\xe9byte"

@@ -93,7 +93,6 @@ host_checksum() {
 setup() {
   local action_run agent_path hostile_python hostile_site
   set_inputs
-  export TEND_SANDBOX_ENV="TEND_FROM_SANDBOX_ENV=applied"
   MITMPROXY_VERSION=$(yq -e '.inputs.mitmproxy_version.default' claude/action.yaml)
   export MITMPROXY_VERSION
   UV_VERSION=$(yq -e '.inputs.uv_version.default' claude/action.yaml) \
@@ -159,7 +158,6 @@ verify() {
   grep -q "^PATH=.*:${TEND_AGENT_UV_DIR}$" "$AGENT_ENV_FILE"
   grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$AGENT_ENV_FILE"
   grep -qx 'CLAUDE_CONFIG_DIR=/home/tend-sandbox/.claude' "$AGENT_ENV_FILE"
-  grep -qx 'TEND_FROM_SANDBOX_ENV=applied' "$AGENT_ENV_FILE"
   sudo -u "$SANDBOX" test -w /home/tend-sandbox/tmp
   # Tend's own runner-side secrets, including the proxy's CA private key.
   test -f "$TEND_PRIVATE_DIR/tend-proxy/mitmproxy-ca.pem"
@@ -171,19 +169,9 @@ verify() {
 
 # This re-run exits before the proxy starts.
 verify_refusals() {
-  local rc empty_rc
+  local empty_rc
   set_inputs
   export MITMPROXY_VERSION=0
-  TEND_SANDBOX_ENV='GITHUB_WORKFLOW=spoofed-by-sandbox-env' \
-    "$TEND_UV_DIR/uv" run --script proxy/setup_sandbox.py \
-    >"$RUNNER_TEMP/refused.log" 2>&1 && rc=0 || rc=$?
-  # Actions parses workflow commands out of step output; don't annotate this
-  # passing refusal test with the error it deliberately provokes.
-  sed 's/^::error::/refused: /' "$RUNNER_TEMP/refused.log"
-  test "${rc:-0}" -ne 0
-  grep -q '::error::sandbox_env may not set .GITHUB_WORKFLOW.' \
-    "$RUNNER_TEMP/refused.log"
-
   GITHUB_WORKSPACE='' "$TEND_UV_DIR/uv" run --script proxy/setup_sandbox.py \
     >"$RUNNER_TEMP/empty-workspace.log" 2>&1 && empty_rc=0 || empty_rc=$?
   test "${empty_rc:-0}" -ne 0
@@ -303,7 +291,6 @@ PY
     'test "$(cat "$TEND_WARM_CACHE/registry/warm")" = warm-cache' \
     'test "$(cat "$TEND_WARM_TREE/artifact")" = built' \
     'test "$(tend-seeded)" = runner-seed' \
-    'test "$TEND_FROM_SANDBOX_ENV" = applied' \
     '# SRT resolves its mandatory write protections from its own cwd. None reach' \
     '# the checkout: no /dev/null stub for git to refuse, no read-only path.' \
     'stubs=$(find "$GITHUB_WORKSPACE" -type c -print)' \

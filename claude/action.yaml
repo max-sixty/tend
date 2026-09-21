@@ -92,12 +92,6 @@ inputs:
       Pinned `uv` version. The credential-injection proxy always uses a private
       copy off $PATH. The agent gets a separate fallback after the consumer PATH,
       so a consumer-provided version stays selected.
-  sandbox_env:
-    default: ""
-    description: >-
-      Newline-separated NAME=VALUE pairs added to the sandbox agent's launch
-      environment. Reserved keys (proxy routing, CA trust, dummy credentials,
-      PATH) are rejected; the agent runs with the job's PATH.
   checkout_mode:
     default: "base"
     description: >-
@@ -258,8 +252,6 @@ runs:
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
-        # The consumer's agent-only environment, baked into the agent env file.
-        TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
       run: |
         set +x
         /usr/bin/env -i \
@@ -281,7 +273,6 @@ runs:
           UV_CACHE_DIR="$UV_CACHE_DIR" \
           UV_NO_CONFIG=1 \
           PYTHONNOUSERSITE=1 \
-          TEND_SANDBOX_ENV="$TEND_SANDBOX_ENV" \
           "${TEND_UV_DIR}/uv" run --no-cache --no-config \
             --no-python-downloads --python /usr/bin/python3 --script \
             "${{ github.action_path }}/../proxy/setup_sandbox.py"
@@ -396,10 +387,10 @@ runs:
       id: claude
       shell: bash
       env:
-        # No real secrets here — the agent's launch env is $AGENT_ENV_FILE
-        # (proxy routing, CA trust, dummy GitHub + Anthropic credentials,
-        # CLAUDE_CODE_REMOTE for remote/non-interactive context). The proxy
-        # injects the real credentials per-host.
+        # No tend credentials here — the agent's launch env is the job's, with
+        # $AGENT_ENV_FILE laid over it (proxy routing, CA trust, dummy GitHub +
+        # Anthropic credentials, CLAUDE_CODE_REMOTE for remote/non-interactive
+        # context). The proxy injects the real credentials per-host.
         # Claude's nested subprocess sandbox stays off. The shared outer SRT
         # boundary already covers Claude and every child for the whole lifecycle.
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
