@@ -1,4 +1,4 @@
-"""Check out the event's tree, then run one harness, inside one SRT boundary."""
+"""Check out the event's tree, then run one harness, inside the agent's unit."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import event_checkout
 
 
 def probe_view(workspace: Path) -> None:
-    """Fail unless the view survived into SRT: writable, and every mask empty."""
+    """Fail unless the view is writable and every mask is unreadable."""
     probe = workspace / ".tend-view-probe"
     try:
         probe.write_text("", encoding="utf-8")
@@ -23,22 +23,18 @@ def probe_view(workspace: Path) -> None:
         ) from None
     probe.unlink()
     for path in filter(None, os.environ["TEND_VIEW_MASKS"].split(os.pathsep)):
-        masked = Path(path)
-        # A file mask is /dev/null, which bwrap's nodev remount makes
-        # unopenable, so it is recognised by type rather than read.
-        empty_dir = masked.is_dir() and not os.listdir(masked)
-        if not (masked.is_char_device() or empty_dir):
-            raise RuntimeError(f"the view did not mask {masked}")
+        if not os.path.lexists(path) or os.access(path, os.R_OK):
+            raise RuntimeError(f"the view did not mask {path}")
 
 
 def probe_boundary(workspace: Path) -> None:
-    """Fail unless SRT's Linux seccomp and read boundary are effective."""
+    """Fail unless the unit's socket filter, view and network are in force."""
     try:
         socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    except PermissionError:
+    except OSError:
         pass
     else:
-        raise RuntimeError("SRT capability probe created an AF_UNIX socket")
+        raise RuntimeError("boundary probe created an AF_UNIX socket")
 
     probe_view(workspace)
 
@@ -59,7 +55,7 @@ def probe_boundary(workspace: Path) -> None:
             text=True,
         )
         if direct.returncode == 0:
-            raise RuntimeError("SRT capability probe reached host loopback directly")
+            raise RuntimeError("boundary probe reached host loopback directly")
         result = subprocess.run(
             [
                 "/usr/bin/curl",
@@ -76,16 +72,16 @@ def probe_boundary(workspace: Path) -> None:
             capture_output=True,
             text=True,
         )
-        if result.returncode or result.stdout != "tend-srt-network-ok\n":
-            raise RuntimeError("SRT capability probe did not traverse the HTTP broker")
+        if result.returncode or result.stdout != "tend-network-ok\n":
+            raise RuntimeError("boundary probe did not traverse the credential proxy")
 
     probe_executable = os.environ.get("TEND_BOUNDARY_PROBE_EXECUTABLE")
     if probe_executable:
         result = subprocess.run(
             [probe_executable], check=False, capture_output=True, text=True
         )
-        if result.returncode or result.stdout != "tend-srt-tool-ok\n":
-            raise RuntimeError("SRT capability probe cannot execute the harness tool")
+        if result.returncode or result.stdout != "tend-tool-ok\n":
+            raise RuntimeError("boundary probe cannot execute the harness tool")
 
 
 def configure_git(login: str, bot_id: str) -> None:

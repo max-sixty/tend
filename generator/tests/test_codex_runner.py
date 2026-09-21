@@ -315,5 +315,5 @@ def test_run_refuses_to_create_a_second_execution_boundary(
     monkeypatch.setenv("AUTH_MODE", "api-key")
     _set_sandbox_env(tmp_path, monkeypatch)
 
-    with pytest.raises(RuntimeError, match="only inside the SRT lifecycle"):
+    with pytest.raises(RuntimeError, match="only inside the sandbox lifecycle"):
         codex_runner.main(["run"])
