@@ -40,12 +40,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from _safe_files import read_regular_nofollow
-
 ID_CEILING = 65536
 MOUNT = "/usr/bin/mount"
-#: Well past what one execve accepts, so only a malformed file reaches it.
-MAX_ENVIRONMENT = 4 * 1024 * 1024
 
 
 def run(*argv: str) -> None:
@@ -106,10 +102,13 @@ def read_environment(path: Path) -> dict[bytes, bytes]:
     """The agent's environment, from the file the supervisor wrote, which it removes.
 
     NUL-separated ``NAME=VALUE`` entries; a later one wins, as with ``env``.
+    Opened without following a link, since root reads it. Only the standard
+    library is imported here: a sibling module would be one more file root
+    executes, and the import writes a root-owned ``__pycache__`` into the
+    action checkout.
     """
-    raw = read_regular_nofollow(path, max_bytes=MAX_ENVIRONMENT)
-    if raw is None:
-        raise ValueError(f"the launch environment {path} is missing")
+    with open(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
+        raw = stream.read()
     path.unlink()
     return dict(entry.split(b"=", 1) for entry in raw.split(b"\0") if entry)
 

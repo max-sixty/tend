@@ -3,7 +3,9 @@ by `proxy/test-setup-sandbox.sh` on a hosted runner."""
 
 from __future__ import annotations
 
+import ast
 import pwd
+import sys
 from pathlib import Path
 
 import enter_view
@@ -88,3 +90,25 @@ def test_a_symlinked_environment_file_is_refused(tmp_path: Path) -> None:
 
     with pytest.raises(OSError):
         enter_view.read_environment(link)
+
+
+def test_root_executes_this_one_file_and_the_standard_library() -> None:
+    """It runs as root from the action checkout, so a sibling import is one more
+    file root executes and writes a root-owned `__pycache__` the runner can't
+    clean up — which surfaces only on a real runner.
+    """
+    tree = ast.parse(Path(enter_view.__file__).read_text())
+    imported = {
+        alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    } | {
+        node.module.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+
+    assert imported <= sys.stdlib_module_names | {"__future__"}, sorted(
+        imported - sys.stdlib_module_names
+    )
