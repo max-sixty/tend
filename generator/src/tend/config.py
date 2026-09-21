@@ -215,10 +215,13 @@ def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
             "Warning: `sandbox_setup` is deprecated and will be refused in a "
             "later release. The agent now works in the job's own checkout "
             "and home, so what `setup:` builds reaches it; its commands run "
-            "as `setup:` steps after yours for now, as the runner and before "
-            "tend installs its own `uv` fallback. Move each into `setup:` as "
-            "a `run:` step (e.g. `- run: rustup component add clippy`) and "
-            "delete the key. `setup:` runs on reviewed code; what a pull "
+            "as `setup:` steps after yours for now. Those are ordinary "
+            "workflow steps, and tend puts nothing on their PATH, so a "
+            "command that calls `uv` needs a step that installs it, such as "
+            "`astral-sh/setup-uv`, earlier in your `setup:`. Move each into "
+            "`setup:` as a `run:` step (e.g. "
+            "`- run: rustup component add clippy`) and delete the key. "
+            "`setup:` runs on reviewed code; what a pull "
             "request itself changes, such as a new dependency in its "
             "lockfile, the agent installs in the session.",
             err=True,

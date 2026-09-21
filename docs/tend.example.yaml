@@ -224,8 +224,10 @@ bot_name: my-project-bot
 # `Build FAILED.` with `0 Error(s)` and no diagnostic. `-m:1` keeps MSBuild
 # in one process and makes real errors visible again.
 #
-# Tend appends a pinned `uv` fallback after the job's PATH. It installs no
-# other language toolchain. A directory a `setup:` step appends to
+# Tend appends a pinned `uv` fallback after the agent's PATH. It installs no
+# other language toolchain, and puts nothing on PATH before `setup:` runs, so
+# a `setup:` step that calls `uv` needs `astral-sh/setup-uv` ahead of it, as
+# in any workflow. A directory a `setup:` step appends to
 # `$GITHUB_PATH` is on the agent's PATH:
 #
 #     setup:
