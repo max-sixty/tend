@@ -6,6 +6,32 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.2.12
+
+### Improved
+
+- **The agent runs in the job's own checkout and home, through a copy-on-write view.** What `setup:` prepares — a toolchain, a warm cache, a generated file — is there for the agent at the path `setup:` left it, so `sandbox_setup:` no longer has to rebuild it; `sandbox_setup:` still runs against the event's tree. The agent writes wherever the runner could, and nothing it writes reaches the runner's disk or a later step. Anything `setup:` leaves readable in the runner's home, exports to `$GITHUB_ENV`, or sets in job-level `env:` is now readable by the agent, and so by a pull request's own code: log in only in steps tend does not run. The environment crosses into the sandbox in a `0600` file rather than on `sudo`'s command line, and `sandbox_env` refuses `GITHUB_*` keys and `CLAUDE_CONFIG_DIR` at `init`. Requires kernel 5.19 and util-linux 2.39, which `ubuntu-24.04` has. ([#1333](https://github.com/max-sixty/tend/pull/1333), [#1334](https://github.com/max-sixty/tend/pull/1334))
+- **`/tmp` is writable inside the sandbox**, as scratch private to the run, so a tool that hard-codes a `/tmp` path (NuGet's build mutex, zsh's `TMPPREFIX`) needs no override. The `TMPPREFIX` reserved `sandbox_env` key is gone with the override it protected. ([#1324](https://github.com/max-sixty/tend/pull/1324))
+- **CI sessions ignore the bot's claude.ai account.** The session's `.claude/settings.local.json` turns off claude.ai skill and plugin sync and claude.ai MCP connectors, so skills, plugins, or connectors enabled on the bot's account don't load into sessions that push and post as the bot. ([#1328](https://github.com/max-sixty/tend/pull/1328))
+- **`review-runs` finds a workflow wedged behind a run parked in GitHub's `waiting` state**, which holds its concurrency group without ever concluding, and cancels it once `pending_deployments` shows nothing will release it. ([#1320](https://github.com/max-sixty/tend/pull/1320))
+- **`ground-claims` reads a past run's code at that run's commit** through the contents API, so a diagnosis of an old failure cites what the run executed rather than the current default branch. ([#1319](https://github.com/max-sixty/tend/pull/1319))
+
+### Fixed
+
+- **The sandbox launch retries a transient bridge-socket failure**, up to three attempts. SRT gives socat 600 ms to bind its bridge sockets, and a slow runner lost the whole job before the agent started. ([#1327](https://github.com/max-sixty/tend/pull/1327))
+- **`poll_pr_checks.py` reports a cancelled or stale gating check as unverified (exit 2), not green.** Green is now the allowlist `SUCCESS`, `NEUTRAL`, `SKIPPED`; `approval` names any check it approves over without a verdict. ([#1323](https://github.com/max-sixty/tend/pull/1323))
+- **`run-tend` lists `.agents/` among the instruction paths restored to the base version on a PR**, and says a relayed review event restores them too. ([#1311](https://github.com/max-sixty/tend/pull/1311))
+
+### Documentation
+
+- **`tend.example.yaml` documents two sandbox properties**: `AF_UNIX` sockets are refused, which silently fails a multi-process build like MSBuild's; and a `sandbox_env` value is readable by a pull request's own code, with an expression that withholds it from the events that run one. ([#1313](https://github.com/max-sixty/tend/pull/1313), [#1321](https://github.com/max-sixty/tend/pull/1321))
+- **The README says how the generated workflows behave in a fork**: scheduled runs appear in the fork's Actions tab but skip every job. ([#1310](https://github.com/max-sixty/tend/pull/1310))
+
+### Internal
+
+- Claude Code moves to 2.1.278 and `uv` to 0.12.17. ([#1330](https://github.com/max-sixty/tend/pull/1330), [#1331](https://github.com/max-sixty/tend/pull/1331))
+- `test-sandbox` drives the copy-on-write view on a hosted runner and asserts its bounds: a job-only variable stays out of `sudo`'s journal, a host `/tmp/claude` is never written, and a root-owned directory stays unwritable. ([#1333](https://github.com/max-sixty/tend/pull/1333), [#1334](https://github.com/max-sixty/tend/pull/1334))
+
 ## 0.2.11
 
 ### Improved
