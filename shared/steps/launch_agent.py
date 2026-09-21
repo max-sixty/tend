@@ -50,6 +50,7 @@ import resource
 import signal
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from types import FrameType
@@ -61,6 +62,9 @@ MAX_FIXED_EXPORT = 64 * 1024 * 1024
 MAX_FINAL_MESSAGE = 256 * 1024
 MAX_STEP_SUMMARY = 512 * 1024
 MAX_RUNTIME_FILE = 2 * 1024 * 1024
+#: How long the reap waits for the killed UID to leave the process table.
+REAP_DEADLINE_SEC = 10.0
+REAP_POLL_SEC = 0.1
 RUNTIME_STEP_FILES = (
     "_common.py",
     "_prompt.py",
@@ -117,22 +121,31 @@ def sudo(*argv: str) -> None:
 
 
 def reap(sandbox: str) -> bool:
-    subprocess.run(
-        ["/usr/bin/sudo", "/usr/bin/pkill", "-KILL", "-u", sandbox],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    return (
+    """SIGKILL the sandbox UID and wait for it to leave the process table.
+
+    ``pkill`` returns once the signals are queued, so an immediate ``pgrep``
+    can still see a process the kernel has not finished tearing down, or a
+    zombie whose parent has not reaped it yet. Poll to the deadline before
+    calling the reap failed; only ``pgrep`` reporting no match settles it.
+    """
+    deadline = time.monotonic() + REAP_DEADLINE_SEC
+    while True:
         subprocess.run(
+            ["/usr/bin/sudo", "/usr/bin/pkill", "-KILL", "-u", sandbox],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        status = subprocess.run(
             ["/usr/bin/pgrep", "-u", sandbox],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
         ).returncode
-        == 1
-    )
+        if status != 0 or time.monotonic() >= deadline:
+            return status == 1
+        time.sleep(REAP_POLL_SEC)
 
 
 def write_trusted(path: Path, body: bytes, *, mode: int = 0o600) -> None:
@@ -510,7 +523,11 @@ def main() -> int:
         with output.open("a", encoding="utf-8") as stream:
             stream.write(f"sandbox_reaped={'true' if reaped else 'false'}\n")
         if not reaped:
-            print("::error::sandbox UID still owns a live process after reap")
+            print(
+                "::error::sandbox UID still owns a live process "
+                f"{REAP_DEADLINE_SEC:g}s after the kill",
+                flush=True,
+            )
             return 1
         export_results(
             output=output,
