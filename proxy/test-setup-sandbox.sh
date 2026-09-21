@@ -11,6 +11,11 @@ set -euo pipefail
 
 BOT_LOGIN=tend-agent
 BOT_ID=4242
+# What `event_checkout` checks out in `base` mode, which it also sets an
+# upstream for. On `pull_request` GITHUB_REF_NAME is `<number>/merge`, a ref
+# origin publishes under `refs/pull/` and never as a branch; GITHUB_BASE_REF is
+# the base branch. On the push to main it is the other way round.
+BASE_BRANCH="${GITHUB_BASE_REF:-$GITHUB_REF_NAME}"
 
 set_inputs() {
   export TEND_GH_TOKEN=dummy
@@ -343,7 +348,7 @@ PY
     TEND_LIFECYCLE="$private_action/shared/steps/agent_lifecycle.py" \
     TEND_SANDBOX_SETUP="$setup_commands" \
     TEND_CHECKOUT_MODE=base \
-    TEND_BASE_BRANCH="${GITHUB_REF_NAME:-main}" \
+    TEND_BASE_BRANCH="$BASE_BRANCH" \
     TEND_BOUNDARY_PROBE_URL="http://127.0.0.1:$probe_port/" \
     TEND_BOUNDARY_PROBE_EXECUTABLE="$tool_root/probe" \
     TEND_MODEL=stub-model TEND_ALLOWED_TOOLS='Bash,Read' \
@@ -414,7 +419,7 @@ PY
     TEND_CODEX_RUNNER="$private_action/codex/runner.py" \
     TEND_SANDBOX_SETUP='' \
     TEND_CHECKOUT_MODE=base \
-    TEND_BASE_BRANCH="${GITHUB_REF_NAME:-main}" \
+    TEND_BASE_BRANCH="$BASE_BRANCH" \
     TEND_BOUNDARY_PROBE_URL="http://127.0.0.1:$probe_port/" \
     TEND_BOUNDARY_PROBE_EXECUTABLE="$tool_root/probe" \
     CODEX_BIN="$codex_stub" CODEX_PROXY_URL="http://127.0.0.1:$probe_port/" \

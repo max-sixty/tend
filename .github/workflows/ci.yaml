@@ -97,7 +97,12 @@ jobs:
   test-sandbox:
     runs-on: ubuntu-24.04
     steps:
+      # The lifecycle's `base` checkout sets the branch's upstream, so
+      # `origin/<base>` has to exist — as it does under the generated
+      # workflows, whose own checkout fetches everything.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Install pinned Sandbox Runtime capabilities
         shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
         run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/bash shared/steps/install-sandbox-runtime.sh
