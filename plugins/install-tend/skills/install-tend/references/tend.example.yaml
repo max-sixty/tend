@@ -193,8 +193,8 @@ bot_name: my-project-bot
 # ## The agent's sandbox (both harnesses)
 #
 # `setup:` above runs as the RUNNER user, around the composite action. The
-# agent then runs as a separate, non-sudo user inside Anthropic Sandbox
-# Runtime, in the job's own checkout and home, with the job's PATH and
+# agent then runs as a separate, non-sudo user inside a hardened systemd
+# unit, in the job's own checkout and home, with the job's PATH and
 # environment. It sees them through a copy-on-write view: what `setup:`
 # prepared (a toolchain, a warm cache) is there at its own path, the agent
 # writes wherever the runner itself could — a path only root can write is not
@@ -223,6 +223,10 @@ bot_name: my-project-bot
 # worker nodes silently: a multi-project `dotnet build` prints
 # `Build FAILED.` with `0 Error(s)` and no diagnostic. `-m:1` keeps MSBuild
 # in one process and makes real errors visible again.
+#
+# The sandbox also refuses new namespaces (`unshare --user` fails), so a tool
+# that builds its own sandbox from one, such as bubblewrap, a rootless
+# container runtime, or Chromium's sandbox, cannot start inside it.
 #
 # Tend appends a pinned `uv` fallback after the agent's PATH. It installs no
 # other language toolchain, and puts nothing on PATH before `setup:` runs, so
