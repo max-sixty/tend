@@ -1787,8 +1787,10 @@ def test_fix_branch_protection_refuses_retiring_refs_before_any_write(
             "owner/repo", "main", "my-bot", "maintainer", ["release"]
         )
 
-    assert result.passed is False
-    assert "credential environments" in result.message
+    assert result.passed is (None if old_include is None else False)
+    assert (
+        "unverified" if old_include is None else "credential environments"
+    ) in result.message
     assert writes == []
 
 

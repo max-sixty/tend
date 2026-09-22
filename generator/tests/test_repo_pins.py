@@ -427,16 +427,18 @@ COMPOSITE_ACTIONS = (
 
 
 @pytest.mark.parametrize("action", COMPOSITE_ACTIONS)
-def test_credential_actions_do_not_restore_workflow_caches(action: str) -> None:
-    """Main-branch build code can publish caches consumed by privileged jobs."""
+def test_credential_actions_cache_only_in_maintainer_mode(action: str) -> None:
+    """Only maintainer mode trusts main-branch code that can publish caches."""
     data = YAML(typ="safe").load((REPO_ROOT / action).read_text())
     restores = [
-        step["uses"]
+        step
         for step in data["runs"]["steps"]
         if step.get("uses", "").split("@", 1)[0].casefold()
         in {"actions/cache", "actions/cache/restore"}
     ]
-    assert not restores, f"{action} restores untrusted workflow caches: {restores}"
+    if action != "codex/refresh/action.yaml":
+        assert restores, f"{action} must retain caching in maintainer mode"
+    assert all(step.get("if") == "inputs.merge == 'maintainer'" for step in restores)
 
 
 @pytest.mark.parametrize("action", COMPOSITE_ACTIONS)

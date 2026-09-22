@@ -2380,6 +2380,13 @@ def fix_branch_protection(
         if ruleset_name not in existing:
             continue
         body = _fetch_ruleset(repo, existing[ruleset_name])
+        if body is None:
+            return CheckResult(
+                name,
+                None,
+                f"Could not read '{ruleset_name}'; existing protected refs are "
+                "unverified. No rulesets changed.",
+            )
         try:
             conditions = body["conditions"]
             refs = conditions["ref_name"]

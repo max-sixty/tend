@@ -694,6 +694,7 @@ def test_yolo_check_requires_verified_results(
         )
     assert result.exit_code == 1, result.output
     assert "SKIP  control-plane-ruleset" in result.output
+    assert "Yolo security checks are incomplete" in result.output
 
 
 def test_yolo_init_dry_run_does_not_write_codeowners(
