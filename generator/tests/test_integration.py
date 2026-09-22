@@ -581,11 +581,12 @@ def _fake_gh_all_pass(*args: str, **kwargs: str) -> subprocess.CompletedProcess[
                 [
                     [
                         {
-                            "type": "update",
+                            "type": rule_type,
                             "ruleset_id": 1,
                             "ruleset_source_type": "Repository",
                             "ruleset_source": "owner/repo",
                         }
+                        for rule_type in ("creation", "update", "deletion")
                     ]
                 ]
             )
