@@ -30,11 +30,19 @@ current tracker and read the current and previous month's evidence:
 
 ```bash
 uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" prepare-evidence
+  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" prepare-evidence \
+  > "$TMPDIR/evidence.json"
+jq -r '.current_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-current.md"
+jq -r '.previous_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-previous.md"
+jq -r '"tracker #\(.tracking_number) \(.month)"' "$TMPDIR/evidence.json"
 ```
 
 The command creates this month's tracker when needed, closes older open
-trackers, persists the current issue id, and prints both evidence windows.
+trackers, persists the current issue id, and returns both evidence windows.
+Redirect it rather than reading it inline: an established tracker's two
+windows run to hundreds of kilobytes, past what a tool result carries. The
+files are also how you count a finding's prior occurrences — grep both for a
+distinctive phrase, then read the `## Run` entry around each hit.
 
 After analysis, write the new findings in the format from `@review-gates.md`
 to `$TMPDIR/findings.md`. Include a literal `## Run $GITHUB_RUN_ID` heading.
