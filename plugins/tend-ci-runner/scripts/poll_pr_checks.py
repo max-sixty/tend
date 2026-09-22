@@ -30,6 +30,22 @@ RED_CONCLUSIONS = {
 # conclusion GitHub adds later — so it is neither red nor green. Naming green
 # rather than the no-result set keeps the unrecognized case fail-closed.
 GREEN_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+#: Seconds between rollup reads, and between a clean read and the one that
+#: confirms it.
+POLL_SEC = 60
+CONFIRM_SEC = 30
+#: What :func:`_settle` may spend on its poll reads. A budget rather than a pass
+#: count is what bounds the loop: a check that registers between a clean read
+#: and its confirmation sends the pass back to the top, so charging every pass
+#: its own confirmation lets the total grow with the flapping rather than with
+#: the number of reads.
+POLL_BUDGET_SEC = 9 * POLL_SEC
+#: The longest the whole settle can sleep — the poll budget plus the one
+#: confirmation a pass starting at the end of it can still pay for. The skills
+#: run this poll in the foreground under the harness's 10-minute command cap and
+#: document it as taking up to ~9.5 minutes, so this is the figure that has to
+#: stay inside both: a poll killed at the cap returns no verdict at all.
+MAX_SLEEP_SEC = POLL_BUDGET_SEC + CONFIRM_SEC
 GRAPHQL_QUERY = """
 query($owner: String!, $name: String!, $oid: GitObjectID!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -224,22 +240,27 @@ def head_note(*, pr: str, repo: str, sha: str) -> None:
 def _settle(
     *, repo: str, sha: str, sleep: Callable[[float], None]
 ) -> tuple[bool, dict[str, list[str]] | None]:
-    """Poll until nothing pends on two reads 30s apart, or the cap expires.
+    """Poll until nothing pends on two reads 30s apart, or the budget expires.
 
     Returns whether the rollup settled, and the last complete rollup read.
+    Both sleeps draw on :data:`POLL_BUDGET_SEC`, so the total stays within
+    :data:`MAX_SLEEP_SEC` however often the rollup goes pending again.
     """
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     workflow = os.environ.get("GITHUB_WORKFLOW", "")
     last: dict[str, list[str]] | None = None
-    for _ in range(9):
-        sleep(60)
+    budget = POLL_BUDGET_SEC
+    while budget >= POLL_SEC:
+        sleep(POLL_SEC)
+        budget -= POLL_SEC
         current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
         if current is None:
             continue
         last = current
         if current["pending"]:
             continue
-        sleep(30)
+        sleep(CONFIRM_SEC)
+        budget -= CONFIRM_SEC
         current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
         if current is None:
             continue
