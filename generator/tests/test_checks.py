@@ -1197,9 +1197,9 @@ def test_secrets_reads_every_page_of_the_environment() -> None:
     with patch("tend.checks._gh", side_effect=fake):
         result = check_secrets("owner/repo", [BOT_TOKEN_SECRET, CLAUDE_TOKEN_SECRET])
     assert result.passed is True, result.message
-    assert any(
-        "--paginate" in c for c in calls
-    ), "the listing must be paginated, or page 2 is invisible whatever the parse does"
+    assert any("--paginate" in c for c in calls), (
+        "the listing must be paginated, or page 2 is invisible whatever the parse does"
+    )
 
 
 def test_org_secrets_read_every_page() -> None:

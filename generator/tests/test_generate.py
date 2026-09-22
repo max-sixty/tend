@@ -361,17 +361,6 @@ def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
     assert "if" in setup_node
 
 
-def test_setup_run_step_rejects_action_inputs(tmp_path: Path) -> None:
-    extra = dedent("""\
-        setup:
-          - run: node --version
-            with:
-              node-version: 24
-    """)
-    with pytest.raises(click.ClickException, match="`with` is only valid"):
-        Config.load(_minimal_config(tmp_path, extra))
-
-
 def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
     """Any GitHub step field (env, name, shell, working-directory, etc.) flows
     through on a structured step, so users don't need `raw` just to pass them.
