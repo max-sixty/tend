@@ -341,8 +341,18 @@ def check_branch_protection(repo: str, branch: str, bot_name: str) -> CheckResul
             "See docs/security-model.md.",
         )
 
-    ruleset = _has_restrict_updates_ruleset(repo, branch, bot_name)
+    ruleset = _has_branch_operation_ruleset(repo, branch, bot_name, "update")
     if ruleset is True:
+        for rule_type in ("creation", "deletion"):
+            lifecycle = _has_branch_operation_ruleset(repo, branch, bot_name, rule_type)
+            if lifecycle is not True:
+                return CheckResult(
+                    name,
+                    lifecycle,
+                    f"Branch '{branch}' has no verified non-bypassable {rule_type} "
+                    "rule. Protect creation, update, and deletion before admitting "
+                    "the branch to credential environments.",
+                )
         return CheckResult(
             name,
             True,
@@ -530,11 +540,13 @@ def _tags_admin_gated(repo: str, bot_name: str) -> bool | None:
     return None if unresolved else False
 
 
-def _has_restrict_updates_ruleset(repo: str, branch: str, bot_name: str) -> bool | None:
-    """Check if an active ruleset stops the bot updating the branch.
+def _has_branch_operation_ruleset(
+    repo: str, branch: str, bot_name: str, rule_type: str
+) -> bool | None:
+    """Check if an active ruleset stops the bot performing a branch operation.
 
-    An `update` rule alone isn't enough — a bypass actor at write or below
-    defeats it, and write is exactly what the bot holds. So each update rule is
+    A restriction alone isn't enough — a bypass actor at write or below
+    defeats it, and write is exactly what the bot holds. So each matching rule is
     followed back to its ruleset and its bypass list checked.
 
     Returns True if found, False if confirmed absent or bypassable, None if
@@ -555,20 +567,20 @@ def _has_restrict_updates_ruleset(repo: str, branch: str, bot_name: str) -> bool
     if not isinstance(pages, list) or not all(isinstance(p, list) for p in pages):
         return None
 
-    update_rules = [
+    matching_rules = [
         r
         for page in pages
         for r in page
-        if isinstance(r, dict) and r.get("type") == "update"
+        if isinstance(r, dict) and r.get("type") == rule_type
     ]
-    if not update_rules:
+    if not matching_rules:
         return False
 
-    # Several rulesets can contribute an update rule; one the bot can't bypass
+    # Several rulesets can contribute this rule; one the bot can't bypass
     # is enough to protect the branch. A rule we can't trace back to its
     # ruleset is unverified, not absent.
     unresolved = False
-    for rule in update_rules:
+    for rule in matching_rules:
         ruleset_id = rule.get("ruleset_id")
         verdict = (
             _ruleset_blocks_bot(repo, ruleset_id, bot_name)
@@ -823,7 +835,7 @@ def check_environment_deployments(repo: str) -> CheckResult:
         f"{path} job '{job_id}'"
         for path, text in sorted(files.items())
         if text is not None
-        for job_id in sorted(_parse_workflow(path, text, repo).filed_deployments)
+        for job_id in sorted(_parse_workflow(path, text).filed_deployments)
     ]
     if offenders:
         return CheckResult(
@@ -931,27 +943,20 @@ def _permissions_grant_oidc(permissions: object) -> bool:
     return False
 
 
-def _called_workflow(uses: str, repo: str) -> str | None:
-    """The workflow file in this repo that a job-level `uses:` names, or None.
+def _called_workflow(uses: str) -> str | None:
+    """The same-commit local workflow that a job-level ``uses:`` names.
 
-    Two spellings reach the same file: the relative form, and the
-    `owner/repo/.github/workflows/x.yaml@ref` form a repo may use on its own
-    workflow to pin the ref it runs. A call that leaves the repo returns None,
-    not because it deploys elsewhere — the callee's jobs deploy to *this*
-    repo's environments (see `_effective_triggers`) — but because its file
-    cannot be read from here, which `_credential_surface` reports as unread
-    rather than passes over.
+    Only ``./.github/workflows/...`` is inspectable from the fetched tree. An
+    ``owner/repo/...@ref`` call is unresolved even within this repository:
+    the ref may name historical workflow code with different environment use.
     """
     relative = "./.github/workflows/"
     if uses.startswith(relative):
         return uses[len(relative) :]
-    absolute = f"{repo}/.github/workflows/"
-    if repo and uses.casefold().startswith(absolute.casefold()):
-        return uses[len(absolute) :].partition("@")[0]
     return None
 
 
-def _parse_workflow(path: str, text: str, repo: str) -> _WorkflowFacts:
+def _parse_workflow(path: str, text: str) -> _WorkflowFacts:
     """Read one workflow's triggers, environments, and OIDC use.
 
     Anything the parse cannot decide (an unparsable file, an environment named
@@ -1008,7 +1013,7 @@ def _parse_workflow(path: str, text: str, repo: str) -> _WorkflowFacts:
             # which is what `external_calls` records. Its `permissions:` only
             # cap what the callee may request, so a callee mints OIDC on this
             # repo's behalf exactly when the calling job grants it.
-            called = _called_workflow(uses, repo) if isinstance(uses, str) else None
+            called = _called_workflow(uses) if isinstance(uses, str) else None
             if called is not None:
                 calls.add(called)
             else:
@@ -1032,6 +1037,10 @@ def _parse_workflow(path: str, text: str, repo: str) -> _WorkflowFacts:
                 f"{path} job '{job_id}' names its environment dynamically"
             )
             continue
+        # GitHub environment names are case-insensitive. Keep one canonical
+        # representation everywhere facts are compared; retain the API's
+        # spelling only where it is needed to address or display the object.
+        environment = environment.casefold()
         environments.add(environment)
         # The operational-secret environment is a secret scope, so a job naming
         # it deploys nothing and the record GitHub would file for it is pure
@@ -1124,9 +1133,7 @@ class _CredentialSurface:
     unresolved: tuple[str, ...]
 
 
-def _credential_surface(
-    repo: str, files: dict[str, str | None] | None
-) -> _CredentialSurface:
+def _credential_surface(files: dict[str, str | None] | None) -> _CredentialSurface:
     """Read the workflows into the facts the environment gates need.
 
     An unreadable tree yields an empty surface that says so, rather than no
@@ -1147,7 +1154,7 @@ def _credential_surface(
         if text is None:
             unresolved.append(f"{path} could not be read")
             continue
-        facts[path] = _parse_workflow(path, text, repo)
+        facts[path] = _parse_workflow(path, text)
 
     resolved, unreached = _effective_triggers(facts)
     env_steerable: dict[str, set[str]] = {}
@@ -1176,11 +1183,12 @@ def _credential_surface(
             triggers = ", ".join(f"`{t}`" for t in sorted(resolved[path]))
             jobs = ", ".join(f"'{j}'" for j in sorted(f.external_calls))
             unresolved.append(
-                f"{path} runs on {triggers} and calls another repo's workflow "
-                f"({jobs}), whose jobs deploy to this repo's environments"
+                f"{path} runs on {triggers} and calls a ref-qualified or "
+                f"external workflow ({jobs}), whose environment use is not "
+                "visible from this tree"
             )
         unresolved.extend(
-            f"{path} job '{job}' grants `id-token: write` to another repo's "
+            f"{path} job '{job}' grants `id-token: write` to a ref-qualified or external "
             "workflow, so whether the token is minted inside an environment is "
             "not visible here"
             for job in sorted(f.external_oidc)
@@ -1363,7 +1371,7 @@ def check_credential_environments(
             name, None, f"Could not list environments: {listed.stderr.strip()}"
         )
 
-    surface = _credential_surface(repo, _fetch_workflow_files(repo))
+    surface = _credential_surface(_fetch_workflow_files(repo))
     tags_ok = cache(lambda: _tags_admin_gated(repo, cfg.bot_name))
 
     ungated: list[str] = []
@@ -1379,6 +1387,7 @@ def check_credential_environments(
     for env_name in listed.stdout.splitlines():
         if not env_name:
             continue
+        normalized_env = env_name.casefold()
         secrets = _gh(
             "api",
             "--paginate",
@@ -1392,10 +1401,13 @@ def check_credential_environments(
                 None,
                 f"Could not list secrets in '{env_name}' (requires admin access)",
             )
-        if not secrets.stdout.split() and env_name not in surface.oidc_environments:
+        if (
+            not secrets.stdout.split()
+            and normalized_env not in surface.oidc_environments
+        ):
             continue
         holders.append(env_name)
-        if env_name == TEND_ENVIRONMENT:
+        if normalized_env == TEND_ENVIRONMENT.casefold():
             continue  # Gated by its branch policy; `environment` verifies that.
         detail = _gh("api", f"repos/{repo}/environments/{_env_path(env_name)}")
         if detail is None or detail.returncode != 0:
@@ -1413,7 +1425,7 @@ def check_credential_environments(
             env,
             admitted,
             tags_ok,
-            surface.env_steerable.get(env_name, frozenset()),
+            surface.env_steerable.get(normalized_env, frozenset()),
         )
         if gap is None:
             continue
@@ -1681,7 +1693,11 @@ def _restrict_updates_ruleset(extra_branches: list[str]) -> str:
                     "exclude": [],
                 }
             },
-            "rules": [{"type": "update"}],
+            "rules": [
+                {"type": "creation"},
+                {"type": "update"},
+                {"type": "deletion"},
+            ],
             "bypass_actors": [
                 {
                     "actor_id": ROLE_ID_ADMIN,
@@ -1724,10 +1740,10 @@ def admitted_refs(results: list[CheckResult]) -> list[str]:
     Every admitted ref must be one the bot cannot write, so the admitted set is
     exactly the branches whose protection check *passed* — not the branches the
     config names. A configured branch that does not exist yet answers 404, which
-    the protection check reports as unverified; admitting it would name a ref the
-    bot can then create, and the merge restriction gates `update`, not
-    `creation`, so nothing would stop it carrying a workflow that reads the
-    secrets. Deriving both the check and the fix from one list also keeps them
+    the protection check reports as unverified. A missing branch or inconclusive
+    API read must not silently enter a secret-bearing policy, even though the
+    canonical ruleset also blocks future branch creation. Deriving the check
+    and fix from one list also keeps them
     from disagreeing about what the policy should say.
     """
     prefix = "branch-protection:"
@@ -1842,15 +1858,15 @@ def fix_immutable_releases(repo: str) -> CheckResult:
 
 
 def _put_ruleset(
-    repo: str, body: str
-) -> tuple[subprocess.CompletedProcess[str] | None, str]:
+    repo: str, body: str, *, preserved_refs: frozenset[str] = frozenset()
+) -> tuple[bool | None, str]:
     """Create the repo ruleset *body* names, or replace the one already there.
 
     GitHub refuses a second ruleset under a name the repo already uses, and a
     failing check can mean exactly that one exists but is disabled, in
-    evaluate mode, or edited to let the bot bypass it. Replacing it drops any
-    rule or branch a maintainer added to it, so the returned verb says which
-    happened: "Created" or "Replaced".
+    evaluate mode, or edited to let the bot bypass it. Branch targets must be
+    preserved because credentials may still be admitted on them. Return the
+    verdict plus the success verb ("Created" or "Replaced") or an error.
     """
     name = json.loads(body)["name"]
     listed = _gh(
@@ -1862,25 +1878,56 @@ def _put_ruleset(
         " | .id",
     )
     if listed is None or listed.returncode != 0:
-        return listed, ""
+        detail = listed.stderr.strip() if listed else "gh CLI not found"
+        return None, f"Could not list repository rulesets: {detail}"
     existing = listed.stdout.split()
     if existing:
+        intended = json.loads(body)
+        if intended["target"] == "branch":
+            current = _fetch_ruleset(repo, existing[0])
+            if current is None:
+                return None, "Could not read the existing branch ruleset from GitHub"
+            try:
+                conditions = current["conditions"]
+                refs = conditions["ref_name"]
+                preserves_targets = (
+                    current["target"] == "branch"
+                    and set(conditions) == {"ref_name"}
+                    and set(refs) == {"include", "exclude"}
+                    and isinstance(refs["include"], list)
+                    and refs["exclude"] == []
+                    and set(refs["include"])
+                    <= set(intended["conditions"]["ref_name"]["include"])
+                    | preserved_refs
+                )
+            except (KeyError, TypeError):
+                preserves_targets = False
+            if not preserves_targets:
+                return False, (
+                    "Cannot safely retire or change existing protected refs. "
+                    "First remove or independently gate their access to credential "
+                    "environments (including tend), then manually retire the old "
+                    "ruleset targets. No rulesets changed."
+                )
         path, method, verb = f"repos/{repo}/rulesets/{existing[0]}", "PUT", "Replaced"
     else:
         path, method, verb = f"repos/{repo}/rulesets", "POST", "Created"
-    return _gh("api", path, "--method", method, "--input", "-", input=body), verb
+    result = _gh("api", path, "--method", method, "--input", "-", input=body)
+    if result is None:
+        return None, "gh CLI not found"
+    if result.returncode != 0:
+        return False, result.stderr.strip()
+    return True, verb
 
 
 def fix_tag_protection(repo: str) -> CheckResult:
     """Set the canonical admin-gated all-tags ruleset."""
     result, verb = _put_ruleset(repo, _tag_operations_ruleset())
-    if result is None:
-        return CheckResult("tag-protection", None, "gh CLI not found")
-    if result.returncode != 0:
+    if result is not True:
         return CheckResult(
             "tag-protection",
-            False,
-            f"Failed to set tag ruleset: {result.stderr.strip()}",
+            result,
+            f"Failed to set tag ruleset: {verb}",
         )
     return CheckResult(
         "tag-protection",
@@ -1900,15 +1947,17 @@ def fix_branch_protection(
     in the same ruleset. Only admins can bypass.
     """
     extra = [b for b in (extra_branches or []) if b != default_branch]
-    result, verb = _put_ruleset(repo, _restrict_updates_ruleset(extra))
+    result, verb = _put_ruleset(
+        repo,
+        _restrict_updates_ruleset(extra),
+        preserved_refs=frozenset({f"refs/heads/{default_branch}"}),
+    )
     name = f"branch-protection:{default_branch}"
-    if result is None:
-        return CheckResult(name, None, "gh CLI not found")
-    if result.returncode != 0:
+    if result is not True:
         return CheckResult(
             name,
-            False,
-            f"Failed to set ruleset: {result.stderr.strip()}",
+            result,
+            f"Failed to set ruleset: {verb}",
         )
     branches = [default_branch] + extra
     return CheckResult(

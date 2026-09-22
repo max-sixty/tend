@@ -463,6 +463,10 @@ class Config:
                 raise click.ClickException(
                     f"setup[{i}] must have exactly one of `uses` or `run`"
                 )
+            if "with" in entry and "run" in entry:
+                raise click.ClickException(
+                    f"setup[{i}]: `with` is only valid for action steps"
+                )
             for k in DICT_STEP_FIELDS:
                 if k in entry and not isinstance(entry[k], dict):
                     raise click.ClickException(f"setup[{i}]: `{k}` must be a mapping")

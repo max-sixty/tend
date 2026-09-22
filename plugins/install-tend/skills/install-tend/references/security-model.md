@@ -21,9 +21,10 @@ someone else opened.
 
 The two admin-gated operations are:
 
-- **Merging to the default branch.** A ruleset with the `update` rule on
-  the default branch, admin-only bypass. Blocks the bot from landing code
-  on the default branch.
+- **Changing protected branches.** A ruleset with `creation`, `update`, and
+  `deletion` rules on the default branch and any `protected_branches`, with
+  admin-only bypass. Blocks the bot from landing code or deleting and
+  recreating a branch admitted to credential environments.
 - **Operating on a tag.** A ruleset with the `creation` and `update`
   rules covering all tags (`~ALL` on a `tag`-target ruleset), admin-only
   bypass. Blocks the bot from pushing a new tag and from force-pushing
