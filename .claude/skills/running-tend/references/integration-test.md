@@ -97,7 +97,7 @@ if [ -z "$RULESET_ID" ]; then
   "target": "branch",
   "enforcement": "active",
   "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
-  "rules": [{ "type": "update" }],
+  "rules": [{ "type": "creation" }, { "type": "update" }, { "type": "deletion" }],
   "bypass_actors": []
 }
 EOF
