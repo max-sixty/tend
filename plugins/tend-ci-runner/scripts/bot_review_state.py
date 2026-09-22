@@ -125,6 +125,7 @@ def review_state(
                 "sha": last_substantive["commit_id"],
                 "state": last_substantive["state"],
                 "at": last_substantive.get("submitted_at"),
+                "draft_mode": is_draft_review(last_substantive),
             }
             if last_substantive
             else None

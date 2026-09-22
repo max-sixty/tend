@@ -29,12 +29,12 @@ jobs:
       actions: read
       issues: write
     steps:
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: astral-sh/setup-uv@v10.2.0
         id: tend_uv
         env:
           UV_NO_MODIFY_PATH: "1"
         with:
-          version: "0.12.13"
+          version: "0.12.17"
           enable-cache: false
           ignore-empty-workdir: true
       - name: Check for unread notifications and conflicted PRs
@@ -248,6 +248,8 @@ jobs:
         if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
+          merge: maintainer
+          control_plane_owner: ""
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
           bot_name: test-bot

@@ -121,7 +121,7 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
         {"OPENAI_API_KEY", "CODEX_AUTH_JSON", "GH_TOKEN", "GITHUB_TOKEN"}
         & run_env.keys()
     )
-    assert steps["Run Codex"]["run"].endswith('launch_sandbox_runtime.py"')
+    assert steps["Run Codex"]["run"].endswith('launch_agent.py"')
     assert "CODEX_SANDBOX_MODE" not in run_env
     assert run_env["AUTH_MODE"] == "${{ steps.codex_auth.outputs.mode }}"
     assert steps["Token usage"]["env"]["SANDBOX_REAPED"] == (
@@ -151,7 +151,7 @@ def test_codex_action_drives_its_stateful_phases_through_the_runner() -> None:
 
     assert {"install-plugin", "stage-agents"} <= invoked
 
-    # launch_sandbox_runtime.py gates the passthrough on this being set, and
+    # launch_agent.py gates the passthrough on this being set, and
     # agent_lifecycle.py then indexes it — unset, the codex turn raises KeyError.
     run_codex = next(step for step in steps if step["name"] == "Run Codex")
     assert run_codex["env"]["TEND_CODEX_RUNNER"].endswith("/runner.py")
@@ -176,87 +176,6 @@ def test_codex_marketplace_declares_the_plugins_the_runner_installs() -> None:
     assert not missing, f"marketplace points at no directory for: {missing}"
 
 
-def test_sandbox_runtime_pin_is_identical_in_actions_and_hosted_probe() -> None:
-    yaml = YAML(typ="safe", pure=True)
-    versions = {
-        yaml.load((REPO_ROOT / harness / "action.yaml").read_text())["inputs"][
-            "sandbox_runtime_version"
-        ]["default"]
-        for harness in ("claude", "codex")
-    }
-    workflow = yaml.load((REPO_ROOT / ".github/workflows/ci.yaml").read_text())
-    sandbox_steps = workflow["jobs"]["test-sandbox"]["steps"]
-    install = next(
-        step
-        for step in sandbox_steps
-        if step.get("name") == "Install pinned Sandbox Runtime capabilities"
-    )
-    versions.add(install["env"]["SRT_VERSION"])
-
-    assert len(versions) == 1, f"Sandbox Runtime pins diverged: {versions}"
-
-
-def test_sandbox_capabilities_resolve_from_one_recorded_instant() -> None:
-    """The sandbox boundary is assembled from code no commit here owns.
-
-    bubblewrap, socat and ripgrep come from the Ubuntu archive, and SRT's own
-    `zod`, `commander`, `node-forge` and `@pondwader/socks5-server` ranges come
-    from npm, so an unpinned install rebuilds the boundary out of whatever
-    upstream published that morning. That is how a bubblewrap security update
-    took every consumer's sessions down on 2026-09-17 with nothing red here.
-    Both installs resolve as of `PACKAGES_RESOLVED_AT`; this is the lint that
-    stops a later edit dropping back to the live sources.
-    """
-    script = (REPO_ROOT / "shared/steps/install-sandbox-runtime.sh").read_text()
-
-    instants = re.findall(r"^PACKAGES_RESOLVED_AT=(\S+)$", script, re.MULTILINE)
-    assert len(instants) == 1, instants
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", instants[0]), instants[
-        0
-    ]
-
-    # npm resolves SRT's whole tree as of that instant, and apt reads the
-    # Ubuntu archive snapshot taken at the same one.
-    assert '--before "$PACKAGES_RESOLVED_AT"' in script
-    assert "${PACKAGES_RESOLVED_AT//[:-]/}" in script
-
-    installs = re.findall(r"^.*apt-get\b.*\binstall\b.*$", script, re.MULTILINE)
-    assert len(installs) == 1, installs
-    assert '"${apt_options[@]}"' in installs[0], installs[0]
-    assert installs[0].endswith('"${stale[@]}"'), installs[0]
-
-    # `stale` holds one package=version pair per capability, so nothing reaches
-    # apt by bare name.
-    assert re.findall(r'^\s*"(\w+)=\$[A-Z_]+_VERSION" ?\\?$', script, re.MULTILINE) == [
-        "bubblewrap",
-        "socat",
-        "ripgrep",
-    ]
-
-
-def test_no_other_apt_install_escapes_the_pin() -> None:
-    """One `apt-get install` in the repo, and the test above owns it."""
-    tracked = subprocess.run(
-        ["git", "ls-files", "-z", "--", "*.sh", "*.yaml", "*.py", "*.mjs"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split("\0")
-    offenders = sorted(
-        name
-        for name in tracked
-        if name
-        and not name.startswith("generator/tests/")
-        # `git ls-files` reports the index; a Tend PR session restores
-        # `.claude/**` from the base branch, so a tracked path can be absent.
-        and (REPO_ROOT / name).is_file()
-        and re.search(r"apt-get\b.*\binstall\b", (REPO_ROOT / name).read_text())
-    )
-
-    assert offenders == ["shared/steps/install-sandbox-runtime.sh"]
-
-
 @pytest.mark.parametrize("harness", ["claude", "codex"])
 def test_sandbox_resources_are_removed_immediately_after_agent_reap(
     harness: str,
@@ -279,56 +198,17 @@ def test_sandbox_resources_are_removed_immediately_after_agent_reap(
     assert cleanup["name"] == "Dispose sandbox resources"
     assert cleanup["if"] == "always()"
     assert cleanup["run"].endswith('/dispose_sandbox_resources.py"')
-    restore = steps[cleanup_at + 1]
-    assert restore["name"] == "Restore Sandbox Runtime host policy"
-    assert restore["if"] == "always()"
-    assert restore["run"].endswith('/restore-sandbox-runtime-host.sh"')
 
 
-@pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_srt_install_receives_trusted_runner_environment(harness: str) -> None:
-    action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / harness / "action.yaml").read_text()
-    )
-    install = next(
-        step
-        for step in action["runs"]["steps"]
-        if step["name"] == "Install Anthropic Sandbox Runtime"
-    )
-
-    assert install["env"]["TEND_RUNNER_ENVIRONMENT"] == "${{ runner.environment }}"
-
-
-def test_srt_host_policy_records_rollback_before_the_host_change() -> None:
-    install = (REPO_ROOT / "shared/steps/install-sandbox-runtime.sh").read_text()
-    marker = install.index('echo "TEND_RESTORE_APPARMOR_USERNS=true"')
-    change = install.index("kernel.apparmor_restrict_unprivileged_userns=0")
-
-    assert marker < change
-    assert 'TEND_RUNNER_ENVIRONMENT:-}" = github-hosted' in install
-    assert "Leaving self-hosted AppArmor policy unchanged" in install
-
-
-def test_hosted_srt_probe_launches_only_from_the_action_copy() -> None:
+def test_hosted_probe_launches_only_from_the_action_copy() -> None:
     script = (REPO_ROOT / "proxy" / "test-setup-sandbox.sh").read_text()
-    invocation = (
-        '"$TEND_TEST_ACTION_PATH/shared/steps/launch_sandbox_runtime.py" || rc=$?'
-    )
+    invocation = '"$TEND_TEST_ACTION_PATH/shared/steps/launch_agent.py" || rc=$?'
 
     assert script.count(invocation) == 2
-    assert "-s shared/steps/launch_sandbox_runtime.py" not in script
+    assert "-s shared/steps/launch_agent.py" not in script
 
 
 def test_npm_installs_use_distinct_empty_config_files() -> None:
-    install = (
-        REPO_ROOT / "shared" / "steps" / "install-sandbox-runtime.sh"
-    ).read_text()
-    assert 'mktemp "$RUNNER_TEMP/tend-npm-user.XXXXXX"' in install
-    assert 'mktemp "$RUNNER_TEMP/tend-npm-global.XXXXXX"' in install
-    assert (
-        '--userconfig "$npm_userconfig" --globalconfig "$npm_globalconfig"' in install
-    )
-
     action = YAML(typ="safe", pure=True).load(
         (REPO_ROOT / "codex" / "action.yaml").read_text()
     )
@@ -337,8 +217,10 @@ def test_npm_installs_use_distinct_empty_config_files() -> None:
         for step in action["runs"]["steps"]
         if step.get("name") == "Install Codex and Responses proxy"
     )
-    assert '--userconfig "$TEND_NPM_USERCONFIG"' in codex_install
-    assert '--globalconfig "$TEND_NPM_GLOBALCONFIG"' in codex_install
+    assert 'mktemp "$TEND_PRIVATE_DIR/tend-npm-user.XXXXXX"' in codex_install
+    assert 'mktemp "$TEND_PRIVATE_DIR/tend-npm-global.XXXXXX"' in codex_install
+    assert '--userconfig "$npm_userconfig"' in codex_install
+    assert '--globalconfig "$npm_globalconfig"' in codex_install
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
@@ -401,6 +283,23 @@ def test_experimental_memory_gist_sync_cannot_replace_the_agent_verdict() -> Non
     save = steps["Save experimental memory Gist"]["run"]
     assert 'gist_memory.py" \\\n  restore;' in restore
     assert 'gist_memory.py" \\\n  save;' in save
+
+
+def test_memory_gist_save_reads_nothing_the_dispose_step_deleted() -> None:
+    """The save's inputs are made outside the home and the runtime container.
+
+    The dispose step deletes the runtime container, private directory and all,
+    right after the agent is reaped and before the save runs. The view shows the
+    agent the runner's home as its own, so `RUNNER_TEMP` would hand it the key.
+    """
+    action = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / "claude" / "action.yaml").read_text()
+    )
+    steps = {step["name"]: step for step in action["runs"]["steps"]}
+    restore = steps["Restore experimental memory Gist"]["run"]
+
+    assert "memory_dir=$(/usr/bin/mktemp -d /var/tmp/tend-auto-memory." in restore
+    assert "key_file=$(/usr/bin/mktemp /var/tmp/tend-auto-memory-key." in restore
 
 
 def test_uv_build_range_admits_the_pinned_uv() -> None:
@@ -482,8 +381,7 @@ def test_privileged_sandbox_launch_forwards_every_configured_value(
 ) -> None:
     """`env:` and the `env -i` argv are two lists that have to agree.
 
-    A value reaches `setup_sandbox.py` only when both name it, and the script
-    refuses to start without the bot identity. Nothing else catches a value
+    A value reaches `setup_sandbox.py` only when both name it. Nothing else catches a value
     added to one list alone: neither action.yaml is linted or run here, and the
     hosted sandbox test supplies the script's environment itself — so the
     mismatch would first run in a consumer's job after a release.
@@ -498,7 +396,6 @@ def test_privileged_sandbox_launch_forwards_every_configured_value(
     )
     forwarded = set(re.findall(r'(\w+)="\$\1"', step["run"]))
 
-    assert {"TEND_BOT_LOGIN", "TEND_BOT_ID"} <= set(step["env"])
     assert set(step["env"]) - SHELL_HARDENING <= forwarded
 
 
@@ -527,6 +424,21 @@ COMPOSITE_ACTIONS = (
     "codex/action.yaml",
     "codex/refresh/action.yaml",
 )
+
+
+@pytest.mark.parametrize("action", COMPOSITE_ACTIONS)
+def test_credential_actions_cache_only_in_maintainer_mode(action: str) -> None:
+    """Only maintainer mode trusts main-branch code that can publish caches."""
+    data = YAML(typ="safe").load((REPO_ROOT / action).read_text())
+    restores = [
+        step
+        for step in data["runs"]["steps"]
+        if step.get("uses", "").split("@", 1)[0].casefold()
+        in {"actions/cache", "actions/cache/restore"}
+    ]
+    if action != "codex/refresh/action.yaml":
+        assert restores, f"{action} must retain caching in maintainer mode"
+    assert all(step.get("if") == "inputs.merge == 'maintainer'" for step in restores)
 
 
 @pytest.mark.parametrize("action", COMPOSITE_ACTIONS)
@@ -718,7 +630,7 @@ def test_codex_action_passes_selected_auth_mode_to_runner() -> None:
     run = next(step for step in doc["runs"]["steps"] if step.get("name") == "Run Codex")
 
     assert run["env"]["AUTH_MODE"] == "${{ steps.codex_auth.outputs.mode }}"
-    assert run["run"].endswith('/launch_sandbox_runtime.py"')
+    assert run["run"].endswith('/launch_agent.py"')
 
 
 def test_codex_refresher_keeps_the_secret_writer_pat_out_of_the_model_step() -> None:
@@ -734,29 +646,6 @@ def test_codex_refresher_keeps_the_secret_writer_pat_out_of_the_model_step() -> 
     assert publish["if"].startswith("always()")
     assert publish["env"]["GH_TOKEN"] == "${{ inputs.refresh_pat }}"
     assert publish["env"]["CODEX_OUTCOME"] == "${{ steps.codex.outcome }}"
-
-
-def test_bundled_runner_instructions_have_no_unscoped_tmp_paths() -> None:
-    """`/tmp` is not writable in the sandbox; `$TMPDIR` is.
-
-    A bare `/tmp` anywhere the runner reads — instructions, script, helper — sends
-    the session to a path that fails on write, so the ban is repo-wide rather
-    than a rule any one file states. A line that says `/tmp` is read-only is
-    that rule, not an instance of the failure, so it is exempt.
-    """
-    runner = REPO_ROOT / "plugins" / "tend-ci-runner"
-    unscoped_tmp = re.compile(r"(?<![\w-])/tmp(?:/|\b)")
-    offenders = sorted(
-        {
-            path.relative_to(REPO_ROOT)
-            for path in runner.rglob("*")
-            if path.suffix in {".md", ".py", ".sh"}
-            for line in path.read_text().splitlines()
-            if unscoped_tmp.search(line) and "read-only" not in line
-        }
-    )
-
-    assert offenders == []
 
 
 def test_bundled_runner_instructions_never_return_with_cd_dash() -> None:
@@ -1054,7 +943,9 @@ def test_shipped_prompt_skill_tokens_resolve_to_a_bundled_skill() -> None:
                 f"a skill at {skill.relative_to(REPO_ROOT)}"
             )
         for harness in prompt.SKILL_PREFIX:
-            rendered = prompt.render(text, bot_name="bot", harness=harness)
+            rendered = prompt.render(
+                text, bot_name="bot", merge="maintainer", harness=harness
+            )
             assert "${SKILL" not in rendered, (
                 f"{path.relative_to(REPO_ROOT)} has a malformed skill token; "
                 "it must read ${SKILL:<lowercase-skill-name>}"
@@ -1079,3 +970,36 @@ def test_report_failure_is_told_the_running_version(harness: str) -> None:
 
     assert env["TEND_ACTION_REF"] == "${{ github.action_ref }}"
     assert env["TEND_ACTION_REPOSITORY"] == "${{ github.action_repository }}"
+
+
+def test_run_tend_names_every_pinned_instruction_path() -> None:
+    """`run-tend`'s restore list covers every path the restore actually pins.
+
+    The dangerous direction is a pinned path the skill omits: the session reads
+    the worktree as the PR's own version, and the "never stage one of these"
+    rule doesn't reach it, so a `git add` commits the base content back over
+    the PR's edit. Nothing else pairs the two — the restore is shell, the rule
+    is prose.
+    """
+    script = (REPO_ROOT / "shared/steps/lib/pin-instruction-paths.sh").read_text()
+    declaration = re.search(r"^INSTRUCTION_PATHSPECS=\((.*)\)$", script, re.MULTILINE)
+    assert declaration, "INSTRUCTION_PATHSPECS is no longer one array literal"
+    pinned = {
+        spec.strip("'").removeprefix(":(glob)**/").removesuffix("/**")
+        for spec in declaration.group(1).split()
+    }
+
+    skill = (REPO_ROOT / "plugins/tend-ci-runner/skills/run-tend/SKILL.md").read_text()
+    heading = "## Instruction paths read as the base version on a PR"
+    assert heading in skill, f"{heading!r} was renamed — repoint this test"
+    section = skill.split(heading, 1)[1].split("\n## ", 1)[0]
+
+    missing = sorted(
+        name
+        for name in pinned
+        if f"`{name}`" not in section and f"`{name}/`" not in section
+    )
+    assert not missing, (
+        "pinned by restore-sensitive-config.sh but absent from the skill's "
+        f"list, so a session stages the base version over the PR's: {missing}"
+    )

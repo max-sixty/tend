@@ -25,7 +25,14 @@ WINDOW_CAP = timedelta(hours=49)
 DEFAULT_WINDOW = timedelta(hours=25)
 AD_HOC_WINDOW = timedelta(hours=1)
 CREATION_CUSHION = timedelta(hours=24)
-RUN_LIMIT = 200
+# The ceiling on a `--created`-filtered run listing — the filtered query stops
+# at 1000 however many runs `total_count` reports, while an unfiltered listing
+# pages past it. `token_report.py` fetches to the same limit, for the same
+# reason. The fetch spans the window plus the creation cushion — three
+# days at the cap — so a repo running one workflow every few minutes puts
+# several hundred runs inside it. Any limit below the ceiling binds there
+# first, and truncation drops the window's *oldest* runs.
+RUN_LIMIT = 1000
 # `gh workflow list` fetches 50 without one, and says nothing when it truncates.
 WORKFLOW_LIMIT = 200
 
@@ -133,21 +140,34 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             "--created",
             f">={created_since}",
             "--json",
-            "databaseId,conclusion,createdAt,updatedAt,name",
+            "attempt,databaseId,conclusion,createdAt,updatedAt,name",
             "--limit",
             str(RUN_LIMIT),
         )
         if len(rows) >= RUN_LIMIT:
             print(
-                f"WARNING: '{workflow}' returned {RUN_LIMIT} runs, the fetch limit "
-                "— older runs in this window are likely missing from the list. "
-                "Record a coverage gap, not an all-clear.",
+                f"WARNING: '{workflow}' returned {RUN_LIMIT} runs, the Actions "
+                "API's pagination ceiling — older runs in this window are "
+                "unreachable and missing from the list. Record a coverage gap, "
+                "not an all-clear.",
                 file=sys.stderr,
             )
         for row in rows:
             conclusion = row.get("conclusion")
             if conclusion and _parse_time(row["updatedAt"]) >= completed_after:
                 runs_by_id[int(row["databaseId"])] = row
+
+    reruns = sorted(run_id for run_id, row in runs_by_id.items() if row["attempt"] > 1)
+    if reruns:
+        print(
+            f"WARNING: {len(reruns)} run(s) in this list were re-run — "
+            f"{', '.join(str(run_id) for run_id in reruns)}. Each row's conclusion "
+            "is the latest attempt's, so no earlier attempt has a row here. Read "
+            "every earlier `attempts/N` log before counting the window's failures; "
+            f"one that finished before {_stamp(completed_after)} was already counted "
+            "by the previous sweep.",
+            file=sys.stderr,
+        )
 
     json.dump(list(runs_by_id.values()), sys.stdout, indent=2)
     sys.stdout.write("\n")

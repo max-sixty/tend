@@ -124,8 +124,8 @@ jobs:
       # carries `should_run`.
 <<react_eyes(reaction_target, if_condition=summoned(cfg.bot_name, 'needs.verify.outputs.reason'))>>
 
-<<checkout(cfg)>>
-<<setup>>
+      # Before checkout and `setup:`, so the delay measures the wait for this
+      # job to start rather than the time its setup takes.
       - name: Compute queue delay
         id: delay
         run: |
@@ -140,6 +140,8 @@ jobs:
           # the API record — the dispatch payload never carries one to spoof.
           EVENT_TS: ${{ github.event.comment.updated_at || needs.verify.outputs.ts || github.event.issue.updated_at }}
 
+<<checkout(cfg)>>
+<<setup>>
 <<agent_step(cfg, prompt_body, checkout_mode='mention')>>
 
 <<unreact_eyes(cfg, reaction_target, if_condition="always()\n&& " ~ summoned(cfg.bot_name, 'needs.verify.outputs.reason'))>>

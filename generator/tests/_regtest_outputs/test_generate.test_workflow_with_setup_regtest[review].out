@@ -42,9 +42,9 @@ jobs:
           TARGET: issues/${{ github.event.pull_request.number }}
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
 
-      # The runner checkout remains on the reviewed base tree for local setup
-      # actions and their POST chains. The harness creates and selects the PR
-      # topology in an independent disposable clone.
+      # The runner checkout stays on the reviewed base tree for `setup:` and
+      # local actions' POST chains; the harness moves the agent's view of it to
+      # the PR's topology.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -56,6 +56,8 @@ jobs:
       - uses: max-sixty/tend/claude@X.Y.Z
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
+          merge: maintainer
+          control_plane_owner: ""
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           bot_name: test-bot

@@ -5,7 +5,7 @@ green this design exists to prevent is a poll silently retargeting a head
 another actor pushed. The fake `gh` serves raw GraphQL fixtures while the
 Python reducer decides which conclusions count as red, which check runs are
 superseded, and which never read as green at all. Sleep is injected, so the
-9-iteration loop runs in milliseconds.
+poll loop runs without waiting between reads.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -195,14 +196,18 @@ def _serve_page(env: dict[str, str], cursor: str, response: str) -> None:
 
 
 def _invoke(
-    module: object, env: dict[str, str], args: list[str]
+    module: object,
+    env: dict[str, str],
+    args: list[str],
+    *,
+    sleep: Callable[[float], None] = lambda _: None,
 ) -> subprocess.CompletedProcess[str]:
     stdout, stderr = io.StringIO(), io.StringIO()
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setattr(os, "environ", env.copy())
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             try:
-                returncode = module.main(args, sleep=lambda _: None)
+                returncode = module.main(args, sleep=sleep)
             except subprocess.CalledProcessError as error:
                 returncode = error.returncode
     return subprocess.CompletedProcess(
@@ -210,8 +215,12 @@ def _invoke(
     )
 
 
-def _poll_args(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
-    return _invoke(poll_pr_checks, env, ["poll", *args])
+def _poll_args(
+    env: dict[str, str],
+    *args: str,
+    sleep: Callable[[float], None] = lambda _: None,
+) -> subprocess.CompletedProcess[str]:
+    return _invoke(poll_pr_checks, env, ["poll", *args], sleep=sleep)
 
 
 def _poll(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -364,7 +373,8 @@ def test_terminal_non_success_conclusions_count_red(
     env: dict[str, str], conclusion: str
 ) -> None:
     """A job that never started (STARTUP_FAILURE) or needs action is terminal
-    and red — left out of both buckets it would read as green."""
+    and red — outside RED_CONCLUSIONS it would read as unverified, withholding
+    a verdict the check did reach."""
     _serve(env, _resp(_check_run("build", conclusion=conclusion)))
 
     result = _poll(env)
@@ -372,12 +382,101 @@ def test_terminal_non_success_conclusions_count_red(
     assert result.returncode == 1, f"{conclusion} did not read as red"
 
 
-def test_cancelled_is_not_a_verdict(env: dict[str, str]) -> None:
-    _serve(env, _resp(_check_run("tests"), _check_run("old", conclusion="CANCELLED")))
+@pytest.mark.parametrize("conclusion", ["CANCELLED", "STALE"])
+def test_cancelled_is_not_a_verdict(env: dict[str, str], conclusion: str) -> None:
+    """A check killed before it concluded never ran, so it is neither red nor
+    green. Folded into green it reports a gating check as having passed when
+    a concurrent push cancelled it mid-run."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion=conclusion)))
 
     result = _poll(env)
 
-    assert result.returncode == 0, result.stdout
+    assert result.returncode == 2, result.stdout
+    assert "UNVERIFIED" in result.stdout
+    assert "bench https://github.com/o/r/actions/runs/100/job/1" in result.stdout
+
+
+def test_cancelled_beside_a_real_failure_still_reads_red(env: dict[str, str]) -> None:
+    """A failure is the stronger verdict, but the cancelled check is named too
+    so the reader knows the picture is partial."""
+    _serve(
+        env,
+        _resp(
+            _check_run("lint", conclusion="FAILURE", run_id=101),
+            _check_run("bench", conclusion="CANCELLED"),
+        ),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 1, result.stdout
+    assert "lint https://github.com/o/r/actions/runs/101/job/1" in result.stdout
+    assert "bench https://github.com/o/r/actions/runs/100/job/1" in result.stdout
+
+
+def test_cancelled_replaced_at_the_same_sha_is_green(env: dict[str, str]) -> None:
+    """Supersession still decides the group: a rerun that concluded green at the
+    same SHA leaves nothing unverified."""
+    _serve(
+        env,
+        _resp(
+            _check_run(
+                "bench",
+                conclusion="CANCELLED",
+                run_id=111,
+                started="2026-01-01T00:00:00Z",
+            ),
+            _check_run(
+                "bench",
+                conclusion="SUCCESS",
+                run_id=222,
+                started="2026-01-01T00:10:00Z",
+            ),
+        ),
+    )
+
+    assert _poll(env).returncode == 0, "a superseded cancellation still gated"
+
+
+def test_approval_names_a_cancelled_check_it_approves_over(
+    env: dict[str, str],
+) -> None:
+    """Approving over a check that never ran is the existing policy; doing so
+    without saying which check is the defect."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion="CANCELLED")))
+
+    result = _approval(env)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.startswith("approve:")
+    assert "unverified" in result.stdout
+    assert "bench" in result.stdout
+
+
+@pytest.mark.parametrize("conclusion", ["", "SOME_LATER_CONCLUSION"])
+def test_a_conclusion_in_neither_set_is_not_green(
+    env: dict[str, str], conclusion: str
+) -> None:
+    """Green is what the enum says passes, not whatever the red and unverified
+    sets happen to leave over. A conclusion GitHub adds later, or a COMPLETED
+    check carrying none, is a result this poll never read."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion=conclusion)))
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout
+    assert "bench https://github.com/o/r/actions/runs/100/job/1" in result.stdout
+
+
+@pytest.mark.parametrize("conclusion", ["NEUTRAL", "SKIPPED"])
+def test_non_blocking_conclusions_still_read_green(
+    env: dict[str, str], conclusion: str
+) -> None:
+    """A check that concluded without failing gates nothing, and naming green
+    explicitly must not start gating on it."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion=conclusion)))
+
+    assert _poll(env).returncode == 0, f"{conclusion} gated"
 
 
 def test_superseded_failure_yields_to_its_replacement(env: dict[str, str]) -> None:
@@ -602,6 +701,25 @@ def test_waits_out_pending_then_reports_green(env: dict[str, str]) -> None:
     assert result.returncode == 0
     # One poll saw pending, the settle needed the 30s grace re-check: 3 calls.
     assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "3"
+
+
+def test_a_flapping_rollup_stays_inside_the_sleep_budget(
+    env: dict[str, str],
+) -> None:
+    """A check appearing during confirmation consumes the same sleep budget.
+
+    Charging each pass its own confirmation slept 810 seconds instead of
+    staying within the 570-second bound on settle sleeps.
+    """
+    clean = _resp(_check_run("tests"))
+    pending = _resp(_check_run("tests"), _check_run("late", status="QUEUED"))
+    _serve(env, *([clean, pending] * 12))
+    slept: list[float] = []
+
+    result = _poll_args(env, "7", HEAD_SHA, sleep=slept.append)
+
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert sum(slept) <= poll_pr_checks.MAX_SLEEP_SEC
 
 
 def test_abbreviated_sha_is_rejected_at_entry(env: dict[str, str]) -> None:

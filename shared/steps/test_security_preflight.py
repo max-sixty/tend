@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import subprocess
 
 import pytest
@@ -12,16 +13,24 @@ REPO = "owner/repo"
 @pytest.fixture(autouse=True)
 def actions_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
+    monkeypatch.setenv("TEND_MERGE", "maintainer")
+    monkeypatch.setenv("TEND_CONTROL_PLANE_OWNER", "@octocat")
 
 
 def _repo(fake_gh: FakeGh, *, rules: object, protected: bool | None = None) -> None:
     """Answer the default-branch lookup, the branch's rules, and `.protected`.
 
-    ``rules`` takes an ``int`` to make that call fail, or a string to answer it
-    with a body that is not JSON.
+    ``rules`` is the one page of the listing, an ``int`` to make that call fail,
+    or a string to answer it with a body that is not JSON.
     """
     fake_gh.respond("api", f"repos/{REPO}", with_={"default_branch": "main"})
-    fake_gh.respond("api", f"repos/{REPO}/rules/branches/main", with_=rules)
+    fake_gh.respond(
+        "api",
+        "--paginate",
+        "--slurp",
+        f"repos/{REPO}/rules/branches/main",
+        with_=[rules] if isinstance(rules, list) else rules,
+    )
     if protected is not None:
         fake_gh.respond(
             "api", f"repos/{REPO}/branches/main", with_={"protected": protected}
@@ -30,6 +39,14 @@ def _repo(fake_gh: FakeGh, *, rules: object, protected: bool | None = None) -> N
 
 def _update_rule(ruleset_id: int) -> dict[str, object]:
     return {"type": "update", "ruleset_id": ruleset_id}
+
+
+def _lifecycle_rules(ruleset_id: int) -> list[dict[str, object]]:
+    return [
+        {"type": "creation", "ruleset_id": ruleset_id},
+        _update_rule(ruleset_id),
+        {"type": "deletion", "ruleset_id": ruleset_id},
+    ]
 
 
 def _bypass(fake_gh: FakeGh, ruleset_id: int, answer: object) -> None:
@@ -41,7 +58,141 @@ def _bypass(fake_gh: FakeGh, ruleset_id: int, answer: object) -> None:
     )
 
 
-def test_update_ruleset_ids_keeps_update_rules_once() -> None:
+def _codeowners(fake_gh: FakeGh) -> None:
+    fake_gh.respond(
+        "api",
+        "graphql",
+        with_={
+            "data": {
+                "repository": {
+                    "object": {"entries": [{"name": "CODEOWNERS", "mode": 0o100644}]}
+                }
+            }
+        },
+    )
+    content = (
+        "# BEGIN tend control plane\n"
+        "/.github/** @octocat\n"
+        "/.config/tend.yaml @octocat\n"
+        "/CODEOWNERS @octocat\n"
+        "/docs/CODEOWNERS @octocat\n"
+        "**/CLAUDE.md @octocat\n"
+        "**/CLAUDE.local.md @octocat\n"
+        "**/AGENTS.md @octocat\n"
+        "**/AGENTS.override.md @octocat\n"
+        "**/.claude @octocat\n"
+        "**/.claude/** @octocat\n"
+        "**/.agents @octocat\n"
+        "**/.agents/** @octocat\n"
+        "# END tend control plane\n"
+    )
+    fake_gh.respond(
+        "api",
+        f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main",
+        with_={"content": base64.b64encode(content.encode()).decode()},
+    )
+    fake_gh.respond(
+        "api", f"repos/{REPO}/codeowners/errors?ref=main", with_={"errors": []}
+    )
+    fake_gh.respond("api", "user", with_={"login": "tend-bot"})
+
+
+def test_control_plane_codeowners_does_not_skip_an_unreadable_higher_priority_file(
+    monkeypatch: pytest.MonkeyPatch, fake_gh: FakeGh
+) -> None:
+    monkeypatch.setenv("TEND_MERGE", "yolo")
+    fake_gh.respond("api", f"repos/{REPO}", with_={"default_branch": "main"})
+    fake_gh.respond(
+        "api",
+        "--paginate",
+        "--slurp",
+        f"repos/{REPO}/rules/branches/main",
+        with_=[_lifecycle_rules(1)],
+    )
+    fake_gh.respond(
+        "api", f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main", with_=1
+    )
+    _bypass(fake_gh, 1, "pull_requests_only")
+    fake_gh.respond("api", "user", with_={"login": "tend-bot"})
+
+    assert security_preflight.main() == 1
+    assert not fake_gh.called("api", f"repos/{REPO}/contents/CODEOWNERS?ref=main")
+
+
+def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file(
+    fake_gh: FakeGh,
+) -> None:
+    fake_gh.respond(
+        "api",
+        "graphql",
+        with_={
+            "data": {
+                "repository": {
+                    "object": {"entries": [{"name": "CODEOWNERS", "mode": 0o100644}]}
+                }
+            }
+        },
+    )
+    content = (
+        "# BEGIN tend control plane\n"
+        "/.github/** @octocat\n"
+        "/.config/tend.yaml @octocat\n"
+        "/CODEOWNERS @octocat\n"
+        "/docs/CODEOWNERS @octocat\n"
+        "**/CLAUDE.md @octocat\n"
+        "**/CLAUDE.local.md @octocat\n"
+        "**/AGENTS.md @octocat\n"
+        "**/AGENTS.override.md @octocat\n"
+        "**/.claude @octocat\n"
+        "**/.claude/** @octocat\n"
+        "**/.agents @octocat\n"
+        "**/.agents/** @octocat\n"
+        "# END tend control plane\n"
+    )
+
+    def not_found(args: tuple[str, ...], stdin: str | None) -> str:
+        raise subprocess.CalledProcessError(
+            1, ["gh", *args], "", "gh: Not Found (HTTP 404)"
+        )
+
+    fake_gh.respond(
+        "api",
+        f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main",
+        with_=not_found,
+    )
+    fake_gh.respond(
+        "api",
+        f"repos/{REPO}/contents/CODEOWNERS?ref=main",
+        with_={"content": base64.b64encode(content.encode()).decode()},
+    )
+    fake_gh.respond(
+        "api", f"repos/{REPO}/codeowners/errors?ref=main", with_={"errors": []}
+    )
+
+    assert security_preflight.has_valid_control_plane_codeowners(
+        REPO, "main", "@octocat"
+    )
+
+
+def test_control_plane_codeowners_rejects_dereferenced_symlink(fake_gh: FakeGh) -> None:
+    _codeowners(fake_gh)
+    fake_gh.respond(
+        "api",
+        "graphql",
+        with_={
+            "data": {
+                "repository": {
+                    "object": {"entries": [{"name": "CODEOWNERS", "mode": 0o120000}]}
+                }
+            }
+        },
+    )
+    assert not security_preflight.has_valid_control_plane_codeowners(
+        REPO, "main", "@octocat"
+    )
+
+
+def test_ruleset_ids_keeps_update_rules_once() -> None:
     """One ruleset contributing several rules to a branch is queried once."""
     rules = [
         {"type": "pull_request", "ruleset_id": 1},
@@ -50,10 +201,10 @@ def test_update_ruleset_ids_keeps_update_rules_once() -> None:
         _update_rule(7),
         _update_rule(3),
     ]
-    assert security_preflight.update_ruleset_ids(rules) == [3, 7]
+    assert security_preflight.ruleset_ids(rules, "update") == [3, 7]
 
 
-def test_update_ruleset_ids_ignores_a_body_it_cannot_read_as_rules() -> None:
+def test_ruleset_ids_ignores_a_body_it_cannot_read_as_rules() -> None:
     """The jq `select` this replaced dropped these; nothing may raise on one.
 
     The listing is read best-effort, so an error object under a 200, or an
@@ -61,10 +212,62 @@ def test_update_ruleset_ids_ignores_a_body_it_cannot_read_as_rules() -> None:
     `.protected` floor rather than abort a gate whose failure also suppresses
     the outage report.
     """
-    assert security_preflight.update_ruleset_ids({"message": "Not Found"}) == []
-    assert security_preflight.update_ruleset_ids(
-        [{"ruleset_id": 1}, {"type": "update"}, "not a rule", _update_rule(4)]
+    assert security_preflight.ruleset_ids({"message": "Not Found"}, "update") == []
+    assert security_preflight.ruleset_ids(
+        [{"ruleset_id": 1}, {"type": "update"}, "not a rule", _update_rule(4)],
+        "update",
     ) == [4]
+
+
+def test_an_update_rule_past_the_first_page_counts(
+    fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The listing serves 30 rules a page."""
+    first = [{"type": "required_signatures", "ruleset_id": 2}] * 30
+    _repo(fake_gh, rules=1)
+    fake_gh.respond(
+        "api",
+        "--paginate",
+        "--slurp",
+        f"repos/{REPO}/rules/branches/main",
+        with_=[first, [_update_rule(1)]],
+    )
+    _bypass(fake_gh, 1, "never")
+
+    assert security_preflight.main() == 0
+    assert "Security preflight passed: bot cannot bypass" in capsys.readouterr().out
+
+
+def test_a_page_answered_with_an_error_object_falls_back_to_the_floor(
+    fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A page GitHub served as an error object leaves the listing unread, not
+    short: a short one would read as "no update rule" and abort the gate."""
+    first = [{"type": "required_signatures", "ruleset_id": 2}] * 30
+    _repo(fake_gh, rules=1, protected=True)
+    fake_gh.respond(
+        "api",
+        "--paginate",
+        "--slurp",
+        f"repos/{REPO}/rules/branches/main",
+        with_=[first, {"message": "502"}],
+    )
+
+    assert security_preflight.main() == 0
+    assert "default branch 'main' is protected" in capsys.readouterr().out
+
+
+def test_a_listing_of_entries_that_are_not_rules_aborts(
+    fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A listing that reads cleanly is GitHub's answer, even when no entry in it
+    is a usable update rule; only an unread listing reaches the floor."""
+    _repo(fake_gh, rules=[{"type": "update"}, "not a rule"])
+
+    assert security_preflight.main() == 1
+    assert "::error::No restrict-updates ruleset covers 'main', so" in (
+        capsys.readouterr().out
+    )
 
 
 def test_a_rules_listing_that_is_not_json_falls_back_to_the_protected_floor(
@@ -112,6 +315,117 @@ def test_aborts_when_every_update_ruleset_is_bypassable(
     )
 
 
+def test_yolo_requires_pull_request_only_bypass_and_control_plane_review(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_gh: FakeGh,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TEND_MERGE", "yolo")
+    _codeowners(fake_gh)
+    _repo(
+        fake_gh,
+        rules=[*_lifecycle_rules(1), {"type": "pull_request", "ruleset_id": 2}],
+    )
+    _bypass(fake_gh, 1, "pull_requests_only")
+    fake_gh.respond(
+        "api",
+        f"repos/{REPO}/rulesets/2",
+        with_={
+            "current_user_can_bypass": "never",
+            "rules": [
+                {
+                    "type": "pull_request",
+                    "parameters": {
+                        "require_code_owner_review": True,
+                        "dismiss_stale_reviews_on_push": True,
+                    },
+                }
+            ],
+        },
+    )
+
+    assert security_preflight.main() == 0
+    assert "direct pushes" in capsys.readouterr().out
+
+
+def test_yolo_requires_creation_and_deletion_protection(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_gh: FakeGh,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TEND_MERGE", "yolo")
+    _codeowners(fake_gh)
+    _repo(fake_gh, rules=[_update_rule(1)])
+    _bypass(fake_gh, 1, "pull_requests_only")
+
+    assert security_preflight.main() == 1
+    assert "creation and deletion" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("bypass", ["always", "never"])
+def test_yolo_rejects_the_wrong_update_bypass(
+    bypass: str,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_gh: FakeGh,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TEND_MERGE", "yolo")
+    _codeowners(fake_gh)
+    _repo(fake_gh, rules=[_update_rule(1)])
+    _bypass(fake_gh, 1, bypass)
+
+    assert security_preflight.main() == 1
+    assert f"GitHub reported {bypass}" in capsys.readouterr().out
+
+
+def test_yolo_rejects_a_bypassable_control_plane_rule(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_gh: FakeGh,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TEND_MERGE", "yolo")
+    _codeowners(fake_gh)
+    _repo(
+        fake_gh,
+        rules=[*_lifecycle_rules(1), {"type": "pull_request", "ruleset_id": 2}],
+    )
+    _bypass(fake_gh, 1, "pull_requests_only")
+    fake_gh.respond(
+        "api",
+        f"repos/{REPO}/rulesets/2",
+        with_={
+            "current_user_can_bypass": "pull_requests_only",
+            "rules": [
+                {
+                    "type": "pull_request",
+                    "parameters": {
+                        "require_code_owner_review": True,
+                        "dismiss_stale_reviews_on_push": True,
+                    },
+                }
+            ],
+        },
+    )
+
+    assert security_preflight.main() == 1
+    assert "fresh CODEOWNER approval" in capsys.readouterr().out
+
+
+def test_yolo_rejects_the_bot_as_control_plane_owner(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_gh: FakeGh,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TEND_MERGE", "yolo")
+    monkeypatch.setenv("TEND_CONTROL_PLANE_OWNER", "@tend-bot")
+    _codeowners(fake_gh)
+    _repo(fake_gh, rules=[_update_rule(1)])
+    _bypass(fake_gh, 1, "pull_requests_only")
+
+    assert security_preflight.main() == 1
+    assert "not the Tend bot account" in capsys.readouterr().out
+
+
 def test_an_unreadable_ruleset_falls_back_to_the_protected_floor(
     fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -131,15 +445,54 @@ def test_an_unreadable_ruleset_falls_back_to_the_protected_floor(
     )
 
 
-def test_no_update_rules_passes_on_a_protected_branch(
+def test_a_readable_bypass_is_not_hidden_by_an_unreadable_ruleset(
     fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Required reviews alone contribute no update rule; `.protected` decides."""
-    _repo(fake_gh, rules=[{"type": "pull_request", "ruleset_id": 1}], protected=True)
+    _repo(fake_gh, rules=[_update_rule(1), _update_rule(2)], protected=True)
+    _bypass(fake_gh, 1, "always")
+    fake_gh.respond("api", f"repos/{REPO}/rulesets/2", with_=1)
+
+    assert security_preflight.main() == 1
+    assert "can bypass every restrict-updates ruleset" in capsys.readouterr().out
+
+
+def test_a_ruleset_body_without_the_bypass_field_falls_back_to_the_floor(
+    fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An error object under a 200 carries no bypass verdict, so it is unread
+    like a failed call rather than an answer that the bot can bypass."""
+    _repo(fake_gh, rules=[_update_rule(1)], protected=True)
+    fake_gh.respond("api", f"repos/{REPO}/rulesets/1", with_={"message": "502"})
 
     assert security_preflight.main() == 0
+    assert "default branch 'main' is protected" in capsys.readouterr().out
+
+
+def test_a_null_bypass_verdict_counts_as_bypassable(
+    fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A present field is GitHub's answer, and any answer but "never" fails."""
+    _repo(fake_gh, rules=[_update_rule(1)])
+    _bypass(fake_gh, 1, None)
+
+    assert security_preflight.main() == 1
+    assert "::error::The bot can bypass every" in capsys.readouterr().out
+
+
+def test_aborts_on_a_branch_protected_by_required_reviews_alone(
+    fake_gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Required reviews contribute no update rule, and don't restrict the bot.
+
+    Its own approval counts on a PR someone else opened, so a readable listing
+    with no update rule settles it: the `.protected` floor is never consulted,
+    and the fake `gh` has no answer for it.
+    """
+    _repo(fake_gh, rules=[{"type": "pull_request", "ruleset_id": 1}])
+
+    assert security_preflight.main() == 1
     assert (
-        "Security preflight passed: default branch 'main' is protected"
+        "::error::No restrict-updates ruleset covers 'main', so"
         in capsys.readouterr().out
     )
 
@@ -176,7 +529,7 @@ def test_surfaces_githubs_own_error_when_a_required_call_fails(
     the whole diagnosis for a misconfigured install, which this gate is the
     step most likely to meet.
     """
-    _repo(fake_gh, rules=[], protected=True)
+    _repo(fake_gh, rules=1, protected=True)
     fake_gh.respond("api", f"repos/{REPO}{failing}", with_=1)
 
     with pytest.raises(subprocess.CalledProcessError):

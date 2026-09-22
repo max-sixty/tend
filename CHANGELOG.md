@@ -6,6 +6,83 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.2.15
+
+### Improved
+
+- **A follow-up review focuses on what was pushed since the bot's last review**, with the whole PR's diff and the earlier reviews in view. The incremental file carries each new commit's patch and lists the PR's merges from the base branch, and the `code-review` second pass works through it with the PR's diff as context, so code an earlier review covered isn't audited line by line again. A force-push or `ready_for_review` still gets a full review, and a draft-mode review no longer serves as the base for an incremental once the PR is ready. ([#1368](https://github.com/max-sixty/tend/pull/1368))
+- **On a PR with no human author, the bar for another fix round rises with each round.** One adjustment is often fine; after a couple, only a problem that would do harm if the PR merged as it stands earns a push, and other findings go in the review. ([#1366](https://github.com/max-sixty/tend/pull/1366))
+
+### Fixed
+
+- **The merge check requires a restrict-updates ruleset the bot cannot bypass.** Branch protection that only requires reviews no longer passes the preflight or `tend check`, since the bot holds write and its own approval counts on a PR someone else opened. The preflight aborts when the branch's rules listing reads cleanly and has no such ruleset, and falls back to requiring that the branch is protected only when GitHub won't answer. `tend check --fix` creates the ruleset for a reviews-only branch, and replaces an existing "Merge access" or "Tag operations" ruleset instead of failing on GitHub's duplicate-name error. ([#1367](https://github.com/max-sixty/tend/pull/1367))
+- **`AGENTS.override.md` is restored to the base version on a PR**, at any depth, alongside `AGENTS.md`. Codex reads it in place of `AGENTS.md`. ([#1367](https://github.com/max-sixty/tend/pull/1367))
+- **Mention measures its queue delay before checkout and `setup:`**, so a slow setup no longer counts as time spent queued. ([#1365](https://github.com/max-sixty/tend/pull/1365))
+- **A review body opens with its first finding.** The Submit step says GitHub labels a review approved or commented above its body, so the body doesn't restate it. ([#1362](https://github.com/max-sixty/tend/pull/1362))
+
+### Documentation
+
+- **The README, the site, and `docs/security-model.md` state the two guarantees the security model rests on**: a hijacked session can't land code (the ruleset), and can't take the bot's credentials past the end of the run (the sandbox, the proxy, and the environment gate). `docs/security-model.md` names the exfiltration channels that remain during a run. ([#1367](https://github.com/max-sixty/tend/pull/1367))
+
+### Internal
+
+- Generated workflows use `astral-sh/setup-uv@v10.2.0`. ([#1359](https://github.com/max-sixty/tend/pull/1359), [#1360](https://github.com/max-sixty/tend/pull/1360))
+
+## 0.2.14
+
+### Improved
+
+- **The agent runs in the job's own checkout and home again, through a copy-on-write view**, as 0.2.12 introduced and 0.2.13 reverted. What `setup:` prepares — a toolchain, a warm cache, a generated file — is there for the agent at the path `setup:` left it, and nothing the agent writes reaches the runner's disk or a later step. The checkout no longer carries the sandbox's write-protection stubs that failed `git add -A` under 0.2.12, and the agent starts in a repository without `.claude/`. Anything `setup:` leaves readable in the runner's home, exports to `$GITHUB_ENV`, or sets in job-level `env:` is readable by the agent, and so by a pull request's own code: log in only in steps tend does not run. A self-hosted runner whose work folder is outside the runner account's home fails in the "Set up credential-isolation sandbox" step, naming both paths. ([#1346](https://github.com/max-sixty/tend/pull/1346))
+- **`sandbox_setup:`, `sandbox_path:`, and `sandbox_env:` are deprecated, and `init` migrates them**, since the agent now runs with the job's own PATH and environment. `init` warns, and turns each key into one `setup:` step after the consumer's own: `sandbox_env` values sit in that step's `env:`, where an expression still evaluates, and are exported to `$GITHUB_ENV`; `sandbox_path` entries become `$GITHUB_PATH` lines that keep their order; and `sandbox_setup`'s commands share one bash step. A migrated command no longer has tend's `uv` on PATH, so one that calls `uv` needs `astral-sh/setup-uv` earlier in `setup:`. The actions' `sandbox_env` input is removed, and a later release will refuse all three keys. ([#1346](https://github.com/max-sixty/tend/pull/1346), [#1355](https://github.com/max-sixty/tend/pull/1355))
+- **The agent's sandbox is a hardened systemd unit instead of Anthropic Sandbox Runtime.** Jobs no longer install the sandbox runtime, bubblewrap, socat, or ripgrep, or toggle AppArmor's user-namespace restriction. The unit runs as the non-sudo sandbox user in a private network namespace whose only route is the proxy on loopback, with private `/tmp`, `/dev/shm`, and `/dev`, other users' processes hidden, and `AF_UNIX` sockets still refused. It also refuses new namespaces, so a tool that builds its own sandbox from one (bubblewrap, a rootless container runtime, Chromium's sandbox) cannot start. `ALL_PROXY` and `GRPC_PROXY` are no longer set; `rg` is whatever the runner image or the harness provides, so a consumer whose instructions call it installs it in `setup:`; and masked runner files fail with "permission denied" rather than reading as empty. The `sandbox_runtime_version` action input is removed. Requires kernel 5.19, util-linux 2.39, and systemd 247, which `ubuntu-24.04` has. ([#1354](https://github.com/max-sixty/tend/pull/1354))
+- **`/tend-ci-runner:open-pr` reserves a closing keyword for a PR that settles the whole report.** A PR that settles part of one writes `Refs #N` and names what it leaves, in the body and the commit message alike, and `triage` no longer ends every fix with `Closes #N`. ([#1353](https://github.com/max-sixty/tend/pull/1353))
+
+### Fixed
+
+- **The sandbox reap waits for the killed sandbox user's processes to exit**, re-issuing the kill until `pgrep` finds none or 10 s pass. It sampled once right after the kill, so a process still tearing down failed the job with `sandbox UID still owns a live process after reap`. ([#1352](https://github.com/max-sixty/tend/pull/1352))
+- **`list_recent_runs.py` warns when a run in the census was re-run**, naming each one. A run's conclusion is its latest attempt's, so a failure cleared by a re-run left no row and `review-runs` reported fewer failures than the window had. ([#1337](https://github.com/max-sixty/tend/pull/1337))
+- **Generated workflows no longer fold long YAML values across lines.** A long `if:` or `env:` expression stays on one line with no trailing space, and a workflow override no longer adds line breaks to mention's prompt. ([#1355](https://github.com/max-sixty/tend/pull/1355))
+
+### Documentation
+
+- **`docs/security-model.md` records the claude.ai account surface** — skills, plugins, and MCP connectors synced from the bot's account — and the three session settings that refuse it. Its agent-execution-boundary section describes the systemd unit. ([#1349](https://github.com/max-sixty/tend/pull/1349), [#1354](https://github.com/max-sixty/tend/pull/1354))
+
+### Internal
+
+- `test-sandbox` asserts from inside the unit that DNS is unreachable, other users' processes are hidden, `unshare --user` fails, and `/dev/shm` is private, and afterwards that no `tend-*` unit or view mount remains. ([#1354](https://github.com/max-sixty/tend/pull/1354))
+
+## 0.2.13
+
+### Fixed
+
+- **The copy-on-write view from 0.2.12 is reverted, so the agent again works in a disposable clone of the event's tree with its own home, as in 0.2.11.** Under 0.2.12 the sandbox's write protections appeared as `/dev/null` entries in the checkout the agent commits from, so `git add -A` failed in every session, and the experimental memory-gist save failed on every run. The rest of 0.2.12's entry reverts with it. What `setup:` prepares is no longer visible to the agent, so dependency setup moved from `sandbox_setup:` to `setup:` for 0.2.12 needs to move back. `sandbox_env:` values reach the sandbox on `sudo`'s command line again rather than in a `0600` file, and `init` no longer rejects `GITHUB_*` names or `CLAUDE_CONFIG_DIR` in `sandbox_env:`. ([#1339](https://github.com/max-sixty/tend/pull/1339))
+
+## 0.2.12
+
+### Improved
+
+- **The agent runs in the job's own checkout and home, through a copy-on-write view.** What `setup:` prepares — a toolchain, a warm cache, a generated file — is there for the agent at the path `setup:` left it, so `sandbox_setup:` no longer has to rebuild it; `sandbox_setup:` still runs against the event's tree. The agent writes wherever the runner could, and nothing it writes reaches the runner's disk or a later step. Anything `setup:` leaves readable in the runner's home, exports to `$GITHUB_ENV`, or sets in job-level `env:` is now readable by the agent, and so by a pull request's own code: log in only in steps tend does not run. The environment crosses into the sandbox in a `0600` file rather than on `sudo`'s command line, and `sandbox_env` refuses `GITHUB_*` keys and `CLAUDE_CONFIG_DIR` at `init`. Requires kernel 5.19 and util-linux 2.39, which `ubuntu-24.04` has. ([#1333](https://github.com/max-sixty/tend/pull/1333), [#1334](https://github.com/max-sixty/tend/pull/1334))
+- **`/tmp` is writable inside the sandbox**, as scratch private to the run, so a tool that hard-codes a `/tmp` path (NuGet's build mutex, zsh's `TMPPREFIX`) needs no override. The `TMPPREFIX` reserved `sandbox_env` key is gone with the override it protected. ([#1324](https://github.com/max-sixty/tend/pull/1324))
+- **CI sessions ignore the bot's claude.ai account.** The session's `.claude/settings.local.json` turns off claude.ai skill and plugin sync and claude.ai MCP connectors, so skills, plugins, or connectors enabled on the bot's account don't load into sessions that push and post as the bot. ([#1328](https://github.com/max-sixty/tend/pull/1328))
+- **`review-runs` finds a workflow wedged behind a run parked in GitHub's `waiting` state**, which holds its concurrency group without ever concluding, and cancels it once `pending_deployments` shows nothing will release it. ([#1320](https://github.com/max-sixty/tend/pull/1320))
+- **`ground-claims` reads a past run's code at that run's commit** through the contents API, so a diagnosis of an old failure cites what the run executed rather than the current default branch. ([#1319](https://github.com/max-sixty/tend/pull/1319))
+
+### Fixed
+
+- **The sandbox launch retries a transient bridge-socket failure**, up to three attempts. SRT gives socat 600 ms to bind its bridge sockets, and a slow runner lost the whole job before the agent started. ([#1327](https://github.com/max-sixty/tend/pull/1327))
+- **`poll_pr_checks.py` reports a cancelled or stale gating check as unverified (exit 2), not green.** Green is now the allowlist `SUCCESS`, `NEUTRAL`, `SKIPPED`; `approval` names any check it approves over without a verdict. ([#1323](https://github.com/max-sixty/tend/pull/1323))
+- **`run-tend` lists `.agents/` among the instruction paths restored to the base version on a PR**, and says a relayed review event restores them too. ([#1311](https://github.com/max-sixty/tend/pull/1311))
+
+### Documentation
+
+- **`tend.example.yaml` documents two sandbox properties**: `AF_UNIX` sockets are refused, which silently fails a multi-process build like MSBuild's; and a `sandbox_env` value is readable by a pull request's own code, with an expression that withholds it from the events that run one. ([#1313](https://github.com/max-sixty/tend/pull/1313), [#1321](https://github.com/max-sixty/tend/pull/1321))
+- **The README says how the generated workflows behave in a fork**: scheduled runs appear in the fork's Actions tab but skip every job. ([#1310](https://github.com/max-sixty/tend/pull/1310))
+
+### Internal
+
+- Claude Code moves to 2.1.278 and `uv` to 0.12.17. ([#1330](https://github.com/max-sixty/tend/pull/1330), [#1331](https://github.com/max-sixty/tend/pull/1331))
+- `test-sandbox` drives the copy-on-write view on a hosted runner and asserts its bounds: a job-only variable stays out of `sudo`'s journal, a host `/tmp/claude` is never written, and a root-owned directory stays unwritable. ([#1333](https://github.com/max-sixty/tend/pull/1333), [#1334](https://github.com/max-sixty/tend/pull/1334))
+
 ## 0.2.11
 
 ### Improved

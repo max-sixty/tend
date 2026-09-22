@@ -41,6 +41,12 @@ Describe the current PR for a maintainer deciding whether to merge it. Follow **
 
 If an existing PR addresses the same problem, work on that PR instead.
 
+### Closing keywords
+
+`Closes #N` / `Fixes #N` belong on a PR that settles the whole report. Where it settles part of one — a second cause the issue names, a cleanup the code cannot decide — write `Refs #N` and name what is left in the body, so merging leaves the remainder in the open queue for a later run to find. A body that needs a "what this leaves" paragraph is the signal.
+
+GitHub acts on the keyword in the squashed commit message as well as in the PR body, so both carry the same choice.
+
 ### Dedup recheck immediately before `gh pr create`
 
 A separate mention on a different issue/PR can trigger a concurrent run asking for the same fix. Those runs are not serialized — each has its own concurrency group — so both may read an empty `gh pr list` at session start and then each open their own PR minutes later, producing near-duplicates. A long workflow queue (`tend-mention` can wait hours) also lets a sibling run open *and merge* a PR before this run starts — already-merged duplicates need to be in scope too. Re-run the check **as the last step before `gh pr create`**, with `--state all` so closed and merged siblings show up:
@@ -72,7 +78,7 @@ Inspect overlapping commits and reproduce the problem on the fetched default bra
 
 ### Fetch the prior rejection before re-deriving a fix
 
-A change a maintainer already turned down leaves its verdict in two places the checks above don't fetch: the closed PR that carried it, and the comments on the issue tracking it. Search by the symbol or path the change would edit — a finding re-derived from the code has no issue number, and an attempt predating the tracking issue cites none either — then read the closed hits and the issue bodies, not just their titles.
+A change a maintainer already turned down leaves its verdict in two places the checks above don't fetch: the closed PR that carried it, and the comments on the issue tracking it. Search by the symbol or path the change would edit — a finding re-derived from the code has no issue number, and an attempt predating the tracking issue cites none either — then read the closed hits' diffs and discussion, and the issue bodies, not just their titles.
 
 Search, don't scan. A recency-ordered listing ages a rejection out in bot-throughput time: at a few PRs a day, any `--limit` drops it within weeks, and raising the cap only moves that boundary. A symbol match stays small however many PRs have landed since.
 
@@ -81,6 +87,7 @@ BOT_LOGIN=$(gh api user --jq '.login')
 # <symbol>: the function, file, or config key the change would edit
 gh pr list --state all --search "author:$BOT_LOGIN <symbol>" --limit 100 --json number,title,state,closedAt
 gh pr view <n> --json comments,reviews --jq '[.comments[].body, .reviews[].body]'
+gh pr diff <n>   # what it proposed; the thread records only what was discussed
 gh issue view <n> --json body,comments --jq '[.body, .comments[].body]'
 ```
 

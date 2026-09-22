@@ -3,14 +3,11 @@ on:
   push:
     branches: [main]
   pull_request:
-  # `test-sandbox` is the only job that builds the real sandbox, and it still
-  # reaches hosts no commit here controls — snapshot.ubuntu.com, the npm
-  # registry, the runner image — even with every version pinned.  A bubblewrap
-  # security update on 2026-09-17 killed every consumer's sessions at launch;
-  # main had gone unpushed for two hours, so nothing ran and production was the
-  # first signal.  tend's other watches — `tend-ci-fix`, `tend-review-runs`,
-  # the outage issues — all boot an agent inside that same sandbox, so the
-  # failure disabled its own detection.  This schedule runs outside it, and a
+  # `test-sandbox` is the only job that builds the real sandbox, out of the
+  # runner image's systemd and kernel, which move with no commit here.  tend's
+  # other watches — `tend-ci-fix`, `tend-review-runs`, the outage issues — all
+  # boot an agent inside that same sandbox, so a broken sandbox disables its own
+  # detection.  This schedule runs outside it, and a
   # failing scheduled run on the default branch mails whoever last edited the
   # cron line below, or last re-enabled the workflow.  Keep both a human's: the
   # path is agent-free only while the alarm lands on an account outside the
@@ -28,7 +25,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: astral-sh/setup-uv@v10.2.0
       # Pinned to the interpreter production runs: the step bodies under
       # shared/steps/ execute on the runner's own /usr/bin/python3, which is
       # 3.12 on ubuntu-24.04, and an unpinned `uv run` would test them on
@@ -49,7 +46,7 @@ jobs:
         working-directory: proxy
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: astral-sh/setup-uv@v10.2.0
       # mitmdump starts the way setup_sandbox.py starts it, so a release that
       # drops a flag, moves the CA file, or breaks the addon's import fails
       # here rather than on every consumer's next run. It goes through the
@@ -89,25 +86,25 @@ jobs:
           grep -qF 'HTTP(S) proxy listening at 127.0.0.1:' "$log"
           test -f "$confdir/mitmproxy-ca-cert.pem"
 
-  # setup_sandbox.py and the SRT lifecycle need a second uid, sudo, and a runner
-  # PATH to derive from, so no Python test reaches the full boundary. Running
-  # them for real leaves the runner changed — the disposable clone belongs to
-  # the sandbox UID, the proxy CA is in the system trust store, and mitmdump
-  # remains on 8899 — so a later step must expect that state. This job exercises
-  # the real boundary: shared paths cross, runner-home paths do not, same-name
-  # system fallbacks are blocked, and Tend preserves a shared uv. It then drives
-  # sandbox_setup and both harness adapters inside their real SRT lifecycle.
+  # The agent's systemd unit, the copy-on-write view and setup_sandbox.py need
+  # systemd, a real kernel, a second uid and sudo, so no Python test reaches
+  # the boundary. Running them leaves the proxy CA in the system trust store
+  # and mitmdump on 8899, so a later step must expect that state. See the
+  # script's header for what it checks.
   test-sandbox:
     runs-on: ubuntu-24.04
     steps:
+      # The lifecycle's `base` checkout sets the branch's upstream, so
+      # `origin/<base>` has to exist — as it does under the generated
+      # workflows, whose own checkout fetches everything.
       - uses: actions/checkout@v7
-      - name: Install pinned Sandbox Runtime capabilities
+        with:
+          fetch-depth: 0
+      - name: Create the sandbox runtime container
         shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-        run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/bash shared/steps/install-sandbox-runtime.sh
+        run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/bash shared/steps/create-runtime-root.sh
         env:
           BASH_ENV: ""
-          SRT_VERSION: "0.0.76"
-          TEND_RUNNER_ENVIRONMENT: ${{ runner.environment }}
       - name: Plant PATH-boundary fixtures
         run: bash proxy/test-setup-sandbox.sh plant
       - name: Set up the sandbox
@@ -116,16 +113,15 @@ jobs:
         run: bash proxy/test-setup-sandbox.sh install-agent-uv
       - name: Verify the prepared UID and PATH boundary
         run: bash proxy/test-setup-sandbox.sh verify
-      - name: Verify complete Claude and Codex SRT lifecycles
-        run: bash proxy/test-setup-sandbox.sh verify-srt
+      - name: Verify complete Claude and Codex lifecycles
+        run: bash proxy/test-setup-sandbox.sh verify-lifecycle
       - name: Refuse unsafe sandbox configuration
         run: bash proxy/test-setup-sandbox.sh verify-refusals
+      - name: Dispose the sandbox's runtime container
+        run: bash proxy/test-setup-sandbox.sh verify-dispose
       - name: Clean up sandbox fixtures
         if: always()
         run: bash proxy/test-setup-sandbox.sh cleanup
-      - name: Restore Sandbox Runtime host policy
-        if: always()
-        run: bash shared/steps/restore-sandbox-runtime-host.sh
 
   # Gate Codex version bumps on the credential-free parts of the action's CLI
   # and Responses-proxy contracts. Live model behavior needs an authenticated
@@ -174,5 +170,5 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: astral-sh/setup-uv@v10.2.0
       - uses: pre-commit/action@v3.0.1

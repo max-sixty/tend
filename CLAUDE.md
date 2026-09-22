@@ -34,9 +34,9 @@ is the Python half on its own.
 
 `pre-commit` is not on the CI sandbox's PATH, which is why the lint command
 above carries the `uv tool run` prefix; a narrower substitute (ruff alone,
-shellcheck alone) skips ten of the thirteen hooks, including the three
-`repo: local` guards — the bang-backtick check, the install-tend mirror sync,
-and the `sandbox_env` reserved-set parity check.
+shellcheck alone) skips nine of the twelve hooks, including the two
+`repo: local` guards — the bang-backtick check and the install-tend mirror
+sync.
 
 Inside a tend session the sandbox has no DNS, so the two tests in
 `generator/tests/test_refresh_consumers.py` fail: they drive the script
@@ -54,21 +54,22 @@ Four pieces:
    — no floating `v1`). Every action lives under a harness-named path; there
    is no bare-root default. The two harness runners are:
    - `max-sixty/tend/claude@X.Y.Z` (Claude) — runs the official `claude`
-     binary headless (`claude -p`) inside the shared Anthropic Sandbox Runtime
-     boundary; completion is the process exit code plus result event.
+     binary headless (`claude -p`) inside the shared sandbox, a hardened
+     systemd unit; completion is the process exit code plus result event.
      Inputs in `claude/action.yaml`.
    - `max-sixty/tend/codex@X.Y.Z` (Codex) — installs `@openai/codex` and
      shells out to `codex exec`. Skills are staged on disk and an
      `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve
      `/tend-ci-runner:NAME` slash commands. Inputs in `codex/action.yaml`.
-     Shares the cross-harness workspace, SRT lifecycle, preflight, and teardown
-     scripts under `shared/steps/`.
+     Shares the cross-harness workspace, sandbox lifecycle, preflight, and
+     teardown scripts under `shared/steps/`.
 
    Both harness runners resolve the bot's numeric ID at runtime, run security
-   and rate-limit preflight, prepare an independent event checkout, run
-   `sandbox_setup:` and the complete agent turn in one SRT process tree, reap
-   it, and upload bounded session logs. The generated workflow's checkout stays
-   runner-owned on reviewed code for setup and local-action POST chains.
+   and rate-limit preflight, then select the event's topology and run the
+   complete agent turn in one systemd unit over a copy-on-write view of the
+   runner's home, reap it, and upload bounded session logs. The generated
+   workflow's checkout stays on reviewed code for setup and local-action POST
+   chains; nothing the agent writes reaches it.
 
    `max-sixty/tend/codex/refresh@X.Y.Z` is the Codex support action. A generated
    serialized workflow runs it weekly to rotate Plus/Pro credentials and
@@ -96,9 +97,10 @@ Four pieces:
    runs the agent checks the `TEND_ENABLED` repository variable in its `if:`.
 
 Generated workflows are standalone — full `steps:` jobs, not
-`workflow_call`. The generator owns the entire file. Trusted runner setup
-(system tools and Actions caches) is defined in `setup:`; dependency setup
-against the event tree is defined in `sandbox_setup:` and runs inside SRT.
+`workflow_call`. The generator owns the entire file. Setup (system tools,
+dependencies, Actions caches) is defined in `setup:` and runs on reviewed code;
+the agent sees what it built through the view, and installs whatever the
+event's own tree changes in the session.
 
 ## Structure
 
@@ -184,8 +186,7 @@ session runs the pin.
 | Permissions | Generator | generated workflow |
 | Checkout | Generator | generated workflow |
 | Composite action call | Generator | generated workflow |
-| Runner setup (system tools, Actions cache) | Consumer | `setup:` in `.config/tend.yaml` |
-| Event-tree setup (dependencies, generated files) | Consumer | `sandbox_setup:` in `.config/tend.yaml` |
+| Setup (system tools, dependencies, Actions cache) | Consumer | `setup:` in `.config/tend.yaml` |
 | Bot identity, auth config | Consumer | `.config/tend.yaml` |
 | Skills (generic) | Tend | `tend-ci-runner` plugin (marketplace) |
 | Skills (project-specific) | Consumer | `.claude/skills/` in their repo |
@@ -221,8 +222,9 @@ workflows:
 ```
 
 Workflow-level (`workflow_extra`) and job-level (`jobs.<name>`) overrides
-are supported; step-level is not — `setup:` handles trusted runner steps and
-`sandbox_setup:` handles event-workspace commands. No allowlist of override
+are supported in maintainer merge mode; step-level is not — `setup:` handles
+injected runner steps. Yolo refuses both override forms and all runner-side `setup:` so
+credential-bearing jobs retain their audited shape. No allowlist of override
 keys; unknown job names produce a warning.
 
 When overrides are present, the generator renders the base template,
@@ -238,10 +240,12 @@ is required on public and private repositories alike — `install-tend` mints
 exactly that set, and the nightly scope audit (`pat_scope_audit.py`) reports
 anything narrower as missing. The PAT and a Claude OAuth token are
 stored as secrets in the repo's `tend` GitHub Environment, whose deployment
-branch policy admits only the branches `tend check` confirmed the bot
-cannot write — the default branch and any `protected_branches` that exist
-and are protected. A workflow the bot pushes to any other ref is refused
-them before its first step. Two things use the `gist` scope, both
+branch policy admits the default branch and any `protected_branches` that
+exist and are protected. A workflow the bot pushes to any other ref is
+refused them before its first step. In `maintainer` mode the bot cannot
+move any admitted branch. In `yolo`, it may merge pull requests to the
+default branch, while a CODEOWNERS-backed ruleset reserves Tend's workflows
+and config, CODEOWNERS, and agent instructions for a maintainer owner. Two things use the `gist` scope, both
 through bot-owned secret gists: `review-reviewers` keeps a per-month
 structured evidence store (avoids the 65 KB comment-body limit), and the
 experimental `memory_gist` setting persists Claude Code's auto memory
@@ -258,12 +262,18 @@ Fine-grained PATs allow per-category scoping but don't support outside
 collaborators ([GitHub roadmap
 #601](https://github.com/github/roadmap/issues/601), not shipped).
 
-**Current privilege model: write + branch protection + environment gate.**
-The bot has write access; a merge restriction (ruleset or branch
-protection) is the primary security boundary — without it the bot can merge
-its own PRs — and the `tend` environment keeps the operational secrets out
-of any run the bot can cause on its own. `tend check` verifies both are
-configured correctly, and `--fix` creates either. See
+**Current privilege model: write + merge mode + environment gate.**
+The bot has write access. `merge: maintainer` keeps it out of the default branch;
+`merge: yolo` grants a pull-request-only bypass there, while a second
+ruleset requires fresh CODEOWNER approval for `.github/**`,
+`.config/tend.yaml`, and the CODEOWNERS files themselves. Extra protected
+branches and tags remain admin-only.
+The `tend` environment releases operational secrets only on those configured
+branches, and generic credential environments require refs the bot cannot
+move (or a non-bot reviewer). In yolo mode, Tend also requires exact generated
+workflows and rejects other workflows whose environment use is dynamic or
+hidden in an external or ref-qualified reusable workflow. `tend check` verifies the complete
+policy, and `--fix` reconciles it. See
 `docs/security-model.md` for the full threat model. Alternative models
 (GitHub App, triage+fork) are in `TODO.md`.
 
@@ -406,8 +416,8 @@ sessions in the gap each pay attention for text that changes nothing they do.
 
 - **A rule has one home.** Another file that needs it names the section
   instead of restating it — copies drift, and a partial copy drops what the
-  copier left out. Before adding a rule, `rg` a distinctive phrase from it
-  across `plugins/`, `shared/`, and `CLAUDE.md`.
+  copier left out. Before adding a rule, search for a distinctive phrase from
+  it across `plugins/`, `shared/`, and `CLAUDE.md`.
 - **Every workflow that invokes the agent names a skill** (`default_prompt` in
   `config.py`). One without a skill has nowhere to put its own rules, so they
   land in the every-session file instead.

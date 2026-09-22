@@ -73,7 +73,7 @@ Step 1 anchor instead, so its spend covers the same band that step censuses.
 
 ## Session Log Paths
 
-Artifact paths: `-tmp-tend-agent-workspace-*-checkout/<session-id>.jsonl`
+Artifact paths: `-var-tmp-tend-agent-workspace-*-checkout/<session-id>.jsonl`
 
 `review-reviewers` runs produce one session log per matrix repo in
 `.github/workflows/review-reviewers.yaml`.
@@ -142,7 +142,7 @@ regenerating skips them entirely.
 Run this after the regen step, whether or not it produced a PR:
 
 ```bash
-rg -o --no-filename 'max-sixty/tend/[a-z/-]+@[0-9.]+' .github/workflows/ | sort -u
+git grep --untracked -hoE 'max-sixty/tend/[a-z/-]+@[0-9.]+' -- .github/workflows/ | sort -u
 ```
 
 The check is on the versions rather than the line count: pipe the same output
@@ -241,12 +241,8 @@ uv tool run pre-commit autoupdate
 npm --prefix worker ci && npm --prefix worker outdated
 npm --prefix site ci && npm --prefix site outdated
 
-# Versions pinned in a shell script: the sandbox boundary's Debian packages,
-# and worktrunk in the Codex Cloud setup.
+# Versions pinned in a shell script: worktrunk in the Codex Cloud setup.
 git grep -nE '^[A-Za-z_]*VERSION=' -- '*.sh'
-
-# The instant the sandbox boundary resolves its Ubuntu and npm packages as of.
-git grep -n '^PACKAGES_RESOLVED_AT=' -- '*.sh'
 ```
 
 What upstream currently publishes:
@@ -262,9 +258,8 @@ gh api repos/max-sixty/worktrunk/releases/latest --jq '.tag_name | ltrimstr("v")
 GHA `uses:` refs sweep separately, under a rule of their own — see below.
 Out of scope entirely: runner images (`ubuntu-24.04`), `node-version`, and
 `requires-python` are platform choices carrying their own rationale, so they
-move when a reason arrives rather than on a cadence. The `noble` series in
-`install-sandbox-runtime.sh` follows the runner image, so it moves with it and
-not on its own. `https://claude.ai/install.sh` is fetched live on purpose:
+move when a reason arrives rather than on a cadence.
+`https://claude.ai/install.sh` is fetched live on purpose:
 it is Anthropic's installer for a version-pinned binary, it runs as the
 sandbox UID, and a vendored copy would rot against their layout.
 
@@ -294,58 +289,12 @@ swamped run finishes nothing.
 | `uv_version` | both harness `action.yaml` files | move both defaults together, with `mitmproxy_version` |
 | `codex_version` | `codex/action.yaml`, `codex/refresh/action.yaml` | move both defaults together; `alpha` only for a fix not yet released |
 | `uv_build` | `generator/pyproject.toml` | its range must contain the uv doing the build; a stale one only warns during `uv build`, so only this sweep catches it |
-| `PACKAGES_RESOLVED_AT`, `BUBBLEWRAP_VERSION`, `SOCAT_VERSION`, `RIPGREP_VERSION` | `shared/steps/install-sandbox-runtime.sh` | move together; see below |
-| `sandbox_runtime_version` | both harness `action.yaml` files | `npm --before` filters this exact version too, so a release published after `PACKAGES_RESOLVED_AT` needs the instant moved in the same PR |
 | `WORKTRUNK_VERSION` | `.config/codex-cloud/environment.sh` | nothing in CI runs the script, and it dies under `set -euo pipefail` — confirm the release still ships `worktrunk-installer.sh` and that `wt config approvals add --yes` still records approvals without a TTY |
 
 A stale `claude` binary resolves `--model opus`/`sonnet` to a superseded alias
 target, so drift silently downgrades the model. In a bump PR, report the
 release notes between the old and new pins that affect the integration surfaces
 in the release-note pass above.
-
-### The sandbox boundary's packages
-
-bubblewrap, socat and ripgrep come from the Ubuntu archive and SRT's own
-dependency ranges come from npm, and both resolve as of `PACKAGES_RESOLVED_AT`
-rather than from whatever the live sources hold that morning. The four
-constants move together or not at all: the install asks apt for an exact
-version at that instant, each pocket lists one version, and a version the
-archive has superseded is gone from a later instant — which is the whole reason
-the pin names an instant. Move them with:
-
-```bash
-uv run --script .claude/skills/running-tend/scripts/refresh_sandbox_pins.py
-git diff shared/steps/install-sandbox-runtime.sh
-```
-
-The script prints what moved; the diff is the PR body's evidence. `test-sandbox`
-is the gate — it builds the real sandbox and drives both harness adapters
-through it, which is exactly what a bubblewrap change breaks.
-
-The instant moves every week, carrying whatever versions it resolves to, since
-it re-resolves SRT's npm tree as well; a week where the archive stood still is
-a one-line diff whose green `test-sandbox` is the point. This ships to
-consumers, so it rides that bucket: `chore: bump bubblewrap to <version>` when
-a capability moved, `chore: re-pin the sandbox boundary (<date>)` when only the
-instant did.
-
-This pin holds the archive's changes out of every consumer's sandbox until it
-moves, so a version that will not move is a finding rather than a skipped row.
-Read what the upload did before deciding which way to go —
-`https://changelogs.ubuntu.com/changelogs/pool/main/b/bubblewrap/bubblewrap_<version>/changelog`
-says it in a few lines. Newer is not automatically safer: a `-security` upload
-can *drop* a fix the previous one added, when that fix turned out to break
-something else, so read the changelog rather than the version order. Where the
-newer version is a fix, take it — fix Tend against it if `test-sandbox` goes
-red, and land both in one PR. Where it is a revert, or where taking it needs a
-maintainer decision, hold the whole set where it is and open an issue naming
-the version and what it changes. What is never the answer on its own is moving
-the version with no note, which turns a red check into a silent hold.
-
-`refresh_sandbox_pins.py` halts when the architectures publish different
-versions, which usually means one is a few hours behind; re-running later
-clears it. A halt parks the whole set, so a split that persists also parks the
-SRT tree's re-resolution and is the same kind of finding.
 
 `mitmproxy_version` pins the process that holds the real PAT and model
 credential, so a security fix there matters here. Check anything security- or
@@ -360,7 +309,24 @@ bump, use an isolated Plus/Pro login to run the refresh action and require both
 the full and access-only credentials to rotate. Inspect Codex's auth manager
 too: an unparsable access token must fall through to the stale `last_refresh`,
 and that refresh must use the refresh token without requiring the old access
-token. Report the relevant release notes crossed by the bump in its PR.
+token. Reach that inspection by diffing `codex-rs/login`'s blob SHAs between the
+two tags, never by filtering `repos/openai/codex/compare/<old>...<new>`: that
+endpoint caps `files` at 300 and `--paginate` does not lift it, so a window of a
+few hundred commits drops the directory from the list and reports an all-clear
+it cannot support.
+
+```bash
+login_blobs() { gh api "repos/openai/codex/git/trees/$1?recursive=1" \
+  --jq 'if .truncated then error("tree truncated") else .tree[] | select(.type == "blob" and (.path | startswith("codex-rs/login/"))) | "\(.path) \(.sha)" end' | sort; }
+diff <(login_blobs rust-v<old>) <(login_blobs rust-v<new>)
+```
+
+The tags carry a `rust-v` prefix the pin does not. Sorting by path puts each
+changed blob's before and after lines together, so a modification reads
+distinctly from an addition. Read every blob the diff names; empty output is a
+real all-clear, because the listing has no 300-file cap and the guard halts on
+the one limit it does have rather than returning a short tree. Report the
+relevant release notes crossed by the bump in its PR.
 
 ### `uses:` refs
 

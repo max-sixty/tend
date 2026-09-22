@@ -30,11 +30,22 @@ current tracker and read the current and previous month's evidence:
 
 ```bash
 uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" prepare-evidence
+  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" prepare-evidence \
+  > "$TMPDIR/evidence.json"
+jq -r '.current_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-current.md"
+jq -r '.previous_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-previous.md"
+jq -r '"tracker #\(.tracking_number) \(.month)"' "$TMPDIR/evidence.json"
 ```
 
 The command creates this month's tracker when needed, closes older open
-trackers, persists the current issue id, and prints both evidence windows.
+trackers, persists the current issue id, and returns both evidence windows.
+Redirect it rather than reading it inline: an established tracker's two
+windows run to hundreds of kilobytes, past what a tool result carries. The
+files are also how you count a finding's prior occurrences. Each entry carries
+its own session's wording, so grepping for this run's phrasing undercounts:
+list the finding headings first
+(`grep -h '^### ' "$TMPDIR"/evidence-*.md`), match on meaning, then read the
+`## Run` entry behind each candidate.
 
 After analysis, write the new findings in the format from `@review-gates.md`
 to `$TMPDIR/findings.md`. Include a literal `## Run $GITHUB_RUN_ID` heading.
@@ -100,6 +111,15 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
   The script re-reads each listing until two consecutive answers agree, because the API answers one URL from more than one snapshot, and its two kinds of read fail in opposite directions. A stale red listing drops the *newest* rows, so "`main` is green" can ship while a failure stands on it; a stale closure read serves a green older than the true latest, so a path already fixed reads as still red.
 
   Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `$TMPDIR/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The listing reaches back weeks, so most rows are already fixed and the closure read is what separates them. What it cannot close stays live: each Dependabot security update's `name` carries a per-update ID that never recurs, so no later run repeats its subject and those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the listing reached.
+
+- a tend workflow whose queue is dead. A run parked in GitHub's pre-job `waiting` state holds its concurrency group without ever concluding, so under `cancel-in-progress: false` every later tick takes the single pending slot and is replaced by its successor — the workflow stops running and nothing fails. Step 1's census cannot see the parked run, which admits a row only on a non-null `conclusion`, and the replacements it causes read there as ordinary concurrency.
+
+  ```bash
+  gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=waiting&per_page=50" \
+    --jq '.workflow_runs[] | {id, name, created_at, html_url}'
+  ```
+
+  A tend run still `waiting` after several of its own scheduling intervals — or, on an event-driven workflow, long after the event that created it — is wedged. Every generated workflow but the secretless `tend-mention-relay` carries the `tend` environment, so any of the rest can park. `pending_deployments` on it confirms which kind: `wait_timer: 0` with an empty `reviewers` is an environment gate with nothing left to release it, so `gh run cancel <id>` is the remedy and the pending successor starts. `queued` is a different state and not this shape — `gh run cancel` there answers `Cannot cancel a workflow run that is completed` while the runs API still reports the run `queued`. That is GitHub bookkeeping holding nothing live; leave it rather than fighting it.
 
 - an open Dependabot security alert with no PR or tracker proposing its fix — same closure as the red rows above, so an alert whose fix needs a maintainer decision stops re-surfacing once it is tracked. Dependabot opens that PR itself for most alerts, so the ones that reach this sweep are the ones where it could not — and nothing else in tend looks: `weekly` reviews the dependency PRs that exist, and the defining property here is that none was created.
 
@@ -186,7 +206,7 @@ uv run --script \
   "$(cat "$TMPDIR/review-runs-since")"
 ```
 
-Read every row: a correction is a maintainer contradicting a bot claim, not merely replying. Comment rows carry both timestamps because the window filters on `updated_at` — a `created` before the anchor is an older comment edited inside the window, a real hit rather than a broken filter. Empty `dispositions`, `comments`, and `reviews` is the all-clear.
+Read every row: a correction is a maintainer contradicting a bot claim, not merely replying. Every comment and review row names its `author` — prose style doesn't decide, since a maintainer can post through an agent; an empty `author` is a deleted account, never the bot. Comment rows carry both timestamps because the window filters on `updated_at` — a `created` before the anchor is an older comment edited inside the window, a real hit rather than a broken filter. Empty `dispositions`, `comments`, and `reviews` is the all-clear.
 
 Write "no maintainer corrections" into the tracking issue only after the script ran and returned empty — future runs read the phrase as ground truth when counting occurrences under Gate 1, so an unchecked all-clear suppresses the evidence it exists to accumulate. The script exits non-zero rather than reporting an empty window when the anchor or the bot login is missing, since both filters fail open.
 

@@ -25,10 +25,13 @@ from tend.config import (
     Config,
 )
 from tend.workflows import (
+    CODEOWNERS_BEGIN,
+    CODEOWNERS_END,
     GENERATORS,
     TEND_ENABLED_CONDITION,
     _deep_merge,
     _inline_script,
+    codeowners_config,
     generate_all,
     generate_codex_auth_refresh,
     generate_install_test,
@@ -49,6 +52,97 @@ def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
 
 def test_standard_workflow_registry_matches_the_generators() -> None:
     assert STANDARD_WORKFLOWS == set(GENERATORS)
+
+
+def test_codeowners_block_is_final_and_idempotent() -> None:
+    existing = dedent(f"""\
+        *.py @python-team
+
+        {CODEOWNERS_BEGIN}
+        /.github/** @old-owner
+        /.config/tend.yaml @old-owner
+        {CODEOWNERS_END}
+
+        * @fallback
+        """)
+
+    updated = codeowners_config(existing, "@octo-org/security")
+
+    assert updated == dedent(f"""\
+        *.py @python-team
+
+
+        * @fallback
+
+        {CODEOWNERS_BEGIN}
+        /.github/** @octo-org/security
+        /.config/tend.yaml @octo-org/security
+        /CODEOWNERS @octo-org/security
+        /docs/CODEOWNERS @octo-org/security
+        **/CLAUDE.md @octo-org/security
+        **/CLAUDE.local.md @octo-org/security
+        **/AGENTS.md @octo-org/security
+        **/AGENTS.override.md @octo-org/security
+        **/.claude @octo-org/security
+        **/.claude/** @octo-org/security
+        **/.agents @octo-org/security
+        **/.agents/** @octo-org/security
+        {CODEOWNERS_END}
+        """)
+    assert codeowners_config(updated, "@octo-org/security") is None
+
+
+def test_codeowners_rejects_a_malformed_managed_block() -> None:
+    with pytest.raises(click.ClickException, match="malformed tend control-plane"):
+        codeowners_config(f"{CODEOWNERS_BEGIN}\n/.github/** @owner\n", "@owner")
+
+
+def test_codeowners_block_is_removed_when_yolo_is_disabled() -> None:
+    existing = (
+        "*.py @python\n\n"
+        f"{CODEOWNERS_BEGIN}\n"
+        "/.github/** @security\n"
+        "/.config/tend.yaml @security\n"
+        "/CODEOWNERS @security\n"
+        "/docs/CODEOWNERS @security\n"
+        "**/CLAUDE.md @security\n"
+        "**/CLAUDE.local.md @security\n"
+        "**/AGENTS.md @security\n"
+        "**/AGENTS.override.md @security\n"
+        "**/.claude @security\n"
+        "**/.claude/** @security\n"
+        "**/.agents @security\n"
+        "**/.agents/** @security\n"
+        f"{CODEOWNERS_END}\n"
+    )
+
+    assert codeowners_config(existing, None) == "*.py @python\n"
+
+
+def test_maintainer_mode_leaves_an_unmanaged_codeowners_file_byte_stable() -> None:
+    assert codeowners_config("*.py @python", None) is None
+
+
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_generated_runner_uv_does_not_restore_dependency_caches(
+    tmp_path: Path, harness: str
+) -> None:
+    """Runner-side helpers must not reuse dependencies cached by consumer setup."""
+    cfg = Config.load(
+        _minimal_config(
+            tmp_path,
+            f"harness: {harness}\nworkflows:\n  ci-fix:\n    watched_workflows: [ci]\n",
+        )
+    )
+    setup_steps = [
+        step
+        for workflow in generate_all(cfg, with_install_test=True)
+        for job in yaml.safe_load(workflow.content)["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("uses", "").startswith("astral-sh/setup-uv@")
+    ]
+    assert setup_steps
+    assert all(step["with"].get("enable-cache") is False for step in setup_steps)
 
 
 def test_minimal_config_generates_eight_workflows(tmp_path: Path) -> None:
@@ -123,7 +217,7 @@ def _eyes_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:
 def test_local_setup_action_keeps_runner_checkout_stable(
     tmp_path: Path, name: str, job: str
 ) -> None:
-    """PR topology is selected only inside the harness's disposable clone."""
+    """PR topology is selected only inside the harness's sandbox."""
     extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     steps = yaml.safe_load(GENERATORS[name](cfg).content)["jobs"][job]["steps"]
@@ -184,33 +278,6 @@ def test_generated_workflows_survive_the_whitespace_hooks(
             assert line == line.rstrip(), f"{wf.filename}:{n}: trailing whitespace"
 
 
-def test_sandbox_levers_rendered_for_claude(tmp_path: Path) -> None:
-    """sandbox_path/sandbox_env/sandbox_setup render as action inputs and the
-    workflow still parses; the values land under the agent step's `with:`."""
-    extra = dedent("""\
-        sandbox_path:
-          - ~/.cargo/bin
-        sandbox_env:
-          RUST_BACKTRACE: "1"
-        sandbox_setup:
-          - rustup component add clippy
-    """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    wf = generate_mention(cfg)
-    data = yaml.safe_load(wf.content)
-    with_blocks = [
-        s["with"]
-        for job in data["jobs"].values()
-        for s in job.get("steps", [])
-        if "sandbox_path" in s.get("with", {})
-    ]
-    assert len(with_blocks) == 1
-    with_block = with_blocks[0]
-    assert with_block["sandbox_path"].strip() == "~/.cargo/bin"
-    assert with_block["sandbox_env"].strip() == "RUST_BACKTRACE=1"
-    assert with_block["sandbox_setup"].strip() == "rustup component add clippy"
-
-
 def _agent_step_inputs(content: str) -> list[set[str]]:
     """The `with:` keys of each operational agent action in a workflow.
 
@@ -225,14 +292,6 @@ def _agent_step_inputs(content: str) -> list[set[str]]:
         if step.get("uses", "").split("@", 1)[0]
         in {"max-sixty/tend/claude", "max-sixty/tend/codex"}
     ]
-
-
-def test_sandbox_levers_absent_by_default(tmp_path: Path) -> None:
-    levers = {"sandbox_path", "sandbox_env", "sandbox_setup"}
-    cfg = Config.load(_minimal_config(tmp_path))
-    for wf in generate_all(cfg):
-        for inputs in _agent_step_inputs(wf.content):
-            assert not levers & inputs
 
 
 def test_memory_gist_is_an_explicit_experimental_claude_only_input(
@@ -285,29 +344,8 @@ def test_memory_gist_follows_a_per_workflow_claude_override(
     assert "memory_gist:" not in workflows["tend-review.yaml"]
 
 
-def test_sandbox_levers_rendered_for_codex(tmp_path: Path) -> None:
-    """Codex shares the proxy sandbox, so its action receives the levers."""
-    extra = dedent("""\
-        harness: codex
-        model: gpt-5.5
-        sandbox_path:
-          - ~/.cargo/bin
-    """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    for wf in generate_all(cfg):
-        for inputs in _agent_step_inputs(wf.content):
-            assert "sandbox_path" in inputs
-
-
 def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
-    """A `uses` setup step with `with:` parameters must still receive the
-    `if:` guard in the notifications workflow.
-
-    Without `with` support on `uses`, steps like `actions/setup-node@v4` that
-    require parameters are forced into `raw`, which cannot receive the guard —
-    so they run even when the pre-check has skipped checkout, failing with
-    "The specified node version file does not exist" (issue #281).
-    """
+    """An action setup step keeps its inputs and the no-work guard."""
     extra = dedent("""\
         setup:
           - uses: actions/setup-node@v4
@@ -316,22 +354,11 @@ def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    notifications = workflows["tend-notifications.yaml"]
-    data = yaml.safe_load(notifications.content)
-
-    steps = data["jobs"]["notifications"]["steps"]
-    setup_node = next(
-        (s for s in steps if s.get("uses") == "actions/setup-node@v4"), None
-    )
-    assert setup_node is not None, "setup-node step missing from notifications workflow"
-    assert setup_node.get("with") == {"node-version-file": ".node-version"}, (
-        "uses step must render `with:` parameters"
-    )
-    assert "if" in setup_node, (
-        "setup-node step must receive the `if:` guard so it is skipped when "
-        "checkout was skipped (otherwise .node-version is missing and the "
-        "step fails)"
-    )
+    notifications = yaml.safe_load(workflows["tend-notifications.yaml"].content)
+    steps = notifications["jobs"]["notifications"]["steps"]
+    setup_node = next(s for s in steps if s.get("uses") == "actions/setup-node@v4")
+    assert setup_node["with"] == {"node-version-file": ".node-version"}
+    assert "if" in setup_node
 
 
 def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
@@ -347,6 +374,7 @@ def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
             env:
               FORCE_COLOR: "1"
           - run: cargo build --release
+            name: Build release
             shell: bash
             working-directory: ./crates/core
             env:
@@ -364,9 +392,26 @@ def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
     assert node["env"] == {"FORCE_COLOR": "1"}
 
     build = next(s for s in steps if s.get("run") == "cargo build --release")
+    assert build["name"] == "Build release"
     assert build["shell"] == "bash"
     assert build["working-directory"] == "./crates/core"
     assert build["env"] == {"RUSTFLAGS": "-D warnings"}
+
+
+def test_setup_step_long_expression_stays_on_one_line(tmp_path: Path) -> None:
+    """A gated secret's expression can run past any fold width. Folded, it
+    would break with a trailing space and read differently from the config."""
+    events = " || ".join(f"github.event_name == 'event_{i}'" for i in range(12))
+    expression = f"${{{{ ({events}) && secrets.MY_TOKEN || '' }}}}"
+    extra = dedent(f"""\
+        setup:
+          - run: echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"
+            env:
+              MY_TOKEN: "{expression}"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    for wf in without_relay(generate_all(cfg)):
+        assert f"MY_TOKEN: {expression}\n" in wf.content, wf.filename
 
 
 @pytest.mark.parametrize(
@@ -654,29 +699,6 @@ def test_multi_line_prompt_generates_parseable_yaml(
         assert "${{ github.event." not in prompt
 
 
-@pytest.mark.parametrize("lever", ["sandbox_path", "sandbox_setup"])
-def test_sandbox_levers_survive_an_indented_first_line(
-    tmp_path: Path, lever: str
-) -> None:
-    """The `sandbox_*` inputs are consumer-supplied lists rendered into the same
-    block scalar as the prompt, and had the same bug: an entry whose first line
-    is indented made every later entry look like the end of the scalar. Only
-    `sandbox_env` is exempt, and only because it refuses a newline outright.
-    """
-    extra = f'{lever}:\n  - "  indented entry"\n  - second entry\n'
-    workflows = without_relay(
-        generate_all(Config.load(_minimal_config(tmp_path, extra)))
-    )
-    for wf in workflows:
-        step = next(
-            s
-            for job in yaml.safe_load(wf.content)["jobs"].values()
-            for s in job["steps"]
-            if lever in s.get("with", {})
-        )
-        assert step["with"][lever] == "  indented entry\nsecond entry\n"
-
-
 def test_multi_line_prompt_survives_the_override_round_trip(tmp_path: Path) -> None:
     """A workflow carrying `workflow_extra`/`jobs` overrides is re-serialised by
     ruamel rather than emitted by the template, so the block scalar is written a
@@ -808,7 +830,7 @@ def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert len(list(wf_dir.glob("tend-*.yaml"))) == 8
 
 
-def test_review_delegates_pr_topology_to_disposable_clone(tmp_path: Path) -> None:
+def test_review_delegates_pr_topology_to_the_sandbox(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
@@ -1005,7 +1027,7 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     assert "client_payload[url]" not in relay_run
     assert "event_type=tend-mention-review" in relay_run
 
-    # The harness selects the PR branch only in its disposable clone.
+    # The harness selects the PR branch only inside its sandbox.
     handle_steps = data["jobs"]["handle"]["steps"]
 
     # Prompt keeps the review-kind and mention/participation branches apart,
@@ -1136,20 +1158,25 @@ def test_setup_before_pr_checkout_in_mention(tmp_path: Path) -> None:
 
 def test_mention_handle_has_queue_delay(tmp_path: Path) -> None:
     """Handle job computes queue delay so the prompt can detect stale triggers."""
-    cfg = Config.load(_minimal_config(tmp_path))
-    workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    mention = workflows["tend-mention.yaml"]
-    data = yaml.safe_load(mention.content)
-    handle_steps = data["jobs"]["handle"]["steps"]
+    cfg = Config.load(_minimal_config(tmp_path, "setup:\n  - run: sleep 0\n"))
+    mention = generate_mention(cfg)
+    handle_steps = yaml.safe_load(mention.content)["jobs"]["handle"]["steps"]
     delay_steps = [s for s in handle_steps if s.get("id") == "delay"]
     assert len(delay_steps) == 1, "handle job must have a queue delay step"
     assert "steps.delay.outputs.seconds" in mention.content, (
         "prompt must reference queue delay"
     )
-    # Delay step must come before the tend action (output must be available)
-    delay_idx = mention.content.index("Compute queue delay")
-    tend_idx = mention.content.index(f"max-sixty/tend/claude@{ACTION_VERSION}")
-    assert delay_idx < tend_idx, "delay step must precede tend action"
+    # Ahead of checkout and `setup:`: the delay measures the wait for the job
+    # to start, and anything before it reaches the agent as queue time.
+    delay_idx = handle_steps.index(delay_steps[0])
+    checkout_idx = next(
+        i
+        for i, s in enumerate(handle_steps)
+        if s.get("uses", "").startswith("actions/checkout@")
+    )
+    setup_idx = next(i for i, s in enumerate(handle_steps) if s.get("run") == "sleep 0")
+    assert delay_idx < checkout_idx, "delay step must precede checkout"
+    assert delay_idx < setup_idx, "delay step must precede setup"
 
 
 def test_mention_queue_delay_guards_empty_event_ts(tmp_path: Path) -> None:
@@ -1662,28 +1689,48 @@ def test_workflow_with_local_setup_regtest(
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
-def test_sandbox_levers_regtest(regtest: object, tmp_path: Path) -> None:
-    """Snapshot the rendered agent step with all three sandbox levers set, to
-    lock the block-scalar shape threaded to the composite action."""
+def test_deprecated_sandbox_keys_regtest(regtest: object, tmp_path: Path) -> None:
+    """Snapshot the `setup:` steps the deprecated keys migrate to, after the
+    consumer's own, in the workflow whose pre-check guards every setup step."""
     extra = dedent("""\
+        setup:
+          - uses: astral-sh/setup-uv@v10.1.0
+        sandbox_env:
+          MY_TOKEN: "${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}"
         sandbox_path:
           - ~/.cargo/bin
           - /opt/tools/bin
-        sandbox_env:
-          RUST_BACKTRACE: "1"
-          CARGO_TERM_COLOR: always
         sandbox_setup:
-          - rustup component add clippy
-          - cargo fetch --locked
+          - uv sync --frozen
+          - curl -LsSf https://example.invalid/install.sh | sh
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
-    print(generate_mention(cfg).content, end="", file=regtest)  # type: ignore[arg-type]
+    wf = GENERATORS["notifications"](cfg)
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
 def test_mention_relay_regtest(regtest: object, tmp_path: Path) -> None:
     """Snapshot tend-mention-relay, which is not in `GENERATORS`."""
     cfg = Config.load(_minimal_config(tmp_path))
     print(generate_mention_relay(cfg).content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_overrides_change_only_what_they_name(tmp_path: Path) -> None:
+    """Applying an override re-serializes the whole workflow, which must not
+    refold its long scalars: a refolded `>-` block gains line breaks in its
+    value. Mention's are the longest the templates render."""
+
+    def mention(extra: str = "") -> dict:
+        cfg = Config.load(_minimal_config(tmp_path, extra))
+        wf = next(wf for wf in generate_all(cfg) if wf.filename == "tend-mention.yaml")
+        return yaml.safe_load(wf.content)
+
+    plain = mention()
+    overridden = mention(
+        "workflows:\n  mention:\n    jobs:\n      handle:\n        env: {X: '1'}\n"
+    )
+    assert overridden["jobs"]["handle"].pop("env") == {"X": "1"}
+    assert overridden == plain
 
 
 def test_extras_apply_path_regtest(regtest: object, tmp_path: Path) -> None:

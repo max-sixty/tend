@@ -25,6 +25,20 @@ RED_CONCLUSIONS = {
     "ACTION_REQUIRED",
     "ERROR",
 }
+# The conclusions that pass. Anything else terminal and not red produced no
+# result — CANCELLED or STALE, a COMPLETED check carrying no conclusion, or a
+# conclusion GitHub adds later — so it is neither red nor green. Naming green
+# rather than the no-result set keeps the unrecognized case fail-closed.
+GREEN_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+#: Seconds between rollup reads, and between a clean read and the one that
+#: confirms it.
+POLL_SEC = 60
+CONFIRM_SEC = 30
+#: Both polling and confirmation sleeps consume this budget.
+POLL_BUDGET_SEC = 9 * POLL_SEC
+#: The final poll may add one confirmation sleep. Request time and poll()'s
+#: commit-resolution retry are additional; the harness owns command timeouts.
+MAX_SLEEP_SEC = POLL_BUDGET_SEC + CONFIRM_SEC
 GRAPHQL_QUERY = """
 query($owner: String!, $name: String!, $oid: GitObjectID!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -65,7 +79,7 @@ def reduce_rollup(
     workflow: str,
     allow_filtered_empty: bool = False,
 ) -> dict[str, list[str]] | None:
-    """Filter and collapse raw contexts to pending and failed check names."""
+    """Filter and collapse raw contexts to pending, failed and unverified names."""
     contexts: list[dict[str, str]] = []
     own_run = f"/runs/{run_id}/" if run_id else ""
     for node in nodes:
@@ -101,7 +115,11 @@ def reduce_rollup(
         contexts.append(context)
 
     if not contexts:
-        return {"pending": [], "failed": []} if allow_filtered_empty else None
+        return (
+            {"pending": [], "failed": [], "unverified": []}
+            if allow_filtered_empty
+            else None
+        )
 
     groups: dict[tuple[str, str], list[dict[str, str]]] = {}
     for context in contexts:
@@ -124,6 +142,12 @@ def reduce_rollup(
             for context in current
             if context["status"] == "COMPLETED"
             and context["conclusion"] in RED_CONCLUSIONS
+        ],
+        "unverified": [
+            f"{context['name']} {context['url']}"
+            for context in current
+            if context["status"] == "COMPLETED"
+            and context["conclusion"] not in (RED_CONCLUSIONS | GREEN_CONCLUSIONS)
         ],
     }
 
@@ -209,22 +233,27 @@ def head_note(*, pr: str, repo: str, sha: str) -> None:
 def _settle(
     *, repo: str, sha: str, sleep: Callable[[float], None]
 ) -> tuple[bool, dict[str, list[str]] | None]:
-    """Poll until nothing pends on two reads 30s apart, or the cap expires.
+    """Poll until nothing pends on two reads 30s apart, or the budget expires.
 
     Returns whether the rollup settled, and the last complete rollup read.
+    Both sleeps draw on :data:`POLL_BUDGET_SEC`, so the total stays within
+    :data:`MAX_SLEEP_SEC` however often the rollup goes pending again.
     """
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     workflow = os.environ.get("GITHUB_WORKFLOW", "")
     last: dict[str, list[str]] | None = None
-    for _ in range(9):
-        sleep(60)
+    budget = POLL_BUDGET_SEC
+    while budget >= POLL_SEC:
+        sleep(POLL_SEC)
+        budget -= POLL_SEC
         current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
         if current is None:
             continue
         last = current
         if current["pending"]:
             continue
-        sleep(30)
+        sleep(CONFIRM_SEC)
+        budget -= CONFIRM_SEC
         current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
         if current is None:
             continue
@@ -269,6 +298,11 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
     belongs to a cancelled Actions run. A run that can't be read decides nothing,
     unless another failure is already real.
 
+    A check that settled without a result — cancelled, stale, or a conclusion
+    outside the passing set — never reached a verdict, so it cannot withhold on
+    its merits. It approves under the same policy, named as unverified so the
+    approval doesn't read as a check that passed.
+
     Whether *sha* is still the head is not judged here: the review skill posts
     every review behind `review_preflight.py post`, which refuses a moved head.
     """
@@ -301,14 +335,25 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
             return 2
         if not failures:
             print(f"approve: every failure on {sha} is a cancelled run; unverified:")
-            print(*rollup["pending"], sep="\n")
+            print(*rollup["pending"], *rollup["unverified"], sep="\n")
             return 0
     if failures:
         print(f"withhold: red on {sha}:")
         print(*failures, sep="\n")
         return 1
+    if rollup["unverified"]:
+        print(f"approve: no failing check on {sha}; unverified:")
+        print(*rollup["unverified"], sep="\n")
+        return 0
     print(f"approve: no failing check on {sha}")
     return 0
+
+
+def _unverified_note(rollup: dict[str, list[str]]) -> None:
+    """Name checks that settled without a result, beside another verdict."""
+    if rollup["unverified"]:
+        print("settled without a result (cancelled, stale, or unrecognized):")
+        print(*rollup["unverified"], sep="\n")
 
 
 def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
@@ -330,8 +375,14 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
     if settled and last["failed"]:
         print(f"red on {sha}:")
         print(*last["failed"], sep="\n")
+        _unverified_note(last)
         head_note(pr=pr, repo=repo, sha=sha)
         return 1
+    if settled and last["unverified"]:
+        print(f"no result from these checks on {sha} — UNVERIFIED, not green:")
+        print(*last["unverified"], sep="\n")
+        head_note(pr=pr, repo=repo, sha=sha)
+        return 2
     if settled:
         print(f"green: every gating check on {sha} settled green")
         head_note(pr=pr, repo=repo, sha=sha)
@@ -345,6 +396,7 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
     if last["failed"]:
         print("failures observed so far (unconfirmed while checks pend):")
         print(*last["failed"], sep="\n")
+    _unverified_note(last)
     head_note(pr=pr, repo=repo, sha=sha)
     return 3
 

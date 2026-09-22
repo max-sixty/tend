@@ -53,11 +53,24 @@ bot_name: my-project-bot
 # `workflows.<name>` entry. That workflow then overrides the top-level value;
 # `args: []` clears inherited arguments.
 
+# ## Merge mode
+#
+# `maintainer` is the default: the bot can push branches and open PRs, but only an
+# admin can update the default branch. `yolo` lets the bot merge PRs into the
+# default branch while still blocking direct pushes. In yolo mode, `tend init`
+# owns a final CODEOWNERS block for `.github/**`, `.config/tend.yaml`, and the
+# CODEOWNERS files themselves. GitHub requires a fresh approval from the
+# configured maintainer user (never the bot or a team) before those control-plane
+# changes can merge.
+#
+# merge: yolo
+# control_plane_owner: "@octocat"
+
 # ## Protected branches
 #
 # The default branch is always protected. Additional long-lived branches
-# (e.g. release or staging branches) can be listed here. The bot cannot
-# merge to any of them without human approval.
+# (e.g. release or staging branches) can be listed here. They remain
+# admin-only under either merge mode.
 #
 # protected_branches: ["release", "staging"]
 
@@ -114,23 +127,24 @@ bot_name: my-project-bot
 
 # ## Setup steps
 #
-# Build tools, caches, and environment variables that run before Claude in every
-# workflow. A `setup:` entry mirrors a GitHub Actions step: give it exactly
+# Build tools, caches, and environment variables that run before the agent in
+# every workflow. A `setup:` entry mirrors a GitHub Actions step: give it exactly
 # one of `uses` or `run`, plus any of these optional fields:
 #
 #     name, id, if, with, env, shell, working-directory,
 #     continue-on-error, timeout-minutes
 #
 # For multi-step setup, add multiple entries to the `setup:` list — they
-# render in declared order. For anything more elaborate (conditional shells,
-# shared env across many steps, anchored caches), move the YAML into a local
-# composite action (`.github/actions/tend-setup/action.yaml`) and reference
-# it from one entry with `uses`.
+# render in declared order. For anything more elaborate, move the YAML into a
+# local composite action (`.github/actions/tend-setup/action.yaml`) and reference
+# it from one entry with `uses`. In `yolo`, all `setup:` entries are refused
+# because ordinary code can steer even a fixed runner-side command.
 #
 # Setup runs against reviewed code — the default branch, or in `tend-review`
-# the PR's base branch, checked out before the PR's own tree lands. Project
-# setup that must see the PR's manifests (installing its dependencies) goes in
-# `sandbox_setup:` below, which runs inside either harness's sandbox.
+# the PR's base branch, checked out before the PR's own tree lands. What it
+# builds reaches the agent (see "The agent's sandbox" below); what the PR itself
+# changes, such as a new dependency in its lockfile, the agent installs in the
+# session.
 #
 # `tend-notifications` decides up front whether the agent needs to boot and
 # injects an `if:` guard on every setup step so a run with no unread
@@ -139,39 +153,32 @@ bot_name: my-project-bot
 # job. Write it as a plain expression or one whole `${{ ... }}`; mixing the two
 # is rejected at `init`.
 #
-# Each form below shows the config and the YAML it produces inside the
-# `steps:` block. The guard is shown on the first example; it's added the same
-# way on every step.
+# The two forms below show the config and the YAML they produce inside the
+# `steps:` block. `tend-notifications` adds its no-work guard to each step.
 #
 # `uses`:
 #
 #     setup:
-#       - uses: astral-sh/setup-uv@v10.1.0
+#       - uses: astral-sh/setup-uv@v10.2.0
 #
 #     # renders as (in tend-notifications):
-#     #   - uses: astral-sh/setup-uv@v10.1.0
+#     #   - uses: astral-sh/setup-uv@v10.2.0
 #     #     if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
 #     #
 #     # in other workflows:
-#     #   - uses: astral-sh/setup-uv@v10.1.0
+#     #   - uses: astral-sh/setup-uv@v10.2.0
 #
 # `uses` with action inputs and step-level env:
 #
 #     setup:
 #       - uses: actions/setup-node@v7
-#         name: Setup Node
 #         with:
 #           node-version-file: .node-version
-#         env:
-#           FORCE_COLOR: "1"
 #
 #     # renders as:
 #     #   - uses: actions/setup-node@v7
-#     #     name: Setup Node
 #     #     with:
 #     #       node-version-file: .node-version
-#     #     env:
-#     #       FORCE_COLOR: '1'
 #
 # `run` with shell and working directory:
 #
@@ -189,79 +196,90 @@ bot_name: my-project-bot
 #     #     env:
 #     #       RUSTFLAGS: -D warnings
 
-# ## Sandbox setup (both harnesses)
+# ## The agent's sandbox (both harnesses)
 #
-# `setup:` above runs as the RUNNER user, around the composite action. The
-# harness creates a disposable event checkout and runs the agent as a separate,
-# non-sudo user inside Anthropic Sandbox Runtime with a fixed env allowlist.
-# The runner checkout remains on reviewed code for `setup:` and local-action
-# POST cleanup. Shared system/hosted-toolcache paths and independently
-# seeded paths already present under the sandbox home carry over. Files that
-# `setup:` writes into the runner checkout or runner home do not: the agent
-# receives an independent disposable checkout, and the runner home may contain
-# credentials. Use `sandbox_setup:` for dependencies, generated files, or
-# home-scoped installs the agent needs, such as `cargo install`,
-# `pip install --user`, or `uv tool install`.
+# `setup:` is available only in maintainer mode. Yolo refuses it because code
+# the bot merged to the default branch could steer a fixed runner-side command.
+# In maintainer mode it runs as the RUNNER user, around the composite action. The
+# agent then runs as a separate, non-sudo user inside a hardened systemd
+# unit, in the job's own checkout and home, with the job's PATH and
+# environment. It sees them through a copy-on-write view: what `setup:`
+# prepared (a toolchain, a warm cache) is there at its own path, the agent
+# writes wherever the runner itself could — a path only root can write is not
+# one of them — and nothing it writes reaches the runner or a later step. The
+# sandbox's `/tmp` is its own RAM-backed tmpfs; write anything bulky under
+# `$TMPDIR`.
 #
-# Tend appends a pinned `uv` fallback after the `setup:` PATH. It installs no
-# other language toolchain. These keys make deliberate additions inside the
-# sandbox:
+# The view covers the runner account's home, so the job's checkout has to sit
+# inside it, as it does on GitHub-hosted runners. A self-hosted runner whose
+# work folder is outside that home is not supported yet: the job fails in its
+# "Set up credential-isolation sandbox" step, naming both paths. Configuring
+# the runner's work folder under its home avoids it.
 #
-# - `sandbox_path`: directories prepended to the sandbox PATH. A leading `~`
-#   expands to the sandbox home. Use it for a system directory the installer did
-#   not add to PATH, or for a tool installed by `sandbox_setup:` off PATH:
+# So anything `setup:` leaves readable in the runner's home or checkout (a
+# registry login, a cloud credential file), and anything exported to
+# `$GITHUB_ENV` or set in job-level `env:`, is readable by the agent, and so by
+# anyone who can open a pull request. Log in only in steps tend does not run.
+# Tend masks the Actions runner's own files and GitHub's file-command directory.
 #
-#     sandbox_path:
-#       - /opt/my-tool/bin
+# The sandbox refuses `AF_UNIX` sockets: creating one returns `EPERM`,
+# and the boundary asserts that at startup, so it is not something a config
+# key relaxes. Anonymous pipes and `socketpair()` are unaffected; anything
+# that opens a named socket is not, however closely its two ends are
+# related. So a build tool that drives worker processes over one loses them
+# — and .NET's "named pipes" are `AF_UNIX` sockets, so MSBuild loses its
+# worker nodes silently: a multi-project `dotnet build` prints
+# `Build FAILED.` with `0 Error(s)` and no diagnostic. `-m:1` keeps MSBuild
+# in one process and makes real errors visible again.
 #
-#   A runner-home source path outside the disposable checkout is refused.
+# The sandbox also refuses new namespaces (`unshare --user` fails), so a tool
+# that builds its own sandbox from one, such as bubblewrap, a rootless
+# container runtime, or Chromium's sandbox, cannot start inside it.
 #
-# - `sandbox_env`: NAME: VALUE pairs added to the agent's launch env. Reserved
-#   keys are rejected at `init`, and again inside the sandbox so a hand-edited
-#   workflow can't smuggle one past:
+# Tend appends a pinned `uv` fallback after the agent's PATH. It installs no
+# other language toolchain, and puts nothing on PATH before `setup:` runs, so
+# a `setup:` step that calls `uv` needs `astral-sh/setup-uv` ahead of it, as
+# in any workflow. A directory a `setup:` step appends to
+# `$GITHUB_PATH` is on the agent's PATH:
 #
-#   - proxy routing — `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `http_proxy`,
-#     `https_proxy`, `no_proxy`
-#   - CA trust — `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`
-#   - credential and Codex configuration variables — `GH_TOKEN`,
-#     `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
-#     `OPENAI_API_KEY`, `CODEX_API_KEY`, `CODEX_AUTH_JSON`, `CODEX_HOME`
-#   - the disposable checkout identity — `GITHUB_WORKSPACE`
-#   - prompt suppression — `CLAUDE_CODE_REMOTE`
-#   - the sandbox's own locations — `HOME`, `PATH`, `TMPDIR`, `TMPPREFIX`,
-#     `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`
+#     setup:
+#       - run: echo "/opt/my-tool/bin" >> "$GITHUB_PATH"
 #
-#     sandbox_env:
-#       RUST_BACKTRACE: "1"
+# A variable a `setup:` step exports to `$GITHUB_ENV` is in the agent's
+# environment the same way:
 #
-#   Setup-step env changes do not cross automatically, except under a `GITHUB_*`
-#   name — those ride the GitHub context, so don't give a secret one. If a build
-#   needs an env change (for example `JAVA_HOME` rather than `java` on PATH),
-#   add it explicitly.
+#     setup:
+#       - run: echo "RUST_BACKTRACE=1" >> "$GITHUB_ENV"
 #
-# - `sandbox_setup`: shell commands run as the sandbox user after the toolchain
-#   and plugins install and before the agent runs, with the disposable checkout
-#   as cwd. It shares one SRT process lifetime with the agent. The disposable
-#   checkout holds the PR's tree, so this is where installing the
-#   project's dependencies belongs (`uv sync`, `npm ci`), alongside other
-#   on-disk effects like warming a cache. Env-only tweaks don't persist across
-#   the command's shell — use sandbox_path/sandbox_env. End installer commands
-#   by running the tool so a broken install fails before the agent starts:
+# Tend's proxy routing, CA trust, and dummy credentials win over a variable of
+# the same name. Every command the sandbox runs inherits that environment, and
+# on `tend-review` and on a mention on a pull request those commands include
+# the pull request's own code whenever the agent builds or tests that tree.
+# Tend's own GitHub and model credentials never reach the sandbox — a
+# runner-side proxy injects them into the requests that need them; the one
+# exception is Codex under subscription auth, which receives an expiring
+# access-only token. A third-party credential has no such route, so a secret
+# exported for the agent is readable by anyone who can open a pull request.
 #
-#     sandbox_setup:
-#       - uv tool install pre-commit
-#       - pre-commit --version
+# Give the agent the narrowest credential that does the job: that is the
+# mitigation that holds everywhere, because the value sits in the agent's env
+# on every workflow, and no event confines the session to text: a session on
+# any event can check out a pull request or run a reproduction from an issue
+# body. Withholding it from the events that carry unreviewed code closes the
+# largest path. Hand the secret to the step through its `env:`, where a GitHub
+# Actions expression can gate it — name the events that get it rather than the
+# ones that don't, and keep the secret on the `&&` side, since an empty string
+# is falsy and `<cond> && '' || secrets.X` hands over the secret whatever
+# `<cond>` says. Every step after it sees the value as well, so add it last:
 #
-#   One block runs for every workflow, and the commands see the same GitHub
-#   context the agent does — `$GITHUB_WORKFLOW`, `$GITHUB_EVENT_NAME`,
-#   `$GITHUB_REPOSITORY` and the rest of `GITHUB_*`, straight from Actions — so
-#   a command can scope itself to the workflows or events that need it.
-#   `$GITHUB_WORKFLOW` is the same string a `setup:` step matches with
-#   `if: github.workflow == '...'`, so a gated install and its assertion name
-#   the same workflows:
+#     setup:
+#       - run: echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"
+#         env:
+#           MY_TOKEN: ${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}
 #
-#     sandbox_setup:
-#       - 'if [ "$GITHUB_WORKFLOW" = tend-weekly ]; then nix --version; fi'
+# `$GITHUB_ENV` reads one `NAME=VALUE` per line, so a value that expands to
+# more than one line sets variables of its own. A multi-line secret needs
+# GitHub's `NAME<<DELIMITER` form, with a delimiter the value cannot contain.
 #
 # ## Memory Gist (experimental, Claude harness)
 #
@@ -370,8 +388,8 @@ bot_name: my-project-bot
 
 # ### weekly
 #
-# Weekly (default Sunday 09:17 UTC). Reviews dependency PRs, approves safe
-# patch and minor updates (a maintainer merges — the bot never merges).
+# Weekly (default Sunday 09:17 UTC). Reviews dependency PRs and approves safe
+# patch and minor updates; merging follows the configured mode.
 #
 # workflows:
 #   weekly:
@@ -401,7 +419,8 @@ bot_name: my-project-bot
 # Overrides use RFC 7396 (JSON Merge Patch): mappings deep-merge, scalars and
 # lists replace, and `null` deletes the key. Unknown job names print a warning
 # but don't fail. Step-level overrides aren't supported — use the `setup:`
-# mechanism above to inject steps.
+# mechanism above to inject steps. Yolo refuses both override forms so
+# credential-bearing generated jobs retain their audited shape.
 #
 # ### Example: skip review on labeled PRs
 #

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from textwrap import dedent
 
@@ -171,6 +172,120 @@ def test_protected_branches_empty_string_rejected(tmp_path: Path) -> None:
     """),
     )
     with pytest.raises(ClickException, match="non-empty strings"):
+        Config.load(path)
+
+
+def test_merge_defaults_to_maintainer(tmp_path: Path) -> None:
+    cfg = Config.load(_write_config(tmp_path, "bot_name: my-bot\n"))
+
+    assert cfg.merge == "maintainer"
+    assert cfg.merge_policy.bot_can_merge is False
+    assert cfg.merge_policy.expected_runtime_bypass == "never"
+
+
+def test_yolo_merge_requires_one_control_plane_owner(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+            bot_name: my-bot
+            merge: yolo
+            control_plane_owner: "@octocat"
+            """),
+    )
+
+    cfg = Config.load(path)
+
+    assert cfg.merge_policy.bot_can_merge is True
+    assert cfg.merge_policy.expected_runtime_bypass == "pull_requests_only"
+    assert cfg.merge_policy.requires_control_plane_review is True
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ("merge: fast\n", "merge 'fast' is not recognized"),
+        ("merge: yolo\n", "control_plane_owner is required"),
+        (
+            'merge: yolo\ncontrol_plane_owner: "octocat"\n',
+            "control_plane_owner must be one GitHub user",
+        ),
+        (
+            'merge: yolo\ncontrol_plane_owner: "@octocat @hubot"\n',
+            "control_plane_owner must be one GitHub user",
+        ),
+        (
+            'merge: yolo\ncontrol_plane_owner: "@octo-org/security"\n',
+            "teams are not accepted",
+        ),
+        (
+            'merge: yolo\ncontrol_plane_owner: "@my-bot"\n',
+            "must not be the Tend bot",
+        ),
+    ],
+)
+def test_invalid_merge_config_rejected(
+    tmp_path: Path, extra: str, message: str
+) -> None:
+    path = _write_config(tmp_path, f"bot_name: my-bot\n{extra}")
+
+    with pytest.raises(ClickException, match=message):
+        Config.load(path)
+
+
+@pytest.mark.parametrize(
+    "step",
+    ["run: make bootstrap", "uses: astral-sh/setup-uv@v10.0.1"],
+)
+def test_yolo_rejects_all_runner_setup(tmp_path: Path, step: str) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent(f"""\
+            bot_name: my-bot
+            merge: yolo
+            control_plane_owner: "@octocat"
+            setup:
+              - {step}
+            """),
+    )
+
+    with pytest.raises(ClickException, match="setup is not allowed.*hardened"):
+        Config.load(path)
+
+
+def test_yolo_rejects_deprecated_sandbox_setup(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+            bot_name: my-bot
+            merge: yolo
+            control_plane_owner: "@octocat"
+            sandbox_setup:
+              - make bootstrap
+            """),
+    )
+
+    with pytest.raises(ClickException, match="setup is not allowed.*hardened"):
+        Config.load(path)
+
+
+@pytest.mark.parametrize(
+    "override",
+    ["workflow_extra: {env: {X: y}}", "jobs: {review: {timeout-minutes: 5}}"],
+)
+def test_yolo_rejects_workflow_overrides(tmp_path: Path, override: str) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent(f"""\
+            bot_name: my-bot
+            merge: yolo
+            control_plane_owner: "@octocat"
+            workflows:
+              review:
+                {override}
+            """),
+    )
+
+    with pytest.raises(ClickException, match="not allowed when merge is 'yolo'"):
         Config.load(path)
 
 
@@ -439,24 +554,24 @@ def test_very_long_prompt_nightly(tmp_path: Path) -> None:
 
 
 def test_duplicate_setup_steps_accepted(tmp_path: Path) -> None:
-    """Duplicate uses entries are accepted without warning or dedup."""
+    """Duplicate run entries are accepted without warning or dedup."""
     path = _write_config(
         tmp_path,
         dedent("""\
         bot_name: my-bot
         setup:
-          - uses: ./.github/actions/setup
-          - uses: ./.github/actions/setup
+          - run: python --version
+          - run: python --version
     """),
     )
     cfg = Config.load(path)
     assert len(cfg.setup) == 2
-    assert cfg.setup[0].fields == {"uses": "./.github/actions/setup"}
-    assert cfg.setup[1].fields == {"uses": "./.github/actions/setup"}
+    assert cfg.setup[0].fields == {"run": "python --version"}
+    assert cfg.setup[1].fields == {"run": "python --version"}
     # Both duplicates appear in generated YAML
     workflows = without_relay(generate_all(cfg))
     for wf in workflows:
-        count = wf.content.count("./.github/actions/setup")
+        count = wf.content.count("python --version")
         assert count == 2, f"{wf.filename} has {count} setup steps, expected 2"
 
 
@@ -663,28 +778,28 @@ def test_bot_name_yaml_injection_rejected(tmp_path: Path) -> None:
 
 
 def test_setup_steps_preserves_order(tmp_path: Path) -> None:
-    """setup as a YAML sequence preserves interleaved uses/run order."""
+    """setup as a YAML sequence preserves run-step order."""
     path = _write_config(
         tmp_path,
         dedent("""\
         bot_name: my-bot
         setup:
-          - uses: ./.github/actions/setup-node
+          - run: echo first
           - run: echo middle
-          - uses: ./.github/actions/setup-cache
+          - run: echo last
     """),
     )
     cfg = Config.load(path)
     assert len(cfg.setup) == 3
-    assert cfg.setup[0].fields == {"uses": "./.github/actions/setup-node"}
+    assert cfg.setup[0].fields == {"run": "echo first"}
     assert cfg.setup[1].fields == {"run": "echo middle"}
-    assert cfg.setup[2].fields == {"uses": "./.github/actions/setup-cache"}
+    assert cfg.setup[2].fields == {"run": "echo last"}
     # Verify order in generated YAML
     workflows = without_relay(generate_all(cfg))
     for wf in workflows:
-        node_pos = wf.content.index("setup-node")
+        node_pos = wf.content.index("echo first")
         middle_pos = wf.content.index("echo middle")
-        cache_pos = wf.content.index("setup-cache")
+        cache_pos = wf.content.index("echo last")
         assert node_pos < middle_pos < cache_pos, f"Order wrong in {wf.filename}"
 
 
@@ -727,6 +842,15 @@ def test_setup_steps_entry_both_keys(tmp_path: Path) -> None:
     """),
     )
     with pytest.raises(ClickException, match="setup\\[0\\] must have exactly one"):
+        Config.load(path)
+
+
+def test_setup_run_rejects_action_inputs(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        "bot_name: my-bot\nsetup:\n  - run: echo hi\n    with:\n      key: value\n",
+    )
+    with pytest.raises(ClickException, match="`with` is only valid for action steps"):
         Config.load(path)
 
 
@@ -983,189 +1107,149 @@ def test_workflow_extra_delete_with_null(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sandbox levers (sandbox_path / sandbox_env / sandbox_setup)
+# Deprecated sandbox_* keys
 # ---------------------------------------------------------------------------
 
 
-def test_sandbox_levers_parsed(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        sandbox_path:
-          - ~/.cargo/bin
-        sandbox_env:
-          RUST_BACKTRACE: "1"
-          CARGO_TERM_COLOR: always
-        sandbox_setup:
-          - rustup component add clippy
-    """),
-    )
-    cfg = Config.load(path)
-    assert cfg.sandbox_path == ["~/.cargo/bin"]
-    # Scalar `1` coerces to its string form for the NAME=VALUE env line.
-    assert cfg.sandbox_env == {"RUST_BACKTRACE": "1", "CARGO_TERM_COLOR": "always"}
-    assert cfg.sandbox_setup == ["rustup component add clippy"]
+def _migrated_env(tmp_path: Path, entries: str) -> dict[str, str]:
+    """The `env:` of the one `setup:` step a `sandbox_env` block migrates to."""
+    path = _write_config(tmp_path, f"bot_name: my-bot\nsandbox_env:\n{entries}")
+    (step,) = Config.load(path).setup
+    return step.fields["env"]
 
 
-def test_sandbox_env_coerces_scalar_value(tmp_path: Path) -> None:
+def test_sandbox_env_coerces_scalars_to_strings(tmp_path: Path) -> None:
+    # `bool` is an `int` subclass; emit shell-conventional lowercase, not
+    # Python's `True`/`False`.
+    assert _migrated_env(
+        tmp_path, "  RUST_BACKTRACE: 1\n  DEBUG: true\n  QUIET: false\n"
+    ) == {"RUST_BACKTRACE": "1", "DEBUG": "true", "QUIET": "false"}
+
+
+@pytest.mark.parametrize(
+    ("entries", "message"),
+    [
+        ('  FOO: "a\\nb"\n', "must be a single line"),
+        ("  FOO: [a, b]\n", "must be a scalar"),
+        ('  "1BAD": x\n', "not a valid environment"),
+    ],
+)
+def test_sandbox_env_rejects_what_cannot_be_exported(
+    tmp_path: Path, entries: str, message: str
+) -> None:
+    with pytest.raises(ClickException, match=message):
+        _migrated_env(tmp_path, entries)
+
+
+def test_migrated_sandbox_env_exports_each_value_verbatim(tmp_path: Path) -> None:
+    """The step writes one `NAME=VALUE` line per entry into `$GITHUB_ENV`, run
+    as GitHub runs a `run:` step with no `shell:`, and the shell expands
+    nothing inside a value."""
     path = _write_config(
         tmp_path,
-        dedent("""\
+        dedent(r"""
         bot_name: my-bot
         sandbox_env:
           RUST_BACKTRACE: 1
+          ODD: 'a "b" $HOME \n -e'
     """),
     )
-    cfg = Config.load(path)
-    assert cfg.sandbox_env == {"RUST_BACKTRACE": "1"}
+    (step,) = Config.load(path).setup
+    github_env = tmp_path / "github-env"
+    subprocess.run(
+        ["bash", "--noprofile", "--norc", "-e", "-c", step.fields["run"]],
+        env={**step.fields["env"], "GITHUB_ENV": str(github_env)},
+        check=True,
+    )
+    assert github_env.read_text() == 'RUST_BACKTRACE=1\nODD=a "b" $HOME \\n -e\n'
 
 
-def test_sandbox_env_coerces_boolean_lowercase(tmp_path: Path) -> None:
-    # `bool` is an `int` subclass; emit shell-conventional lowercase, not
-    # Python's `True`/`False`.
+def test_deprecated_sandbox_keys_warn_and_become_setup_steps(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A deprecated key keeps working, as the `setup:` steps it migrates to.
+
+    Nightly regeneration reads the warning inside an agent session, so it has
+    to carry the whole migration; and dropping the entries instead would stop
+    installing what the consumer's agent relies on, or hand it no credential.
+    """
     path = _write_config(
         tmp_path,
         dedent("""\
         bot_name: my-bot
-        sandbox_env:
-          DEBUG: true
-          QUIET: false
-    """),
-    )
-    cfg = Config.load(path)
-    assert cfg.sandbox_env == {"DEBUG": "true", "QUIET": "false"}
-
-
-def test_sandbox_env_newline_value_rejected(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        sandbox_env:
-          FOO: "a\\nb"
-    """),
-    )
-    with pytest.raises(ClickException, match="must be a single line"):
-        Config.load(path)
-
-
-def test_sandbox_path_newline_rejected(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
+        setup:
+          - run: echo consumer
+        sandbox_setup:
+          - rustup component add clippy
+          - export TOOLCHAIN=stable
         sandbox_path:
-          - "~/.cargo/bin\\n~/evil"
+          - ~/.cargo/bin
+          - /opt/tools/bin
+        sandbox_env:
+          MY_TOKEN: "${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}"
     """),
     )
-    with pytest.raises(ClickException, match="single line"):
-        Config.load(path)
+    cfg = Config.load(path)
+
+    # Variables and paths ahead of the commands, which ran with both. The
+    # runner puts a later `$GITHUB_PATH` line ahead of an earlier one, so
+    # last-first keeps `~/.cargo/bin` first on PATH, as `sandbox_path` had it.
+    # The expression stays in `env:`, where Actions evaluates it.
+    assert [step.fields for step in cfg.setup] == [
+        {"run": "echo consumer"},
+        {
+            "run": 'echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"',
+            "env": {
+                "MY_TOKEN": "${{ github.event_name == 'schedule' "
+                "&& secrets.MY_TOKEN || '' }}"
+            },
+        },
+        {
+            "run": 'echo "/opt/tools/bin" >> "$GITHUB_PATH"\n'
+            'echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"'
+        },
+        {
+            "run": "rustup component add clippy\nexport TOOLCHAIN=stable",
+            "shell": "bash",
+        },
+    ]
+    warned = capsys.readouterr().err
+    assert "`sandbox_env` is deprecated" in warned
+    assert '`- run: echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"`' in warned
+    assert "`sandbox_setup` is deprecated" in warned
+    assert "`- run: rustup component add clippy`" in warned
+    assert "`sandbox_path` is deprecated" in warned
+    assert '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`' in warned
+    assert "unknown config key" not in warned
 
 
-def test_sandbox_env_non_scalar_value_rejected(tmp_path: Path) -> None:
+def test_migrated_sandbox_setup_commands_share_one_shell(tmp_path: Path) -> None:
+    """`sandbox_setup` ran its entries in one `-eo pipefail` bash, so an
+    `export` reached the entries after it and a failure stopped the rest. The
+    migrated step keeps both, run as GitHub runs a `shell: bash` step."""
     path = _write_config(
         tmp_path,
         dedent("""\
         bot_name: my-bot
-        sandbox_env:
-          FOO: [a, b]
+        sandbox_setup:
+          - export GREETING=hi
+          - test "$GREETING" = hi
+          - echo reached
+          - "false"
+          - echo unreachable
     """),
     )
-    with pytest.raises(ClickException, match="must be a scalar"):
-        Config.load(path)
-
-
-def test_sandbox_env_reserved_key_rejected(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        sandbox_env:
-          HTTPS_PROXY: http://evil
-    """),
+    (step,) = Config.load(path).setup
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step.fields["run"]],
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    with pytest.raises(ClickException, match="reserved key 'HTTPS_PROXY'"):
-        Config.load(path)
+    assert (result.returncode, result.stdout) == (1, "reached\n")
 
 
-def test_sandbox_env_path_rejected_points_to_sandbox_path(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        sandbox_env:
-          PATH: /whatever
-    """),
-    )
-    with pytest.raises(ClickException, match="sandbox_path"):
-        Config.load(path)
-
-
-def test_sandbox_env_invalid_name_rejected(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        sandbox_env:
-          "1BAD": x
-    """),
-    )
-    with pytest.raises(ClickException, match="not a valid environment"):
-        Config.load(path)
-
-
-def test_sandbox_path_non_list_rejected(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        "bot_name: my-bot\nsandbox_path: ~/.cargo/bin\n",
-    )
-    with pytest.raises(ClickException, match="sandbox_path must be a list"):
-        Config.load(path)
-
-
-def test_sandbox_setup_non_list_rejected(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        "bot_name: my-bot\nsandbox_setup: echo hi\n",
-    )
+def test_deprecated_sandbox_setup_must_be_a_list(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, "bot_name: my-bot\nsandbox_setup: echo hi\n")
     with pytest.raises(ClickException, match="sandbox_setup must be a list"):
         Config.load(path)
-
-
-def test_sandbox_levers_apply_to_codex(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        harness: codex
-        model: gpt-5.5
-        sandbox_setup:
-          - echo hi
-    """),
-    )
-    Config.load(path)
-    assert "apply only to the Claude harness" not in capsys.readouterr().err
-
-
-def test_sandbox_levers_no_warn_with_claude_override(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        harness: codex
-        model: gpt-5.5
-        sandbox_setup:
-          - echo hi
-        workflows:
-          review:
-            harness: claude
-            model: opus
-    """),
-    )
-    Config.load(path)
-    assert "apply only to the Claude harness" not in capsys.readouterr().err

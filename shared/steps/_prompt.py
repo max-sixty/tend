@@ -2,9 +2,9 @@
 
 `shared/system-prompt.md` is the one home for instructions both harnesses read:
 the Claude action appends it to the system prompt, and the Codex runner stages
-it into `AGENTS.md`. Only two things in it vary — the bot's name, and how a
-skill is invoked — so the file writes those as `${BOT_NAME}` and
-`${SKILL:<name>}` and this module substitutes both.
+it into `AGENTS.md`. Three things in it vary — the bot's name, merge mode,
+and how a skill is invoked — so the file writes those as `${BOT_NAME}`,
+`${TEND_MERGE}`, and `${SKILL:<name>}` and this module substitutes them.
 
 `SKILL_PREFIX` restates the mapping `Config.default_prompt` applies to
 generated workflow prompts, because the generator is not installed on the
@@ -22,8 +22,13 @@ SKILL_PREFIX = {"claude": "/tend-ci-runner:", "codex": "$"}
 SKILL_REF = re.compile(r"\$\{SKILL:([a-z0-9-]+)\}")
 
 
-def render(text: str, *, bot_name: str, harness: str) -> str:
-    """Substitute skill references and the bot's name into *text*."""
+def render(text: str, *, bot_name: str, merge: str, harness: str) -> str:
+    """Substitute skill references and runtime policy into *text*."""
     prefix = SKILL_PREFIX[harness]
     text = SKILL_REF.sub(lambda match: prefix + match.group(1), text)
-    return text.replace("${BOT_NAME}", bot_name).replace("$BOT_NAME", bot_name)
+    return (
+        text.replace("${BOT_NAME}", bot_name)
+        .replace("$BOT_NAME", bot_name)
+        .replace("${TEND_MERGE}", merge)
+        .replace("$TEND_MERGE", merge)
+    )

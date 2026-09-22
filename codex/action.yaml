@@ -8,6 +8,12 @@ inputs:
   github_token:
     required: true
     description: GitHub token for API access and pushing commits
+  merge:
+    default: maintainer
+    description: Merge mode generated from .config/tend.yaml (maintainer or yolo)
+  control_plane_owner:
+    default: ""
+    description: CODEOWNER for yolo-protected workflow and Tend config changes
   openai_api_key:
     required: false
     default: ""
@@ -51,7 +57,7 @@ inputs:
       Additional Codex CLI arguments, one exact argument per line. They are
       passed before Tend's managed arguments; Codex validates conflicts.
   codex_version:
-    default: "0.154.0"
+    default: "0.155.1"
     description: >-
       `@openai/codex` npm version to install. Must ship
       the `codex plugin add` subcommand (PR #21396, first released in
@@ -63,33 +69,17 @@ inputs:
     description: >-
       Pinned mitmproxy version for the credential-injection proxy.
   uv_version:
-    default: "0.12.13"
+    default: "0.12.17"
     description: >-
       Pinned fallback `uv` version. The agent PATH appends it after any
       consumer-provided version.
-  sandbox_path:
-    default: ""
-    description: >-
-      Newline-separated directories prepended to the sandbox agent's PATH.
-  sandbox_env:
-    default: ""
-    description: >-
-      Newline-separated NAME=VALUE pairs added to the sandbox agent's launch
-      environment. Credential and proxy-routing names are reserved.
-  sandbox_setup:
-    default: ""
-    description: >-
-      Shell commands run as the sandbox user after tools and plugins install.
   checkout_mode:
     default: "base"
     description: >-
       Internal generator contract selecting base, review, or mention topology.
   base_branch:
     default: "main"
-    description: Base branch used to seed the disposable agent clone.
-  sandbox_runtime_version:
-    default: "0.0.76"
-    description: Pinned Anthropic Sandbox Runtime version.
+    description: Base branch the agent checks out when the event names no pull request.
   allowed_bots:
     default: "*"
     description: Bots allowed to trigger workflows (engagement gate, not used yet)
@@ -126,6 +116,8 @@ runs:
       env:
         BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
+        TEND_MERGE: ${{ inputs.merge }}
+        TEND_CONTROL_PLANE_OWNER: ${{ inputs.control_plane_owner }}
 
     # Also publishes `login`/`id` for the bot: it reads them off the token it
     # already holds, so nothing downstream has to resolve them again from the
@@ -171,13 +163,11 @@ runs:
         UV_VERSION: ${{ inputs.uv_version }}
         UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
 
-    - name: Install Anthropic Sandbox Runtime
+    - name: Create the sandbox runtime container
       shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/bash "${{ github.action_path }}/../shared/steps/install-sandbox-runtime.sh"
+      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
       env:
         BASH_ENV: ""
-        SRT_VERSION: ${{ inputs.sandbox_runtime_version }}
-        TEND_RUNNER_ENVIRONMENT: ${{ runner.environment }}
 
     # Install the Codex CLI from npm. `@openai/codex` ships a prebuilt
     # per-platform binary, so this is ~3 s with no Rust toolchain. We pin
@@ -198,14 +188,30 @@ runs:
       run: |
         set +x
         PATH=/usr/sbin:/usr/bin:/sbin:/bin
+        # The runner image's own Node rather than one `setup:` put on PATH: it
+        # also runs the Responses proxy, which holds the OpenAI key.
+        case "$(uname -m)" in
+          x86_64) node_arch=x64 ;;
+          aarch64) node_arch=arm64 ;;
+        esac
+        NODE_BIN=$(find "$RUNNER_TOOL_CACHE/node" -path "*/$node_arch/bin/node" -type f -print \
+          | sort -V | tail -n1)
+        if [ ! -x "$NODE_BIN" ]; then
+          echo "::error::No trusted Node runtime found in RUNNER_TOOL_CACHE"
+          exit 1
+        fi
+        npm_cli="${NODE_BIN%/bin/node}/lib/node_modules/npm/bin/npm-cli.js"
+        # Empty, so neither the runner's npmrc nor the consumer's applies.
+        npm_userconfig=$(mktemp "$TEND_PRIVATE_DIR/tend-npm-user.XXXXXX")
+        npm_globalconfig=$(mktemp "$TEND_PRIVATE_DIR/tend-npm-global.XXXXXX")
         PATH="${NODE_BIN%/node}:$PATH"
         export PATH
         codex_root="$TEND_RUNTIME_ROOT/codex"
         /usr/bin/env -i \
           PATH="$PATH" HOME="$RUNNER_TEMP" \
-          "$NODE_BIN" "$TEND_NPM_CLI" install --prefix "$codex_root" \
-            --userconfig "$TEND_NPM_USERCONFIG" \
-            --globalconfig "$TEND_NPM_GLOBALCONFIG" \
+          "$NODE_BIN" "$npm_cli" install --prefix "$codex_root" \
+            --userconfig "$npm_userconfig" \
+            --globalconfig "$npm_globalconfig" \
             --ignore-scripts --no-audit --no-fund \
             "@openai/codex@$CODEX_VERSION" \
             "@openai/codex-responses-api-proxy@$CODEX_VERSION"
@@ -216,19 +222,10 @@ runs:
           echo "NODE_BIN=$NODE_BIN"
           echo "CODEX_BIN=$CODEX_BIN"
           echo "CODEX_PROXY_BIN=$CODEX_PROXY_BIN"
-          echo "TEND_CODEX_ROOT=$codex_root"
         } >> "$GITHUB_ENV"
 
-    - name: Prepare disposable agent workspace
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/prepare_agent_workspace.py"
-      env:
-        BASH_ENV: ""
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-        TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
-        TEND_BASE_BRANCH: ${{ inputs.base_branch }}
-
     - name: Cache mitmproxy
+      if: inputs.merge == 'maintainer'
       uses: actions/cache@v6
       with:
         path: ${{ runner.temp }}/tend-mitmproxy-uv
@@ -252,13 +249,8 @@ runs:
         ACTION_PATH: ${{ github.action_path }}/..
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
+        # Yolo keeps this job-local: bot-merged main code can poison shared caches.
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
-        TEND_SANDBOX_PATH: ${{ inputs.sandbox_path }}
-        TEND_SANDBOX_ENV: ${{ inputs.sandbox_env }}
-        # The sandbox's global Git identity, so the agent's commits attribute
-        # to the bot without every session configuring one for itself.
-        TEND_BOT_LOGIN: ${{ steps.bot.outputs.login }}
-        TEND_BOT_ID: ${{ steps.bot.outputs.id }}
       run: |
         set +x
         /usr/bin/env -i \
@@ -268,9 +260,8 @@ runs:
           LANG=C.UTF-8 \
           GITHUB_ENV="$GITHUB_ENV" \
           GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
-          TEND_AGENT_WORKSPACE="$TEND_AGENT_WORKSPACE" \
-          TEND_RUNNER_WORKSPACE="$TEND_RUNNER_WORKSPACE" \
           RUNNER_TEMP="$RUNNER_TEMP" \
+          TEND_PRIVATE_DIR="$TEND_PRIVATE_DIR" \
           TEND_GH_TOKEN="$TEND_GH_TOKEN" \
           TEND_GITHUB_ONLY="$TEND_GITHUB_ONLY" \
           ACTION_PATH="$ACTION_PATH" \
@@ -280,10 +271,6 @@ runs:
           UV_CACHE_DIR="$UV_CACHE_DIR" \
           UV_NO_CONFIG=1 \
           PYTHONNOUSERSITE=1 \
-          TEND_SANDBOX_PATH="$TEND_SANDBOX_PATH" \
-          TEND_SANDBOX_ENV="$TEND_SANDBOX_ENV" \
-          TEND_BOT_LOGIN="$TEND_BOT_LOGIN" \
-          TEND_BOT_ID="$TEND_BOT_ID" \
           "${TEND_UV_DIR}/uv" run --no-cache --no-config \
             --no-python-downloads --python /usr/bin/python3 --script \
             "${{ github.action_path }}/../proxy/setup_sandbox.py"
@@ -303,8 +290,8 @@ runs:
       run: |
         set +x
         PATH=/usr/sbin:/usr/bin:/sbin:/bin
-        SERVER_INFO_FILE="$RUNNER_TEMP/tend-codex-proxy.json"
-        PROXY_LOG_FILE="$RUNNER_TEMP/tend-codex-proxy.log"
+        SERVER_INFO_FILE="$TEND_PRIVATE_DIR/tend-codex-proxy.json"
+        PROXY_LOG_FILE="$TEND_PRIVATE_DIR/tend-codex-proxy.log"
         rm -f -- "$SERVER_INFO_FILE" "$PROXY_LOG_FILE"
         if [ -z "$PROXY_API_KEY" ]; then
           echo "::error::OPENAI_API_KEY is unset. Set the OPENAI_API_KEY repo secret."
@@ -396,6 +383,7 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
         BOT_NAME: ${{ steps.bot.outputs.login }}
+        TEND_MERGE: ${{ inputs.merge }}
       run: /usr/bin/python3 -E -s "${{ github.action_path }}/runner.py" stage-agents
 
     - name: Run Codex
@@ -410,14 +398,15 @@ runs:
         EXTRA_ARGS: ${{ inputs.args }}
         AUTH_MODE: ${{ steps.codex_auth.outputs.mode }}
         TEND_HARNESS: codex
-        TEND_LIFECYCLE: ${{ github.action_path }}/../shared/steps/agent_lifecycle.py
         TEND_CODEX_RUNNER: ${{ github.action_path }}/runner.py
-        TEND_SANDBOX_SETUP: ${{ inputs.sandbox_setup }}
         ACTION_PATH: ${{ github.action_path }}/..
+        # Read by shared/steps/event_checkout.py, inside the sandbox.
+        TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
+        TEND_BASE_BRANCH: ${{ inputs.base_branch }}
       # runner.py preserves the final message even when codex exits non-zero.
       # Base64 keeps arbitrary agent output in one GITHUB_OUTPUT line; consumers
       # decode it with `base64 -d`.
-      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/launch_sandbox_runtime.py"
+      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/launch_agent.py"
 
     - name: Stop OpenAI Responses proxy
       if: always()
@@ -438,13 +427,6 @@ runs:
       if: always()
       shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
       run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/dispose_sandbox_resources.py"
-      env:
-        BASH_ENV: ""
-
-    - name: Restore Sandbox Runtime host policy
-      if: always()
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/bash "${{ github.action_path }}/../shared/steps/restore-sandbox-runtime-host.sh"
       env:
         BASH_ENV: ""
 
@@ -494,19 +476,14 @@ runs:
         TEND_ACTION_REF: ${{ github.action_ref }}
         TEND_ACTION_REPOSITORY: ${{ github.action_repository }}
 
-    - name: Compute artifact name
-      if: always()
-      id: artifact
-      shell: bash
-      run: |
-        suffix="${INVOCATION_ID:+"-${INVOCATION_ID:0:8}"}"
-        echo "name=codex-session-logs${suffix}" >> "$GITHUB_OUTPUT"
-
+    # The Token usage step names the artifact (`artifact_name` in
+    # token_usage.py). The fallback covers a token step that died before its
+    # first output: an empty name fails the upload.
     - name: Upload session logs
       if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: ${{ steps.artifact.outputs.name }}
+        name: ${{ steps.tokens.outputs.artifact_name || 'codex-session-logs' }}
         path: ${{ runner.temp }}/tend-codex-logs/
         retention-days: 30
         if-no-files-found: warn

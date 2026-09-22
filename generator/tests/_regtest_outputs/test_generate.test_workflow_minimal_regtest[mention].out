@@ -50,12 +50,12 @@ jobs:
       url: ${{ steps.check.outputs.url }}
       ts: ${{ steps.check.outputs.ts }}
     steps:
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: astral-sh/setup-uv@v10.2.0
         id: tend_uv
         env:
           UV_NO_MODIFY_PATH: "1"
         with:
-          version: "0.12.13"
+          version: "0.12.17"
           enable-cache: false
           ignore-empty-workdir: true
       - name: Verify bot engagement
@@ -326,12 +326,8 @@ jobs:
             || format('pulls/comments/{0}', github.event.client_payload.id) }}
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
 
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-          token: ${{ secrets.TEND_BOT_TOKEN }}
-
+      # Before checkout and `setup:`, so the delay measures the wait for this
+      # job to start rather than the time its setup takes.
       - name: Compute queue delay
         id: delay
         run: |
@@ -346,9 +342,17 @@ jobs:
           # the API record ? the dispatch payload never carries one to spoof.
           EVENT_TS: ${{ github.event.comment.updated_at || needs.verify.outputs.ts || github.event.issue.updated_at }}
 
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.TEND_BOT_TOKEN }}
+
       - uses: max-sixty/tend/claude@X.Y.Z
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
+          merge: maintainer
+          control_plane_owner: ""
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           bot_name: test-bot

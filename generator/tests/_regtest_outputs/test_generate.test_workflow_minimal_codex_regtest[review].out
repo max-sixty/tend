@@ -42,9 +42,9 @@ jobs:
           TARGET: issues/${{ github.event.pull_request.number }}
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
 
-      # The runner checkout remains on the reviewed base tree for local setup
-      # actions and their POST chains. The harness creates and selects the PR
-      # topology in an independent disposable clone.
+      # The runner checkout stays on the reviewed base tree for `setup:` and
+      # local actions' POST chains; the harness moves the agent's view of it to
+      # the PR's topology.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -54,6 +54,8 @@ jobs:
       - uses: max-sixty/tend/codex@X.Y.Z
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
+          merge: maintainer
+          control_plane_owner: ""
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
           bot_name: test-bot

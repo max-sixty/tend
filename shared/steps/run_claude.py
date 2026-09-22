@@ -1,10 +1,10 @@
 """Runs the agent and decides the step's verdict.
 
-Inside the shared SRT lifecycle, composes the agent's settings and launch env,
+Inside the shared sandbox lifecycle, composes the agent's settings and launch env,
 supervises it to exit or timeout, then turns the finished stream-json into the
 step's exit code and ``::error::`` annotation.
 
-Reads (env): ``RUNNER_TEMP``,
+Reads (env): ``TEND_RUN_DIR``,
 ``GITHUB_WORKSPACE``, ``TEND_MODEL``,
 ``TEND_EFFORT``, ``TEND_ARGS``, ``TEND_ALLOWED_TOOLS``,
 ``TEND_SYSTEM_PROMPT``, ``TEND_PROMPT``, ``TEND_TIMEOUT_SEC``,
@@ -13,7 +13,7 @@ Reads (env): ``RUNNER_TEMP``,
 ``GITHUB_*`` context from Actions. ``GITHUB_STEP_SUMMARY`` is read only when
 rendering the transcript.
 The trusted outer supervisor reaps the sandbox UID, copies the fixed
-``RUNNER_TEMP/tend-stream.json`` file through a no-follow bounded read, and
+``TEND_RUN_DIR/tend-stream.json`` file through a no-follow bounded read, and
 publishes the runner-owned path plus ``sandbox_reaped``.
 
 Decisions this module owns:
@@ -80,6 +80,20 @@ def settings(allowed_tools: str) -> dict[str, Any]:
     (which supersedes the deprecated ``includeCoAuthoredBy``) empties Claude
     Code's ``Co-Authored-By: Claude`` trailer and ``Generated with Claude Code``
     PR footer, so the bot's commits and PRs are attributed to the bot alone.
+
+    ``syncClaudeAiSkills``/``syncClaudeAiPlugins``/``disableClaudeAiConnectors``
+    keep the skills, plugins and MCP connectors enabled on the bot's claude.ai
+    account out of the session. The account is a surface nobody reviews
+    per-repo — a skill or connector enabled there would otherwise load into
+    every consumer's CI session, in a process that pushes commits and posts as
+    the bot. The session's instructions and tools come from the plugin and the
+    repo, so what the account would add is unreviewed by construction. The sync
+    keys are honored from ``.claude/settings.local.json`` and ``--settings`` for
+    that workspace or invocation (not from project ``settings.json``), and only
+    ``false`` is honored — the feature turns on server-side per account, so this
+    has to be written ahead of that rather than in response to it.
+    ``disableClaudeAiConnectors`` is honored true from any source, and covers
+    the auto-fetched connectors only; nothing here passes one explicitly.
     """
     return {
         "permissions": {
@@ -88,6 +102,9 @@ def settings(allowed_tools: str) -> dict[str, Any]:
         },
         "skipDangerousModePermissionPrompt": True,
         "attribution": {"commit": "", "pr": ""},
+        "syncClaudeAiSkills": False,
+        "syncClaudeAiPlugins": False,
+        "disableClaudeAiConnectors": True,
     }
 
 
@@ -107,8 +124,8 @@ def launch_argv(
 ) -> list[str]:
     """The command that launches the agent inside the existing sandbox.
 
-    The process inherits the environment SRT finalized for its namespace;
-    tend's own ``BOT_*``/``CI`` assignments carry the action's values.
+    The process inherits the lifecycle's environment; tend's own
+    ``BOT_*``/``CI`` assignments carry the action's values.
 
     The model, tools and prompts are argv rather than environment: nothing on
     the far side reads them, and ``--permission-mode`` is what actually sets
@@ -432,9 +449,9 @@ def verdict(
 
 def main() -> int:
     if os.environ.get("TEND_INSIDE_SANDBOX") != "1":
-        raise RuntimeError("run_claude may run only inside the SRT lifecycle")
+        raise RuntimeError("run_claude may run only inside the sandbox lifecycle")
     env = _common.require_env(
-        "RUNNER_TEMP",
+        "TEND_RUN_DIR",
         "GITHUB_WORKSPACE",
         "TEND_MODEL",
         "TEND_ALLOWED_TOOLS",
@@ -447,13 +464,18 @@ def main() -> int:
         "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
     )
     workspace = Path(env["GITHUB_WORKSPACE"])
-    stream_json = Path(env["RUNNER_TEMP"]) / "tend-stream.json"
-    stderr_log = Path(env["RUNNER_TEMP"]) / "tend-claude-stderr.log"
+    # Outside the view, so the supervisor can read both back after the reap.
+    stream_json = Path(env["TEND_RUN_DIR"]) / "tend-stream.json"
+    stderr_log = Path(env["TEND_RUN_DIR"]) / "tend-claude-stderr.log"
 
-    # Written inside SRT so the agent can read it back. It lands in the consumer's
-    # checkout untracked, next to the `.claude/skills/` they do track;
-    # setup_sandbox.py's global gitignore for the sandbox user keeps a broad
-    # `git add -A` from committing `bypassPermissions` into the session's PR.
+    # Written inside the sandbox so the agent can read it back. It lands in the consumer's
+    # checkout untracked, next to the `.claude/skills/` they do track, so the
+    # exclude keeps a broad `git add -A` from committing `bypassPermissions`
+    # into the session's PR.
+    exclude = workspace / ".git/info/exclude"
+    exclude.parent.mkdir(exist_ok=True)
+    with exclude.open("a", encoding="utf-8") as stream:
+        stream.write("/.claude/settings.local.json\n")
     # `tee` receives the body through its own pipe rather than the step's stdin.
     subprocess.run(
         ["mkdir", "-p", str(workspace / ".claude")],
@@ -468,8 +490,8 @@ def main() -> int:
         check=True,
     )
 
-    # SRT already received the curated agent environment and finalized the
-    # proxy variables for its network namespace. Do not reconstruct it here.
+    # The launch already applied the curated agent environment. Do not
+    # reconstruct it here.
     argv = launch_argv(
         model=env["TEND_MODEL"],
         effort=os.environ.get("TEND_EFFORT", ""),

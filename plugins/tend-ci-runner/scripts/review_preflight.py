@@ -77,6 +77,7 @@ def _write_delta(reviewed: str, current_head: str, base_sha: str) -> tuple[int, 
         (
             "log",
             "-p",
+            "--numstat",
             "--no-merges",
             "--format=%h %s",
             f"{reviewed}..{current_head}",
@@ -88,6 +89,8 @@ def _write_delta(reviewed: str, current_head: str, base_sha: str) -> tuple[int, 
             "--format=base merge: %h %s",
             "--merges",
             f"{reviewed}..{current_head}",
+            "--not",
+            base_sha,
         ),
     )
     with tempfile.NamedTemporaryFile(mode="w", delete=False) as delta:
@@ -99,29 +102,6 @@ def _write_delta(reviewed: str, current_head: str, base_sha: str) -> tuple[int, 
             if result.returncode:
                 return result.returncode, path
     return 0, path
-
-
-def _write_incremental(
-    reviewed: str, current_head: str, base_sha: str
-) -> tuple[int, str]:
-    with tempfile.NamedTemporaryFile(mode="w", delete=False) as incremental:
-        path = incremental.name
-        result = subprocess.run(
-            [
-                "git",
-                "log",
-                "--no-merges",
-                "--numstat",
-                "--format=%h %s",
-                f"{reviewed}..{current_head}",
-                "--not",
-                base_sha,
-            ],
-            stdout=incremental,
-            text=True,
-            check=False,
-        )
-    return result.returncode, path
 
 
 def _emit_json(value: dict[str, Any]) -> bool:
@@ -160,7 +140,11 @@ def _start(pr: str) -> int:
 
     force_full_review = _event_forces_review()
     force_pushed = bool(review_state.get("force_pushed_since"))
-    last_review_sha = str((review_state.get("last_substantive") or {}).get("sha") or "")
+    last_substantive = review_state.get("last_substantive") or {}
+    last_review_sha = str(last_substantive.get("sha") or "")
+    # A draft-mode review was the lighter pass, so once the PR is ready it is no
+    # base for an incremental: the push after it still gets the full review.
+    lighter_base = bool(last_substantive.get("draft_mode")) and not initial["isDraft"]
     # `at_head`, not `last_review_sha == head_sha`: a force push re-points an
     # earlier review's `.commit_id` at the rewritten head, so the raw comparison
     # reports a commit as reviewed that nothing read.
@@ -171,6 +155,7 @@ def _start(pr: str) -> int:
         and last_review_sha != head_sha
         and not force_full_review
         and not force_pushed
+        and not lighter_base
     ):
         subprocess.run(
             ["git", "fetch", "--no-tags", "--quiet", "origin", f"refs/pull/{pr}/head"],
@@ -180,9 +165,7 @@ def _start(pr: str) -> int:
             ["git", "fetch", "--no-tags", "--quiet", "origin", base_sha],
             check=False,
         )
-        status, incremental_path = _write_incremental(
-            last_review_sha, head_sha, base_sha
-        )
+        status, incremental_path = _write_delta(last_review_sha, head_sha, base_sha)
         if status:
             return status
 

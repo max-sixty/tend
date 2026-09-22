@@ -2,8 +2,9 @@
 
 The window logic is the behaviour under test: the completion window resumes
 at the previous successful run's start, clamps at the cap with a stderr
-WARNING, and falls back to a plain 1h window outside Actions. The fake `gh`
-serves API fixtures, while an injected clock keeps the window edges
+WARNING, and falls back to a plain 1h window outside Actions. A re-run row
+draws its own WARNING, because its conclusion is the latest attempt's. The
+fake `gh` serves API fixtures, while an injected clock keeps the window edges
 deterministic.
 """
 
@@ -76,8 +77,11 @@ esac
 )
 
 
-def _run_entry(run_id: int, *, updated: int, conclusion: str = "success") -> dict:
+def _run_entry(
+    run_id: int, *, updated: int, conclusion: str = "success", attempt: int = 1
+) -> dict:
     return {
+        "attempt": attempt,
         "databaseId": run_id,
         "conclusion": conclusion,
         "createdAt": _iso(updated - 300),
@@ -238,15 +242,39 @@ def test_outside_actions_uses_a_1h_window(env: dict[str, str]) -> None:
 
 def test_fetch_limit_cap_warns(env: dict[str, str]) -> None:
     """Exactly the fetch limit means the list may be truncated at its old end;
-    the rows are still returned, with a WARNING against reading an all-clear."""
+    the rows are still returned, with a WARNING against reading an all-clear.
+    The limit is the Actions API's own ceiling, so there is nothing left to
+    raise and the caller has to narrow the window instead."""
     _anchor(env, (555, NOW - 5400))
-    _runs(env, *(_run_entry(i, updated=NOW - 600) for i in range(200)))
+    _runs(
+        env,
+        *(_run_entry(i, updated=NOW - 600) for i in range(list_recent_runs.RUN_LIMIT)),
+    )
 
     result = _run(env)
 
     assert result.returncode == 0, result.stderr
-    assert len(_ids(result)) == 200
-    assert "the fetch limit" in result.stderr
+    assert len(_ids(result)) == list_recent_runs.RUN_LIMIT
+    assert "pagination ceiling" in result.stderr
+
+
+def test_run_fetches_ask_for_the_whole_ceiling(env: dict[str, str]) -> None:
+    """A busy repo puts more runs than any lower limit in the fetch's span, and
+    truncation drops the window's oldest runs silently — the census reads as an
+    all-clear for a span it never looked at. The fetch has to ask for the
+    ceiling, so the limit binds only where the API itself does."""
+    _anchor(env, (555, NOW - 5400))
+    _runs(env, _run_entry(1, updated=NOW - 600))
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    fetches = [
+        line
+        for line in Path(env["GH_CALLS"]).read_text().splitlines()
+        if line.startswith("run list") and "--status success" not in line
+    ]
+    assert fetches and all("--limit 1000" in line for line in fetches), fetches
 
 
 @pytest.mark.parametrize("failure", ["FAIL_WORKFLOW_LIST", "FAIL_ANCHOR", "FAIL_RUNS"])
@@ -277,8 +305,8 @@ def test_workflow_fetch_limit_warns(env: dict[str, str]) -> None:
     result = _run(env)
 
     assert result.returncode == 0, result.stderr
-    # Scoped to the listing's own call: the run fetches below it carry the same
-    # `--limit 200`, so a search of the whole log passes with the flag deleted.
+    # Scoped to the listing's own call, which is the one under test: the run
+    # fetches below it carry a `--limit` of their own.
     listings = [
         line
         for line in Path(env["GH_CALLS"]).read_text().splitlines()
@@ -286,6 +314,48 @@ def test_workflow_fetch_limit_warns(env: dict[str, str]) -> None:
     ]
     assert listings and all("--limit 200" in line for line in listings), listings
     assert "at least 200 workflows" in result.stderr
+
+
+def test_a_rerun_is_flagged_because_its_row_carries_only_the_latest_attempt(
+    env: dict[str, str],
+) -> None:
+    """`gh run list` reports the current attempt's conclusion, so a re-run that
+    went green reads as `success` and the failure that prompted it leaves no row.
+    The census has to fetch `attempt` and say so, or the window reads as an
+    all-clear it is not."""
+    _anchor(env, (555, NOW - 5400))
+    _runs(
+        env,
+        _run_entry(1, updated=NOW - 600),
+        _run_entry(2, updated=NOW - 600, attempt=2),
+    )
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    assert _ids(result) == [1, 2]
+    fetches = [
+        line
+        for line in Path(env["GH_CALLS"]).read_text().splitlines()
+        if line.startswith("run list") and "--status success" not in line
+    ]
+    assert fetches and all("attempt,databaseId" in line for line in fetches), fetches
+    assert "1 run(s) in this list were re-run — 2." in result.stderr
+    # The floor separates an attempt this window has to count from one the
+    # previous sweep already did.
+    assert _iso(NOW - 5400) in result.stderr
+
+
+def test_first_attempt_rows_draw_no_rerun_warning(env: dict[str, str]) -> None:
+    """The warning has to stay quiet on an ordinary window, or it reads as noise
+    and the one window that carries a re-run is missed with it."""
+    _anchor(env, (555, NOW - 5400))
+    _runs(env, _run_entry(1, updated=NOW - 600), _run_entry(2, updated=NOW - 600))
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    assert "re-run" not in result.stderr
 
 
 def test_workflows_filtered_by_prefix(env: dict[str, str]) -> None:
