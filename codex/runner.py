@@ -146,9 +146,14 @@ def stage_agents() -> int:
     bot_name = os.environ.get("BOT_NAME", "")
     if not bot_name:
         raise ValueError("BOT_NAME is unset")
+    merge = os.environ.get("TEND_MERGE", "")
+    if merge not in {"maintainer", "yolo"}:
+        raise ValueError(f"unknown TEND_MERGE: {merge or '<unset>'}")
     shared = (action_path.parent / "shared/system-prompt.md").read_text()
     tail = (action_path / "agents-tail.md").read_text()
-    render = functools.partial(_prompt.render, bot_name=bot_name, harness="codex")
+    render = functools.partial(
+        _prompt.render, bot_name=bot_name, merge=merge, harness="codex"
+    )
     body = (
         "# Tend CI instructions (Codex harness)\n\n"
         + render(shared).rstrip("\n")

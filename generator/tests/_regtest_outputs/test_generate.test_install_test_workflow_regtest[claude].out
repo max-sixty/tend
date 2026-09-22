@@ -12,6 +12,9 @@ on:
   pull_request:
     paths:
       - .github/workflows/tend-*.yaml
+      - .github/CODEOWNERS
+      - CODEOWNERS
+      - docs/CODEOWNERS
       - .config/tend.yaml
 
 jobs:
@@ -58,12 +61,16 @@ jobs:
           # emits, or the `.github/actionlint.yaml` ignore. The intent-to-add
           # brings those into the diff and stages the removal of anything the
           # regen deleted, so compare against HEAD to catch both directions.
-          # The pathspecs are the two directories `init` writes under, so the
-          # check covers everything it emits. The job never commits, so the
-          # index write is inert.
+          # Include either consumer-owned CODEOWNERS location: yolo `init`
+          # updates whichever one is effective. The job never commits.
           git add --intent-to-add .github .config
-          if ! git diff HEAD --quiet .github .config; then
+          for path in CODEOWNERS docs/CODEOWNERS; do
+            if [ -e "$path" ] || [ -L "$path" ]; then
+              git add --intent-to-add "$path"
+            fi
+          done
+          if ! git diff HEAD --quiet -- .github .config CODEOWNERS docs/CODEOWNERS; then
             echo "::error::Committed files differ from 'uvx tend@$TEND_VERSION init --with-install-test' output. Run it locally and commit the result."
-            git --no-pager diff HEAD .github .config
+            git --no-pager diff HEAD -- .github .config CODEOWNERS docs/CODEOWNERS
             exit 1
           fi

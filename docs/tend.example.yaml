@@ -53,11 +53,24 @@ bot_name: my-project-bot
 # `workflows.<name>` entry. That workflow then overrides the top-level value;
 # `args: []` clears inherited arguments.
 
+# ## Merge mode
+#
+# `maintainer` is the default: the bot can push branches and open PRs, but only an
+# admin can update the default branch. `yolo` lets the bot merge PRs into the
+# default branch while still blocking direct pushes. In yolo mode, `tend init`
+# owns a final CODEOWNERS block for `.github/**`, `.config/tend.yaml`, and the
+# CODEOWNERS files themselves. GitHub requires a fresh approval from the
+# configured maintainer user (never the bot or a team) before those control-plane
+# changes can merge.
+#
+# merge: yolo
+# control_plane_owner: "@octocat"
+
 # ## Protected branches
 #
 # The default branch is always protected. Additional long-lived branches
-# (e.g. release or staging branches) can be listed here. The bot cannot
-# merge to any of them without human approval.
+# (e.g. release or staging branches) can be listed here. They remain
+# admin-only under either merge mode.
 #
 # protected_branches: ["release", "staging"]
 
@@ -114,18 +127,18 @@ bot_name: my-project-bot
 
 # ## Setup steps
 #
-# Build tools, caches, and environment variables that run before Claude in every
-# workflow. A `setup:` entry mirrors a GitHub Actions step: give it exactly
+# Build tools, caches, and environment variables that run before the agent in
+# every workflow. A `setup:` entry mirrors a GitHub Actions step: give it exactly
 # one of `uses` or `run`, plus any of these optional fields:
 #
 #     name, id, if, with, env, shell, working-directory,
 #     continue-on-error, timeout-minutes
 #
 # For multi-step setup, add multiple entries to the `setup:` list — they
-# render in declared order. For anything more elaborate (conditional shells,
-# shared env across many steps, anchored caches), move the YAML into a local
-# composite action (`.github/actions/tend-setup/action.yaml`) and reference
-# it from one entry with `uses`.
+# render in declared order. For anything more elaborate, move the YAML into a
+# local composite action (`.github/actions/tend-setup/action.yaml`) and reference
+# it from one entry with `uses`. In `yolo`, all `setup:` entries are refused
+# because ordinary code can steer even a fixed runner-side command.
 #
 # Setup runs against reviewed code — the default branch, or in `tend-review`
 # the PR's base branch, checked out before the PR's own tree lands. What it
@@ -140,9 +153,8 @@ bot_name: my-project-bot
 # job. Write it as a plain expression or one whole `${{ ... }}`; mixing the two
 # is rejected at `init`.
 #
-# Each form below shows the config and the YAML it produces inside the
-# `steps:` block. The guard is shown on the first example; it's added the same
-# way on every step.
+# The two forms below show the config and the YAML they produce inside the
+# `steps:` block. `tend-notifications` adds its no-work guard to each step.
 #
 # `uses`:
 #
@@ -160,19 +172,13 @@ bot_name: my-project-bot
 #
 #     setup:
 #       - uses: actions/setup-node@v7
-#         name: Setup Node
 #         with:
 #           node-version-file: .node-version
-#         env:
-#           FORCE_COLOR: "1"
 #
 #     # renders as:
 #     #   - uses: actions/setup-node@v7
-#     #     name: Setup Node
 #     #     with:
 #     #       node-version-file: .node-version
-#     #     env:
-#     #       FORCE_COLOR: '1'
 #
 # `run` with shell and working directory:
 #
@@ -192,7 +198,9 @@ bot_name: my-project-bot
 
 # ## The agent's sandbox (both harnesses)
 #
-# `setup:` above runs as the RUNNER user, around the composite action. The
+# `setup:` is available only in maintainer mode. Yolo refuses it because code
+# the bot merged to the default branch could steer a fixed runner-side command.
+# In maintainer mode it runs as the RUNNER user, around the composite action. The
 # agent then runs as a separate, non-sudo user inside a hardened systemd
 # unit, in the job's own checkout and home, with the job's PATH and
 # environment. It sees them through a copy-on-write view: what `setup:`
@@ -380,8 +388,8 @@ bot_name: my-project-bot
 
 # ### weekly
 #
-# Weekly (default Sunday 09:17 UTC). Reviews dependency PRs, approves safe
-# patch and minor updates (a maintainer merges — the bot never merges).
+# Weekly (default Sunday 09:17 UTC). Reviews dependency PRs and approves safe
+# patch and minor updates; merging follows the configured mode.
 #
 # workflows:
 #   weekly:
@@ -411,7 +419,8 @@ bot_name: my-project-bot
 # Overrides use RFC 7396 (JSON Merge Patch): mappings deep-merge, scalars and
 # lists replace, and `null` deletes the key. Unknown job names print a warning
 # but don't fail. Step-level overrides aren't supported — use the `setup:`
-# mechanism above to inject steps.
+# mechanism above to inject steps. Yolo refuses both override forms so
+# credential-bearing generated jobs retain their audited shape.
 #
 # ### Example: skip review on labeled PRs
 #

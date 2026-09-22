@@ -12,7 +12,10 @@ import _prompt
 def main() -> int:
     shared = Path(os.environ["SYSTEM_PROMPT_FILE"]).read_text()
     base = _prompt.render(
-        shared, bot_name=os.environ["BOT_NAME"], harness="claude"
+        shared,
+        bot_name=os.environ["BOT_NAME"],
+        merge=os.environ["TEND_MERGE"],
+        harness="claude",
     ).rstrip("\n")
     parts = [base]
     extra = os.environ.get("EXTRA", "")

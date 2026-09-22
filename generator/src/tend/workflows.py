@@ -98,14 +98,30 @@ def _inline_script(name: str) -> str:
 
 
 # The GitHub Environment holding the operational secrets (bot token, harness
-# token). Its deployment branch policy admits only admin-gated refs, so a job
-# that names it runs solely from those refs — a workflow pushed to a feature
-# branch is refused before its first step, which is what stops a hijacked
-# session reading the secrets out of a run it wrote. Every job carrying a
-# secret names it; jobs that carry none must not, or they lose the refs the
-# policy excludes for nothing. Not configurable: the name is an implementation
-# detail of that guarantee, and `tend check` creates and verifies it.
+# token). Its deployment branch policy admits only refs Tend verified for its
+# hardened runtime — the default branch and configured protected branches — so
+# a workflow pushed to a feature branch is refused before its first step. In
+# yolo, control-plane review protects the generated workflow on the default
+# branch. Every job carrying a secret names the environment; jobs that carry
+# none must not, or they lose excluded refs for nothing. The fixed name is an
+# implementation detail of that guarantee, and `tend check` creates it.
 TEND_ENVIRONMENT = "tend"
+CODEOWNERS_BEGIN = "# BEGIN tend control plane"
+CODEOWNERS_END = "# END tend control plane"
+CONTROL_PLANE_PATHS = (
+    "/.github/**",
+    "/.config/tend.yaml",
+    "/CODEOWNERS",
+    "/docs/CODEOWNERS",
+    "**/CLAUDE.md",
+    "**/CLAUDE.local.md",
+    "**/AGENTS.md",
+    "**/AGENTS.override.md",
+    "**/.claude",
+    "**/.claude/**",
+    "**/.agents",
+    "**/.agents/**",
+)
 
 
 # Available to every template without being passed to render().
@@ -547,6 +563,9 @@ on:
   pull_request:
     paths:
       - .github/workflows/tend-*.yaml
+      - .github/CODEOWNERS
+      - CODEOWNERS
+      - docs/CODEOWNERS
       - .config/tend.yaml
 
 jobs:
@@ -586,13 +605,17 @@ jobs:
           # emits, or the `.github/actionlint.yaml` ignore. The intent-to-add
           # brings those into the diff and stages the removal of anything the
           # regen deleted, so compare against HEAD to catch both directions.
-          # The pathspecs are the two directories `init` writes under, so the
-          # check covers everything it emits. The job never commits, so the
-          # index write is inert.
+          # Include either consumer-owned CODEOWNERS location: yolo `init`
+          # updates whichever one is effective. The job never commits.
           git add --intent-to-add .github .config
-          if ! git diff HEAD --quiet .github .config; then
+          for path in CODEOWNERS docs/CODEOWNERS; do
+            if [ -e "$path" ] || [ -L "$path" ]; then
+              git add --intent-to-add "$path"
+            fi
+          done
+          if ! git diff HEAD --quiet -- .github .config CODEOWNERS docs/CODEOWNERS; then
             echo "::error::Committed files differ from 'uvx tend@$TEND_VERSION init --with-install-test' output. Run it locally and commit the result."
-            git --no-pager diff HEAD .github .config
+            git --no-pager diff HEAD -- .github .config CODEOWNERS docs/CODEOWNERS
             exit 1
           fi
 """
@@ -625,8 +648,48 @@ def generate_codex_auth_refresh(cfg: Config) -> GeneratedWorkflow:
 
 
 # ---------------------------------------------------------------------------
-# actionlint config
+# Adopter-owned config merged by `tend init`
 # ---------------------------------------------------------------------------
+
+
+def codeowners_config(existing: str | None, owner: str | None) -> str | None:
+    """Put Tend's managed block last, or remove it when ``owner`` is None.
+
+    CODEOWNERS uses the last matching pattern, so the managed block must be the
+    final one. The surrounding file remains consumer-owned and byte-stable.
+    """
+    original = existing or ""
+    lines = original.rstrip().splitlines()
+    begins = [i for i, line in enumerate(lines) if line == CODEOWNERS_BEGIN]
+    ends = [i for i, line in enumerate(lines) if line == CODEOWNERS_END]
+    if len(begins) != len(ends) or len(begins) > 1 or (begins and begins[0] >= ends[0]):
+        raise click.ClickException(
+            "CODEOWNERS has a malformed tend control-plane block; keep exactly "
+            f"one {CODEOWNERS_BEGIN!r} / {CODEOWNERS_END!r} pair"
+        )
+    if begins:
+        del lines[begins[0] : ends[0] + 1]
+        while lines and not lines[-1].strip():
+            lines.pop()
+
+    if owner is None:
+        if not begins:
+            return None
+        prefix = "\n".join(lines).rstrip()
+        updated = f"{prefix}\n" if prefix else ""
+        return None if updated == original else updated
+
+    block = "\n".join(
+        [
+            CODEOWNERS_BEGIN,
+            *(f"{path} {owner}" for path in CONTROL_PLANE_PATHS),
+            CODEOWNERS_END,
+        ]
+    )
+    prefix = "\n".join(lines).rstrip()
+    updated = f"{prefix}\n\n{block}\n" if prefix else f"{block}\n"
+    return None if updated == original else updated
+
 
 # `concurrency.queue` is valid GitHub Actions syntax that actionlint's schema
 # does not accept, so tend-review.yaml fails every actionlint run a consumer

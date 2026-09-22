@@ -122,24 +122,105 @@ def test_prepare_persists_every_value_the_agent_and_ship_need(
     worktree_calls = [call for call in calls if call[0][0] in {"uv", "git"}]
     assert any(args[0] == "uv" and cwd == worktree for args, cwd in worktree_calls)
 
-    # Staging, the no-op check and the diff all run in the regen worktree and
-    # scope themselves to the same paths, which between them must cover
-    # everything `tend init` writes (see test_integration.py::
-    # test_init_writes_only_under_the_two_directories_it_owns). Run anywhere
-    # else and they inspect the runner's own checkout, where `init` never ran;
-    # widen only the staging and the no-op check goes blind to a path `init`
-    # newly created, which a plain `git diff` does not show. Either way the
-    # regeneration quietly stops shipping.
-    scoped = {
-        args[1]: (args[-2:], cwd)
+    # Staging, the no-op check, and the diff run in the regen worktree and
+    # cover every path `tend init` writes. A path staged but omitted from the
+    # no-op check would quietly stop shipping on its own.
+    assert (
+        (
+            "git",
+            "status",
+            "--porcelain",
+            "--",
+            *nightly.GENERATED_PATHS,
+        ),
+        worktree,
+    ) in worktree_calls
+    assert (
+        (
+            "git",
+            "diff",
+            "--cached",
+            "--no-color",
+            "--",
+            *nightly.GENERATED_PATHS,
+        ),
+        worktree,
+    ) in worktree_calls
+    assert any(
+        args == ("git", "add", "-A", "--", ".github", ".config") and cwd == worktree
         for args, cwd in worktree_calls
-        if args[1] in {"add", "status", "diff"}
-    }
-    assert scoped == {
-        "add": ((".github", ".config"), worktree),
-        "status": ((".github", ".config"), worktree),
-        "diff": ((".github", ".config"), worktree),
-    }
+    )
+
+
+def test_prepare_notices_a_codeowners_only_change(
+    paths: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    worktree = paths["TEND_WORKFLOW_WORKTREE"]
+    calls: list[tuple[str, ...]] = []
+
+    def run(
+        *args: str, cwd: Path | None = None, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        if args[:3] == ("git", "worktree", "add"):
+            (worktree / ".github/workflows").mkdir(parents=True)
+            (worktree / ".config").mkdir()
+        if args == ("git", "rev-parse", "FETCH_HEAD"):
+            return _result(args, "base\n")
+        if args[:3] == ("git", "status", "--porcelain"):
+            return _result(args, "?? CODEOWNERS\n" if "CODEOWNERS" in args else "")
+        if args[:3] == ("git", "diff", "--cached"):
+            return _result(args, "+/CODEOWNERS @maintainer\n")
+        return _result(args)
+
+    monkeypatch.setattr(nightly, "_run", run)
+    monkeypatch.setattr(nightly.github_cli, "repository", lambda: "owner/repo")
+    monkeypatch.setattr(
+        nightly.github_cli,
+        "json_call",
+        lambda *args, **kwargs: (
+            [] if args[:2] == ("pr", "list") else {"default_branch": "main"}
+        ),
+    )
+
+    assert nightly.main(["prepare"]) == 0
+    assert json.loads(capsys.readouterr().out)["changed"] is True
+    assert ("git", "add", "-A", "--", "CODEOWNERS") in calls
+    assert ("git", "add", "-A", "--", "docs/CODEOWNERS") not in calls
+
+
+def test_stage_generated_handles_new_deleted_and_absent_codeowners(
+    tmp_path: Path,
+) -> None:
+    nightly._run("git", "init", "-q", cwd=tmp_path)
+    nightly._run("git", "config", "user.name", "Test", cwd=tmp_path)
+    nightly._run("git", "config", "user.email", "test@example.com", cwd=tmp_path)
+    for directory in (".github", ".config"):
+        (tmp_path / directory).mkdir()
+        (tmp_path / directory / "seed").write_text("seed\n")
+    nightly._run("git", "add", ".github", ".config", cwd=tmp_path)
+    nightly._run("git", "commit", "-qm", "seed", cwd=tmp_path)
+
+    nightly._stage_generated(tmp_path)
+    (tmp_path / "CODEOWNERS").write_text("/ @maintainer\n")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/CODEOWNERS").write_text("/ @maintainer\n")
+    (tmp_path / "unrelated.txt").write_text("do not stage\n")
+    nightly._stage_generated(tmp_path)
+    staged = nightly._run(
+        "git", "diff", "--cached", "--name-only", cwd=tmp_path
+    ).stdout.splitlines()
+    assert staged == ["CODEOWNERS", "docs/CODEOWNERS"]
+
+    nightly._run("git", "commit", "-qm", "add owners", cwd=tmp_path)
+    (tmp_path / "CODEOWNERS").unlink()
+    nightly._stage_generated(tmp_path)
+    staged = nightly._run(
+        "git", "diff", "--cached", "--name-status", cwd=tmp_path
+    ).stdout.splitlines()
+    assert staged == ["D\tCODEOWNERS"]
 
 
 def test_ship_uses_the_prepared_worktree_and_records_its_sha_before_cleanup(
@@ -168,6 +249,8 @@ def test_ship_uses_the_prepared_worktree_and_records_its_sha_before_cleanup(
         *args: str, cwd: Path | None = None, check: bool = True
     ) -> subprocess.CompletedProcess[str]:
         calls.append((args, cwd))
+        if args == ("git", "status", "--porcelain", "--", "CODEOWNERS"):
+            return _result(args, " M CODEOWNERS\n")
         return _result(args, f"{sha}\n" if args == ("git", "rev-parse", "HEAD") else "")
 
     monkeypatch.setattr(nightly, "_run", run)
@@ -215,6 +298,7 @@ def test_ship_uses_the_prepared_worktree_and_records_its_sha_before_cleanup(
         if args[:3] == ("git", "worktree", "remove")
     )
     assert commit < capture < cleanup
+    assert ("git", "add", "-A", "--", "CODEOWNERS") in [args for args, _ in calls]
     assert all(
         cwd == worktree for args, cwd in calls if args[:2] != ("git", "worktree")
     )

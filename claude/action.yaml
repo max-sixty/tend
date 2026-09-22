@@ -12,6 +12,12 @@ inputs:
   github_token:
     required: true
     description: GitHub token for API access and pushing commits
+  merge:
+    default: maintainer
+    description: Merge mode generated from .config/tend.yaml (maintainer or yolo)
+  control_plane_owner:
+    default: ""
+    description: CODEOWNER for yolo-protected workflow and Tend config changes
   claude_code_oauth_token:
     required: false
     default: ""
@@ -149,6 +155,8 @@ runs:
         # shell runs before the pinned interpreter does.
         BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
+        TEND_MERGE: ${{ inputs.merge }}
+        TEND_CONTROL_PLANE_OWNER: ${{ inputs.control_plane_owner }}
 
     # Also publishes `login`/`id` for the bot: it reads them off the token it
     # already holds, so nothing downstream has to resolve them again from the
@@ -195,6 +203,7 @@ runs:
       env:
         SYSTEM_PROMPT_FILE: ${{ github.action_path }}/../shared/system-prompt.md
         BOT_NAME: ${{ steps.bot.outputs.login }}
+        TEND_MERGE: ${{ inputs.merge }}
         EXTRA: ${{ inputs.system_prompt_append }}
 
     # Credential isolation: run the agent as a separate, non-sudo
@@ -212,14 +221,8 @@ runs:
     # ACTION_PATH points at the repo root so setup_sandbox.py's proxy addon
     # path resolves. See ../proxy/setup_sandbox.py and
     # ../proxy/inject_credentials.py.
-    #
-    # Runs before the Claude lifecycle — install, plugins, and the run all
-    # execute as the sandbox user. Cache the proxy's
-    # mitmproxy download (a sizeable dependency) in an isolated uv cache dir,
-    # keyed on the pinned version. First run populates; every run after restores
-    # in seconds instead of a cold ~20s resolve. This cache belongs only to the
-    # proxy; agent and consumer uv caches stay separate.
     - name: Cache mitmproxy
+      if: inputs.merge == 'maintainer'
       uses: actions/cache@v6
       with:
         path: ${{ runner.temp }}/tend-mitmproxy-uv
@@ -246,6 +249,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}/..
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
+        # Yolo keeps this job-local: bot-merged main code can poison shared caches.
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
       run: |
         set +x
