@@ -6,6 +6,24 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.0
+
+### Improved
+
+- **New opt-in `merge: yolo` mode lets the bot merge ordinary pull requests without maintainer approval.** The bot gets a pull-request-only bypass on the default branch and merges through the pull-request API pinned to the head SHA it verified, after `/tend-ci-runner:monitor-ci` reports green; it never enables auto-merge or pushes the branch directly. Changes to `.github/**`, `.config/tend.yaml`, CODEOWNERS, and agent instruction files still need fresh approval from `control_plane_owner`, through a CODEOWNERS block `init` maintains and a ruleset the bot cannot bypass. Yolo refuses runner-side `setup:` and workflow or job overrides, and preflight refuses to run unless the rulesets and CODEOWNERS block match exactly; `tend check` also verifies the generated workflows. `merge: maintainer` stays the default and keeps its current behavior. ([#1172](https://github.com/max-sixty/tend/pull/1172))
+
+### Fixed
+
+- **`tend check` requires the merge ruleset to restrict creation and deletion of protected branches, not only updates**, so the bot cannot delete and recreate one. `--fix` keeps the ruleset's existing target patterns and exclusions when it repairs it. Credential-environment auditing compares environment names case-insensitively and no longer treats a ref-qualified reusable workflow as the current tree's copy, and `setup:` rejects `with:` on a `run` step. An installation that passed 0.2.15's check may fail until `tend check --fix` runs. ([#1382](https://github.com/max-sixty/tend/pull/1382))
+- **`tend-install-test`'s drift check catches generator output the PR never committed**: a newly emitted workflow, `.github/actionlint.yaml`, and changes under `.config/`, as well as a workflow the regeneration removes. ([#1381](https://github.com/max-sixty/tend/pull/1381))
+- **The CI poll's settle loop shares one sleep budget between polling and confirmation**, capping its sleeps at 570 seconds where checks that keep registering could previously add up to 810. A poll that hits the command timeout counts as unverified, not green. ([#1376](https://github.com/max-sixty/tend/pull/1376))
+- **`review-runs` sees every run in its window on a busy repo.** `list_recent_runs.py` fetches up to the Actions pagination ceiling instead of 200 runs per workflow, correction rows keep their author's login, and the skill reads its evidence windows from files rather than a truncated tool result. ([#1377](https://github.com/max-sixty/tend/pull/1377), [#1374](https://github.com/max-sixty/tend/pull/1374), [#1373](https://github.com/max-sixty/tend/pull/1373))
+- **A claim about what a past PR proposed is read from its diff**, not its thread, and a truncated read verifies only the part it read. `/tend-ci-runner:open-pr`'s prior-rejection recipe fetches the diff, and `run-tend` points to `/tend-ci-runner:ground-claims` whenever a session is about to state a claim. ([#1379](https://github.com/max-sixty/tend/pull/1379), [#1351](https://github.com/max-sixty/tend/pull/1351))
+
+### Internal
+
+- The Codex harness installs `@openai/codex` 0.155.1. ([#1342](https://github.com/max-sixty/tend/pull/1342))
+
 ## 0.2.15
 
 ### Improved
