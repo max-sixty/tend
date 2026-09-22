@@ -1857,15 +1857,13 @@ def fix_immutable_releases(repo: str) -> CheckResult:
     )
 
 
-def _put_ruleset(
-    repo: str, body: str, *, preserved_refs: frozenset[str] = frozenset()
-) -> tuple[bool | None, str]:
+def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
     """Create the repo ruleset *body* names, or replace the one already there.
 
     GitHub refuses a second ruleset under a name the repo already uses, and a
     failing check can mean exactly that one exists but is disabled, in
-    evaluate mode, or edited to let the bot bypass it. Branch targets must be
-    preserved because credentials may still be admitted on them. Return the
+    evaluate mode, or edited to let the bot bypass it. Existing branch targets
+    remain protected because credentials may still be admitted on them. Return the
     verdict plus the success verb ("Created" or "Replaced") or an error.
     """
     name = json.loads(body)["name"]
@@ -1890,25 +1888,38 @@ def _put_ruleset(
             try:
                 conditions = current["conditions"]
                 refs = conditions["ref_name"]
-                preserves_targets = (
+                supported_targets = (
                     current["target"] == "branch"
                     and set(conditions) == {"ref_name"}
                     and set(refs) == {"include", "exclude"}
                     and isinstance(refs["include"], list)
-                    and refs["exclude"] == []
-                    and set(refs["include"])
-                    <= set(intended["conditions"]["ref_name"]["include"])
-                    | preserved_refs
+                    and isinstance(refs["exclude"], list)
+                    and all(
+                        isinstance(ref, str)
+                        and (
+                            ref in {"~DEFAULT_BRANCH", "~ALL"}
+                            or (
+                                ref.startswith("refs/heads/")
+                                and len(ref) > len("refs/heads/")
+                            )
+                        )
+                        for ref in refs["include"] + refs["exclude"]
+                    )
                 )
             except (KeyError, TypeError):
-                preserves_targets = False
-            if not preserves_targets:
+                supported_targets = False
+            if not supported_targets:
                 return False, (
-                    "Cannot safely retire or change existing protected refs. "
-                    "First remove or independently gate their access to credential "
-                    "environments (including tend), then manually retire the old "
-                    "ruleset targets. No rulesets changed."
+                    "Cannot safely preserve unsupported branch ruleset conditions. "
+                    "No rulesets changed."
                 )
+            intended_refs = intended["conditions"]["ref_name"]["include"]
+            intended_refs.extend(
+                ref for ref in refs["include"] if ref not in intended_refs
+            )
+            # Removing exclusions widens protection; retaining includes avoids
+            # exposing branches whose credential gates have not been migrated.
+            body = json.dumps(intended)
         path, method, verb = f"repos/{repo}/rulesets/{existing[0]}", "PUT", "Replaced"
     else:
         path, method, verb = f"repos/{repo}/rulesets", "POST", "Created"
@@ -1950,7 +1961,6 @@ def fix_branch_protection(
     result, verb = _put_ruleset(
         repo,
         _restrict_updates_ruleset(extra),
-        preserved_refs=frozenset({f"refs/heads/{default_branch}"}),
     )
     name = f"branch-protection:{default_branch}"
     if result is not True:

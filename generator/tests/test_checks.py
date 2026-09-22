@@ -1552,22 +1552,55 @@ def test_fix_branch_protection_overwrites_an_existing_merge_access_ruleset(
     assert body["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
 
 
-@pytest.mark.parametrize("unreadable", [False, True])
-def test_fix_branch_protection_preserves_retired_refs(unreadable: bool) -> None:
-    """A stale environment may still admit a ref removed from the config."""
+def test_fix_branch_protection_preserves_existing_targets() -> None:
+    """Repair widens protection without exposing branches still admitting secrets."""
+    current = json.loads(_restrict_updates_ruleset(["old-release", "release/*"]))
+    current["conditions"]["ref_name"]["exclude"] = ["refs/heads/release/test"]
+    writes = []
 
     def fake(*args, **kwargs):
         if "--jq" in args:
             return _make_completed("41\n")
+        if "--method" in args:
+            writes.append(json.loads(kwargs["input"]))
+            return _make_completed()
+        return _make_completed(json.dumps(current))
+
+    with patch("tend.checks._gh", side_effect=fake):
+        result = fix_branch_protection("owner/repo", "main", ["new-release"])
+    assert result.passed is True
+    assert writes[0]["conditions"]["ref_name"] == {
+        "include": [
+            "~DEFAULT_BRANCH",
+            "refs/heads/new-release",
+            "refs/heads/old-release",
+            "refs/heads/release/*",
+        ],
+        "exclude": [],
+    }
+    assert {rule["type"] for rule in writes[0]["rules"]} == {
+        "creation",
+        "update",
+        "deletion",
+    }
+
+
+@pytest.mark.parametrize("include", [None, [42], ["~UNKNOWN"]])
+def test_fix_branch_protection_cannot_inspect_existing_targets(include) -> None:
+    def fake(*args, **kwargs):
+        if "--jq" in args:
+            return _make_completed("41\n")
         assert "--method" not in args, "Must not change any ruleset"
-        if unreadable:
+        if include is None:
             return _make_completed("", returncode=1, stderr="HTTP 403")
-        return _make_completed(_restrict_updates_ruleset(["old-release"]))
+        current = json.loads(_restrict_updates_ruleset([]))
+        current["conditions"]["ref_name"]["include"] = include
+        return _make_completed(json.dumps(current))
 
     with patch("tend.checks._gh", side_effect=fake):
         result = fix_branch_protection("owner/repo", "main", [])
-    assert result.passed is (None if unreadable else False)
-    assert ("Could not read" if unreadable else "retire") in result.message
+    assert result.passed is (None if include is None else False)
+    assert ("Could not read" if include is None else "unsupported") in result.message
 
 
 def _gh_all_pass(*admitted: str, environment_secrets: tuple[str, ...] | None = None):

@@ -92,10 +92,11 @@ teams, custom roles, and org-level rulesets included — and the run aborts if
 no restrict-updates ruleset applies or the bot can bypass every one. Only
 when GitHub will not answer, because the rules listing or every ruleset in it
 is unreadable, does the preflight settle for the branch being protected at
-all. `tend check --fix` refuses to retire existing protected refs: a maintainer
-must first remove or independently gate their access to credential environments,
-then retire their ruleset targets. This prevents a failed reconciliation from
-leaving a newly writable branch with access to secrets.
+all. `tend check --fix` retains existing protected refs when repairing the
+ruleset, even if they are no longer in the config. To retire one, a maintainer
+must first remove or independently gate its access to credential environments,
+then remove its ruleset target. Repairing protection never makes an old ref
+writable while it may still have access to secrets.
 
 **Environment-gated secrets.** A job that names a GitHub Environment runs
 only if the run's `GITHUB_REF` matches the environment's deployment branch
