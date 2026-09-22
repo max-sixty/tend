@@ -1886,39 +1886,23 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
             current = _fetch_ruleset(repo, existing[0])
             if current is None:
                 return None, "Could not read the existing branch ruleset from GitHub"
-            try:
-                conditions = current["conditions"]
-                refs = conditions["ref_name"]
-                supported_targets = (
-                    current["target"] == "branch"
-                    and set(conditions) == {"ref_name"}
-                    and set(refs) == {"include", "exclude"}
-                    and isinstance(refs["include"], list)
-                    and isinstance(refs["exclude"], list)
-                    and all(
-                        isinstance(ref, str)
-                        and (
-                            ref in {"~DEFAULT_BRANCH", "~ALL"}
-                            or (
-                                ref.startswith("refs/heads/")
-                                and len(ref) > len("refs/heads/")
-                            )
-                        )
-                        for ref in refs["include"] + refs["exclude"]
-                    )
-                )
-            except (KeyError, TypeError):
-                supported_targets = False
-            if not supported_targets:
+            conditions = current.get("conditions")
+            refs = conditions.get("ref_name") if isinstance(conditions, dict) else None
+            includes = refs.get("include") if isinstance(refs, dict) else None
+            excludes = refs.get("exclude") if isinstance(refs, dict) else None
+            if (
+                current.get("target") != "branch"
+                or not isinstance(includes, list)
+                or not isinstance(excludes, list)
+                or not all(isinstance(ref, str) for ref in includes + excludes)
+            ):
                 return False, (
-                    "Cannot safely preserve unsupported branch ruleset conditions. "
+                    "Cannot safely preserve existing branch ruleset conditions. "
                     "No rulesets changed."
                 )
             intended_refs = intended["conditions"]["ref_name"]["include"]
-            intended_refs.extend(
-                ref for ref in refs["include"] if ref not in intended_refs
-            )
-            intended["conditions"]["ref_name"]["exclude"] = refs["exclude"]
+            refs["include"] = list(dict.fromkeys([*intended_refs, *includes]))
+            intended["conditions"] = conditions
             body = json.dumps(intended)
         path, method, verb = f"repos/{repo}/rulesets/{existing[0]}", "PUT", "Replaced"
     else:

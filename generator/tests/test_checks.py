@@ -1553,9 +1553,11 @@ def test_fix_branch_protection_overwrites_an_existing_merge_access_ruleset(
 
 
 def test_fix_branch_protection_preserves_existing_targets() -> None:
-    """Repair keeps protected refs and excludes branches available for bot work."""
+    """Repair keeps existing conditions, including targets GitHub may add later."""
     current = json.loads(_restrict_updates_ruleset(["old-release", "release/*"]))
+    current["conditions"]["ref_name"]["include"].append("~FUTURE_SELECTOR")
     current["conditions"]["ref_name"]["exclude"] = ["refs/heads/release/test"]
+    current["conditions"]["future_condition"] = {"enabled": True}
     writes = []
 
     def fake(*args, **kwargs):
@@ -1575,9 +1577,11 @@ def test_fix_branch_protection_preserves_existing_targets() -> None:
             "refs/heads/new-release",
             "refs/heads/old-release",
             "refs/heads/release/*",
+            "~FUTURE_SELECTOR",
         ],
         "exclude": ["refs/heads/release/test"],
     }
+    assert writes[0]["conditions"]["future_condition"] == {"enabled": True}
     assert {rule["type"] for rule in writes[0]["rules"]} == {
         "creation",
         "update",
@@ -1585,12 +1589,13 @@ def test_fix_branch_protection_preserves_existing_targets() -> None:
     }
     assert result.message == (
         "Replaced 'Merge access' ruleset — admin-only; include: ~DEFAULT_BRANCH, "
-        "refs/heads/new-release, refs/heads/old-release, refs/heads/release/*; "
+        "refs/heads/new-release, refs/heads/old-release, refs/heads/release/*, "
+        "~FUTURE_SELECTOR; "
         "exclude: refs/heads/release/test."
     )
 
 
-@pytest.mark.parametrize("include", [None, [42], ["~UNKNOWN"]])
+@pytest.mark.parametrize("include", [None, [42]])
 def test_fix_branch_protection_cannot_inspect_existing_targets(include) -> None:
     def fake(*args, **kwargs):
         if "--jq" in args:
@@ -1605,7 +1610,9 @@ def test_fix_branch_protection_cannot_inspect_existing_targets(include) -> None:
     with patch("tend.checks._gh", side_effect=fake):
         result = fix_branch_protection("owner/repo", "main", [])
     assert result.passed is (None if include is None else False)
-    assert ("Could not read" if include is None else "unsupported") in result.message
+    assert (
+        "Could not read" if include is None else "Cannot safely preserve"
+    ) in result.message
 
 
 def _gh_all_pass(*admitted: str, environment_secrets: tuple[str, ...] | None = None):
