@@ -700,7 +700,11 @@ mode: Claude prefers its OAuth secret over its API key; Codex prefers
 `CODEX_AUTH_JSON` over `OPENAI_API_KEY`. When the user names a credential,
 rotate that one and distinguish it from a switch of the active mode. Mint
 a new value before writing the secret, then verify its `Updated` time
-advances. A secret's presence alone finishes only an initial setup.
+advances. For harness credential rotation, invalidate the old value at its
+issuer after the new one is stored; an updated secret does not revoke it.
+If its issuer offers no verified revocation path, report that the old
+credential may still work instead of calling the rotation complete. A
+secret's presence alone finishes only an initial setup.
 Where the user runs `gh secret set` themselves, re-run the listing once
 they say they're done.
 
@@ -748,6 +752,10 @@ it was written without exposing the value:
 gh secret list --repo "$REPO" --env tend
 ```
 
+For rotation, have the user identify the old Claude Code authorization
+in `https://claude.ai/settings/claude-code` before minting the replacement,
+then revoke that old authorization there after the secret is updated.
+
 For **API key**: the user takes a key from
 `https://console.anthropic.com/settings/keys` and runs this themselves,
 substituted, pasting the key at the prompt:
@@ -755,6 +763,9 @@ substituted, pasting the key at the prompt:
 ```bash
 gh secret set ANTHROPIC_API_KEY --repo "$REPO" --env tend
 ```
+
+For rotation, have the user identify the old key before creating the new
+one, then delete the old key from the console after updating the secret.
 
 ### 7b. Harness = codex
 
@@ -780,6 +791,12 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" provisi
 The provisioner uses `codex`, or `npx -y @openai/codex@latest` when the CLI is
 absent. It validates and splits the login, stores both GitHub secrets without
 printing them, verifies the secret names, and removes its temporary Codex home.
+
+For rotation, this installs a replacement but cannot revoke the old Codex
+subscription login: the previous `auth.json` is removed, GitHub secrets
+cannot be read back, and ChatGPT's active-session controls do not cover
+Codex CLI sessions. Tell the user the old credential may remain valid and
+do not report the rotation complete.
 
 The serialized refresh workflow also needs a fine-grained PAT scoped only to
 `$REPO`, with repository permission **Environments: Read and write**;
@@ -813,6 +830,9 @@ the prompt:
 ```bash
 gh secret set OPENAI_API_KEY --repo "$REPO" --env tend
 ```
+
+For rotation, have the user identify the old key before creating the new
+one, then delete the old key from the platform after updating the secret.
 
 ## 8. Bot token and secret
 
@@ -951,8 +971,9 @@ timestamp proves the secret was written, not that the PAT changed.
 ```bash
 BOT_GH_TOKEN=$(env -u GH_TOKEN -u GITHUB_TOKEN \
   GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token)
-if [ -z "$BOT_GH_TOKEN" ]; then
-  echo "bot token empty — fix step 8 first" >&2
+BOT_LOGIN=$(GH_TOKEN=$BOT_GH_TOKEN gh api user --jq '.login' 2>/dev/null)
+if [ -z "$BOT_GH_TOKEN" ] || [ "$BOT_LOGIN" != "<bot-name>" ]; then
+  echo "bot token missing or no longer valid — redo 8a before pushing it" >&2
 else
   gh secret set TEND_BOT_TOKEN --repo "$REPO" --env tend --body "$BOT_GH_TOKEN"
   gh secret list --repo "$REPO" --env tend

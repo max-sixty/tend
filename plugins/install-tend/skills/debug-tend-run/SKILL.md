@@ -1,6 +1,6 @@
 ---
 name: debug-tend-run
-description: Debugs a tend CI run from its GitHub Actions logs. Use for run IDs, PRs, or questions about what tend did and why.
+description: Debugs a tend CI run from its session-log artifacts. Use for run IDs, PR numbers, or questions about what tend did and why.
 ---
 
 # Debug Tend Run
