@@ -25,8 +25,10 @@ WINDOW_CAP = timedelta(hours=49)
 DEFAULT_WINDOW = timedelta(hours=25)
 AD_HOC_WINDOW = timedelta(hours=1)
 CREATION_CUSHION = timedelta(hours=24)
-# The Actions API's pagination ceiling, which `token_report.py` fetches to for
-# the same reason. The fetch spans the window plus the creation cushion — three
+# The ceiling on a `--created`-filtered run listing — the filtered query stops
+# at 1000 however many runs `total_count` reports, while an unfiltered listing
+# pages past it. `token_report.py` fetches to the same limit, for the same
+# reason. The fetch spans the window plus the creation cushion — three
 # days at the cap — so a repo running one workflow every few minutes puts
 # several hundred runs inside it. Any limit below the ceiling binds there
 # first, and truncation drops the window's *oldest* runs.
