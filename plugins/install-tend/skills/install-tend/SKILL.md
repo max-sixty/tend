@@ -792,11 +792,11 @@ The provisioner uses `codex`, or `npx -y @openai/codex@latest` when the CLI is
 absent. It validates and splits the login, stores both GitHub secrets without
 printing them, verifies the secret names, and removes its temporary Codex home.
 
-For rotation, this installs a replacement but cannot revoke the old Codex
-subscription login: the previous `auth.json` is removed, GitHub secrets
-cannot be read back, and ChatGPT's active-session controls do not cover
-Codex CLI sessions. Tell the user the old credential may remain valid and
-do not report the rotation complete.
+For rotation, this installs a replacement but cannot itself revoke the old
+Codex subscription login: the previous `auth.json` is removed and GitHub
+secrets cannot be read back. Tell the user the old credential may remain
+valid, have them check their ChatGPT account's security settings for a
+session-revocation control, and do not report the rotation complete.
 
 The serialized refresh workflow also needs a fine-grained PAT scoped only to
 `$REPO`, with repository permission **Environments: Read and write**;
@@ -973,7 +973,7 @@ BOT_GH_TOKEN=$(env -u GH_TOKEN -u GITHUB_TOKEN \
   GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token)
 BOT_LOGIN=$(GH_TOKEN=$BOT_GH_TOKEN gh api user --jq '.login' 2>/dev/null)
 if [ -z "$BOT_GH_TOKEN" ] || [ "$BOT_LOGIN" != "<bot-name>" ]; then
-  echo "bot token missing or no longer valid — redo 8a before pushing it" >&2
+  echo "bot token missing or no longer valid — redo 8a (8b if the bot dir is empty)" >&2
 else
   gh secret set TEND_BOT_TOKEN --repo "$REPO" --env tend --body "$BOT_GH_TOKEN"
   gh secret list --repo "$REPO" --env tend
