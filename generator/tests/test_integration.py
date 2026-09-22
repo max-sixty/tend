@@ -1063,3 +1063,61 @@ def test_install_test_workflow_shape(
     assert "git remote set-head" not in content
     assert "gh api" in content and ".default_branch" in content
     assert "git symbolic-ref" in content
+
+
+@pytest.mark.parametrize("drift", ["added", "removed", "none"])
+def test_install_test_drift_check_sees_every_direction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
+) -> None:
+    """The drift check must fail on a workflow the regen emits that the PR
+    never committed, and on one the regen no longer emits.
+
+    A plain `git diff` misses the first: untracked files are invisible to it,
+    which is the add-a-workflow case the one-shot check exists to cover
+    (switching a workflow to the Codex harness emits
+    tend-codex-auth-refresh.yaml, and `git commit -a` leaves it behind).
+    Staging intents to fix that stages removals along with them, so the
+    comparison has to be against HEAD or the second case goes green instead.
+
+    Runs the check the generated step carries, minus the regen call above it
+    (that needs the network); editing the workflow files is what the regen
+    does."""
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+    _run_init(["--with-install-test"])
+
+    data = yaml.safe_load(
+        (_workflow_dir(tmp_path) / "tend-install-test.yaml").read_text()
+    )
+    script = data["jobs"]["install-test"]["steps"][-1]["run"]
+    _, regen, drift_check = script.partition("init --with-install-test\n")
+    assert regen, "regen call moved: the drift check can no longer be split out"
+
+    git = ("git", "-c", "user.email=tend@example.com", "-c", "user.name=tend")
+    subprocess.run([*git, "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "add", "."], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-qm", "install tend"], cwd=tmp_path, check=True)
+
+    wf_dir = _workflow_dir(tmp_path)
+    expected: str | None = None
+    if drift == "added":
+        expected = "tend-codex-auth-refresh.yaml"
+        (wf_dir / expected).write_text("# emitted by the regen, never committed\n")
+    elif drift == "removed":
+        expected = "tend-triage.yaml"
+        (wf_dir / expected).unlink()
+
+    result = subprocess.run(
+        [BASH, "-e", "-c", drift_check],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+
+    if expected is None:
+        assert result.returncode == 0, f"drift check failed on a clean tree:\n{output}"
+    else:
+        assert result.returncode != 0, f"drift check passed on a {drift} workflow"
+        assert expected in output
