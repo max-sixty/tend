@@ -210,12 +210,14 @@ def test_init_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 def test_init_writes_only_under_the_two_directories_it_owns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The nightly regeneration stages `.github` and `.config` and nothing else.
+    """The nightly regeneration and the install-test drift check both stage
+    `.github` and `.config`, and nothing else.
 
     A file `init` newly creates outside those two is invisible to that
-    staging, so the regeneration PR ships without it — which is how
-    `.github/actionlint.yaml` once left consumers who lint workflows red, and
-    left the file untracked again every night.
+    staging, so the regeneration PR ships without it and the install PR
+    merges without it — which is how `.github/actionlint.yaml` once left
+    consumers who lint workflows red, and left the file untracked again every
+    night.
     """
     _write_config(tmp_path, "bot_name: test-bot")
     monkeypatch.chdir(tmp_path)
@@ -236,9 +238,10 @@ def test_init_writes_only_under_the_two_directories_it_owns(
         if not any(path == spec or path.startswith(f"{spec}/") for spec in staged)
     )
     assert not uncovered, (
-        f"`tend init` writes paths the nightly regeneration never stages: {uncovered}. "
-        "Widen the nightly recipe's `git add -A` pathspecs so the regeneration "
-        "PR carries them."
+        f"`tend init` writes paths neither the nightly regeneration nor the "
+        f"install-test drift check stages: {uncovered}. Widen the `git add` "
+        "pathspecs in `nightly_workflow_update.py` and `generate_install_test` "
+        "so the regeneration PR carries them and the drift check sees them."
     )
 
 
@@ -1063,3 +1066,77 @@ def test_install_test_workflow_shape(
     assert "git remote set-head" not in content
     assert "gh api" in content and ".default_branch" in content
     assert "git symbolic-ref" in content
+
+
+@pytest.mark.parametrize("drift", ["added", "removed", "actionlint", "none"])
+def test_install_test_drift_check_sees_every_direction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
+) -> None:
+    """The drift check must fail on generator output the PR never committed —
+    a workflow or the actionlint ignore — and on a workflow the regen no
+    longer emits.
+
+    A plain `git diff` misses the uncommitted cases: untracked files are
+    invisible to it, which is the add-a-file case the one-shot check exists to
+    cover (switching a workflow to the Codex harness emits
+    tend-codex-auth-refresh.yaml, and `git commit -a` leaves it behind, as it
+    does the `.github/actionlint.yaml` every install newly creates).
+    Staging intents to fix that stages removals along with them, so the
+    comparison has to be against HEAD or the removal case goes green instead.
+    The pathspecs have to cover both directories `init` writes under, or the
+    ignore stays invisible whatever the comparison.
+
+    Runs the check the generated step carries, minus the regen call above it
+    (that needs the network); editing the workflow files is what the regen
+    does."""
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+    _run_init(["--with-install-test"])
+
+    data = yaml.safe_load(
+        (_workflow_dir(tmp_path) / "tend-install-test.yaml").read_text()
+    )
+    script = data["jobs"]["install-test"]["steps"][-1]["run"]
+    _, regen, drift_check = script.partition("init --with-install-test\n")
+    assert regen, "regen call moved: the drift check can no longer be split out"
+
+    git = ("git", "-c", "user.email=tend@example.com", "-c", "user.name=tend")
+    subprocess.run([*git, "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "add", "."], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-qm", "install tend"], cwd=tmp_path, check=True)
+
+    wf_dir = _workflow_dir(tmp_path)
+    expected: str | None = None
+    if drift == "added":
+        expected = "tend-codex-auth-refresh.yaml"
+        (wf_dir / expected).write_text("# emitted by the regen, never committed\n")
+    elif drift == "removed":
+        expected = "tend-triage.yaml"
+        (wf_dir / expected).unlink()
+    elif drift == "actionlint":
+        # Committed without the ignore `init` newly created, which stays in
+        # the worktree as an untracked file — what `git commit -a` leaves.
+        expected = "actionlint.yaml"
+        subprocess.run(
+            [*git, "rm", "-q", "--cached", f".github/{expected}"],
+            cwd=tmp_path,
+            check=True,
+        )
+        subprocess.run(
+            [*git, "commit", "-qm", "forget the ignore"], cwd=tmp_path, check=True
+        )
+
+    result = subprocess.run(
+        [BASH, "-e", "-c", drift_check],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+
+    if expected is None:
+        assert result.returncode == 0, f"drift check failed on a clean tree:\n{output}"
+    else:
+        assert result.returncode != 0, f"drift check passed on the {drift} case"
+        assert expected in output
