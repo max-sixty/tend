@@ -25,7 +25,14 @@ WINDOW_CAP = timedelta(hours=49)
 DEFAULT_WINDOW = timedelta(hours=25)
 AD_HOC_WINDOW = timedelta(hours=1)
 CREATION_CUSHION = timedelta(hours=24)
-RUN_LIMIT = 200
+# The ceiling on a `--created`-filtered run listing — the filtered query stops
+# at 1000 however many runs `total_count` reports, while an unfiltered listing
+# pages past it. `token_report.py` fetches to the same limit, for the same
+# reason. The fetch spans the window plus the creation cushion — three
+# days at the cap — so a repo running one workflow every few minutes puts
+# several hundred runs inside it. Any limit below the ceiling binds there
+# first, and truncation drops the window's *oldest* runs.
+RUN_LIMIT = 1000
 # `gh workflow list` fetches 50 without one, and says nothing when it truncates.
 WORKFLOW_LIMIT = 200
 
@@ -139,9 +146,10 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         )
         if len(rows) >= RUN_LIMIT:
             print(
-                f"WARNING: '{workflow}' returned {RUN_LIMIT} runs, the fetch limit "
-                "— older runs in this window are likely missing from the list. "
-                "Record a coverage gap, not an all-clear.",
+                f"WARNING: '{workflow}' returned {RUN_LIMIT} runs, the Actions "
+                "API's pagination ceiling — older runs in this window are "
+                "unreachable and missing from the list. Record a coverage gap, "
+                "not an all-clear.",
                 file=sys.stderr,
             )
         for row in rows:
