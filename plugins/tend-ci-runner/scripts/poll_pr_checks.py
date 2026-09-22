@@ -34,17 +34,10 @@ GREEN_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 #: confirms it.
 POLL_SEC = 60
 CONFIRM_SEC = 30
-#: What :func:`_settle` may spend on its poll reads. A budget rather than a pass
-#: count is what bounds the loop: a check that registers between a clean read
-#: and its confirmation sends the pass back to the top, so charging every pass
-#: its own confirmation lets the total grow with the flapping rather than with
-#: the number of reads.
+#: Both polling and confirmation sleeps consume this budget.
 POLL_BUDGET_SEC = 9 * POLL_SEC
-#: The longest the whole settle can sleep — the poll budget plus the one
-#: confirmation a pass starting at the end of it can still pay for. The skills
-#: run this poll in the foreground under the harness's 10-minute command cap and
-#: document it as taking up to ~9.5 minutes, so this is the figure that has to
-#: stay inside both: a poll killed at the cap returns no verdict at all.
+#: The final poll may add one confirmation sleep. Request time and poll()'s
+#: commit-resolution retry are additional; the harness owns command timeouts.
 MAX_SLEEP_SEC = POLL_BUDGET_SEC + CONFIRM_SEC
 GRAPHQL_QUERY = """
 query($owner: String!, $name: String!, $oid: GitObjectID!, $cursor: String) {

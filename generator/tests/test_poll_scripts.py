@@ -5,7 +5,7 @@ green this design exists to prevent is a poll silently retargeting a head
 another actor pushed. The fake `gh` serves raw GraphQL fixtures while the
 Python reducer decides which conclusions count as red, which check runs are
 superseded, and which never read as green at all. Sleep is injected, so the
-9-iteration loop runs in milliseconds.
+poll loop runs without waiting between reads.
 """
 
 from __future__ import annotations
@@ -706,13 +706,10 @@ def test_waits_out_pending_then_reports_green(env: dict[str, str]) -> None:
 def test_a_flapping_rollup_stays_inside_the_sleep_budget(
     env: dict[str, str],
 ) -> None:
-    """A check that appears between the two reads must not extend the poll.
+    """A check appearing during confirmation consumes the same sleep budget.
 
-    The callers run this in the foreground under the harness's 10-minute
-    command cap, so a pass that pays the confirm read and then finds a fresh
-    pending check has to come out of the same budget as one that does not.
-    Charging each pass its own confirm read instead ran 4.5 minutes past the
-    cap, and a killed poll returns no verdict at all.
+    Charging each pass its own confirmation slept 810 seconds instead of
+    staying within the 570-second bound on settle sleeps.
     """
     clean = _resp(_check_run("tests"))
     pending = _resp(_check_run("tests"), _check_run("late", status="QUEUED"))
