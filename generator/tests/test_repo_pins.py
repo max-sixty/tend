@@ -786,7 +786,7 @@ SKILLS_MEASURED_AT = 24
 
 
 def test_skill_frontmatter_is_loadable() -> None:
-    """CI runner and install-tend frontmatter fit the discovery listing.
+    """Installed skill frontmatter parses and fits the discovery listing.
 
     The harness reads `name` and `description` out of this block to build the
     listing that is the plugin's index. An unquoted `: ` inside a description
@@ -803,14 +803,7 @@ def test_skill_frontmatter_is_loadable() -> None:
         "share against the install, and move DESCRIPTION_BUDGET with the count"
     )
 
-    paths = sorted(
-        (REPO_ROOT / "plugins" / "tend-ci-runner" / "skills").glob("*/SKILL.md")
-    )
-    paths.append(
-        REPO_ROOT / "plugins" / "install-tend" / "skills" / "install-tend" / "SKILL.md"
-    )
-
-    for path in paths:
+    for path in installed:
         name = path.relative_to(REPO_ROOT)
         head, _, _ = path.read_text().removeprefix("---\n").partition("\n---\n")
         try:

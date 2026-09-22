@@ -1,6 +1,6 @@
 ---
 name: debug-tend-run
-description: Investigates a specific tend GitHub Actions run by downloading its session-log artifacts and parsing the JSONL traces. Surfaces which skill tend loaded, what tools it called with what inputs, files it read or wrote, and where decisions went wrong. Use when asked to "debug a tend run", "investigate a tend run", "why did tend do X", "what did the bot do in CI", "look at the session logs", or to reconstruct tend's behavior step-by-step from a run ID, URL, or PR number.
+description: Debugs a tend CI run from its GitHub Actions logs. Use for run IDs, PRs, or questions about what tend did and why.
 ---
 
 # Debug Tend Run

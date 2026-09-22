@@ -738,7 +738,7 @@ prompt and nowhere else.
 When setting it from a pasted value, check it starts with `sk-ant-oat01-`
 first. `gh secret set` stores an empty or malformed body and exits 0, and
 every check downstream reads names rather than values (`check_secrets`, and
-this step's own pre-check above), so a bad one reads as already set on the
+the listing above), so a bad one reads as already set on the
 next run, which skips it and finishes green.
 
 Either way, give them this alongside, which shows the secret's name and when
@@ -846,7 +846,9 @@ session (git's gh helper would forward it):
 - **Bot dir** (`gh auth …`, `gh api user`): prefix with
   `env -u GH_TOKEN -u GITHUB_TOKEN GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>"`.
   Ambient env tokens otherwise hijack the reads and block the auth
-  writes.
+  writes. After verifying the bot identity, read its active token with
+  `gh auth token` without `--user`; the named lookup can return an older
+  keyring token for the same login.
 - **Bot via token** (`GH_TOKEN=$BOT_GH_TOKEN gh api …`): each block
   reads the token, then skips its action if the read came back empty —
   an empty `GH_TOKEN` silently falls back to the maintainer's stored
@@ -872,8 +874,13 @@ env -u GH_TOKEN -u GITHUB_TOKEN \
 A missing dir prints "not logged in", which is a routing answer, not an
 error to debug. Read the output:
 
-- Rotating the bot PAT while logged in as `<bot-name>` → **refresh path** (8a),
-  even if all six scopes are present.
+- Rotating the bot PAT while logged in as `<bot-name>` → have the user sign
+  in as the bot at `https://github.com/settings/applications` and revoke
+  **GitHub CLI** under Authorized OAuth Apps, then take the **refresh
+  path** (8a), even if all six scopes are present. `gh auth refresh` does
+  not revoke the old token.
+  Revoking this authorization invalidates the bot's other GitHub CLI tokens
+  too; update any other installation using that bot account.
 - Logged in as `<bot-name>` with a `Token scopes:` line listing all six
   scopes, with no rotation requested → skip to 8c.
 - Logged in as `<bot-name>`, scopes missing → **refresh path** (8a).
@@ -943,7 +950,7 @@ timestamp proves the secret was written, not that the PAT changed.
 
 ```bash
 BOT_GH_TOKEN=$(env -u GH_TOKEN -u GITHUB_TOKEN \
-  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token --user <bot-name>)
+  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token)
 if [ -z "$BOT_GH_TOKEN" ]; then
   echo "bot token empty — fix step 8 first" >&2
 else
@@ -961,7 +968,7 @@ one exists.
 
 ```bash
 BOT_GH_TOKEN=$(env -u GH_TOKEN -u GITHUB_TOKEN \
-  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token --user <bot-name>)
+  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token)
 if [ -z "$BOT_GH_TOKEN" ]; then
   echo "bot token empty — fix step 8 first" >&2
 else
@@ -996,7 +1003,7 @@ Check the current bio as the bot — skip the write if it already matches:
 
 ```bash
 BOT_GH_TOKEN=$(env -u GH_TOKEN -u GITHUB_TOKEN \
-  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token --user <bot-name>)
+  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token)
 if [ -z "$BOT_GH_TOKEN" ]; then
   echo "bot token empty — fix step 8 first" >&2
 else
@@ -1008,7 +1015,7 @@ Otherwise write it (requires `user` scope on the bot's token from step 8):
 
 ```bash
 BOT_GH_TOKEN=$(env -u GH_TOKEN -u GITHUB_TOKEN \
-  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token --user <bot-name>)
+  GH_CONFIG_DIR="$HOME/.config/gh-bots/<bot-name>" gh auth token)
 if [ -z "$BOT_GH_TOKEN" ]; then
   echo "bot token empty — fix step 8 first" >&2
 else
