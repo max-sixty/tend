@@ -41,8 +41,11 @@ The command creates this month's tracker when needed, closes older open
 trackers, persists the current issue id, and returns both evidence windows.
 Redirect it rather than reading it inline: an established tracker's two
 windows run to hundreds of kilobytes, past what a tool result carries. The
-files are also how you count a finding's prior occurrences — grep both for a
-distinctive phrase, then read the `## Run` entry around each hit.
+files are also how you count a finding's prior occurrences. Each entry carries
+its own session's wording, so grepping for this run's phrasing undercounts:
+list the finding headings first
+(`grep -h '^### ' "$TMPDIR"/evidence-*.md`), match on meaning, then read the
+`## Run` entry behind each candidate.
 
 After analysis, write the new findings in the format from `@review-gates.md`
 to `$TMPDIR/findings.md`. Include a literal `## Run $GITHUB_RUN_ID` heading.
