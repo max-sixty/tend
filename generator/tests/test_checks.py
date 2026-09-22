@@ -57,7 +57,7 @@ from tend.config import (
     Config,
     WorkflowConfig,
 )
-from tend.workflows import TEND_ENVIRONMENT, generate_all
+from tend.workflows import CONTROL_PLANE_PATHS, TEND_ENVIRONMENT, generate_all
 
 from tests import GH_PREAMBLE, fake_bin, tool_path
 
@@ -620,6 +620,35 @@ def test_control_plane_codeowners_does_not_skip_an_unreadable_higher_priority_fi
 
     assert result.passed is None
     assert ".github/CODEOWNERS" in result.message
+
+
+def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file() -> (
+    None
+):
+    content = (
+        "# BEGIN tend control plane\n"
+        + "".join(f"{path} @octocat\n" for path in CONTROL_PLANE_PATHS)
+        + "# END tend control plane\n"
+    )
+
+    def fake_gh(*args, **kwargs):
+        url = _url(args)
+        if url.endswith("contents/.github/CODEOWNERS?ref=main"):
+            return _make_completed(returncode=1, stderr="gh: Not Found (HTTP 404)")
+        if url.endswith("contents/CODEOWNERS?ref=main"):
+            encoded = base64.b64encode(content.encode()).decode()
+            return _make_completed(json.dumps({"content": encoded}))
+        if url.endswith("codeowners/errors?ref=main"):
+            return _make_completed('{"errors": []}')
+        return _make_completed(returncode=1)
+
+    with patch("tend.checks._gh", side_effect=fake_gh):
+        result = check_control_plane_codeowners(
+            "owner/repo", "main", "@octocat", "my-bot"
+        )
+
+    assert result.passed is True
+    assert result.message.startswith("CODEOWNERS gives")
 
 
 def test_control_plane_codeowners_rejects_the_bot_as_owner() -> None:

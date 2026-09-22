@@ -135,7 +135,7 @@ repos:
 
       # The generator writes the CODEOWNERS block and the standalone runtime
       # preflight verifies the same bytes. They cannot import one another in an
-      # installed adopter workflow, so fail locally if the contract drifts.
+      # installed consumer workflow, so fail locally if the contract drifts.
       - id: control-plane-paths-parity
         name: control-plane paths stay in sync
         language: system

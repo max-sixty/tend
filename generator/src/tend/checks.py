@@ -1431,7 +1431,7 @@ def check_yolo_workflows(repo: str, cfg: Config) -> CheckResult:
     """Require the default branch to contain only the audited generated jobs.
 
     The ``tend`` environment may release operational secrets on main in yolo,
-    so its exception cannot extend to an adopter workflow or a stale generated
+    so its exception cannot extend to a consumer workflow or a stale generated
     workflow that still executes repository code as the runner.
     """
     name = "yolo-workflows"
@@ -2079,7 +2079,13 @@ def _tag_operations_ruleset() -> str:
 
 
 def operational_refs(results: list[CheckResult]) -> list[str]:
-    """Branches verified for Tend's own generated, sandboxed workflows."""
+    """Branches verified for Tend's own generated, sandboxed workflows.
+
+    Derive the environment policy from protection checks that passed, never
+    from configured intent. A missing branch or inconclusive GitHub read must
+    not silently enter a secret-bearing policy, even though Tend's canonical
+    ruleset also blocks future branch creation.
+    """
     prefix = "branch-protection:"
     return list(
         dict.fromkeys(

@@ -108,6 +108,50 @@ def test_control_plane_codeowners_does_not_skip_an_unreadable_higher_priority_fi
     assert not fake_gh.called("api", f"repos/{REPO}/contents/CODEOWNERS?ref=main")
 
 
+def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file(
+    fake_gh: FakeGh,
+) -> None:
+    content = (
+        "# BEGIN tend control plane\n"
+        "/.github/** @octocat\n"
+        "/.config/tend.yaml @octocat\n"
+        "/CODEOWNERS @octocat\n"
+        "/docs/CODEOWNERS @octocat\n"
+        "**/CLAUDE.md @octocat\n"
+        "**/CLAUDE.local.md @octocat\n"
+        "**/AGENTS.md @octocat\n"
+        "**/AGENTS.override.md @octocat\n"
+        "**/.claude @octocat\n"
+        "**/.claude/** @octocat\n"
+        "**/.agents @octocat\n"
+        "**/.agents/** @octocat\n"
+        "# END tend control plane\n"
+    )
+
+    def not_found(args: tuple[str, ...], stdin: str | None) -> str:
+        raise subprocess.CalledProcessError(
+            1, ["gh", *args], "", "gh: Not Found (HTTP 404)"
+        )
+
+    fake_gh.respond(
+        "api",
+        f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main",
+        with_=not_found,
+    )
+    fake_gh.respond(
+        "api",
+        f"repos/{REPO}/contents/CODEOWNERS?ref=main",
+        with_={"content": base64.b64encode(content.encode()).decode()},
+    )
+    fake_gh.respond(
+        "api", f"repos/{REPO}/codeowners/errors?ref=main", with_={"errors": []}
+    )
+
+    assert security_preflight.has_valid_control_plane_codeowners(
+        REPO, "main", "@octocat"
+    )
+
+
 def test_ruleset_ids_keeps_update_rules_once() -> None:
     """One ruleset contributing several rules to a branch is queried once."""
     rules = [

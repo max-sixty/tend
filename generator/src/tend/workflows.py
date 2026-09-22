@@ -640,7 +640,7 @@ def codeowners_config(existing: str | None, owner: str | None) -> str | None:
     """Put Tend's managed block last, or remove it when ``owner`` is None.
 
     CODEOWNERS uses the last matching pattern, so the managed block must be the
-    final one. The surrounding file remains adopter-owned and byte-stable.
+    final one. The surrounding file remains consumer-owned and byte-stable.
     """
     original = existing or ""
     lines = original.rstrip().splitlines()
