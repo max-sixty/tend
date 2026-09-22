@@ -23,14 +23,17 @@ token and requires the exact configured state: `never` or
 Branch protection that only requires reviews does not count: the bot's own
 approval satisfies it on another author's pull request.
 
-The two admin-gated operations are:
+Ref protection depends on the merge mode:
 
 - **Updating the default branch.** `Merge access` protects creation, update,
-  and deletion, with an admin bypass in both
-  modes and, in yolo only, a bot-user `pull_request` bypass. `Control-plane
-  review` layers fresh CODEOWNER approval over workflow and Tend-config paths.
-- **Updating extra protected branches.** `Protected branch access` protects
-  creation, update, and deletion and remains admin-only under both modes.
+  and deletion with an admin bypass. In yolo, the bot also has a `pull_request`
+  bypass, while `Control-plane review` layers fresh CODEOWNER approval over
+  workflow and Tend-config paths.
+- **Updating extra protected branches.** In maintainer, `Merge access` protects
+  them with an admin-only bypass, preserving existing targets and exclusions.
+  In yolo, `Protected branch access` protects configured extra branches with
+  an admin-only bypass. An existing `Protected branch access` ruleset remains
+  in place when returning to maintainer, rather than retiring old targets.
 - **Operating on a tag.** A ruleset with the `creation` and `update`
   rules covering all tags (`~ALL` on a `tag`-target ruleset), admin-only
   bypass. Blocks the bot from pushing a new tag and from force-pushing

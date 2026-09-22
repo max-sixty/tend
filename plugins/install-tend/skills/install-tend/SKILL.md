@@ -399,13 +399,14 @@ uvx tend@latest check --fix --repo "$REPO"
 
 The command is expected to remain non-zero until later steps install the
 secrets. Fix every ref-protection finding now. Under `maintainer`, `Merge access`
-keeps the default branch admin-only. Under `yolo`, it grants the bot user a
-pull-request-only bypass, while `Control-plane review` requires a fresh,
+keeps the default and extra protected branches admin-only. Under `yolo`, it
+targets only the default branch and grants the bot user a pull-request-only
+bypass, while `Control-plane review` requires a fresh,
 non-bypassable CODEOWNER approval for `.github/**` and
 `.config/tend.yaml`, including the CODEOWNERS files and agent instructions.
-`Protected branch access` keeps creation, updates, and deletion of every
-configured extra branch admin-only in both modes. `Tag operations` keeps all
-tags admin-only.
+`Protected branch access` keeps configured extra branches admin-only in yolo;
+an existing copy is retained when returning to maintainer. `Tag operations`
+keeps all tags admin-only.
 
 Yolo bootstraps in two safe phases. Before the generated CODEOWNERS block and
 exact generated workflows are on the default branch, or while any credential

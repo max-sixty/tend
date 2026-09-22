@@ -1822,6 +1822,11 @@ def test_fix_branch_protection_reconciles_yolo_back_to_maintainer() -> None:
             _restrict_updates_ruleset([], bot_id=99, bot_bypass_mode="pull_request")
         ),
         2: json.loads(_control_plane_ruleset()),
+        3: json.loads(
+            _restrict_updates_ruleset(
+                ["retired"], name="Protected branch access", include_default=False
+            )
+        ),
     }
 
     def fake_gh(*args, input=None, **kwargs):
@@ -1832,6 +1837,7 @@ def test_fix_branch_protection_reconciles_yolo_back_to_maintainer() -> None:
             rules = [
                 {"type": rule["type"], "ruleset_id": ruleset_id}
                 for ruleset_id, body in rulesets.items()
+                if "~DEFAULT_BRANCH" in body["conditions"]["ref_name"]["include"]
                 for rule in body["rules"]
             ]
             return _make_completed(json.dumps([rules]))
@@ -1869,6 +1875,7 @@ def test_fix_branch_protection_reconciles_yolo_back_to_maintainer() -> None:
     assert after.passed is True
     assert rulesets[1]["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
     assert 2 not in rulesets
+    assert rulesets[3]["conditions"]["ref_name"]["include"] == ["refs/heads/retired"]
 
 
 @pytest.mark.parametrize(
