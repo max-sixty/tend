@@ -955,7 +955,7 @@ wheels = [
 
 [[package]]
 name = "tend"
-version = "0.2.14"
+version = "0.2.15"
 source = { editable = "generator" }
 dependencies = [
     { name = "click" },
