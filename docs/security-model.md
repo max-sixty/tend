@@ -94,6 +94,10 @@ GitHub's `pull_request` bypass mode: it may update the branch through a PR but
 not by direct push. `Protected branch access` targets only configured
 `protected_branches` and stays admin-only. Both rulesets protect ref creation,
 updates, and deletion, so a bot cannot delete and recreate an admitted ref.
+`tend check --fix` refuses to retire existing protected refs: a maintainer must
+first remove or independently gate their access to credential environments,
+then retire their ruleset targets. This keeps a configuration change or a failed
+reconciliation from exposing secrets through a newly writable branch.
 The composite action verifies the bot's exact effective answer from
 `current_user_can_bypass`: `never` for maintainer, `pull_requests_only` for yolo.
 Required reviews alone do not qualify because the bot's own approval counts on

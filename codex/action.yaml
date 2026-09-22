@@ -224,12 +224,6 @@ runs:
           echo "CODEX_PROXY_BIN=$CODEX_PROXY_BIN"
         } >> "$GITHUB_ENV"
 
-    - name: Cache mitmproxy
-      uses: actions/cache@v6
-      with:
-        path: ${{ runner.temp }}/tend-mitmproxy-uv
-        key: tend-mitmproxy-${{ runner.os }}-${{ inputs.mitmproxy_version }}
-
     # The runner-owned proxy retains the real GitHub credential. Codex runs
     # under a separate non-sudo UID with a dummy token; the proxy replaces it
     # only for exact GitHub hosts. OpenAI authentication gets its own narrower
@@ -248,6 +242,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}/..
         MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
+        # Job-local only: ordinary main-branch code can poison Actions caches.
         UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
       run: |
         set +x

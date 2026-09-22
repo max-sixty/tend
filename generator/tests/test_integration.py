@@ -640,6 +640,62 @@ def test_yolo_init_output_passes_exact_workflow_check_with_same_context(
     assert "PASS  yolo-workflows" in checked.output
 
 
+@pytest.mark.parametrize("target_exists", [False, True])
+def test_yolo_init_rejects_codeowners_symlink_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target_exists: bool
+) -> None:
+    _write_config(
+        tmp_path,
+        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "owners.txt"
+    original = "*.py @octocat\n"
+    if target_exists:
+        target.write_text(original)
+    (tmp_path / "CODEOWNERS").symlink_to(target)
+
+    result = _run_init()
+
+    assert result.exit_code == 1, result.output
+    assert "symbolic link" in result.output
+    assert not _workflow_dir(tmp_path).exists()
+    assert target.exists() == target_exists
+    if target_exists:
+        assert target.read_text() == original
+
+
+@pytest.mark.parametrize("fix", [False, True])
+def test_yolo_check_requires_verified_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fix: bool
+) -> None:
+    """An unreadable protection cannot report success, including after repair."""
+    _write_config(
+        tmp_path,
+        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+    unverified = [CheckResult("control-plane-ruleset", None, "HTTP 403")]
+    reads = (
+        [[CheckResult("tag-protection", False, "missing")], unverified]
+        if fix
+        else [unverified]
+    )
+    with (
+        patch("tend.cli.run_all_checks", side_effect=reads),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch(
+            "tend.cli.fix_tag_protection",
+            return_value=CheckResult("tag-protection", True, "fixed"),
+        ),
+    ):
+        result = CliRunner().invoke(
+            main, ["check", "--repo", "owner/repo", *(["--fix"] if fix else [])]
+        )
+    assert result.exit_code == 1, result.output
+    assert "SKIP  control-plane-ruleset" in result.output
+
+
 def test_yolo_init_dry_run_does_not_write_codeowners(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

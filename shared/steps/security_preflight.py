@@ -31,6 +31,7 @@ Inputs (env): ``GITHUB_REPOSITORY``, ``TEND_MERGE``, plus the bot's
 from __future__ import annotations
 
 import base64
+import json
 import subprocess
 from typing import Any
 from urllib.parse import quote
@@ -181,6 +182,30 @@ def has_valid_control_plane_codeowners(repo: str, branch: str, owner: str) -> bo
         or content.count(CODEOWNERS_END) != 1
         or not content.rstrip().endswith(block)
     ):
+        return False
+
+    # The Contents API follows symlinks and reports type=file for their targets.
+    # Verify the Git mode so ownership cannot live outside protected paths.
+    repo_owner, repo_name = repo.split("/", 1)
+    directory = path.rpartition("/")[0]
+    query = (
+        "{ repository(owner: "
+        + json.dumps(repo_owner)
+        + ", name: "
+        + json.dumps(repo_name)
+        + ") { object(expression: "
+        + json.dumps(f"{branch}:{directory}")
+        + ") { ... on Tree { entries { name mode } } } } }"
+    )
+    try:
+        tree = _common.gh_json("api", "graphql", "-f", f"query={query}")
+        entries = tree["data"]["repository"]["object"]["entries"]
+        if not any(
+            entry["name"] == "CODEOWNERS" and entry["mode"] in {0o100644, 0o100755}
+            for entry in entries
+        ):
+            return False
+    except (*_common.GH_READ_FAILED, KeyError, TypeError, ValueError):
         return False
 
     try:

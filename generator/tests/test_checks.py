@@ -572,7 +572,10 @@ def test_protected_branch_requires_creation_and_deletion_rules() -> None:
     assert "lets the bot create or delete the ref" in result.message
 
 
-def test_control_plane_codeowners_requires_generated_block_last() -> None:
+@pytest.mark.parametrize("mode, passed", [(0o100644, True), (0o120000, False)])
+def test_control_plane_codeowners_requires_regular_file(
+    mode: int, passed: bool
+) -> None:
     content = (
         "* @maintainers\n\n"
         "# BEGIN tend control plane\n"
@@ -592,6 +595,20 @@ def test_control_plane_codeowners_requires_generated_block_last() -> None:
     )
 
     def fake_gh(*args, **kwargs):
+        if _url(args) == "graphql":
+            return _make_completed(
+                json.dumps(
+                    {
+                        "data": {
+                            "repository": {
+                                "object": {
+                                    "entries": [{"name": "CODEOWNERS", "mode": mode}]
+                                }
+                            }
+                        }
+                    }
+                )
+            )
         if "/codeowners/errors" in _url(args):
             return _make_completed('{"errors": []}')
         if ".github/CODEOWNERS" in _url(args):
@@ -604,7 +621,7 @@ def test_control_plane_codeowners_requires_generated_block_last() -> None:
             "owner/repo", "main", "@octocat", "my-bot"
         )
 
-    assert result.passed is True
+    assert result.passed is passed
 
 
 def test_control_plane_codeowners_does_not_skip_an_unreadable_higher_priority_file() -> (
@@ -633,6 +650,22 @@ def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file()
 
     def fake_gh(*args, **kwargs):
         url = _url(args)
+        if url == "graphql":
+            return _make_completed(
+                json.dumps(
+                    {
+                        "data": {
+                            "repository": {
+                                "object": {
+                                    "entries": [
+                                        {"name": "CODEOWNERS", "mode": 0o100644}
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                )
+            )
         if url.endswith("contents/.github/CODEOWNERS?ref=main"):
             return _make_completed(returncode=1, stderr="gh: Not Found (HTTP 404)")
         if url.endswith("contents/CODEOWNERS?ref=main"):
@@ -1682,6 +1715,8 @@ def test_fix_branch_protection_splits_rulesets_and_enables_yolo_last() -> None:
         url = _url(args)
         if url == "repos/owner/repo/rulesets" and "--paginate" in args:
             return _make_completed("1\tMerge access\n")
+        if url == "repos/owner/repo/rulesets/1" and input is None:
+            return _make_completed(_restrict_updates_ruleset(["release"]))
         if url == "users/my-bot":
             return _make_completed("99\n")
         if input is not None:
@@ -1714,6 +1749,47 @@ def test_fix_branch_protection_splits_rulesets_and_enables_yolo_last() -> None:
     assert merge["bypass_actors"][-1]["bypass_mode"] == "pull_request"
     protected = writes[0][2]
     assert protected["conditions"]["ref_name"]["include"] == ["refs/heads/release"]
+
+
+@pytest.mark.parametrize(
+    ("ruleset_name", "old_include"),
+    [
+        ("Merge access", ["refs/heads/retired"]),
+        ("Merge access", ["refs/heads/release/*"]),
+        ("Merge access", None),
+        ("Protected branch access", ["refs/heads/retired"]),
+        ("Protected branch access", ["refs/heads/release/*"]),
+        ("Protected branch access", None),
+        ("Protected branch access", ["refs/heads/main"]),
+        ("Protected branch access", ["~DEFAULT_BRANCH"]),
+    ],
+)
+def test_fix_branch_protection_refuses_retiring_refs_before_any_write(
+    ruleset_name: str, old_include: list[str] | None
+) -> None:
+    """A retired branch may still admit credentials until its gates are migrated."""
+    writes = []
+
+    def fake_gh(*args, input=None, **kwargs):
+        if input is not None or "DELETE" in args:
+            writes.append(args)
+            return _make_completed("{}")
+        if "--paginate" in args:
+            return _make_completed(f"1\t{ruleset_name}\n")
+        if old_include is None:
+            return _make_completed(returncode=1, stderr="HTTP 403")
+        body = json.loads(_restrict_updates_ruleset([]))
+        body["conditions"]["ref_name"]["include"] = old_include
+        return _make_completed(json.dumps(body))
+
+    with patch("tend.checks._gh", side_effect=fake_gh):
+        result = fix_branch_protection(
+            "owner/repo", "main", "my-bot", "maintainer", ["release"]
+        )
+
+    assert result.passed is False
+    assert "credential environments" in result.message
+    assert writes == []
 
 
 def test_fix_branch_protection_reconciles_yolo_back_to_maintainer() -> None:
@@ -1883,6 +1959,22 @@ def test_run_all_checks_yolo_uses_separate_operational_and_credential_refs() -> 
 
     def fake_gh(*args, **kwargs):
         url = _url(args)
+        if url == "graphql" and any("entries { name mode }" in arg for arg in args):
+            return _make_completed(
+                json.dumps(
+                    {
+                        "data": {
+                            "repository": {
+                                "object": {
+                                    "entries": [
+                                        {"name": "CODEOWNERS", "mode": 0o100644}
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                )
+            )
         if url == "user":
             return _make_completed("bot\n")
         if url.endswith("contents/.github/CODEOWNERS?ref=main"):

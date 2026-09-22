@@ -427,6 +427,19 @@ COMPOSITE_ACTIONS = (
 
 
 @pytest.mark.parametrize("action", COMPOSITE_ACTIONS)
+def test_credential_actions_do_not_restore_workflow_caches(action: str) -> None:
+    """Main-branch build code can publish caches consumed by privileged jobs."""
+    data = YAML(typ="safe").load((REPO_ROOT / action).read_text())
+    restores = [
+        step["uses"]
+        for step in data["runs"]["steps"]
+        if step.get("uses", "").split("@", 1)[0].casefold()
+        in {"actions/cache", "actions/cache/restore"}
+    ]
+    assert not restores, f"{action} restores untrusted workflow caches: {restores}"
+
+
+@pytest.mark.parametrize("action", COMPOSITE_ACTIONS)
 def test_action_path_references_resolve(action: str) -> None:
     action_path = REPO_ROOT / action
     body = action_path.read_text()

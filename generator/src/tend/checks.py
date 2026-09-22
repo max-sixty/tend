@@ -499,6 +499,44 @@ def check_control_plane_codeowners(
             and content.count(CODEOWNERS_END) == 1
             and content.rstrip().endswith(block)
         ):
+            # Contents dereferences in-repository symlinks and even labels them
+            # `file`. Only the Git tree establishes that ownership lives here,
+            # rather than in a target outside the protected paths.
+            repo_owner, repo_name = repo.split("/", 1)
+            directory = path.rpartition("/")[0]
+            query = (
+                "{ repository(owner: "
+                + json.dumps(repo_owner)
+                + ", name: "
+                + json.dumps(repo_name)
+                + ") { object(expression: "
+                + json.dumps(f"{branch}:{directory}")
+                + ") { ... on Tree { entries { name mode } } } } }"
+            )
+            tree_result = _gh("api", "graphql", "-f", f"query={query}")
+            if tree_result is None or tree_result.returncode != 0:
+                return CheckResult(
+                    name, None, f"Could not verify {path}'s Git file mode"
+                )
+            try:
+                entries = json.loads(tree_result.stdout)["data"]["repository"][
+                    "object"
+                ]["entries"]
+                regular = any(
+                    entry["name"] == "CODEOWNERS"
+                    and entry["mode"] in {0o100644, 0o100755}
+                    for entry in entries
+                )
+            except (KeyError, TypeError, ValueError):
+                return CheckResult(
+                    name, None, f"Could not verify {path}'s Git file mode"
+                )
+            if not regular:
+                return CheckResult(
+                    name,
+                    False,
+                    f"{path} must be a regular Git file, not a symbolic link",
+                )
             begin_line = content.splitlines().index(CODEOWNERS_BEGIN) + 1
             errors_result = _gh(
                 "api",
@@ -2329,6 +2367,42 @@ def fix_branch_protection(
         return CheckResult(name, None, "Could not list repository rulesets")
 
     extra = [b for b in (extra_branches or []) if b != default_branch]
+    extra_refs = {f"refs/heads/{branch}" for branch in extra}
+    # Extra-branch protection is written first. Only Merge access can transfer
+    # targets to it; the reverse would leave a gap before Merge access is written.
+    for ruleset_name, intended_refs in (
+        (
+            "Merge access",
+            extra_refs | {"~DEFAULT_BRANCH", f"refs/heads/{default_branch}"},
+        ),
+        ("Protected branch access", extra_refs),
+    ):
+        if ruleset_name not in existing:
+            continue
+        body = _fetch_ruleset(repo, existing[ruleset_name])
+        try:
+            conditions = body["conditions"]
+            refs = conditions["ref_name"]
+            preserves_targets = (
+                body["target"] == "branch"
+                and set(conditions) == {"ref_name"}
+                and set(refs) == {"include", "exclude"}
+                and isinstance(refs["include"], list)
+                and refs["exclude"] == []
+                and set(refs["include"]) <= intended_refs
+            )
+        except (KeyError, TypeError):
+            preserves_targets = False
+        if not preserves_targets:
+            return CheckResult(
+                name,
+                False,
+                f"Cannot safely replace '{ruleset_name}' without retiring or "
+                "changing existing protected refs. First remove or independently "
+                "gate their access to credential environments (including tend), "
+                "then manually retire the old ruleset targets. No rulesets changed.",
+            )
+
     protected_body = _restrict_updates_ruleset(
         extra,
         name="Protected branch access",

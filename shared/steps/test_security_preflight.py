@@ -59,6 +59,17 @@ def _bypass(fake_gh: FakeGh, ruleset_id: int, answer: object) -> None:
 
 
 def _codeowners(fake_gh: FakeGh) -> None:
+    fake_gh.respond(
+        "api",
+        "graphql",
+        with_={
+            "data": {
+                "repository": {
+                    "object": {"entries": [{"name": "CODEOWNERS", "mode": 0o100644}]}
+                }
+            }
+        },
+    )
     content = (
         "# BEGIN tend control plane\n"
         "/.github/** @octocat\n"
@@ -111,6 +122,17 @@ def test_control_plane_codeowners_does_not_skip_an_unreadable_higher_priority_fi
 def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file(
     fake_gh: FakeGh,
 ) -> None:
+    fake_gh.respond(
+        "api",
+        "graphql",
+        with_={
+            "data": {
+                "repository": {
+                    "object": {"entries": [{"name": "CODEOWNERS", "mode": 0o100644}]}
+                }
+            }
+        },
+    )
     content = (
         "# BEGIN tend control plane\n"
         "/.github/** @octocat\n"
@@ -148,6 +170,24 @@ def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file(
     )
 
     assert security_preflight.has_valid_control_plane_codeowners(
+        REPO, "main", "@octocat"
+    )
+
+
+def test_control_plane_codeowners_rejects_dereferenced_symlink(fake_gh: FakeGh) -> None:
+    _codeowners(fake_gh)
+    fake_gh.respond(
+        "api",
+        "graphql",
+        with_={
+            "data": {
+                "repository": {
+                    "object": {"entries": [{"name": "CODEOWNERS", "mode": 0o120000}]}
+                }
+            }
+        },
+    )
+    assert not security_preflight.has_valid_control_plane_codeowners(
         REPO, "main", "@octocat"
     )
 

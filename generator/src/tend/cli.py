@@ -83,8 +83,18 @@ def _update_codeowners(owner: str | None, dry_run: bool) -> None:
         Path("docs/CODEOWNERS"),
     )
     path = next(
-        (candidate for candidate in candidates if candidate.exists()), candidates[0]
+        (
+            candidate
+            for candidate in candidates
+            if candidate.exists() or candidate.is_symlink()
+        ),
+        candidates[0],
     )
+    if owner and any(part.is_symlink() for part in (path, *path.parents)):
+        raise click.ClickException(
+            f"{path} must be a regular file in the repository for yolo; "
+            "replace its symbolic link before running tend init"
+        )
     existing = path.read_text(encoding="utf-8") if path.exists() else None
     updated = codeowners_config(existing, owner)
     if updated is None:
@@ -200,6 +210,13 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
 
     workflows = generate_all(cfg, with_install_test=with_install_test)
 
+    _update_codeowners(
+        cfg.control_plane_owner
+        if cfg.merge_policy.requires_control_plane_review
+        else None,
+        dry_run,
+    )
+
     if workflows and not dry_run:
         outdir.mkdir(parents=True, exist_ok=True)
 
@@ -215,13 +232,6 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
 
     if any(wf.filename == "tend-review.yaml" for wf in workflows):
         _update_actionlint_config(dry_run)
-    _update_codeowners(
-        cfg.control_plane_owner
-        if cfg.merge_policy.requires_control_plane_review
-        else None,
-        dry_run,
-    )
-
     # Remove stale tend-*.yaml files the generator didn't produce this run.
     # Catches: install-test cleanup on regen, disabled workflows leaving
     # behind their YAML, and workflows renamed across generator versions.
@@ -277,7 +287,10 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
     activation_blockers = (
         _yolo_activation_blockers(results) if cfg.merge == "yolo" else []
     )
-    if not failures and not (fix and activation_blockers):
+    unverified_yolo = cfg.merge == "yolo" and any(
+        result.passed is None for result in results
+    )
+    if not failures and not unverified_yolo:
         return
 
     if not fix:
@@ -397,7 +410,10 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
         click.echo("Re-running checks...")
         results = run_all_checks(cfg, repo)
         _print_check_results(results)
-        if any(r.passed is False for r in results):
+        if any(
+            r.passed is False or (cfg.merge == "yolo" and r.passed is None)
+            for r in results
+        ):
             raise SystemExit(1)
     else:
         raise SystemExit(1)
