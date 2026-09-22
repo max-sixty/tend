@@ -6,6 +6,28 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.2.15
+
+### Improved
+
+- **A follow-up review focuses on what was pushed since the bot's last review**, with the whole PR's diff and the earlier reviews in view. The incremental file carries each new commit's patch and lists the PR's merges from the base branch, and the `code-review` second pass works through it with the PR's diff as context, so code an earlier review covered isn't audited line by line again. A force-push or `ready_for_review` still gets a full review, and a draft-mode review no longer serves as the base for an incremental once the PR is ready. ([#1368](https://github.com/max-sixty/tend/pull/1368))
+- **On a PR with no human author, the bar for another fix round rises with each round.** One adjustment is often fine; after a couple, only a problem that would do harm if the PR merged as it stands earns a push, and other findings go in the review. ([#1366](https://github.com/max-sixty/tend/pull/1366))
+
+### Fixed
+
+- **The merge check requires a restrict-updates ruleset the bot cannot bypass.** Branch protection that only requires reviews no longer passes the preflight or `tend check`, since the bot holds write and its own approval counts on a PR someone else opened. The preflight aborts when the branch's rules listing reads cleanly and has no such ruleset, and falls back to requiring that the branch is protected only when GitHub won't answer. `tend check --fix` creates the ruleset for a reviews-only branch, and replaces an existing "Merge access" or "Tag operations" ruleset instead of failing on GitHub's duplicate-name error. ([#1367](https://github.com/max-sixty/tend/pull/1367))
+- **`AGENTS.override.md` is restored to the base version on a PR**, at any depth, alongside `AGENTS.md`. Codex reads it in place of `AGENTS.md`. ([#1367](https://github.com/max-sixty/tend/pull/1367))
+- **Mention measures its queue delay before checkout and `setup:`**, so a slow setup no longer counts as time spent queued. ([#1365](https://github.com/max-sixty/tend/pull/1365))
+- **A review body opens with its first finding.** The Submit step says GitHub labels a review approved or commented above its body, so the body doesn't restate it. ([#1362](https://github.com/max-sixty/tend/pull/1362))
+
+### Documentation
+
+- **The README, the site, and `docs/security-model.md` state the two guarantees the security model rests on**: a hijacked session can't land code (the ruleset), and can't take the bot's credentials past the end of the run (the sandbox, the proxy, and the environment gate). `docs/security-model.md` names the exfiltration channels that remain during a run. ([#1367](https://github.com/max-sixty/tend/pull/1367))
+
+### Internal
+
+- Generated workflows use `astral-sh/setup-uv@v10.2.0`. ([#1359](https://github.com/max-sixty/tend/pull/1359), [#1360](https://github.com/max-sixty/tend/pull/1360))
+
 ## 0.2.14
 
 ### Improved
