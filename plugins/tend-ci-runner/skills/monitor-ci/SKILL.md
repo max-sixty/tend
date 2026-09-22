@@ -28,9 +28,9 @@ uv run --script \
   "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" poll <number> "$PINNED_SHA"
 ```
 
-Run this command in the foreground and allow at least 10 minutes — the poll runs up to ~9.5 minutes, and a shorter command timeout would kill it early.
+Run this command in the foreground with a 10-minute command timeout.
 
-Exit 0 is green, judged on the latest run of each check — where one workflow ran twice *independently* on the same SHA, read the earlier run's own conclusion before relying on it. Exit 1 is red, with the failing checks and their run URLs: diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and poll the new commit. Any other exit is **unverified, not green** — the script prints why. The cap is the whole poll budget — the pending count includes advisory jobs (an hourly benchmark matrix never reaches zero), so don't re-enter the loop; report the still-pending checks as unverified, marking each required or advisory (`gh pr checks <number> --required` lists the required contexts already registered on the commit; an omnibus that hasn't registered yet is required too).
+Exit 0 is green, judged on the latest run of each check — where one workflow ran twice *independently* on the same SHA, read the earlier run's own conclusion before relying on it. Exit 1 is red, with the failing checks and their run URLs: diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and poll the new commit. Any other exit or command timeout is **unverified, not green**. The cap is the whole poll budget — the pending count includes advisory jobs (an hourly benchmark matrix never reaches zero), so don't re-enter the loop; report the still-pending checks as unverified, marking each required or advisory (`gh pr checks <number> --required` lists the required contexts already registered on the commit; an omnibus that hasn't registered yet is required too).
 
 When the system prompt says the merge mode is `yolo`, exit 0 is the merge gate. Re-read the PR and require it to be open with `headRefOid == PINNED_SHA`, then merge through the pull-request REST endpoint with that SHA. Never use auto-merge, never omit `sha`, and leave the PR open if the head moved or GitHub refuses the merge:
 

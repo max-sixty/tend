@@ -368,6 +368,28 @@ def test_branch_not_protected() -> None:
     assert "NOT protected" in result.message
 
 
+@pytest.mark.parametrize("missing", ["creation", "deletion"])
+def test_branch_protection_requires_complete_lifecycle(missing: str) -> None:
+    def fake(*args, **kwargs):
+        url = _url(args)
+        if "rules/branches" in url:
+            return _make_completed(
+                _make_branch_rules(
+                    *(t for t in ("creation", "update", "deletion") if t != missing)
+                )
+            )
+        if "/rulesets/" in url:
+            return _make_completed(
+                json.dumps({"bypass_actors": [_role_actor(ROLE_ID_ADMIN)]})
+            )
+        return _make_completed("true\n")
+
+    with patch("tend.checks._gh", side_effect=fake):
+        result = check_branch_protection("owner/repo", "main", "my-bot")
+    assert result.passed is False
+    assert missing in result.message
+
+
 def test_branch_protection_api_error() -> None:
     with patch(
         "tend.checks._gh",
@@ -1175,9 +1197,9 @@ def test_secrets_reads_every_page_of_the_environment() -> None:
     with patch("tend.checks._gh", side_effect=fake):
         result = check_secrets("owner/repo", [BOT_TOKEN_SECRET, CLAUDE_TOKEN_SECRET])
     assert result.passed is True, result.message
-    assert any("--paginate" in c for c in calls), (
-        "the listing must be paginated, or page 2 is invisible whatever the parse does"
-    )
+    assert any(
+        "--paginate" in c for c in calls
+    ), "the listing must be paginated, or page 2 is invisible whatever the parse does"
 
 
 def test_org_secrets_read_every_page() -> None:
@@ -3521,6 +3543,20 @@ def _credential_check(
     fake = _credential_env_gh(environments, **kwargs)
     with patch("tend.checks._gh", side_effect=fake):
         return check_credential_environments("owner/repo", _config(), ["main"])
+
+
+def test_credential_environments_names_are_case_insensitive() -> None:
+    result = _credential_check(
+        {"PyPI": ([], _CUSTOM_POLICY, "branch main")},
+        workflows={
+            "publish.yaml": (
+                "on: repository_dispatch\njobs:\n  publish:\n"
+                "    environment: pYpI\n    permissions:\n      id-token: write\n"
+            )
+        },
+    )
+    assert result.passed is False
+    assert "PyPI" in result.message
 
 
 def test_credential_environments_oidc_environment_without_secrets_is_swept() -> None:

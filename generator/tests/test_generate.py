@@ -123,6 +123,28 @@ def test_maintainer_mode_leaves_an_unmanaged_codeowners_file_byte_stable() -> No
     assert codeowners_config("*.py @python", None) is None
 
 
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_generated_runner_uv_does_not_restore_dependency_caches(
+    tmp_path: Path, harness: str
+) -> None:
+    """Runner-side helpers must not reuse dependencies cached by consumer setup."""
+    cfg = Config.load(
+        _minimal_config(
+            tmp_path,
+            f"harness: {harness}\nworkflows:\n  ci-fix:\n    watched_workflows: [ci]\n",
+        )
+    )
+    setup_steps = [
+        step
+        for workflow in generate_all(cfg, with_install_test=True)
+        for job in yaml.safe_load(workflow.content)["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("uses", "").startswith("astral-sh/setup-uv@")
+    ]
+    assert setup_steps
+    assert all(step["with"].get("enable-cache") is False for step in setup_steps)
+
+
 def test_minimal_config_generates_eight_workflows(tmp_path: Path) -> None:
     """ci-fix requires watched_workflows, so minimal config produces eight."""
     cfg = Config.load(_minimal_config(tmp_path))

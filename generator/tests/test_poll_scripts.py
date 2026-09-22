@@ -5,7 +5,7 @@ green this design exists to prevent is a poll silently retargeting a head
 another actor pushed. The fake `gh` serves raw GraphQL fixtures while the
 Python reducer decides which conclusions count as red, which check runs are
 superseded, and which never read as green at all. Sleep is injected, so the
-9-iteration loop runs in milliseconds.
+poll loop runs without waiting between reads.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -195,14 +196,18 @@ def _serve_page(env: dict[str, str], cursor: str, response: str) -> None:
 
 
 def _invoke(
-    module: object, env: dict[str, str], args: list[str]
+    module: object,
+    env: dict[str, str],
+    args: list[str],
+    *,
+    sleep: Callable[[float], None] = lambda _: None,
 ) -> subprocess.CompletedProcess[str]:
     stdout, stderr = io.StringIO(), io.StringIO()
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setattr(os, "environ", env.copy())
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             try:
-                returncode = module.main(args, sleep=lambda _: None)
+                returncode = module.main(args, sleep=sleep)
             except subprocess.CalledProcessError as error:
                 returncode = error.returncode
     return subprocess.CompletedProcess(
@@ -210,8 +215,12 @@ def _invoke(
     )
 
 
-def _poll_args(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
-    return _invoke(poll_pr_checks, env, ["poll", *args])
+def _poll_args(
+    env: dict[str, str],
+    *args: str,
+    sleep: Callable[[float], None] = lambda _: None,
+) -> subprocess.CompletedProcess[str]:
+    return _invoke(poll_pr_checks, env, ["poll", *args], sleep=sleep)
 
 
 def _poll(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -692,6 +701,25 @@ def test_waits_out_pending_then_reports_green(env: dict[str, str]) -> None:
     assert result.returncode == 0
     # One poll saw pending, the settle needed the 30s grace re-check: 3 calls.
     assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "3"
+
+
+def test_a_flapping_rollup_stays_inside_the_sleep_budget(
+    env: dict[str, str],
+) -> None:
+    """A check appearing during confirmation consumes the same sleep budget.
+
+    Charging each pass its own confirmation slept 810 seconds instead of
+    staying within the 570-second bound on settle sleeps.
+    """
+    clean = _resp(_check_run("tests"))
+    pending = _resp(_check_run("tests"), _check_run("late", status="QUEUED"))
+    _serve(env, *([clean, pending] * 12))
+    slept: list[float] = []
+
+    result = _poll_args(env, "7", HEAD_SHA, sleep=slept.append)
+
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert sum(slept) <= poll_pr_checks.MAX_SLEEP_SEC
 
 
 def test_abbreviated_sha_is_rejected_at_entry(env: dict[str, str]) -> None:

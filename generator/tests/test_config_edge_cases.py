@@ -845,6 +845,15 @@ def test_setup_steps_entry_both_keys(tmp_path: Path) -> None:
         Config.load(path)
 
 
+def test_setup_run_rejects_action_inputs(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        "bot_name: my-bot\nsetup:\n  - run: echo hi\n    with:\n      key: value\n",
+    )
+    with pytest.raises(ClickException, match="`with` is only valid for action steps"):
+        Config.load(path)
+
+
 @pytest.mark.parametrize("value", ["false", "true", "0", "[]", "null", "''", "'   '"])
 def test_setup_step_if_requires_non_empty_string(tmp_path: Path, value: str) -> None:
     path = _write_config(

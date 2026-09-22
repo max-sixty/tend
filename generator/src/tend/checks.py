@@ -1451,7 +1451,7 @@ def _credential_surface(files: dict[str, str | None] | None) -> _CredentialSurfa
                 "visible from this tree"
             )
         unresolved.extend(
-            f"{path} job '{job}' grants `id-token: write` to another repo's "
+            f"{path} job '{job}' grants `id-token: write` to a ref-qualified or external "
             "workflow, so whether the token is minted inside an environment is "
             "not visible here"
             for job in sorted(f.external_oidc)
@@ -2251,16 +2251,14 @@ def fix_immutable_releases(repo: str) -> CheckResult:
     )
 
 
-def _put_ruleset(
-    repo: str, body: str
-) -> tuple[subprocess.CompletedProcess[str] | None, str]:
+def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
     """Create the repo ruleset *body* names, or replace the one already there.
 
     GitHub refuses a second ruleset under a name the repo already uses, and a
     failing check can mean exactly that one exists but is disabled, in
-    evaluate mode, or edited to let the bot bypass it. Replacing it drops any
-    rule or branch a maintainer added to it, so the returned verb says which
-    happened: "Created" or "Replaced".
+    evaluate mode, or edited to let the bot bypass it. Branch target retirement
+    is checked by the branch reconciliation path before any writes. Return the
+    verdict plus the success verb ("Created" or "Replaced") or an error.
     """
     name = json.loads(body)["name"]
     listed = _gh(
@@ -2272,25 +2270,29 @@ def _put_ruleset(
         " | .id",
     )
     if listed is None or listed.returncode != 0:
-        return listed, ""
+        detail = listed.stderr.strip() if listed else "gh CLI not found"
+        return None, f"Could not list repository rulesets: {detail}"
     existing = listed.stdout.split()
     if existing:
         path, method, verb = f"repos/{repo}/rulesets/{existing[0]}", "PUT", "Replaced"
     else:
         path, method, verb = f"repos/{repo}/rulesets", "POST", "Created"
-    return _gh("api", path, "--method", method, "--input", "-", input=body), verb
+    result = _gh("api", path, "--method", method, "--input", "-", input=body)
+    if result is None:
+        return None, "gh CLI not found"
+    if result.returncode != 0:
+        return False, result.stderr.strip()
+    return True, verb
 
 
 def fix_tag_protection(repo: str) -> CheckResult:
     """Set the canonical admin-gated all-tags ruleset."""
     result, verb = _put_ruleset(repo, _tag_operations_ruleset())
-    if result is None:
-        return CheckResult("tag-protection", None, "gh CLI not found")
-    if result.returncode != 0:
+    if result is not True:
         return CheckResult(
             "tag-protection",
-            False,
-            f"Failed to set tag ruleset: {result.stderr.strip()}",
+            result,
+            f"Failed to set tag ruleset: {verb}",
         )
     return CheckResult(
         "tag-protection",

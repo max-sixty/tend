@@ -30,11 +30,22 @@ current tracker and read the current and previous month's evidence:
 
 ```bash
 uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" prepare-evidence
+  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" prepare-evidence \
+  > "$TMPDIR/evidence.json"
+jq -r '.current_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-current.md"
+jq -r '.previous_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-previous.md"
+jq -r '"tracker #\(.tracking_number) \(.month)"' "$TMPDIR/evidence.json"
 ```
 
 The command creates this month's tracker when needed, closes older open
-trackers, persists the current issue id, and prints both evidence windows.
+trackers, persists the current issue id, and returns both evidence windows.
+Redirect it rather than reading it inline: an established tracker's two
+windows run to hundreds of kilobytes, past what a tool result carries. The
+files are also how you count a finding's prior occurrences. Each entry carries
+its own session's wording, so grepping for this run's phrasing undercounts:
+list the finding headings first
+(`grep -h '^### ' "$TMPDIR"/evidence-*.md`), match on meaning, then read the
+`## Run` entry behind each candidate.
 
 After analysis, write the new findings in the format from `@review-gates.md`
 to `$TMPDIR/findings.md`. Include a literal `## Run $GITHUB_RUN_ID` heading.
@@ -195,7 +206,7 @@ uv run --script \
   "$(cat "$TMPDIR/review-runs-since")"
 ```
 
-Read every row: a correction is a maintainer contradicting a bot claim, not merely replying. Comment rows carry both timestamps because the window filters on `updated_at` — a `created` before the anchor is an older comment edited inside the window, a real hit rather than a broken filter. Empty `dispositions`, `comments`, and `reviews` is the all-clear.
+Read every row: a correction is a maintainer contradicting a bot claim, not merely replying. Every comment and review row names its `author` — prose style doesn't decide, since a maintainer can post through an agent; an empty `author` is a deleted account, never the bot. Comment rows carry both timestamps because the window filters on `updated_at` — a `created` before the anchor is an older comment edited inside the window, a real hit rather than a broken filter. Empty `dispositions`, `comments`, and `reviews` is the all-clear.
 
 Write "no maintainer corrections" into the tracking issue only after the script ran and returned empty — future runs read the phrase as ground truth when counting occurrences under Gate 1, so an unchecked all-clear suppresses the evidence it exists to accumulate. The script exits non-zero rather than reporting an empty window when the anchor or the bot login is missing, since both filters fail open.
 
