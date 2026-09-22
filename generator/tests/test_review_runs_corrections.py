@@ -279,6 +279,7 @@ def test_a_deleted_comment_author_is_still_a_human_correction(
     (row,) = _collect(env)["comments"]
 
     assert row["body"] == "that is not what the code does"
+    assert row["author"] == ""
 
 
 def test_both_comment_endpoints_are_read_and_paginated(env: dict[str, str]) -> None:
@@ -295,6 +296,18 @@ def test_both_comment_endpoints_are_read_and_paginated(env: dict[str, str]) -> N
             "--paginate" in c and f"repos/owner/repo/{endpoint}/comments" in c
             for c in calls
         ), endpoint
+
+
+def test_a_comment_row_names_its_author(env: dict[str, str]) -> None:
+    """The filter already resolves each login to drop the bot's own comments.
+    Step 4 needs that same login on the row: a maintainer's reply posted
+    through an agent reads like bot output, and a row the reader misjudges is
+    dropped from the correction count Gate 1 relies on."""
+    _write(env, "ISSUE_COMMENTS_JSON", [_comment(IN_WINDOW)])
+
+    (row,) = _collect(env)["comments"]
+
+    assert row["author"] == HUMAN
 
 
 def test_an_edited_older_comment_reports_both_timestamps(env: dict[str, str]) -> None:
@@ -321,6 +334,15 @@ def test_a_human_review_body_is_collected(env: dict[str, str]) -> None:
 
     assert row["state"] == "CHANGES_REQUESTED"
     assert row["at"] == IN_WINDOW
+
+
+def test_a_review_row_names_its_author(env: dict[str, str]) -> None:
+    _write(env, "CANDIDATES_JSON", [{"number": 7}])
+    _write(env, "REVIEWS_JSON", [_review(IN_WINDOW)])
+
+    (row,) = _collect(env)["reviews"]
+
+    assert row["author"] == HUMAN
 
 
 def test_a_failed_review_page_aborts_even_when_a_later_pr_succeeds(
@@ -379,6 +401,7 @@ def test_a_deleted_review_author_is_still_a_human_correction(
     (row,) = _collect(env)["reviews"]
 
     assert row["body"] == "wrong"
+    assert row["author"] == ""
 
 
 def test_no_candidate_prs_leaves_reviews_empty(env: dict[str, str]) -> None:
