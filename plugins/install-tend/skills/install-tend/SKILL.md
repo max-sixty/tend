@@ -1,6 +1,6 @@
 ---
 name: install-tend
-description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions harness authentication. Use when installing tend, clearing a failing `tend check`, or changing an installed repo's tend config, generated workflows, secrets, environments, branch protection, or bot access, including credential rotation or replacement.
+description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions harness authentication. Use when installing tend, clearing a failing `tend check`, rotating or replacing credentials, or changing an installed repo's tend config, generated workflows, secrets, environments, branch protection, or bot access.
 ---
 
 # Install Tend
