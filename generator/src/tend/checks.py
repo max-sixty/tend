@@ -1862,11 +1862,13 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
 
     GitHub refuses a second ruleset under a name the repo already uses, and a
     failing check can mean exactly that one exists but is disabled, in
-    evaluate mode, or edited to let the bot bypass it. Existing branch targets
-    remain protected because credentials may still be admitted on them. Return the
-    verdict plus the success verb ("Created" or "Replaced") or an error.
+    evaluate mode, or edited to let the bot bypass it. Replace rules and bypass
+    actors, union branch includes, and preserve exclusions: existing protected
+    branches may admit credentials, while excluded branches may host bot work.
+    Return the verdict plus the actual target selection or an error.
     """
-    name = json.loads(body)["name"]
+    intended = json.loads(body)
+    name = intended["name"]
     listed = _gh(
         "api",
         "--paginate",
@@ -1880,7 +1882,6 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
         return None, f"Could not list repository rulesets: {detail}"
     existing = listed.stdout.split()
     if existing:
-        intended = json.loads(body)
         if intended["target"] == "branch":
             current = _fetch_ruleset(repo, existing[0])
             if current is None:
@@ -1917,8 +1918,7 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
             intended_refs.extend(
                 ref for ref in refs["include"] if ref not in intended_refs
             )
-            # Removing exclusions widens protection; retaining includes avoids
-            # exposing branches whose credential gates have not been migrated.
+            intended["conditions"]["ref_name"]["exclude"] = refs["exclude"]
             body = json.dumps(intended)
         path, method, verb = f"repos/{repo}/rulesets/{existing[0]}", "PUT", "Replaced"
     else:
@@ -1928,22 +1928,29 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
         return None, "gh CLI not found"
     if result.returncode != 0:
         return False, result.stderr.strip()
-    return True, verb
+    if intended["target"] == "branch":
+        refs = intended["conditions"]["ref_name"]
+        return True, (
+            f"{verb} '{name}' ruleset — admin-only; "
+            f"include: {', '.join(refs['include'])}; "
+            f"exclude: {', '.join(refs['exclude']) or 'none'}."
+        )
+    return True, f"{verb} '{name}' ruleset — only admins can create or update tags."
 
 
 def fix_tag_protection(repo: str) -> CheckResult:
     """Set the canonical admin-gated all-tags ruleset."""
-    result, verb = _put_ruleset(repo, _tag_operations_ruleset())
+    result, message = _put_ruleset(repo, _tag_operations_ruleset())
     if result is not True:
         return CheckResult(
             "tag-protection",
             result,
-            f"Failed to set tag ruleset: {verb}",
+            f"Failed to set tag ruleset: {message}",
         )
     return CheckResult(
         "tag-protection",
         True,
-        f"{verb} 'Tag operations' ruleset — only admins can create or update tags.",
+        message,
     )
 
 
@@ -1954,11 +1961,12 @@ def fix_branch_protection(
 ) -> CheckResult:
     """Set the restrict-updates ruleset covering protected branches.
 
-    Always covers the default branch. Extra branches from config are included
-    in the same ruleset. Only admins can bypass.
+    Include the default branch and configured extra branches, preserving existing
+    includes and exclusions. The caller rechecks effective protection afterwards;
+    an existing exclusion can still exclude a configured branch.
     """
     extra = [b for b in (extra_branches or []) if b != default_branch]
-    result, verb = _put_ruleset(
+    result, message = _put_ruleset(
         repo,
         _restrict_updates_ruleset(extra),
     )
@@ -1967,13 +1975,12 @@ def fix_branch_protection(
         return CheckResult(
             name,
             result,
-            f"Failed to set ruleset: {verb}",
+            f"Failed to set ruleset: {message}",
         )
-    branches = [default_branch] + extra
     return CheckResult(
         name,
         True,
-        f"{verb} 'Merge access' ruleset — only admins can merge ({', '.join(branches)})",
+        message,
     )
 
 

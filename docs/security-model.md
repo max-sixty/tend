@@ -92,8 +92,8 @@ teams, custom roles, and org-level rulesets included — and the run aborts if
 no restrict-updates ruleset applies or the bot can bypass every one. Only
 when GitHub will not answer, because the rules listing or every ruleset in it
 is unreadable, does the preflight settle for the branch being protected at
-all. `tend check --fix` retains existing protected refs when repairing the
-ruleset, even if they are no longer in the config. To retire one, a maintainer
+all. `tend check --fix` retains existing target patterns and exclusions when
+repairing the ruleset, even if they are no longer in the config. To retire a ref, a maintainer
 must first remove or independently gate its access to credential environments,
 then remove its ruleset target. Repairing protection never makes an old ref
 writable while it may still have access to secrets.

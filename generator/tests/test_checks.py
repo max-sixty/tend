@@ -1553,7 +1553,7 @@ def test_fix_branch_protection_overwrites_an_existing_merge_access_ruleset(
 
 
 def test_fix_branch_protection_preserves_existing_targets() -> None:
-    """Repair widens protection without exposing branches still admitting secrets."""
+    """Repair keeps protected refs and excludes branches available for bot work."""
     current = json.loads(_restrict_updates_ruleset(["old-release", "release/*"]))
     current["conditions"]["ref_name"]["exclude"] = ["refs/heads/release/test"]
     writes = []
@@ -1576,13 +1576,18 @@ def test_fix_branch_protection_preserves_existing_targets() -> None:
             "refs/heads/old-release",
             "refs/heads/release/*",
         ],
-        "exclude": [],
+        "exclude": ["refs/heads/release/test"],
     }
     assert {rule["type"] for rule in writes[0]["rules"]} == {
         "creation",
         "update",
         "deletion",
     }
+    assert result.message == (
+        "Replaced 'Merge access' ruleset — admin-only; include: ~DEFAULT_BRANCH, "
+        "refs/heads/new-release, refs/heads/old-release, refs/heads/release/*; "
+        "exclude: refs/heads/release/test."
+    )
 
 
 @pytest.mark.parametrize("include", [None, [42], ["~UNKNOWN"]])
