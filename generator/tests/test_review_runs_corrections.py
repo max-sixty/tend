@@ -332,17 +332,9 @@ def test_a_human_review_body_is_collected(env: dict[str, str]) -> None:
 
     (row,) = _collect(env)["reviews"]
 
+    assert row["author"] == HUMAN
     assert row["state"] == "CHANGES_REQUESTED"
     assert row["at"] == IN_WINDOW
-
-
-def test_a_review_row_names_its_author(env: dict[str, str]) -> None:
-    _write(env, "CANDIDATES_JSON", [{"number": 7}])
-    _write(env, "REVIEWS_JSON", [_review(IN_WINDOW)])
-
-    (row,) = _collect(env)["reviews"]
-
-    assert row["author"] == HUMAN
 
 
 def test_a_failed_review_page_aborts_even_when_a_later_pr_succeeds(
