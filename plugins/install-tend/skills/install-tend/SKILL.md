@@ -1,6 +1,6 @@
 ---
 name: install-tend
-description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions harness authentication. Use when installing tend, clearing a failing `tend check`, rotating or replacing credentials, or changing an installed repo's tend config, generated workflows, secrets, environments, branch protection, or bot access.
+description: Installs tend, rotates credentials, repairs failing tend checks, and manages config, secrets, branch protection, and bot access.
 ---
 
 # Install Tend
@@ -81,8 +81,8 @@ commit (pushing waits for their go-ahead, step 11).
 Then ask these four questions together. Answering them is the
 go-ahead — no separate "ready to start?" confirmation. Drop any question the
 user's request or an existing config already answers (a supplied bot name, a
-chosen harness; the auth mode a config-settled harness leaves open is asked
-at 7a, not here); a fully specified request leaves nothing to ask, and is
+chosen harness; step 7 reads an existing auth mode from its secrets); a fully
+specified request leaves nothing to ask, and is
 itself the go-ahead.
 
 1. **Harness** — which model runs the bot and which credential it
@@ -689,27 +689,29 @@ install) can't be read back — GitHub secrets are write-only — so mint the
 value into the environment per the steps below, then delete the
 repo-level copy; `tend check` flags it until deleted.
 
-Where a path below has the user run `gh secret set` themselves, the step
-finishes when its pre-check prints SET — re-run it once they say they're
-done.
+List the environment secrets and their `Updated` times before changing auth:
+
+```bash
+gh secret list --repo "$REPO" --env tend
+```
+
+For a harness credential rotation that names no credential, keep the active
+mode: Claude prefers its OAuth secret over its API key; Codex prefers
+`CODEX_AUTH_JSON` over `OPENAI_API_KEY`. When the user names a credential,
+rotate that one and distinguish it from a switch of the active mode. Mint
+a new value before writing the secret, then verify its `Updated` time
+advances. A secret's presence alone finishes only an initial setup.
+Where the user runs `gh secret set` themselves, re-run the listing once
+they say they're done.
 
 Branch on the harness.
 
 ### 7a. Harness = claude
 
-The action prefers `CLAUDE_CODE_OAUTH_TOKEN` when both auth modes' secrets
-are set.
-
-```bash
-gh secret list --repo "$REPO" --env tend --json name --jq '.[].name' \
-  | grep -E -q '^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)$' \
-  && echo "SET" || echo "NOT SET"
-```
-
-If not set, mint per the auth mode chosen at Kickoff. Absent a Kickoff
-answer — the config records the harness, never the auth mode, so a change
-flow or a resumed install lands here without one — first ask the user to choose
-between the two Claude options from Kickoff question 1.
+If `CLAUDE_CODE_OAUTH_TOKEN` exists, it is the active mode; otherwise use
+`ANTHROPIC_API_KEY` if present. For rotation, mint a new credential in that
+mode. If neither secret exists, use the mode chosen at Kickoff or ask the
+user to choose between the two Claude options from Kickoff question 1.
 
 For **OAuth token** (`sk-ant-oat01-…` from `claude setup-token`; advertised
 as 1-year), the user mints it. Hand over both commands, fully substituted,
@@ -756,12 +758,10 @@ gh secret set ANTHROPIC_API_KEY --repo "$REPO" --env tend
 
 ### 7b. Harness = codex
 
-Use the auth mode selected at kickoff. If an existing install has one complete
-mode, keep it rather than prompting again:
-
-```bash
-gh secret list --repo "$REPO" --env tend --json name --jq '.[].name'
-```
+If `CODEX_AUTH_JSON` exists, subscription auth is active; otherwise use
+`OPENAI_API_KEY` if present. For rotation, provision a new credential in
+that mode. If neither secret exists, use the mode selected at Kickoff or
+ask the user to choose between the two Codex options there.
 
 For **Plus/Pro subscription**, explain that the path is experimental because it
 depends on Codex's internal auth mode. Use an isolated Codex login: the weekly
@@ -820,9 +820,10 @@ The bot's token needs scopes `repo`, `workflow`, `notifications`,
 `write:discussion`, `gist`, and `user` (per-scope justifications in
 ${CLAUDE_SKILL_DIR}/references/tend.example.yaml).
 
-This step checks what gh already stores for the bot, mints a token
-only if needed (8a or 8b), and pushes it to the environment secret (8c). It
-serves both the install sequence and a standalone `Bot PAT`
+This step checks what gh already stores for the bot, mints a token for
+missing auth, missing scopes, or requested bot PAT rotation (8a or 8b),
+and pushes it to the environment secret (8c). It serves both the install
+sequence and a standalone `Bot PAT`
 scope-audit remediation; in the audit case it is the whole fix, and
 you close the issue once 8c verifies. `<bot-name>` is `bot_name` in
 `.config/tend.yaml`; `$REPO` derives as in the Kickoff (whose recipe
@@ -871,8 +872,10 @@ env -u GH_TOKEN -u GITHUB_TOKEN \
 A missing dir prints "not logged in", which is a routing answer, not an
 error to debug. Read the output:
 
+- Rotating the bot PAT while logged in as `<bot-name>` → **refresh path** (8a),
+  even if all six scopes are present.
 - Logged in as `<bot-name>` with a `Token scopes:` line listing all six
-  scopes → skip to 8c.
+  scopes, with no rotation requested → skip to 8c.
 - Logged in as `<bot-name>`, scopes missing → **refresh path** (8a).
 - Not logged in here → **login path** (8b).
 
@@ -935,7 +938,8 @@ rm -rf "$HOME/.config/gh-bots/<bot-name>"
 ### 8c. Push token to secret
 
 Copy the bot's token to the `TEND_BOT_TOKEN` environment secret and verify
-the `Updated` timestamp is fresh:
+the `Updated` timestamp advances. For rotation, complete 8a first: this
+timestamp proves the secret was written, not that the PAT changed.
 
 ```bash
 BOT_GH_TOKEN=$(env -u GH_TOKEN -u GITHUB_TOKEN \
