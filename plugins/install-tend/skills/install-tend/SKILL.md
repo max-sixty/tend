@@ -403,7 +403,7 @@ gh api "repos/$REPO/rulesets" --method POST --input - << 'EOF'
   "conditions": {
     "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] }
   },
-  "rules": [{ "type": "update" }],
+  "rules": [{ "type": "creation" }, { "type": "update" }, { "type": "deletion" }],
   "bypass_actors": [{
     "actor_id": 5,
     "actor_type": "RepositoryRole",

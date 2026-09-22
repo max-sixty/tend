@@ -79,10 +79,11 @@ now. Turning the setting off is therefore invisible to the nightly run until
 the repository publishes again — at which point the check fails. Closing that
 window takes an admin-run `tend check`.
 
-**Merge restriction.** A restrict-updates ruleset whose bypass list stops
-above write keeps the bot from updating the protected branches (the default
-branch plus any in `protected_branches`), so it cannot merge, whatever the
-review status. Branch protection that requires reviews does not qualify: the
+**Merge restriction.** Tend's ruleset restricts creation, updates, and deletion
+of the protected branches (the default branch plus any in `protected_branches`)
+to administrators. The bot cannot merge or delete and recreate one of these
+branches, whatever the review status. Branch protection that requires reviews
+does not qualify: the
 bot holds write, so its own approval counts on a pull request someone else
 opened, and it can then merge that pull request. The composite action's
 preflight verifies the ruleset as the bot itself: `current_user_can_bypass`
@@ -91,7 +92,11 @@ teams, custom roles, and org-level rulesets included — and the run aborts if
 no restrict-updates ruleset applies or the bot can bypass every one. Only
 when GitHub will not answer, because the rules listing or every ruleset in it
 is unreadable, does the preflight settle for the branch being protected at
-all.
+all. `tend check --fix` retains existing target patterns and exclusions when
+repairing the ruleset, even if they are no longer in the config. To retire a ref, a maintainer
+must first remove or independently gate its access to credential environments,
+then remove its ruleset target. Repairing protection never makes an old ref
+writable while it may still have access to secrets.
 
 **Environment-gated secrets.** A job that names a GitHub Environment runs
 only if the run's `GITHUB_REF` matches the environment's deployment branch
@@ -279,8 +284,8 @@ its policy is a named list matching exactly the branches whose protection
 that same run confirmed, the operational secrets are present in it, and no
 repo-level copy remains. Confirmed, not configured: a branch named in
 `protected_branches` that does not exist yet cannot be admitted, or the
-policy would name a ref the bot can create — and the merge restriction
-gates `update`, not `creation`. `tend check --fix` creates the environment and
+policy would name a ref this run has not verified. `tend check --fix` creates
+the environment and
 reconciles its policy; moving the secrets stays manual, since their values
 cannot be read back.
 
