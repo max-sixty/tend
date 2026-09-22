@@ -138,7 +138,9 @@ records what was *proposed*, and on a PR closed unmerged the two routinely
 diverge — the thread is where the author explains what they chose *not* to do.
 Run `gh pr diff <n>` before writing what a PR changed, clamped, added, or left
 alone, including when restating it in a source comment or a PR body that will
-outlive the thread.
+outlive the thread. Pass `-R <owner>/<repo>` for a PR in another repository: a
+bare number resolves against the current checkout and returns whatever PR holds
+that number there.
 
 **Links must be fetched, not guessed.** Before pasting any URL, run `curl -sI
 <url> | head -1` and confirm `200`. Docs-site slugs are treacherous —
@@ -172,11 +174,13 @@ the bodies of the candidates the titles narrow to.
 and a `--limit` below what is being read narrow the evidence without narrowing
 the conclusion, and the command still exits 0 — so a read that never reached
 the deciding lines reports back as a check that passed. That holds for a
-truncated document as much as a truncated result set, and for a single specific
-claim as much as an exhaustiveness claim. Grep the read for the symbol the
-claim names (`gh pr diff <n> | grep -n '<symbol>'`), which stays small however
-long the output is. Where a bounded read is unavoidable, scope the conclusion
-to what was read.
+truncated document as much as a truncated result set, for a bound the harness
+applied rather than you — a long diff or log saved to a file and previewed —
+and for a single specific claim as much as an exhaustiveness claim. Grep the
+read for the symbol the claim names, capturing the fetch first so a failed one
+cannot read as an absent symbol: `DIFF=$(gh pr diff <n>) || exit 1`, then
+`grep -n '<symbol>' <<<"$DIFF"`. The grep stays small however long the output
+is. Where a bounded read is unavoidable, scope the conclusion to what was read.
 
 **An exhaustiveness claim needs a method that could have found a
 counterexample.** Before publishing "all", "every", "none", "the only", or
@@ -184,9 +188,9 @@ counterexample.** Before publishing "all", "every", "none", "the only", or
 can see it. A set difference over two `--help` outputs finds the flags one
 command rejects, never a flag both accept that still must not be forwarded.
 The tell is a criterion swap — the method answered a narrower question than
-the sentence asserts. Either widen the method, or publish the claim the method did establish ("no
-flag the receiving command rejects is missing from the denylist"), which is
-worth as much to the reader and stays true.
+the sentence asserts. Either widen the method, or publish the claim the method
+did establish ("no flag the receiving command rejects is missing from the
+denylist"), which is worth as much to the reader and stays true.
 
 **"Likely" is a stop-sign.** A hedge in a user-facing claim — "likely works",
 "probably parses as", "I think" — means it rests on an unverified guess. Verify
