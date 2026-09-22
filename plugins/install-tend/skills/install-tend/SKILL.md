@@ -332,7 +332,7 @@ If the user picked workflow config at Kickoff, ask which overrides to set in
 a multi-select question — otherwise set none:
 
 - Setup commands and env vars (system deps, language version, pre-build
-  hooks, top-level env vars; `setup` accepts `run` steps, not actions)
+  hooks, top-level env vars; maintainer-mode `setup` accepts `run` and `uses` steps)
 - Workflow conditions (e.g., skip review on `tend:dismissed` PRs — see below)
 - Schedule overrides (cron timing for nightly/weekly)
 - Permissions / timeouts on specific jobs

@@ -665,9 +665,11 @@ def test_yolo_init_rejects_codeowners_symlink_without_writing(
         assert target.read_text() == original
 
 
-@pytest.mark.parametrize("fix", [False, True])
+@pytest.mark.parametrize(
+    ("fix", "repair"), [(False, False), (True, True), (True, False)]
+)
 def test_yolo_check_requires_verified_results(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fix: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fix: bool, repair: bool
 ) -> None:
     """An unreadable protection cannot report success, including after repair."""
     _write_config(
@@ -675,10 +677,10 @@ def test_yolo_check_requires_verified_results(
         'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
     )
     monkeypatch.chdir(tmp_path)
-    unverified = [CheckResult("control-plane-ruleset", None, "HTTP 403")]
+    unverified = [CheckResult("immutable-releases", None, "No published release")]
     reads = (
         [[CheckResult("tag-protection", False, "missing")], unverified]
-        if fix
+        if repair
         else [unverified]
     )
     with (
@@ -693,7 +695,7 @@ def test_yolo_check_requires_verified_results(
             main, ["check", "--repo", "owner/repo", *(["--fix"] if fix else [])]
         )
     assert result.exit_code == 1, result.output
-    assert "SKIP  control-plane-ruleset" in result.output
+    assert "SKIP  immutable-releases" in result.output
     assert "Yolo security checks are incomplete" in result.output
 
 

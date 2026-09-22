@@ -414,11 +414,9 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
         click.echo("Re-running checks...")
         results = run_all_checks(cfg, repo)
         _print_check_results(results)
-        if cfg.merge == "yolo" and any(r.passed is None for r in results):
-            raise click.ClickException(
-                "Yolo security checks are incomplete; resolve the skipped checks."
-            )
-        if any(r.passed is False for r in results):
-            raise SystemExit(1)
-    else:
+    if cfg.merge == "yolo" and any(r.passed is None for r in results):
+        raise click.ClickException(
+            "Yolo security checks are incomplete; resolve the skipped checks."
+        )
+    if not fixed_any or any(r.passed is False for r in results):
         raise SystemExit(1)
