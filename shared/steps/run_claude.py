@@ -1,19 +1,20 @@
 """Runs the agent and decides the step's verdict.
 
-Composes the agent's settings and launch env, starts it as the non-sudo sandbox
-user, supervises it to exit or timeout, then turns the finished stream-json into
-the step's exit code and ``::error::`` annotation.
+Inside the shared sandbox lifecycle, composes the agent's settings and launch env,
+supervises it to exit or timeout, then turns the finished stream-json into the
+step's exit code and ``::error::`` annotation.
 
-Reads (env): ``SANDBOX`` and ``AGENT_ENV_FILE`` (exported by
-``proxy/setup-sandbox.sh`` via ``$GITHUB_ENV``), ``RUNNER_TEMP``,
-``GITHUB_WORKSPACE``, ``GITHUB_OUTPUT``, ``TEND_MODEL``,
-``TEND_ALLOWED_TOOLS``, ``TEND_SYSTEM_PROMPT``, ``TEND_PROMPT``,
-``TEND_TIMEOUT_SEC``, ``SHOW_FULL_OUTPUT``, ``BOT_NAME``, ``BOT_ID``, optional
+Reads (env): ``TEND_RUN_DIR``,
+``GITHUB_WORKSPACE``, ``TEND_MODEL``,
+``TEND_EFFORT``, ``TEND_ARGS``, ``TEND_ALLOWED_TOOLS``,
+``TEND_SYSTEM_PROMPT``, ``TEND_PROMPT``, ``TEND_TIMEOUT_SEC``,
+``SHOW_FULL_OUTPUT``, ``BOT_NAME``, ``BOT_ID``, optional
 ``TEND_AUTO_MEMORY_SETTINGS``, ``CLAUDE_CODE_SUBPROCESS_ENV_SCRUB``, plus the
 ``GITHUB_*`` context from Actions. ``GITHUB_STEP_SUMMARY`` is read only when
 rendering the transcript.
-Publishes ``stream_json`` and, after supervision has stopped every sandbox
-process, ``sandbox_reaped``. Used by the Claude harness action.
+The trusted outer supervisor reaps the sandbox UID, copies the fixed
+``TEND_RUN_DIR/tend-stream.json`` file through a no-follow bounded read, and
+publishes the runner-owned path plus ``sandbox_reaped``.
 
 Decisions this module owns:
 
@@ -42,7 +43,6 @@ from types import FrameType
 from typing import Any
 
 import _common
-import _sandbox
 
 #: Transcript lines rendered to the job summary, so a long session cannot flood it.
 TRANSCRIPT_MAX_LINES = 400
@@ -56,7 +56,7 @@ STDERR_TAIL_BYTES = 64 * 1024
 
 #: Characters of the agent's own reason quoted in the failure annotation.
 #: The reason is a whole assistant text block, which can be the agent's entire
-#: final answer, and ``enrich-tend-outage-issues.sh`` pastes these annotations
+#: final answer, and ``enrich_tend_outage_issues.py`` pastes these annotations
 #: into one batched issue comment under a 64 KiB cap — so an unbounded reason
 #: crowds out the other runs' rows.
 REASON_MAX_CHARS = 500
@@ -66,10 +66,12 @@ def settings(allowed_tools: str) -> dict[str, Any]:
     """``.claude/settings.local.json`` for the run.
 
     ``permissions.allow`` is built from the comma-separated ``allowed_tools``
-    input. With ``defaultMode: bypassPermissions`` the allow list is largely
-    moot (every tool is permitted), but it is retained so the listed tools stay
-    granted via the layered settings if an adopter overrides ``defaultMode`` to
-    a stricter mode.
+    input. The mode itself comes from ``--permission-mode`` on argv, not from
+    here: Claude Code 2.1.257 ignores ``defaultMode: bypassPermissions`` in a
+    project ``settings.json``/``settings.local.json`` and names the flag as the
+    way to set it. The key is left in place as the declaration of intent that
+    the flag carries out; the allow list is what a user- or managed-settings
+    layer would still narrow against.
 
     ``skipDangerousModePermissionPrompt`` pre-accepts the one-time bypass-mode
     "I accept the risks" disclaimer — the key the dialog's accept button writes,
@@ -78,6 +80,20 @@ def settings(allowed_tools: str) -> dict[str, Any]:
     (which supersedes the deprecated ``includeCoAuthoredBy``) empties Claude
     Code's ``Co-Authored-By: Claude`` trailer and ``Generated with Claude Code``
     PR footer, so the bot's commits and PRs are attributed to the bot alone.
+
+    ``syncClaudeAiSkills``/``syncClaudeAiPlugins``/``disableClaudeAiConnectors``
+    keep the skills, plugins and MCP connectors enabled on the bot's claude.ai
+    account out of the session. The account is a surface nobody reviews
+    per-repo — a skill or connector enabled there would otherwise load into
+    every consumer's CI session, in a process that pushes commits and posts as
+    the bot. The session's instructions and tools come from the plugin and the
+    repo, so what the account would add is unreviewed by construction. The sync
+    keys are honored from ``.claude/settings.local.json`` and ``--settings`` for
+    that workspace or invocation (not from project ``settings.json``), and only
+    ``false`` is honored — the feature turns on server-side per account, so this
+    has to be written ahead of that rather than in response to it.
+    ``disableClaudeAiConnectors`` is honored true from any source, and covers
+    the auto-fetched connectors only; nothing here passes one explicitly.
     """
     return {
         "permissions": {
@@ -86,14 +102,17 @@ def settings(allowed_tools: str) -> dict[str, Any]:
         },
         "skipDangerousModePermissionPrompt": True,
         "attribution": {"commit": "", "pr": ""},
+        "syncClaudeAiSkills": False,
+        "syncClaudeAiPlugins": False,
+        "disableClaudeAiConnectors": True,
     }
 
 
 def launch_argv(
     *,
-    sandbox: str,
-    agent_env_file: str,
     model: str,
+    effort: str = "",
+    extra_args: str = "",
     allowed_tools: str,
     system_prompt: str,
     prompt: str,
@@ -103,40 +122,26 @@ def launch_argv(
     ci: str,
     settings_file: str = "",
 ) -> list[str]:
-    """The command that launches the agent as the non-sudo sandbox user.
+    """The command that launches the agent inside the existing sandbox.
 
-    ``sudo env NAME=…`` replaces the environment with only what is listed, so
-    :func:`_sandbox.launch_env` composes it; tend's own ``BOT_*``/``CI``
-    assignments are the caller-appended names that docstring allows for.
+    The process inherits the lifecycle's environment; tend's own
+    ``BOT_*``/``CI`` assignments carry the action's values.
 
     The model, tools and prompts are argv rather than environment: nothing on
-    the far side reads them, and ``--permission-mode`` restates what
-    ``settings.local.json`` already says so the mode survives an adopter
-    overriding that file.
+    the far side reads them, and ``--permission-mode`` is what actually sets
+    the mode — a project ``settings.local.json`` cannot, since Claude Code
+    2.1.257 ignores ``defaultMode: bypassPermissions`` there.
     """
-    agent_env = _sandbox.launch_env(agent_env_file)
-    if settings_file:
-        # The explicit experimental config field wins over an adopter's general
-        # Claude setting. Leaving this variable in the launch env would make a
-        # successful restore silently inert even though the injected settings
-        # enable and redirect auto memory.
-        agent_env = [
-            entry
-            for entry in agent_env
-            if not entry.startswith("CLAUDE_CODE_DISABLE_AUTO_MEMORY=")
-        ]
     argv = [
-        "sudo",
-        "-u",
-        sandbox,
-        "env",
-        *agent_env,
+        "/usr/bin/env",
+        *(["-u", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"] if settings_file else []),
         f"CLAUDE_CODE_SUBPROCESS_ENV_SCRUB={subprocess_env_scrub}",
         f"BOT_NAME={bot_name}",
         f"BOT_ID={bot_id}",
         f"CI={ci}",
         "claude",
         "-p",
+        *(arg for arg in extra_args.split("\n") if arg),
         "--model",
         model,
         "--permission-mode",
@@ -149,6 +154,8 @@ def launch_argv(
         "stream-json",
         "--verbose",
     ]
+    if effort:
+        argv.extend(["--effort", effort])
     if settings_file:
         argv.extend(["--settings", settings_file])
     argv.append(prompt)
@@ -202,34 +209,17 @@ def raise_on_cancel() -> Iterator[None]:
             signal.signal(number, handler)
 
 
-def signal_sandbox(name: str, sandbox: str) -> None:
-    """Send the signal *name* to every process the sandbox uid owns.
-
-    By uid rather than to the child: the child is ``sudo``, which relays
-    nothing, so a signal aimed at it reaches the agent not at all. Failure costs
-    nothing — there may be no such process left, which is the outcome wanted.
-    """
-    subprocess.run(
-        ["sudo", "pkill", f"-{name}", "-u", sandbox],
-        stdin=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-
-
 def supervise(
     argv: list[str],
     *,
-    sandbox: str,
     timeout_sec: int,
     stream_json: Path,
     stderr_log: Path,
 ) -> Supervised:
-    """Run *argv* under the bound, capturing its streams to runner-owned files.
+    """Run *argv* under the bound, capturing its streams to fixed inner files.
 
-    The files are opened by this process on purpose: the sandbox writes through
-    the inherited fds regardless of who owns them, so the run's record cannot be
-    rewritten from the far side of the boundary.
+    The trusted outer supervisor reads these files only after reaping the
+    sandbox uid, through bounded no-follow descriptors.
 
     stdin is closed explicitly. A backgrounded command got ``/dev/null`` for
     free; this one is in the foreground and would inherit the step's, which
@@ -237,7 +227,7 @@ def supervise(
     it whatever does arrive.
 
     Overrunning the bound asks the agent to stop before making it: a TERM to the
-    sandbox uid, :data:`TERM_GRACE_SEC` to flush, then the KILL. Without the
+    agent process group, :data:`TERM_GRACE_SEC` to flush, then the KILL. Without the
     grace the agent's session JSONL loses its tail mid-write, and that file is
     what the token accounting falls back on when a run produces no result event
     — the runs that time out are exactly the ones with no result event.
@@ -248,10 +238,9 @@ def supervise(
     "every path" include a cancelled job, which arrives as a signal rather than
     as anything Python would raise on its own.
 
-    The KILL is followed by a wait on the child, so the step does not return
-    while ``sudo`` and the agent under it are still alive: the steps after this
-    one hand the workspace back and read the run's files, and a survivor would
-    race them.
+    The KILL is followed by a wait on the child, so this inner lifecycle does
+    not return while a descendant still holds its stream descriptors. The
+    outer supervisor then reaps the entire sandbox uid.
     """
     start = time.monotonic()
     agent: subprocess.Popen[bytes] | None = None
@@ -262,7 +251,11 @@ def supervise(
             stderr_log.open("wb") as err,
         ):
             agent = subprocess.Popen(
-                argv, stdin=subprocess.DEVNULL, stdout=out, stderr=err
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=err,
+                start_new_session=True,
             )
             try:
                 returncode = agent.wait(timeout_sec)
@@ -273,13 +266,14 @@ def supervise(
                 # takes the TERM and one that has to be killed are the same run
                 # to a maintainer, and the code it leaves says nothing.
                 code = None
-                signal_sandbox("TERM", sandbox)
-                # `sudo` exits once its child does, so this observes the agent.
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(agent.pid, signal.SIGTERM)
                 with contextlib.suppress(subprocess.TimeoutExpired):
                     agent.wait(TERM_GRACE_SEC)
     finally:
-        signal_sandbox("KILL", sandbox)
         if agent is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(agent.pid, signal.SIGKILL)
             agent.wait()
     return Supervised(code, round(time.monotonic() - start))
 
@@ -316,7 +310,7 @@ def failure_reason(events: Iterable[dict[str, Any]]) -> str:
 
     A session-limit exit is non-zero and emits a ``<synthetic>`` assistant
     message ("You've hit your session limit · resets 8:30am (UTC)"), so the last
-    assistant text names the cause; ``enrich-tend-outage-issues.sh`` carries the
+    assistant text names the cause; ``enrich_tend_outage_issues.py`` carries the
     annotation into the tend-outage issue. A ``tool_use`` block is not text and
     a tool name is not a failure cause, so only ``text`` blocks are considered,
     and a blank one is no reason at all.
@@ -454,12 +448,11 @@ def verdict(
 
 
 def main() -> int:
+    if os.environ.get("TEND_INSIDE_SANDBOX") != "1":
+        raise RuntimeError("run_claude may run only inside the sandbox lifecycle")
     env = _common.require_env(
-        "SANDBOX",
-        "AGENT_ENV_FILE",
-        "RUNNER_TEMP",
+        "TEND_RUN_DIR",
         "GITHUB_WORKSPACE",
-        "GITHUB_OUTPUT",
         "TEND_MODEL",
         "TEND_ALLOWED_TOOLS",
         "TEND_SYSTEM_PROMPT",
@@ -470,41 +463,39 @@ def main() -> int:
         "BOT_ID",
         "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
     )
-    sandbox = env["SANDBOX"]
     workspace = Path(env["GITHUB_WORKSPACE"])
-    stream_json = Path(env["RUNNER_TEMP"]) / "tend-stream.json"
-    stderr_log = Path(env["RUNNER_TEMP"]) / "tend-claude-stderr.log"
+    # Outside the view, so the supervisor can read both back after the reap.
+    stream_json = Path(env["TEND_RUN_DIR"]) / "tend-stream.json"
+    stderr_log = Path(env["TEND_RUN_DIR"]) / "tend-claude-stderr.log"
 
-    # Written as the sandbox user so the agent can read it back. It lands in the
-    # adopter's checkout untracked, next to the `.claude/skills/` they do track;
-    # setup-sandbox.sh's global gitignore for the sandbox user keeps a broad
-    # `git add -A` from committing `bypassPermissions` into the session's PR.
-    # `stdin` is closed on every `sudo` here: without a tty a `sudo` that needs
-    # a password fails instead of waiting for one on the step's stdin. The `tee`
-    # gets the same guarantee from `input=`, which binds its stdin to a pipe.
+    # Written inside the sandbox so the agent can read it back. It lands in the consumer's
+    # checkout untracked, next to the `.claude/skills/` they do track, so the
+    # exclude keeps a broad `git add -A` from committing `bypassPermissions`
+    # into the session's PR.
+    exclude = workspace / ".git/info/exclude"
+    exclude.parent.mkdir(exist_ok=True)
+    with exclude.open("a", encoding="utf-8") as stream:
+        stream.write("/.claude/settings.local.json\n")
+    # `tee` receives the body through its own pipe rather than the step's stdin.
     subprocess.run(
-        ["sudo", "-u", sandbox, "mkdir", "-p", str(workspace / ".claude")],
+        ["mkdir", "-p", str(workspace / ".claude")],
         stdin=subprocess.DEVNULL,
         check=True,
     )
     subprocess.run(
-        ["sudo", "-u", sandbox, "tee", str(workspace / ".claude/settings.local.json")],
+        ["tee", str(workspace / ".claude/settings.local.json")],
         input=json.dumps(settings(env["TEND_ALLOWED_TOOLS"])),
         stdout=subprocess.DEVNULL,
         text=True,
         check=True,
     )
 
-    # The agent's launch env is $AGENT_ENV_FILE (written by setup-sandbox.sh;
-    # shared with the plugin-install step so the two can't drift): proxy
-    # routing, CA trust for every client family, and DUMMY GitHub + Anthropic
-    # credentials in the production schemes — the proxy replaces them with the
-    # real secrets for their hosts. Non-allowlisted traffic tunnels through
-    # untouched. No real secret is in this env.
+    # The launch already applied the curated agent environment. Do not
+    # reconstruct it here.
     argv = launch_argv(
-        sandbox=sandbox,
-        agent_env_file=env["AGENT_ENV_FILE"],
         model=env["TEND_MODEL"],
+        effort=os.environ.get("TEND_EFFORT", ""),
+        extra_args=os.environ.get("TEND_ARGS", ""),
         allowed_tools=env["TEND_ALLOWED_TOOLS"],
         system_prompt=env["TEND_SYSTEM_PROMPT"],
         prompt=env["TEND_PROMPT"],
@@ -514,24 +505,12 @@ def main() -> int:
         ci=os.environ.get("CI") or "true",
         settings_file=os.environ.get("TEND_AUTO_MEMORY_SETTINGS", ""),
     )
-    # Published before the launch: the path does not depend on the run, and the
-    # steps that read it — Token usage, the session-logs artifact — are
-    # `if: always()`, so they must still find it when the launch itself blows up.
-    _common.set_output("stream_json", str(stream_json))
-
-    try:
-        run = supervise(
-            argv,
-            sandbox=sandbox,
-            timeout_sec=int(env["TEND_TIMEOUT_SEC"]),
-            stream_json=stream_json,
-            stderr_log=stderr_log,
-        )
-    finally:
-        # supervise() kills and reaps the sandbox uid on every exit, including
-        # cancellation and launch failure. The memory save keys on this output
-        # so it never reads agent-owned files while a sandbox process survives.
-        _common.set_output("sandbox_reaped", "true")
+    run = supervise(
+        argv,
+        timeout_sec=int(env["TEND_TIMEOUT_SEC"]),
+        stream_json=stream_json,
+        stderr_log=stderr_log,
+    )
     timed_out = run.exit_code is None
     print(
         f"Supervisor: status={'timeout' if timed_out else 'exited'} "

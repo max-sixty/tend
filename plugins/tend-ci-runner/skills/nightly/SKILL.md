@@ -1,6 +1,6 @@
 ---
 name: nightly
-description: Nightly code quality sweep — resolves bot PR conflicts, reviews recent commits, surveys existing code, checks resolved issues, and updates tend workflows.
+description: Nightly code quality sweep — bot PR conflicts, recent commits, a rolling survey, resolved issues, and tend workflow updates.
 metadata:
   internal: true
 ---
@@ -11,16 +11,20 @@ Resolve conflicts on bot PRs, review recent commits, survey a slice of existing 
 
 ## Step 0: Load environment skills
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules,
-polling conventions, and comment formatting guidance. It will also prompt you
-to load any repo-specific skills (e.g., `running-tend`).
+Load `/tend-ci-runner:run-tend` first — it contains CI security rules and
+comment formatting, and it will prompt you to load any repo-specific skills
+(e.g., `running-tend`). This sweep comments, files issues, opens PRs, pushes,
+and polls CI from Step 1 onward, so load `/tend-ci-runner:post-to-github`,
+`/tend-ci-runner:open-pr`, `/tend-ci-runner:push-commits`, and
+`/tend-ci-runner:monitor-ci` with it.
 
 ## Step 1: Verify bot PAT scopes
 
 Run the scope audit script to check the bot PAT against tend's required classic OAuth scopes (`repo`, `workflow`, `notifications`, `write:discussion`, `gist`, `user`):
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pat-scope-audit.sh
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/pat_scope_audit.py"
 ```
 
 The script prints `key=value` lines. Act on `STATUS`:
@@ -35,7 +39,7 @@ Run `tend check` to verify this repo's tend setup (branch protection, bot
 permission, and where credentials live):
 
 ```bash
-uv tool run tend@latest check 2>&1 | tee /tmp/tend-check.txt
+uv tool run tend@latest check 2>&1 | tee "$TMPDIR/tend-check.txt"
 ```
 
 If **every** check line is `PASS` (no `FAIL` *and* no `SKIP`), close any
@@ -91,7 +95,7 @@ git diff ${OLDEST}^..HEAD
 git log --since='24 hours ago' --format='%h %s' main
 ```
 
-Read the project's CLAUDE.md before reviewing. Apply the review checklist below to the diff, focusing on changes rather than unchanged code. Also check whether CLAUDE.md itself needs updating to reflect the new code (e.g., new file paths, changed commands, removed patterns).
+Read the project's instruction files before reviewing. Apply the review checklist below to the diff, focusing on changes rather than unchanged code. Also check whether those instructions need updating to reflect the new code (e.g., new file paths, changed commands, removed patterns).
 
 ## Step 5: Check existing issues
 
@@ -100,22 +104,23 @@ gh issue list --state open --limit 200 --json number,title
 gh pr list --state open --limit 200 --json number,title,headRefName
 ```
 
-For each open issue, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue). Close the issue with `gh issue close` when:
+For each open issue, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue) per `/tend-ci-runner:post-to-github`. Close the issue with `gh issue close` when:
 
 - The bot opened the issue itself to report a transient condition (e.g., a "Nightly tests failed" report from a prior run) and the condition has clearly resolved — the fix PR is merged and the relevant CI on `main` is passing. Skip this case where closing the issue is itself a signal rather than a record of resolution:
   - a body containing "Do not close manually" — recurring trackers with their own lifecycle.
   - the `tend-outage` label. Its rows identify failed runs that `review-runs` diagnoses before checking the live repository for missed work. Nightly's cron precedes `review-runs` under the generated defaults, so closing the issue here can remove those rows before that check.
   - the `tend-rate-limit` label, where a maintainer's close is what lifts the bot past its own rate limit. Closing that one as the bot lifts nothing — the preflight counts only closes by a person — but it clears a decision still waiting on one.
-- The repo's guidance (e.g., `running-tend` skill) explicitly authorizes closing issues.
+- The repo's instructions (e.g., `running-tend` skill) explicitly authorize closing issues.
 
 Otherwise, leave it open for a maintainer to close.
 
 ### Enrich tend-outage issues
 
-The action's "Report failure" step records only a workflow run link in `tend-outage` issues — annotations and job logs aren't reliably available while the job is in_progress. Run the enrichment script to fetch failure details for each newly referenced run and post them as a comment. The script is idempotent: it skips runs already marked with `<!-- enriched-run:RUN_ID -->`.
+The action's "Report failure" step records a workflow run link in `tend-outage` issues — annotations and job logs aren't reliably available while the job is in_progress. Run the enrichment script to fetch failure details for each newly referenced run and post them as a comment. The script is idempotent: it skips runs already marked with `<!-- enriched-run:RUN_ID -->`.
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/enrich-tend-outage-issues.sh"
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/enrich_tend_outage_issues.py"
 ```
 
 ## Step 6: Rolling survey
@@ -123,12 +128,13 @@ The action's "Report failure" step records only a workflow run link in `tend-out
 Run the survey script to get today's file list (rotating through the full repo over 28 days):
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/nightly-survey-files.sh
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/nightly_survey_files.py"
 ```
 
 Skip files that aren't meaningfully reviewable: lock files (`uv.lock`, `Cargo.lock`, `package-lock.json`), binary assets, vendored dependencies, and generated files (build output, compiled protobuf, auto-generated workflow YAML). When unsure, check the file — a quick glance is cheaper than missing something.
 
-Before reviewing files, read the project's CLAUDE.md and any project-specific skills or review criteria it references. Apply the review checklist below to each file in full.
+Before reviewing files, read the project's instruction files and any project-specific skills or review criteria they reference. Apply the review checklist below to each file in full.
 
 ## Review checklist
 
@@ -143,134 +149,69 @@ Used by both Step 4 (applied to recent diffs) and Step 6 (applied to full files)
 
 A bug finding earns a PR only where a caller can reach it. For a defect found by reading rather than from an observed failure, name the in-repo call path that triggers it. If no caller can, the finding is a note in the Step 9 summary, not a PR — public visibility doesn't clear the bar on its own, since an item exported incidentally (a utility module under a default-on feature) promises nothing to anyone. Where it *is* part of a published library's documented surface, the fix stands: say so in the PR body, naming the contract rather than the visibility keyword.
 
-**Convention compliance (from CLAUDE.md and project skills):**
-- Code patterns that violate conventions stated in the project's CLAUDE.md
-- Stale CLAUDE.md entries — conventions that reference renamed files, deleted functions, or outdated patterns
+**Convention compliance (from project instructions and skills):**
+- Code patterns that violate conventions stated in the project's instruction files
+- Stale instructions that reference renamed files, deleted functions, or outdated patterns
 - Skills that have drifted from actual project behavior (instructions that no longer match how the code works)
+- An overlay rule that restates a bundled default — search a distinctive phrase from it in the bundled skills. The copy drifts as the bundled text changes.
 
 ## Step 7: Update tend workflows
 
-Regenerate the tend workflow files and open a PR if anything changed. The checkout's `.github/` directory may be mounted read-only under the sandbox (protecting bots from modifying their own workflows in place), so do the regeneration in a git worktree under `/tmp`, which is writable. Use the literal path `/tmp/tend-update-workflows` — GitHub Actions runners leave `$TMPDIR` unset, so a `$TMPDIR/...` path expands to an unwritable root path.
+Regenerate the Tend workflow files in a script-owned temporary worktree:
 
 ```bash
-# Base the worktree on the update-workflows branch only when an **open PR**
-# rides it, so the regen produces only the incremental delta. Otherwise base
-# on HEAD. Gate on the open PR, not on branch-ref existence: a PR closed without
-# merge leaves the branch behind, and basing on that stale branch carries the
-# closed PR's content on top of main — inflating the diff and producing an
-# inaccurate PR body, and defeating the no-value skip below (its "only
-# non-stamp diff" test only holds when the diff is computed against the
-# true base, not a stale branch's accumulated content).
-# When no open PR exists, drop any leftover remote branch so the push starts
-# fresh from HEAD. `-B` resets a stale local branch from a prior failed
-# attempt rather than rejecting it.
-git fetch origin tend/update-workflows 2>/dev/null || true
-if gh pr list --head tend/update-workflows --state open --json number --jq '.[0].number' | grep -q .; then
-  BASE=$(git rev-parse origin/tend/update-workflows)
-else
-  git push origin --delete tend/update-workflows 2>/dev/null || true
-  BASE=$(git rev-parse HEAD)
-fi
-git worktree add "/tmp/tend-update-workflows" -B tend/update-workflows "$BASE"
-cd "/tmp/tend-update-workflows"
-
-# Capture the stamped tend version before regenerating, so the next bash
-# call can report the bump. Header anchor: `# Generated by tend X.Y.Z.`
-# Workflows generated before the header stamp existed return an empty
-# string; the renderer below then omits the version line rather than
-# printing `unknown → X.Y.Z`. Shell state doesn't persist between bash
-# calls, so the version is stashed to a temp file.
-grep -hoE '^# Generated by tend [0-9]+\.[0-9]+\.[0-9]+' \
-  .github/workflows/tend-*.yaml 2>/dev/null \
-  | sed -E 's/^# Generated by tend //' | sort -u | head -1 \
-  > "/tmp/tend-old-ver"
-
-uv tool run tend@latest init
-# `init` auto-migrates a legacy `.config/tend.toml` → `.yaml` if it finds
-# one (verifies parsed equivalence before swapping); `.config/` is checked
-# alongside `.github/workflows` so that one-shot upgrade ships in the same
-# nightly PR as the regenerated workflows that depend on it.
-# Stage before inspecting: with review enabled, `init` may create
-# `.github/actionlint.yaml`, which `git diff` cannot see while it is untracked.
-# `.github` covers it and the workflow files in one pathspec that always exists.
-git add -A .github .config
-git status --porcelain .github .config
-
-# Stamp-only check: if the only diff is the `# Generated by tend X.Y.Z`
-# header (e.g. dependabot has already bumped the action refs in a patch
-# release), the workflow bodies are unchanged and the existing files are
-# still accurate. A header-only PR carries no value — treat it as a no-op.
-NON_STAMP_DIFF=$(git diff --cached --no-color .github .config \
-  | grep -E '^[+-]' \
-  | grep -vE '^(\+\+\+|---) ' \
-  | grep -vE '^[+-]# Generated by tend [0-9]+\.[0-9]+\.[0-9]+\. Regenerate with: uvx tend@latest init$' \
-  | wc -l)
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/nightly_workflow_update.py" prepare
 ```
 
-If `git status` shows no changes, or `NON_STAMP_DIFF` is `0`, clean up
-and skip the PR:
+If it reports `changed: false`, it has cleaned up and there is no PR to open.
+Otherwise its JSON supplies the title, old and new versions, compare URL, and
+upstream commit subjects. It leaves the prepared worktree and state on disk for
+the shipping command; do not `cd` into it.
+
+Before composing the PR body, inspect `compare_url`'s diff for a new harness
+model default. Update each explicit model pin in the prepared `.config/tend.yaml`
+only when the replacement is a newer model in the same capability and price
+tier, confirmed from the provider's model and pricing docs. Leave the pin
+unchanged when those docs are unreachable or the tier is unclear, and preserve
+cross-tier pins as product choices. After an edit, rerun generation without
+moving this session's cwd:
 
 ```bash
-cd -
-git worktree remove "/tmp/tend-update-workflows" --force
+( cd "<worktree from prepare output>" && uv tool run tend@latest init )
 ```
 
-If files changed, detect the version bump and gather the upstream changes to describe:
+Compose the PR body at `$TMPDIR/tend-update-body.md` per
+`/tend-ci-runner:post-to-github`. Its reader is deciding whether to adopt the
+regenerated workflows, so explain the consumer-visible effect of the upgrade
+rather than inventorying changed files or commits. When the version changed, state the old and new versions,
+synthesize the `upstream_commits` entries into the behavior consumers will
+notice, and link `compare_url` as support. Rewrite each `(#NNN)` reference as
+`max-sixty/tend#NNN` — a bare `#NNN` auto-links to this repo's own issues, not
+tend's. Filter out release mechanics, action-pin and lockfile bumps, and
+tend-internal work with no consumer-visible effect. If `upstream_commits` is
+empty, the comparison call failed: include only the version line and compare
+link, and do not infer upstream behavior. For a same-version regeneration,
+explain the generator behavior that made the committed workflows stale. Follow
+**Reader-facing prose** in `/tend-ci-runner:run-tend`.
+
+Review the prepared diff per **Review the change before the push** in
+`/tend-ci-runner:push-commits`, then ship it:
 
 ```bash
-OLD_VER=$(cat "/tmp/tend-old-ver")
-NEW_VER=$(grep -hoE '^# Generated by tend [0-9]+\.[0-9]+\.[0-9]+' \
-  .github/workflows/tend-*.yaml 2>/dev/null \
-  | sed -E 's/^# Generated by tend //' | sort -u | head -1)
-
-TITLE="chore: update tend workflows"
-if [ -n "$OLD_VER" ] && [ -n "$NEW_VER" ] && [ "$OLD_VER" != "$NEW_VER" ]; then
-  TITLE="chore: update tend workflows ($OLD_VER → $NEW_VER)"
-  # The real "what changed": squash-merge subjects between the two release
-  # tags. First line of each upstream commit; empty if the call fails, in
-  # which case the body carries only the version line.
-  gh api "repos/max-sixty/tend/compare/$OLD_VER...$NEW_VER" \
-    --jq '.commits[].commit.message | split("\n")[0]' \
-    > "/tmp/tend-upstream-commits.txt" 2>/dev/null || true
-fi
-printf '%s\n' "$TITLE" > "/tmp/tend-pr-title"
-echo "OLD=$OLD_VER NEW=$NEW_VER  compare: https://github.com/max-sixty/tend/compare/$OLD_VER...$NEW_VER"
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/nightly_workflow_update.py" ship
 ```
 
-Compose the PR body with the Write tool at `/tmp/tend-update-body.md` — describe the upgrade, **don't paste a file list** (the diff is just mechanical action-ref bumps):
-
-- Open by noting this is the automated nightly regeneration of tend's workflow files — phrase it per-run, or fold it into the version summary.
-- **Version bumped**: add a `**tend version:** OLD → NEW` line, then a short **Notable changes** list — 3–5 bullets summarizing the entries in `/tmp/tend-upstream-commits.txt`. Rewrite each `(#NNN)` ref as `max-sixty/tend#NNN` — a bare `#NNN` auto-links to this repo's own issues, not tend's. Filter to **consumer-relevant** changes only — harness/action behavior, skill updates (review, ci-fix, triage, nightly, etc.), generator output that changes the adopter's workflow files, CI-monitoring guidance. **Exclude** pure mechanics (`chore: regenerate workflows`, `chore: release`, action-pin and lockfile bumps) and **tend-internal items** that affect only tend's own development or release (e.g. release-publishing workflow, marketing site, integration-test fixtures, internal refactors with no adopter-visible effect). Close with the compare link printed above. If the commits file is empty (the compare call failed), keep just the version line and the compare link.
-- **No version bump** (same-version regen): one sentence on what the regen changed (a generator template tweak the committed workflows were lagging). No version line, no commit list.
-
-Then ship it:
+The command commits, pushes, creates or updates the PR, records the pushed OID,
+removes the temporary worktree, and prints the PR number and URL. Poll that
+exact commit per `/tend-ci-runner:monitor-ci` — foreground,
+`timeout: 600000`:
 
 ```bash
-TITLE=$(cat "/tmp/tend-pr-title")
-git add -A .github .config
-# A fresh /tmp worktree has no git identity; without this the commit fails with
-# `Author identity unknown` and an empty branch gets pushed. Idempotent — see
-# "Configure git identity before the first commit" in /tend-ci-runner:running-in-ci.
-BOT_LOGIN=$(gh api user --jq '.login'); BOT_ID=$(gh api user --jq '.id')
-git config --global user.name "$BOT_LOGIN"
-git config --global user.email "${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
-git commit -m "$TITLE"
-git push -u origin tend/update-workflows
-gh pr create --title "$TITLE" --body-file "/tmp/tend-update-body.md"
-# Stash the pushed OID before the worktree goes. The poll below pins to the
-# commit this run pushed, and once the worktree is removed the main checkout's
-# `git rev-parse HEAD` resolves to the default branch — a different commit on a
-# different branch — leaving the PR head (which a sibling push retargets
-# mid-poll) or a retyped abbreviated OID as the only sources.
-git rev-parse HEAD > "/tmp/tend-update-sha"
-cd -
-git worktree remove "/tmp/tend-update-workflows" --force
-```
-
-Then poll that commit's checks per **CI Monitoring** in `/tend-ci-runner:running-in-ci` — foreground, `timeout: 600000`:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/poll-pr-checks.sh <pr-number> "$(cat /tmp/tend-update-sha)"
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \
+  poll <pr-number> "$(cat "$TMPDIR/tend-update-sha")"
 ```
 
 ## Step 8: Fix findings
@@ -282,14 +223,16 @@ gh issue list --state open --limit 200 --json number,title
 gh pr list --state open --limit 200 --json number,title,headRefName
 ```
 
-That projection orients you; it does not clear a finding. It omits both states a prior rejection lives in — closed PRs, and the comment bodies of an open issue — so per finding, before writing code, run the searches under **Fetch the prior rejection before re-deriving a fix** in `/tend-ci-runner:running-in-ci`.
+That projection orients you; it does not clear a finding. It omits both states a prior rejection lives in — closed PRs, and the comment bodies of an open issue — so per finding, before writing code, run the searches under **Fetch the prior rejection before re-deriving a fix** in `/tend-ci-runner:open-pr`.
 
 The default action is a PR, not an issue. If there's a plausible fix, make it — explain uncertainty in the PR description.
 
+Group findings by theme and keep a run to a couple of PRs, picking the highest-confidence ones; the rest go in the Step 9 summary for a later run.
+
 For each finding:
 
-1. **Create a PR** — branch, fix, run full test suite, commit, push, create PR, then poll CI per **CI Monitoring** in `/tend-ci-runner:running-in-ci`. Your job ends when those checks are terminal: a review posted on the PR while you poll belongs to `tend-mention`. **Every bug fix must include a regression test that would have failed before the fix.** If a test is not feasible (e.g., pure documentation changes), note why in the PR description. When uncertain about the approach, explain the trade-offs in the description.
-2. **Create an issue only when there's no obvious fix** — design questions, problems needing maintainer input, or findings requiring investigation beyond what the survey can provide.
+1. **Create a PR** — branch, fix per `/tend-ci-runner:fix-a-bug`, run full test suite, commit, push per `/tend-ci-runner:push-commits`, create the PR per `/tend-ci-runner:open-pr`, then poll CI per `/tend-ci-runner:monitor-ci`. Your job ends when those checks are terminal: a review posted on the PR while you poll belongs to `tend-mention`. **Every bug fix must include a regression test that would have failed before the fix.** If a test is not feasible (e.g., pure documentation changes), note why in the PR description. When uncertain about the approach, explain the trade-offs in the description.
+2. **Create an issue only when there's no obvious fix** (per `/tend-ci-runner:open-pr`) — design questions, problems needing maintainer input, or findings requiring investigation beyond what the survey can provide.
 
 ## Optional steps
 

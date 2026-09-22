@@ -3,7 +3,7 @@
 Bridges the format change introduced when tend's config switched from TOML
 to YAML. The new code path doesn't read TOML anymore, so this command holds
 the only `tomllib` import in the codebase — it exists solely to let
-existing adopters upgrade without hand-editing.
+existing consumers upgrade without hand-editing.
 
 Verification: the parsed TOML dict and the parsed-back YAML dict must
 compare equal. If they don't, the migration aborts and the TOML file is

@@ -1,4 +1,4 @@
-"""Tests for plugins/tend-ci-runner/scripts/token-report.sh.
+"""Tests for plugins/tend-ci-runner/scripts/token_report.py.
 
 The report exists to answer "what did the spend go to?", so what is pinned
 here is the grouping and the ranking: subjects come off the record each run
@@ -9,7 +9,9 @@ orders disagree so a regression to token-ranking fails.
 
 The fake `gh` serves a run list and materialises each run's artifact into the
 `--dir` the script passes, which is the whole of what the script needs from
-GitHub. `date` is faked so the window is a fixed string.
+GitHub. Every case anchors the window with `--since` rather than `--hours`, so
+the fixtures' timestamps stay fixed instead of ageing out of a wall-clock
+window.
 """
 
 from __future__ import annotations
@@ -21,25 +23,35 @@ from typing import Any
 
 import pytest
 
-from tests import BASH, GH_PREAMBLE, fake_bin, tool_path
+from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts" / "token-report.sh"
+SCRIPT = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts" / "token_report.py"
+# Before every fixture timestamp below, so a case that isn't about the window
+# sees all of its runs.
+ANCHOR = "2026-08-01T00:00:00Z"
 
 FAKE_GH = (
     GH_PREAMBLE
     + r"""case "$1 $2" in
   "workflow list")
+    [ -n "${WORKFLOW_LIST_FAILS:-}" ] && { echo "workflows unavailable" >&2; exit 42; }
     emit "$(cat "$WF_JSON")"
     ;;
   "run list")
+    # `--created >=X` is a server-side filter, so the fake honours it: the
+    # script's cushion is only real if a row outside it never arrives.
     wf=""
+    created=""
     prev=""
     for a in "$@"; do
       [ "$prev" = "--workflow" ] && wf="$a"
+      [ "$prev" = "--created" ] && created="${a#>=}"
       prev="$a"
     done
-    emit "$(jq -c --arg wf "$wf" '[.[] | select(.name == $wf)]' "$RUNS_JSON")"
+    emit "$(jq -c --arg wf "$wf" --arg created "$created" \
+      '[.[] | select(.name == $wf) | select($created == "" or .createdAt >= $created)]' \
+      "$RUNS_JSON")"
     ;;
   "run download")
     # The artifact the run uploaded, or a non-zero exit for a run that has
@@ -60,9 +72,6 @@ FAKE_GH = (
 esac
 """
 )
-
-# The window is a fixed string; nothing here depends on the real clock.
-FAKE_DATE = "#!/usr/bin/env bash\necho 2026-08-22T00:00:00Z\n"
 
 
 def _record(**over: Any) -> dict[str, Any]:
@@ -96,20 +105,30 @@ class Report:
         self._usage_dir = tmp_path / "usage"
         self._usage_dir.mkdir()
         self._env = {
-            "PATH": tool_path(fake_bin(tmp_path, gh=FAKE_GH, date=FAKE_DATE)),
+            "PATH": tool_path(fake_bin(tmp_path, gh=FAKE_GH)),
             "GH_CALLS": str(tmp_path / "gh-calls.log"),
             "WF_JSON": str(tmp_path / "wf.json"),
             "RUNS_JSON": str(tmp_path / "runs.json"),
             "USAGE_DIR": str(self._usage_dir),
         }
 
-    def add(self, run_id: int, *, workflow: str = "tend-review", **over: Any) -> Report:
+    def add(
+        self,
+        run_id: int,
+        *,
+        workflow: str = "tend-review",
+        created_at: str | None = None,
+        updated_at: str | None = None,
+        **over: Any,
+    ) -> Report:
         """A completed run and the artifact it uploaded."""
+        created_at = created_at or f"2026-08-2{run_id % 10}T12:00:00Z"
         self._runs.append(
             {
                 "databaseId": run_id,
                 "conclusion": "success",
-                "createdAt": f"2026-08-2{run_id % 10}T12:00:00Z",
+                "createdAt": created_at,
+                "updatedAt": updated_at or created_at,
                 "name": workflow,
             }
         )
@@ -130,10 +149,29 @@ class Report:
                 "databaseId": run_id,
                 "conclusion": "cancelled",
                 "createdAt": "2026-08-25T12:00:00Z",
+                "updatedAt": "2026-08-25T12:00:00Z",
                 "name": "tend-review",
             }
         )
         return self
+
+    def invoke(self, *args: str) -> subprocess.CompletedProcess[str]:
+        """Run the script with *args* as its whole command line."""
+        workflows = sorted({run["name"] for run in self._runs})
+        Path(self._env["WF_JSON"]).write_text(
+            json.dumps([{"name": name} for name in workflows])
+        )
+        Path(self._env["RUNS_JSON"]).write_text(json.dumps(self._runs))
+        return subprocess.run(
+            uv_script(SCRIPT, *args),
+            env=self._env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def calls(self) -> str:
+        return Path(self._env["GH_CALLS"]).read_text()
 
     def run(self, *prefixes: str) -> tuple[dict[str, Any], list[list[str]]]:
         """The JSON on stdout, and the stderr summary split into cells.
@@ -142,18 +180,11 @@ class Report:
         are separated by blank lines, and ``blocks`` keeps that structure so a
         test can address one table without a footnote sentence running into it.
         """
-        workflows = sorted({run["name"] for run in self._runs})
-        Path(self._env["WF_JSON"]).write_text(
-            json.dumps([{"name": name} for name in workflows])
-        )
-        Path(self._env["RUNS_JSON"]).write_text(json.dumps(self._runs))
-        result = subprocess.run(
-            [BASH, str(SCRIPT), "168", *prefixes],
-            env=self._env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        return self.run_args("--since", ANCHOR, *prefixes)
+
+    def run_args(self, *args: str) -> tuple[dict[str, Any], list[list[str]]]:
+        """As `run`, with the whole command line spelled out."""
+        result = self.invoke(*args)
         assert result.returncode == 0, result.stderr
         self.stderr = result.stderr
         self.blocks = [
@@ -212,6 +243,15 @@ def test_repeat_runs_on_one_subject_collapse_into_one_row(report: Report) -> Non
     ]
 
 
+def test_equal_timestamps_keep_discovery_order(report: Report) -> None:
+    created_at = "2026-08-25T12:00:00Z"
+    report.add(1, created_at=created_at).add(2, created_at=created_at)
+
+    output, _ = report.run()
+
+    assert [run["run_id"] for run in output["runs"]] == [1, 2]
+
+
 def test_tables_are_ranked_by_cost_not_by_token_count(report: Report) -> None:
     """Cache reads dominate the count and not the bill, so ranking by tokens
     ranks the cheapest work first.
@@ -224,9 +264,10 @@ def test_tables_are_ranked_by_cost_not_by_token_count(report: Report) -> None:
     report.run()
 
     workflows = [row[0] for row in _table(report, "WORKFLOW")]
-    assert workflows == ["tend-review", "tend-nightly"], (
-        "the costliest workflow leads; ranking by cache reads inverts this"
-    )
+    assert workflows == [
+        "tend-review",
+        "tend-nightly",
+    ], "the costliest workflow leads; ranking by cache reads inverts this"
     assert _table(report, "WORKFLOW")[0][2] == "$9.00", "cost is the second column"
 
 
@@ -361,6 +402,15 @@ def test_a_matrix_runs_row_agrees_with_its_rollup_to_the_cent(report: Report) ->
     assert _table(report, "WORKFLOW")[0][2] == "$28.17"
 
 
+def test_half_cent_costs_round_up_consistently(report: Report) -> None:
+    report.add(1, cost_usd=1.005)
+
+    output, _ = report.run()
+
+    assert output["totals"]["cost_usd"] == 1.01
+    assert _table(report, "RUN")[0][3] == "$1.01"
+
+
 def test_a_workflow_name_with_a_space_keeps_its_own_column(report: Report) -> None:
     """The summary pads its own columns, so a cell may contain spaces.
 
@@ -378,6 +428,26 @@ def test_a_workflow_name_with_a_space_keeps_its_own_column(report: Report) -> No
         "the run count must sit under RUNS; a summary that split rows on "
         "whitespace would put `reviewers` there and shift every column right"
     )
+
+
+@pytest.mark.parametrize("prefix", ['review "', "review \\"])
+def test_workflow_prefix_is_passed_to_jq_as_data(report: Report, prefix: str) -> None:
+    report.add(1, workflow=f"{prefix}special")
+
+    output, _ = report.run(prefix)
+
+    assert [run["run_id"] for run in output["runs"]] == [1]
+
+
+def test_a_failed_workflow_listing_aborts_instead_of_reporting_zero(
+    report: Report,
+) -> None:
+    report._env["WORKFLOW_LIST_FAILS"] = "1"
+
+    result = report.invoke()
+
+    assert result.returncode != 0
+    assert result.stdout == ""
 
 
 def test_runs_with_no_artifact_are_counted_not_dropped(report: Report) -> None:
@@ -410,3 +480,80 @@ def test_a_repo_with_no_runs_reports_the_same_empty_shape(report: Report) -> Non
             "skipped_runs": 0,
         },
     }
+
+
+def test_a_run_that_straddles_the_anchor_is_priced(report: Report) -> None:
+    """The census admits on completion, so the spend has to as well.
+
+    A nightly that began before the anchor and finished inside the window is
+    censused by `list_recent_runs.py`; a creation-filtered fetch drops it, and
+    the runs it drops are by construction the longest and costliest ones.
+    """
+    report.add(
+        1,
+        workflow="tend-nightly",
+        created_at="2026-09-17T06:39:00Z",
+        updated_at="2026-09-17T08:17:00Z",
+        cost_usd=21.08,
+    )
+
+    output, _ = report.run_args("--since", "2026-09-17T07:00:00Z")
+
+    assert [run["run_id"] for run in output["runs"]] == [1]
+    assert output["totals"]["cost_usd"] == 21.08
+
+
+def test_a_run_that_finished_before_the_anchor_stays_out(report: Report) -> None:
+    """The cushion widens the fetch, not the window.
+
+    The previous sweep already priced these, so admitting them would
+    double-count the spend the series is read window-over-window.
+    """
+    report.add(1, created_at="2026-09-16T12:00:00Z", updated_at="2026-09-16T12:30:00Z")
+    report.add(2, created_at="2026-09-17T06:39:00Z", updated_at="2026-09-17T08:17:00Z")
+
+    output, _ = report.run_args("--since", "2026-09-17T07:00:00Z")
+
+    assert [run["run_id"] for run in output["runs"]] == [2]
+
+
+def test_the_fetch_reaches_a_day_behind_the_anchor(report: Report) -> None:
+    """`CREATION_CUSHION` here matches the census's, so the two see one band."""
+    report.add(1, created_at="2026-09-17T08:00:00Z", updated_at="2026-09-17T08:10:00Z")
+
+    report.run_args("--since", "2026-09-17T07:00:00Z")
+
+    assert "--created >=2026-09-16T07:00:00Z" in report.calls()
+
+
+def test_the_header_names_the_anchor_not_the_cushioned_fetch(report: Report) -> None:
+    report.add(1, created_at="2026-09-17T08:00:00Z", updated_at="2026-09-17T08:10:00Z")
+
+    _, rows = report.run_args("--since", "2026-09-17T07:00:00Z")
+
+    assert any("since 2026-09-17T07:00:00Z" in " ".join(row) for row in rows)
+
+
+def test_an_hour_count_in_the_prefix_slot_is_an_error(report: Report) -> None:
+    """The window used to be the first positional, so a stale call site would
+    otherwise read `24` as a workflow prefix and report an empty fleet."""
+    result = report.invoke("24", "review-")
+
+    assert result.returncode == 2
+    assert "--hours 24" in result.stderr
+    assert result.stdout == ""
+
+
+def test_an_empty_since_is_an_error_not_a_week_long_window(report: Report) -> None:
+    """`--since "$(cat ...)"` collapses to `--since ""` when the anchor is absent.
+
+    Falling through to the `--hours` default would publish a week's spend under
+    a header naming a window nobody asked for, with a zero exit.
+    """
+    report.add(1, created_at="2026-09-17T08:00:00Z", updated_at="2026-09-17T08:10:00Z")
+
+    result = report.invoke("--since", "")
+
+    assert result.returncode == 2
+    assert "--since" in result.stderr
+    assert result.stdout == ""

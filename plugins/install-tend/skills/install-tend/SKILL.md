@@ -1,15 +1,16 @@
 ---
 name: install-tend
-description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions the harness auth token (Claude OAuth or OpenAI API key). Use when installing tend, when clearing a failing `tend check`, and for any later change to a repo that already has it: its tend config, generated workflows, environments, branch protection, or bot access, and rotating or replacing its credentials (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `TEND_BOT_TOKEN`) — including minting a token or switching which Claude or OpenAI account a repo's CI runs on.
+description: Sets up tend — an autonomous junior maintainer for a GitHub repo, powered by Claude or OpenAI Codex — that reviews PRs, triages issues, and fixes CI. Creates config, generates workflows, configures secrets and branch protection via API, creates the bot account, and provisions harness authentication. Use when installing tend, clearing a failing `tend check`, changing an installed repo's tend config, workflows, environments, branch protection, or bot access, and rotating or replacing its credentials.
 ---
 
 # Install Tend
 
 Set up tend on the current repo, or change an installation it already has.
 
-When asking the user questions during these steps, use the `AskUserQuestion`
-tool — present concrete options when there are clear choices (e.g.
-secret-migration confirmation, registry token route).
+When asking the user questions during these steps, batch known questions into
+one interaction where the client supports it, and present concrete options
+when there are clear choices (e.g. secret-migration confirmation, registry
+token route).
 
 When a question requires the user to do something off-screen (visit a URL,
 run a command, paste a value back), spell the next step out in the question
@@ -77,7 +78,7 @@ minutes of the user's hands-on time (browser logins, OAuth approvals,
 occasional copy-paste) — the agent drives the rest, ending at a local
 commit (pushing waits for their go-ahead, step 11).
 
-Then one `AskUserQuestion` call with three questions. Answering it is the
+Then ask these four questions together. Answering them is the
 go-ahead — no separate "ready to start?" confirmation. Drop any question the
 user's request or an existing config already answers (a supplied bot name, a
 chosen harness; the auth mode a config-settled harness leaves open is asked
@@ -86,31 +87,40 @@ itself the go-ahead.
 
 1. **Harness** — which model runs the bot and which credential it
    bills to:
-   - **Claude — OAuth token** (recommended for adopters with a Claude
+   - **Claude — OAuth token** (recommended for consumers with a Claude
      subscription) — draws from the subscription's usage limits.
    - **Claude — API key** — a console.anthropic.com key, billed per token.
      Fits when there's no subscription to draw on, or the user wants a
      dedicated billing surface and per-key revocation.
-   - **Codex — OpenAI API key** — pay-per-token. The `auth.json`
-     subscription path is incompatible with tend's concurrent workflows
-     (per-call refresh-token invalidation) and is being removed. Detail in
+   - **Codex — Plus/Pro subscription** — experimental. It needs two browser
+     handoffs: a Codex device approval and a repo-scoped GitHub token form.
+     Concurrent jobs receive an access-only token; one serialized weekly
+     workflow owns renewal. It depends on Codex's internal auth mode; detail in
      ${CLAUDE_SKILL_DIR}/references/security-model.md.
-2. **Bot name** — the available candidates, recommended first. "Other"
+   - **Codex — OpenAI API key** — standard pay-per-token path.
+2. **Merge mode** — who may merge into the default branch:
+   - **Maintainer** (recommended) — the bot opens and updates PRs; only admins can
+     update the default branch.
+   - **Yolo** — the bot may merge ordinary PRs, but cannot push directly.
+     Workflow and Tend-config changes require a fresh CODEOWNER approval;
+     ask for the one maintainer GitHub user to own them. Teams are not accepted
+     because Tend cannot prove the bot is not a member.
+3. **Bot name** — the available candidates, recommended first. "Other"
    takes a custom name; check its availability before using it. The tool
    needs 2–4 options, so generate more candidates whenever fewer than two
    come back available.
-3. **Defaults** — accept the default setup, or pick areas to change:
+4. **Defaults** — accept the default setup, or pick areas to change:
    - **Accept all defaults** (recommended) — no workflow overrides, a
-     placeholder guidance overlay, the badge added, and the bot bio
+     placeholder instructions overlay, the badge added, and the bot bio
      "tend agent for `<owner>/<repo>`. I triage issues and help maintain
      `<repo>`." Nothing is locked in: every default is an ordinary edit later
      (`.config/tend.yaml`, the files the install writes) or a re-run of
      this skill.
    - **Customize…** — pick the areas in a follow-up question.
 
-A **Customize…** answer gets one more `AskUserQuestion`
-(`multiSelect: true`): which areas to change, defaults applying to
-whatever is left unselected (an empty submission included), each option
+A **Customize…** answer gets one more multi-select question: which areas to
+change, defaults applying to whatever is left unselected (an empty submission
+included), each option
 naming its default in its description. Both the defaults description
 and this follow-up list only the areas still open — drop an area the
 user's request settles (the request, not the default, governs its step:
@@ -118,9 +128,9 @@ user's request settles (the request, not the default, governs its step:
 an area that can't apply (no README → no badge option). The tool caps a
 question at 4 options, so a new area means grouping, not appending.
 
-- **Workflow config** — setup steps, workflow conditions, schedules, job
+- **Workflow config** — setup commands, workflow conditions, schedules, job
   permissions/timeouts, env vars (default: no overrides)
-- **Bot guidance overlay** — PR title format, labels, review routing,
+- **Bot instructions overlay** — PR title format, labels, review routing,
   target branch, nightly actions (default: a placeholder overlay)
 - **README badge** — placement and style, or leaving it out (default:
   added, matching the README's existing badge style)
@@ -136,17 +146,24 @@ account, approving OAuth — still interact when they arrive.
 Follow each step in order. Skip steps that are already done — check each
 prerequisite before acting.
 
+Whatever the user has to act on — a URL, a code, a command — goes in the reply
+itself, ready to use: a clickable link where the runtime renders one, and the
+bare URL on its own line where they may need to copy it. Repeat it while its
+window is still open.
+
 ## Browser sessions
 
-Step 6 (when the bot account must be created) and step 8's mint paths
-(8a/8b) need a browser session logged in as the bot. Check whether
+Step 6 (when the bot account must be created), step 7b's Codex subscription
+setup, and step 8's mint paths (8a/8b) need a browser session. Check whether
 `mcp__claude-in-chrome__*` is connected (`tabs_context_mcp`) before the
 first browser step, or any question that would offer one as an option.
 When it is, drive the browser steps yourself rather than offering a
 hand-off choice: hand the user only the prompts automation can't cross
 (a signup CAPTCHA, a 2FA or password reauth), and resume once they
-complete the prompt in the open tab. When it isn't, give the user URLs
-and wait for confirmation.
+complete the prompt in the open tab. When it isn't but the runtime can open
+a URL in the user's browser, open each URL as soon as it appears and hand over
+the exact prompt or code. Otherwise, give the user the URL and wait for
+confirmation.
 
 Driving uses the user's real Chrome profile, so logging in as the bot
 displaces their own github.com session until they sign back in — tell
@@ -161,10 +178,18 @@ README.md "Harnesses" for the comparison.
 
 ```yaml
 bot_name: <bot-name>
-# For Codex, also:
+# For autonomous merging (also set the owner selected at kickoff):
+# merge: yolo
+# control_plane_owner: "@maintainer"
+# For Codex:
 # harness: codex
-# effort: medium   # optional: low | medium | high | xhigh
+# model: gpt-5.6-sol
+# Both harnesses optionally accept:
+# effort: medium   # low | medium | high | xhigh; Claude also accepts max
 ```
+
+Write the Codex model into the config. It is the installation's reviewed pin;
+the raw action deliberately has no model default.
 
 List the secrets the repo already holds:
 
@@ -191,9 +216,10 @@ place. Classify each remaining secret and act now — don't defer:
   keys, deploy credentials) at the repo level are reachable from any
   workflow run, including ones a write-access bot can trigger with no
   merge. Don't allowlist them. Migrate each to a GitHub Environment whose
-  deployment policy pins to the admin-gated refs from §3 (the default
-  branch and/or all tags). The bot can reach neither ref class, so it
-  cannot reach the secret. `tend check` sweeps every credential-holding
+  deployment policy pins to the bot-inaccessible refs from §3 (all tags
+  and, under maintainer mode, the default branch). Under yolo, a generic
+  credential environment that admits the default branch needs a non-bot
+  required reviewer. `tend check` sweeps every credential-holding
   environment — one that stores a secret, or that an `id-token: write` job
   deploys to, since trusted publishing stores nothing — and fails on any it
   cannot confirm gated: no reviewer and no policy, an unverified branch
@@ -204,7 +230,7 @@ place. Classify each remaining secret and act now — don't defer:
   rather than passing silently.
 
   Migrate the secret: recreate it on the Environment, delete the
-  repo-level copy (confirm via `AskUserQuestion` first), and set
+  repo-level copy (confirm with the user first), and set
   `environment: <name>` on the publishing job.
 
   Configure the deployment policy. Allow whichever ref classes the
@@ -250,7 +276,7 @@ place. Classify each remaining secret and act now — don't defer:
   is then the only control on that path.
 
   The original repo-level secret value isn't readable (GitHub secrets are
-  write-only), so a fresh token is needed. Ask the user via `AskUserQuestion`
+  write-only), so a fresh token is needed. Ask the user
   how to obtain it; recommend whichever fits the registry:
 
   - **CLI** — if the registry has a token-issuing CLI (e.g., `npm token create`),
@@ -302,11 +328,11 @@ workflows:
 If no CI workflows exist, either skip ci-fix (`enabled: false`) or help the
 user create one first.
 
-If the user picked workflow config at Kickoff, ask via `AskUserQuestion`
-(`multiSelect: true`) which overrides to set — otherwise set none:
+If the user picked workflow config at Kickoff, ask which overrides to set in
+a multi-select question — otherwise set none:
 
-- Setup steps and env vars (system deps, language version, pre-build
-  hooks, top-level env vars)
+- Setup commands and env vars (system deps, language version, pre-build
+  hooks, top-level env vars; maintainer-mode `setup` accepts `run` and `uses` steps)
 - Workflow conditions (e.g., skip review on `tend:dismissed` PRs — see below)
 - Schedule overrides (cron timing for nightly/weekly)
 - Permissions / timeouts on specific jobs
@@ -324,14 +350,15 @@ RFC 7396 (JSON Merge Patch): mappings deep-merge, scalars and lists replace.
 
 Common example — skip review on PRs labeled `tend:dismissed` (so authors can
 opt out of re-reviews after the initial pass). Because scalars replace under
-Merge Patch, the override must duplicate the default draft check:
+Merge Patch, the override must repeat the generated `TEND_ENABLED` pause check
+(`init` refuses one that drops it):
 
 ```yaml
 workflows:
   review:
     jobs:
       review:
-        if: "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+        if: "vars.TEND_ENABLED != 'false' && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
 ```
 
 See ${CLAUDE_SKILL_DIR}/references/tend.example.yaml for more override
@@ -364,11 +391,34 @@ user that team members should @-mention the bot account instead of `@claude`.
 
 ## 3. Ref protection
 
-Two ref classes can land code that reaches a deploy or publish workflow:
-the default branch (via merge) and tags (via tag push). Restrict both to
-admin-only operations so every privileged code path chains back to an
-admin action. The bot has write, which is below every role that can
-bypass, so it satisfies neither.
+Reconcile Tend's canonical rulesets and environment policy:
+
+```bash
+uvx tend@latest check --fix --repo "$REPO"
+```
+
+The command is expected to remain non-zero until later steps install the
+secrets. Fix every ref-protection finding now. Under `maintainer`, `Merge access`
+keeps the default and extra protected branches admin-only. Under `yolo`, it
+targets only the default branch and grants the bot user a pull-request-only
+bypass, while `Control-plane review` requires a fresh,
+non-bypassable CODEOWNER approval for `.github/**` and
+`.config/tend.yaml`, including the CODEOWNERS files and agent instructions.
+`Protected branch access` keeps configured extra branches admin-only in yolo;
+an existing copy is retained when returning to maintainer. `Tag operations`
+keeps all tags admin-only.
+
+Yolo bootstraps in two safe phases. Before the generated CODEOWNERS block and
+exact generated workflows are on the default branch, or while any credential
+check is unresolved, `--fix` keeps maintainer mode and refuses to grant the bot
+a bypass. Merge the install PR manually and fix any credential gates, then
+rerun this section; only then does it enable the pull-request-only bypass. Once
+that bypass is active, an unresolved prerequisite makes `--fix` preserve the
+live merge rules, and an inconclusive ruleset read prevents it from changing
+them.
+The workflow check also rejects non-generated jobs with dynamic environment
+names or external or ref-qualified reusable workflows, because their use of
+the `tend` environment cannot be verified from the default-branch tree.
 
 Survey existing rulesets; skip any slot already covered:
 
@@ -376,31 +426,9 @@ Survey existing rulesets; skip any slot already covered:
 gh api "repos/$REPO/rulesets" --jq '.[] | {name, target, enforcement}'
 ```
 
-**Merge restriction on the default branch.** Create if missing:
-
-```bash
-gh api "repos/$REPO/rulesets" --method POST --input - << 'EOF'
-{
-  "name": "Merge access",
-  "target": "branch",
-  "enforcement": "active",
-  "conditions": {
-    "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] }
-  },
-  "rules": [{ "type": "update" }],
-  "bypass_actors": [{
-    "actor_id": 5,
-    "actor_type": "RepositoryRole",
-    "bypass_mode": "exempt"
-  }]
-}
-EOF
-```
-
-`actor_id: 5` is the admin role. The base role IDs run maintain 2, write 4,
-admin 5 — not ordered by privilege, so the plausible guess for maintain is in
-fact write, the bot's own role, and granting it hands the bot the merge. Before
-adding any bypass actor, read back what the ruleset actually granted:
+Read back what GitHub actually granted; repository role IDs are not ordered by
+privilege, and hand-editing one can silently give the write-role bot an
+always-bypass:
 
 ```bash
 gh api graphql -f query='{repository(owner:"<owner>", name:"<repo>")
@@ -444,6 +472,18 @@ Bot-deleting an admin-pushed tag is brief availability damage at worst;
 repos that need stronger protection against published-tag deletion can
 add a no-bypass `deletion` ruleset (see the publisher uplift below).
 
+**Immutable releases.** Enable this before the next release. It locks that
+release's assets and its associated tag, but not its body — a write-access
+actor can still edit the notes. GitHub does not apply the setting
+retroactively. Reading the setting takes repository admin, so the nightly
+`tend check` verifies the newest published release's own `immutable` flag —
+on a repo that already had releases, that check fails until the next one:
+
+```bash
+gh api "repos/$REPO/immutable-releases" \
+  -H 'X-GitHub-Api-Version: 2026-03-10' --method PUT
+```
+
 **Environment gates.** A new Environment admits every ref and requires no
 approval — `deployment_branch_policy: null`, no reviewers — so a bot-pushed
 branch or tag reaches its secrets and mints its OIDC token. Survey what
@@ -456,14 +496,16 @@ gh api "repos/$REPO/environments" \
 ```
 
 Each environment that holds a secret, or that a job with `id-token: write`
-names, needs a gate: a deployment policy pinned to admin-gated refs, or
-required reviewers who exclude the bot. Either clears
+names, needs a gate: a deployment policy pinned to bot-inaccessible refs, or
+required reviewers who exclude the bot. Under yolo, the default branch is not
+a bot-inaccessible ref, so a generic credential environment admitting it must
+use the reviewer gate. Either clears
 `credential-environments`, so an environment already behind reviewers
 stays as it is.
 
-Pin the policy to the admin-gated refs its workflows actually use — all
-tags for a release, the default branch for a continuous deploy. The
-rulesets above are what hold those refs out of the bot's reach:
+Pin the policy to bot-inaccessible refs its workflows actually use — all tags
+for a release, and under maintainer mode the default branch for a continuous
+deploy. Under yolo, use required reviewers for continuous deploys:
 
 ```bash
 gh api "repos/$REPO/environments/$ENV" --method PUT --input - << 'EOF'
@@ -517,20 +559,32 @@ reachable by the bot.
 mixed bypass actors, layered no-bypass immutability rulesets for repos
 that publish actions consumed via tag pins). Install-tend packages the
 recipe above because it is the simplest configuration that holds the chain;
-adopters with stricter requirements can layer additional rulesets or
+consumers with stricter requirements can layer additional rulesets or
 environment protection rules on top.
 
 ## 4. Create skill overlay (recommended)
 
 Create `.claude/skills/running-tend/SKILL.md` with tend-specific project
-guidance, opening with the frontmatter below so discovery lists it by
+instructions, opening with the frontmatter below so discovery lists it by
 description rather than by its first heading. An existing overlay without
 frontmatter needs it added in place.
 
-**Do NOT duplicate CLAUDE.md** and **do NOT invent project conventions.**
+**Do not create a second independent copy of project instructions** and **do
+not invent project conventions.** If the repo has only one of `CLAUDE.md` or
+`AGENTS.md`, create a relative symlink at the other name so both harnesses read
+the same content. Preserve both when both already exist, and create neither
+when neither exists:
 
-If the user picked the overlay at Kickoff, ask via `AskUserQuestion`
-(`multiSelect: true`) which tend-specific preferences to capture:
+```bash
+if [ -f CLAUDE.md ] && [ ! -e AGENTS.md ] && [ ! -L AGENTS.md ]; then
+  ln -s CLAUDE.md AGENTS.md
+elif [ -f AGENTS.md ] && [ ! -e CLAUDE.md ] && [ ! -L CLAUDE.md ]; then
+  ln -s AGENTS.md CLAUDE.md
+fi
+```
+
+If the user picked the overlay at Kickoff, ask which tend-specific
+preferences to capture in a multi-select question:
 
 - PR conventions (title format — e.g., conventional commits, Jira ticket
   prefix — and labels the bot should apply)
@@ -545,15 +599,17 @@ placeholder:
 ```markdown
 ---
 name: running-tend
-description: Project-specific guidance for tend workflows running on this repo.
+description: Project-specific instructions for tend workflows running on this repo.
 ---
 
-No project-specific tend preferences yet. Add guidance here as
-needed — this file is loaded by tend workflows alongside CLAUDE.md.
+No project-specific tend preferences yet. Add instructions here as
+needed — this file is loaded by tend workflows alongside the project's
+instruction file.
 ```
 
-Build commands, test commands, code style, and project structure belong
-in CLAUDE.md — tend reads it like any other Claude session.
+Build commands, test commands, code style, and project structure belong in
+the project's `CLAUDE.md` or `AGENTS.md`; Tend reads the applicable project
+instructions like any other agent session.
 
 ## 5. README badge
 
@@ -652,90 +708,43 @@ gh secret list --repo "$REPO" --env tend --json name --jq '.[].name' \
 
 If not set, mint per the auth mode chosen at Kickoff. Absent a Kickoff
 answer — the config records the harness, never the auth mode, so a change
-flow or a resumed install lands here without one — first ask which mode
-via `AskUserQuestion`: the two Claude options from Kickoff question 1.
+flow or a resumed install lands here without one — first ask the user to choose
+between the two Claude options from Kickoff question 1.
 
 For **OAuth token** (`sk-ant-oat01-…` from `claude setup-token`; advertised
-as 1-year), two mint paths, routed by environment rather than asked:
+as 1-year), the user mints it. Hand over both commands, fully substituted,
+for their own terminal (any machine with Claude Code installed and `gh`
+logged in as the maintainer; `https://claude.com/claude-code` to install
+it), whenever suits them:
 
-- **CLI** — the default when `claude` is on PATH (`command -v claude`) and
-  `uname` reports macOS or Linux; the bundled wrapper needs `python3` and a
-  pty and has only been validated there, so `MINGW*`, `CYGWIN*`, `MSYS*`,
-  `Windows_NT`, etc. route to Manual. The wrapper drives
-  `claude setup-token` (OAuth 2.0 PKCE) and prints only the token to
-  stdout, so piping straight into `gh` keeps it out of the transcript.
+```bash
+claude setup-token
+```
 
-  Launch the command below with the Bash tool's `run_in_background: true`
-  — a foreground call sits blocked with the URL trapped in its pending
-  result, and times out before the user has anything to click. Start it
-  only once the user says they are at the browser: the wrapper prints the
-  authorize URL within seconds, then waits — up to 15 minutes — for their
-  approval, and a run started ahead of them spends its window and takes
-  its own URL down.
+```bash
+gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO" --env tend
+```
 
-  ```bash
-  TOKEN=$("${CLAUDE_SKILL_DIR}/scripts/oauth_token.py" --code-file /tmp/tend-oauth-code)
-  [ -n "$TOKEN" ] && printf '%s' "$TOKEN" \
-    | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO" --env tend
-  ```
+Offer both endings when handing the commands over: run `gh secret set`
+themselves so the value never leaves their terminal, or paste the token back
+for the agent to set it. Recommend the first and say why — a token pasted
+into chat is a live credential in a transcript that outlives the install.
+Given neither `--body` nor a pipe, `gh secret set` prompts for the value, so
+taken that way the token goes from `claude setup-token`'s output to the
+prompt and nowhere else.
 
-  Read the task's output as it runs and hand the user the authorize URL
-  it prints. Approving it normally ends the run on its own — the CLI holds
-  a localhost listener that takes the redirect, so the approval is the
-  whole of the user's job. Only when the browser lands on a page showing a
-  `code#state` string is a paste needed; have them send that string back
-  and write it to the watched path while the task runs, and the wrapper
-  types it into the prompt:
+When setting it from a pasted value, check it starts with `sk-ant-oat01-`
+first. `gh secret set` stores an empty or malformed body and exits 0, and
+every check downstream reads names rather than values (`check_secrets`, and
+this step's own pre-check above), so a bad one reads as already set on the
+next run, which skips it and finishes green.
 
-  ```bash
-  printf '%s' '<code#state>' > /tmp/tend-oauth-code
-  ```
+Either way, give them this alongside, which shows the secret's name and when
+it was written without exposing the value:
 
-  Each run generates a fresh PKCE challenge and each code is good once, so
-  a code from an earlier run — or one the localhost listener already
-  redeemed — is dead, and a restart needs a fresh approval. Keep reading
-  the task's output either way: the wrapper reports whatever
-  `claude setup-token` says and exits on it, so a rejected code names its
-  own cause within seconds instead of going quiet until the window ends.
-
-  The window needs the user at the browser throughout it. The authorize
-  URL logs the browser out on the way in
-  (`claude.ai/login?reauth=1&from=logout`), which means an
-  already-signed-in Claude session doesn't shorten the job, and the login
-  in front of the approval is theirs — an agent driving Chrome reaches
-  that page and stops there. After a window lapses twice, stop reissuing
-  and hand over the Manual path, which has no window.
-
-  When the task exits, its status alone says whether the secret was
-  stored: 0 stored it; anything else wrote nothing. The guard is
-  load-bearing for that — `gh secret set` stores empty stdin as an empty
-  secret and exits 0, and every check downstream reads names rather than
-  values (`check_secrets`, and this step's own pre-check above) — so one
-  unguarded failed run would leave a `CLAUDE_CODE_OAUTH_TOKEN` that the
-  next run reads as already set, skips, and finishes green on.
-
-- **Manual** — when the CLI path is unavailable, the wrapper errors out,
-  or the user isn't at the browser when the agent is. Hand over both
-  commands, fully substituted, for them to run in their own terminal (any
-  machine with Claude Code installed and `gh` logged in as the
-  maintainer; `https://claude.com/claude-code` to install it), whenever
-  suits them:
-
-  ```bash
-  claude setup-token
-  ```
-
-  ```bash
-  gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO" --env tend
-  ```
-
-  Given neither `--body` nor a pipe, `gh secret set` prompts for the
-  value, so the token goes from the first command's output to that prompt
-  and nowhere else. Don't ask for it in chat: the agent has no use for the
-  value, and a token pasted there is a live credential sitting in the
-  transcript. The prompt refuses an empty submission and keeps waiting, so
-  the empty-value hazard that makes the CLI path's guard load-bearing has
-  no counterpart here.
+```bash
+gh secret list --repo "$REPO" --env tend
+```
 
 For **API key**: the user takes a key from
 `https://console.anthropic.com/settings/keys` and runs this themselves,
@@ -747,19 +756,59 @@ gh secret set ANTHROPIC_API_KEY --repo "$REPO" --env tend
 
 ### 7b. Harness = codex
 
-Codex uses `OPENAI_API_KEY` (pay-per-token). The subscription `auth.json`
-path is not supported — Codex rotates that refresh token on every
-API call and invalidates the prior one, so tend's concurrent
-workflows (review/mention/triage/nightly/…) would break each other's
-auth mid-run. See ${CLAUDE_SKILL_DIR}/references/security-model.md.
+Use the auth mode selected at kickoff. If an existing install has one complete
+mode, keep it rather than prompting again:
 
 ```bash
-gh secret list --repo "$REPO" --env tend --json name --jq '.[].name' | grep -q OPENAI_API_KEY && echo "SET" || echo "NOT SET"
+gh secret list --repo "$REPO" --env tend --json name --jq '.[].name'
 ```
 
-If not set, the user takes a key from
-`https://platform.openai.com/api-keys` and runs this themselves,
-substituted, pasting the key at the prompt:
+For **Plus/Pro subscription**, explain that the path is experimental because it
+depends on Codex's internal auth mode. Use an isolated Codex login: the weekly
+workflow will rotate its refresh-token chain, so copying the user's ordinary
+`~/.codex/auth.json` would eventually break their local Codex login.
+
+Run the bundled provisioner yourself. The user approves the device login in
+their browser; they do not run commands or handle the resulting Codex
+credentials. Start it in the background, surface the URL and one-time code from
+its output, and keep reading until it exits:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" provision --repo "$REPO"
+```
+
+The provisioner uses `codex`, or `npx -y @openai/codex@latest` when the CLI is
+absent. It validates and splits the login, stores both GitHub secrets without
+printing them, verifies the secret names, and removes its temporary Codex home.
+
+The serialized refresh workflow also needs a fine-grained PAT scoped only to
+`$REPO`, with repository permission **Environments: Read and write**;
+`GITHUB_TOKEN` cannot replace environment secrets. GitHub does not provide an
+API for minting this PAT. Open a prefilled token form, then select **Only select
+repositories** and `$REPO`; the user handles any password or 2FA prompt and
+clicks **Generate token**, then **Copy**:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" pat-url --repo "$REPO"
+```
+
+When the browser and shell share a clipboard, pipe the copied token to the
+provisioner without displaying it. Use the host's clipboard reader; on macOS:
+
+```bash
+pbpaste | python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" store-pat --repo "$REPO"
+```
+
+The provisioner validates the fine-grained-token prefix, stores the secret,
+and verifies all three subscription secret names. If no shared clipboard is
+available, have the user run `gh secret set
+CODEX_REFRESH_PAT --repo "$REPO" --env tend` in their own terminal and paste
+the token at its hidden prompt. Never ask them to paste it into chat. Finish
+only after all three secret names appear in the environment's secret listing.
+
+For **API key**, the user takes a key from
+`https://platform.openai.com/api-keys` and runs this themselves, pasting it at
+the prompt:
 
 ```bash
 gh secret set OPENAI_API_KEY --repo "$REPO" --env tend
@@ -930,11 +979,10 @@ bot to do, then reflect that stance in the bot's profile bio (≤160 chars)
 so it's discoverable on the bot's user page. This is advisory — the bot
 doesn't gate behavior on it.
 
-Use the recommended stance below unless the user picked the bio at Kickoff
-or there was no Kickoff round (a change flow) — then ask via
-`AskUserQuestion` which applies. Substitute
-`<owner>/<repo>`. Order options recommended-first and mark the recommended
-one explicitly:
+Use the recommended stance below unless the user picked the bio at Kickoff or
+there was no Kickoff round (a change flow) — then ask which applies. Substitute
+`<owner>/<repo>`. Order options recommended-first and mark the recommended one
+explicitly:
 
 - `tend agent for <owner>/<repo>. I triage issues and help maintain <repo>.` (Recommended — invites issue/PR engagement without inviting open-ended Q&A)
 - `tend agent for <owner>/<repo>. Feel free to ask me questions about <repo>.` (Most permissive — invites contributor questions)
@@ -995,13 +1043,15 @@ line picks the row that matches the chosen harness):
 
 - [ ] Config: `.config/tend.yaml` created (with `harness` set if Codex)
 - [ ] Workflows: generated in `.github/workflows/`
-- [ ] Rulesets: merge restriction on default branch (admin bypass), tag operations on all tags (admin bypass)
-- [ ] Release/deploy secrets: environment-protected; the environment's deployment-branch-policies list only the admin-gated refs from §3 (default branch and/or all tags)
+- [ ] Rulesets: merge mode on the default branch, extra protected branches admin-only, tag operations admin-only; yolo also has control-plane CODEOWNERS review
+- [ ] Immutable releases: enabled before the next release
+- [ ] Release/deploy credentials: environment-protected; policies list only bot-inaccessible refs, and yolo default-branch deploys require a non-bot reviewer
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
+- [ ] Project instructions: `CLAUDE.md` and `AGENTS.md` share one source when only one existed before install
 - [ ] Badge: added to README (unless skipped, or no README)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
-- [ ] Harness auth (codex): `OPENAI_API_KEY` secret set
+- [ ] Harness auth (codex): `OPENAI_API_KEY`, or all of `CODEX_AUTH_JSON` + `CODEX_REFRESH_AUTH_JSON` + `CODEX_REFRESH_PAT`
 - [ ] Bot token: `TEND_BOT_TOKEN` set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot notifications: watching the repository

@@ -9,19 +9,19 @@ repos:
   # only meant that each new Python directory arrived unlinted and stayed that
   # way until someone noticed.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.5
+    rev: v0.16.8
     hooks:
       - id: ruff-check
         args: ["--fix"]
       - id: ruff-format
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.12.7
+    rev: 0.12.17
     hooks:
       # One lockfile at the workspace root covers the generator member too.
       - id: uv-lock
         files: ^(generator/)?(pyproject\.toml|uv\.lock)$
   - repo: https://github.com/adhtruong/mirrors-typos
-    rev: v1.50.0
+    rev: v1.50.2
     hooks:
       - id: typos
   - repo: https://github.com/rhysd/actionlint
@@ -56,14 +56,14 @@ repos:
     hooks:
       # The Claude Code slash-command preprocessor treats a backticked token
       # beginning with an exclamation mark as shell command substitution. Any
-      # plugin skill file loaded by /review (or another slash command) that
+      # skill file loaded by /review (or another slash command) that
       # contains this sequence crashes the session before any assistant turn
       # runs. Regressed twice already: #217 introduced, #234 fixed, #226
       # reintroduced, #243 fixed again. This guard rejects a third regression
       # at commit time. The check uses chr(33)+chr(96) so the script itself
       # is safe from the pattern it is searching for.
       - id: no-preprocessor-poison-in-skills
-        name: forbid bang-backtick in plugin skill files
+        name: forbid bang-backtick in skill files
         language: system
         entry: python3
         args:
@@ -71,9 +71,11 @@ repos:
           - |
             import pathlib, sys
             poison = chr(33) + chr(96)
+            roots = (pathlib.Path("plugins"), pathlib.Path(".claude/skills"))
             hits = [
                 (str(p), i, line)
-                for p in pathlib.Path("plugins").rglob("*.md")
+                for root in roots
+                for p in root.rglob("*.md")
                 for i, line in enumerate(p.read_text().splitlines(), start=1)
                 if poison in line
             ]
@@ -81,7 +83,7 @@ repos:
                 print(f"{p}:{i}: {line}")
             if hits:
                 print(
-                    "\nERROR: bang-backtick sequence in plugin skill file. "
+                    "\nERROR: bang-backtick sequence in a skill file. "
                     "The Claude Code slash-command preprocessor treats this "
                     "as command substitution and crashes the session. "
                     "See max-sixty/tend#234, #243, #244."
@@ -131,73 +133,42 @@ repos:
                 sys.exit(1)
         pass_filenames: false
 
-      # The set of env names an adopter's `sandbox_env:` may NOT set lives in
-      # two places: RESERVED_SANDBOX_ENV in generator/src/tend/config.py (fails
-      # at `init`) and the `case "$name"` guard in proxy/setup-sandbox.sh
-      # (re-checks a hand-edited workflow). The shell re-check is the actual
-      # security boundary; if it drifts below the config set, an adopter's
-      # sandbox_env can override a routing/credential var past it. Kept in sync
-      # by comments alone this rots — this guard fails the commit if the two
-      # sets diverge.
-      - id: sandbox-env-reserved-parity
-        name: reserved sandbox_env set stays in sync
+      # The generator writes the CODEOWNERS block and the standalone runtime
+      # preflight verifies the same bytes. They cannot import one another in an
+      # installed consumer workflow, so fail locally if the contract drifts.
+      - id: control-plane-paths-parity
+        name: control-plane paths stay in sync
         language: system
-        files: ^(generator/src/tend/config\.py|proxy/setup-sandbox\.sh|docs/tend\.example\.yaml)$
+        files: ^(generator/src/tend/workflows\.py|shared/steps/security_preflight\.py)$
         entry: python3
         args:
           - -c
           - |
-            import re, sys
+            import ast, sys
 
-            py = open("generator/src/tend/config.py").read()
-            block = re.search(r"RESERVED_SANDBOX_ENV = \{(.*?)\}", py, re.S).group(1)
-            config_set = set(re.findall(r'"([^"]+)"', block))
+            def literal(path, name):
+                tree = ast.parse(open(path).read())
+                for node in tree.body:
+                    if not isinstance(node, ast.Assign):
+                        continue
+                    if any(
+                        isinstance(target, ast.Name)
+                        and target.id == name
+                        for target in node.targets
+                    ):
+                        return ast.literal_eval(node.value)
+                raise RuntimeError(f"{name} not found in {path}")
 
-            sh = open("proxy/setup-sandbox.sh").read()
-            case = re.search(r'case "\$name" in\s*(.*?)\)', sh, re.S).group(1)
-            case = case.replace("\\\n", "").replace("\n", "")
-            shell_set = {n.strip() for n in case.split("|") if n.strip()}
-
-            # The invariant that matters: every key written to AGENT_ENV_FILE is
-            # reserved, so an adopter's sandbox_env can't shadow it. Extract the
-            # heredoc keys and the ${ANTHROPIC_DUMMY} scheme keys (either arm may
-            # be written at runtime) and assert they're a subset of the reserved
-            # set — so a future routing/cred var added to the heredoc without
-            # updating the reserved set fails the commit.
-            heredoc = re.search(r'cat >"\$AGENT_ENV_FILE" <<EOF\n(.*?)\nEOF', sh, re.S).group(1)
-            heredoc_keys = set(re.findall(r'^([A-Za-z_][A-Za-z0-9_]*)=', heredoc, re.M))
-            heredoc_keys |= set(re.findall(r'ANTHROPIC_DUMMY="([A-Za-z_][A-Za-z0-9_]*)=', sh))
-
-            # The adopter only meets this set as a rejection at `init`, so the
-            # `sandbox_env` docs have to name every member — a key reserved in
-            # code but absent from the docs reads as settable right up until
-            # the run fails. Scope the search to that bullet: file-wide, an
-            # unrelated mention elsewhere (the auth section names
-            # ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN) would stand in for
-            # the list entry and hide the drift this leg exists to catch.
-            docs = open("docs/tend.example.yaml").read()
-            section = re.search(r"^# - `sandbox_env`:(.*?)^# - `", docs, re.S | re.M).group(1)
-            documented = set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", section))
-
-            problems = []
-            for name in sorted(config_set - shell_set):
-                problems.append(f"'{name}' is reserved in config.py but NOT guarded in setup-sandbox.sh")
-            for name in sorted(shell_set - config_set):
-                problems.append(f"'{name}' is guarded in setup-sandbox.sh but NOT reserved in config.py")
-            for name in sorted(heredoc_keys - config_set):
-                problems.append(f"'{name}' is written to AGENT_ENV_FILE but NOT reserved in config.py — an adopter's sandbox_env could shadow it")
-            for name in sorted(config_set - documented):
-                problems.append(f"'{name}' is reserved in config.py but NOT named in docs/tend.example.yaml's sandbox_env list")
-
-            for p in problems:
-                print(p)
-            if problems:
-                print(
-                    "\nERROR: the reserved sandbox_env set drifted between "
-                    "config.py, setup-sandbox.sh, the AGENT_ENV_FILE heredoc, "
-                    "and docs/tend.example.yaml. The shell case is the security "
-                    "boundary; keep every env-file key reserved, the two sets "
-                    "aligned, and every reserved name documented."
-                )
-                sys.exit(1)
+            for name in (
+                "CODEOWNERS_BEGIN",
+                "CODEOWNERS_END",
+                "CONTROL_PLANE_PATHS",
+            ):
+                generator = literal("generator/src/tend/workflows.py", name)
+                runtime = literal("shared/steps/security_preflight.py", name)
+                if generator != runtime:
+                    print(f"{name} differs between generator and runtime")
+                    print(f"generator: {generator}")
+                    print(f"runtime:   {runtime}")
+                    sys.exit(1)
         pass_filenames: false

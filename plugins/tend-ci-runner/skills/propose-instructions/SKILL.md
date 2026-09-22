@@ -1,0 +1,182 @@
+---
+name: propose-instructions
+description: Propose durable instructions. Use when a maintainer corrects the bot, or before writing text for a skill or an instruction file.
+metadata:
+  internal: true
+---
+
+# Proposing tend instructions from CI
+
+Turning a maintainer's correction into durable instructions for future runs. It
+lands in one of two places: this repo's own `running-tend` overlay, which only
+sessions here read, or tend's bundled skills upstream at `max-sixty/tend`,
+which every repo tend maintains reads. This skill covers whether the correction
+clears the bar, which of the two it lands in, what the text carries, and the
+mechanics of proposing it.
+
+## Whether to propose
+
+The feedback must be **generalizable** — it applies to future runs, not just
+this task — and clear at least one bar:
+
+- **Recurrence**: the same correction seen at least twice, or direct evidence
+  the failure mode recurs. "Saw it once, wrote a rule" is below the bar.
+- **Invisible failure mode**: the bad behavior wouldn't surface as a future CI
+  failure (a cancelled or timed-out run whose work actually succeeded), so
+  nothing would catch it next time.
+- **Maintainer asked** for the rule to be codified, even after one occurrence.
+
+Bundled tend defaults go through human review on the tend repo, which acts as
+an implicit recurrence filter; per-repo overlays don't, so the bar lives here.
+
+Signals pointing at a generalizable rule: the correction names a pattern
+("stop adding inline suggestions for formatting — the linter handles that")
+rather than a task detail, or references a repo convention ("we use
+conventional commits", "PRs go to `develop`").
+
+Don't propose when the feedback is task-specific, when confidence that it
+generalizes is low (ask instead), or when it comes from a non-maintainer —
+check `author_association`. Non-maintainers can raise preferences, but only a
+maintainer authorizes codifying them; note the pattern in a reply and let one
+confirm.
+
+## Where it lands
+
+Settle the destination before drafting a line, on two questions: **would every
+tend consumer want this rule**, and **is it ours to state?** Mechanics are the
+first kind — how GitHub behaves, what the harness does, what a session must
+never do. A judgment about what is worth doing in a repo — the complexity it
+will spend, the CI time worth saving, how many open PRs is too many — belongs
+to whoever maintains that repo, and goes in its overlay even where it reads as
+generic good sense; bundled, it makes every other repo answer to this one's
+maintainer.
+
+Where the answer to both is yes, the rule belongs in tend's bundled skills, and
+what the bundled text currently says doesn't change that:
+
+- **Bundled text is wrong or unclear** — fix it upstream.
+- **Bundled text is silent** — the same gap, usually a wider one, since
+  nothing is enforcing the rule for any consumer. Silence is not evidence the
+  rule is local; it is the commonest reason a maintainer had to correct
+  generic behavior in the first place.
+- **The rule is already merged upstream, but not in the pinned release** — the
+  fix is a release, not a local copy. The lag is temporary and overlay text is
+  permanent: once the release ships, every consumer that forked the rule
+  carries a duplicate someone has to notice and delete, and until then the two
+  copies drift.
+
+The overlay is for what is true of one repo alone — its branch and landing
+conventions, its test topology, its trackers and labels, its standing
+exceptions — and for its maintainer's judgments above. A rule of mechanics goes
+upstream even when writing it locally would be quicker.
+
+Upstream means an issue on `max-sixty/tend`, filed per **Filing issues** in
+`/tend-ci-runner:act-in-other-repos`.
+
+## What the text carries
+
+Instructions state the rule a future session acts on: the shape to follow and
+the shape to avoid, in a few lines. That holds in a skill, an overlay, or a
+project instruction file such as `CLAUDE.md`, and for text suggested in a
+review as much as text you commit. Leave out how the rule came about — the PRs,
+issues, and runs that exposed the gap, and the maintainer's wording; the PR
+body links that evidence. Cited cases read as the rule's targets and age into
+trivia. A decision settled for one site belongs in a comment at that site,
+where the next session to edit it will read it.
+
+When a skill's code block needs edge-case handling or grows past a couple of
+dozen lines, put the logic in a tested script in a `scripts/` directory beside
+the skill, and leave the skill a one-line invocation with the intent. A prose
+recipe gets no shellcheck and no tests; every session re-derives its
+correctness.
+
+## Mechanics
+
+These steps are for the overlay path. Filing upstream follows
+`/tend-ci-runner:act-in-other-repos` instead.
+
+1. **Complete the current task first.** The skill update is always a separate
+   PR.
+
+2. **Check for an existing open PR against the same skill.** Dedup by the
+   target file, not by title — title conventions vary per repo:
+
+   ```bash
+   BOT_LOGIN=$(gh api user --jq '.login')
+   gh pr list --state open --author "$BOT_LOGIN" --limit 200 --json number,title,headRefName,files \
+     --jq '.[] | select([.files[].path] | index(".claude/skills/running-tend/SKILL.md"))'
+   ```
+
+   If one is open, add to it instead of opening a second.
+
+3. **Draft the edit** per **What the text carries**, under an appropriate
+   heading. New SKILL.md files start with YAML frontmatter:
+
+   ```markdown
+   ---
+   name: running-tend
+   description: Project-specific instructions for tend workflows running on this repo.
+   ---
+   ```
+
+   The checkout's `.claude/` directory is bind-mounted **read-only** under
+   the sandbox (protecting bots from modifying their own skills in place), so
+   edits to `.claude/skills/` files in the working tree fail with `Read-only
+   file system`. Claude Code's harness adds a second restriction on top of
+   the read-only mount: `Edit`, `Write`, and Bash commands with
+   `.claude/skills/` as a write-target argument are denied regardless of
+   filesystem permissions
+   ([anthropics/claude-code#37157](https://github.com/anthropics/claude-code/issues/37157)).
+   The guard checks argument text, so `Write(/home/tend-sandbox/tmp/…)` and
+   `Bash(mv $TMPDIR/… SKILL.md)` both pass — the second because `SKILL.md` is a
+   bare filename inside the `cd`'d directory.
+
+   Do the edit, commit, and push from a git worktree under `$TMPDIR`, which is
+   writable and sits outside the harness's `.claude/skills/` write-guard.
+   Tend sets `$TMPDIR` before the agent starts.
+
+   <!-- TODO(anthropics/claude-code#37157): once the harness exempts .claude/skills/ as
+        documented, replace the TMPDIR-then-mv dance below with direct `Write` to the worktree path. -->
+
+   Base the skill branch on the repo's default branch, **not `HEAD`**. When
+   this runs from `tend-mention` on a PR, the workflow has already done
+   `gh pr checkout` so `HEAD` is the PR branch — basing on it carries that
+   PR's WIP commits into the skill PR and ships a multi-concern PR that mixes
+   the skill change with unrelated code. Fetch and base off
+   `origin/<default>` instead:
+
+   ```bash
+   DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
+   git fetch origin "$DEFAULT_BRANCH"
+   git worktree add "$TMPDIR/skill-fix" -b "skills/<topic>-$GITHUB_RUN_ID" "origin/$DEFAULT_BRANCH"
+
+   # Author the new skill file at $TMPDIR/running-tend-new.md.
+   # Then move it into place from inside the worktree. mkdir -p covers the
+   # new-skill case where .claude/skills/<name>/ doesn't yet exist in the
+   # default branch. Both `cd`s stay inside subshells, so the session's own
+   # cwd never enters the worktree: the last line deletes it, and a session
+   # standing in it has no working directory for anything after this block.
+   mkdir -p "$TMPDIR/skill-fix/.claude/skills/running-tend"
+   ( cd "$TMPDIR/skill-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend-new.md" SKILL.md )
+
+   (
+     set -e
+     cd "$TMPDIR/skill-fix"
+     git add .claude/skills/
+     git commit -m "skills(running-tend): ..."
+     git push -u origin skills/<topic>-$GITHUB_RUN_ID
+     gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head skills/<topic>-$GITHUB_RUN_ID
+   ) && git worktree remove "$TMPDIR/skill-fix" --force
+   ```
+
+4. **Open as a separate PR.** Follow the repo's PR title conventions
+   (conventional commits, Jira prefix, or whatever the repo uses — check
+   recent merged PRs or `CONTRIBUTING.md`). The body states the generalized
+   behavior gap and the outcome the new instructions should produce, then links
+   the triggering thread as evidence. Do not quote or reconstruct the exchange.
+
+5. **Open and exit — don't merge, don't wait.** The PR itself is the review
+   request; a maintainer lands it (or doesn't) in their own time. Don't post
+   a separate comment pinging for review, and don't block the session
+   waiting. This open-and-exit is for skill proposals only; a code fix
+   follows `/tend-ci-runner:monitor-ci`.

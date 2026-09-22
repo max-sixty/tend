@@ -1,10 +1,11 @@
-"""Behavior tests for review-preflight.sh."""
+"""Behavior tests for review_preflight.py."""
 
 from __future__ import annotations
 
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,11 +13,12 @@ import pytest
 from tests import BASH, GH_PREAMBLE, fake_bin, tool_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PREFLIGHT = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts" / "review-preflight.sh"
+PREFLIGHT = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts" / "review_preflight.py"
 
 BOT = "tend-bot"
 PR = "7"
-DRAFT_REVIEW_LINE = (
+DRAFT_REVIEW_MARKER = "<!-- tend:draft-review -->"
+LEGACY_DRAFT_REVIEW_LINE = (
     "Reviewing as a draft — flagging anything that looks worth a quick fix. "
     "Mark ready for a full review."
 )
@@ -27,6 +29,8 @@ FAKE_GH = (
 case "$*" in
   "api user"*)              emit '{"login":"'"$BOT_LOGIN"'"}' ;;
   "pr view "*"--json headRefOid,state,baseRefOid"*)
+                              emit "$(cat "$PR_JSON")" ;;
+  "pr view "*"--json headRefOid,state,baseRefOid,author,isDraft"*)
                               emit "$(cat "$PR_JSON")" ;;
   "pr view "*"--json headRefOid,state"*)
                               emit "$(cat "$FINAL_PR_JSON")" ;;
@@ -81,7 +85,6 @@ class Fixture:
         self.bindir = fake_bin(tmp_path, gh=FAKE_GH)
         self.git = Path(git)
         self.git_dir = Path(git).parent
-
         self.origin.mkdir()
         _git(self.origin, "init", "-b", "main", "-q")
         _git(self.origin, "config", "uploadpack.allowReachableSHA1InWant", "true")
@@ -123,7 +126,13 @@ class Fixture:
 
     def set_head(self, sha: str, state: str = "OPEN") -> None:
         self.head = sha
-        view = {"headRefOid": sha, "state": state, "baseRefOid": self.base}
+        view = {
+            "headRefOid": sha,
+            "state": state,
+            "baseRefOid": self.base,
+            "author": {"login": "author"},
+            "isDraft": False,
+        }
         self.write("PR_JSON", view)
         self.write("FINAL_PR_JSON", view)
         self.write("BOT_HEAD_JSON", {"headRefOid": sha})
@@ -164,7 +173,7 @@ class Fixture:
 
     def run(self, *args: str, **extra: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [BASH, str(PREFLIGHT), PR, *args],
+            [sys.executable, "-E", "-s", str(PREFLIGHT), "post", PR, *args],
             cwd=self.work,
             env=self.env(**extra),
             capture_output=True,
@@ -176,6 +185,16 @@ class Fixture:
         result = self.run(*args, **extra)
         assert result.returncode == 0, result.stderr
         return result.stdout
+
+    def start(self, **extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-E", "-s", str(PREFLIGHT), "start", PR],
+            cwd=self.work,
+            env=self.env(**extra),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     def pinned(self) -> str:
         return self.pin.read_text().strip()
@@ -219,6 +238,117 @@ def _delta(output: str) -> str:
 def test_an_unreviewed_unchanged_head_posts(pr: Fixture) -> None:
     assert pr.output() == f"post: {pr.reviewed} is still the head you reviewed\n"
     assert pr.pinned() == pr.reviewed
+
+
+def test_start_records_one_snapshot_and_prepares_the_incremental(pr: Fixture) -> None:
+    moved = pr.push_over_base_merge()
+    pr.reviews(_review(pr.reviewed, "earlier finding"))
+
+    result = pr.start()
+
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)
+    assert context == {
+        "head_sha": moved,
+        "self_authored": False,
+        "is_draft": False,
+        "already_reviewed": False,
+        "incremental_path": context["incremental_path"],
+    }
+    incremental = Path(context["incremental_path"]).read_text()
+    assert "pr-2" in incremental
+    assert "+b" in incremental
+    assert "base-2" not in incremental
+    assert "base.txt" not in incremental
+    assert pr.pinned() == moved
+
+
+def test_the_incremental_lists_the_branch_merge_but_not_the_bases_own(
+    pr: Fixture,
+) -> None:
+    """A base that lands PRs as merge commits carries its own merges into the
+    range. Each listed merge is one the reviewer is told to read with `--cc`."""
+    _git(pr.origin, "checkout", "-q", "-b", "side", "main")
+    _commit(pr.origin, "side.txt", "1\n", "side-1")
+    _git(pr.origin, "checkout", "-q", "main")
+    _git(pr.origin, "merge", "--no-ff", "-q", "-m", "Merge pull request #9", "side")
+    pr.push_over_base_merge()
+    pr.reviews(_review(pr.reviewed, "earlier finding"))
+
+    incremental = Path(json.loads(pr.start().stdout)["incremental_path"]).read_text()
+
+    assert "base merge: " in incremental
+    assert "Merge pull request #9" not in incremental
+
+
+@pytest.mark.parametrize("is_draft", [True, False])
+def test_a_draft_mode_review_bases_an_incremental_only_while_the_pr_is_a_draft(
+    pr: Fixture, is_draft: bool
+) -> None:
+    """A draft-mode review is the lighter pass. Once the PR is ready, an
+    incremental over it would review the next push on its own and could approve
+    a PR nothing read in full — and that review then stands at the head, so the
+    queued `ready_for_review` run skips."""
+    pr.push_over_base_merge()
+    view = json.loads(Path(pr.env()["PR_JSON"]).read_text())
+    view["isDraft"] = is_draft
+    pr.write("PR_JSON", view)
+    pr.reviews(_review(pr.reviewed, f"a light pass\n{DRAFT_REVIEW_MARKER}"))
+
+    context = json.loads(pr.start().stdout)
+
+    assert (context["incremental_path"] is not None) is is_draft
+
+
+def test_start_resolves_self_authorship_against_the_bot_login(pr: Fixture) -> None:
+    """The skill used to be handed both logins and told to compare them, with a
+    warning not to read "authored by the repo owner" as self-authored instead."""
+    view = json.loads(Path(pr.env()["PR_JSON"]).read_text())
+    view["author"] = {"login": BOT}
+    pr.write("PR_JSON", view)
+
+    assert json.loads(pr.start().stdout)["self_authored"] is True
+
+
+def test_start_reports_a_review_standing_on_this_head(pr: Fixture) -> None:
+    pr.reviews(_review(pr.reviewed, "earlier finding"))
+
+    context = json.loads(pr.start().stdout)
+
+    assert context["already_reviewed"] is True
+    assert context["incremental_path"] is None
+
+
+def test_start_does_not_call_a_rewritten_head_reviewed(pr: Fixture) -> None:
+    """A force push re-points the earlier review's `.commit_id` at the new head,
+    so `last_review_sha == head_sha` reads as reviewed on code nothing read —
+    and the incremental over that empty range under-reports every trivial-skip
+    heuristic. `at_head` discounts the rewrite; both fields follow it."""
+    rewritten = pr.force_push()
+    pr.reviews(_review(rewritten, "finding on the discarded commit"))
+    pr.write(
+        "TIMELINE_JSON",
+        [{"event": "head_ref_force_pushed", "created_at": "2026-06-01T00:00:00Z"}],
+    )
+
+    context = json.loads(pr.start().stdout)
+
+    assert context["already_reviewed"] is False
+    assert context["incremental_path"] is None
+
+
+def test_ready_for_review_asks_for_a_full_review(pr: Fixture, tmp_path: Path) -> None:
+    """Becoming ready asks for a full non-draft review, so neither shortcut is
+    offered even though a draft-mode review anchors this commit."""
+    pr.reviews(_review(pr.reviewed, DRAFT_REVIEW_MARKER))
+
+    result = pr.start(
+        GITHUB_EVENT_PATH=_event(tmp_path / "event.json", "ready_for_review")
+    )
+    context = json.loads(result.stdout)
+
+    assert context["already_reviewed"] is False
+    assert context["incremental_path"] is None
 
 
 @pytest.mark.parametrize("state", ["CLOSED", "MERGED"])
@@ -353,7 +483,7 @@ def test_ready_for_review_does_not_override_edit_review_identity(
 ) -> None:
     marker = tmp_path / "edited"
     event = _event(tmp_path / "event.json", "ready_for_review")
-    pr.reviews(_review(pr.reviewed, DRAFT_REVIEW_LINE))
+    pr.reviews(_review(pr.reviewed, LEGACY_DRAFT_REVIEW_LINE))
 
     result = pr.run(
         "--edit-review",
@@ -458,9 +588,10 @@ def test_dedup_uses_the_retargeted_head(pr: Fixture) -> None:
 @pytest.mark.parametrize(
     ("action", "body", "expected"),
     [
-        ("ready_for_review", DRAFT_REVIEW_LINE, "post:"),
+        ("ready_for_review", DRAFT_REVIEW_MARKER, "post:"),
+        ("ready_for_review", LEGACY_DRAFT_REVIEW_LINE, "post:"),
         ("ready_for_review", "A landing concern.", "skip:"),
-        ("synchronize", DRAFT_REVIEW_LINE, "skip:"),
+        ("synchronize", DRAFT_REVIEW_MARKER, "skip:"),
     ],
 )
 def test_only_ready_for_review_replaces_a_draft_review(
@@ -507,7 +638,18 @@ def test_a_failed_status_write_preserves_the_delta_for_retry(pr: Fixture) -> Non
     moved = pr.push_over_base_merge()
 
     result = subprocess.run(
-        [BASH, "-c", 'exec 1>&-; exec "$@"', "_", BASH, str(PREFLIGHT), PR],
+        [
+            BASH,
+            "-c",
+            'exec 1>&-; exec "$@"',
+            "_",
+            sys.executable,
+            "-E",
+            "-s",
+            str(PREFLIGHT),
+            "post",
+            PR,
+        ],
         cwd=pr.work,
         env=pr.env(),
         capture_output=True,

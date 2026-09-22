@@ -2,6 +2,7 @@
     `block_input` indents the whole thing, so the prompt may span lines. #}
 {%- set full_prompt %}<<prompt>>
 - Run URL: ${{ github.event.workflow_run.html_url }}
+- Conclusion: ${{ github.event.workflow_run.conclusion }}
 - Commit: ${{ github.event.workflow_run.head_sha }}
 - Commit message: ${{ github.event.workflow_run.head_commit.message }}{% endset -%}
 <<header>>
@@ -14,13 +15,21 @@ on:
 
 jobs:
   fix-ci:
-    if: <<fork_guard_prefix(cfg)>>github.event.workflow_run.conclusion == 'failure'
+    if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && contains(fromJSON('["failure", "cancelled"]'), github.event.workflow_run.conclusion)
+    concurrency:
+      # A red branch fails every push that follows, each on its own commit, so
+      # one session per branch — not per commit — is what collapses the burst.
+      # The watched workflow is in the key too: a red `publish-site` must not
+      # starve behind a stream of red `ci`. Never cancel — a running session
+      # may already have pushed a branch or opened a PR. Default queue depth
+      # is right: the newest failure replaces the pending one.
+      group: ${{ github.workflow }}-${{ github.event.workflow_run.name }}-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
 <<environment()>>
     permissions:
 <<permissions(issues=False)>>
     steps:
-<<check_tend_enabled(cfg)>>
-<<checkout(cfg, ref=cfg.default_branch, if_condition=tend_enabled_condition)>>
+<<checkout(cfg, ref=cfg.default_branch)>>
 <<setup>>
-<<agent_step(cfg, block_input('prompt', full_prompt), if_condition=tend_enabled_condition)>>
+<<agent_step(cfg, block_input('prompt', full_prompt))>>

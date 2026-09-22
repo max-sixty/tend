@@ -1,4 +1,4 @@
-"""Tests for mention-verify.sh — tend-mention's engagement gate.
+"""Tests for mention_verify.py — tend-mention's engagement gate.
 
 The gate decides whether a comment or review summons an agent session, so
 every case here is an outward behaviour: a false negative leaves someone
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from tests import BASH, GH_PREAMBLE, fake_bin, tool_path
+from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
 
 MENTION_VERIFY = (
     Path(__file__).resolve().parents[2]
@@ -23,7 +23,7 @@ MENTION_VERIFY = (
     / "src"
     / "tend"
     / "templates"
-    / "mention-verify.sh"
+    / "mention_verify.py"
 )
 
 BOT = "test-bot"
@@ -132,9 +132,8 @@ def env(tmp_path: Path) -> dict[str, str]:
 
 
 def _run(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    # `bash -e` mirrors the shell GitHub Actions gives a `run:` block.
     return subprocess.run(
-        [BASH, "-e", str(MENTION_VERIFY)],
+        uv_script(MENTION_VERIFY),
         env=env,
         capture_output=True,
         text=True,
@@ -177,9 +176,7 @@ def _inline(env: dict[str, str], *comments: dict[str, object]) -> None:
 
 
 def _fresh(body: str = "a note") -> dict[str, object]:
-    """An inline comment as GitHub serves a fresh one: no `in_reply_to_id` key
-    at all — absent rather than null, which is what the gate's object
-    construction has to normalize."""
+    """An inline comment as GitHub serves a fresh one: no `in_reply_to_id`."""
     return {"body": body, "id": 10}
 
 
@@ -291,6 +288,14 @@ def test_a_pending_review_writes_an_empty_timestamp(env: dict[str, str]) -> None
     assert _outputs(env)["ts"] == ""
 
 
+def test_a_deleted_review_author_can_still_mention_the_bot(
+    env: dict[str, str],
+) -> None:
+    _review(env, user=None, body=f"@{BOT} please look")
+
+    assert _verdict(env) == ("true", "mention")
+
+
 # ---------------------------------------------------------------------------
 # Being named
 # ---------------------------------------------------------------------------
@@ -387,41 +392,17 @@ def test_another_bot_that_names_us_still_runs(env: dict[str, str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The bot's own review: reviewer role handing work to author role
+# The bot's own review hands work to nobody
 # ---------------------------------------------------------------------------
 
 
-def test_the_bots_review_on_its_own_pr_with_a_body_runs(env: dict[str, str]) -> None:
-    """tend-review leaving a critique on a tend-authored PR is the reviewer
-    role handing work to the author role, not a self-loop."""
+def test_the_bots_review_on_its_own_pr_is_dropped(env: dict[str, str]) -> None:
+    """The review session applies the findings it raised, so booting a second
+    session to re-derive them from cold buys nothing. Findings in the body and
+    a fresh inline comment together: neither shape is a hand-off."""
     _review(env, user={"login": BOT}, body="This needs a test.")
     _write(env, "PR_AUTHOR_JSON", {"author": {"login": BOT}})
-
-    assert _verdict(env) == ("true", "participation")
-
-
-def test_the_bots_review_on_its_own_pr_with_a_fresh_inline_comment_runs(
-    env: dict[str, str],
-) -> None:
-    """An empty-body review owning a non-reply inline comment still carries
-    actionable signal. `in_reply_to_id` is absent rather than null on a fresh
-    comment, so the count depends on the gate normalizing the two shapes."""
-    _review(env, user={"login": BOT})
-    _write(env, "PR_AUTHOR_JSON", {"author": {"login": BOT}})
     _inline(env, _fresh())
-
-    assert _verdict(env) == ("true", "participation")
-
-
-def test_the_bots_reply_container_on_its_own_pr_is_dropped(
-    env: dict[str, str],
-) -> None:
-    """GitHub wraps an inline reply in a synthetic zero-body review. The bot's
-    own reply arriving that way is the comment its `pull_request_review_comment`
-    path already drops."""
-    _review(env, user={"login": BOT})
-    _write(env, "PR_AUTHOR_JSON", {"author": {"login": BOT}})
-    _inline(env, _reply())
 
     assert _verdict(env) == ("false", "")
 
@@ -433,6 +414,24 @@ def test_the_bots_review_on_someone_elses_pr_is_dropped(env: dict[str, str]) -> 
     _review(env, user={"login": BOT}, state="APPROVED", body="Looks good, but see #4.")
 
     assert _verdict(env) == ("false", "")
+
+
+def test_the_bots_review_that_names_the_bot_still_runs(env: dict[str, str]) -> None:
+    """A summons by name is judged before authorship, and the weekly
+    integration test rides on that order: the bot account is the only identity
+    it has to drive the review → dispatch → session chain with."""
+    _review(env, user={"login": BOT}, body=f"@{BOT} quote this token: abc123")
+
+    assert _verdict(env) == ("true", "mention")
+
+
+def test_a_human_review_with_findings_on_a_bot_pr_runs(env: dict[str, str]) -> None:
+    """The bot is the author here and nothing else will act — a maintainer's
+    critique of a tend-opened PR is the case the author session exists for."""
+    _review(env, body="This needs a test.")
+    _write(env, "PR_AUTHOR_JSON", {"author": {"login": BOT}})
+
+    assert _verdict(env) == ("true", "participation")
 
 
 def test_a_humans_reply_container_on_a_bot_pr_still_runs(env: dict[str, str]) -> None:
@@ -454,9 +453,11 @@ def test_a_humans_reply_container_on_a_bot_pr_still_runs(env: dict[str, str]) ->
 
 @pytest.mark.parametrize("state", ["APPROVED", "approved"])
 def test_a_bare_approval_asks_for_nothing(env: dict[str, str], state: str) -> None:
-    """No body, no inline comments, and the bot cannot merge on its own. REST
-    reports the state uppercase where a webhook payload's is lowercase, so the
-    gate has to read one normalized shape."""
+    """No body and no inline comments means there is no request to handle.
+
+    REST reports the state uppercase where a webhook payload's is lowercase,
+    so the gate has to read one normalized shape.
+    """
     _review(env, state=state)
     _write(env, "PR_AUTHOR_JSON", {"author": {"login": BOT}})
 
@@ -479,6 +480,67 @@ def test_a_bare_commented_review_is_not_terminal(env: dict[str, str]) -> None:
     would silence the bot on replies to its own review threads."""
     _review(env, state="CHANGES_REQUESTED")
     _write(env, "PR_AUTHOR_JSON", {"author": {"login": BOT}})
+
+    assert _verdict(env) == ("true", "participation")
+
+
+def test_a_review_bots_approval_is_terminal_whatever_its_body_says(
+    env: dict[str, str],
+) -> None:
+    """A code-health badge or a "looks safe to merge" template is a body, and
+    an emptiness-keyed gate counts it as prose. Nobody is being asked for
+    anything, and a repo carrying several review bots pays one session per bot
+    per push."""
+    _review(
+        env,
+        user={"login": "codescene-access[bot]", "type": "Bot"},
+        state="APPROVED",
+        body="[//]: # (cs-code-health)\n![Code Health](https://example/badge.svg)",
+    )
+    _write(env, "PR_REVIEWS_JSON", [{"user": {"login": BOT}, "id": 5}])
+
+    assert _verdict(env) == ("false", "")
+
+
+def test_a_persons_approval_with_a_body_still_runs(env: dict[str, str]) -> None:
+    """The author type is the whole of what narrows the skip: a person writing
+    prose alongside an approval is saying something to somebody."""
+    _review(
+        env,
+        user={"login": "human", "type": "User"},
+        state="APPROVED",
+        body="Looks right — though I'd still rename that helper.",
+    )
+    _write(env, "PR_REVIEWS_JSON", [{"user": {"login": BOT}, "id": 5}])
+
+    assert _verdict(env) == ("true", "participation")
+
+
+def test_a_review_bots_approval_carrying_inline_findings_runs(
+    env: dict[str, str],
+) -> None:
+    """Inline comments are findings wherever they come from."""
+    _review(
+        env, user={"login": "codescene-access[bot]", "type": "Bot"}, state="APPROVED"
+    )
+    _write(env, "PR_REVIEWS_JSON", [{"user": {"login": BOT}, "id": 5}])
+    _inline(env, _fresh("this method got long"))
+
+    assert _verdict(env) == ("true", "participation")
+
+
+def test_a_review_bots_commented_review_still_runs(env: dict[str, str]) -> None:
+    """Deliberately unfixed here. A review bot's COMMENTED review is sometimes
+    a real finding and sometimes a fixed template, and no state or author field
+    separates them — telling them apart needs a reader, so the gate lets them
+    through and the session decides."""
+    _review(
+        env,
+        user={"login": "graphify-labs[bot]", "type": "Bot"},
+        state="COMMENTED",
+        body="Graphify reviewed this change. Looks safe to merge.",
+    )
+    _write(env, "PR_REVIEWS_JSON", [{"user": {"login": BOT}, "id": 5}])
 
     assert _verdict(env) == ("true", "participation")
 
@@ -577,6 +639,21 @@ def test_a_pr_comment_with_no_engagement_is_dropped(env: dict[str, str]) -> None
     assert _verdict(env) == ("false", "")
 
 
+def test_deleted_participants_do_not_break_the_engagement_scan(
+    env: dict[str, str],
+) -> None:
+    _issue_comment(
+        env,
+        COMMENT_BODY="two humans talking",
+        PR_URL="https://api.github.com/repos/owner/repo/pulls/7",
+    )
+    _write(env, "PR_AUTHOR_JSON", {"author": None})
+    _write(env, "PR_REVIEWS_JSON", [{"user": None, "id": 5}])
+    _write(env, "ISSUE_COMMENTS_JSON", [{"user": None, "id": 6}])
+
+    assert _verdict(env) == ("false", "")
+
+
 def test_engagement_survives_a_paginated_lookup(env: dict[str, str]) -> None:
     """`gh api --paginate` applies `--jq` once per page. A reducing filter
     (`| length`) would leave `100\\n7` in the variable, a numeric test on it
@@ -594,21 +671,15 @@ def test_engagement_survives_a_paginated_lookup(env: dict[str, str]) -> None:
     assert _verdict(env) == ("true", "participation")
 
 
-def test_paginated_lookups_never_reduce_inside_jq() -> None:
-    """The hazard above is textual: with the `-n` guard in place both filter
-    shapes answer the same on a two-page fixture, so only the source pins it.
-    Reducing through a pipe (`| wc -l`) is no escape either — it moves the
-    substitution's exit status off `gh`, so under `bash -e` a failed API call
-    reads as "no engagement" on a green job."""
-    source = MENTION_VERIFY.read_text()
+def test_the_gate_survives_a_colour_forcing_job_environment(
+    env: dict[str, str],
+) -> None:
+    """A consumer whose workflow env carries `CLICOLOR_FORCE=1` — an `env:`
+    override, or a `setup:` step that wrote one into `$GITHUB_ENV` — would
+    otherwise get ANSI codes inside every `gh` body. The dispatch readers
+    catch the decode error and skip, so the mention goes unanswered with
+    nothing but a "not found" line on a green job to say so."""
+    env["CLICOLOR_FORCE"] = "1"
+    _review(env, body=f"@{BOT} please look")
 
-    for line in source.replace("\\\n", " ").splitlines():
-        if "--paginate" not in line or "--jq" not in line:
-            continue
-        assert "| length" not in line, (
-            f"reduction inside a --paginate'd --jq runs per page: {line.strip()}"
-        )
-    assert source.count('| .id"') == 3, (
-        "the three engagement lookups (issue comments, PR reviews, PR comments) "
-        "must capture the raw stream, so a failing `gh api` still trips errexit"
-    )
+    assert _verdict(env) == ("true", "mention")

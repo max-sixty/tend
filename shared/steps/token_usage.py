@@ -9,15 +9,14 @@ Reads (env):
   MODEL             - model name, copied through to the record; may be empty
   STREAM_JSON       - claude: the headless run's stream-json (NDJSON of SDK
                       message events); may be empty or name a missing file
-  AGENT_HOME        - claude: the sandbox user's home, exported by
-                      setup-sandbox.sh via ``$GITHUB_ENV``. Unset when setup
+  AGENT_HOME        - the sandbox user's home, exported by
+                      setup_sandbox.py via ``$GITHUB_ENV``. Unset when setup
                       died early, which is why consolidation tolerates it
-  RUNNER_TEMP       - claude: parent of the consolidated log dir, and where
-                      the agent's stderr log was written
-  HOME              - codex: parent of ``.codex/sessions`` and
-                      ``.codex/projects``
-  GITHUB_REPOSITORY - the record's ``repo``; on claude it also gates the raw
-                      stream-json copy to tend's own repo
+  RUNNER_TEMP       - parent of the consolidated log dir, and where Claude's
+                      stderr log was written
+  SANDBOX_REAPED    - ``true`` after the harness has stopped every sandbox
+                      process; agent-owned session trees are copied only then
+  GITHUB_REPOSITORY - the record's ``repo``
   GITHUB_WORKFLOW, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_EVENT_NAME,
   GITHUB_SHA, GITHUB_EVENT_PATH
                     - the rest of :func:`run_context`
@@ -26,7 +25,10 @@ Writes ``token-usage.json`` into the consolidated log dir (uploaded as the
 session-log artifact), the ``usage`` step output (compact JSON), and a
 ``## Token Usage`` table in the job summary. The record's shape mirrors the
 interactive harness so downstream consumers (review-reviewers' evidence gist,
-token-report.sh, dashboards) don't branch on harness.
+token_report.py, dashboards) don't branch on harness.
+
+It also publishes the ``artifact_name`` the upload step uses; see
+:func:`artifact_name`.
 
 Every record also names the run it came from, so spend can be grouped by
 subject; see :func:`run_context`. The job summary stays counts-only, because
@@ -39,9 +41,9 @@ Claude's accounting has three paths, tried in order:
    ``usage.*`` and ``num_turns`` are per-event while ``total_cost_usd`` is
    cumulative, so the per-event fields are summed and cost taken from the last.
 2. No result event: the session JSONL this step has just consolidated. A
-   cancelled session never emits a result, and ``tend-review`` runs with
+   cancelled session never emits a result, and ``tend-triage`` runs with
    ``cancel-in-progress: true``, so this is routine rather than exotic — the
-   run may have done dozens of turns and already posted its review.
+   run may have done dozens of turns and already posted its comment.
 3. Neither: the agent never ran (a preflight failure, say). That run genuinely
    cost nothing, so it reports a real zero rather than flagging an unknown.
 
@@ -54,8 +56,8 @@ orders of magnitude and look plausible doing it.
 
 Both files record each assistant message roughly twice, hence the dedupe by
 ``message.id``. ``<session-id>/subagents/agent-*.jsonl`` is skipped: every
-``Task`` subagent gets its own transcript there and the ``cp -a`` of
-``.claude/projects/.`` brings the subtree along, but the ``result`` event path
+``Task`` subagent gets its own transcript there and the bounded tree export
+brings the subtree along, but the ``result`` event path
 2 stands in for counts only the main loop — slurping the subagents alongside it
 inflates every field (turns roughly doubles) and makes partial runs
 incomparable with complete ones.
@@ -66,12 +68,13 @@ have. A ``0`` there would repeat the bug the fallback exists to fix, one field
 down; ``partial`` is what keeps a reconstructed total distinguishable from a
 run that really cost nothing.
 
-Codex has one path: sum ``token_count`` across
-``~/.codex/sessions/**/rollout-*.jsonl``. That schema isn't versioned, so a
-missing field counts as zero — and no rollouts at all is the same computation
-over no events, which yields the all-zero record on its own. Cost stays 0: the
-Codex CLI doesn't surface API list prices and computing them here would mean
-maintaining a price table.
+Codex has one path: consolidate the sandbox user's rollouts, then take the last
+cumulative token count from each ``sessions/**/rollout-*.jsonl``. That schema
+isn't versioned, so a missing field counts as zero — and no rollouts at all is
+the same computation over no events, which yields the all-zero record on its
+own. Codex includes cached tokens in ``input_tokens``; ``cached_input_tokens``
+is the subset served from cache. Cost stays 0: the Codex CLI doesn't surface
+API list prices and computing them here would mean maintaining a price table.
 """
 
 from __future__ import annotations
@@ -79,12 +82,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import stat
 import subprocess
+import sys
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
 import _common
+from _safe_files import open_directory_nofollow
 
 # Row order is the rendered table's; the two harnesses report different metrics
 # under the same heading, so neither list is a subset of the other.
@@ -102,9 +108,9 @@ CLAUDE_TABLE = (
 CODEX_TABLE = (
     "## Token Usage (Codex)",
     (
-        ("Input", "input_tokens"),
+        ("Total input", "input_tokens"),
         ("Output", "output_tokens"),
-        ("Cached input", "cached_input_tokens"),
+        ("Cached input (included in total)", "cached_input_tokens"),
         ("Turns", "turns"),
         ("Model", "model"),
     ),
@@ -120,12 +126,27 @@ LIST_PRICE_NOTE = (
     "Claude Code subscriptions.*"
 )
 CODEX_COST_NOTE = "*Cost is not reported — Codex CLI does not surface API list prices.*"
+EXPORT_MAX_FILES = 20_000
+EXPORT_MAX_FILE_BYTES = 64 * 1024 * 1024
+EXPORT_MAX_TOTAL_BYTES = 512 * 1024 * 1024
 
 
 def main() -> int:
+    if len(sys.argv) == 6 and sys.argv[1] == "--copy-tree":
+        if os.geteuid() != 0:
+            raise SystemExit("--copy-tree requires root")
+        return privileged_copy(
+            Path(sys.argv[2]),
+            Path(sys.argv[3]),
+            uid=int(sys.argv[4]),
+            gid=int(sys.argv[5]),
+        )
     parser = argparse.ArgumentParser(description="Account a run's token usage.")
     parser.add_argument("--harness", choices=("claude", "codex"), required=True)
     harness = parser.parse_args().harness
+
+    # First, so a later failure still leaves the upload step a name to use.
+    _common.set_output("artifact_name", artifact_name(harness))
 
     model = os.environ.get("MODEL", "")
     if harness == "claude":
@@ -138,6 +159,89 @@ def main() -> int:
     (logs_dir / "token-usage.json").write_text(payload + "\n", encoding="utf-8")
     _common.set_output("usage", payload)
     _common.append_summary(render_summary(usage, harness=harness))
+    return 0
+
+
+def privileged_copy(source: Path, destination: Path, *, uid: int, gid: int) -> int:
+    """Descriptor-relative, bounded copy used only through the root helper."""
+    source_fd = open_directory_nofollow(source)
+    destination.mkdir(parents=True, exist_ok=True)
+    destination_fd = open_directory_nofollow(destination)
+    os.fchown(destination_fd, uid, gid)
+    files = 0
+    total = 0
+
+    def copy_dir(src_fd: int, dst_fd: int) -> None:
+        nonlocal files, total
+        with os.scandir(src_fd) as entries:
+            for entry in entries:
+                mode = entry.stat(follow_symlinks=False).st_mode
+                if stat.S_ISDIR(mode):
+                    os.mkdir(entry.name, mode=0o700, dir_fd=dst_fd)
+                    os.chown(
+                        entry.name,
+                        uid,
+                        gid,
+                        dir_fd=dst_fd,
+                        follow_symlinks=False,
+                    )
+                    child_src = os.open(
+                        entry.name,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=src_fd,
+                    )
+                    child_dst = os.open(
+                        entry.name,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=dst_fd,
+                    )
+                    try:
+                        copy_dir(child_src, child_dst)
+                    finally:
+                        os.close(child_src)
+                        os.close(child_dst)
+                    continue
+                if not stat.S_ISREG(mode):
+                    continue
+                size = entry.stat(follow_symlinks=False).st_size
+                files += 1
+                total += size
+                if files > EXPORT_MAX_FILES:
+                    raise ValueError("session export exceeded file-count limit")
+                if size > EXPORT_MAX_FILE_BYTES or total > EXPORT_MAX_TOTAL_BYTES:
+                    raise ValueError("session export exceeded byte limit")
+                src = os.open(entry.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=src_fd)
+                try:
+                    if not stat.S_ISREG(os.fstat(src).st_mode):
+                        continue
+                    dst = os.open(
+                        entry.name,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        0o600,
+                        dir_fd=dst_fd,
+                    )
+                    try:
+                        os.fchown(dst, uid, gid)
+                        remaining = size
+                        while remaining:
+                            chunk = os.read(src, min(1024 * 1024, remaining))
+                            if not chunk:
+                                break
+                            view = memoryview(chunk)
+                            while view:
+                                view = view[os.write(dst, view) :]
+                            remaining -= len(chunk)
+                    finally:
+                        os.close(dst)
+                finally:
+                    os.close(src)
+
+    try:
+        copy_dir(source_fd, destination_fd)
+    finally:
+        os.close(source_fd)
+        os.close(destination_fd)
+
     return 0
 
 
@@ -168,6 +272,27 @@ def run_context() -> dict[str, Any]:
     }
 
 
+def artifact_name(harness: str) -> str:
+    """The session-log artifact's name, so a later run can find this one.
+
+    A run whose event is about an issue or PR takes a constant ``-n<number>``,
+    which a later run on the same thread resolves with one
+    ``GET /actions/artifacts?name=…`` (``/tend-ci-runner:read-session-logs``).
+    The thread workflows are single-job, and the repo's shared issue/PR number
+    space means one number keys the thread across every event that reaches it,
+    a relayed review among them. Everything else — ``schedule``,
+    ``workflow_run``, a dispatch with no thread — takes the per-job
+    ``INVOCATION_ID``, so matrix legs don't collide. Matrixing a thread
+    workflow would collide two legs on the constant name and fail at upload.
+    """
+    number = _common.subject_number()
+    if number is not None:
+        return f"{harness}-session-logs-n{number}"
+    invocation = os.environ.get("INVOCATION_ID", "")[:8]
+    suffix = f"-{invocation}" if invocation else ""
+    return f"{harness}-session-logs{suffix}"
+
+
 def claude_step(model: str) -> tuple[dict[str, Any], Path]:
     """Consolidate the sandbox's logs, then account the run from them."""
     runner_temp = Path(_common.require_env("RUNNER_TEMP")["RUNNER_TEMP"])
@@ -176,52 +301,73 @@ def claude_step(model: str) -> tuple[dict[str, Any], Path]:
 
     stream_json = os.environ.get("STREAM_JSON", "")
     stream = Path(stream_json) if stream_json else None
-    usage = claude_usage(stream=stream, logs_dir=logs_dir, model=model)
-
-    # Preserve the raw stream-json (the only place `type: "result"` cost events
-    # live) alongside the session JSONL so token under-reporting (#302) can be
-    # diagnosed against an actual stream. Gated to tend's own repo so consumers
-    # don't pay for an upload that only serves a tend-internal diagnostic. Drop
-    # once #302 is resolved.
-    if (
-        os.environ.get("GITHUB_REPOSITORY") == "max-sixty/tend"
-        and stream is not None
-        and stream.is_file()
-    ):
-        best_effort("cp", str(stream), str(logs_dir / "claude-stream.json"))
-    return usage, logs_dir
+    return claude_usage(stream=stream, logs_dir=logs_dir, model=model), logs_dir
 
 
 def codex_step(model: str) -> tuple[dict[str, Any], Path]:
-    home = Path(_common.require_env("HOME")["HOME"])
-    logs_dir = home / ".codex" / "projects"
+    runner_temp = Path(_common.require_env("RUNNER_TEMP")["RUNNER_TEMP"])
+    logs_dir = runner_temp / "tend-codex-logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
-    rollouts = sorted((home / ".codex" / "sessions").rglob("rollout-*.jsonl"))
-    return codex_usage(read_all(rollouts), model), logs_dir
+    agent_home = Path(os.environ.get("AGENT_HOME") or "/nonexistent")
+    if os.environ.get("SANDBOX_REAPED") == "true":
+        copy_agent_tree(agent_home / ".codex" / "sessions", logs_dir / "sessions")
+    rollouts = sorted((logs_dir / "sessions").rglob("rollout-*.jsonl"))
+    return codex_usage(
+        (_common.read_ndjson(path) for path in rollouts), model
+    ), logs_dir
 
 
 def consolidate_logs(logs_dir: Path, runner_temp: Path) -> None:
     """Copy the agent's session JSONL and stderr log into a runner-owned dir.
 
-    The session JSONL is written under the sandbox home with restrictive perms,
-    so the runner needs a chmod first — of the session dir only, not the whole
-    plugin tree. ``AGENT_HOME`` is unset when sandbox setup died before
-    exporting it; the placeholder keeps every command below well-formed and
-    failing, which is the same nothing-to-copy outcome.
+    The copy waits on ``SANDBOX_REAPED``, the supervisor's record that every
+    sandbox process is dead. :func:`copy_agent_tree` then walks through
+    no-follow descriptors, so path checks and reads are one operation rather
+    than a check followed by a privileged pathname traversal.
+
+    It is set from a ``finally``, so only a supervisor killed outright — a
+    second signal during an escalating cancel — leaves it unset. That run
+    reports its usage from the stream-json and uploads no session logs.
+
+    ``AGENT_HOME`` is unset when sandbox setup died before exporting it; the
+    placeholder names nothing, which :func:`copy_agent_tree` reads as the same
+    nothing-to-copy outcome as a run whose agent never started.
     """
-    agent_home = os.environ.get("AGENT_HOME") or "/nonexistent"
-    best_effort("sudo", "chmod", "a+x", agent_home, f"{agent_home}/.claude")
-    best_effort("sudo", "chmod", "-R", "a+rX", f"{agent_home}/.claude/projects")
     logs_dir.mkdir(parents=True, exist_ok=True)
-    best_effort("cp", "-a", f"{agent_home}/.claude/projects/.", f"{logs_dir}/")
+    agent_home = Path(os.environ.get("AGENT_HOME") or "/nonexistent")
+    if os.environ.get("SANDBOX_REAPED") == "true":
+        copy_agent_tree(agent_home / ".claude" / "projects", logs_dir)
     best_effort("cp", "-a", str(runner_temp / "tend-claude-stderr.log"), f"{logs_dir}/")
+
+
+def copy_agent_tree(source: Path, destination: Path) -> None:
+    """Copy a quiescent agent tree through one bounded root helper.
+
+    The helper opens every directory and file relative to an already-open
+    descriptor with ``O_NOFOLLOW``. Symlinks, devices and FIFOs are skipped;
+    file count, per-file bytes and total bytes are bounded before upload.
+    """
+    destination.mkdir(parents=True, exist_ok=True)
+    best_effort(
+        "/usr/bin/sudo",
+        "-n",
+        "/usr/bin/python3",
+        "-E",
+        "-s",
+        str(Path(__file__).resolve()),
+        "--copy-tree",
+        str(source),
+        str(destination),
+        str(os.getuid()),
+        str(os.getgid()),
+    )
 
 
 def best_effort(*argv: str) -> None:
     """Run ``argv``, discarding its output and its failure.
 
-    Everything this runs is a chmod or a copy that enriches the uploaded
-    artifact. None of it is worth failing an ``if: always()`` accounting step
+    Everything this runs is a copy, a chown, or a chmod that enriches the
+    uploaded artifact. None of it is worth failing an ``if: always()`` step
     for, and a partial copy still beats no artifact. ``stdin`` is closed so a
     ``sudo`` without a tty fails instead of waiting for a password.
     """
@@ -354,18 +500,48 @@ def session_usage(
     )
 
 
-def codex_usage(events: Iterable[dict[str, Any]], model: str) -> dict[str, Any]:
-    """Sum a Codex run's rollout events; no events is the all-zero record."""
-    events = list(events)
+def codex_usage(
+    rollouts: Iterable[Iterable[dict[str, Any]]], model: str
+) -> dict[str, Any]:
+    """Account Codex's cumulative usage events across independent rollouts."""
+    final_usage: list[dict[str, Any]] = []
+    turns = 0
+    for rollout in rollouts:
+        last_usage: dict[str, Any] = {}
+        for event in rollout:
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            if event.get("type") == "turn_context" and not model:
+                value = payload.get("model")
+                if isinstance(value, str) and value:
+                    model = value
+            if (
+                event.get("type") == "event_msg"
+                and payload.get("type") == "token_count"
+            ):
+                info = payload.get("info")
+                usage = (
+                    info.get("total_token_usage") if isinstance(info, dict) else None
+                )
+                if isinstance(usage, dict):
+                    last_usage = usage
+            if (
+                event.get("type") == "response_item"
+                and payload.get("type") == "message"
+                and payload.get("role") == "assistant"
+            ):
+                turns += 1
+        final_usage.append(last_usage)
 
     def total(field: str) -> float:
-        return sum(number(event.get("token_count"), field) for event in events)
+        return sum(number(usage, field) for usage in final_usage)
 
     return {
         "input_tokens": total("input_tokens"),
         "output_tokens": total("output_tokens"),
         "cached_input_tokens": total("cached_input_tokens"),
-        "turns": sum(1 for event in events if event.get("type") == "agent_message"),
+        "turns": turns,
         "model": model,
         "cost_usd": 0,
     }

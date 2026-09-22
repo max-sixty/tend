@@ -9,11 +9,11 @@ metadata:
 
 Analyze the previous night's tend CI runs in this repository. Identify behavioral problems, skill gaps, and workflow issues — then propose improvements to the repo's local skills and workflows.
 
-This skill runs **in the adopter repo**, not in tend. Improvements target `.claude/skills/` and `.config/tend.yaml` in this repository.
+This skill runs **in the consumer repo**, not in tend. Improvements target `.claude/skills/` and `.config/tend.yaml` in this repository.
 
 ## First steps
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, PR/comment formatting (line wrapping, heredoc hazards), and polling conventions. This skill opens PRs and issue comments, so those rules apply.
+Load `/tend-ci-runner:run-tend` first — it contains CI security rules and comment formatting. This skill opens PRs and issue comments, so load `/tend-ci-runner:post-to-github` and `/tend-ci-runner:open-pr` with it.
 
 ```bash
 ls .claude/skills/
@@ -25,163 +25,48 @@ Load any repo-specific skill overlay before proceeding.
 
 ## Evidence accumulation
 
-Each run only sees a window of CI sessions, but patterns emerge over days or weeks. Accumulate evidence in a **monthly tracking issue** labeled `review-runs-tracking`.
-
-<!-- TODO: migrate this to gist-backed storage once the review-reviewers pilot validates it -->
-
-### Finding or creating the tracking issue
-
-`gh issue create` prints the new issue's URL; parse the number from its basename. Sort and pick the lowest-numbered match so later runs stay deterministic if the month ever has duplicate tracking issues.
+Each run contributes to a monthly `review-runs-tracking` issue. Prepare the
+current tracker and read the current and previous month's evidence:
 
 ```bash
-MONTH=$(date +%Y-%m)
-TRACKING_LABEL="review-runs-tracking"
-TRACKING_NUMBER=$(gh issue list --state open --label "$TRACKING_LABEL" \
-  --json number,title --jq ".[] | select(.title | contains(\"$MONTH\")) | .number" \
-  | sort -n | head -1)
-
-if [ -z "$TRACKING_NUMBER" ]; then
-  cat > /tmp/tracking-body.md << 'EOF'
-Monthly tracking issue for below-threshold findings. Each run appends findings as a comment. Future runs read these to build cumulative evidence.
-
-**Do not close manually** — a new issue is created each month, and prior months are closed automatically.
-EOF
-  TRACKING_URL=$(gh issue create \
-    --title "$TRACKING_LABEL: $MONTH" \
-    --label "$TRACKING_LABEL" \
-    -F /tmp/tracking-body.md)
-  if [ -z "$TRACKING_URL" ]; then
-    echo "ERROR: gh issue create failed" >&2
-    exit 1
-  fi
-  TRACKING_NUMBER=$(basename "$TRACKING_URL")
-fi
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" prepare-evidence \
+  > "$TMPDIR/evidence.json"
+jq -r '.current_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-current.md"
+jq -r '.previous_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-previous.md"
+jq -r '"tracker #\(.tracking_number) \(.month)"' "$TMPDIR/evidence.json"
 ```
 
-### Closing prior-month tracking issues
+The command creates this month's tracker when needed, closes older open
+trackers, persists the current issue id, and returns both evidence windows.
+Redirect it rather than reading it inline: an established tracker's two
+windows run to hundreds of kilobytes, past what a tool result carries. The
+files are also how you count a finding's prior occurrences. Each entry carries
+its own session's wording, so grepping for this run's phrasing undercounts:
+list the finding headings first
+(`grep -h '^### ' "$TMPDIR"/evidence-*.md`), match on meaning, then read the
+`## Run` entry behind each candidate.
 
-Once a new month's issue exists, close any open tracking issues from earlier months. Run this unconditionally — it's a no-op when nothing's stale, and self-heals if a previous run failed to close.
+After analysis, write the new findings in the format from `@review-gates.md`
+to `$TMPDIR/findings.md`. Include a literal `## Run $GITHUB_RUN_ID` heading.
+Then append them:
 
 ```bash
-gh issue list --state open --label "$TRACKING_LABEL" \
-  --json number,title --jq ".[] | select(.title | contains(\"$MONTH\") | not) | .number" \
-  | while read -r OLD; do
-      gh issue close "$OLD" --comment "Superseded by #$TRACKING_NUMBER ($MONTH)."
-    done
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" append-evidence
 ```
 
-### Reading historical evidence
-
-Before applying the gates, read the current tracking issue's comments to find prior observations that overlap with current findings:
-
-```bash
-gh issue view "$TRACKING_NUMBER" --json comments \
-  --jq '.comments[] | {author: .author.login, body: .body}'
-```
-
-Also check last month's tracking issue (if it exists) for recent carry-over.
-
-### Recording below-threshold findings
-
-After analysis, find **this skill's own evidence comment** on the tracking issue and **append** new findings to it. If it doesn't exist yet, create one. This avoids notification spam from frequent runs.
-
-The guard must run **before any posting path** — append-existing and create-new both publish a comment that needs to embed the real run ID, and a guard placed inside one branch silently no-ops on the other. The first run after a monthly tracking issue is created always takes the create-new branch, so the guard belongs above the branch:
-
-```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-BOT_LOGIN=$(gh api user --jq '.login')
-# Match the evidence log by its `## Run <id>` heading, not by "newest bot
-# comment" — other skills (nightly) post their own comments on this issue, and
-# the newest one is often not the log. Anchor with `(^|\n)`, not `^`: jq's `^`
-# matches the start of the *string*, so a log comment that opens with a blank
-# line or a `---` separator — the ordinary shape of the comment the create-new
-# branch below posts — never matches, and the selector silently falls back to a
-# superseded log comment. jq's `m` flag doesn't help; there it means "`.`
-# matches newline", not multi-line anchors.
-EXISTING_COMMENT=$(gh api "repos/$REPO/issues/$TRACKING_NUMBER/comments" \
-  --jq "[.[] | select(.user.login == \"$BOT_LOGIN\" and (.body | test(\"(^|\n)## Run [0-9]\")))] | last | .id // empty")
-
-# Verify the run heading references this run's $GITHUB_RUN_ID literally —
-# fabricated round numbers produce dead Workflow links, see @review-gates.md.
-# Unconditional: the create-new branch below also publishes a comment.
-grep -qF "$GITHUB_RUN_ID" /tmp/findings.md || {
-  echo "ERROR: /tmp/findings.md does not contain \$GITHUB_RUN_ID=$GITHUB_RUN_ID — refusing to post" >&2
-  exit 1
-}
-
-if [ -n "$EXISTING_COMMENT" ]; then
-  # Append only if the *combined* body fits. GitHub rejects bodies over 65536
-  # characters and the PATCH has no fallback, so a 422 loses the leg's findings
-  # while the run still reports success — size what you are about to POST, not
-  # the existing comment. `wc -c` counts bytes, which is >= the character
-  # count, so 60000 is a conservative bound.
-  gh api "repos/$REPO/issues/comments/$EXISTING_COMMENT" --jq '.body' > /tmp/existing.md
-  cat /tmp/existing.md /tmp/findings.md > /tmp/combined.md
-  if [ "$(wc -c < /tmp/combined.md)" -lt 60000 ]; then
-    gh api "repos/$REPO/issues/comments/$EXISTING_COMMENT" -X PATCH -F body=@/tmp/combined.md
-  else
-    gh api "repos/$REPO/issues/$TRACKING_NUMBER/comments" -F body=@/tmp/findings.md
-  fi
-else
-  # No prior evidence-log comment on this month's tracking issue — create the
-  # first one. Other bot comments may exist; they aren't append targets.
-  gh api "repos/$REPO/issues/$TRACKING_NUMBER/comments" -F body=@/tmp/findings.md
-fi
-```
-
-Never replace the body — prior entries contain per-run evidence needed for gate evaluation. See the finding format in `@review-gates.md`.
+The command refuses a findings file that does not name this run. It appends to
+the latest bot evidence comment while the combined body remains below 60 KB,
+then starts a new comment. Prior entries are never replaced.
 
 ## Step 1: Find recent runs
 
 List tend CI runs that completed since the previous `review-runs` run (nominally 24 hours — the cron runs daily):
 
 ```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-# Anchor on the predecessor's start: a `date -d '24 hours ago'` resolves when
-# the agent runs it, so the window opens after the predecessor started and
-# drops the band in between. Steps 2 and 4 re-read the anchor from the file
-# written below; shell variables don't survive between Bash tool calls.
-#
-# Derive the workflow id from this run rather than assuming the file name;
-# exclude this run, because a re-run attempt of it can already read as
-# completed and anchoring on itself collapses the window to zero.
-# `status=success` reaches past a predecessor that died before its census, so
-# that band still gets covered. Clamp a stale or missing anchor (an outage, or
-# a fresh repo with no predecessor) so the window can recover one skipped day
-# without pulling in a week — Step 5 dedups whatever a widened window sees
-# twice.
-WF_ID=$(gh api "repos/$REPO/actions/runs/$GITHUB_RUN_ID" --jq '.workflow_id')
-PREV_START=$(gh api "repos/$REPO/actions/workflows/$WF_ID/runs?status=success&per_page=10" \
-  --jq "[.workflow_runs[] | select(.id != ${GITHUB_RUN_ID:-0}) | .created_at] | max // empty")
-SINCE=${PREV_START:-$(date -u -d '25 hours ago' +%Y-%m-%dT%H:%M:%SZ)}
-FLOOR=$(date -u -d '49 hours ago' +%Y-%m-%dT%H:%M:%SZ)
-if [[ "$SINCE" < "$FLOOR" ]]; then SINCE=$FLOOR; fi
-echo "$SINCE" > /tmp/review-runs-since
-# Add the repo's extra prefixes from its `running-tend` skill: any workflow
-# running the tend action is in scope, not just the generated `tend-*` ones.
-# Step 2 prices the same list.
-#
-# `--paginate` on both calls. Both endpoints page at 30 by default and return
-# runs newest-first, so without it the census silently covers only the most
-# recent 30 runs per workflow — on a busy repo that is the last hour, not the
-# last 24. Each `--jq` here is a per-element projection, so `--paginate`
-# applying it per page is harmless.
-PREFIXES=("tend-")
-PREFIX_RE="^($(IFS='|'; echo "${PREFIXES[*]}"))"
-# Census on *completion*, which is the axis that tiles. A run created before
-# `$SINCE` may still have been in progress at the predecessor's census, so
-# `status=completed` dropped it there — filtering on `created` here would drop
-# it again and nobody would ever see it, and those are the long-running runs
-# Step 3 goes on to hunt. So over-fetch by `created` and filter on
-# `updated_at`, as `list-recent-runs.sh` does. The floor is a run's whole
-# lifetime, not its job cap: `created_at` starts at queue time, and a
-# `cancel-in-progress: false` group can hold a run queued for many hours
-# before its 6h of execution even begins.
-FETCH_FROM=$(date -u -d "$SINCE - 24 hours" +%Y-%m-%dT%H:%M:%SZ)
-for workflow in $(gh api --paginate repos/$REPO/actions/workflows --jq ".workflows[] | select(.name | test(\"$PREFIX_RE\")) | .id"); do
-  gh api --paginate "repos/$REPO/actions/workflows/$workflow/runs?created=>=$FETCH_FROM&status=completed&per_page=100" \
-    --jq ".workflow_runs[] | select(.updated_at >= \"$SINCE\") | {databaseId: .id, conclusion, createdAt: .created_at, updatedAt: .updated_at, name: .name}"
-done | tee /tmp/review-runs-census.jsonl
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/list_recent_runs.py" review-runs
 ```
 
 If no runs are found, report "no runs to review", complete **Reconcile live work** below, then exit.
@@ -191,13 +76,13 @@ Report the run census as the count this returns. `.total_count` counts the wider
 Then, for each run ID from above, pull its jobs and classify them:
 
 - **Long-running** (>30 min): Tend runs typically finish in single-digit minutes. Anything over 30 is worth a look — download session logs in Step 3 and diagnose where the time went (long background waits, push-wait-fix cycles, a stuck tool call).
-- **Near-timeout** (within 90% of the cap): A job that consumed most of its timeout budget is one slow external check away from being killed. Structural, but classify the cost per Gate 3 by what the kill left on the record: usually waste-class (a cron-driven run a later tick retries), except where the killed session had already taken an outward action it was still gated on — a `tend-review` job killed mid-poll leaves its approval standing over red CI. Waste-class gets only a remedy that passes Gate 3, or nothing.
+- **Near-timeout** (within 90% of the cap): A job that consumed most of its timeout budget is one slow external check away from being killed. Structural, but rate it by what the kill would leave on the record. Usually nothing — a cron-driven run a later tick repeats. It reaches **Critical** where the killed session had already taken an outward action it was still gated on: a `tend-review` job killed mid-poll leaves its approval standing over red CI.
 
-To determine the timeout cap for a workflow, read `timeout-minutes` from that workflow's own file under `.github/workflows/` — the census admits workflows named outside the `tend-` prefix, so don't glob for one. Tend's generated workflows do not set `timeout-minutes`, so GitHub's 360-minute default applies unless the adopter has overridden it via `workflows.<name>.jobs.<job>.timeout-minutes` in `.config/tend.yaml`.
+To determine the timeout cap for a workflow, read `timeout-minutes` from that workflow's own file under `.github/workflows/` — the census admits workflows named outside the `tend-` prefix, so don't glob for one. Tend's generated workflows do not set `timeout-minutes`, so GitHub's 360-minute default applies unless the consumer has overridden it via `workflows.<name>.jobs.<job>.timeout-minutes` in `.config/tend.yaml`.
 
 ```bash
 # Flag long-running and near-timeout jobs
-gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" \
   --jq '.jobs[]
     | ((.completed_at | fromdateiso8601) - (.started_at | fromdateiso8601)) as $dur
     | select($dur >= 1800)   # 30 min
@@ -214,37 +99,67 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 
 - an open issue with no bot response to the latest human activity;
 - an open PR whose live head has no bot review, or whose latest comment, review, or inline review comment directed at the bot has no response; this includes replies to the bot's review on a fork PR;
-- failing default-branch CI with no bot fix in progress.
+- failing default-branch CI with no bot fix in progress. A live-state check like the two above it: scoped neither to `ci-fix`'s watched workflows — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window.
 
-Handle live work through the normal triage, review, or CI-fix guidance. Keep
+  ```bash
+  uv run --script \
+    "${CLAUDE_PLUGIN_ROOT}/scripts/red_default_branch_runs.py"
+  ```
+
+  `live` holds the red rows that no later green run of the same subject — the same workflow, or for a generated run the same `path` and `name` — closed, newest first. `latest_green_by_path` and `reached_back_to` are the scope the claim rests on: `latest_green_by_path` is closure evidence rather than a set of fixed paths — per path, the newest green read under any subject that carried a red row, whether or not it closed one — so a path can be published with a green that closed nothing, and on a generated path carrying several subjects a row *older* than the published green can still be live because that green closed another name; a path is absent when no green was read under any of its red subjects, which is weaker than the workflow never passing — Dependabot's path is always absent and its workflow does pass — so name the workflows checked from `live`'s paths too. `reached_back_to` is the newest floor among the listings that filled their page, so a row older than it may be missing — `live` can still carry rows older than it, both from an untruncated listing's whole history and from what an earlier read of a truncated one returned from an older window. `null` means no listing was truncated and the sweep covers the branch's whole history. A non-empty `unconverged_listings` means a listing never settled — report that rather than publishing the sweep as complete.
+
+  The script re-reads each listing until two consecutive answers agree, because the API answers one URL from more than one snapshot, and its two kinds of read fail in opposite directions. A stale red listing drops the *newest* rows, so "`main` is green" can ship while a failure stands on it; a stale closure read serves a green older than the true latest, so a path already fixed reads as still red.
+
+  Unwindowed on purpose: a failure nobody fixed is still live on the nights after it ran, so anchoring on `$TMPDIR/review-runs-since` would surface each one the night it happened and read as an all-clear afterwards. The listing reaches back weeks, so most rows are already fixed and the closure read is what separates them. What it cannot close stays live: each Dependabot security update's `name` carries a per-update ID that never recurs, so no later run repeats its subject and those rows close only through a fix PR or a tracker. Step 1's census reaches back 49h at most, so skip only the tend rows inside its window — a tend workflow red for longer than that, with no green since, is news here like any other row. Report the scope the claim rests on — "`main` is green" is read later as covering every workflow — naming the workflows checked and how far back the listing reached.
+
+- a tend workflow whose queue is dead. A run parked in GitHub's pre-job `waiting` state holds its concurrency group without ever concluding, so under `cancel-in-progress: false` every later tick takes the single pending slot and is replaced by its successor — the workflow stops running and nothing fails. Step 1's census cannot see the parked run, which admits a row only on a non-null `conclusion`, and the replacements it causes read there as ordinary concurrency.
+
+  ```bash
+  gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=waiting&per_page=50" \
+    --jq '.workflow_runs[] | {id, name, created_at, html_url}'
+  ```
+
+  A tend run still `waiting` after several of its own scheduling intervals — or, on an event-driven workflow, long after the event that created it — is wedged. Every generated workflow but the secretless `tend-mention-relay` carries the `tend` environment, so any of the rest can park. `pending_deployments` on it confirms which kind: `wait_timer: 0` with an empty `reviewers` is an environment gate with nothing left to release it, so `gh run cancel <id>` is the remedy and the pending successor starts. `queued` is a different state and not this shape — `gh run cancel` there answers `Cannot cancel a workflow run that is completed` while the runs API still reports the run `queued`. That is GitHub bookkeeping holding nothing live; leave it rather than fighting it.
+
+- an open Dependabot security alert with no PR or tracker proposing its fix — same closure as the red rows above, so an alert whose fix needs a maintainer decision stops re-surfacing once it is tracked. Dependabot opens that PR itself for most alerts, so the ones that reach this sweep are the ones where it could not — and nothing else in tend looks: `weekly` reviews the dependency PRs that exist, and the defining property here is that none was created.
+
+  ```bash
+  gh api "repos/$GITHUB_REPOSITORY/dependabot/alerts?state=open&per_page=50" \
+    --jq '.[] | {number, dep: .dependency.package.name, manifest: .dependency.manifest_path,
+                 sev: .security_advisory.severity, created_at,
+                 fix: .security_vulnerability.first_patched_version.identifier}'
+  ```
+
+  The PAT's `repo` scope covers this. Where alerts are disabled the call fails with `403 Dependabot alerts are disabled for this repository.` — that is the check not applying, not a missing scope; only an empty result means no open alerts. Otherwise run it unconditionally. An alert open for more than a few days with no PR naming its package is live work in the same sense as a red default-branch run. A red `dynamic/dependabot/...` row above naming that package is the mechanism: Dependabot is erroring, so waiting will not produce a PR and the manifest or lockfile has to be bumped directly. `gh run view <id> --log-failed` ends with an error table naming the dependency and the error type; `security_update_not_possible` also reports the lowest non-vulnerable version beside the highest the dependency tree currently resolves, which is the constraint to relax.
+
+Handle live work through the normal triage, review, or CI-fix instructions. Keep
 failed runs in the report as diagnostic evidence.
 
-After the exhaustive live scan, find the canonical current outage tracker and
-read every row. The issue body holds the first row and later rows are comments.
-Fail the sweep if the lookup fails; that is different from finding no open
-tracker:
+After the exhaustive live scan, read every row on every outage tracker this
+sweep still owes a drain. Each tracker's `rows` holds them in order: the issue
+body carries the first, comments the rest. Fail the sweep if the script exits
+non-zero; that is different from it returning no trackers:
 
 ```bash
-if ! gh issue list --state open --label tend-outage --author @me \
-  --limit 100 --json number,title \
-  --jq '[.[] | select(.title == "Bot temporarily unavailable") | .number]
-    | sort | .[0] // empty' > /tmp/review-runs-outage-number; then
-  echo "Could not read the outage tracker" >&2
-  exit 1
-fi
-OUTAGE=$(cat /tmp/review-runs-outage-number)
-if [ -n "$OUTAGE" ]; then
-  gh issue view "$OUTAGE" --json body,comments --jq '.body, .comments[].body'
-fi
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" outage-trackers \
+  > "$TMPDIR/review-runs-outage.json"
 ```
 
+It returns the open trackers plus any closed since Step 1's anchor by someone
+other than the bot, since only this drain closes a drained tracker. Read the
+closed ones too: the live scan above reads current repository state, where a
+merged PR whose review died in the outage is indistinguishable from one the
+maintainer merged without waiting.
+
 Use every row to identify what the failed run may have missed. Diagnose it and
-handle any applicable current work. If a tracker was found, close the exact
-issue number returned above:
+handle any applicable current work. Then close the trackers still open; one
+someone else already closed stays closed:
 
 ```bash
-OUTAGE=$(cat /tmp/review-runs-outage-number)
-[ -n "$OUTAGE" ] && gh issue close "$OUTAGE" --reason completed
+jq -r '.trackers[] | select(.state == "OPEN") | .number' \
+  "$TMPDIR/review-runs-outage.json" \
+  | while read -r number; do gh issue close "$number" --reason completed; done
 ```
 
 ## Step 2: Token usage report
@@ -252,21 +167,23 @@ OUTAGE=$(cat /tmp/review-runs-outage-number)
 Run the token report script to get per-run token counts:
 
 ```bash
-# Whole hours back to Step 1's anchor, rounded up so the whole band is priced.
-# A literal `24` reopens the gap Step 1 closed. The `cat` isn't optional: an
-# unset `$SINCE` makes `date -d ""` today's midnight, not an error.
-SINCE=$(cat /tmp/review-runs-since)
-HOURS=$(( ( $(date -u +%s) - $(date -u -d "$SINCE" +%s) + 3599 ) / 3600 ))
-"${CLAUDE_PLUGIN_ROOT}/scripts/token-report.sh" "$HOURS" > /tmp/token-report.json
+# Step 1's own anchor, so the spend prices exactly the band the census counts:
+# the script fetches with a cushion and admits a run on completion, the way
+# Step 1 does. A window in hours would drop a run that started before the
+# anchor and finished inside it — the longest and costliest runs there are.
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/token_report.py" \
+  --since "$(cat "$TMPDIR/review-runs-since")" \
+  > "$TMPDIR/token-report.json"
 ```
 
-Pass the same extra prefixes Step 1 censuses (after `$HOURS`, which the script reads as its first positional arg), so the two steps agree on what the fleet is — the repo's `running-tend` skill is the source for both (e.g. `review-` for a `review-reviewers` workflow that uses the tend action but isn't named `tend-*`).
+Pass the same extra prefixes Step 1 censuses, as positional arguments after `--since`, so the two steps agree on what the fleet is — the repo's `running-tend` skill is the source for both, naming any workflow that uses the tend action but isn't named `tend-*`.
 
 Include the total cost and the per-workflow breakdown in the summary (Step 7). Escalate outliers to Step 3 — for example a run far above its workflow's usual cost, or a subject the subject table shows several runs against.
 
 ## Step 3: Download and analyze session logs
 
-Load `/install-tend:debug-tend-run` for download commands and JSONL parsing queries.
+Load `/tend-ci-runner:read-session-logs`, which picks the runs and sends you to `/install-tend:debug-tend-run` for the download commands and JSONL parsing queries.
 
 Skip runs without artifacts. Trace decision chains: what did tend decide, what evidence did it use, what was the outcome?
 
@@ -279,15 +196,17 @@ For each analyzed run, compare what the bot did against what happened next. The 
 - **Nightly**: did the bot's PRs merge, or get closed as unhelpful?
 - **CI-fix**: did the fix actually resolve the failure?
 
-mention, notifications, weekly, and review-reviewers runs get the same treatment: find the bot's output and check whether it was accepted.
+mention, notifications, and weekly runs get the same treatment: find the bot's output and check whether it was accepted.
 
 Dispositions — merged, closed, relabeled, reverted — are only half the signal. A maintainer replying in-thread that a bot claim was wrong, or requesting changes on a bot PR, leaves labels and state untouched and is equally a correction; where the bot authors most of the PRs, a review body is the *first* place a maintainer writes. The script collects all three — dispositions, thread comments, review bodies — for the window:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/review-runs-corrections.sh" "$(cat /tmp/review-runs-since)"
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs_corrections.py" \
+  "$(cat "$TMPDIR/review-runs-since")"
 ```
 
-Read every row: a correction is a maintainer contradicting a bot claim, not merely replying. Comment rows carry both timestamps because the window filters on `updated_at` — a `created` before the anchor is an older comment edited inside the window, a real hit rather than a broken filter. Empty `dispositions`, `comments`, and `reviews` is the all-clear.
+Read every row: a correction is a maintainer contradicting a bot claim, not merely replying. Every comment and review row names its `author` — prose style doesn't decide, since a maintainer can post through an agent; an empty `author` is a deleted account, never the bot. Comment rows carry both timestamps because the window filters on `updated_at` — a `created` before the anchor is an older comment edited inside the window, a real hit rather than a broken filter. Empty `dispositions`, `comments`, and `reviews` is the all-clear.
 
 Write "no maintainer corrections" into the tracking issue only after the script ran and returned empty — future runs read the phrase as ground truth when counting occurrences under Gate 1, so an unchecked all-clear suppresses the evidence it exists to accumulate. The script exits non-zero rather than reporting an empty window when the anchor or the bot login is missing, since both filters fail open.
 
@@ -297,70 +216,69 @@ Before creating issues or PRs, check for existing ones:
 
 ```bash
 gh issue list --state open --limit 200 --json number,title,body
-gh issue list --state closed --json number,title,closedAt --limit 30
+gh issue list --state closed --json number,title,closedAt --limit 200
 # --state all: a merged PR is the most common way a finding is already fixed
-gh pr list --state all --limit 40 --json number,title,state,mergedAt,headRefName,body
+gh pr list --state all --limit 200 --json number,title,state
 # Bundled-skill defects are filed upstream (Step 6), and the queries above only
 # see this repo — dedup against tend before filing there.
-gh pr list --repo max-sixty/tend --state all --limit 40 --json number,title,state,mergedAt,body
-gh issue list --repo max-sixty/tend --state all --limit 40 --json number,title,body
+gh pr list --repo max-sixty/tend --state all --limit 200 --json number,title,state
+gh issue list --repo max-sixty/tend --state all --limit 200 --json number,title
 ```
 
-Search titles AND bodies for related keywords.
+Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`).
 
-**A fix merged upstream still reproduces here.** The action ref is pinned per release, so a skill fix that merged in `max-sixty/tend` stays dormant on this repo until the next release tags. Observing the bug is therefore not evidence the fix is missing — check tend's merged PRs before filing, or the report is churn on something already landed.
+Your workflows call a pinned action ref, so a skill fix merged upstream stays dormant here until the next release tags. Observing the bug is therefore not evidence the fix is missing: read these results before filing, or the report is churn on something already landed.
 
 ## Step 6: Act on findings
 
 Improvements target **repo-local** files by default:
 
-- **`.claude/skills/`** — update or create skill overlays with guidance that prevents the identified problem. Prefer updating existing skill files over creating new ones.
+- **`.claude/skills/`** — update or create skill overlays with instructions that prevent the identified problem. Prefer updating existing skill files over creating new ones.
 - **`.config/tend.yaml`** — adjust workflow configuration if the problem is structural (e.g., wrong cron schedule, missing setup step).
-- **`CLAUDE.md`** — add project-specific guidance if the problem is about code conventions or patterns the bot keeps getting wrong.
+- **Project instruction file (`CLAUDE.md` or `AGENTS.md`)** — add project-specific instructions if the problem is about code conventions or patterns the bot keeps getting wrong.
 
-**Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per **Other Repos** in `running-in-ci`. Signal: the fix reads as generic guidance that would apply to any consumer.
+**Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per `/tend-ci-runner:act-in-other-repos`. Signal: the fix reads as generic instructions that would apply to any consumer.
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
-Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `references/skill-pr-workflow.md` in `/tend-ci-runner:running-in-ci`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place):
+Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `/tend-ci-runner:propose-instructions`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place):
 
 
 ```bash
-git worktree add "/tmp/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID HEAD
+git worktree add "$TMPDIR/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID HEAD
 
-# Use the Write tool to author each edited skill file to /tmp/<name>.md.
-# Then move the files into place:
-cd "/tmp/review-runs-fix/.claude/skills/running-tend" && mv /tmp/running-tend.md SKILL.md
+# Author each edited skill file at $TMPDIR/<name>.md.
+# Then move the files into place. Both `cd`s stay inside subshells, so the
+# session's own cwd never enters the worktree: the last line deletes it, and a
+# session standing in it has no working directory for Step 7 or anything after.
+( cd "$TMPDIR/review-runs-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend.md" SKILL.md )
 # Repeat per skill file being updated.
 
-cd "/tmp/review-runs-fix"
-git add .claude/skills/
-# Set git identity first if not already done this session — a fresh worktree has
-# none and the commit fails with `Author identity unknown`. See "Configure git
-# identity before the first commit" in /tend-ci-runner:running-in-ci.
-git commit -m "skills(running-tend): ..."
-git push -u origin daily/review-runs-$GITHUB_RUN_ID
-gh pr create --title "..." --body-file /tmp/pr-body.md --head daily/review-runs-$GITHUB_RUN_ID
-cd -
-git worktree remove "/tmp/review-runs-fix" --force
+(
+  set -e
+  cd "$TMPDIR/review-runs-fix"
+  git add .claude/skills/
+  git commit -m "skills(running-tend): ..."
+  git push -u origin daily/review-runs-$GITHUB_RUN_ID
+  gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head daily/review-runs-$GITHUB_RUN_ID
+) && git worktree remove "$TMPDIR/review-runs-fix" --force
 ```
 
-`.config/tend.yaml` and `CLAUDE.md` are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.
+`.config/tend.yaml` and project instruction files are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.
 
-- **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID`, fix, commit, push, create with label `review-runs`. Lead the PR description with two or three sentences — problem, fix, verification — and put the full analysis (run IDs, log excerpts, root cause, gate assessment) inside `<details>`.
+- **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID`, fix, commit, push, create with label `review-runs`. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. Link the tracking issue where it holds prior observations of the same behavior, and carry the evidence that justified promoting this finding — the run IDs, the log excerpt, and the gate assessment — in the body or a `<details>` block.
 - **Issue** (fallback): Only for problems too large or ambiguous to fix directly.
 
-**Limit to at most 2 PRs per run.** Pick the highest-confidence findings; note the rest in the tracking issue.
+**Limit to a couple of PRs per run.** Pick the highest-confidence findings; note the rest in the tracking issue.
 
 ## Step 7: Summary
 
 If no problems found (or none passed the gates), report "all clear" with: runs analyzed, sessions reviewed, brief quality assessment, and any below-threshold findings recorded in the tracking issue.
 
-Save the summary to `/tmp/claude/step-summary.md` (a post-Claude step copies this into the GitHub Actions step summary):
+Save the summary to `$GITHUB_STEP_SUMMARY` (a later workflow step copies this into the GitHub Actions step summary):
 
 ```bash
-mkdir -p /tmp/claude
-cat > /tmp/claude/step-summary.md << 'EOF'
+cat > "$GITHUB_STEP_SUMMARY" << 'EOF'
 ## Review-runs summary
 ...
 EOF

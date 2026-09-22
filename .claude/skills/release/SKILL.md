@@ -9,7 +9,7 @@ metadata:
 
 ## Steps
 
-1. **Sync the release branch, then run tests and lints**: The `release` branch is long-lived and may sit behind `main` (or carry leftover state) when a cycle starts. Basing the changelog on a stale branch silently drops any commit merged to `main` after the branch was last realigned — `git log <last-version>..HEAD` won't show it. Bring it current first: `git fetch origin && git merge origin/main` (resolve any conflicts; if `release` has no commits of its own, `git reset --hard origin/main` instead). Then `wt test` and `uv tool run pre-commit run --all-files`.
+1. **Record the release target, then sync and validate**: Name the PR or merge commit(s) this release must ship. A bootstrap release made only to restore CI or review does not complete a separate pending change; that change needs its own release after it merges. Fetch and bring the long-lived `release` branch to `origin/main` (`git merge origin/main`, or `git reset --hard origin/main` when it has no commits to preserve), then verify every target with `git merge-base --is-ancestor <commit> HEAD`. Run `wt test` and `uv tool run pre-commit run --all-files`. Record `HEAD` as the cut-from commit for step 9.
 2. **Check current version**: Read `version` in `generator/pyproject.toml`
 3. **Review commits**: `git log <last-version>..origin/main --oneline` to understand scope — against `origin/main` (not `HEAD`), so the range is the full set of commits this release ships even if step 1 was skipped
 4. **Confirm version with user**: Present changes summary and proposed version
@@ -17,9 +17,22 @@ metadata:
 6. **Update CHANGELOG**: Add a `## X.Y.Z` section at the top of `CHANGELOG.md` (see "CHANGELOG" below). The release workflow publishes this section verbatim as the GitHub Release notes and **fails the GitHub Release job if the section is missing** (PyPI publish has already happened by then; recovery is a manual `gh release create`), so it must land in the release commit — before the tag.
 7. **Commit on the current branch**: `chore: release X.Y.Z` (version bump, lockfile, and CHANGELOG). Don't create a new branch — this worktree is already on the release branch, and the PR opens from it to `main`.
 8. **Merge to main**: Push, create PR via `gh pr create`, wait for CI, merge with `gh pr merge --squash`
-9. **Tag and push**: `git tag X.Y.Z && git push origin X.Y.Z` — triggers `.github/workflows/pypi-release.yaml`, which publishes to PyPI and creates a GitHub Release from the version's CHANGELOG section.
-10. **Wait for the release workflow**: Poll until `uvx tend@X.Y.Z --help` succeeds and the release appears (`gh release view X.Y.Z`).
-11. **Regenerate tend's own workflows**: Stay on the `release` branch (don't create a new one — same as step 7). The squash-merge deleted `origin/release`, so `git fetch && git reset --hard origin/main` to realign with the squashed history. Then `uvx tend@latest init`, commit, push, and open a PR titled `chore: regenerate workflows with tend X.Y.Z`. Until this merges, tend's deployed workflows lag the just-released generator, so critical fixes (e.g. loop-prevention filters) remain unreachable on tend itself.
+9. **Verify the changelog covers `main`, then tag and push**: the tag decides what ships — `pypi-release.yaml` publishes to PyPI and builds the GitHub Release from the `## X.Y.Z` section at the tag, so everything reachable from it is in the release. The merge squashes onto whatever `main` tip exists at merge time, so a commit that lands during the PR's CI wait is already an ancestor of the release commit and ships whether or not the changelog mentions it. A direct push to `main` is the easy miss: it never appears in `gh pr list`, so a PR-based cross-check won't find it. List what reached `main` since the cut-from tip (step 1):
+    ```bash
+    git fetch origin
+    git log --oneline <cut-from-commit>..origin/main
+    ```
+    Clean means the changelog at `origin/main` documents every user-facing commit listed. With no drift the list is one line, the `chore: release X.Y.Z (#NNNN)` squash commit. Fold anything else that's user-facing into the changelog with a follow-up squash PR, then re-fetch and re-run. The list only grows across passes — the drifted commits stay, joined by the follow-up's own squash commit — so each pass re-checks coverage over a longer list.
+
+    Both the tag and the PyPI version are immutable, so this is the last point where a miss is cheap to fix. Once clean, tag `origin/main`, so the check and the tag name the same ref:
+    ```bash
+    git tag X.Y.Z origin/main && git push origin X.Y.Z
+    ```
+10. **Wait for publication**: Require the tag workflow to succeed, `uvx tend@X.Y.Z --help` to resolve the exact version, and `gh release view X.Y.Z` to show the release.
+11. **Deploy the release to tend**: Stay on the `release` branch. Fetch and `git reset --hard origin/main`, then regenerate with the exact published package: `uvx tend@X.Y.Z init`. Follow `running-tend`'s **Nightly: restamp the hand-maintained workflow refs** in the same commit. Push and open a PR titled `chore: regenerate workflows with tend X.Y.Z`; wait for CI and review, then squash-merge it. Opening the PR is not deployment.
+12. **Exercise changed integration surfaces**: If the release changes an action, harness, authentication, model selection, plugin installation, or generated workflow behavior, dispatch a representative workflow for every affected harness from the updated `main`. Inspect the run, not just its conclusion: verify it invokes `@X.Y.Z`, exhibits the intended configuration, and completes a real agent task. The release is complete only after publication, the deployment PR merge, and these required live checks.
+
+If deployment or live validation finds a code defect, fix it on `main` and release the next patch from step 1. When step 11's PR is still open, revert the regeneration commit on `release` and reuse that PR for the patch release; a second PR cannot use the same head branch. The published version remains a completed bootstrap only for the behavior it actually contains; keep any later fix and the original release target open until a tag containing them passes step 12.
 
 ## CHANGELOG
 
@@ -42,7 +55,7 @@ Generated workflows pin the harness action to the generator's own version
 bare-root action and no floating `v1`. Each `X.Y.Z` tag is the immutable ref
 consumers run, enforced by a tag ruleset on `max-sixty/tend`
 (`update`/`deletion` restricted). Never force-move or delete a published tag.
-Step 9 (tag) must precede step 11 (regenerate via `uvx tend@latest`) so the
+Step 9 (tag) must precede step 11 (regenerate via the exact `uvx tend@X.Y.Z`) so the
 pinned ref resolves to an existing tag.
 
 ## Commit message pattern

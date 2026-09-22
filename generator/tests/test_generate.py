@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib.resources
 import json
 import re
-import subprocess
 from pathlib import Path
 from textwrap import dedent
 
@@ -17,29 +16,31 @@ from tend.config import (
     ANTHROPIC_API_KEY_SECRET,
     BOT_TOKEN_SECRET,
     CLAUDE_TOKEN_SECRET,
+    CODEX_AUTH_SECRET,
+    CODEX_REFRESH_AUTH_SECRET,
+    CODEX_REFRESH_PAT_SECRET,
     MEMORY_GIST_SECRET,
     OPENAI_KEY_SECRET,
     STANDARD_WORKFLOWS,
     Config,
 )
 from tend.workflows import (
+    CODEOWNERS_BEGIN,
+    CODEOWNERS_END,
     GENERATORS,
+    TEND_ENABLED_CONDITION,
     _deep_merge,
+    _inline_script,
+    codeowners_config,
     generate_all,
+    generate_codex_auth_refresh,
     generate_install_test,
     generate_mention,
+    generate_mention_relay,
 )
 
-from tests import ACTION_VERSION, agent_prompt
+from tests import ACTION_VERSION, agent_prompt, without_relay
 from tests import _yaml as yaml
-
-CHECK_ENABLED = (
-    Path(__file__).resolve().parents[1]
-    / "src"
-    / "tend"
-    / "templates"
-    / "check-enabled.rb"
-)
 
 
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
@@ -53,15 +54,107 @@ def test_standard_workflow_registry_matches_the_generators() -> None:
     assert STANDARD_WORKFLOWS == set(GENERATORS)
 
 
-def test_minimal_config_generates_seven_workflows(tmp_path: Path) -> None:
-    """ci-fix requires watched_workflows, so minimal config produces seven."""
+def test_codeowners_block_is_final_and_idempotent() -> None:
+    existing = dedent(f"""\
+        *.py @python-team
+
+        {CODEOWNERS_BEGIN}
+        /.github/** @old-owner
+        /.config/tend.yaml @old-owner
+        {CODEOWNERS_END}
+
+        * @fallback
+        """)
+
+    updated = codeowners_config(existing, "@octo-org/security")
+
+    assert updated == dedent(f"""\
+        *.py @python-team
+
+
+        * @fallback
+
+        {CODEOWNERS_BEGIN}
+        /.github/** @octo-org/security
+        /.config/tend.yaml @octo-org/security
+        /CODEOWNERS @octo-org/security
+        /docs/CODEOWNERS @octo-org/security
+        **/CLAUDE.md @octo-org/security
+        **/CLAUDE.local.md @octo-org/security
+        **/AGENTS.md @octo-org/security
+        **/AGENTS.override.md @octo-org/security
+        **/.claude @octo-org/security
+        **/.claude/** @octo-org/security
+        **/.agents @octo-org/security
+        **/.agents/** @octo-org/security
+        {CODEOWNERS_END}
+        """)
+    assert codeowners_config(updated, "@octo-org/security") is None
+
+
+def test_codeowners_rejects_a_malformed_managed_block() -> None:
+    with pytest.raises(click.ClickException, match="malformed tend control-plane"):
+        codeowners_config(f"{CODEOWNERS_BEGIN}\n/.github/** @owner\n", "@owner")
+
+
+def test_codeowners_block_is_removed_when_yolo_is_disabled() -> None:
+    existing = (
+        "*.py @python\n\n"
+        f"{CODEOWNERS_BEGIN}\n"
+        "/.github/** @security\n"
+        "/.config/tend.yaml @security\n"
+        "/CODEOWNERS @security\n"
+        "/docs/CODEOWNERS @security\n"
+        "**/CLAUDE.md @security\n"
+        "**/CLAUDE.local.md @security\n"
+        "**/AGENTS.md @security\n"
+        "**/AGENTS.override.md @security\n"
+        "**/.claude @security\n"
+        "**/.claude/** @security\n"
+        "**/.agents @security\n"
+        "**/.agents/** @security\n"
+        f"{CODEOWNERS_END}\n"
+    )
+
+    assert codeowners_config(existing, None) == "*.py @python\n"
+
+
+def test_maintainer_mode_leaves_an_unmanaged_codeowners_file_byte_stable() -> None:
+    assert codeowners_config("*.py @python", None) is None
+
+
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_generated_runner_uv_does_not_restore_dependency_caches(
+    tmp_path: Path, harness: str
+) -> None:
+    """Runner-side helpers must not reuse dependencies cached by consumer setup."""
+    cfg = Config.load(
+        _minimal_config(
+            tmp_path,
+            f"harness: {harness}\nworkflows:\n  ci-fix:\n    watched_workflows: [ci]\n",
+        )
+    )
+    setup_steps = [
+        step
+        for workflow in generate_all(cfg, with_install_test=True)
+        for job in yaml.safe_load(workflow.content)["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("uses", "").startswith("astral-sh/setup-uv@")
+    ]
+    assert setup_steps
+    assert all(step["with"].get("enable-cache") is False for step in setup_steps)
+
+
+def test_minimal_config_generates_eight_workflows(tmp_path: Path) -> None:
+    """ci-fix requires watched_workflows, so minimal config produces eight."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = generate_all(cfg)
-    assert len(workflows) == 7
+    assert len(workflows) == 8
     names = {wf.filename for wf in workflows}
     assert names == {
         "tend-review.yaml",
         "tend-mention.yaml",
+        "tend-mention-relay.yaml",
         "tend-triage.yaml",
         "tend-nightly.yaml",
         "tend-weekly.yaml",
@@ -86,130 +179,17 @@ def test_disabled_workflow_not_generated(tmp_path: Path) -> None:
     workflows = generate_all(cfg)
     names = {wf.filename for wf in workflows}
     assert "tend-weekly.yaml" not in names
-    assert len(workflows) == 6
+    assert len(workflows) == 7
 
 
-def test_top_level_disable_keeps_workflows_installed_and_gates_every_job(
-    tmp_path: Path,
-) -> None:
-    """The runtime switch can turn itself back on without regeneration."""
+def test_disabling_mention_drops_its_relay(tmp_path: Path) -> None:
+    """The relay feeds only tend-mention, so it goes when mention does."""
     cfg = Config.load(
-        _minimal_config(
-            tmp_path,
-            dedent("""\
-                enabled: false
-                workflows:
-                  ci-fix:
-                    watched_workflows: ["ci"]
-            """),
-        )
+        _minimal_config(tmp_path, "workflows:\n  mention:\n    enabled: false\n")
     )
-
-    assert cfg.enabled is False
-    workflows = generate_all(cfg, with_install_test=True)
-    assert len(workflows) == len(STANDARD_WORKFLOWS) + 1
-
-    condition = "steps.tend_enabled.outputs.enabled == 'true'"
-    for workflow in workflows:
-        jobs = yaml.safe_load(workflow.content)["jobs"]
-        for job_name, job in jobs.items():
-            steps = job["steps"]
-            gate = steps[0]
-            assert gate["id"] == "tend_enabled", (workflow.filename, job_name)
-            assert f"contents/{cfg.config_path}" in gate["run"]
-            assert "secrets." not in str(gate)
-            if workflow.filename == "tend-install-test.yaml":
-                assert "?ref=${{ github.event.pull_request.head.sha }}" in gate["run"]
-            for step in steps[1:]:
-                assert condition in str(step.get("if", "")), (
-                    workflow.filename,
-                    job_name,
-                    step,
-                )
-
-
-@pytest.mark.parametrize(
-    ("config", "enabled"),
-    [
-        ("bot_name: bot\n", "true"),
-        ("bot_name: bot\nenabled: true\n", "true"),
-        ("bot_name: bot\nenabled: false\n", "false"),
-        ("\ufeffbot_name: bot\nenabled: false\n", "false"),
-    ],
-)
-def test_runtime_enabled_check(tmp_path: Path, config: str, enabled: str) -> None:
-    path = tmp_path / "tend.yaml"
-    path.write_text(config)
-
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == f"enabled={enabled}\n"
-    assert ("Tend disabled" in result.stderr) is (enabled == "false")
-
-
-@pytest.mark.parametrize(
-    "config",
-    [
-        "bot_name: bot\nenabled: no\n",
-        'bot_name: bot\nenabled: "false"\n',
-        "bot_name: bot\nenabled:\n",
-        "bot_name: bot\nenabled: {}\n",
-        "bot_name: bot\nenabled: true\nenabled: false\n",
-    ],
-)
-def test_runtime_enabled_check_rejects_non_boolean_values(
-    tmp_path: Path, config: str
-) -> None:
-    path = tmp_path / "tend.yaml"
-    path.write_text(config)
-
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "enabled must" in result.stderr
-
-
-def test_runtime_enabled_check_rejects_multiple_documents(tmp_path: Path) -> None:
-    path = tmp_path / "tend.yaml"
-    path.write_text("bot_name: bot\n---\nenabled: false\n")
-
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "exactly one YAML document" in result.stderr
-
-
-def test_runtime_enabled_check_rejects_yaml_merge_keys(tmp_path: Path) -> None:
-    path = tmp_path / "tend.yaml"
-    path.write_text(
-        "defaults: &defaults\n  enabled: false\n<<: *defaults\nbot_name: bot\n"
-    )
-
-    result = subprocess.run(
-        ["ruby", str(CHECK_ENABLED), str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "YAML merge keys" in result.stderr
+    names = {wf.filename for wf in generate_all(cfg)}
+    assert "tend-mention.yaml" not in names
+    assert "tend-mention-relay.yaml" not in names
 
 
 def test_setup_steps_rendered(tmp_path: Path) -> None:
@@ -219,7 +199,7 @@ def test_setup_steps_rendered(tmp_path: Path) -> None:
           - run: echo FOO=bar >> $GITHUB_ENV
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
-    for wf in generate_all(cfg):
+    for wf in without_relay(generate_all(cfg)):
         assert "./.github/actions/my-setup" in wf.content, (
             f"{wf.filename} missing uses step"
         )
@@ -233,90 +213,27 @@ def _eyes_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:
     return [s for s in steps if "content=eyes" in str(s.get("run", ""))]
 
 
-def _restore_step_index(steps: list[dict[str, object]]) -> int | None:
-    """Index of the step that puts the loaded tree's local setup actions back."""
-    for i, step in enumerate(steps):
-        run = str(step.get("run", ""))
-        if "git checkout" in run and "$GITHUB_SHA" in run:
-            return i
-    return None
-
-
-@pytest.mark.parametrize(
-    ("name", "job", "switch"),
-    [
-        (
-            "review",
-            "review",
-            lambda s: (
-                s.get("uses", "").startswith("actions/checkout")
-                and "ref" in s.get("with", {})
-            ),
-        ),
-        (
-            "mention",
-            "handle",
-            lambda s: "gh pr checkout" in str(s.get("run", "")),
-        ),
-    ],
-)
-def test_local_setup_action_restored_for_post_cleanup(
-    tmp_path: Path,
-    name: str,
-    job: str,
-    switch: object,
+@pytest.mark.parametrize(("name", "job"), [("review", "review"), ("mention", "handle")])
+def test_local_setup_action_keeps_runner_checkout_stable(
+    tmp_path: Path, name: str, job: str
 ) -> None:
-    """review and mention land the PR's tree over the workspace a local `setup:`
-    composite was loaded from. To dispatch the POST steps of the actions nested
-    inside it the runner re-reads that file and matches it against the step list
-    it cached at load time, so a PR that resizes or deletes the file fails
-    cleanup (actions/runner#2816). Put the loaded version back before the POST
-    chain walks.
-
-    `always()` covers a failed session so cleanup still sees the version the
-    runner loaded. The runtime switch still applies because a disabled job
-    never loaded the local action."""
+    """PR topology is selected only inside the harness's sandbox."""
     extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     steps = yaml.safe_load(GENERATORS[name](cfg).content)["jobs"][job]["steps"]
-
-    idx = _restore_step_index(steps)
-    assert idx is not None, f"{name}: nothing restores the local setup action"
-    assert ".github/actions/tend-setup" in str(steps[idx]["run"])
-    condition = str(steps[idx].get("if", ""))
-    assert condition.startswith("always()"), (
-        f"{name}: the restore has to run even when the session fails"
+    checkouts = [
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/checkout")
+    ]
+    assert len(checkouts) == 1
+    assert all("gh pr checkout" not in str(step.get("run", "")) for step in steps)
+    agent = next(
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("max-sixty/tend/")
     )
-    assert condition.strip() == (
-        "always()\n&& (steps.tend_enabled.outputs.enabled == 'true')"
-    ), f"{name}: restore has an unexpected gate"
-    switch_idx = next(i for i, s in enumerate(steps) if switch(s))  # type: ignore[operator]
-    assert idx > switch_idx, f"{name}: the restore has to follow the tree switch"
-
-
-def test_restore_step_quotes_the_setup_path(tmp_path: Path) -> None:
-    """The path reaches both the `git` operand and the warning text through a
-    shell variable, so a `$` can't expand and a `"` can't end the string early
-    and fail the one step whose job is to never turn a working run red."""
-    extra = "setup:\n  - uses: './weird/$HOME\"; rm -rf /; echo \"'\n"
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    steps = yaml.safe_load(generate_mention(cfg).content)["jobs"]["handle"]["steps"]
-    run = str(steps[_restore_step_index(steps)]["run"])
-
-    assert """dir='weird/$HOME"; rm -rf /; echo "'""" in run
-    assert 'git checkout "$GITHUB_SHA" -- "$dir"' in run
-    # Nothing but the single-quoted assignment carries the raw path.
-    assert run.count("rm -rf /") == 1
-
-
-def test_no_restore_step_without_a_local_setup_action(tmp_path: Path) -> None:
-    """A remote `uses:` resolves from the action cache, not the workspace, so
-    there is nothing to put back."""
-    extra = "setup:\n  - uses: astral-sh/setup-uv@v6\n"
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    for wf in generate_all(cfg):
-        for job in yaml.safe_load(wf.content)["jobs"].values():
-            assert _restore_step_index(job.get("steps", [])) is None, wf.filename
+    assert agent["with"]["checkout_mode"] == name
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
@@ -326,13 +243,13 @@ def test_no_restore_step_without_a_local_setup_action(tmp_path: Path) -> None:
 def test_generated_workflows_survive_the_whitespace_hooks(
     tmp_path: Path, extra: str, harness: str
 ) -> None:
-    """Whitespace an adopter's pre-commit rewrites is pure churn in the regen
+    """Whitespace a consumer's pre-commit rewrites is pure churn in the regen
     diff: the file it commits can never match what `init` emits, and the PR the
     nightly opens over that difference fails its own lint job. Both hooks the
     repo runs are covered — end-of-file-fixer on the last line, and
     trailing-whitespace on every line.
 
-    A prompt is the only adopter-supplied text that lands in a block scalar, so
+    A prompt is the only consumer-supplied text that lands in a block scalar, so
     the nightly's carries the blank lines that a Jinja `indent()` pads: interior
     ones under `blank=True`, and a leading one even without it. Its last line is
     whitespace-only, which reaches the end-of-file hook rather than this one.
@@ -361,35 +278,8 @@ def test_generated_workflows_survive_the_whitespace_hooks(
             assert line == line.rstrip(), f"{wf.filename}:{n}: trailing whitespace"
 
 
-def test_sandbox_levers_rendered_for_claude(tmp_path: Path) -> None:
-    """sandbox_path/sandbox_env/sandbox_setup render as action inputs and the
-    workflow still parses; the values land under the agent step's `with:`."""
-    extra = dedent("""\
-        sandbox_path:
-          - ~/.cargo/bin
-        sandbox_env:
-          RUST_BACKTRACE: "1"
-        sandbox_setup:
-          - rustup component add clippy
-    """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    wf = generate_mention(cfg)
-    data = yaml.safe_load(wf.content)
-    with_blocks = [
-        s["with"]
-        for job in data["jobs"].values()
-        for s in job.get("steps", [])
-        if "sandbox_path" in s.get("with", {})
-    ]
-    assert len(with_blocks) == 1
-    with_block = with_blocks[0]
-    assert with_block["sandbox_path"].strip() == "~/.cargo/bin"
-    assert with_block["sandbox_env"].strip() == "RUST_BACKTRACE=1"
-    assert with_block["sandbox_setup"].strip() == "rustup component add clippy"
-
-
 def _agent_step_inputs(content: str) -> list[set[str]]:
-    """The `with:` keys of each composite-action step in a generated workflow.
+    """The `with:` keys of each operational agent action in a workflow.
 
     Structural rather than a substring search over the file, so workflow
     comments naming a config key don't read as the input being threaded.
@@ -399,16 +289,9 @@ def _agent_step_inputs(content: str) -> list[set[str]]:
         set(step.get("with", {}))
         for job in data["jobs"].values()
         for step in job.get("steps", [])
-        if step.get("uses", "").startswith("max-sixty/tend/")
+        if step.get("uses", "").split("@", 1)[0]
+        in {"max-sixty/tend/claude", "max-sixty/tend/codex"}
     ]
-
-
-def test_sandbox_levers_absent_by_default(tmp_path: Path) -> None:
-    levers = {"sandbox_path", "sandbox_env", "sandbox_setup"}
-    cfg = Config.load(_minimal_config(tmp_path))
-    for wf in generate_all(cfg):
-        for inputs in _agent_step_inputs(wf.content):
-            assert not levers & inputs
 
 
 def test_memory_gist_is_an_explicit_experimental_claude_only_input(
@@ -421,7 +304,7 @@ def test_memory_gist_is_an_explicit_experimental_claude_only_input(
             assert "memory_gist_id" not in inputs
 
     enabled = Config.load(_minimal_config(tmp_path, "memory_gist: true\n"))
-    for wf in generate_all(enabled):
+    for wf in without_relay(generate_all(enabled)):
         data = yaml.safe_load(wf.content)
         agent_steps = [
             step
@@ -429,6 +312,9 @@ def test_memory_gist_is_an_explicit_experimental_claude_only_input(
             for step in job.get("steps", [])
             if step.get("uses", "").startswith("max-sixty/tend/claude@")
         ]
+        assert agent_steps, (
+            f"{wf.filename}: no agent step matched — the action ref or its path moved"
+        )
         for step in agent_steps:
             assert step["with"]["memory_gist"] == "true"
             assert step["with"]["memory_gist_id"] == (
@@ -458,30 +344,8 @@ def test_memory_gist_follows_a_per_workflow_claude_override(
     assert "memory_gist:" not in workflows["tend-review.yaml"]
 
 
-def test_sandbox_levers_not_rendered_for_codex(tmp_path: Path) -> None:
-    """Codex runs on the runner (no proxy sandbox), so the sandbox_* inputs are
-    not threaded — a codex adopter uses `setup:` instead."""
-    extra = dedent("""\
-        harness: codex
-        model: gpt-5.5
-        sandbox_path:
-          - ~/.cargo/bin
-    """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    for wf in generate_all(cfg):
-        for inputs in _agent_step_inputs(wf.content):
-            assert "sandbox_path" not in inputs
-
-
 def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
-    """A `uses` setup step with `with:` parameters must still receive the
-    `if:` guard in the notifications workflow.
-
-    Without `with` support on `uses`, steps like `actions/setup-node@v4` that
-    require parameters are forced into `raw`, which cannot receive the guard —
-    so they run even when the pre-check has skipped checkout, failing with
-    "The specified node version file does not exist" (issue #281).
-    """
+    """An action setup step keeps its inputs and the no-work guard."""
     extra = dedent("""\
         setup:
           - uses: actions/setup-node@v4
@@ -490,22 +354,11 @@ def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    notifications = workflows["tend-notifications.yaml"]
-    data = yaml.safe_load(notifications.content)
-
-    steps = data["jobs"]["notifications"]["steps"]
-    setup_node = next(
-        (s for s in steps if s.get("uses") == "actions/setup-node@v4"), None
-    )
-    assert setup_node is not None, "setup-node step missing from notifications workflow"
-    assert setup_node.get("with") == {"node-version-file": ".node-version"}, (
-        "uses step must render `with:` parameters"
-    )
-    assert "if" in setup_node, (
-        "setup-node step must receive the `if:` guard so it is skipped when "
-        "checkout was skipped (otherwise .node-version is missing and the "
-        "step fails)"
-    )
+    notifications = yaml.safe_load(workflows["tend-notifications.yaml"].content)
+    steps = notifications["jobs"]["notifications"]["steps"]
+    setup_node = next(s for s in steps if s.get("uses") == "actions/setup-node@v4")
+    assert setup_node["with"] == {"node-version-file": ".node-version"}
+    assert "if" in setup_node
 
 
 def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
@@ -521,6 +374,7 @@ def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
             env:
               FORCE_COLOR: "1"
           - run: cargo build --release
+            name: Build release
             shell: bash
             working-directory: ./crates/core
             env:
@@ -538,9 +392,26 @@ def test_setup_step_passthrough_fields(tmp_path: Path) -> None:
     assert node["env"] == {"FORCE_COLOR": "1"}
 
     build = next(s for s in steps if s.get("run") == "cargo build --release")
+    assert build["name"] == "Build release"
     assert build["shell"] == "bash"
     assert build["working-directory"] == "./crates/core"
     assert build["env"] == {"RUSTFLAGS": "-D warnings"}
+
+
+def test_setup_step_long_expression_stays_on_one_line(tmp_path: Path) -> None:
+    """A gated secret's expression can run past any fold width. Folded, it
+    would break with a trailing space and read differently from the config."""
+    events = " || ".join(f"github.event_name == 'event_{i}'" for i in range(12))
+    expression = f"${{{{ ({events}) && secrets.MY_TOKEN || '' }}}}"
+    extra = dedent(f"""\
+        setup:
+          - run: echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"
+            env:
+              MY_TOKEN: "{expression}"
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    for wf in without_relay(generate_all(cfg)):
+        assert f"MY_TOKEN: {expression}\n" in wf.content, wf.filename
 
 
 @pytest.mark.parametrize(
@@ -566,10 +437,9 @@ def test_setup_step_user_if_narrows_notifications_guard(
         if s.get("run") == "./flaky.sh"
     )
     assert step["if"] == (
-        "((steps.tend_enabled.outputs.enabled == 'true') && "
         "(steps.check.outputs.count != '0' || "
         "steps.check.outputs.conflict_count != '0' || "
-        "github.event_name == 'workflow_dispatch')) && (runner.os == 'Linux')"
+        "github.event_name == 'workflow_dispatch') && (runner.os == 'Linux')"
     )
 
 
@@ -597,7 +467,23 @@ def test_setup_step_env_must_be_table(tmp_path: Path) -> None:
 def test_empty_setup_no_blank_lines(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     for wf in generate_all(cfg):
-        assert "\n\n\n" not in wf.content, f"{wf.filename} has triple blank lines"
+        # Python formatters require two blank lines between top-level
+        # definitions. Ignore the inlined script while retaining this guard
+        # against empty setup macros adding whitespace to the workflow itself.
+        structural = re.sub(
+            r"(?ms)^ {10}# /// script\n.*?^ {10}TEND_PY\n",
+            "",
+            wf.content,
+        )
+        assert "\n\n\n" not in structural, f"{wf.filename} has triple blank lines"
+
+
+def test_inline_script_preserves_python_source() -> None:
+    source = (
+        importlib.resources.files("tend") / "templates" / "mention_verify.py"
+    ).read_text()
+
+    assert _inline_script("mention_verify.py") == source.rstrip("\n")
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
@@ -610,14 +496,19 @@ def test_workflows_read_only_the_operational_secrets(
     the failure this guards is a template naming a secret that nothing
     provisions — which surfaces only as an empty token at run time. The set
     is per harness because the checks are: `check_claude_auth` verifies the
-    Claude pair and `check_codex_auth` the OpenAI key, so a claude workflow
+    Claude pair and `check_codex_auth` the API/subscription set, so a Claude workflow
     reading `secrets.OPENAI_API_KEY` is unprovisioned as surely as one
     reading a name nothing defines. `secrets.GITHUB_TOKEN` is
     workflow-scoped rather than stored, so it is outside the set."""
     verified = {BOT_TOKEN_SECRET} | (
         {CLAUDE_TOKEN_SECRET, ANTHROPIC_API_KEY_SECRET}
         if harness == "claude"
-        else {OPENAI_KEY_SECRET}
+        else {
+            OPENAI_KEY_SECRET,
+            CODEX_AUTH_SECRET,
+            CODEX_REFRESH_AUTH_SECRET,
+            CODEX_REFRESH_PAT_SECRET,
+        }
     )
     cfg = Config.load(_minimal_config(tmp_path, f"harness: {harness}\n"))
     for wf in generate_all(cfg):
@@ -626,13 +517,17 @@ def test_workflows_read_only_the_operational_secrets(
             f"{wf.filename} reads a secret the {harness} harness does not "
             f"provision: {sorted(read - {'GITHUB_TOKEN'} - verified)}"
         )
-        assert BOT_TOKEN_SECRET in read, f"{wf.filename} missing the bot token"
+        if wf.filename not in {
+            "tend-codex-auth-refresh.yaml",
+            "tend-mention-relay.yaml",
+        }:
+            assert BOT_TOKEN_SECRET in read, f"{wf.filename} missing the bot token"
 
 
 def test_claude_workflows_emit_both_auth_inputs(tmp_path: Path) -> None:
     """Claude agent step references both OAuth token and API key secrets."""
     cfg = Config.load(_minimal_config(tmp_path))
-    for wf in generate_all(cfg):
+    for wf in without_relay(generate_all(cfg)):
         assert (
             "claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"
             in wf.content
@@ -680,7 +575,7 @@ def test_operational_secrets_imply_environment(tmp_path: Path) -> None:
     # of this invariant as silently as ci-fix did.
     assert {wf.filename for wf in generated} == {
         f"tend-{name}.yaml" for name in GENERATORS
-    } | {"tend-install-test.yaml"}
+    } | {"tend-mention-relay.yaml", "tend-install-test.yaml"}
     for wf in generated:
         data = yaml.safe_load(wf.content)
         for job_name, job in data["jobs"].items():
@@ -741,7 +636,7 @@ def test_prompt_workflow_matrix_covers_every_generator() -> None:
 
 
 def test_mention_rejects_a_prompt_override(tmp_path: Path) -> None:
-    """`mention` renders no adopter prompt, so accepting the key would drop it
+    """`mention` renders no consumer prompt, so accepting the key would drop it
     silently — the config's own docs promise otherwise."""
     extra = 'workflows:\n  mention:\n    prompt: "do something else"\n'
     with pytest.raises(click.ClickException, match="mention composes its prompt"):
@@ -772,11 +667,11 @@ def test_multi_line_prompt_generates_parseable_yaml(
     line; and the shared block-scalar macro itself let YAML infer the block's
     indent from the first line, so an indented first line made every later line
     look like the end of the scalar. Each wrote a file GitHub rejects from a
-    config that is valid YAML in the adopter's hands, and the adopter found out
+    config that is valid YAML in the consumer's hands, and the consumer found out
     from GitHub.
 
     The braces double as a check that nothing escapes them any more: they are
-    the adopter's text, and only the workflow's own placeholder is substituted,
+    the consumer's text, and only the workflow's own placeholder is substituted,
     to the one expression that names this workflow's event.
     """
     body = f"  Do the thing for {placeholder}.\n\nSkip files matching {{generated}}.\n"
@@ -793,7 +688,7 @@ def test_multi_line_prompt_generates_parseable_yaml(
         for wf in generate_all(Config.load(_minimal_config(tmp_path, extra)))
     }[f"tend-{workflow}.yaml"]
     prompt = agent_prompt(content)
-    assert prompt.startswith("  "), "the adopter's own leading indent was eaten"
+    assert prompt.startswith("  "), "the consumer's own leading indent was eaten"
     assert "Skip files matching {generated}." in prompt
     assert "{{generated}}" not in prompt
     assert "format(" not in prompt
@@ -802,27 +697,6 @@ def test_multi_line_prompt_generates_parseable_yaml(
         assert expression in prompt, f"{placeholder} resolved to the wrong event"
     else:
         assert "${{ github.event." not in prompt
-
-
-@pytest.mark.parametrize("lever", ["sandbox_path", "sandbox_setup"])
-def test_sandbox_levers_survive_an_indented_first_line(
-    tmp_path: Path, lever: str
-) -> None:
-    """The `sandbox_*` inputs are adopter-supplied lists rendered into the same
-    block scalar as the prompt, and had the same bug: an entry whose first line
-    is indented made every later entry look like the end of the scalar. Only
-    `sandbox_env` is exempt, and only because it refuses a newline outright.
-    """
-    extra = f'{lever}:\n  - "  indented entry"\n  - second entry\n'
-    workflows = generate_all(Config.load(_minimal_config(tmp_path, extra)))
-    for wf in workflows:
-        step = next(
-            s
-            for job in yaml.safe_load(wf.content)["jobs"].values()
-            for s in job["steps"]
-            if lever in s.get("with", {})
-        )
-        assert step["with"][lever] == "  indented entry\nsecond entry\n"
 
 
 def test_multi_line_prompt_survives_the_override_round_trip(tmp_path: Path) -> None:
@@ -852,7 +726,7 @@ def test_blank_prompt_is_rejected(tmp_path: Path, blank: str) -> None:
     value is truthy, so it beats the default and leaves the agent step with no
     instructions — the Claude action fails on the empty input, the Codex action
     runs `codex exec` with it. `""` and a bare `prompt:` are falsy and reach the
-    default instead, silently ignoring what the adopter wrote.
+    default instead, silently ignoring what the consumer wrote.
     """
     extra = f"workflows:\n  triage:\n    prompt: {blank}\n"
     with pytest.raises(click.ClickException, match="prompt is blank"):
@@ -887,6 +761,52 @@ def test_ci_fix_custom_branches(tmp_path: Path) -> None:
     assert 'branches: ["main", "release"]' in ci_fix.content
 
 
+def test_ci_fix_runs_for_failures_and_cancellations(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-fix")))
+    generated = next(
+        wf for wf in generate_all(cfg) if wf.filename == "tend-ci-fix.yaml"
+    )
+    workflow = yaml.safe_load(generated.content)
+    assert workflow["jobs"]["fix-ci"]["if"] == (
+        f"{TEND_ENABLED_CONDITION} && "
+        'contains(fromJSON(\'["failure", "cancelled"]\'), '
+        "github.event.workflow_run.conclusion)"
+    )
+    assert "- Conclusion: ${{ github.event.workflow_run.conclusion }}" in agent_prompt(
+        generated.content
+    )
+
+
+def test_ci_fix_serializes_per_branch_and_watched_workflow(tmp_path: Path) -> None:
+    """One session per red branch, not per red commit.
+
+    A branch stays red across the pushes that follow, each failing on its own
+    commit, so a commit-keyed group would let every one of them boot its own
+    agent against the same breakage. The watched workflow is keyed in as well
+    so a red `publish-site` is not starved by a stream of red `ci`.
+    """
+    extra = dedent("""\
+        workflows:
+          ci-fix:
+            watched_workflows: ["ci", "publish-site"]
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    doc = yaml.safe_load(workflows["tend-ci-fix.yaml"].content)
+    job = doc["jobs"]["fix-ci"]
+
+    assert job["concurrency"]["group"] == (
+        "${{ github.workflow }}-${{ github.event.workflow_run.name }}"
+        "-${{ github.event.workflow_run.head_branch }}"
+    )
+    # Cancelling mid-session strands outward actions already taken — a pushed
+    # branch, a half-written PR.
+    assert job["concurrency"]["cancel-in-progress"] is False
+    # Job-level, not workflow-level: the `if` filters the green runs that make
+    # up most workflow_run events, and a skipped job never enters the group.
+    assert "concurrency" not in doc
+
+
 def test_cli_init_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _minimal_config(tmp_path)
     monkeypatch.chdir(tmp_path)
@@ -904,53 +824,27 @@ def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     runner = CliRunner()
     result = runner.invoke(main, ["init"])
     assert result.exit_code == 0
-    assert "Generated 7 workflow files" in result.output
+    assert "Generated 8 workflow files" in result.output
     wf_dir = tmp_path / ".github" / "workflows"
     assert wf_dir.exists()
-    assert len(list(wf_dir.glob("tend-*.yaml"))) == 7
+    assert len(list(wf_dir.glob("tend-*.yaml"))) == 8
 
 
-def test_review_probes_merge_ref_and_falls_back_to_head(tmp_path: Path) -> None:
-    """tend-review must probe refs/pull/N/merge and fall back to /head on 404.
-
-    GitHub only materializes the merge ref for mergeable PRs, so without a
-    fallback the checkout 404s on every conflicting PR and the whole review
-    job cascades as skipped. The probe step wires its output into checkout's
-    `ref:` so review always runs.
-    """
+def test_review_delegates_pr_topology_to_the_sandbox(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
     steps = data["jobs"]["review"]["steps"]
-    probe_idx = next(i for i, s in enumerate(steps) if s.get("id") == "pr_ref")
-    checkout_idx = _pr_tree_checkout_idx(steps)
-    assert probe_idx < checkout_idx
-    probe = steps[probe_idx]
-    assert "gh api" in probe["run"]
-    assert "refs/pull/$PR/merge" in probe["run"]
-    assert "refs/pull/$PR/head" in probe["run"]
-    assert steps[checkout_idx]["with"]["ref"] == "${{ steps.pr_ref.outputs.ref }}"
-
-
-def _pr_tree_checkout_idx(steps: list[dict]) -> int:
-    """Index of review's second checkout — the one carrying the fork PR ref."""
-    return next(
-        i
-        for i, s in enumerate(steps)
-        if s.get("uses") == "actions/checkout@v7" and "ref" in s.get("with", {})
+    assert sum(s.get("uses") == "actions/checkout@v7" for s in steps) == 1
+    assert all(s.get("id") != "pr_ref" for s in steps)
+    agent = next(
+        s for s in steps if str(s.get("uses", "")).startswith("max-sixty/tend/")
     )
+    assert agent["with"]["checkout_mode"] == "review"
+    assert agent["with"]["base_branch"] == "${{ github.event.pull_request.base.ref }}"
 
 
-def test_setup_runs_on_base_tree_in_review(tmp_path: Path) -> None:
-    """Review checks out the base tree, runs `setup:`, then lands the PR tree.
-
-    `setup:` runs as the runner user, outside the sandbox the harness builds
-    and before it strips the checkout PAT from `.git/config`. Against the PR
-    tree it would execute a contributor's build backend, dependencies, and
-    local `uses: ./` actions with that access, which is the boundary the
-    sandbox exists to draw. The PR checkout keeps `clean: false` so it does
-    not delete what setup wrote into the workspace.
-    """
+def test_setup_runs_on_stable_base_tree_in_review(tmp_path: Path) -> None:
     extra = "setup:\n  - uses: ./.github/actions/my-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -963,22 +857,21 @@ def test_setup_runs_on_base_tree_in_review(tmp_path: Path) -> None:
     setup_idx = next(
         i for i, s in enumerate(steps) if s.get("uses") == "./.github/actions/my-setup"
     )
-    pr_idx = _pr_tree_checkout_idx(steps)
+    agent_idx = next(
+        i
+        for i, s in enumerate(steps)
+        if str(s.get("uses", "")).startswith("max-sixty/tend/")
+    )
 
-    assert base_idx < setup_idx < pr_idx
+    assert base_idx < setup_idx < agent_idx
+    assert sum(s.get("uses") == "actions/checkout@v7" for s in steps) == 1
     assert "ref" not in steps[base_idx].get("with", {}), (
         "the pre-setup checkout must take the event's base ref, not a fork ref"
     )
-    assert steps[pr_idx]["with"]["clean"] is False
 
 
 def test_review_without_setup_checks_out_once(tmp_path: Path) -> None:
-    """The base checkout is setup's, so it renders only alongside setup.
-
-    With nothing to run against the base tree, a second full-history clone is
-    pure overhead. `clean` goes with it — the action consults it only when it
-    finds an existing repo, which a lone checkout never does.
-    """
+    """The one runner checkout is always the trusted base tree."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
@@ -986,7 +879,7 @@ def test_review_without_setup_checks_out_once(tmp_path: Path) -> None:
 
     checkouts = [s for s in steps if s.get("uses") == "actions/checkout@v7"]
     assert len(checkouts) == 1
-    assert checkouts[0]["with"]["ref"] == "${{ steps.pr_ref.outputs.ref }}"
+    assert "ref" not in checkouts[0]["with"]
     assert "clean" not in checkouts[0]["with"]
 
 
@@ -1023,15 +916,14 @@ def test_issue_and_pr_acknowledged_with_eyes(tmp_path: Path) -> None:
     triage = yaml.safe_load(workflows["tend-triage.yaml"].content)
     react = _eyes_steps(triage["jobs"]["triage"]["steps"])[0]
     assert react["env"]["TARGET"] == "issues/${{ github.event.issue.number }}"
-    # Every enabled issues:opened event the job-level `if` admits is the bot's
-    # to take.
-    assert react["if"] == "steps.tend_enabled.outputs.enabled == 'true'"
+    # Every issues:opened event the job-level `if` admits is the bot's to take.
+    assert "if" not in react
 
     review = yaml.safe_load(workflows["tend-review.yaml"].content)
     react = _eyes_steps(review["jobs"]["review"]["steps"])[0]
     assert react["env"]["TARGET"] == "issues/${{ github.event.pull_request.number }}"
-    # Every enabled review run boots a session, so each one gets a reaction.
-    assert react["if"] == "steps.tend_enabled.outputs.enabled == 'true'"
+    # Every review run boots a session, so each one gets a reaction.
+    assert "if" not in react
 
 
 @pytest.mark.parametrize(
@@ -1095,21 +987,27 @@ def test_setup_raw_rejected_with_migration_hint(tmp_path: Path) -> None:
 
 
 def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
-    """A submitted review must still reach the bot on an engaged PR — via the
-    secretless relay job, which re-enters the event as a repository_dispatch so
-    the run holding the secrets carries a ref their environment admits."""
+    """A submitted review must still reach the bot on an engaged PR — via
+    tend-mention-relay, which re-enters the event as a repository_dispatch so
+    the run holding the secrets carries a ref their environment admits.
+
+    GitHub lists every job of a review event's run among the PR's checks,
+    skipped or not, so the review events belong to a workflow whose one job is
+    the relay: in tend-mention, verify and handle added two skipped rows to
+    every review."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    mention = workflows["tend-mention.yaml"]
-    data = yaml.safe_load(mention.content)
+    data = yaml.safe_load(workflows["tend-mention.yaml"].content)
+    relay_wf = yaml.safe_load(workflows["tend-mention-relay.yaml"].content)
 
-    # The review events' own runs carry refs/pull/N/merge, which the secrets'
-    # environment does not admit, so they may reach only the relay job.
-    assert data["on"]["pull_request_review"] == {"types": ["submitted"]}
+    assert set(relay_wf["on"]) == {"pull_request_review", "pull_request_review_comment"}
+    assert relay_wf["on"]["pull_request_review"] == {"types": ["submitted"]}
+    assert set(relay_wf["jobs"]) == {"relay"}
+    assert set(data["on"]) == {"issues", "issue_comment", "repository_dispatch"}
     assert data["on"]["repository_dispatch"] == {"types": ["tend-mention-review"]}
-    relay = data["jobs"]["relay"]
-    assert "pull_request_review" in relay["if"]
-    # The relay holds no secrets, so it is where the fork filter now lives.
+
+    relay = relay_wf["jobs"]["relay"]
+    # The relay holds no secrets, so it is where the fork filter lives.
     assert "pull_request.head.repo.full_name" in relay["if"]
     assert "environment" not in relay, (
         "the relay must stay outside the secrets' environment — naming it "
@@ -1127,18 +1025,10 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     assert "client_payload[pr]" in relay_run
     assert "client_payload[id]" in relay_run
     assert "client_payload[url]" not in relay_run
+    assert "event_type=tend-mention-review" in relay_run
 
-    # The secret-bearing jobs must not run on the review events themselves.
-    verify_if = data["jobs"]["verify"]["if"]
-    assert "repository_dispatch" in verify_if
-    assert "pull_request_review" not in verify_if
-
-    # Handle job checks out PR branch for this event
+    # The harness selects the PR branch only inside its sandbox.
     handle_steps = data["jobs"]["handle"]["steps"]
-    checkout_step = next(
-        s for s in handle_steps if s.get("name") == "Check out PR branch"
-    )
-    assert "repository_dispatch" in checkout_step["if"]
 
     # Prompt keeps the review-kind and mention/participation branches apart,
     # keyed on the payload's kind and verify's judged reason — never on a
@@ -1148,6 +1038,8 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
         for s in handle_steps
         if s.get("uses", "").startswith("max-sixty/tend/claude@")
     )
+    assert tend_step["with"]["checkout_mode"] == "mention"
+    assert all(s.get("name") != "Check out PR branch" for s in handle_steps)
     prompt = tend_step["with"]["prompt"]
     assert "needs.verify.outputs.reason == 'mention'" in prompt
     assert "needs.verify.outputs.url" in prompt
@@ -1158,26 +1050,18 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
 def test_mention_review_comment_listens_only_for_edits(tmp_path: Path) -> None:
     """pull_request_review_comment must subscribe to `edited` only, not `created`.
 
-    Modern GitHub fires *both* pull_request_review and pull_request_review_comment
-    for every newly-created inline comment (verified across the standalone
-    POST /pulls/{n}/comments endpoint, the /replies endpoint, the "Add single
-    comment" UI button, and reviews submitted with inline comments). If we
-    subscribed to `created` here, the duplicate run would collide on the
-    tend-mention-handle-<PR#> concurrency group, the loser would be cancelled,
-    and the cancelled check_run on the PR head SHA would render the PR's
-    statusCheckRollup as FAILURE — even though the bot did its job from the
-    sibling run.
-
-    Edits have no sibling event (review submissions don't fire on edits), so
-    we still need to listen for `edited` to catch edit-to-summon ("@bot" added
-    to an existing comment after the fact)."""
+    GitHub fires pull_request_review as well for every newly-created inline
+    comment (verified across the standalone POST /pulls/{n}/comments endpoint,
+    the /replies endpoint, the "Add single comment" UI button, and reviews
+    submitted with inline comments), so `created` would relay each comment
+    twice and boot a second session for it. Edits have no sibling event, so
+    `edited` stays to catch "@bot" added to an existing comment."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    mention = workflows["tend-mention.yaml"]
-    data = yaml.safe_load(mention.content)
+    data = yaml.safe_load(workflows["tend-mention-relay.yaml"].content)
     assert data["on"]["pull_request_review_comment"] == {"types": ["edited"]}, (
         "pull_request_review_comment must subscribe to ['edited'] only — see "
-        "the trigger comment in the mention template for the dedup rationale"
+        "the trigger comment in the mention-relay template for the dedup rationale"
     )
 
 
@@ -1213,18 +1097,20 @@ def test_mention_verify_wires_every_variable_the_gate_reads(tmp_path: Path) -> N
         "PAYLOAD_KIND": "${{ github.event.client_payload.kind }}",
         "PAYLOAD_PR": "${{ github.event.client_payload.pr }}",
         "PAYLOAD_ID": "${{ github.event.client_payload.id }}",
+        # The uv that runs the script, not an input it reads.
+        "TEND_UV": "${{ steps.tend_uv.outputs.uv-path }}",
     }
 
     # And the mapping is complete: every name the script reads without first
     # assigning it is either wired above or supplied by the runner.
     source = (
-        importlib.resources.files("tend") / "templates" / "mention-verify.sh"
+        importlib.resources.files("tend") / "templates" / "mention_verify.py"
     ).read_text()
-    read = set(re.findall(r"\$\{?([A-Z][A-Z0-9_]*)\}?", source))
-    assigned = set(re.findall(r"\b([A-Z][A-Z0-9_]*)=", source))
+    read = set(re.findall(r'env\.get\("([A-Z][A-Z0-9_]*)"', source))
+    read |= set(re.findall(r'os\.environ\["([A-Z][A-Z0-9_]*)"\]', source))
     supplied = set(check_step["env"]) | {"GITHUB_OUTPUT", "GITHUB_REPOSITORY"}
-    assert read - assigned <= supplied, (
-        f"the gate reads {sorted(read - assigned - supplied)}, which nothing sets"
+    assert read <= supplied, (
+        f"the gate reads {sorted(read - supplied)}, which nothing sets"
     )
 
 
@@ -1258,41 +1144,39 @@ def test_mention_handle_job_queues_not_cancels(tmp_path: Path) -> None:
 
 
 def test_setup_before_pr_checkout_in_mention(tmp_path: Path) -> None:
-    """Setup runs against the default branch, before switching to the PR branch.
-
-    A PR opened before a referenced local composite action existed (and never
-    rebased) carries a tree without that action; running setup after
-    `gh pr checkout` would 404 with `Can't find 'action.yml'` and drop the
-    maintainer's mention silently.
-    """
+    """Setup and POST remain on the default-branch runner checkout."""
     extra = "setup:\n  - uses: ./.github/actions/my-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     mention = workflows["tend-mention.yaml"]
     initial_checkout_idx = mention.content.index("actions/checkout@v7")
     setup_idx = mention.content.index("./.github/actions/my-setup")
-    pr_checkout_idx = mention.content.index("Check out PR branch")
-    assert initial_checkout_idx < setup_idx < pr_checkout_idx, (
-        "Setup must run after the initial checkout and before PR-branch switch"
-    )
+    agent_idx = mention.content.index(f"max-sixty/tend/claude@{ACTION_VERSION}")
+    assert initial_checkout_idx < setup_idx < agent_idx
+    assert "Check out PR branch" not in mention.content
 
 
 def test_mention_handle_has_queue_delay(tmp_path: Path) -> None:
     """Handle job computes queue delay so the prompt can detect stale triggers."""
-    cfg = Config.load(_minimal_config(tmp_path))
-    workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    mention = workflows["tend-mention.yaml"]
-    data = yaml.safe_load(mention.content)
-    handle_steps = data["jobs"]["handle"]["steps"]
+    cfg = Config.load(_minimal_config(tmp_path, "setup:\n  - run: sleep 0\n"))
+    mention = generate_mention(cfg)
+    handle_steps = yaml.safe_load(mention.content)["jobs"]["handle"]["steps"]
     delay_steps = [s for s in handle_steps if s.get("id") == "delay"]
     assert len(delay_steps) == 1, "handle job must have a queue delay step"
     assert "steps.delay.outputs.seconds" in mention.content, (
         "prompt must reference queue delay"
     )
-    # Delay step must come before the tend action (output must be available)
-    delay_idx = mention.content.index("Compute queue delay")
-    tend_idx = mention.content.index(f"max-sixty/tend/claude@{ACTION_VERSION}")
-    assert delay_idx < tend_idx, "delay step must precede tend action"
+    # Ahead of checkout and `setup:`: the delay measures the wait for the job
+    # to start, and anything before it reaches the agent as queue time.
+    delay_idx = handle_steps.index(delay_steps[0])
+    checkout_idx = next(
+        i
+        for i, s in enumerate(handle_steps)
+        if s.get("uses", "").startswith("actions/checkout@")
+    )
+    setup_idx = next(i for i, s in enumerate(handle_steps) if s.get("run") == "sleep 0")
+    assert delay_idx < checkout_idx, "delay step must precede checkout"
+    assert delay_idx < setup_idx, "delay step must precede setup"
 
 
 def test_mention_queue_delay_guards_empty_event_ts(tmp_path: Path) -> None:
@@ -1340,6 +1224,7 @@ def test_mention_prompt_omits_delay_when_empty(tmp_path: Path) -> None:
 # once Actions is enabled there. Without the guard, the `tend` action step fails
 # noisily because the bot/Claude secrets are empty in the fork's secret store.
 _GUARDED_WORKFLOWS = [
+    "tend-codex-auth-refresh.yaml",
     "tend-ci-fix.yaml",
     "tend-nightly.yaml",
     "tend-weekly.yaml",
@@ -1347,11 +1232,15 @@ _GUARDED_WORKFLOWS = [
     "tend-notifications.yaml",
     "tend-triage.yaml",
 ]
-# tend-review uses pull_request_target (base repo only); tend-mention's
-# review-event paths already filter forks, and `issues`/`issue_comment` events
-# are unguarded by design (forks rarely enable Issues, and gating here would
-# silently drop legitimate same-repo activity if the owner is misconfigured).
-_UNGUARDED_WORKFLOWS = ["tend-review.yaml", "tend-mention.yaml"]
+# tend-review uses pull_request_target (base repo only); tend-mention-relay
+# already filters forks, and `issues`/`issue_comment` events are unguarded by
+# design (forks rarely enable Issues, and gating here would silently drop
+# legitimate same-repo activity if the owner is misconfigured).
+_UNGUARDED_WORKFLOWS = [
+    "tend-review.yaml",
+    "tend-mention.yaml",
+    "tend-mention-relay.yaml",
+]
 
 
 @pytest.mark.parametrize("filename", _GUARDED_WORKFLOWS)
@@ -1374,9 +1263,9 @@ def test_fork_guard_present_when_repo_owner_set(tmp_path: Path, filename: str) -
 
 @pytest.mark.parametrize("filename", _UNGUARDED_WORKFLOWS)
 def test_fork_guard_absent_for_unguarded(tmp_path: Path, filename: str) -> None:
-    """tend-review (pull_request_target) and tend-mention (own filtering) must
-    not get a job-level repo_owner guard — adding one would drop legitimate
-    activity on those workflows if owner is misconfigured."""
+    """tend-review (pull_request_target) and tend-mention with its relay (own
+    filtering) must not get a job-level repo_owner guard — adding one would
+    drop legitimate activity on those workflows if owner is misconfigured."""
     cfg = Config.load(_minimal_config(tmp_path))
     cfg.repo_owner = "test-owner"
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -1391,7 +1280,9 @@ def test_fork_guard_absent_for_unguarded(tmp_path: Path, filename: str) -> None:
 def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
     """When auto-detection fails (non-github remote, no remote, etc.), no
     guard is rendered and workflows behave as they did pre-change."""
-    cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-fix")))
+    cfg = Config.load(
+        _minimal_config(tmp_path, _extra_for("ci-fix") + "harness: codex\n")
+    )
     # cfg.repo_owner is "" by default — Config.load does not auto-detect.
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     for filename in _GUARDED_WORKFLOWS:
@@ -1401,32 +1292,37 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
                 f"{filename} job '{job_name}' must not contain the guard "
                 "when repo_owner is unset"
             )
-    # ci-fix's pre-existing conclusion check must survive even without the guard
+    # ci-fix's conclusion check must survive even without the guard.
     ci_fix = yaml.safe_load(workflows["tend-ci-fix.yaml"].content)
-    assert (
-        ci_fix["jobs"]["fix-ci"]["if"]
-        == "github.event.workflow_run.conclusion == 'failure'"
+    assert ci_fix["jobs"]["fix-ci"]["if"] == (
+        f"{TEND_ENABLED_CONDITION} && "
+        'contains(fromJSON(\'["failure", "cancelled"]\'), '
+        "github.event.workflow_run.conclusion)"
     )
 
 
 @pytest.mark.parametrize(
     "workflow_name,job_name,user_if,extra_workflow_keys",
     [
-        # Triage: the guard is the *only* job-level if; clobbering loses just it.
+        # Triage: clobbering drops the fork guard and the bookkeeping-label skip.
         (
             "triage",
             "triage",
-            "github.event.issue.author_association != 'NONE'",
+            (
+                f"{TEND_ENABLED_CONDITION} && "
+                "github.event.issue.author_association != 'NONE'"
+            ),
             {},
         ),
-        # ci-fix: the rendered if is `<guard> && <conclusion-check>`. Clobbering
-        # removes BOTH — so the workflow would also lose its "only run on
-        # failure" gate. More interesting than triage because runtime semantics
-        # change beyond just the fork guard.
+        # ci-fix: the rendered if is `<guard> && <pause> && <conclusion-check>`.
+        # Clobbering removes the guard and the conclusion check — so the
+        # workflow would also lose its "only run on failure" gate. More
+        # interesting than triage because runtime semantics change beyond just
+        # the fork guard.
         (
             "ci-fix",
             "fix-ci",
-            "github.actor == 'tend-agent'",
+            f"{TEND_ENABLED_CONDITION} && github.actor == 'tend-agent'",
             {"watched_workflows": ["ci"]},
         ),
     ],
@@ -1463,6 +1359,24 @@ def test_user_job_if_extra_replaces_fork_guard(
     assert "github.repository_owner" not in rendered_if
 
 
+@pytest.mark.parametrize(
+    "wf_block",
+    [
+        {"jobs": {"triage": {"if": "github.actor == 'tend-agent'"}}},
+        {"jobs": {"triage": {"if": None}}},
+        {"workflow_extra": {"jobs": {"triage": {"if": "github.actor == 'x'"}}}},
+    ],
+)
+def test_if_override_must_keep_the_pause_check(tmp_path: Path, wf_block: dict) -> None:
+    """Replacing or deleting an agent job's `if:` without the TEND_ENABLED
+    check, through either override path, would keep that job running while
+    tend is paused."""
+    extra = yaml.safe_dump({"workflows": {"triage": wf_block}})
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    with pytest.raises(click.ClickException, match="pause check"):
+        generate_all(cfg)
+
+
 @pytest.mark.parametrize("filename", _GUARDED_WORKFLOWS)
 def test_fork_guard_rendered_shape_regtest(
     regtest: object, tmp_path: Path, filename: str
@@ -1476,6 +1390,33 @@ def test_fork_guard_rendered_shape_regtest(
     cfg.repo_owner = "test-owner"
     wf = next(w for w in generate_all(cfg) if w.filename == filename)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_tend_enabled_variable_guards_every_agent_job(tmp_path: Path) -> None:
+    """Every job that can boot the agent checks the TEND_ENABLED variable
+    before a runner starts, itself or through a job it `needs`; the workflows
+    that run no agent carry none."""
+    cfg = Config.load(
+        _minimal_config(tmp_path, _extra_for("ci-fix") + "harness: codex\n")
+    )
+    cfg.repo_owner = "test-owner"
+    no_agent = {
+        "tend-mention-relay.yaml",
+        "tend-codex-auth-refresh.yaml",
+        "tend-install-test.yaml",
+    }
+    for wf in generate_all(cfg, with_install_test=True):
+        jobs = yaml.safe_load(wf.content)["jobs"]
+        for job_name, job in jobs.items():
+            needs = job.get("needs", [])
+            upstream = [needs] if isinstance(needs, str) else needs
+            guarded = any(
+                TEND_ENABLED_CONDITION in jobs[name].get("if", "")
+                for name in [job_name, *upstream]
+            )
+            assert guarded == (wf.filename not in no_agent), (
+                f"{wf.filename} job '{job_name}'"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1619,7 +1560,7 @@ def test_job_extras_replace_if_for_skip_review_label(tmp_path: Path) -> None:
     post-regeneration patching scripts.
     """
     skip_if = (
-        "github.event.pull_request.draft == false && "
+        f"{TEND_ENABLED_CONDITION} && "
         "!contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
     )
     extra = yaml.safe_dump(
@@ -1708,6 +1649,8 @@ def test_unknown_job_warns(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
 
 def _extra_for(name: str) -> str:
     """Return extra config needed for a specific generator (e.g. ci-fix)."""
+    if name == "codex-auth-refresh":
+        return "harness: codex\n"
     if name == "ci-fix":
         return 'workflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n'
     return ""
@@ -1739,31 +1682,55 @@ def test_workflow_with_setup_regtest(
 def test_workflow_with_local_setup_regtest(
     regtest: object, tmp_path: Path, name: str
 ) -> None:
-    """Snapshot the two workflows that swap the workspace tree after `setup:`,
-    with a local composite in it — locks the restore step the POST chain needs
-    (actions/runner#2816)."""
+    """Local setup composites keep one stable runner checkout through POST."""
     extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = GENERATORS[name](cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
-def test_sandbox_levers_regtest(regtest: object, tmp_path: Path) -> None:
-    """Snapshot the rendered agent step with all three sandbox levers set, to
-    lock the block-scalar shape threaded to the composite action."""
+def test_deprecated_sandbox_keys_regtest(regtest: object, tmp_path: Path) -> None:
+    """Snapshot the `setup:` steps the deprecated keys migrate to, after the
+    consumer's own, in the workflow whose pre-check guards every setup step."""
     extra = dedent("""\
+        setup:
+          - uses: astral-sh/setup-uv@v10.1.0
+        sandbox_env:
+          MY_TOKEN: "${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}"
         sandbox_path:
           - ~/.cargo/bin
           - /opt/tools/bin
-        sandbox_env:
-          RUST_BACKTRACE: "1"
-          CARGO_TERM_COLOR: always
         sandbox_setup:
-          - rustup component add clippy
-          - cargo fetch --locked
+          - uv sync --frozen
+          - curl -LsSf https://example.invalid/install.sh | sh
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
-    print(generate_mention(cfg).content, end="", file=regtest)  # type: ignore[arg-type]
+    wf = GENERATORS["notifications"](cfg)
+    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_mention_relay_regtest(regtest: object, tmp_path: Path) -> None:
+    """Snapshot tend-mention-relay, which is not in `GENERATORS`."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    print(generate_mention_relay(cfg).content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_overrides_change_only_what_they_name(tmp_path: Path) -> None:
+    """Applying an override re-serializes the whole workflow, which must not
+    refold its long scalars: a refolded `>-` block gains line breaks in its
+    value. Mention's are the longest the templates render."""
+
+    def mention(extra: str = "") -> dict:
+        cfg = Config.load(_minimal_config(tmp_path, extra))
+        wf = next(wf for wf in generate_all(cfg) if wf.filename == "tend-mention.yaml")
+        return yaml.safe_load(wf.content)
+
+    plain = mention()
+    overridden = mention(
+        "workflows:\n  mention:\n    jobs:\n      handle:\n        env: {X: '1'}\n"
+    )
+    assert overridden["jobs"]["handle"].pop("env") == {"X": "1"}
+    assert overridden == plain
 
 
 def test_extras_apply_path_regtest(regtest: object, tmp_path: Path) -> None:
@@ -1845,8 +1812,13 @@ def test_install_test_honors_workflow_extras(tmp_path: Path) -> None:
 def test_codex_action_ref(tmp_path: Path) -> None:
     """Codex workflows reference max-sixty/tend/codex@<release tag>."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
-    for wf in generate_all(cfg):
-        assert f"max-sixty/tend/codex@{ACTION_VERSION}" in wf.content, (
+    for wf in without_relay(generate_all(cfg)):
+        action = (
+            "max-sixty/tend/codex/refresh"
+            if wf.filename == "tend-codex-auth-refresh.yaml"
+            else "max-sixty/tend/codex"
+        )
+        assert f"{action}@{ACTION_VERSION}" in wf.content, (
             f"{wf.filename} missing codex action ref"
         )
         assert f"max-sixty/tend/claude@{ACTION_VERSION}" not in wf.content, (
@@ -1855,41 +1827,164 @@ def test_codex_action_ref(tmp_path: Path) -> None:
 
 
 def test_codex_workflows_use_openai_secrets_not_claude(tmp_path: Path) -> None:
-    """Codex agent step references OPENAI_API_KEY, not Claude or auth.json."""
+    """Codex consumers receive API-key and access-only subscription paths."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
-    for wf in generate_all(cfg):
+    for wf in without_relay(generate_all(cfg)):
+        if wf.filename == "tend-codex-auth-refresh.yaml":
+            continue
         assert "openai_api_key: ${{ secrets.OPENAI_API_KEY }}" in wf.content, (
             f"{wf.filename} missing openai_api_key input"
         )
-        assert "codex_auth_json" not in wf.content, (
-            f"{wf.filename} should not reference codex_auth_json"
+        assert "codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}" in wf.content, (
+            f"{wf.filename} missing access-only subscription input"
         )
         assert "claude_code_oauth_token" not in wf.content, (
             f"{wf.filename} should not reference claude_code_oauth_token under codex"
         )
 
 
-def test_codex_effort_only_when_set(tmp_path: Path) -> None:
-    """effort: renders only when configured."""
-    cfg_default = Config.load(_minimal_config(tmp_path, "harness: codex"))
-    for wf in generate_all(cfg_default):
-        assert "effort:" not in wf.content, (
-            f"{wf.filename} should omit effort when unset"
-        )
+def test_codex_generates_one_serialized_weekly_auth_refresher(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
 
-    cfg_with_effort = Config.load(
-        _minimal_config(tmp_path, "harness: codex\neffort: high")
+    refresh = yaml.safe_load(workflows["tend-codex-auth-refresh.yaml"].content)
+    assert refresh["on"]["schedule"] == [{"cron": "17 3 * * 0"}]
+    assert refresh["concurrency"] == {
+        "group": "tend-codex-auth-refresh",
+        "cancel-in-progress": False,
+    }
+    step = refresh["jobs"]["refresh"]["steps"][0]
+    assert step["with"] == {
+        "codex_auth_json": "${{ secrets.CODEX_AUTH_JSON }}",
+        "codex_refresh_auth_json": "${{ secrets.CODEX_REFRESH_AUTH_JSON }}",
+        "refresh_pat": "${{ secrets.CODEX_REFRESH_PAT }}",
+    }
+
+
+def test_codex_auth_refresher_honors_workflow_config(tmp_path: Path) -> None:
+    cfg = Config.load(
+        _minimal_config(
+            tmp_path,
+            dedent("""\
+                harness: codex
+                workflows:
+                  codex-auth-refresh:
+                    jobs:
+                      refresh:
+                        runs-on: ubuntu-22.04
+            """),
+        )
     )
-    for wf in generate_all(cfg_with_effort):
-        assert "effort: high" in wf.content, f"{wf.filename} missing effort: high"
+
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    refresh = yaml.safe_load(workflows["tend-codex-auth-refresh.yaml"].content)
+    assert refresh["jobs"]["refresh"]["runs-on"] == "ubuntu-22.04"
+
+
+def test_codex_auth_refresher_can_be_disabled(tmp_path: Path) -> None:
+    cfg = Config.load(
+        _minimal_config(
+            tmp_path,
+            "harness: codex\nworkflows:\n  codex-auth-refresh:\n    enabled: false\n",
+        )
+    )
+
+    assert "tend-codex-auth-refresh.yaml" not in {
+        wf.filename for wf in generate_all(cfg)
+    }
+
+
+def test_codex_auth_refresh_regtest(regtest: object, tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
+    print(generate_codex_auth_refresh(cfg).content, end="", file=regtest)  # type: ignore[arg-type]
+
+
+def test_claude_does_not_generate_codex_auth_refresher(tmp_path: Path) -> None:
+    cfg = Config.load(_minimal_config(tmp_path))
+    assert "tend-codex-auth-refresh.yaml" not in {
+        wf.filename for wf in generate_all(cfg)
+    }
+
+
+def test_codex_auth_refresher_follows_a_per_workflow_override(tmp_path: Path) -> None:
+    cfg = Config.load(
+        _minimal_config(
+            tmp_path,
+            dedent("""\
+                workflows:
+                  nightly:
+                    harness: codex
+                    model: gpt-5.5
+            """),
+        )
+    )
+
+    names = {wf.filename for wf in generate_all(cfg)}
+    assert "tend-codex-auth-refresh.yaml" in names
+
+
+HARNESS_ACTIONS = {"max-sixty/tend/claude", "max-sixty/tend/codex"}
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ("effort: max", "max"),
+        ("harness: codex\neffort: high", "high"),
+    ],
+    ids=["claude", "codex"],
+)
+def test_effort_renders_for_both_harnesses(
+    tmp_path: Path, config: str, expected: str
+) -> None:
+    cfg = Config.load(_minimal_config(tmp_path, config))
+    for wf in generate_all(cfg):
+        inputs = [
+            step["with"]
+            for job in yaml.safe_load(wf.content)["jobs"].values()
+            for step in job.get("steps", [])
+            if step.get("uses", "").partition("@")[0] in HARNESS_ACTIONS
+        ]
+        for action_inputs in inputs:
+            assert action_inputs["effort"] == expected
+
+
+def test_effort_is_omitted_at_the_harness_default(tmp_path: Path) -> None:
+    for harness in ("claude", "codex"):
+        cfg = Config.load(_minimal_config(tmp_path, f"harness: {harness}"))
+        for wf in generate_all(cfg):
+            assert "effort:" not in wf.content
+
+
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_args_render_as_exact_action_arguments(tmp_path: Path, harness: str) -> None:
+    cfg = Config.load(
+        _minimal_config(
+            tmp_path,
+            dedent(f"""\
+                harness: {harness}
+                args:
+                  - --max-turns
+                  - "40"
+                  - argument with spaces
+            """),
+        )
+    )
+    for wf in generate_all(cfg):
+        for job in yaml.safe_load(wf.content)["jobs"].values():
+            for step in job.get("steps", []):
+                if step.get("uses", "").partition("@")[0] in HARNESS_ACTIONS:
+                    assert step["with"]["args"] == (
+                        "--max-turns\n40\nargument with spaces\n"
+                    )
 
 
 def test_codex_default_model(tmp_path: Path) -> None:
-    """Engine = codex without explicit model picks gpt-5.5."""
+    """Generated Codex workflows pin Tend's current Sol-tier default."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
-    assert cfg.model == "gpt-5.5"
+    assert cfg.model == "gpt-5.6-sol"
     wf = next(w for w in generate_all(cfg) if w.filename == "tend-triage.yaml")
-    assert "model: gpt-5.5" in wf.content
+    assert "model: gpt-5.6-sol" in wf.content
 
 
 def test_unknown_engine_rejected(tmp_path: Path) -> None:
@@ -1907,13 +2002,12 @@ def test_per_workflow_harness_override_targets_only_named_workflow(
 ) -> None:
     """`workflows.<name>.harness` flips the action ref for that workflow
     only; sibling workflows keep the top-level harness. This is what lets
-    an adopter trial codex on nightly without flipping their PR-review
+    a consumer trial codex on nightly without flipping their PR-review
     workflow."""
     extra = dedent("""\
         workflows:
           nightly:
             harness: codex
-            model: gpt-5.5
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -1924,6 +2018,7 @@ def test_per_workflow_harness_override_targets_only_named_workflow(
     # The override carries the harness's own secret shape, not the top level's.
     assert "openai_api_key" in nightly.content
     assert "claude_code_oauth_token" not in nightly.content
+    assert "model: gpt-5.6-sol" in nightly.content
 
     # Sibling workflows still use the top-level claude harness.
     review = workflows["tend-review.yaml"]
@@ -1943,46 +2038,37 @@ def test_per_workflow_harness_unknown_rejected(tmp_path: Path) -> None:
         Config.load(_minimal_config(tmp_path, extra))
 
 
-def test_per_workflow_harness_incompatible_model_rejected_codex_target(
+def test_per_workflow_harness_change_uses_target_default_model(
     tmp_path: Path,
 ) -> None:
-    """codex (gpt-5.5) → claude per-workflow: top-level model 'gpt-5.5' isn't
-    in claude's allowlist. Fail at config load."""
-    extra = dedent("""\
-        harness: codex
-        model: gpt-5.5
-        workflows:
-          nightly:
-            harness: claude
-    """)
-    with pytest.raises(
-        click.ClickException,
-        match=r"workflows.nightly harness 'claude' is incompatible with model 'gpt-5.5'",
-    ):
-        Config.load(_minimal_config(tmp_path, extra))
-
-
-def test_per_workflow_harness_incompatible_model_rejected_codex_source(
-    tmp_path: Path,
-) -> None:
-    """Symmetric case: claude (opus) → codex per-workflow without a model
-    override. codex doesn't accept 'opus' but has no allowlist, so the
-    cross-family-source check catches it instead of the target-allowlist
-    check. Reviewer-flagged asymmetry in #612.
-
-    Without this guard, the renderer would emit `model: opus` on a codex
-    action step that codex would reject at runtime."""
+    """A harness change does not carry the other harness's model with it."""
     extra = dedent("""\
         harness: claude
         workflows:
           nightly:
             harness: codex
     """)
-    with pytest.raises(
-        click.ClickException,
-        match=r"workflows.nightly crosses harness families \(claude → codex\)",
-    ):
-        Config.load(_minimal_config(tmp_path, extra))
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    nightly = workflows["tend-nightly.yaml"]
+    assert f"max-sixty/tend/codex@{ACTION_VERSION}" in nightly.content
+    assert "model: gpt-5.6-sol" in nightly.content
+
+
+def test_per_workflow_harness_change_uses_claude_default_model(
+    tmp_path: Path,
+) -> None:
+    extra = dedent("""\
+        harness: codex
+        workflows:
+          nightly:
+            harness: claude
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    nightly = workflows["tend-nightly.yaml"]
+    assert f"max-sixty/tend/claude@{ACTION_VERSION}" in nightly.content
+    assert "model: opus" in nightly.content
 
 
 def test_per_workflow_model_override_unblocks_cross_family(tmp_path: Path) -> None:
@@ -2005,67 +2091,152 @@ def test_per_workflow_model_override_unblocks_cross_family(tmp_path: Path) -> No
     assert "model: opus" in review.content
 
 
-def test_per_workflow_model_typo_without_harness_rejected(tmp_path: Path) -> None:
-    """Reviewer-flagged gap (#612): per-workflow `model:` override WITHOUT
-    a `harness:` change must still be validated against the top-level
-    harness's allowlist. Previously skipped because both checks gated on
-    `wf_harness is not None`."""
-    extra = dedent("""\
+@pytest.mark.parametrize("model", ["haiku", "claude-opus-5"])
+def test_per_workflow_model_only_override(tmp_path: Path, model: str) -> None:
+    """A `model:` override without a harness change reaches that workflow alone."""
+    extra = dedent(f"""\
         workflows:
           nightly:
-            model: opus-99
+            model: {model}
+    """)
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    assert f"model: {model}" in workflows["tend-nightly.yaml"].content
+    assert "model: opus" in workflows["tend-review.yaml"].content
+
+
+# Bare `model:` stays out: at workflow level it reads as inherit, as
+# `prompt:` does, rather than as a value.
+@pytest.mark.parametrize("model", ['"   "', "[opus]", "5"])
+def test_per_workflow_model_must_be_a_non_empty_string(
+    tmp_path: Path, model: str
+) -> None:
+    extra = dedent(f"""\
+        workflows:
+          nightly:
+            model: {model}
     """)
     with pytest.raises(
         click.ClickException,
-        match=r"workflows.nightly harness 'claude' is incompatible with model 'opus-99'",
+        match="workflows.nightly.model must be a non-empty string",
     ):
         Config.load(_minimal_config(tmp_path, extra))
 
 
-def test_per_workflow_model_only_override_valid(tmp_path: Path) -> None:
-    """Per-workflow `model:` override (no harness change) to a valid model
-    in the top-level harness's allowlist loads cleanly and renders."""
+@pytest.mark.parametrize(
+    ("config", "model"),
+    [
+        ("harness: codex\nmodel: gpt-99-future", "gpt-99-future"),
+        ("model: claude-opus-5", "claude-opus-5"),
+        # Not even a mismatched family is caught here.
+        ("harness: codex\nmodel: opus", "opus"),
+    ],
+)
+def test_model_unrestricted(tmp_path: Path, config: str, model: str) -> None:
+    """Neither harness enumerates models.
+
+    Both catalogs churn, and both CLIs take an exact id as well as an alias,
+    so an allowlist would refuse a pin the CLI accepts. `tend` forwards the
+    string; the CLI errors on a name it does not know.
+    """
+    cfg = Config.load(_minimal_config(tmp_path, config))
+    assert cfg.model == model
+
+
+@pytest.mark.parametrize(
+    "config",
+    ["effort: turbo", "harness: codex\neffort: max", "effort: [high]"],
+)
+def test_effort_rejected_when_unsupported_or_malformed(
+    tmp_path: Path, config: str
+) -> None:
+    with pytest.raises(click.ClickException, match="effort .* is not recognized"):
+        Config.load(_minimal_config(tmp_path, config))
+
+
+def test_effort_is_not_validated_against_the_model(tmp_path: Path) -> None:
+    """Which models read `--effort` is the CLI's to know, so the pair renders."""
+    cfg = Config.load(_minimal_config(tmp_path, "model: haiku\neffort: low"))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    review = workflows["tend-review.yaml"].content
+    assert "model: haiku" in review
+    assert "effort: low" in review
+
+
+def test_inherited_effort_rejected_when_a_workflow_switches_harness(
+    tmp_path: Path,
+) -> None:
+    """`max` is Claude-only, so a codex workflow cannot inherit it."""
     extra = dedent("""\
+        effort: max
         workflows:
           nightly:
-            model: haiku
+            harness: codex
     """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    nightly = workflows["tend-nightly.yaml"]
-    assert "model: haiku" in nightly.content
-    review = workflows["tend-review.yaml"]
-    assert "model: opus" in review.content
-
-
-def test_codex_model_unrestricted(tmp_path: Path) -> None:
-    """Codex model strings pass through unvalidated.
-
-    Codex's catalog churns (gpt-5.1-codex was current at harness bring-up;
-    deprecated by the next month). An allowlist would silently lock adopters
-    out of newer models. We accept any string and let `codex exec` error at
-    runtime if it's wrong.
-    """
-    cfg = Config.load(_minimal_config(tmp_path, "harness: codex\nmodel: gpt-99-future"))
-    assert cfg.model == "gpt-99-future"
-
-
-def test_unknown_claude_model_rejected(tmp_path: Path) -> None:
-    """Claude's model set is small and stable; typos fail at config load."""
     with pytest.raises(
-        click.ClickException, match="not recognized for harness 'claude'"
+        click.ClickException,
+        match=r"effort \(inherited by workflows\.nightly\) 'max' is not recognized",
     ):
-        Config.load(_minimal_config(tmp_path, "model: opus-3"))
+        Config.load(_minimal_config(tmp_path, extra))
 
 
-def test_effort_rejected_for_claude(tmp_path: Path) -> None:
-    """effort is Codex-only — Claude has no reasoning-effort knob."""
+@pytest.mark.parametrize(
+    "config",
+    [
+        'args: "--max-turns 40"',
+        'args: ["--max-turns", ""]',
+        "args: [--max-turns, 40]",
+    ],
+)
+def test_args_rejected_unless_each_list_item_is_one_argument(
+    tmp_path: Path, config: str
+) -> None:
+    with pytest.raises(click.ClickException, match="args must be a list"):
+        Config.load(_minimal_config(tmp_path, config))
+
+
+def test_per_workflow_effort_and_args_override_the_top_level(tmp_path: Path) -> None:
+    cfg = Config.load(
+        _minimal_config(
+            tmp_path,
+            dedent("""\
+                effort: high
+                args: [--max-turns, "40"]
+                workflows:
+                  nightly:
+                    effort: max
+                    args: []
+            """),
+        )
+    )
+    workflows = {wf.filename: yaml.safe_load(wf.content) for wf in generate_all(cfg)}
+
+    nightly_steps = workflows["tend-nightly.yaml"]["jobs"]["nightly"]["steps"]
+    nightly = next(step for step in nightly_steps if "/claude@" in step.get("uses", ""))
+    assert nightly["with"]["effort"] == "max"
+    assert "args" not in nightly["with"]
+
+    weekly_steps = workflows["tend-weekly.yaml"]["jobs"]["weekly"]["steps"]
+    weekly = next(step for step in weekly_steps if "/claude@" in step.get("uses", ""))
+    assert weekly["with"]["effort"] == "high"
+    assert weekly["with"]["args"] == "--max-turns\n40\n"
+
+
+def test_cross_harness_workflow_validates_inherited_effort(tmp_path: Path) -> None:
     with pytest.raises(
-        click.ClickException, match="effort is only valid for harness = 'codex'"
+        click.ClickException,
+        match=r"effort \(inherited by workflows\.nightly\) 'max' is not recognized "
+        r"for harness 'codex'",
     ):
-        Config.load(_minimal_config(tmp_path, "effort: high"))
-
-
-def test_unknown_effort_rejected(tmp_path: Path) -> None:
-    with pytest.raises(click.ClickException, match="effort 'turbo' is not recognized"):
-        Config.load(_minimal_config(tmp_path, "harness: codex\neffort: turbo"))
+        Config.load(
+            _minimal_config(
+                tmp_path,
+                dedent("""\
+                    effort: max
+                    workflows:
+                      nightly:
+                        harness: codex
+                        model: gpt-5.5
+                """),
+            )
+        )

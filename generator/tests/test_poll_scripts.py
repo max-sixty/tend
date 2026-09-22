@@ -1,28 +1,36 @@
 """Tests for the CI-poll scripts in plugins/tend-ci-runner/scripts/.
 
-poll-pr-checks.sh queries a *commit's* rollup, never the PR's — the false
+poll_pr_checks.py queries a *commit's* rollup, never the PR's — the false
 green this design exists to prevent is a poll silently retargeting a head
-another actor pushed. The fake `gh` serves raw GraphQL fixtures and the
-script's own jq does every reduction, because that filter is the behaviour
-under test: which conclusions count as red, which check runs are superseded,
-and which never read as green at all. `sleep` is faked, so the 9-iteration
-loop runs in milliseconds.
+another actor pushed. The fake `gh` serves raw GraphQL fixtures while the
+Python reducer decides which conclusions count as red, which check runs are
+superseded, and which never read as green at all. Sleep is injected, so the
+poll loop runs without waiting between reads.
 """
 
 from __future__ import annotations
 
+import contextlib
+import importlib
+import io
 import json
+import os
 import subprocess
+import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from tests import BASH, GH_PREAMBLE, fake_bin, tool_path
+from tests import GH_PREAMBLE, fake_bin, tool_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts"
-POLL_PR_CHECKS = SCRIPTS / "poll-pr-checks.sh"
-RERUN_FAILED_JOBS = SCRIPTS / "rerun-failed-jobs.sh"
+POLL_PR_CHECKS = SCRIPTS / "poll_pr_checks.py"
+RERUN_FAILED_JOBS = SCRIPTS / "rerun_failed_jobs.py"
+sys.path.insert(0, str(SCRIPTS))
+poll_pr_checks = importlib.import_module("poll_pr_checks")
+rerun_failed_jobs = importlib.import_module("rerun_failed_jobs")
 
 HEAD_SHA = "aaaa111122223333aaaa111122223333aaaa1111"
 
@@ -57,6 +65,10 @@ FAKE_GH = (
     ;;
   "pr view")
     emit "$(cat "$HEAD_JSON")"
+    ;;
+  "run view")
+    [ -f "$RUN_DIR/$3.json" ] || exit 1
+    emit "$(cat "$RUN_DIR/$3.json")"
     ;;
   "run rerun")
     ;;
@@ -150,6 +162,7 @@ def env(tmp_path: Path) -> dict[str, str]:
     rollups.mkdir()
     jobs_dir = tmp_path / "jobs"
     jobs_dir.mkdir()
+    (tmp_path / "runs").mkdir()
     (tmp_path / "head.json").write_text(json.dumps({"headRefOid": HEAD_SHA}))
     (tmp_path / "jobs.json").write_text(json.dumps({"jobs": []}))
     (tmp_path / "attempts").write_text("1\n")
@@ -162,6 +175,7 @@ def env(tmp_path: Path) -> dict[str, str]:
         "HEAD_JSON": str(tmp_path / "head.json"),
         "JOBS_JSON": str(tmp_path / "jobs.json"),
         "JOB_DIR": str(jobs_dir),
+        "RUN_DIR": str(tmp_path / "runs"),
         "ATTEMPTS": str(tmp_path / "attempts"),
         "GITHUB_REPOSITORY": "owner/repo",
         "GITHUB_RUN_ID": "555",
@@ -181,14 +195,40 @@ def _serve_page(env: dict[str, str], cursor: str, response: str) -> None:
     (Path(env["ROLLUP_DIR"]) / f"page-{cursor}.json").write_text(response)
 
 
-def _poll(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [BASH, str(POLL_PR_CHECKS), "7", HEAD_SHA],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
+def _invoke(
+    module: object,
+    env: dict[str, str],
+    args: list[str],
+    *,
+    sleep: Callable[[float], None] = lambda _: None,
+) -> subprocess.CompletedProcess[str]:
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(os, "environ", env.copy())
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            try:
+                returncode = module.main(args, sleep=sleep)
+            except subprocess.CalledProcessError as error:
+                returncode = error.returncode
+    return subprocess.CompletedProcess(
+        args, returncode, stdout.getvalue(), stderr.getvalue()
     )
+
+
+def _poll_args(
+    env: dict[str, str],
+    *args: str,
+    sleep: Callable[[float], None] = lambda _: None,
+) -> subprocess.CompletedProcess[str]:
+    return _invoke(poll_pr_checks, env, ["poll", *args], sleep=sleep)
+
+
+def _poll(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return _poll_args(env, "7", HEAD_SHA)
+
+
+def _approval(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return _invoke(poll_pr_checks, env, ["approval", "7", HEAD_SHA])
 
 
 def test_settled_green(env: dict[str, str]) -> None:
@@ -198,6 +238,123 @@ def test_settled_green(env: dict[str, str]) -> None:
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "green" in result.stdout
+
+
+OMNIBUS_RED = _check_run("check-ok-to-merge", conclusion="FAILURE", run_id=100)
+MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
+
+
+@pytest.mark.parametrize(
+    ("responses", "runs", "verdict", "named", "polled"),
+    [
+        # Nothing failing approves at once, even beside a running check.
+        ((_resp(_check_run("tests"), MATRIX_RUNNING),), {}, "approve:", "", False),
+        # This run and tend-review are all there is: nothing else gates.
+        (
+            (
+                _resp(
+                    _check_run("own", status="IN_PROGRESS", workflow="x", run_id=555),
+                    _check_run("review", status="IN_PROGRESS", workflow="tend-review"),
+                ),
+            ),
+            {},
+            "approve:",
+            "",
+            False,
+        ),
+        # A red with nothing pending is terminal.
+        (
+            (_resp(OMNIBUS_RED, _check_run("matrix")),),
+            {},
+            "withhold: red",
+            "check-ok-to-merge",
+            False,
+        ),
+        # A red beside a running check waits, and its replacement settles green.
+        (
+            (
+                _resp(OMNIBUS_RED, MATRIX_RUNNING),
+                _resp(
+                    _check_run("check-ok-to-merge", run_id=101), _check_run("matrix")
+                ),
+            ),
+            {},
+            "approve:",
+            "",
+            True,
+        ),
+        # Still pending at the cap: a red from a cancelled run approves, naming
+        # what never finished ...
+        (
+            (_resp(OMNIBUS_RED, MATRIX_RUNNING),),
+            {100: "cancelled"},
+            "approve:",
+            "matrix",
+            True,
+        ),
+        # ... a real failure withholds ...
+        (
+            (_resp(OMNIBUS_RED, MATRIX_RUNNING),),
+            {100: "failure"},
+            "withhold: red",
+            "check-ok-to-merge",
+            True,
+        ),
+        # ... and so does a status context, which names no run to inspect.
+        (
+            (_resp(_status_ctx("codecov/patch", "FAILURE"), MATRIX_RUNNING),),
+            {},
+            "withhold: red",
+            "codecov/patch",
+            True,
+        ),
+    ],
+)
+def test_approval_verdict(
+    env: dict[str, str],
+    responses: tuple[str, ...],
+    runs: dict[int, str],
+    verdict: str,
+    named: str,
+    polled: bool,
+) -> None:
+    _serve(env, *responses)
+    for run_id, conclusion in runs.items():
+        (Path(env["RUN_DIR"]) / f"{run_id}.json").write_text(
+            json.dumps({"conclusion": conclusion})
+        )
+
+    result = _approval(env)
+
+    assert result.stdout.startswith(verdict), result.stdout + result.stderr
+    assert result.returncode == (0 if verdict == "approve:" else 1)
+    assert named in result.stdout
+    assert (Path(env["GRAPHQL_CALLS"]).read_text().strip() != "1") is polled
+
+
+@pytest.mark.parametrize(
+    ("also_failing", "returncode", "stdout"),
+    [
+        # The only failure's run can't be read: nothing is decided.
+        ((), 2, ""),
+        # Another failure is real, so the unreadable run can't change the verdict.
+        ((_check_run("lint", conclusion="FAILURE", run_id=300),), 1, "withhold: red"),
+    ],
+)
+def test_approval_with_a_run_it_cannot_read(
+    env: dict[str, str], also_failing: tuple[dict, ...], returncode: int, stdout: str
+) -> None:
+    """`gh run view` exits 1 on a 5xx or a run id this repo can't resolve, which
+    is also `withhold:`'s code — so the failure has to be decided, not escape."""
+    _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING, *also_failing))
+    (Path(env["RUN_DIR"]) / "300.json").write_text(
+        json.dumps({"conclusion": "failure"})
+    )
+
+    result = _approval(env)
+
+    assert result.returncode == returncode, result.stdout + result.stderr
+    assert result.stdout.startswith(stdout)
 
 
 def test_red_names_the_failing_check_with_its_url(env: dict[str, str]) -> None:
@@ -216,7 +373,8 @@ def test_terminal_non_success_conclusions_count_red(
     env: dict[str, str], conclusion: str
 ) -> None:
     """A job that never started (STARTUP_FAILURE) or needs action is terminal
-    and red — left out of both buckets it would read as green."""
+    and red — outside RED_CONCLUSIONS it would read as unverified, withholding
+    a verdict the check did reach."""
     _serve(env, _resp(_check_run("build", conclusion=conclusion)))
 
     result = _poll(env)
@@ -224,12 +382,101 @@ def test_terminal_non_success_conclusions_count_red(
     assert result.returncode == 1, f"{conclusion} did not read as red"
 
 
-def test_cancelled_is_not_a_verdict(env: dict[str, str]) -> None:
-    _serve(env, _resp(_check_run("tests"), _check_run("old", conclusion="CANCELLED")))
+@pytest.mark.parametrize("conclusion", ["CANCELLED", "STALE"])
+def test_cancelled_is_not_a_verdict(env: dict[str, str], conclusion: str) -> None:
+    """A check killed before it concluded never ran, so it is neither red nor
+    green. Folded into green it reports a gating check as having passed when
+    a concurrent push cancelled it mid-run."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion=conclusion)))
 
     result = _poll(env)
 
-    assert result.returncode == 0, result.stdout
+    assert result.returncode == 2, result.stdout
+    assert "UNVERIFIED" in result.stdout
+    assert "bench https://github.com/o/r/actions/runs/100/job/1" in result.stdout
+
+
+def test_cancelled_beside_a_real_failure_still_reads_red(env: dict[str, str]) -> None:
+    """A failure is the stronger verdict, but the cancelled check is named too
+    so the reader knows the picture is partial."""
+    _serve(
+        env,
+        _resp(
+            _check_run("lint", conclusion="FAILURE", run_id=101),
+            _check_run("bench", conclusion="CANCELLED"),
+        ),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 1, result.stdout
+    assert "lint https://github.com/o/r/actions/runs/101/job/1" in result.stdout
+    assert "bench https://github.com/o/r/actions/runs/100/job/1" in result.stdout
+
+
+def test_cancelled_replaced_at_the_same_sha_is_green(env: dict[str, str]) -> None:
+    """Supersession still decides the group: a rerun that concluded green at the
+    same SHA leaves nothing unverified."""
+    _serve(
+        env,
+        _resp(
+            _check_run(
+                "bench",
+                conclusion="CANCELLED",
+                run_id=111,
+                started="2026-01-01T00:00:00Z",
+            ),
+            _check_run(
+                "bench",
+                conclusion="SUCCESS",
+                run_id=222,
+                started="2026-01-01T00:10:00Z",
+            ),
+        ),
+    )
+
+    assert _poll(env).returncode == 0, "a superseded cancellation still gated"
+
+
+def test_approval_names_a_cancelled_check_it_approves_over(
+    env: dict[str, str],
+) -> None:
+    """Approving over a check that never ran is the existing policy; doing so
+    without saying which check is the defect."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion="CANCELLED")))
+
+    result = _approval(env)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.startswith("approve:")
+    assert "unverified" in result.stdout
+    assert "bench" in result.stdout
+
+
+@pytest.mark.parametrize("conclusion", ["", "SOME_LATER_CONCLUSION"])
+def test_a_conclusion_in_neither_set_is_not_green(
+    env: dict[str, str], conclusion: str
+) -> None:
+    """Green is what the enum says passes, not whatever the red and unverified
+    sets happen to leave over. A conclusion GitHub adds later, or a COMPLETED
+    check carrying none, is a result this poll never read."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion=conclusion)))
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout
+    assert "bench https://github.com/o/r/actions/runs/100/job/1" in result.stdout
+
+
+@pytest.mark.parametrize("conclusion", ["NEUTRAL", "SKIPPED"])
+def test_non_blocking_conclusions_still_read_green(
+    env: dict[str, str], conclusion: str
+) -> None:
+    """A check that concluded without failing gates nothing, and naming green
+    explicitly must not start gating on it."""
+    _serve(env, _resp(_check_run("tests"), _check_run("bench", conclusion=conclusion)))
+
+    assert _poll(env).returncode == 0, f"{conclusion} gated"
 
 
 def test_superseded_failure_yields_to_its_replacement(env: dict[str, str]) -> None:
@@ -456,6 +703,25 @@ def test_waits_out_pending_then_reports_green(env: dict[str, str]) -> None:
     assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "3"
 
 
+def test_a_flapping_rollup_stays_inside_the_sleep_budget(
+    env: dict[str, str],
+) -> None:
+    """A check appearing during confirmation consumes the same sleep budget.
+
+    Charging each pass its own confirmation slept 810 seconds instead of
+    staying within the 570-second bound on settle sleeps.
+    """
+    clean = _resp(_check_run("tests"))
+    pending = _resp(_check_run("tests"), _check_run("late", status="QUEUED"))
+    _serve(env, *([clean, pending] * 12))
+    slept: list[float] = []
+
+    result = _poll_args(env, "7", HEAD_SHA, sleep=slept.append)
+
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert sum(slept) <= poll_pr_checks.MAX_SLEEP_SEC
+
+
 def test_abbreviated_sha_is_rejected_at_entry(env: dict[str, str]) -> None:
     """GraphQL's `GitObjectID!` rejects an abbreviated OID at coercion time, and
     rollup() cannot tell that from a transient failure — so the loop would sleep
@@ -464,13 +730,7 @@ def test_abbreviated_sha_is_rejected_at_entry(env: dict[str, str]) -> None:
     was passed in. Reject the argument before any API call."""
     _serve(env, _resp(_check_run("tests")))
 
-    result = subprocess.run(
-        [BASH, str(POLL_PR_CHECKS), "7", HEAD_SHA[:7]],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = _poll_args(env, "7", HEAD_SHA[:7])
     out = result.stdout + result.stderr
 
     assert result.returncode == 2, out
@@ -487,13 +747,7 @@ def test_uppercase_sha_is_rejected_at_entry(env: dict[str, str]) -> None:
     spurious "branch advanced" note pointing at that same commit."""
     _serve(env, _resp(_check_run("tests")))
 
-    result = subprocess.run(
-        [BASH, str(POLL_PR_CHECKS), "7", HEAD_SHA.upper()],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = _poll_args(env, "7", HEAD_SHA.upper())
     out = result.stdout + result.stderr
 
     assert result.returncode == 2, out
@@ -509,13 +763,7 @@ def test_omitted_sha_is_rejected_not_reported_red(env: dict[str, str]) -> None:
     the same UNVERIFIED path as any other unusable argument."""
     _serve(env, _resp(_check_run("tests")))
 
-    result = subprocess.run(
-        [BASH, str(POLL_PR_CHECKS), "7"],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = _poll_args(env, "7")
     out = result.stdout + result.stderr
 
     assert result.returncode == 2, out
@@ -540,17 +788,11 @@ def test_moved_head_is_reported_not_absorbed(env: dict[str, str]) -> None:
     )
 
 
-# --- rerun-failed-jobs.sh ---------------------------------------------------
+# --- rerun_failed_jobs.py ---------------------------------------------------
 
 
 def _rerun(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [BASH, str(RERUN_FAILED_JOBS), "9000"],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    return _invoke(rerun_failed_jobs, env, ["9000"])
 
 
 def _attempts(env: dict[str, str], *values: int) -> None:

@@ -1,30 +1,46 @@
-"""Tests for plugins/tend-ci-runner/scripts/list-recent-runs.sh.
+"""Tests for plugins/tend-ci-runner/scripts/list_recent_runs.py.
 
 The window logic is the behaviour under test: the completion window resumes
-at the previous successful run's start, clamps at 6h with a stderr WARNING,
-and falls back to a plain 1h window outside Actions. The fake `gh` runs the
-script's own `--jq` expressions against fixtures with real jq — the anchor
-query's self-exclusion filter is load-bearing, so a pre-filtered fake would
-assert nothing. `date` is faked with a fixed clock (macOS ships BSD date,
-which lacks `-d`; the fixed clock also keeps the window edges deterministic).
+at the previous successful run's start, clamps at the cap with a stderr
+WARNING, and falls back to a plain 1h window outside Actions. A re-run row
+draws its own WARNING, because its conclusion is the latest attempt's. The
+fake `gh` serves API fixtures, while an injected clock keeps the window edges
+deterministic.
 """
 
 from __future__ import annotations
 
+import contextlib
+import importlib
+import io
 import json
+import os
 import subprocess
-from datetime import UTC
+import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from tests import BASH, GH_PREAMBLE, fake_bin, tool_path
+from tests import GH_PREAMBLE, fake_bin, tool_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts" / "list-recent-runs.sh"
+SCRIPTS = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts"
+SCRIPT = SCRIPTS / "list_recent_runs.py"
+sys.path.insert(0, str(SCRIPTS))
+github_cli = importlib.import_module("github_cli")
+list_recent_runs = importlib.import_module("list_recent_runs")
 
 # The fixed clock: 2023-11-14T22:13:20Z.
 NOW = 1700000000
+
+
+def test_shared_json_output_preserves_unicode(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    github_cli.dump({"name": "café"})
+
+    assert '"café"' in capsys.readouterr().out
 
 
 def _iso(epoch: int) -> str:
@@ -60,34 +76,12 @@ esac
 """
 )
 
-# GNU-date stand-in with a fixed clock. The three forms the script uses:
-#   date -u +%s                  -> $FAKE_NOW
-#   date -u -d "@<epoch>" +<fmt> -> the epoch itself (+%s) or "iso(<epoch>)"
-#   date -u -d "<iso>" +%s       -> looked up in $DATE_TABLE (iso=epoch lines)
-FAKE_DATE = r"""#!/usr/bin/env bash
-arg_d=""
-fmt=""
-prev=""
-for a in "$@"; do
-  case "$a" in
-    +*) fmt="$a" ;;
-  esac
-  [ "$prev" = "-d" ] && arg_d="$a"
-  prev="$a"
-done
-if [ -z "$arg_d" ]; then
-  echo "$FAKE_NOW"
-elif [ "${arg_d#@}" != "$arg_d" ]; then
-  epoch="${arg_d#@}"
-  if [ "$fmt" = "+%s" ]; then echo "$epoch"; else echo "iso($epoch)"; fi
-else
-  grep -F "$arg_d=" "$DATE_TABLE" | head -1 | cut -d= -f2
-fi
-"""
 
-
-def _run_entry(run_id: int, *, updated: int, conclusion: str = "success") -> dict:
+def _run_entry(
+    run_id: int, *, updated: int, conclusion: str = "success", attempt: int = 1
+) -> dict:
     return {
+        "attempt": attempt,
         "databaseId": run_id,
         "conclusion": conclusion,
         "createdAt": _iso(updated - 300),
@@ -97,22 +91,18 @@ def _run_entry(run_id: int, *, updated: int, conclusion: str = "success") -> dic
 
 @pytest.fixture
 def env(tmp_path: Path) -> dict[str, str]:
-    """Fake gh/date on PATH plus the Actions env the script reads."""
-    bindir = fake_bin(tmp_path, gh=FAKE_GH, date=FAKE_DATE)
+    """Fake gh on PATH plus the Actions env the script reads."""
+    bindir = fake_bin(tmp_path, gh=FAKE_GH)
 
     (tmp_path / "wf.json").write_text(json.dumps([{"name": "tend-review"}]))
     (tmp_path / "anchor.json").write_text("[]")
     (tmp_path / "runs.json").write_text("[]")
-    (tmp_path / "date-table").write_text("")
-
     return {
         "PATH": tool_path(bindir),
         "GH_CALLS": str(tmp_path / "gh-calls.log"),
         "WF_JSON": str(tmp_path / "wf.json"),
         "ANCHOR_JSON": str(tmp_path / "anchor.json"),
         "RUNS_JSON": str(tmp_path / "runs.json"),
-        "DATE_TABLE": str(tmp_path / "date-table"),
-        "FAKE_NOW": str(NOW),
         "GITHUB_REPOSITORY": "owner/repo",
         "GITHUB_WORKFLOW": "review-reviewers",
         "GITHUB_RUN_ID": "999",
@@ -120,14 +110,11 @@ def env(tmp_path: Path) -> dict[str, str]:
 
 
 def _anchor(env: dict[str, str], *entries: tuple[int, int]) -> None:
-    """Anchor candidates as (databaseId, createdAt-epoch); table their ISOs."""
+    """Write anchor candidates as ``(databaseId, createdAt epoch)`` pairs."""
     Path(env["ANCHOR_JSON"]).write_text(
         json.dumps(
             [{"databaseId": i, "createdAt": _iso(start)} for i, start in entries]
         )
-    )
-    Path(env["DATE_TABLE"]).write_text(
-        "".join(f"{_iso(start)}={start}\n" for _, start in entries)
     )
 
 
@@ -136,8 +123,19 @@ def _runs(env: dict[str, str], *entries: dict) -> None:
 
 
 def _run(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [BASH, str(SCRIPT), *args], env=env, capture_output=True, text=True, check=False
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(os, "environ", env.copy())
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            try:
+                returncode = list_recent_runs.main(
+                    ["review-reviewers", *args],
+                    now=datetime.fromtimestamp(NOW, tz=UTC),
+                )
+            except subprocess.CalledProcessError as error:
+                returncode = error.returncode
+    return subprocess.CompletedProcess(
+        list(args), returncode, stdout.getvalue(), stderr.getvalue()
     )
 
 
@@ -187,13 +185,15 @@ def test_anchor_query_excludes_the_current_run(env: dict[str, str]) -> None:
     )
 
 
-def test_no_anchor_floors_at_6h_and_warns(env: dict[str, str]) -> None:
-    """With no successful run at all, the window reaches back 6h and the
+def test_no_anchor_floors_at_the_default_window_and_warns(
+    env: dict[str, str],
+) -> None:
+    """With no successful run at all, the window reaches back a day and the
     stderr WARNING tells the caller to record a coverage gap."""
     _runs(
         env,
-        _run_entry(1, updated=NOW - 18000),
-        _run_entry(2, updated=NOW - 25200),
+        _run_entry(1, updated=NOW - 20 * 3600),
+        _run_entry(2, updated=NOW - 26 * 3600),
     )
 
     result = _run(env)
@@ -203,21 +203,23 @@ def test_no_anchor_floors_at_6h_and_warns(env: dict[str, str]) -> None:
     assert "WARNING: no successful" in result.stderr
 
 
-def test_stale_anchor_clamps_to_6h_and_warns(env: dict[str, str]) -> None:
-    """An anchor older than 6h (a sustained outage) clamps the floor rather
-    than growing the window unboundedly, and warns of the coverage gap."""
-    _anchor(env, (555, NOW - 28800))
+def test_stale_anchor_clamps_to_the_cap_and_warns(env: dict[str, str]) -> None:
+    """An anchor older than the cap (a sustained outage) clamps the floor
+    rather than growing the window unboundedly, and warns of the coverage gap.
+    A daily cron's own previous run sits ~24h back, well inside the cap, so
+    this is the outage case rather than the ordinary one."""
+    _anchor(env, (555, NOW - 72 * 3600))
     _runs(
         env,
-        _run_entry(1, updated=NOW - 18000),
-        _run_entry(2, updated=NOW - 23400),
+        _run_entry(1, updated=NOW - 40 * 3600),
+        _run_entry(2, updated=NOW - 60 * 3600),
     )
 
     result = _run(env)
 
     assert result.returncode == 0, result.stderr
     assert _ids(result) == [1]
-    assert "more than 6h back" in result.stderr
+    assert "more than 49h back" in result.stderr
 
 
 def test_outside_actions_uses_a_1h_window(env: dict[str, str]) -> None:
@@ -240,15 +242,39 @@ def test_outside_actions_uses_a_1h_window(env: dict[str, str]) -> None:
 
 def test_fetch_limit_cap_warns(env: dict[str, str]) -> None:
     """Exactly the fetch limit means the list may be truncated at its old end;
-    the rows are still returned, with a WARNING against reading an all-clear."""
+    the rows are still returned, with a WARNING against reading an all-clear.
+    The limit is the Actions API's own ceiling, so there is nothing left to
+    raise and the caller has to narrow the window instead."""
     _anchor(env, (555, NOW - 5400))
-    _runs(env, *(_run_entry(i, updated=NOW - 600) for i in range(200)))
+    _runs(
+        env,
+        *(_run_entry(i, updated=NOW - 600) for i in range(list_recent_runs.RUN_LIMIT)),
+    )
 
     result = _run(env)
 
     assert result.returncode == 0, result.stderr
-    assert len(_ids(result)) == 200
-    assert "the fetch limit" in result.stderr
+    assert len(_ids(result)) == list_recent_runs.RUN_LIMIT
+    assert "pagination ceiling" in result.stderr
+
+
+def test_run_fetches_ask_for_the_whole_ceiling(env: dict[str, str]) -> None:
+    """A busy repo puts more runs than any lower limit in the fetch's span, and
+    truncation drops the window's oldest runs silently — the census reads as an
+    all-clear for a span it never looked at. The fetch has to ask for the
+    ceiling, so the limit binds only where the API itself does."""
+    _anchor(env, (555, NOW - 5400))
+    _runs(env, _run_entry(1, updated=NOW - 600))
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    fetches = [
+        line
+        for line in Path(env["GH_CALLS"]).read_text().splitlines()
+        if line.startswith("run list") and "--status success" not in line
+    ]
+    assert fetches and all("--limit 1000" in line for line in fetches), fetches
 
 
 @pytest.mark.parametrize("failure", ["FAIL_WORKFLOW_LIST", "FAIL_ANCHOR", "FAIL_RUNS"])
@@ -264,6 +290,72 @@ def test_api_failure_fails_loudly(env: dict[str, str], failure: str) -> None:
     assert result.returncode != 0, (
         f"{failure}: an API failure produced exit 0 with: {result.stdout!r}"
     )
+
+
+def test_workflow_fetch_limit_warns(env: dict[str, str]) -> None:
+    """`gh workflow list` fetches 50 without a limit and says nothing when it
+    truncates, so a Tend workflow past the edge would be missing from the list
+    outright rather than merely missing runs."""
+    Path(env["WF_JSON"]).write_text(
+        json.dumps([{"name": f"tend-{i}"} for i in range(200)])
+    )
+    _anchor(env, (555, NOW - 5400))
+    _runs(env, _run_entry(1, updated=NOW - 600))
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    # Scoped to the listing's own call, which is the one under test: the run
+    # fetches below it carry a `--limit` of their own.
+    listings = [
+        line
+        for line in Path(env["GH_CALLS"]).read_text().splitlines()
+        if line.startswith("workflow list")
+    ]
+    assert listings and all("--limit 200" in line for line in listings), listings
+    assert "at least 200 workflows" in result.stderr
+
+
+def test_a_rerun_is_flagged_because_its_row_carries_only_the_latest_attempt(
+    env: dict[str, str],
+) -> None:
+    """`gh run list` reports the current attempt's conclusion, so a re-run that
+    went green reads as `success` and the failure that prompted it leaves no row.
+    The census has to fetch `attempt` and say so, or the window reads as an
+    all-clear it is not."""
+    _anchor(env, (555, NOW - 5400))
+    _runs(
+        env,
+        _run_entry(1, updated=NOW - 600),
+        _run_entry(2, updated=NOW - 600, attempt=2),
+    )
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    assert _ids(result) == [1, 2]
+    fetches = [
+        line
+        for line in Path(env["GH_CALLS"]).read_text().splitlines()
+        if line.startswith("run list") and "--status success" not in line
+    ]
+    assert fetches and all("attempt,databaseId" in line for line in fetches), fetches
+    assert "1 run(s) in this list were re-run — 2." in result.stderr
+    # The floor separates an attempt this window has to count from one the
+    # previous sweep already did.
+    assert _iso(NOW - 5400) in result.stderr
+
+
+def test_first_attempt_rows_draw_no_rerun_warning(env: dict[str, str]) -> None:
+    """The warning has to stay quiet on an ordinary window, or it reads as noise
+    and the one window that carries a re-run is missed with it."""
+    _anchor(env, (555, NOW - 5400))
+    _runs(env, _run_entry(1, updated=NOW - 600), _run_entry(2, updated=NOW - 600))
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    assert "re-run" not in result.stderr
 
 
 def test_workflows_filtered_by_prefix(env: dict[str, str]) -> None:
@@ -295,3 +387,24 @@ def test_overlapping_prefixes_do_not_double_count(env: dict[str, str]) -> None:
 
     assert result.returncode == 0, result.stderr
     assert _ids(result) == [1], "one workflow's runs were counted once per prefix"
+
+
+def test_review_runs_profile_persists_its_wider_completion_window(
+    env: dict[str, str], tmp_path: Path
+) -> None:
+    since_file = tmp_path / "since"
+    env["REVIEW_RUNS_SINCE_FILE"] = str(since_file)
+    _anchor(env, (555, NOW - 28 * 3600))
+    _runs(env, _run_entry(1, updated=NOW - 26 * 3600))
+
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(os, "environ", env.copy())
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = list_recent_runs.main(
+                ["review-runs"], now=datetime.fromtimestamp(NOW, tz=UTC)
+            )
+
+    assert result == 0, stderr.getvalue()
+    assert [row["databaseId"] for row in json.loads(stdout.getvalue())] == [1]
+    assert since_file.read_text() == f"{_iso(NOW - 28 * 3600)}\n"

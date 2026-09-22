@@ -11,16 +11,6 @@
 
 bot_name: my-project-bot
 
-# ## Runtime switch
-#
-# Every operational job reads this value from the repository's default branch
-# before checkout, setup, reactions, or the agent action. `false` leaves the
-# generated workflows installed, so changing it back to `true` (or removing
-# the key) resumes new jobs without regeneration. A job already running is not
-# interrupted.
-#
-# enabled: false
-
 # ## Harness
 #
 # Which agent runtime to use. Defaults to "claude" (the official `claude`
@@ -31,26 +21,56 @@ bot_name: my-project-bot
 
 # ## Model
 #
-# Model to use for all workflows. Valid values depend on the harness:
-#
-# - harness: claude  — opus (default), sonnet, haiku
-# - harness: codex   — gpt-5.5 (default); any string Codex CLI accepts
+# Model to use for all workflows. Any string the selected harness's CLI accepts
+# — an alias that follows the provider's promotions (`opus`, `sonnet`,
+# `haiku`), or an exact id that stays put across them (`claude-opus-5`,
+# `gpt-5.6-sol`). Tend passes the value straight to `--model`, so a name the
+# CLI does not know fails the job with that CLI's error. The defaults are
+# `opus` for Claude and `gpt-5.6-sol` for Codex.
 #
 # model: opus
 
-# ## Effort (codex only)
+# Codex installs write their model explicitly. During a Tend upgrade, move an
+# explicit pin to a newer model only within the same capability and price tier.
+
+# ## Effort
 #
-# Reasoning effort for the Codex model. Valid values: low, medium, high,
-# xhigh. Empty (default) leaves the choice to the Codex CLI default
-# (medium for gpt-5.5).
+# Reasoning effort for the selected model. Codex accepts low, medium, high,
+# and xhigh; Claude also accepts max. A model that does not read the level
+# ignores it. Empty (default) leaves the choice to the harness CLI.
 #
 # effort: medium
+
+# ## Additional harness arguments
+#
+# Exact arguments passed to `claude` or `codex exec`, before Tend's managed
+# arguments. Each list item is one argv element, so values containing spaces
+# stay intact. The selected CLI validates incompatible or repeated options.
+#
+# args: [--max-turns, "40"]  # Claude example
+#
+# `harness`, `model`, `effort`, and `args` can instead live under one
+# `workflows.<name>` entry. That workflow then overrides the top-level value;
+# `args: []` clears inherited arguments.
+
+# ## Merge mode
+#
+# `maintainer` is the default: the bot can push branches and open PRs, but only an
+# admin can update the default branch. `yolo` lets the bot merge PRs into the
+# default branch while still blocking direct pushes. In yolo mode, `tend init`
+# owns a final CODEOWNERS block for `.github/**`, `.config/tend.yaml`, and the
+# CODEOWNERS files themselves. GitHub requires a fresh approval from the
+# configured maintainer user (never the bot or a team) before those control-plane
+# changes can merge.
+#
+# merge: yolo
+# control_plane_owner: "@octocat"
 
 # ## Protected branches
 #
 # The default branch is always protected. Additional long-lived branches
-# (e.g. release or staging branches) can be listed here. The bot cannot
-# merge to any of them without human approval.
+# (e.g. release or staging branches) can be listed here. They remain
+# admin-only under either merge mode.
 #
 # protected_branches: ["release", "staging"]
 
@@ -63,16 +83,18 @@ bot_name: my-project-bot
 # | Harness    | Required                                                                  |
 # |------------|---------------------------------------------------------------------------|
 # | `claude`   | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` |
-# | `codex`    | `TEND_BOT_TOKEN` + `OPENAI_API_KEY`                                        |
+# | `codex`    | `TEND_BOT_TOKEN` + `OPENAI_API_KEY`, or the three subscription secrets below |
 #
 # `TEND_BOT_TOKEN` is the bot account's PAT (scopes below).
 # `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token` (PKCE).
 # `ANTHROPIC_API_KEY` is a console.anthropic.com API key.
-# `OPENAI_API_KEY` is a standard OpenAI API key. The Codex
-# subscription `auth.json` path is not supported — Codex rotates that
-# refresh token on every call, so concurrent jobs
-# (review/mention/triage/nightly/…) would invalidate each other's auth
-# mid-run.
+# `OPENAI_API_KEY` is a standard OpenAI API key. Experimental Plus/Pro auth
+# instead uses `CODEX_AUTH_JSON` (access-only consumers),
+# `CODEX_REFRESH_AUTH_JSON` (the full rotating bundle, refresh job only), and
+# `CODEX_REFRESH_PAT` (a repo-scoped GitHub PAT with Environments: write). A
+# generated serialized workflow refreshes the pair weekly. This relies on
+# internal Codex auth behavior and may break when that behavior changes; see
+# README.md and the install-tend security model before selecting it.
 #
 # The Claude action prefers the subscription token
 # (`CLAUDE_CODE_OAUTH_TOKEN`) over the API key when both are set.
@@ -105,24 +127,24 @@ bot_name: my-project-bot
 
 # ## Setup steps
 #
-# Build tools, caches, and environment variables that run before Claude in every
-# workflow. A `setup:` entry mirrors a GitHub Actions step: give it exactly
+# Build tools, caches, and environment variables that run before the agent in
+# every workflow. A `setup:` entry mirrors a GitHub Actions step: give it exactly
 # one of `uses` or `run`, plus any of these optional fields:
 #
 #     name, id, if, with, env, shell, working-directory,
 #     continue-on-error, timeout-minutes
 #
 # For multi-step setup, add multiple entries to the `setup:` list — they
-# render in declared order. For anything more elaborate (conditional shells,
-# shared env across many steps, anchored caches), move the YAML into a local
-# composite action (`.github/actions/tend-setup/action.yaml`) and reference
-# it from one entry with `uses`.
+# render in declared order. For anything more elaborate, move the YAML into a
+# local composite action (`.github/actions/tend-setup/action.yaml`) and reference
+# it from one entry with `uses`. In `yolo`, all `setup:` entries are refused
+# because ordinary code can steer even a fixed runner-side command.
 #
 # Setup runs against reviewed code — the default branch, or in `tend-review`
-# the PR's base branch, checked out before the PR's own tree lands. Project
-# setup that must see the PR's manifests (installing its dependencies) goes in
-# `sandbox_setup:` below, which runs inside the Claude harness's sandbox. Under
-# codex there is no such lever; the agent installs what it needs itself.
+# the PR's base branch, checked out before the PR's own tree lands. What it
+# builds reaches the agent (see "The agent's sandbox" below); what the PR itself
+# changes, such as a new dependency in its lockfile, the agent installs in the
+# session.
 #
 # `tend-notifications` decides up front whether the agent needs to boot and
 # injects an `if:` guard on every setup step so a run with no unread
@@ -131,39 +153,32 @@ bot_name: my-project-bot
 # job. Write it as a plain expression or one whole `${{ ... }}`; mixing the two
 # is rejected at `init`.
 #
-# Each form below shows the config and the YAML it produces inside the
-# `steps:` block. The guard is shown on the first example; it's added the same
-# way on every step.
+# The two forms below show the config and the YAML they produce inside the
+# `steps:` block. `tend-notifications` adds its no-work guard to each step.
 #
 # `uses`:
 #
 #     setup:
-#       - uses: astral-sh/setup-uv@v10.0.1
+#       - uses: astral-sh/setup-uv@v10.2.0
 #
 #     # renders as (in tend-notifications):
-#     #   - uses: astral-sh/setup-uv@v10.0.1
+#     #   - uses: astral-sh/setup-uv@v10.2.0
 #     #     if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
 #     #
 #     # in other workflows:
-#     #   - uses: astral-sh/setup-uv@v10.0.1
+#     #   - uses: astral-sh/setup-uv@v10.2.0
 #
 # `uses` with action inputs and step-level env:
 #
 #     setup:
 #       - uses: actions/setup-node@v7
-#         name: Setup Node
 #         with:
 #           node-version-file: .node-version
-#         env:
-#           FORCE_COLOR: "1"
 #
 #     # renders as:
 #     #   - uses: actions/setup-node@v7
-#     #     name: Setup Node
 #     #     with:
 #     #       node-version-file: .node-version
-#     #     env:
-#     #       FORCE_COLOR: '1'
 #
 # `run` with shell and working directory:
 #
@@ -181,77 +196,91 @@ bot_name: my-project-bot
 #     #     env:
 #     #       RUSTFLAGS: -D warnings
 
-# ## Sandbox setup (Claude harness)
+# ## The agent's sandbox (both harnesses)
 #
-# `setup:` above runs as the RUNNER user, around the composite action. The
-# `claude` harness runs the agent as a separate, non-sudo sandbox user with a
-# fixed env allowlist. Shared system/hosted-toolcache paths and independently
-# seeded paths already present under the sandbox home carry over. Changes that
-# `setup:` makes under the runner's home do not: that home may contain
-# credentials, and Tend does not classify its files as tools or secrets. Use
-# `sandbox_setup:` for home-scoped installs or version changes such as
-# `cargo install`, `pip install --user`, or `uv tool install`.
+# `setup:` is available only in maintainer mode. Yolo refuses it because code
+# the bot merged to the default branch could steer a fixed runner-side command.
+# In maintainer mode it runs as the RUNNER user, around the composite action. The
+# agent then runs as a separate, non-sudo user inside a hardened systemd
+# unit, in the job's own checkout and home, with the job's PATH and
+# environment. It sees them through a copy-on-write view: what `setup:`
+# prepared (a toolchain, a warm cache) is there at its own path, the agent
+# writes wherever the runner itself could — a path only root can write is not
+# one of them — and nothing it writes reaches the runner or a later step. The
+# sandbox's `/tmp` is its own RAM-backed tmpfs; write anything bulky under
+# `$TMPDIR`.
 #
-# Tend appends a pinned `uv` fallback after the `setup:` PATH. It installs no
-# other language toolchain. These keys make deliberate additions inside the
-# sandbox:
+# The view covers the runner account's home, so the job's checkout has to sit
+# inside it, as it does on GitHub-hosted runners. A self-hosted runner whose
+# work folder is outside that home is not supported yet: the job fails in its
+# "Set up credential-isolation sandbox" step, naming both paths. Configuring
+# the runner's work folder under its home avoids it.
 #
-# - `sandbox_path`: directories prepended to the sandbox PATH. A leading `~`
-#   expands to the sandbox home. Use it for a system directory the installer did
-#   not add to PATH, or for a tool installed by `sandbox_setup:` off PATH:
+# So anything `setup:` leaves readable in the runner's home or checkout (a
+# registry login, a cloud credential file), and anything exported to
+# `$GITHUB_ENV` or set in job-level `env:`, is readable by the agent, and so by
+# anyone who can open a pull request. Log in only in steps tend does not run.
+# Tend masks the Actions runner's own files and GitHub's file-command directory.
 #
-#     sandbox_path:
-#       - /opt/my-tool/bin
+# The sandbox refuses `AF_UNIX` sockets: creating one returns `EPERM`,
+# and the boundary asserts that at startup, so it is not something a config
+# key relaxes. Anonymous pipes and `socketpair()` are unaffected; anything
+# that opens a named socket is not, however closely its two ends are
+# related. So a build tool that drives worker processes over one loses them
+# — and .NET's "named pipes" are `AF_UNIX` sockets, so MSBuild loses its
+# worker nodes silently: a multi-project `dotnet build` prints
+# `Build FAILED.` with `0 Error(s)` and no diagnostic. `-m:1` keeps MSBuild
+# in one process and makes real errors visible again.
 #
-#   A runner-home source path outside the checkout is refused.
+# The sandbox also refuses new namespaces (`unshare --user` fails), so a tool
+# that builds its own sandbox from one, such as bubblewrap, a rootless
+# container runtime, or Chromium's sandbox, cannot start inside it.
 #
-# - `sandbox_env`: NAME: VALUE pairs added to the agent's launch env. Reserved
-#   keys are rejected at `init`, and again inside the sandbox so a hand-edited
-#   workflow can't smuggle one past:
+# Tend appends a pinned `uv` fallback after the agent's PATH. It installs no
+# other language toolchain, and puts nothing on PATH before `setup:` runs, so
+# a `setup:` step that calls `uv` needs `astral-sh/setup-uv` ahead of it, as
+# in any workflow. A directory a `setup:` step appends to
+# `$GITHUB_PATH` is on the agent's PATH:
 #
-#   - proxy routing — `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `http_proxy`,
-#     `https_proxy`, `no_proxy`
-#   - CA trust — `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`
-#   - dummy credentials — `GH_TOKEN`, `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`,
-#     `CLAUDE_CODE_OAUTH_TOKEN`
-#   - prompt suppression — `CLAUDE_CODE_REMOTE`
-#   - the sandbox's own locations — `HOME`, `PATH`, `XDG_CONFIG_HOME`,
-#     `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`
+#     setup:
+#       - run: echo "/opt/my-tool/bin" >> "$GITHUB_PATH"
 #
-#     sandbox_env:
-#       RUST_BACKTRACE: "1"
+# A variable a `setup:` step exports to `$GITHUB_ENV` is in the agent's
+# environment the same way:
 #
-#   Setup-step env changes do not cross automatically, except under a `GITHUB_*`
-#   name — those ride the GitHub context, so don't give a secret one. If a build
-#   needs an env change (for example `JAVA_HOME` rather than `java` on PATH),
-#   add it explicitly.
+#     setup:
+#       - run: echo "RUST_BACKTRACE=1" >> "$GITHUB_ENV"
 #
-# - `sandbox_setup`: shell commands run as the sandbox user after the toolchain
-#   and plugins install and before the agent runs, with the workspace as cwd.
-#   The workspace holds the PR's tree by then, so this is where installing the
-#   project's dependencies belongs (`uv sync`, `npm ci`), alongside other
-#   on-disk effects like warming a cache. Env-only tweaks don't persist across
-#   the command's shell — use sandbox_path/sandbox_env. End installer commands
-#   by running the tool so a broken install fails before the agent starts:
+# Tend's proxy routing, CA trust, and dummy credentials win over a variable of
+# the same name. Every command the sandbox runs inherits that environment, and
+# on `tend-review` and on a mention on a pull request those commands include
+# the pull request's own code whenever the agent builds or tests that tree.
+# Tend's own GitHub and model credentials never reach the sandbox — a
+# runner-side proxy injects them into the requests that need them; the one
+# exception is Codex under subscription auth, which receives an expiring
+# access-only token. A third-party credential has no such route, so a secret
+# exported for the agent is readable by anyone who can open a pull request.
 #
-#     sandbox_setup:
-#       - uv tool install pre-commit
-#       - pre-commit --version
+# Give the agent the narrowest credential that does the job: that is the
+# mitigation that holds everywhere, because the value sits in the agent's env
+# on every workflow, and no event confines the session to text: a session on
+# any event can check out a pull request or run a reproduction from an issue
+# body. Withholding it from the events that carry unreviewed code closes the
+# largest path. Hand the secret to the step through its `env:`, where a GitHub
+# Actions expression can gate it — name the events that get it rather than the
+# ones that don't, and keep the secret on the `&&` side, since an empty string
+# is falsy and `<cond> && '' || secrets.X` hands over the secret whatever
+# `<cond>` says. Every step after it sees the value as well, so add it last:
 #
-#   One block runs for every workflow, and the commands see the same GitHub
-#   context the agent does — `$GITHUB_WORKFLOW`, `$GITHUB_EVENT_NAME`,
-#   `$GITHUB_REPOSITORY` and the rest of `GITHUB_*`, straight from Actions — so
-#   a command can scope itself to the workflows or events that need it.
-#   `$GITHUB_WORKFLOW` is the same string a `setup:` step matches with
-#   `if: github.workflow == '...'`, so a gated install and its assertion name
-#   the same workflows:
+#     setup:
+#       - run: echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"
+#         env:
+#           MY_TOKEN: ${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}
 #
-#     sandbox_setup:
-#       - 'if [ "$GITHUB_WORKFLOW" = tend-weekly ]; then nix --version; fi'
+# `$GITHUB_ENV` reads one `NAME=VALUE` per line, so a value that expands to
+# more than one line sets variables of its own. A multi-line secret needs
+# GitHub's `NAME<<DELIMITER` form, with a delimiter the value cannot contain.
 #
-# The codex harness runs the agent on the runner, so its `setup:` section
-# already reaches the agent env; these keys are inert (and warn) under codex.
-
 # ## Memory Gist (experimental, Claude harness)
 #
 # `memory_gist: true` restores Claude Code's model-authored auto memory from a
@@ -316,8 +345,21 @@ bot_name: my-project-bot
 
 # ### mention
 #
-# Triggers on @bot mentions and review comments. Responds to requests in PR and
-# issue conversations.
+# Triggers on @bot mentions and comments in issues and PRs, and on the review
+# events mention-relay passes it. Responds to requests in PR and issue
+# conversations.
+
+# ### mention-relay
+#
+# Triggers on submitted reviews and edited inline review comments on same-repo
+# PRs, and passes them to mention from a job that holds no secrets; each review
+# adds this one check to the PR. Generated only while mention is enabled. With
+# `enabled: false`, reviews reach the bot through the notifications poll
+# instead, minutes later, as reviews on fork PRs already do.
+#
+# workflows:
+#   mention-relay:
+#     enabled: false
 
 # ### triage
 #
@@ -326,8 +368,8 @@ bot_name: my-project-bot
 
 # ### ci-fix
 #
-# Triggers when a watched CI workflow fails on the default branch. Reads failure
-# logs, identifies root cause, opens a fix PR.
+# Triggers when a watched CI workflow fails or is cancelled on the default
+# branch. Diagnoses the run and opens a fix PR when needed.
 #
 # workflows:
 #   ci-fix:
@@ -346,8 +388,8 @@ bot_name: my-project-bot
 
 # ### weekly
 #
-# Weekly (default Sunday 09:17 UTC). Reviews dependency PRs, approves safe
-# patch and minor updates (a maintainer merges — the bot never merges).
+# Weekly (default Sunday 09:17 UTC). Reviews dependency PRs and approves safe
+# patch and minor updates; merging follows the configured mode.
 #
 # workflows:
 #   weekly:
@@ -377,20 +419,22 @@ bot_name: my-project-bot
 # Overrides use RFC 7396 (JSON Merge Patch): mappings deep-merge, scalars and
 # lists replace, and `null` deletes the key. Unknown job names print a warning
 # but don't fail. Step-level overrides aren't supported — use the `setup:`
-# mechanism above to inject steps.
+# mechanism above to inject steps. Yolo refuses both override forms so
+# credential-bearing generated jobs retain their audited shape.
 #
 # ### Example: skip review on labeled PRs
 #
-# The `review` job's default `if:` only skips draft PRs. To also skip PRs
-# carrying a `tend:dismissed` label (useful once a PR has been reviewed and
-# the author doesn't want re-reviews on every push), replace the `if:` —
-# scalars replace under JSON Merge Patch, so duplicate the draft check:
+# To skip PRs carrying a `tend:dismissed` label (useful once a PR has been
+# reviewed and the author doesn't want re-reviews on every push), replace the
+# `review` job's `if:`. Scalars replace under JSON Merge Patch, so repeat the
+# `TEND_ENABLED` pause check the generated `if:` holds — `init` refuses an
+# override on an agent job that drops it:
 #
 # workflows:
 #   review:
 #     jobs:
 #       review:
-#         if: "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+#         if: "vars.TEND_ENABLED != 'false' && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
 #
 # ### Example: extend permissions without losing defaults
 #
