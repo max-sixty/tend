@@ -2,7 +2,7 @@
 
 Tend is an autonomous CI maintainer for GitHub repos: it reviews PRs, triages
 issues, and fixes CI, powered by Claude or Codex. This repo ships the generator
-(`uvx tend@latest`) that stamps each adopter's workflow files, plus the plugins
+(`uvx tend@latest`) that stamps each consumer's workflow files, plus the plugins
 and composite actions those workflows run.
 
 No backward compatibility. When a config format or API changes, cut over
@@ -10,13 +10,8 @@ completely — old formats should fail with a clear error, not silently parse.
 
 Simplicity outranks efficiency. Complexity earns its place by preventing
 wrong outward actions — what the bot posts, approves, merges, or closes —
-never by saving compute. Wasted compute (a no-op session, a duplicated
-survey, a slow CI job, a run lost to a blip that a later tick retries)
-costs cents; the gate, retry wrapper, or scheduling arithmetic that would
-have prevented it has to be understood and maintained forever. Fix waste
-only when the fix is a simple knob — a cadence value, a deleted step, a
-one-line condition — and otherwise leave it. Prefer deleting a mechanism
-over refining it.
+rather than by saving compute. Prefer deleting a mechanism over refining it.
+"What waste is worth fixing" below says which waste earns a change.
 
 ## Commands
 
@@ -39,9 +34,9 @@ is the Python half on its own.
 
 `pre-commit` is not on the CI sandbox's PATH, which is why the lint command
 above carries the `uv tool run` prefix; a narrower substitute (ruff alone,
-shellcheck alone) skips ten of the thirteen hooks, including the three
-`repo: local` guards — the bang-backtick check, the install-tend mirror sync,
-and the `sandbox_env` reserved-set parity check.
+shellcheck alone) skips nine of the twelve hooks, including the two
+`repo: local` guards — the bang-backtick check and the install-tend mirror
+sync.
 
 Inside a tend session the sandbox has no DNS, so the two tests in
 `generator/tests/test_refresh_consumers.py` fail: they drive the script
@@ -59,26 +54,27 @@ Four pieces:
    — no floating `v1`). Every action lives under a harness-named path; there
    is no bare-root default. The two harness runners are:
    - `max-sixty/tend/claude@X.Y.Z` (Claude) — runs the official `claude`
-     binary headless (`claude -p`) inside the shared Anthropic Sandbox Runtime
-     boundary; completion is the process exit code plus result event.
+     binary headless (`claude -p`) inside the shared sandbox, a hardened
+     systemd unit; completion is the process exit code plus result event.
      Inputs in `claude/action.yaml`.
    - `max-sixty/tend/codex@X.Y.Z` (Codex) — installs `@openai/codex` and
      shells out to `codex exec`. Skills are staged on disk and an
      `AGENTS.md` in `$CODEX_HOME` teaches Codex to resolve
      `/tend-ci-runner:NAME` slash commands. Inputs in `codex/action.yaml`.
-     Shares the cross-harness workspace, SRT lifecycle, preflight, and teardown
-     scripts under `shared/steps/`.
+     Shares the cross-harness workspace, sandbox lifecycle, preflight, and
+     teardown scripts under `shared/steps/`.
 
    Both harness runners resolve the bot's numeric ID at runtime, run security
-   and rate-limit preflight, prepare an independent event checkout, run
-   `sandbox_setup:` and the complete agent turn in one SRT process tree, reap
-   it, and upload bounded session logs. The generated workflow's checkout stays
-   runner-owned on reviewed code for setup and local-action POST chains.
+   and rate-limit preflight, then select the event's topology and run the
+   complete agent turn in one systemd unit over a copy-on-write view of the
+   runner's home, reap it, and upload bounded session logs. The generated
+   workflow's checkout stays on reviewed code for setup and local-action POST
+   chains; nothing the agent writes reaches it.
 
    `max-sixty/tend/codex/refresh@X.Y.Z` is the Codex support action. A generated
    serialized workflow runs it weekly to rotate Plus/Pro credentials and
    publish the full and access-only bundles. It holds no bot token and does not
-   inspect adopter code. Inputs in `codex/refresh/action.yaml`.
+   inspect consumer code. Inputs in `codex/refresh/action.yaml`.
 
    Removed: `claude-interactive`, a PTY-supervised variant of the same binary
    that existed only to dodge the 2026-06-15 Agent SDK metering (which covered
@@ -86,25 +82,25 @@ Four pieces:
    the default harness now runs the binary rather than the SDK, so nothing
    selected it. Restore from `036f9c4` if the metering resumes.
 3. **Generator** (`uvx tend@latest init`) — stamps workflow files into
-   the adopter's `.github/workflows/` from `.config/tend.yaml`. Picks the
+   the consumer's `.github/workflows/` from `.config/tend.yaml`. Picks the
    right action ref and secret names per `harness`. Generation is
    idempotent — running `init` again overwrites all files from the
    current config. When the review workflow is generated, it also merges the
-   `concurrency.queue` ignore into the adopter-owned
+   `concurrency.queue` ignore into the consumer-owned
    `.github/actionlint.yaml` (see "Concurrency and filtering").
 4. **Config** (`.config/tend.yaml`) — inputs to the generator. Overrides
    from defaults only. `harness: claude | codex` selects the harness
    (default `claude`). A per-workflow `harness:` override (and matching
-   `model:`) lets an adopter trial a different harness on one workflow at a
-   time. All workflows are generated by default. A per-workflow
-   `enabled: false` omits that workflow on regeneration; top-level
-   `enabled: false` leaves the workflows installed and pauses new jobs at
-   runtime.
+   `model:`) lets a consumer trial a different harness on one workflow at a
+   time. All workflows are generated by default. `enabled: false` omits a
+   workflow on regeneration. Pausing all of tend is not config: every job that
+   runs the agent checks the `TEND_ENABLED` repository variable in its `if:`.
 
 Generated workflows are standalone — full `steps:` jobs, not
-`workflow_call`. The generator owns the entire file. Trusted runner setup
-(system tools and Actions caches) is defined in `setup:`; dependency setup
-against the event tree is defined in `sandbox_setup:` and runs inside SRT.
+`workflow_call`. The generator owns the entire file. Setup (system tools,
+dependencies, Actions caches) is defined in `setup:` and runs on reviewed code;
+the agent sees what it built through the view, and installs whatever the
+event's own tree changes in the session.
 
 ## Structure
 
@@ -159,7 +155,7 @@ and the dev dependencies (pytest, pytest-regtest, and the pinned mitmproxy the
 proxy addon imports) live in the root `pyproject.toml`, and the dev environment
 needs 3.12+ even though the package supports 3.11.
 
-Consuming repos regenerate their `tend-*.yaml` workflows nightly (tend itself
+Consumer repos regenerate their `tend-*.yaml` workflows nightly (tend itself
 included — it dogfoods its own workflows). Changes to the generator do not
 require manual regeneration in downstream repos.
 
@@ -179,7 +175,7 @@ wouldn't keep un-promoted code out of the job anyway: `install.sh` always
 downloads the `latest` build as its bootstrap installer, and only the agent
 session runs the pin.
 
-## Generator vs adopter ownership
+## Generator vs consumer ownership
 
 | Aspect | Owner | Lives in |
 |---|---|---|
@@ -190,15 +186,14 @@ session runs the pin.
 | Permissions | Generator | generated workflow |
 | Checkout | Generator | generated workflow |
 | Composite action call | Generator | generated workflow |
-| Runner setup (system tools, Actions cache) | Adopter | `setup:` in `.config/tend.yaml` |
-| Event-tree setup (dependencies, generated files) | Adopter | `sandbox_setup:` in `.config/tend.yaml` |
-| Bot identity, auth config | Adopter | `.config/tend.yaml` |
-| Skills (generic) | Tend | `tend` plugin (marketplace) |
-| Skills (project-specific) | Adopter | `.claude/skills/` in their repo |
+| Setup (system tools, dependencies, Actions cache) | Consumer | `setup:` in `.config/tend.yaml` |
+| Bot identity, auth config | Consumer | `.config/tend.yaml` |
+| Skills (generic) | Tend | `tend-ci-runner` plugin (marketplace) |
+| Skills (project-specific) | Consumer | `.claude/skills/` in their repo |
 
 ## Workflow overrides
 
-Adopters extend generated workflows via YAML keys that the generator
+Consumers extend generated workflows via YAML keys that the generator
 merges into the rendered YAML using RFC 7396 (JSON Merge Patch — mappings
 deep-merge, scalars and lists replace, `null` deletes):
 
@@ -228,8 +223,7 @@ workflows:
 
 Workflow-level (`workflow_extra`) and job-level (`jobs.<name>`) overrides
 are supported in maintainer merge mode; step-level is not — `setup:` handles
-trusted runner steps and `sandbox_setup:` handles event-workspace commands.
-Yolo refuses both override forms and all runner-side `setup:` so
+injected runner steps. Yolo refuses both override forms and all runner-side `setup:` so
 credential-bearing jobs retain their audited shape. No allowlist of override
 keys; unknown job names produce a warning.
 
@@ -240,7 +234,7 @@ functionally identical.
 
 ## Auth
 
-Each adopter creates a GitHub bot account and a classic PAT with `repo`,
+Each consumer creates a GitHub bot account and a classic PAT with `repo`,
 `workflow`, `notifications`, `write:discussion`, `gist`, and `user`. `repo`
 is required on public and private repositories alike — `install-tend` mints
 exactly that set, and the nightly scope audit (`pat_scope_audit.py`) reports
@@ -283,7 +277,7 @@ policy, and `--fix` reconciles it. See
 `docs/security-model.md` for the full threat model. Alternative models
 (GitHub App, triage+fork) are in `TODO.md`.
 
-Every adopter runs the environment gate: both secrets live in the `tend`
+Every consumer runs the environment gate: both secrets live in the `tend`
 environment with no repo-level copies. This repo's own workflows name it
 too, including the hand-maintained ones the generator never touches.
 
@@ -306,7 +300,7 @@ Concurrency groups:
 | Workflow | Group key | Cancel-in-progress |
 |---|---|---|
 | review | `workflow-PR#` | **no** — killing a session discards a review it can still deliver; `queue: max` holds pending PR events within GitHub's queue limit while it folds the push in and posts |
-| mention/relay | none | stateless — secretless job that re-posts review events as a `repository_dispatch` |
+| mention-relay | none | stateless — secretless job that re-posts review events to mention as a `repository_dispatch` |
 | mention/verify | none | stateless |
 | mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
 | triage | `workflow-issue#` | yes — latest comment wins |
@@ -322,9 +316,9 @@ Actions but doesn't have the bot/Claude secrets no-ops cleanly. The
 canonical owner is detected at `init` time (via `gh repo view`, walking
 `source.owner.login` if the local repo is itself a fork) and pinned in
 the generated workflow. `tend-review` uses `pull_request_target` (base
-repo only) and `tend-mention`'s review-event paths already filter forks
-via `head.repo.full_name == github.repository`, so neither needs the
-guard.
+repo only) and `tend-mention-relay`, which carries tend-mention's review
+events, already filters forks via `head.repo.full_name ==
+github.repository`, so neither needs the guard.
 
 **Red branches.** A red default branch fails every push that follows it, each
 on its own commit, so ci-fix keys its group on the branch — a commit-keyed
@@ -351,24 +345,87 @@ pending run covers a replaced poll. ci-fix keeps the default too, and wants
 it: while a session works a red branch, the newest unsuccessful run carries
 that branch's current state, so replacing the pending run loses nothing.
 
-## Skill design: bundled for everyone, overlay for one
+## Shipped instructions and tend's own
 
-Bundled skills in `plugins/tend-ci-runner/skills/` supply defaults. Consumer
-repos overlay them at `.claude/skills/running-tend/SKILL.md`; where the two
-conflict, the overlay wins.
+Two kinds of instructions live in this repo, split by which repo the text
+governs.
 
-`.agents/skills` links to `.claude/skills`, so Claude and Codex discover the
-same repo-local skills.
+**Shipped instructions** are whatever text reaches a repo other than this one.
+They tell the bot what to do in a repo it maintains, and have to hold in repos
+nobody here has seen. More of them than `plugins/**`: `shared/system-prompt.md`,
+`codex/agents-tail.md`, the header comment `workflows.py` stamps into every
+generated workflow, and `docs/tend.example.yaml`, which a pre-commit hook
+mirrors into `install-tend`.
+Before writing instructions outside `plugins/`, check whether they end up in a
+consumer's repo or session.
 
-When writing a bundled skill, keep the content universal — it applies to
-every consumer. Repo-specific policy, taste, or convention (PR title
-formats, label names, branch routing) belongs in an overlay. Tend has its
-own overlay at `.claude/skills/running-tend/SKILL.md` — use it for guidance
-that only applies to developing tend itself.
+**Tend's own instructions** are read only here: `CLAUDE.md`, `TODO.md`,
+`docs/security-model.md`, and `.claude/skills/`. They tell a session — the
+bot's or yours — how to work on tend.
 
-Use outcomes from adopter runs to refine the skills. A general missing
-instruction or wrong default belongs in the bundled skill; repository policy
-belongs in that repository's overlay.
+The test for a line of shipped text: does it hold in a repo whose maintainer
+disagrees with us? What tend values, what this repo will spend complexity on,
+how many open PRs is too many, how much runner time is worth saving — those are
+one maintainer's calls. Shipped, they make every consumer's repo answer to
+tend's; they belong here instead. Mechanics ship freely: how GitHub behaves,
+what the harness does, what a session must never do. A default a consumer might
+want differently ships as a default their overlay can change, stated without
+our reasoning for it.
+
+Two naming decisions. A repo that installs tend is a **consumer**, the term
+`data/consumers.json`, `refresh_consumers.py`, and the Worker already use — not
+an adopter, which the changelog keeps only in released entries. And the second
+kind isn't `internal`: a skill's `metadata: internal: true` already
+means it isn't user-invocable, and every shipped skill carries it.
+
+### Bundled and overlay
+
+Within shipped instructions, `plugins/tend-ci-runner/skills/` holds the defaults
+and a consumer overlays them at `.claude/skills/running-tend/SKILL.md`; where
+the two conflict, the overlay wins. `.agents/skills` links to `.claude/skills`,
+so Claude and Codex discover the same repo-local skills. Repo-specific policy,
+taste, or convention (PR title formats, label names, branch routing) goes in an
+overlay. Use outcomes from consumer runs to refine the defaults: a general
+missing instruction or wrong default is a bundled fix, repository policy an
+overlay one.
+
+Tend's overlay here is tend's own instructions by the rule above — it doesn't
+ship, and it carries the tasks and conventions for bot sessions in this repo. A
+whole skill belongs there when only this repo's workflows invoke it:
+`.claude/skills/review-reviewers/` is one, dispatched by the hand-maintained
+`review-reviewers.yaml`, whose prompt invokes it as `/review-reviewers` — a
+slash command like any skill, without the plugin prefix. A tend-only skill
+left in the plugin installs into every consumer, is invoked by none of them,
+and collects tend's internal text next to the files they do load.
+
+### Which file
+
+Shipped or not, a rule is **loaded** by one set of sessions and **acted on** by
+a subset of them. Put it at the narrowest level every actor still reads: the
+sessions in the gap each pay attention for text that changes nothing they do.
+
+| File | Read by | Ships |
+|---|---|---|
+| `shared/system-prompt.md` | every session, both harnesses | yes |
+| `run-tend/SKILL.md` | every session | yes |
+| a workflow's `SKILL.md` | that workflow's sessions | yes |
+| a per-action `SKILL.md` | only the sessions taking that action | yes |
+| a skill's `references/` | sessions of the skills whose steps cite it | yes |
+| `.claude/skills/` (the overlay, and any skill only this repo invokes) | sessions in that one repo | no |
+| `CLAUDE.md` | sessions working on the repo it sits in | no |
+
+- **A rule has one home.** Another file that needs it names the section
+  instead of restating it — copies drift, and a partial copy drops what the
+  copier left out. Before adding a rule, search for a distinctive phrase from
+  it across `plugins/`, `shared/`, and `CLAUDE.md`.
+- **Every workflow that invokes the agent names a skill** (`default_prompt` in
+  `config.py`). One without a skill has nowhere to put its own rules, so they
+  land in the every-session file instead.
+
+When reviewing or surveying a skill, a reference, or a project instruction
+file, ask both questions of it — does this ship, and who acts on it — and ask
+them of the sections a change leaves in place, not only the ones it touches: a
+restructure that moves three sections and keeps four has reviewed three.
 
 ### Authoring skills
 
@@ -378,6 +435,31 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 - **Be brief.** Skills are loaded into every relevant session — extra prose
   is overhead. Lead with the rule or recipe; cut motivation, anecdotes, and
   historical context unless required to apply the rule.
+- **An action more than one workflow takes gets its own skill**, named for
+  the action and described by the situation that calls for it
+  (`post-to-github`, `push-commits`, `open-pr`). The skill listing every
+  session already carries is the index, so `run-tend/SKILL.md` names only the
+  handful nearly every task needs and sends the session to the listing for the
+  rest — don't rebuild a table of them. A pointer gets read where the session
+  already is when it acts: that listing, or a step in a skill it has loaded.
+  So text keeps its `references/` file while the skills whose steps cite it can
+  be named — `review`'s four, two of them also reached by `weekly` and
+  `review-runs` from their own steps. Where instead the need arises from an
+  action any workflow might take, no skill body can be relied on to raise it
+  and the listing has to: that is a skill. A repo overlay's references stay in
+  the overlay, named where its own steps use them.
+- **Cite a skill as `/tend-ci-runner:<name>`**, and a reference file by its
+  path from the owning skill's directory: `` `references/<file>.md` ``, with
+  the owning skill in front where the file belongs to another skill
+  (`` `/tend-ci-runner:review`'s `references/approving.md` ``). That holds
+  inside a `references/` directory too, where the file being cited is a
+  neighbour — one form reads the same wherever the sentence ends up, and
+  `test_skill_reference_citations_resolve` rejects the bare filename. Only
+  files a repo keeps at its root (`CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`)
+  are named bare; `ROOT_FILES` in that test is the list. To point at a rule
+  rather than a whole file, name its section and the skill, which also covers
+  a rule in a skill's own `SKILL.md`: **Reader-facing prose** in
+  `/tend-ci-runner:run-tend`.
 - **No specific past-run references.** Don't link GitHub Actions runs, cite
   session IDs, or quote durations from individual incidents. They age into
   trivia and aren't useful when the skill is reused. State the structural
@@ -427,6 +509,33 @@ or tested Python.
 Don't build deterministic YAML steps for work that happens *inside* an
 agent run. Extend the skill instead.
 
+### What waste is worth fixing
+
+Wasted runner time (a slow CI job, a run lost to a blip that a later tick
+retries) costs cents, while the retry wrapper, cache, or scheduling
+arithmetic that would prevent it is maintained forever: fix it only with a
+simple knob — a cadence value, a deleted step, a one-line condition — and
+otherwise leave it. Model tokens are the larger cost, dollars per session,
+so keep sessions, and the context each one carries, to what the work needs.
+
+Judge a token saving by the share of total spend it removes. A change that
+materially cuts the total — a frequent boot that never had work to do, bulk
+reading carried into every deciding context — is worth the mechanism it
+leaves behind, so estimate that share before proposing one. A small or rare
+saving doesn't justify complication, however well the change reads line by
+line.
+
+Judge the fix itself by the whole change, and by what it leaves behind —
+logic a future session must re-derive, a rule every later run loads, failure
+modes of its own — rather than by its line count. The same setting repeated
+across workflows, jobs, platforms, or call sites is a configuration scheme
+rather than one knob, and a mechanism compressed into one dense line is
+still a mechanism.
+
+This is tend's answer, and it stays here. The bundled skills carry no view on
+what compute is worth — a bot session in this repo reads this file, and a
+session in another repo reads that repo's.
+
 ## Live testing against real GitHub
 
 For live experiments against real GitHub behavior (environments, branch
@@ -445,6 +554,7 @@ Cloudflare Worker that serves its two data streams from `data/consumers.json`.
 
 The site's dev server starts automatically per worktree via a `wt` post-start
 hook (`.config/wt.toml`) on a deterministic port derived from the branch name.
-Get the URL with `wt list statusline --format json | jq -r '.[].url'`; logs
-land in `.git/wt/logs/`. Don't run `npm run dev`; it duplicates the running
-server on a different port.
+Get the URL with
+`wt list statusline --format json | jq -r '.items[].dev_server.url'`; logs land
+in `.git/wt/logs/`. Don't run `npm run dev`; it duplicates the running server on
+a different port.

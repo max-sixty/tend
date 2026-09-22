@@ -7,17 +7,18 @@ tracker. The one exclusion is the security preflight: that failure is a
 persistent config refusal rather than an outage, and the issue this files
 ("temporarily unavailable", closed once resolved) would never resolve.
 
-Just records the run link. Error annotations and logs are not reliably
-available while the job is in_progress, so the nightly skill enriches these
-issues after the fact, when the run has completed and the APIs return stable
-data.
+Records the run link, plus the one remedy the tracker can name for itself: a
+pin behind the current release (see :func:`remedy_note`). Error annotations and
+logs are not reliably available while the job is in_progress, so the nightly
+skill enriches these issues after the fact, when the run has completed and the
+APIs return stable data.
 
 A closed outage issue is left closed and a fresh one filed. The `review-runs`
 sweep closes it after diagnosing every row and checking the live repository for
 work the failed runs may have missed. Reopening would fold the next incident
 into a stale record. Nightly leaves this label alone because its cron precedes
-`review-runs`, and a clean recent run says nothing about missed work. Where an
-adopter disables `review-runs`, a maintainer applies the same close criterion.
+`review-runs`, and a clean recent run says nothing about missed work. Where a
+consumer disables `review-runs`, a maintainer applies the same close criterion.
 The rate-limit issue takes the opposite policy, for reasons in ``_issue.py``.
 
 Repeated appends are bounded per run, not per incident: a matrix workflow runs
@@ -27,11 +28,14 @@ takes at most one row per run. The guard is a check-then-act, so
 
 Inputs (env): ``GITHUB_TOKEN`` (for ``gh``), ``GITHUB_SERVER_URL``,
 ``GITHUB_REPOSITORY``, ``GITHUB_RUN_ID``, ``GITHUB_EVENT_NAME``,
-``GITHUB_EVENT_PATH`` (from Actions).
+``GITHUB_EVENT_PATH`` (from Actions), and ``TEND_ACTION_REF`` /
+``TEND_ACTION_REPOSITORY``, which the caller passes because
+:func:`remedy_note` cannot read them for itself.
 """
 
 from __future__ import annotations
 
+import os
 import random
 import subprocess
 import time
@@ -54,11 +58,25 @@ OUTAGE_BODY = """\
 The bot failed to process a request. This issue tracks failures until the \
 underlying cause is resolved.
 
-{row}
+{row}{remedy}
 
 This issue was created automatically. Close it after every row above is \
 diagnosed and the live repository has been checked for work the failed runs \
 may have missed. The `tend-review-runs` sweep does that where it runs.
+"""
+
+# The one remedy the tracker can name for itself. A failure ahead of the
+# agent's first turn takes out the regeneration that would move the pin past
+# it, so the pin stays where it is until someone runs this command, and the
+# tracker is the only place a consumer we don't own would read that. The
+# command doubles as the marker for having said it — see :func:`main`.
+REMEDY_COMMAND = "uvx tend@latest init"
+REMEDY = """\
+Tend `{latest}` is released and the workflow that failed pins `{installed}`. A \
+failure that lands before the bot's first turn is usually cleared by moving \
+that pin: run `{command}` in a checkout and commit the regenerated \
+`.github/workflows/tend-*.yaml`. `tend-nightly` does this itself where it \
+runs, but only once a run gets far enough to start the agent.
 """
 
 
@@ -106,8 +124,9 @@ def main() -> int:
         # both of its writes instead: a failed create there must still reach
         # the annotation that names what to close, where here the create is
         # the last statement and the red step is all that is left.
+        body = OUTAGE_BODY.format(row=row, remedy=_block(remedy_note()))
         try:
-            _issue.create_and_reconcile(LABEL, TITLE, row, OUTAGE_BODY.format(row=row))
+            _issue.create_and_reconcile(LABEL, TITLE, row, body)
         except subprocess.CalledProcessError as err:
             return _common.fail(
                 f"Could not file the {LABEL} tracker: "
@@ -119,13 +138,22 @@ def main() -> int:
     # the issue body (a leg of this same run seeded the issue) or in an
     # existing comment. A read that outright fails falls through to posting,
     # which risks a duplicate row rather than losing one.
-    if anchor in _issue.recorded_text(existing):
+    recorded = _issue.recorded_text(existing)
+    if anchor in recorded:
         _common.log(
             "report-failure",
             f"run {run_id} already recorded on #{existing} — skipping duplicate "
             "comment",
         )
         return 0
+
+    # Once per tracker, not once per row: an incident appends a row per stranded
+    # run, and the remedy is the same command each time. The release that ends
+    # an outage normally lands while it is still running, so the note rides the
+    # first row posted after the pin falls behind rather than only the seed
+    # body. Anyone who already named the command — a maintainer diagnosing in
+    # the thread as much as an earlier row — has said it, so this stays quiet.
+    note = "" if REMEDY_COMMAND in recorded else remedy_note()
 
     # The common path once a tracker is open — every failure after the first
     # in one incident appends through here — and it can 5xx like any other
@@ -135,13 +163,73 @@ def main() -> int:
     # reconcile, so it stops here; any racing leg that did post reconciles on
     # its own pass.
     try:
-        _issue.comment(existing, row)
+        _issue.comment(existing, row + _block(note))
     except subprocess.CalledProcessError:
         _common.annotate("warning", f"Could not append this run's row to #{existing}.")
         return 0
 
     _reconcile(repo, existing, anchor)
     return 0
+
+
+def remedy_note() -> str:
+    """The pin-is-behind remedy, or ``""`` when nothing can be said.
+
+    ``TEND_ACTION_REF`` and ``TEND_ACTION_REPOSITORY`` carry
+    ``github.action_ref`` and ``github.action_repository``. Both resolve in a
+    composite step's ``env:`` and not inside its ``run:`` body, where they
+    expand to the empty string rather than failing (actions/runner#2473), so
+    this step cannot read them for itself; either one absent means no note.
+
+    Silent for anything but a release tag strictly behind the newest release.
+    A consumer already on the newest failed for some other reason, and naming
+    the regeneration would send them the wrong way; a ref that is a branch, a
+    SHA, or a local path is not a pin this can order at all.
+
+    Best-effort on the release read: this runs on a job that is already red,
+    and the run's row matters more than the hint.
+    """
+    ref = os.environ.get("TEND_ACTION_REF", "")
+    repository = os.environ.get("TEND_ACTION_REPOSITORY", "")
+    installed = _release(ref)
+    if installed is None or not repository:
+        return ""
+    try:
+        payload = _common.gh_json("api", f"repos/{repository}/releases/latest")
+    except _common.GH_READ_FAILED:
+        return ""
+    tag = _common.dig(payload, "tag_name")
+    latest = _release(tag) if isinstance(tag, str) else None
+    if latest is None or latest <= installed:
+        return ""
+    return REMEDY.format(latest=tag, installed=ref, command=REMEDY_COMMAND)
+
+
+def _release(text: str) -> tuple[int, ...] | None:
+    """*text* as a release version, or ``None`` for anything that is not one.
+
+    Strict ``X.Y.Z`` — the one form the generator pins and a tend release
+    tags. A ref this cannot parse stays unordered rather than guessed at,
+    because a guess that lands the wrong way round tells a consumer on the
+    newest release to regenerate.
+
+    ``isdecimal`` rather than ``isdigit``: the latter admits 128 characters
+    ``int`` rejects (``²``, ``፩``), so the guard would pass and the parse
+    would raise, on a step that is already red and still owes the run a row.
+    """
+    parts = text.strip().split(".")
+    if len(parts) != 3 or not all(part.isdecimal() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def _block(note: str) -> str:
+    """*note* as a paragraph following a row, or ``""`` for no note.
+
+    The blank line is load-bearing: a prose line directly under a table row
+    renders as another row of the table.
+    """
+    return f"\n\n{note.strip()}" if note else ""
 
 
 def duplicate_rows(comments: list[dict[str, Any]], anchor: str) -> list[int]:

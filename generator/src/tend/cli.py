@@ -47,22 +47,12 @@ def _detect_default_branch_local() -> str:
     return "main"
 
 
-def _runtime_config_path(path: Path) -> str:
-    """Return the config's repository-relative path for runtime checks."""
-    try:
-        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
-    except ValueError as error:
-        raise click.ClickException(
-            f"Config must be inside the repository so workflows can read it: {path}"
-        ) from error
-
-
 def _update_actionlint_config(dry_run: bool) -> None:
     """Ensure `.github/actionlint.yaml` ignores the `concurrency.queue` schema
-    false positive, so an adopter's workflow lint stays green on regen.
+    false positive, so a consumer's workflow lint stays green on regen.
 
     actionlint reads `.yaml` in preference to `.yml`, so a new `.yaml` written
-    beside an adopter's `.yml` would silently disable their whole config —
+    beside a consumer's `.yml` would silently disable their whole config —
     update the file they already have.
     """
     github_dir = Path(".github")
@@ -163,13 +153,13 @@ def main() -> None:
 def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> None:
     """Generate workflow files from config. Idempotent — always overwrites."""
     # Auto-migrate a legacy .config/tend.toml. One-shot upgrade path for
-    # adopters bumping past the TOML→YAML cutover; the migration verifies
+    # consumers bumping past the TOML→YAML cutover; the migration verifies
     # the parsed structures match before swapping, so the no-op case (no
     # .toml on disk) is the steady state.
     #
     # Under --dry-run the migration is rendered and verified but not applied:
     # the flag's contract is that the command writes nothing, and the one run
-    # an adopter makes to preview the upgrade is exactly the run that would
+    # a consumer makes to preview the upgrade is exactly the run that would
     # otherwise perform it — silently, and irreversibly for an uncommitted
     # config, since the migration deletes the TOML.
     preview_yaml: str | None = None
@@ -195,9 +185,6 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
             preview_path = Path(tmp) / "tend.yaml"
             preview_path.write_text(preview_yaml, encoding="utf-8")
             cfg = Config.load(preview_path)
-    cfg.config_path = _runtime_config_path(
-        config_path if config_path is not None else Path(".config/tend.yaml")
-    )
     cfg.default_branch = _detect_default_branch_local()
     cfg.repo_owner = detect_canonical_owner() or ""
     if not cfg.repo_owner:
@@ -240,7 +227,7 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
     # behind their YAML, and workflows renamed across generator versions.
     # Runs even when the generated set is empty (every workflow disabled)
     # so the cleanup contract still applies. The tend-*.yaml glob is the
-    # generator's filename contract per CLAUDE.md — adopter-owned workflows
+    # generator's filename contract per CLAUDE.md — consumer-owned workflows
     # live under other names.
     generated = {wf.filename for wf in workflows}
     removed = 0
@@ -282,12 +269,6 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
 def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
     """Verify release integrity, branch protection, bot access, and credentials."""
     cfg = Config.load(config_path)
-    cfg.config_path = _runtime_config_path(
-        config_path if config_path is not None else Path(".config/tend.yaml")
-    )
-    if not cfg.enabled:
-        click.echo("Tend is disabled in config; new operational jobs will skip.")
-
     results = run_all_checks(cfg, repo)
     click.echo("Security checks:")
     _print_check_results(results)

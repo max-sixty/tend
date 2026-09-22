@@ -1,22 +1,29 @@
 """Security checks for tend setup.
 
 Verifies the boundaries docs/security-model.md claims: the configured merge
-policy is exact, the yolo control plane remains maintainer-owned, extra protected
-branches and future releases are immutable, and a run the bot can cause
-reaches no unintended credential (the `tend` environment's deployment branch
-policy, every other credential-holding environment's gate, the operational
-secrets living in the environment, and no repo-level secret outside the
-allowlist).
+policy is exact, the yolo control plane remains maintainer-owned, extra
+protected branches and future releases' assets and tags are immutable, and a
+run the bot can cause reaches no unintended credential (the `tend`
+environment's deployment branch policy, every other credential-holding
+environment's gate, the operational secrets living in the environment, and no
+repo-level secret outside the allowlist).
 
 Uses the `gh` CLI for GitHub API access. Checks degrade gracefully when
-gh is unavailable or the token lacks permission. Everything read here is
-readable with the bot's own write-scoped token, so the nightly run sees
-the same answers a maintainer does — with one asymmetry: a ruleset's
-`bypass_actors` list is served only to repo admins, but every response
-carries `current_user_can_bypass`, GitHub's own evaluation of the caller
-against that list. A run as the bot reads its verdict there; a run as an
-admin reads the list; a token that is neither — or a failed read, or a
-listed principal tend cannot resolve — reports unknown.
+gh is unavailable or the token lacks permission. Almost everything read
+here is readable with the bot's own write-scoped token, so the nightly run
+sees the same answers a maintainer does. Two reads are admin-only, and each
+has a bot-readable stand-in, so the nightly reaches a verdict on them rather
+than skipping:
+
+- A ruleset's `bypass_actors` list is served only to repo admins, but every
+  response carries `current_user_can_bypass`, GitHub's own evaluation of the
+  caller against that list. A run as the bot reads its verdict there; a run
+  as an admin reads the list; a token that is neither — or a failed read, or
+  a listed principal tend cannot resolve — reports unknown.
+- The immutable-releases setting 404s for anything below admin, on read and
+  on write alike. Each published release carries its own `immutable` flag,
+  which a write-scoped token can read, so the bot verifies the newest
+  release instead of the setting that produced it.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass, replace
@@ -107,10 +115,20 @@ class CheckResult:
 def _gh(
     *args: str, input: str | None = None
 ) -> subprocess.CompletedProcess[str] | None:
-    """Run a gh CLI command. Returns None if gh is not installed."""
+    """Run a gh CLI command. Returns None if gh is not installed.
+
+    A shell that forces color makes ``gh`` colorize even a piped body, and the
+    ANSI codes land inside the JSON the callers parse, and each of them reads a
+    decode error as a failed read, so an unguarded read leaves the security
+    audit unable to verify anything.
+    ``CLICOLOR_FORCE=0`` is the setting that defeats it: ``gh`` ranks a forced
+    value above ``NO_COLOR``, so ``NO_COLOR`` alone loses.
+    """
     gh = shutil.which("gh")
     if not gh:
         return None
+    env = os.environ.copy()
+    env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
     try:
         return subprocess.run(
             [gh, *args],
@@ -118,6 +136,7 @@ def _gh(
             text=True,
             timeout=30,
             input=input,
+            env=env,
             check=False,
         )
     except subprocess.TimeoutExpired:
@@ -172,7 +191,7 @@ def detect_default_branch(repo: str) -> str | None:
 
 
 def check_immutable_releases(repo: str) -> CheckResult:
-    """Check that future published releases and their tags cannot be rewritten."""
+    """Check that future releases' assets and tags cannot be rewritten."""
     result = _gh(
         "api",
         "-H",
@@ -183,12 +202,7 @@ def check_immutable_releases(repo: str) -> CheckResult:
         return CheckResult("immutable-releases", None, "gh CLI not found")
     if result.returncode != 0:
         if "HTTP 404" in result.stderr:
-            return CheckResult(
-                "immutable-releases",
-                None,
-                "Could not read the immutable-releases setting. Repository "
-                "admin access is required to verify it.",
-            )
+            return _check_newest_release_immutable(repo)
         return CheckResult(
             "immutable-releases", None, f"API error: {result.stderr.strip()}"
         )
@@ -208,7 +222,85 @@ def check_immutable_releases(repo: str) -> CheckResult:
         "immutable-releases",
         False,
         "Immutable releases are disabled. A write-access bot can rewrite a "
-        "published release's assets or notes. Run `tend check --fix`.",
+        "published release's assets, and repoint its tag. Run `tend check --fix`.",
+    )
+
+
+def _check_newest_release_immutable(repo: str) -> CheckResult:
+    """Verify release integrity from the releases themselves, without admin.
+
+    Reading the immutable-releases setting takes repository admin, and so does
+    writing it. The bot has write, so every scheduled run 404s on the endpoint
+    above. A skip there leaves the setting verified only when a maintainer runs
+    `tend check` by hand, and the nightly files nothing for a skip — so the
+    setting could be turned off, or never enabled, with nothing watching.
+
+    Each published release carries GitHub's own `immutable` flag, readable with
+    write access, recording the setting as it stood when that release was
+    published. The most recently published release therefore reflects the most
+    recent state of the setting — the maximum by `published_at`, not the first
+    element of the listing and not the first page of it. The endpoint documents
+    no order, and a release's `created_at` is its tag's commit date, so a repo
+    publishing from several trains serves a backport published later further
+    down; without `--paginate` the maximum would be taken over whichever
+    hundred releases GitHub returned first.
+
+    The flag is retrospective in both directions. Enabling the setting clears a
+    failure here at the next release rather than immediately, and turning it
+    off goes unseen until the repository publishes again. An admin's run reads
+    the setting itself and has neither lag.
+    """
+    # `--slurp` collects the pages into one array of pages, and gh refuses it
+    # alongside `--jq`, so the selection happens here rather than in a filter.
+    result = _gh("api", "--paginate", "--slurp", f"repos/{repo}/releases")
+    if result is None:
+        return CheckResult("immutable-releases", None, "gh CLI not found")
+    if result.returncode != 0:
+        return CheckResult(
+            "immutable-releases", None, f"API error: {result.stderr.strip()}"
+        )
+    try:
+        published = [
+            release
+            for page in json.loads(result.stdout)
+            for release in page
+            if not release["draft"]
+        ]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return CheckResult(
+            "immutable-releases", None, "GitHub returned an unreadable response"
+        )
+    if not published:
+        return CheckResult(
+            "immutable-releases",
+            None,
+            "No published release to read the flag from, and reading the "
+            "immutable-releases setting requires repository admin access.",
+        )
+    try:
+        newest = max(published, key=lambda release: release["published_at"])
+        tag = newest["tag_name"]
+        immutable = newest["immutable"]
+    except (KeyError, TypeError):
+        return CheckResult(
+            "immutable-releases", None, "GitHub returned an unreadable response"
+        )
+    if immutable is True:
+        return CheckResult(
+            "immutable-releases",
+            True,
+            f"The newest release ({tag}) is immutable, so the setting was "
+            "enabled when it was published. Reading the setting itself "
+            "requires repository admin access.",
+        )
+    return CheckResult(
+        "immutable-releases",
+        False,
+        f"The newest release ({tag}) can be rewritten — a write-access bot can "
+        "replace its assets. Run `tend check --fix` as a repository "
+        "admin. GitHub applies the setting only to releases published after it "
+        "is enabled, so an already-enabled repository clears this at its next "
+        "release.",
     )
 
 
@@ -244,7 +336,9 @@ def check_branch_protection(
 
     ``never`` is maintainer-only. ``pull_requests_only`` is yolo: the
     bot may merge through GitHub's pull-request API, but may not push the ref
-    directly. Extra protected branches always use ``never``.
+    directly. Extra protected branches always use ``never``. Required reviews
+    alone never qualify because the write-access bot can approve another
+    author's pull request itself.
     """
     name = f"branch-protection:{branch}"
     result = _gh("api", f"repos/{repo}/branches/{branch}", "--jq", ".protected")
@@ -331,30 +425,6 @@ def check_branch_protection(
             f"Branch '{branch}' still gives the bot a ruleset bypass. "
             "Maintainer mode requires removing that bypass.",
         )
-
-    # Fall back to checking branch protection rules for required reviews.
-    prot = _gh("api", f"repos/{repo}/branches/{branch}/protection")
-    if prot is None or prot.returncode != 0:
-        # Can't read details — branch is protected, assume OK.
-        return CheckResult(name, True, f"Branch '{branch}' is protected")
-
-    try:
-        data = json.loads(prot.stdout)
-    except json.JSONDecodeError:
-        return CheckResult(name, True, f"Branch '{branch}' is protected")
-
-    if not isinstance(data, dict):
-        return CheckResult(name, True, f"Branch '{branch}' is protected")
-
-    reviews = data.get("required_pull_request_reviews")
-    if reviews and reviews.get("required_approving_review_count", 0) > 0:
-        return CheckResult(
-            name,
-            True,
-            f"Branch '{branch}' is protected (requires reviews)",
-        )
-
-    # Neither required reviews nor a confirmed restrict-updates ruleset.
     if bypass is None:
         # Ruleset check was inconclusive — don't false-positive.
         return CheckResult(
@@ -373,22 +443,27 @@ def check_branch_protection(
     return CheckResult(
         name,
         False,
-        f"Branch '{branch}' is protected but the bot can still merge PRs "
-        "(required_approving_review_count is 0, and no restrict-updates ruleset "
-        "the bot cannot bypass). Either require at least 1 approving review, or "
-        "add a 'Restrict updates' ruleset whose bypass actors are all above write. "
+        f"Branch '{branch}' has no active restrict-updates rule. Required "
+        "reviews don't stop the write-access bot from approving another "
+        "author's PR, so the bot can still merge. Run `tend check --fix` to "
+        "create the ruleset. "
         "See docs/security-model.md.",
     )
 
 
-def _default_branch_file(repo: str, branch: str, path: str) -> str | None:
-    """Read one file from the default branch, returning None when absent."""
+_FILE_ABSENT = object()
+
+
+def _default_branch_file(repo: str, branch: str, path: str) -> str | None | object:
+    """Read one file from the default branch, distinguishing absent from unread."""
     result = _gh(
         "api",
         f"repos/{repo}/contents/{path}?ref={quote(branch, safe='')}",
     )
-    if result is None or result.returncode != 0:
+    if result is None:
         return None
+    if result.returncode != 0:
+        return _FILE_ABSENT if "HTTP 404" in result.stderr else None
     try:
         encoded = json.loads(result.stdout)["content"]
         return base64.b64decode(encoded).decode()
@@ -410,8 +485,11 @@ def check_control_plane_codeowners(
         )
     for path in (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"):
         content = _default_branch_file(repo, branch, path)
-        if content is None:
+        if content is _FILE_ABSENT:
             continue
+        if content is None:
+            return CheckResult(name, None, f"Could not read {path} from {branch}")
+        assert isinstance(content, str)
         lines = [CODEOWNERS_BEGIN]
         lines.extend(f"{protected} {owner}" for protected in CONTROL_PLANE_PATHS)
         lines.append(CODEOWNERS_END)
@@ -476,15 +554,9 @@ def check_control_plane_codeowners(
 def check_control_plane_ruleset(repo: str, branch: str, bot_name: str) -> CheckResult:
     """Check for a non-bypassable stale-dismissed CODEOWNERS review rule."""
     name = "control-plane-ruleset"
-    result = _gh("api", f"repos/{repo}/rules/branches/{branch}")
-    if result is None or result.returncode != 0:
+    rules = _branch_rules(repo, branch)
+    if rules is None:
         return CheckResult(name, None, "Could not list rules on the default branch")
-    try:
-        rules = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return CheckResult(name, None, "GitHub returned unreadable branch rules")
-    if not isinstance(rules, list):
-        return CheckResult(name, None, "GitHub returned unreadable branch rules")
 
     unresolved = False
     ruleset_ids = {
@@ -641,6 +713,22 @@ def _fetch_ruleset(repo: str, ruleset_id: int | str) -> dict | None:
     return data
 
 
+def _branch_rules(repo: str, branch: str) -> list[dict] | None:
+    """All rules applying to one branch, across every API page."""
+    result = _gh(
+        "api", "--paginate", "--slurp", f"repos/{repo}/rules/branches/{branch}"
+    )
+    if result is None or result.returncode != 0:
+        return None
+    try:
+        pages = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(pages, list) or not all(isinstance(page, list) for page in pages):
+        return None
+    return [rule for page in pages for rule in page if isinstance(rule, dict)]
+
+
 def _ruleset_type_bypass(
     repo: str, branch: str, bot_name: str, rule_type: str
 ) -> str | None:
@@ -652,14 +740,8 @@ def _ruleset_type_bypass(
     distinct fallback. An unreadable ruleset makes the exact effective level
     unknown unless another readable ruleset already blocks all updates.
     """
-    result = _gh("api", f"repos/{repo}/rules/branches/{branch}")
-    if result is None or result.returncode != 0:
-        return None
-    try:
-        rules = json.loads(result.stdout)
-    except (json.JSONDecodeError, ValueError):
-        return None
-    if not isinstance(rules, list):
+    rules = _branch_rules(repo, branch)
+    if rules is None:
         return None
 
     matching_rules = [
@@ -2125,29 +2207,51 @@ def fix_immutable_releases(repo: str) -> CheckResult:
     )
 
 
-def fix_tag_protection(repo: str) -> CheckResult:
-    """Create the canonical admin-gated all-tags ruleset."""
-    result = _gh(
+def _put_ruleset(
+    repo: str, body: str
+) -> tuple[subprocess.CompletedProcess[str] | None, str]:
+    """Create the repo ruleset *body* names, or replace the one already there.
+
+    GitHub refuses a second ruleset under a name the repo already uses, and a
+    failing check can mean exactly that one exists but is disabled, in
+    evaluate mode, or edited to let the bot bypass it. Replacing it drops any
+    rule or branch a maintainer added to it, so the returned verb says which
+    happened: "Created" or "Replaced".
+    """
+    name = json.loads(body)["name"]
+    listed = _gh(
         "api",
+        "--paginate",
         f"repos/{repo}/rulesets",
-        "--method",
-        "POST",
-        "--input",
-        "-",
-        input=_tag_operations_ruleset(),
+        "--jq",
+        f'.[] | select(.source_type == "Repository" and .name == {json.dumps(name)})'
+        " | .id",
     )
+    if listed is None or listed.returncode != 0:
+        return listed, ""
+    existing = listed.stdout.split()
+    if existing:
+        path, method, verb = f"repos/{repo}/rulesets/{existing[0]}", "PUT", "Replaced"
+    else:
+        path, method, verb = f"repos/{repo}/rulesets", "POST", "Created"
+    return _gh("api", path, "--method", method, "--input", "-", input=body), verb
+
+
+def fix_tag_protection(repo: str) -> CheckResult:
+    """Set the canonical admin-gated all-tags ruleset."""
+    result, verb = _put_ruleset(repo, _tag_operations_ruleset())
     if result is None:
         return CheckResult("tag-protection", None, "gh CLI not found")
     if result.returncode != 0:
         return CheckResult(
             "tag-protection",
             False,
-            f"Failed to create tag ruleset: {result.stderr.strip()}",
+            f"Failed to set tag ruleset: {result.stderr.strip()}",
         )
     return CheckResult(
         "tag-protection",
         True,
-        "Created 'Tag operations' ruleset — only admins can create or update tags.",
+        f"{verb} 'Tag operations' ruleset — only admins can create or update tags.",
     )
 
 

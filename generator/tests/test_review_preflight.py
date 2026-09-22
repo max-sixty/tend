@@ -250,17 +250,105 @@ def test_start_records_one_snapshot_and_prepares_the_incremental(pr: Fixture) ->
     context = json.loads(result.stdout)
     assert context == {
         "head_sha": moved,
-        "author": "author",
-        "bot_login": BOT,
+        "self_authored": False,
         "is_draft": False,
-        "force_full_review": False,
-        "last_review_sha": pr.reviewed,
-        "force_pushed_since": False,
+        "already_reviewed": False,
         "incremental_path": context["incremental_path"],
     }
-    assert "pr-2" in Path(context["incremental_path"]).read_text()
-    assert "base-2" not in Path(context["incremental_path"]).read_text()
+    incremental = Path(context["incremental_path"]).read_text()
+    assert "pr-2" in incremental
+    assert "+b" in incremental
+    assert "base-2" not in incremental
+    assert "base.txt" not in incremental
     assert pr.pinned() == moved
+
+
+def test_the_incremental_lists_the_branch_merge_but_not_the_bases_own(
+    pr: Fixture,
+) -> None:
+    """A base that lands PRs as merge commits carries its own merges into the
+    range. Each listed merge is one the reviewer is told to read with `--cc`."""
+    _git(pr.origin, "checkout", "-q", "-b", "side", "main")
+    _commit(pr.origin, "side.txt", "1\n", "side-1")
+    _git(pr.origin, "checkout", "-q", "main")
+    _git(pr.origin, "merge", "--no-ff", "-q", "-m", "Merge pull request #9", "side")
+    pr.push_over_base_merge()
+    pr.reviews(_review(pr.reviewed, "earlier finding"))
+
+    incremental = Path(json.loads(pr.start().stdout)["incremental_path"]).read_text()
+
+    assert "base merge: " in incremental
+    assert "Merge pull request #9" not in incremental
+
+
+@pytest.mark.parametrize("is_draft", [True, False])
+def test_a_draft_mode_review_bases_an_incremental_only_while_the_pr_is_a_draft(
+    pr: Fixture, is_draft: bool
+) -> None:
+    """A draft-mode review is the lighter pass. Once the PR is ready, an
+    incremental over it would review the next push on its own and could approve
+    a PR nothing read in full — and that review then stands at the head, so the
+    queued `ready_for_review` run skips."""
+    pr.push_over_base_merge()
+    view = json.loads(Path(pr.env()["PR_JSON"]).read_text())
+    view["isDraft"] = is_draft
+    pr.write("PR_JSON", view)
+    pr.reviews(_review(pr.reviewed, f"a light pass\n{DRAFT_REVIEW_MARKER}"))
+
+    context = json.loads(pr.start().stdout)
+
+    assert (context["incremental_path"] is not None) is is_draft
+
+
+def test_start_resolves_self_authorship_against_the_bot_login(pr: Fixture) -> None:
+    """The skill used to be handed both logins and told to compare them, with a
+    warning not to read "authored by the repo owner" as self-authored instead."""
+    view = json.loads(Path(pr.env()["PR_JSON"]).read_text())
+    view["author"] = {"login": BOT}
+    pr.write("PR_JSON", view)
+
+    assert json.loads(pr.start().stdout)["self_authored"] is True
+
+
+def test_start_reports_a_review_standing_on_this_head(pr: Fixture) -> None:
+    pr.reviews(_review(pr.reviewed, "earlier finding"))
+
+    context = json.loads(pr.start().stdout)
+
+    assert context["already_reviewed"] is True
+    assert context["incremental_path"] is None
+
+
+def test_start_does_not_call_a_rewritten_head_reviewed(pr: Fixture) -> None:
+    """A force push re-points the earlier review's `.commit_id` at the new head,
+    so `last_review_sha == head_sha` reads as reviewed on code nothing read —
+    and the incremental over that empty range under-reports every trivial-skip
+    heuristic. `at_head` discounts the rewrite; both fields follow it."""
+    rewritten = pr.force_push()
+    pr.reviews(_review(rewritten, "finding on the discarded commit"))
+    pr.write(
+        "TIMELINE_JSON",
+        [{"event": "head_ref_force_pushed", "created_at": "2026-06-01T00:00:00Z"}],
+    )
+
+    context = json.loads(pr.start().stdout)
+
+    assert context["already_reviewed"] is False
+    assert context["incremental_path"] is None
+
+
+def test_ready_for_review_asks_for_a_full_review(pr: Fixture, tmp_path: Path) -> None:
+    """Becoming ready asks for a full non-draft review, so neither shortcut is
+    offered even though a draft-mode review anchors this commit."""
+    pr.reviews(_review(pr.reviewed, DRAFT_REVIEW_MARKER))
+
+    result = pr.start(
+        GITHUB_EVENT_PATH=_event(tmp_path / "event.json", "ready_for_review")
+    )
+    context = json.loads(result.stdout)
+
+    assert context["already_reviewed"] is False
+    assert context["incremental_path"] is None
 
 
 @pytest.mark.parametrize("state", ["CLOSED", "MERGED"])

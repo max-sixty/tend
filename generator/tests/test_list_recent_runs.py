@@ -1,9 +1,11 @@
 """Tests for plugins/tend-ci-runner/scripts/list_recent_runs.py.
 
 The window logic is the behaviour under test: the completion window resumes
-at the previous successful run's start, clamps at 6h with a stderr WARNING,
-and falls back to a plain 1h window outside Actions. The fake `gh` serves API
-fixtures, while an injected clock keeps the window edges deterministic.
+at the previous successful run's start, clamps at the cap with a stderr
+WARNING, and falls back to a plain 1h window outside Actions. A re-run row
+draws its own WARNING, because its conclusion is the latest attempt's. The
+fake `gh` serves API fixtures, while an injected clock keeps the window edges
+deterministic.
 """
 
 from __future__ import annotations
@@ -75,8 +77,11 @@ esac
 )
 
 
-def _run_entry(run_id: int, *, updated: int, conclusion: str = "success") -> dict:
+def _run_entry(
+    run_id: int, *, updated: int, conclusion: str = "success", attempt: int = 1
+) -> dict:
     return {
+        "attempt": attempt,
         "databaseId": run_id,
         "conclusion": conclusion,
         "createdAt": _iso(updated - 300),
@@ -180,13 +185,15 @@ def test_anchor_query_excludes_the_current_run(env: dict[str, str]) -> None:
     )
 
 
-def test_no_anchor_floors_at_6h_and_warns(env: dict[str, str]) -> None:
-    """With no successful run at all, the window reaches back 6h and the
+def test_no_anchor_floors_at_the_default_window_and_warns(
+    env: dict[str, str],
+) -> None:
+    """With no successful run at all, the window reaches back a day and the
     stderr WARNING tells the caller to record a coverage gap."""
     _runs(
         env,
-        _run_entry(1, updated=NOW - 18000),
-        _run_entry(2, updated=NOW - 25200),
+        _run_entry(1, updated=NOW - 20 * 3600),
+        _run_entry(2, updated=NOW - 26 * 3600),
     )
 
     result = _run(env)
@@ -196,21 +203,23 @@ def test_no_anchor_floors_at_6h_and_warns(env: dict[str, str]) -> None:
     assert "WARNING: no successful" in result.stderr
 
 
-def test_stale_anchor_clamps_to_6h_and_warns(env: dict[str, str]) -> None:
-    """An anchor older than 6h (a sustained outage) clamps the floor rather
-    than growing the window unboundedly, and warns of the coverage gap."""
-    _anchor(env, (555, NOW - 28800))
+def test_stale_anchor_clamps_to_the_cap_and_warns(env: dict[str, str]) -> None:
+    """An anchor older than the cap (a sustained outage) clamps the floor
+    rather than growing the window unboundedly, and warns of the coverage gap.
+    A daily cron's own previous run sits ~24h back, well inside the cap, so
+    this is the outage case rather than the ordinary one."""
+    _anchor(env, (555, NOW - 72 * 3600))
     _runs(
         env,
-        _run_entry(1, updated=NOW - 18000),
-        _run_entry(2, updated=NOW - 23400),
+        _run_entry(1, updated=NOW - 40 * 3600),
+        _run_entry(2, updated=NOW - 60 * 3600),
     )
 
     result = _run(env)
 
     assert result.returncode == 0, result.stderr
     assert _ids(result) == [1]
-    assert "more than 6h back" in result.stderr
+    assert "more than 49h back" in result.stderr
 
 
 def test_outside_actions_uses_a_1h_window(env: dict[str, str]) -> None:
@@ -257,6 +266,72 @@ def test_api_failure_fails_loudly(env: dict[str, str], failure: str) -> None:
     assert result.returncode != 0, (
         f"{failure}: an API failure produced exit 0 with: {result.stdout!r}"
     )
+
+
+def test_workflow_fetch_limit_warns(env: dict[str, str]) -> None:
+    """`gh workflow list` fetches 50 without a limit and says nothing when it
+    truncates, so a Tend workflow past the edge would be missing from the list
+    outright rather than merely missing runs."""
+    Path(env["WF_JSON"]).write_text(
+        json.dumps([{"name": f"tend-{i}"} for i in range(200)])
+    )
+    _anchor(env, (555, NOW - 5400))
+    _runs(env, _run_entry(1, updated=NOW - 600))
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    # Scoped to the listing's own call: the run fetches below it carry the same
+    # `--limit 200`, so a search of the whole log passes with the flag deleted.
+    listings = [
+        line
+        for line in Path(env["GH_CALLS"]).read_text().splitlines()
+        if line.startswith("workflow list")
+    ]
+    assert listings and all("--limit 200" in line for line in listings), listings
+    assert "at least 200 workflows" in result.stderr
+
+
+def test_a_rerun_is_flagged_because_its_row_carries_only_the_latest_attempt(
+    env: dict[str, str],
+) -> None:
+    """`gh run list` reports the current attempt's conclusion, so a re-run that
+    went green reads as `success` and the failure that prompted it leaves no row.
+    The census has to fetch `attempt` and say so, or the window reads as an
+    all-clear it is not."""
+    _anchor(env, (555, NOW - 5400))
+    _runs(
+        env,
+        _run_entry(1, updated=NOW - 600),
+        _run_entry(2, updated=NOW - 600, attempt=2),
+    )
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    assert _ids(result) == [1, 2]
+    fetches = [
+        line
+        for line in Path(env["GH_CALLS"]).read_text().splitlines()
+        if line.startswith("run list") and "--status success" not in line
+    ]
+    assert fetches and all("attempt,databaseId" in line for line in fetches), fetches
+    assert "1 run(s) in this list were re-run — 2." in result.stderr
+    # The floor separates an attempt this window has to count from one the
+    # previous sweep already did.
+    assert _iso(NOW - 5400) in result.stderr
+
+
+def test_first_attempt_rows_draw_no_rerun_warning(env: dict[str, str]) -> None:
+    """The warning has to stay quiet on an ordinary window, or it reads as noise
+    and the one window that carries a re-run is missed with it."""
+    _anchor(env, (555, NOW - 5400))
+    _runs(env, _run_entry(1, updated=NOW - 600), _run_entry(2, updated=NOW - 600))
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    assert "re-run" not in result.stderr
 
 
 def test_workflows_filtered_by_prefix(env: dict[str, str]) -> None:

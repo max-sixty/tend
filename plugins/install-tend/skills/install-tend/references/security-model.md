@@ -20,6 +20,8 @@ distinct from the bot.
 Preflight reads GitHub's `current_user_can_bypass` answer with the bot's own
 token and requires the exact configured state: `never` or
 `pull_requests_only`.
+Branch protection that only requires reviews does not count: the bot's own
+approval satisfies it on another author's pull request.
 
 The two admin-gated operations are:
 
@@ -40,12 +42,15 @@ The two admin-gated operations are:
   code; the only damage is brief availability of the tag itself.
 
 GitHub's immutable-releases setting closes the adjacent Releases API path:
-once a release is published, its record, assets, and associated tag are
-locked. The setting is prospective, so install-tend enables it before the
-next release and `tend check` verifies it directly.
+once a release is published, its assets and associated tag are locked. Its
+body is not — a write-access actor can still edit the notes of an immutable
+release. The setting is prospective, so install-tend enables it before the
+next release and `tend check` verifies it directly. Reading the setting
+takes repository admin, so the nightly run — holding only the bot's
+write-scoped token — checks the newest release's own `immutable` flag.
 
 The "all tags" scope is deliberate: matching every tag removes a per-repo
-pattern choice and keeps the chain a single uniform rule. Adopters that
+pattern choice and keeps the chain a single uniform rule. Consumers that
 need a narrower or layered configuration (per-pattern rulesets,
 no-bypass immutability on release tags for repos that publish actions
 consumed via tag pins, required-reviewer environment gates for per-deploy
@@ -105,11 +110,10 @@ triggers were probed rather than inferred, is the source repo's
 secrets.
 
 The composite action refuses to start if the default branch does not match the
-configured merge mode. Runner-side `setup` accepts shell steps only; actions
-are refused because their deferred POST code can consume state the agent
-controlled. After a run, the harness kills the sandbox and moves the
-agent-owned checkout away before `actions/checkout` POST cleanup, leaving no
-`.git/config` from which an agent-planted helper could execute.
+configured merge mode. Yolo refuses runner-side `setup` plus workflow and job
+overrides. The agent itself runs as a non-sudo user in a hardened systemd unit;
+the supervisor reaps that UID's complete process tree before any later action
+step handles the runner-owned checkout or output.
 
 Everything else (config pinning, rate limiting, fixed prompts) is defense
 in depth.

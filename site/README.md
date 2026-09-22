@@ -11,8 +11,8 @@ port derived from the branch name. Don't run `npm run dev` — it starts a
 second server on a different port instead of reusing the one listening.
 
 ```sh
-wt list statusline --format json | jq -r '.[].url'   # the URL to open
-wt config state logs                                 # dev-server output
+wt list statusline --format json | jq -r '.items[].dev_server.url'  # the URL to open
+wt config state logs                                                # dev-server output
 ```
 
 Outside a `wt` worktree — a plain clone, or CI — start it by hand and open

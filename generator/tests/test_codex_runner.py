@@ -148,7 +148,8 @@ def test_stage_agents_writes_as_the_sandbox_user(
     shared = action.parent / "shared"
     shared.mkdir()
     (shared / "system-prompt.md").write_text(
-        "Act as ${BOT_NAME} under ${TEND_MERGE}; keep $GH_TOKEN.\n"
+        "Act as ${BOT_NAME} under ${TEND_MERGE}; keep $GH_TOKEN. "
+        "Read ${SKILL:run-tend}.\n"
     )
     (action / "agents-tail.md").write_text("Look up $BOT_NAME.\n")
     monkeypatch.setenv("BOT_NAME", "tend-bot")
@@ -174,8 +175,8 @@ def test_stage_agents_writes_as_the_sandbox_user(
     ]
     assert calls[1][0][-2:] == ["/usr/bin/tee", str(agents)]
     assert calls[1][1]["input"] == (
-        "# Tend CI guidance (Codex harness)\n\n"
-        "Act as tend-bot under maintainer; keep $GH_TOKEN.\n\n"
+        "# Tend CI instructions (Codex harness)\n\n"
+        "Act as tend-bot under maintainer; keep $GH_TOKEN. Read $run-tend.\n\n"
         "Look up tend-bot.\n"
     )
 
@@ -316,5 +317,5 @@ def test_run_refuses_to_create_a_second_execution_boundary(
     monkeypatch.setenv("AUTH_MODE", "api-key")
     _set_sandbox_env(tmp_path, monkeypatch)
 
-    with pytest.raises(RuntimeError, match="only inside the SRT lifecycle"):
+    with pytest.raises(RuntimeError, match="only inside the sandbox lifecycle"):
         codex_runner.main(["run"])

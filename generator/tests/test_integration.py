@@ -55,7 +55,7 @@ def _workflow_dir(tmp_path: Path) -> Path:
 def test_init_creates_correct_files_with_valid_yaml(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Minimal config produces 7 workflow files, each valid YAML with expected
+    """Minimal config produces 8 workflow files, each valid YAML with expected
     top-level keys (name, on, jobs) and the tend action reference."""
     _write_config(tmp_path, "bot_name: test-bot")
     monkeypatch.chdir(tmp_path)
@@ -66,6 +66,7 @@ def test_init_creates_correct_files_with_valid_yaml(
     wf_dir = _workflow_dir(tmp_path)
     files = sorted(p.name for p in wf_dir.glob("tend-*.yaml"))
     assert files == [
+        "tend-mention-relay.yaml",
         "tend-mention.yaml",
         "tend-nightly.yaml",
         "tend-notifications.yaml",
@@ -78,7 +79,10 @@ def test_init_creates_correct_files_with_valid_yaml(
     for path in wf_dir.glob("tend-*.yaml"):
         data = yaml.safe_load(path.read_text())
         assert "name" in data, f"{path.name} missing 'name'"
+        assert "on" in data, f"{path.name} missing 'on'"
         assert "jobs" in data, f"{path.name} missing 'jobs'"
+        if path.name == "tend-mention-relay.yaml":
+            continue  # re-posts review events; runs no agent
         assert f"max-sixty/tend/claude@{ACTION_VERSION}" in path.read_text(), (
             f"{path.name} missing action reference"
         )
@@ -103,6 +107,7 @@ def test_init_workflows_have_correct_triggers(
     wf_dir = _workflow_dir(tmp_path)
     expected_triggers = {
         "tend-review.yaml": "pull_request_target",
+        "tend-mention-relay.yaml": "pull_request_review",
         "tend-triage.yaml": "issues",
         "tend-ci-fix.yaml": "workflow_run",
         "tend-nightly.yaml": "schedule",
@@ -133,9 +138,9 @@ def test_init_workflows_have_required_permissions(
         data = yaml.safe_load(path.read_text())
         for job_name, job in data["jobs"].items():
             # The invariant binds the jobs that run the agent; mention's
-            # verify job has no permissions block, and its relay job requests
-            # only the contents: write its dispatch POST needs — no secrets,
-            # no agent.
+            # verify job has no permissions block, and mention-relay's job
+            # requests only the contents: write its dispatch POST needs — no
+            # secrets, no agent.
             if not any(
                 s.get("uses", "").startswith("max-sixty/tend/")
                 for s in job.get("steps", [])
@@ -215,7 +220,7 @@ def test_init_writes_only_under_the_two_directories_it_owns(
 
     A file `init` newly creates outside those two is invisible to that
     staging, so the regeneration PR ships without it — which is how
-    `.github/actionlint.yaml` once left adopters who lint workflows red, and
+    `.github/actionlint.yaml` once left consumers who lint workflows red, and
     left the file untracked again every night.
     """
     _write_config(tmp_path, "bot_name: test-bot")
@@ -256,7 +261,7 @@ def test_init_writes_actionlint_queue_ignore(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`concurrency.queue` is valid GitHub syntax actionlint's schema rejects,
-    so init ships the ignore that keeps an adopter's lint green — scoped to the
+    so init ships the ignore that keeps a consumer's lint green — scoped to the
     generated files so a real schema error elsewhere still fails."""
     _write_config(tmp_path, "bot_name: test-bot")
     monkeypatch.chdir(tmp_path)
@@ -296,7 +301,7 @@ def test_init_skips_actionlint_config_without_review(
 def test_init_merges_actionlint_ignore_into_existing_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An adopter's own actionlint config survives — the ignore is merged in,
+    """A consumer's own actionlint config survives — the ignore is merged in,
     not written over the top of it."""
     _write_config(tmp_path, "bot_name: test-bot")
     existing = _actionlint_path(tmp_path)
@@ -309,7 +314,7 @@ def test_init_merges_actionlint_ignore_into_existing_config(
             paths:
               .github/workflows/release.yaml:
                 ignore:
-                  - 'some adopter pattern'
+                  - 'some consumer pattern'
             """)
     )
     monkeypatch.chdir(tmp_path)
@@ -319,7 +324,7 @@ def test_init_merges_actionlint_ignore_into_existing_config(
     data = yaml.safe_load(existing.read_text())
     assert data["self-hosted-runner"]["labels"] == ["my-runner"]
     assert data["paths"][".github/workflows/release.yaml"]["ignore"] == [
-        "some adopter pattern"
+        "some consumer pattern"
     ]
     assert data["paths"][ACTIONLINT_TEND_GLOB]["ignore"] == [ACTIONLINT_QUEUE_IGNORE]
 
@@ -330,13 +335,13 @@ def test_init_preserves_comments_only_actionlint_config(
     _write_config(tmp_path, "bot_name: test-bot")
     existing = _actionlint_path(tmp_path)
     existing.parent.mkdir(parents=True, exist_ok=True)
-    existing.write_text("# adopter note\n")
+    existing.write_text("# consumer note\n")
     monkeypatch.chdir(tmp_path)
 
     assert _run_init().exit_code == 0
 
     updated = existing.read_text()
-    assert updated.startswith("# adopter note\n")
+    assert updated.startswith("# consumer note\n")
     assert yaml.safe_load(updated)["paths"][ACTIONLINT_TEND_GLOB]["ignore"] == [
         ACTIONLINT_QUEUE_IGNORE
     ]
@@ -360,7 +365,7 @@ def test_init_updates_existing_actionlint_yml_in_place(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """actionlint reads `.yaml` in preference to `.yml`, so writing a new
-    `.yaml` beside an adopter's `.yml` would silently disable their config.
+    `.yaml` beside a consumer's `.yml` would silently disable their config.
     Update the file they have."""
     _write_config(tmp_path, "bot_name: test-bot")
     yml = tmp_path / ".github" / "actionlint.yml"
@@ -392,7 +397,7 @@ def test_init_dry_run_writes_no_actionlint_config(
 def test_init_leaves_unmergeable_actionlint_config_untouched(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A config shape the generator can't merge into is the adopter's to fix:
+    """A config shape the generator can't merge into is the consumer's to fix:
     warn and leave it byte-for-byte, rather than rewrite their linter config
     into something they didn't ask for."""
     _write_config(tmp_path, "bot_name: test-bot")
@@ -460,25 +465,10 @@ def test_init_custom_config_path(
     assert result.exit_code == 0
 
     for path in _workflow_dir(tmp_path).glob("tend-*.yaml"):
-        content = path.read_text()
-        assert "custom-bot" in content, f"{path.name} missing custom bot name"
-        if path.name != "tend-install-test.yaml":
-            assert "contents/custom/my-tend.yaml" in content
-
-
-def test_init_rejects_a_config_outside_the_repository(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    custom = tmp_path / "tend.yaml"
-    custom.write_text("bot_name: custom-bot")
-    monkeypatch.chdir(repo)
-
-    result = CliRunner().invoke(main, ["init", "-c", str(custom)])
-
-    assert result.exit_code == 1
-    assert "Config must be inside the repository" in result.output
+        if path.name != "tend-mention-relay.yaml":
+            assert "custom-bot" in path.read_text(), (
+                f"{path.name} missing custom bot name"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -719,16 +709,19 @@ def _fake_gh_all_pass(*args: str, **kwargs: str) -> subprocess.CompletedProcess[
     if url == "repos/owner/repo" and ".default_branch" in args:
         return _make_completed("main\n")
     if "rules/branches" in url:
+        # `--paginate --slurp`: an array of pages, here one.
         return _make_completed(
             json.dumps(
                 [
-                    {
-                        "type": rule_type,
-                        "ruleset_id": 1,
-                        "ruleset_source_type": "Repository",
-                        "ruleset_source": "owner/repo",
-                    }
-                    for rule_type in ("creation", "update", "deletion")
+                    [
+                        {
+                            "type": rule_type,
+                            "ruleset_id": 1,
+                            "ruleset_source_type": "Repository",
+                            "ruleset_source": "owner/repo",
+                        }
+                        for rule_type in ("creation", "update", "deletion")
+                    ]
                 ]
             )
         )
@@ -854,7 +847,7 @@ def test_init_then_check_combined_flow(
     # Step 1: init
     init_result = runner.invoke(main, ["init"])
     assert init_result.exit_code == 0
-    assert "Generated 7 workflow files" in init_result.output
+    assert "Generated 8 workflow files" in init_result.output
     assert "tend check" in init_result.output  # reminder to run check
 
     # Step 2: check (mocked)
@@ -911,16 +904,17 @@ def test_init_notifications_has_precheck(
     }
     steps = data["jobs"]["notifications"]["steps"]
 
-    assert steps[0]["id"] == "tend_enabled"
     check_index = next(i for i, step in enumerate(steps) if step.get("id") == "check")
     check_step = steps[check_index]
     assert check_step["id"] == "check"
-    assert "uv run --script -" in check_step["run"]
+    assert check_step["env"]["TEND_UV"] == "${{ steps.tend_uv.outputs.uv-path }}"
+    assert '"$TEND_UV" run --script -' in check_step["run"]
     assert '"--paginate"' in check_step["run"]
     assert "subscription" in check_step["run"]
     assert "notifications/threads/" not in check_step["run"]
     assert any(
-        step.get("uses") == "astral-sh/setup-uv@v10.0.1" for step in steps[:check_index]
+        step.get("uses", "").startswith("astral-sh/setup-uv@")
+        for step in steps[:check_index]
     )
 
     # Everything after the notification check is gated on its output.
@@ -980,6 +974,7 @@ def test_notifications_precheck_tolerates_transient_non_json(
         "GITHUB_OUTPUT": str(output_file),
         "GITHUB_REPOSITORY": "owner/repo",
         "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
+        "TEND_UV": UV,
     }
     result = subprocess.run(
         [BASH, "-e", "-c", script], env=env, capture_output=True, text=True, check=False
@@ -995,6 +990,34 @@ def test_notifications_precheck_tolerates_transient_non_json(
 # ---------------------------------------------------------------------------
 # Bot name flows into workflow content
 # ---------------------------------------------------------------------------
+
+
+def test_init_bot_name_in_workflow_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bot_name from config appears in generated workflow files (in the
+    tend action's bot_name input and mention filters)."""
+    _write_config(tmp_path, "bot_name: my-custom-bot")
+    monkeypatch.chdir(tmp_path)
+    _run_init()
+
+    checked = 0
+    for path in _workflow_dir(tmp_path).glob("tend-*.yaml"):
+        data = yaml.safe_load(path.read_text())
+        for job in data["jobs"].values():
+            for step in job.get("steps", []):
+                if not step.get("uses", "").startswith("max-sixty/tend/claude@"):
+                    continue
+                checked += 1
+                assert step["with"]["bot_name"] == "my-custom-bot"
+    assert checked, "no agent step matched: the action ref or its path moved"
+
+    # The other half of the claim above: mention gates on the name textually,
+    # in the verify job's `if:`, not through an action input.
+    mention = yaml.safe_load(
+        (_workflow_dir(tmp_path) / "tend-mention.yaml").read_text()
+    )
+    assert "@my-custom-bot" in mention["jobs"]["verify"]["if"]
 
 
 # ---------------------------------------------------------------------------
@@ -1015,13 +1038,13 @@ def test_init_with_install_test_generates_extra_file(
     wf_dir = _workflow_dir(tmp_path)
     files = sorted(p.name for p in wf_dir.glob("tend-*.yaml"))
     assert "tend-install-test.yaml" in files
-    assert len(files) == 8  # 7 agent workflows + install-test
+    assert len(files) == 9  # 7 agent workflows, mention-relay, install-test
 
 
 def test_init_without_flag_omits_install_test(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Plain `init` produces the standard 7-file set without the install-test workflow."""
+    """Plain `init` produces the standard 8-file set without the install-test workflow."""
     _write_config(tmp_path, "bot_name: test-bot")
     monkeypatch.chdir(tmp_path)
 
@@ -1065,7 +1088,7 @@ def test_init_removes_unknown_tend_yaml_files(
     wf_dir = _workflow_dir(tmp_path)
     wf_dir.mkdir(parents=True)
     (wf_dir / "tend-defunct.yaml").write_text("# leftover from an older generator\n")
-    (wf_dir / "ci.yaml").write_text("# adopter-owned, must not be touched\n")
+    (wf_dir / "ci.yaml").write_text("# consumer-owned, must not be touched\n")
 
     _run_init()
 
@@ -1159,16 +1182,11 @@ def test_install_test_workflow_shape(
     assert "head.repo.full_name == github.repository" in job["if"]
     assert job["permissions"] == {"contents": "read"}
     assert "secrets." not in content
-    steps = job["steps"]
-    assert steps[0]["id"] == "tend_enabled"
-    assert "?ref=${{ github.event.pull_request.head.sha }}" in steps[0]["run"]
-    for step in steps[1:]:
-        assert step["if"] == "steps.tend_enabled.outputs.enabled == 'true'"
 
     # Generator-drift step regenerates with the same flag to keep output stable.
     # Version is pinned from the committed header (not `@latest`) so a release
     # mid-PR doesn't fail the drift check for an irrelevant reason.
-    assert 'uvx "tend@$TEND_VERSION" init --with-install-test' in content
+    assert '"$TEND_UVX" "tend@$TEND_VERSION" init --with-install-test' in content
     # Version-agnostic: the exact pin is covered by the regtest output, and
     # weekly bumps shouldn't have to edit two places.
     assert "astral-sh/setup-uv@" in content
@@ -1180,25 +1198,3 @@ def test_install_test_workflow_shape(
     assert "git remote set-head" not in content
     assert "gh api" in content and ".default_branch" in content
     assert "git symbolic-ref" in content
-
-
-def test_init_bot_name_in_workflow_content(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The bot_name from config appears in generated workflow files (in the
-    tend action's bot_name input and mention filters)."""
-    _write_config(tmp_path, "bot_name: my-custom-bot")
-    monkeypatch.chdir(tmp_path)
-    _run_init()
-
-    for path in _workflow_dir(tmp_path).glob("tend-*.yaml"):
-        data = yaml.safe_load(path.read_text())
-        for job in data["jobs"].values():
-            steps = job.get("steps", [])
-            tend_steps = [
-                s
-                for s in steps
-                if s.get("uses", "").startswith("max-sixty/tend/claude@")
-            ]
-            for step in tend_steps:
-                assert step["with"]["bot_name"] == "my-custom-bot"

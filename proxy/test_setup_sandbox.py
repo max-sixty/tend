@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import pwd
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,23 +12,23 @@ import setup_sandbox
 
 def _paths(tmp_path: Path) -> setup_sandbox.Paths:
     runner_home = tmp_path / "runner"
-    runner_workspace = runner_home / "work/repo"
-    runner_workspace.mkdir(parents=True)
-    runner_temp = tmp_path / "temp"
-    runner_temp.mkdir()
+    workspace = runner_home / "work/repo/repo"
+    workspace.mkdir(parents=True)
+    runner_temp = runner_home / "work/_temp"
+    runner_temp.mkdir(parents=True)
     runtime_root = tmp_path / "runtime"
     runtime_root.mkdir()
-    workspace = runner_temp / "agent-repo"
-    workspace.mkdir()
+    private_dir = runtime_root / "private"
+    private_dir.mkdir(mode=0o700)
     action = tmp_path / "action"
     action.mkdir()
     uv = tmp_path / "uv"
     uv.mkdir()
     return setup_sandbox.Paths(
         workspace=workspace.resolve(),
-        runner_workspace=runner_workspace.resolve(),
         runner_temp=runner_temp.resolve(),
         runtime_root=runtime_root.resolve(),
+        private_dir=private_dir.resolve(),
         action_path=action.resolve(),
         tend_uv_dir=uv.resolve(),
         github_env=tmp_path / "github-env",
@@ -37,140 +36,63 @@ def _paths(tmp_path: Path) -> setup_sandbox.Paths:
     )
 
 
-def test_configured_path_accepts_the_checkout_and_refuses_the_runner_home(
-    tmp_path: Path,
-) -> None:
-    paths = _paths(tmp_path)
+def test_agent_path_carries_the_job_path_entry_for_entry() -> None:
+    job_path = "/home/runner/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
 
-    assert setup_sandbox.configured_paths(
-        str(paths.workspace / "bin"), paths=paths
-    ) == [str(paths.workspace / "bin")]
-    with pytest.raises(ValueError, match="under the runner's home"):
-        setup_sandbox.configured_paths(str(paths.runner_home / "bin"), paths=paths)
+    entries = setup_sandbox.agent_path(job_path)
 
-
-def test_workspace_path_keeps_precedence_over_runner_home_rewrite(
-    tmp_path: Path,
-) -> None:
-    paths = _paths(tmp_path)
-    workspace_bin = paths.workspace / "bin"
-    workspace_bin.mkdir()
-
-    plan = setup_sandbox.plan_agent_path(
-        runner_tool_path=str(workspace_bin),
-        extras=[],
-        paths=paths,
-        can_execute=lambda _: False,
-    )
-
-    assert str(workspace_bin) in plan.agent_path
-    assert plan.dropped_home_paths == []
+    # Where the Claude binary installs.
+    assert entries[0] == str(setup_sandbox.AGENT_HOME / ".local/bin")
+    assert "/home/runner/.cargo/bin" in entries
+    # Last, so a version the consumer installed stays selected.
+    assert entries[-1] == str(setup_sandbox.TEND_AGENT_UV_DIR)
 
 
-def test_agent_uv_fallback_trails_adopter_paths_and_needs_no_blocker(
-    tmp_path: Path,
-) -> None:
-    paths = _paths(tmp_path)
-    runner_bin = paths.runner_home / "bin"
-    runner_bin.mkdir()
-    for name in ("uv", "uvx", "tend-probe"):
-        executable = runner_bin / name
-        executable.touch(mode=0o755)
-    adopter_bin = tmp_path / "adopter-bin"
+def test_agent_path_never_repeats_an_entry() -> None:
+    entries = setup_sandbox.agent_path("/usr/bin:/usr/bin:/bin")
 
-    plan = setup_sandbox.plan_agent_path(
-        runner_tool_path=str(runner_bin),
-        extras=[str(adopter_bin)],
-        paths=paths,
-        can_execute=lambda _: False,
-    )
-
-    assert plan.agent_path[0] == str(adopter_bin)
-    assert plan.agent_path[-1] == str(setup_sandbox.TEND_AGENT_UV_DIR)
-    assert plan.blocked_commands == ["tend-probe"]
+    assert entries.count("/usr/bin") == 1
 
 
-@pytest.mark.parametrize(
-    ("raw", "message"),
-    [
-        ("PATH=/tmp/bin", "reserved key 'PATH'"),
-        ("TMPDIR=/somewhere", "reserved key 'TMPDIR'"),
-        ("NOT_AN_ASSIGNMENT", "not NAME=VALUE"),
-    ],
-)
-def test_adopter_environment_rejects_unsafe_records(raw: str, message: str) -> None:
-    with pytest.raises(ValueError, match=message):
-        setup_sandbox.adopter_env(raw)
+def test_agent_state_stays_out_of_the_view() -> None:
+    """Tend reads these back after the reap, so they cannot follow `HOME`."""
+    assignments = setup_sandbox.base_agent_env("/usr/bin", None)
 
-
-def test_adopter_environment_preserves_values_after_the_first_equals() -> None:
-    assert setup_sandbox.adopter_env("TEND_VALUE=a=b\n") == ["TEND_VALUE=a=b"]
-
-
-def test_every_fixed_agent_assignment_is_reserved() -> None:
-    assignments = setup_sandbox.base_agent_env(
-        "/usr/bin", ("ANTHROPIC_API_KEY", "dummy"), workspace=Path("/agent")
-    )
-    assert {line.split("=", 1)[0] for line in assignments} <= (
-        setup_sandbox.RESERVED_SANDBOX_ENV
-    )
+    assert f"HOME={setup_sandbox.AGENT_HOME}" in assignments
+    assert f"CLAUDE_CONFIG_DIR={setup_sandbox.CLAUDE_CONFIG_DIR}" in assignments
+    assert f"CODEX_HOME={setup_sandbox.CODEX_HOME}" in assignments
     assert f"TMPDIR={setup_sandbox.AGENT_TMP_DIR}" in assignments
-
-
-def test_agent_environment_keeps_zsh_heredoc_scratch_writable() -> None:
-    """zsh names here-document temp files from TMPPREFIX, which ignores TMPDIR.
-
-    Left at its `/tmp/zsh` default every heredoc fails against the sandbox's
-    read-only root `/tmp` — after the shell has already truncated the
-    redirection target to zero bytes.
-    """
-    assignments = setup_sandbox.base_agent_env(
-        "/usr/bin", None, workspace=Path("/agent")
-    )
-
-    assert f"TMPPREFIX={setup_sandbox.AGENT_TMP_DIR / 'zsh'}" in assignments
+    assert setup_sandbox.CLAUDE_CONFIG_DIR.is_relative_to(setup_sandbox.AGENT_HOME)
+    assert setup_sandbox.CODEX_HOME.is_relative_to(setup_sandbox.AGENT_HOME)
+    assert setup_sandbox.TEND_RUN_DIR.is_relative_to(setup_sandbox.AGENT_HOME)
 
 
 def test_github_only_agent_environment_has_no_model_credential() -> None:
-    assignments = setup_sandbox.base_agent_env(
-        "/usr/bin", None, workspace=Path("/agent")
-    )
+    assignments = setup_sandbox.base_agent_env("/usr/bin", None)
 
     assert not any(
         line.startswith(("ANTHROPIC_API_KEY=", "CLAUDE_CODE_OAUTH_TOKEN="))
         for line in assignments
     )
-    assert "OPENAI_API_KEY" in setup_sandbox.RESERVED_SANDBOX_ENV
-    assert "CODEX_API_KEY" in setup_sandbox.RESERVED_SANDBOX_ENV
-    assert "CODEX_AUTH_JSON" in setup_sandbox.RESERVED_SANDBOX_ENV
-    assert "CODEX_HOME" in setup_sandbox.RESERVED_SANDBOX_ENV
-    assert "GITHUB_WORKSPACE=/agent" in assignments
-    assert not any(line.startswith(("NO_PROXY=", "no_proxy=")) for line in assignments)
+    # The job's own, so the agent's checkout is the one the workflow made.
+    assert not any(line.startswith("GITHUB_WORKSPACE=") for line in assignments)
+    assert "NO_PROXY=localhost,127.0.0.1,::1" in assignments
 
 
-def test_workspace_handoff_never_dereferences_pr_symlinks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_tend_secrets_never_live_where_the_agent_can_read_them(
+    tmp_path: Path,
 ) -> None:
+    """The proxy's confdir holds its CA private key; the agent reads the
+    runner's home as the runner."""
     paths = _paths(tmp_path)
-    calls: list[tuple[str, ...]] = []
 
-    def sudo(*args: str, **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append(args)
-        return subprocess.CompletedProcess(args, 0)
-
-    monkeypatch.setattr(setup_sandbox, "sudo", sudo)
-
-    assert setup_sandbox.handoff_workspace(paths)
-    assert calls[0] == (
-        "/usr/bin/chown",
-        "--recursive",
-        "--no-dereference",
-        f"{setup_sandbox.SANDBOX}:{setup_sandbox.SANDBOX}",
-        str(paths.workspace),
-    )
+    for path in (paths.confdir, paths.proxy_log, paths.proxy_pid):
+        assert path.is_relative_to(paths.private_dir)
+        assert not path.is_relative_to(paths.runner_home)
+    assert paths.private_dir.stat().st_mode & 0o777 == 0o700
 
 
-def test_proxy_uvx_isolated_from_adopter_python_and_uv_configuration(
+def test_proxy_uvx_isolated_from_consumer_python_and_uv_configuration(
     tmp_path: Path,
 ) -> None:
     command = setup_sandbox.uvx_command(
@@ -185,6 +107,23 @@ def test_proxy_uvx_isolated_from_adopter_python_and_uv_configuration(
         "--from",
     ]
     assert command[-3:] == ["mitmproxy==1.2.3", "mitmdump", "--version"]
+
+
+def test_a_checkout_outside_the_runner_home_is_refused_by_name(
+    tmp_path: Path,
+) -> None:
+    """The view covers the home; a self-hosted work folder elsewhere is not."""
+    inside = _paths(tmp_path)
+    setup_sandbox.require_checkout_in_view(inside)
+
+    elsewhere = tmp_path / "opt/actions-runner/_work/repo/repo"
+    elsewhere.mkdir(parents=True)
+    outside = setup_sandbox.Paths(**{**vars(inside), "workspace": elsewhere.resolve()})
+    with pytest.raises(ValueError) as refused:
+        setup_sandbox.require_checkout_in_view(outside)
+    assert str(elsewhere.resolve()) in str(refused.value)
+    assert str(inside.runner_home) in str(refused.value)
+    assert "self-hosted" in str(refused.value)
 
 
 def test_runner_home_does_not_trust_an_empty_environment_value(

@@ -37,18 +37,19 @@ RESTORE_SENSITIVE_CONFIG = (
 # restoration step is held to the resulting exact end state.
 _BASE = {
     "README.md": "base readme\n",
-    "CLAUDE.md": "root guidance\n",
+    "CLAUDE.md": "root instructions\n",
     "AGENTS.md": "-> CLAUDE.md",
     "AGENTS.override.md": "root override\n",
     ".agents/plugins/marketplace.json": "base plugins\n",
     ".agents/skills": "-> ../.claude/skills",
     ".claude/skills/running-tend/SKILL.md": "root skill\n",
-    "site/CLAUDE.md": "site guidance\n",
-    "docs/CLAUDE.md": "docs guidance\n",
-    "docs/CLAUDE.local.md": "docs local guidance\n",
-    "nested/AGENTS.md": "nested guidance\n",
-    "tools/CLAUDE.md": "tools guidance\n",
-    "moved/CLAUDE.md": "moved guidance\n",
+    "site/CLAUDE.md": "site instructions\n",
+    "docs/CLAUDE.md": "docs instructions\n",
+    "docs/CLAUDE.local.md": "docs local instructions\n",
+    "nested/AGENTS.md": "nested instructions\n",
+    "services/AGENTS.override.md": "services override\n",
+    "tools/CLAUDE.md": "tools instructions\n",
+    "moved/CLAUDE.md": "moved instructions\n",
     "apps/api/.agents/skills/deploy/SKILL.md": "api skill\n",
     "apps/web/.claude/skills/deploy/SKILL.md": "web skill\n",
 }
@@ -156,6 +157,8 @@ def _tampered_checkout(tmp_path: Path) -> tuple[Path, Path, Path]:
         _write(repo / ".claude/skills/fork-only/SKILL.md", "EVIL\n")
         _write(repo / ".claude/escape", f"-> {outside / 'CLAUDE.md'}")
         _write(repo / "CLAUDE.local.md", "EVIL\n")
+        _write(repo / "AGENTS.override.md", "EVIL\n")
+        _write(repo / "services/AGENTS.override.md", "EVIL services\n")
         _write(repo / "site/CLAUDE.md", "EVIL site\n")
         shutil.rmtree(repo / "docs")
         _write(repo / "docs", f"-> {outside}")
@@ -308,7 +311,7 @@ def test_pinning_fails_when_the_base_ref_is_missing(
     fork's instruction files with a log line saying 0 paths were pinned."""
     repo, event = _fork_pr(
         tmp_path,
-        {"CLAUDE.md": "root guidance\n"},
+        {"CLAUDE.md": "root instructions\n"},
         lambda repo: _write(repo / "CLAUDE.md", "EVIL root\n"),
         base_ref="missing",
     )
@@ -364,10 +367,13 @@ case "$1:$2" in
     # the pre-check's fixed cutoff so boundary and fresh activity stay unread.
     pages=$(jq -c --arg cutoff "$NOTIF_CUTOFF" \
       '[.[] | select(.updated_at < $cutoff)]' "$NOTIFICATIONS_JSON")
+    # These pages bypass emit(), so they take colorize() directly: real `gh`
+    # paints every page, and a branch that served plain bodies would let the
+    # forced-colour test below pass with the fix reverted.
     if [ "$pages" = "[]" ]; then
-      echo '[]'
+      echo '[]' | colorize
     else
-      printf '%s\n' "$pages" | jq -c '.[] | [.]'
+      printf '%s\n' "$pages" | jq -c '.[] | [.]' | colorize
     fi
     ;;
   api:repos/*/subscription)
@@ -494,9 +500,11 @@ def test_notifications_check_counts_a_complete_cutoff_snapshot_without_acknowled
     assert "notifications/threads/" not in calls
 
 
-def test_notifications_check_boots_for_unknown_or_conflicting_bot_prs(
+def test_notifications_check_ignores_an_unsettled_mergeable(
     notifications_env: dict[str, str],
 ) -> None:
+    # A lazily-computed `UNKNOWN` is not a conflict: only a settled
+    # `CONFLICTING` counts, so a merge into the base branch boots no session.
     _write_json(
         notifications_env,
         "PULLS_JSON",
@@ -526,14 +534,48 @@ def test_notifications_check_boots_for_unknown_or_conflicting_bot_prs(
 
     assert result.returncode == 0, result.stderr
     assert _output(notifications_env, "count") == "0"
-    assert _output(notifications_env, "conflict_count") == "2"
-    assert "2 possible conflicted bot PR(s)" in result.stdout
+    assert _output(notifications_env, "conflict_count") == "1"
+    assert "1 possible conflicted bot PR(s)" in result.stdout
     calls = Path(notifications_env["GH_CALLS"]).read_text()
     assert "api graphql" in calls
     assert "comments(last: 100)" in calls
     assert "repo:owner/repo author:test-bot is:pr is:open" in calls
     assert "app/dependabot" not in calls
     assert "app/renovate" not in calls
+
+
+def test_notifications_check_survives_a_colour_forcing_job_environment(
+    notifications_env: dict[str, str],
+) -> None:
+    """A consumer whose workflow env carries `CLICOLOR_FORCE=1` — a `env:`
+    override, or a `setup:` step that wrote one into `$GITHUB_ENV` — would
+    otherwise get ANSI codes inside every `gh` body. Both readers catch the
+    decode error and fall back to zero, so the poll skips every cycle with
+    nothing but a `::warning::` on a green job to say so."""
+    notifications_env["CLICOLOR_FORCE"] = "1"
+    _write_json(
+        notifications_env,
+        "NOTIFICATIONS_JSON",
+        [_notif("11", "issues", 7, NOTIF_SETTLED)],
+    )
+    _write_json(
+        notifications_env,
+        "PULLS_JSON",
+        [
+            {
+                "number": 33,
+                "mergeable": "CONFLICTING",
+                "headRefOid": "head-33",
+                "comments": [],
+            }
+        ],
+    )
+
+    result = _run_check(notifications_env)
+
+    assert result.returncode == 0, result.stderr
+    assert _output(notifications_env, "count") == "1"
+    assert _output(notifications_env, "conflict_count") == "1"
 
 
 def test_notifications_check_suppresses_only_the_marked_bot_head(
@@ -545,7 +587,7 @@ def test_notifications_check_suppresses_only_the_marked_bot_head(
         [
             {
                 "number": 22,
-                "mergeable": "UNKNOWN",
+                "mergeable": "CONFLICTING",
                 "headRefOid": "head-22",
                 "comments": [
                     {

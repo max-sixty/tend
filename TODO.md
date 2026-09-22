@@ -3,29 +3,6 @@
 Deferred work and unimplemented options. Each entry should justify the cost
 of building it if revisited.
 
-## Re-evaluate reader-focused public prose after release
-
-The bundled skills now give the model the reader's context and decision goal,
-while keeping a small number of output shapes as optional examples. After a
-release has accumulated a sample comparable to the baseline below, review PR
-descriptions, top-level reviews, and issue replies separately. Visible word
-counts and long paragraphs are useful alerts, but the judgment is whether the
-visible text states the conclusion, consequence, and required action without
-replaying the investigation, and whether optional examples have become de
-facto templates again.
-
-PR baseline (2026-09-01 through 2026-09-06, six consumers on 0.1.24): 93 PRs
-had a median 243 visible words; 40% had at least 300 visible words, and 39% had
-a visible paragraph of at least 100 words. Comment baseline (2026-08-20 through
-2026-09-06, seven active consumers): 629 review bodies had a median 1,984
-characters, 500 general PR comments had a median 1,734, and 164 issue, triage,
-and mention comments had a median 2,179. The comment sample excludes run
-trackers and enrichment payloads.
-
-If the new guidance improves synthesis without dropping useful context, keep
-the examples. If it does not, use the observed failures to remove an example
-or sharpen the goal rather than adding a hard length limit.
-
 ## Cut tend over to harness = "codex" (post-release)
 
 The Codex harness landed but tend itself still runs on Claude. The cutover
@@ -50,7 +27,7 @@ tend's own CI between merge and the release tag bump.
 ## Thread memory: deterministic prep of prior conversations
 
 A thread's session logs share one artifact name per harness, so
-`running-in-ci` finds its prior runs with a single `?name=` call, and the
+`run-tend` finds its prior runs with a single `?name=` call, and the
 agent downloads and parses them on demand. The lookup is cheap; the
 cost is the agent reading raw logs (a session JSONL runs ~100 KB, ~30k
 tokens) each time it opens one.
@@ -75,17 +52,17 @@ would reduce the impact of a token stolen through a compromised runner or
 credential proxy. Neither is being pursued: both require tend to stand up
 and operate a hosted service (a token-minting endpoint or a full webhook
 handler), which gives up tend's defining property of stamping workflow files
-into the adopter's repo and running nothing of its own. The credential proxy
+into the consumer's repo and running nothing of its own. The credential proxy
 keeps the PAT out of the agent on both harnesses, and the environment gate keeps
 it out of any workflow the bot can start on its own. Cross-repository GitHub
 access through the live proxy is intended behavior, not part of this analysis.
 
 ### Model A: token-minting service
 
-Adopter installs our GitHub App; `tend init` generates the same workflow
+Consumer installs our GitHub App; `tend init` generates the same workflow
 files. The only auth change is an OIDC call to our service that mints a
 scoped installation token per workflow run. Workflows still live and run
-in the adopter's repo.
+in the consumer's repo.
 
 ```yaml
 - uses: max-sixty/tend/auth@X.Y.Z   # OIDC → our service → scoped token
@@ -99,8 +76,8 @@ in the adopter's repo.
     claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
-Trust model: standard GitHub App — adopters trust the App by installing it,
-like installing Codecov or Renovate. We hold the App private key; adopters
+Trust model: standard GitHub App — consumers trust the App by installing it,
+like installing Codecov or Renovate. We hold the App private key; consumers
 hold their own Claude OAuth token. A workflow-run OIDC token
 (`id-token: write`) proves the caller's repo identity to our service.
 
@@ -109,36 +86,36 @@ webhook handler to detect config changes.
 
 ### Model B: full webhook handler
 
-Adopter installs our GitHub App, adds `.config/tend.yaml`, done — no
+Consumer installs our GitHub App, adds `.config/tend.yaml`, done — no
 workflow files. GitHub sends raw events to our service; we run the logic
 (engagement verification, concurrency, dispatch) and execute Claude on our
-infrastructure (or dispatch back to the adopter's runners).
+infrastructure (or dispatch back to the consumer's runners).
 
 Most cohesive UX, and partially addresses the fork-PR gap — we receive
 inline review-comment webhooks regardless of fork status.
 
 Trade-offs: a compromise of our infra exposes write access to every
-adopter's repo *and* their code. Anthropic token has three options:
+consumer's repo *and* their code. Anthropic token has three options:
 
-- Adopter hands it to us; we hold it. If our service is compromised, the
-  attacker gets every adopter's Claude token.
-- We provide Claude access and bill the adopter. Simpler for them; we take
+- Consumer hands it to us; we hold it. If our service is compromised, the
+  attacker gets every consumer's Claude token.
+- We provide Claude access and bill the consumer. Simpler for them; we take
   on billing and usage management.
 - `workflow_dispatch` back to their runners. Token stays in their secrets;
   adds latency and complexity.
 
 ## Auth: triage + fork privilege model
 
-Currently only `write + branch protection` exists. The planned `mode` field
+Currently only `write + restrict-updates ruleset` exists. The planned `mode` field
 in `.config/tend.yaml` would select between two models:
 
-| | **Triage + fork** | **Write + branch protection** (current) |
+| | **Triage + fork** | **Write + restrict-updates ruleset** (current) |
 |---|---|---|
 | Bot collaborator level | Triage | Write |
 | Bot pushes code to | Own fork | Target repo branches |
 | Creates PRs | From fork | Same-repo |
 | Approvals count for required reviews | No | Yes |
-| Branch protection required | **No** | **Yes** — primary security boundary |
+| Restrict-updates ruleset required | **No** | **Yes** — primary security boundary |
 | Leaked PAT blast radius | Comments/reviews; fork write only | Full write to target repo |
 | Setup complexity | Low | Medium |
 
@@ -274,3 +251,17 @@ lives in KV and is what the site renders. If the summary wants a longer
 span than the last week (beyond GitHub's ~90-day events window or one
 Search page), a KV/D1 accumulator that appends activity as it arrives
 earns its keep — until then, demand-fetch is cheap enough.
+
+## Give `tend-mention` a skill of its own
+
+`workflows.py` builds every other agent-invoking workflow's prompt from
+`default_prompt(skill)`; mention's is written inline in `mention.yaml.j2` and
+names no skill — the one exception `test_repo_pins.py` allows to the invariant
+under "Which file" in `CLAUDE.md`.
+
+The rules with mention's shape — reading the thread, a review's inline
+comments, the closed-target check, whether to respond — no longer need that
+skill for a home: `/tend-ci-runner:respond-on-thread` holds them,
+keyed on responding to a thread whatever woke the session, so triage,
+notifications, and review reach them too. A `mention` skill earns its cost only
+once rules that bind mention alone start accumulating in `run-tend` again.

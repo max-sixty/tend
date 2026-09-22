@@ -1,15 +1,16 @@
 ---
 name: running-tend
-description: Tend-specific guidance for tend CI workflows. Adds non-standard workflow inclusion for usage analysis and repo conventions on top of the generic tend-* skills.
+description: Tend-specific instructions for tend CI workflows. Adds non-standard workflow inclusion for usage analysis and repo conventions on top of the bundled tend-ci-runner skills.
 metadata:
   internal: true
 ---
 
 # Tend CI
 
-Repo-specific guidance for tend workflows running on tend itself. The generic
-skills (`tend-running-in-ci`, `tend-review`, `tend-triage`, etc.) provide the
-workflow framework; this skill adds tend conventions.
+Repo-specific instructions for tend workflows running on tend itself. The bundled
+skills (`/tend-ci-runner:run-tend`, `/tend-ci-runner:review`,
+`/tend-ci-runner:triage`, etc.) provide the workflow framework; this skill adds
+tend conventions.
 
 ## Filing issues in other repos
 
@@ -19,24 +20,30 @@ qualify, as do other Claude-Code-action-using repos. The default rule (open
 an issue here asking permission first) still applies when the target shows no
 agent signals.
 
+## Proposing instructions
+
+`/tend-ci-runner:propose-instructions` routes a bundled rule upstream to
+tend, which is this repo, so the rule lands here as a PR rather than an issue.
+That PR follows that skill's **Mechanics**, with the file under `plugins/` as
+step 2's dedup target and without step 3's read-only-mount workaround, which
+only `.claude/skills/` needs. A bundled
+skill's scripts go in `plugins/tend-ci-runner/scripts/`, where the generator
+test suite exercises them.
+
 ## Non-standard workflows
 
 Tend has Claude-powered workflows beyond the generated `tend-*` set:
 
 | Workflow | File | Schedule | Purpose |
 |----------|------|----------|---------|
-| `review-reviewers` | `review-reviewers.yaml` | manual only (paused) | Outside-in analysis of adopter repo sessions |
+| `review-reviewers` | `review-reviewers.yaml` | daily 09:41 UTC | Outside-in analysis of consumer repo sessions |
 
-`review-reviewers` runs only on `workflow_dispatch` — dispatch it as a
-spot-check after a release, harness switch, or model bump, not on a cadence. The
-per-repo `tend-review-runs` carries the routine loop; the workflow file's header
-explains the pause.
-
-A dispatched run's window opens at the **previous successful `review-reviewers`
-run**, floored 6h back (`list_recent_runs.py`). With no cron, dispatches usually
-sit further apart than that, so the floor is the normal case: the run covers the
-last 6h and warns on stderr that the rest is a coverage gap. Dispatch it within
-~6h of whatever you want it to see.
+`review-reviewers` sweeps only the consumers nobody here maintains; the
+workflow file's header says why, and the matrix is the list. A run's window
+opens at the **previous successful `review-reviewers` run**, so a daily tick
+covers the day. `list_recent_runs.py` caps it at 49h, wide enough to absorb a
+missed tick; past that it warns on stderr and the run records a coverage gap
+rather than an all-clear.
 
 These use the tend composite action and produce `claude-session-logs*` artifacts,
 but their names don't match the `tend-*` prefix that scripts filter on by
@@ -51,14 +58,13 @@ workflows are included:
 ```bash
 # Claude leaves this unset in the shell; Codex exports it.
 SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
-uv run --script "$SCRIPTS/token_report.py" "${HOURS:-24}" "review-"
+uv run --script "$SCRIPTS/token_report.py" --hours "${HOURS:-24}" "review-"
 TARGET_REPO=max-sixty/tend uv run --script \
   "$SCRIPTS/list_recent_runs.py" review-reviewers "tend-" "review-"
 ```
 
-Under `review-runs`, `$HOURS` is the lookback derived from its Step 1 anchor —
-passing a literal `24` there reopens the window gap that anchor closes. The
-default keeps an ad-hoc invocation working.
+`--hours` is for an ad-hoc look; `review-runs` passes `--since` with its own
+Step 1 anchor instead, so its spend covers the same band that step censuses.
 
 ## Labels
 
@@ -67,7 +73,7 @@ default keeps an ad-hoc invocation working.
 
 ## Session Log Paths
 
-Artifact paths: `-tmp-tend-agent-workspace-*-checkout/<session-id>.jsonl`
+Artifact paths: `-var-tmp-tend-agent-workspace-*-checkout/<session-id>.jsonl`
 
 `review-reviewers` runs produce one session log per matrix repo in
 `.github/workflows/review-reviewers.yaml`.
@@ -101,6 +107,12 @@ have recent activity on GitHub — that localizes the fault to the Worker. The
 bot can't rotate the Worker's Cloudflare-side secret itself, so leave the
 diagnosis to a maintainer; `worker/README.md` covers the Worker's setup.
 
+## Nightly: where instructions belong
+
+When the survey reads a skill, a reference, or a project instruction file, ask
+of it the two questions under **Shipped instructions and tend's own** in
+`CLAUDE.md`: does it ship, and who acts on it.
+
 ## Nightly: don't duplicate the release's regeneration PR
 
 The `release` skill's deploy step opens `chore: regenerate workflows with tend
@@ -130,7 +142,7 @@ regenerating skips them entirely.
 Run this after the regen step, whether or not it produced a PR:
 
 ```bash
-rg -o --no-filename 'max-sixty/tend/[a-z/-]+@[0-9.]+' .github/workflows/ | sort -u
+git grep --untracked -hoE 'max-sixty/tend/[a-z/-]+@[0-9.]+' -- .github/workflows/ | sort -u
 ```
 
 The check is on the versions rather than the line count: pipe the same output
@@ -163,6 +175,10 @@ The command unions code-search results with the current index, verifies each
 repository, and leaves the existing file untouched if a GitHub read fails.
 Confirm every repository listed under `removed` no longer has generated Tend
 workflows before publishing the change.
+
+When the refresh adds a repository nobody here maintains, add it to
+`.github/workflows/review-reviewers.yaml`'s matrix in the same PR — that
+workflow is the only reading those repos' tend runs get.
 
 Open a PR titled `chore: refresh consumers.json` if the file changed. Skip
 the PR (no diff to land) when `git status --porcelain data/consumers.json`
@@ -211,7 +227,7 @@ yq -r '.inputs | to_entries[] | select(.key | test("_version$"))
   | "\(filename) \(.key) = \(.value.default)"' */action.yaml */*/action.yaml
 
 # Python: `==` and upper bounds freeze a version. Floors (`click>=8.0`) state
-# compatibility instead and stay put — raising one only narrows adopter support.
+# compatibility instead and stay put — raising one only narrows consumer support.
 git grep -nE '(==|~=|<=?)[0-9]' -- '*pyproject.toml'
 uv lock --upgrade --dry-run
 
@@ -220,10 +236,12 @@ uv tool run pre-commit autoupdate
 
 # npm: `Wanted` ≠ `Current` is lockfile drift (`npm update`); `Latest` ≠
 # `Wanted` needs the range in package.json moved. Exits 1 when a row prints.
-npm --prefix worker outdated
-npm --prefix site outdated
+# Install first — `outdated` reads `Current` from `node_modules`, which a CI
+# checkout never has, and with none it prints nothing and exits 0.
+npm --prefix worker ci && npm --prefix worker outdated
+npm --prefix site ci && npm --prefix site outdated
 
-# Versions pinned in a shell script (worktrunk, in the Codex Cloud setup)
+# Versions pinned in a shell script: worktrunk in the Codex Cloud setup.
 git grep -nE '^[A-Za-z_]*VERSION=' -- '*.sh'
 ```
 
@@ -241,14 +259,17 @@ GHA `uses:` refs sweep separately, under a rule of their own — see below.
 Out of scope entirely: runner images (`ubuntu-24.04`), `node-version`, and
 `requires-python` are platform choices carrying their own rationale, so they
 move when a reason arrives rather than on a cadence.
+`https://claude.ai/install.sh` is fetched live on purpose:
+it is Anthropic's installer for a version-pinned binary, it runs as the
+sandbox UID, and a vendored copy would rot against their layout.
 
 Default rule: move to latest and let CI decide — the table below names the pins
 where CI can't. Split PRs by who runs the result, and take what fits in one
 session rather than clearing a backlog at once — an unswept pin waits a week, a
 swamped run finishes nothing.
 
-- **Ships to adopters** — `claude/action.yaml`, `codex/action.yaml`, and
-  `codex/refresh/action.yaml` run in adopter jobs from the next release;
+- **Ships to consumers** — `claude/action.yaml`, `codex/action.yaml`, and
+  `codex/refresh/action.yaml` run in consumer jobs from the next release;
   `generator/src/tend/templates/` and `workflows.py` render into their workflow
   files. One PR each, titled `chore: bump <name> to <version>` (the
   uv-plus-mitmproxy PR names both), its body naming what changed.
@@ -288,7 +309,24 @@ bump, use an isolated Plus/Pro login to run the refresh action and require both
 the full and access-only credentials to rotate. Inspect Codex's auth manager
 too: an unparsable access token must fall through to the stale `last_refresh`,
 and that refresh must use the refresh token without requiring the old access
-token. Report the relevant release notes crossed by the bump in its PR.
+token. Reach that inspection by diffing `codex-rs/login`'s blob SHAs between the
+two tags, never by filtering `repos/openai/codex/compare/<old>...<new>`: that
+endpoint caps `files` at 300 and `--paginate` does not lift it, so a window of a
+few hundred commits drops the directory from the list and reports an all-clear
+it cannot support.
+
+```bash
+login_blobs() { gh api "repos/openai/codex/git/trees/$1?recursive=1" \
+  --jq 'if .truncated then error("tree truncated") else .tree[] | select(.type == "blob" and (.path | startswith("codex-rs/login/"))) | "\(.path) \(.sha)" end' | sort; }
+diff <(login_blobs rust-v<old>) <(login_blobs rust-v<new>)
+```
+
+The tags carry a `rust-v` prefix the pin does not. Sorting by path puts each
+changed blob's before and after lines together, so a modification reads
+distinctly from an addition. Read every blob the diff names; empty output is a
+real all-clear, because the listing has no 300-file cap and the guard halts on
+the one limit it does have rather than returning a short tree. Report the
+relevant release notes crossed by the bump in its PR.
 
 ### `uses:` refs
 
@@ -306,7 +344,7 @@ git grep -hoE 'uses: [^ ./][^ @]*@[^ ]+' -- ':!generator/tests' ':!*.md' \
 An action listed twice is pinned at two majors: refs move when someone needs a
 behavior from one of them, never in a sweep. `git grep` each drifted action for
 its call sites, then split the PRs by the buckets above — a ref that ships to
-adopters gets its own, its body naming what changed across the majors it
+consumers gets its own, its body naming what changed across the majors it
 crosses.
 
 The generated `tend-*.yaml` show up in that grep too; their refs come from the

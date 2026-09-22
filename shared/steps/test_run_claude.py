@@ -2,7 +2,7 @@
 
 The launch tests replace ``subprocess.run``: what is under test is the harness
 argv, fixed inner files, bound, and process-group reap. The hosted sandbox test
-drives the same code through the complete SRT lifecycle.
+drives the same code through the complete sandbox lifecycle.
 
 The verdict tests need no agent, no credential and no second uid — every input
 is a file or a scalar — so each branch is reachable from a fixture.
@@ -450,14 +450,14 @@ def launch(
         launch_error: Exception | None = None,
         **overrides: str,
     ) -> Launch:
-        runner_temp = tmp_path / "runner-temp"
+        runner_temp = tmp_path / "agent-run"
         workspace = tmp_path / "workspace"
         runner_temp.mkdir(exist_ok=True)
-        workspace.mkdir(exist_ok=True)
+        (workspace / ".git").mkdir(parents=True, exist_ok=True)
         monkeypatch.setenv("CI", "true")
         monkeypatch.setenv("TEND_INSIDE_SANDBOX", "1")
         env = {
-            "RUNNER_TEMP": str(runner_temp),
+            "TEND_RUN_DIR": str(runner_temp),
             "GITHUB_WORKSPACE": str(workspace),
             "TEND_MODEL": "opus",
             "TEND_EFFORT": "",
@@ -521,7 +521,7 @@ def test_launch_steers_the_agent_entirely_through_argv(launch: Launcher) -> None
     """Nothing on the far side reads the model or the prompts from the env.
 
     `--permission-mode` restates what settings.local.json already says, so the
-    mode survives an adopter overriding that file.
+    mode survives a consumer overriding that file.
     """
     argv = launch(stream=_ev_result()).command("claude").argv
 
@@ -582,11 +582,11 @@ def test_launch_adds_the_restored_auto_memory_settings(
     assert argv[1:3] == ["-u", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"]
 
 
-def test_launch_only_adds_harness_names_inside_srt(
+def test_launch_only_adds_harness_names_inside_the_sandbox(
     launch: Launcher,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The curated and SRT-adjusted environment is inherited, not replayed."""
+    """The curated launch environment is inherited, not replayed."""
     # The auto-memory settings path of whatever tend run is hosting this suite.
     # The fixture has to overwrite it, or the crossing below carries that run's
     # flags into a launch the test never configured for them.
@@ -605,6 +605,12 @@ def test_launch_only_adds_harness_names_inside_srt(
 
 
 def test_launch_writes_settings_inside_the_existing_sandbox(launch: Launcher) -> None:
+    """The exact file, so a key that silently stops being written is caught.
+
+    The three claude.ai keys are the ones worth naming: they are what holds the
+    bot's account out of the session, and the sync pair honors only ``false``
+    because the feature it refuses turns on server-side.
+    """
     result = launch(stream=_ev_result())
     tee = result.command("tee")
 
@@ -617,10 +623,15 @@ def test_launch_writes_settings_inside_the_existing_sandbox(launch: Launcher) ->
         },
         "skipDangerousModePermissionPrompt": True,
         "attribution": {"commit": "", "pr": ""},
+        "syncClaudeAiSkills": False,
+        "syncClaudeAiPlugins": False,
+        "disableClaudeAiConnectors": True,
     }
     mkdir = result.command("mkdir")
     assert mkdir.argv[0] == "mkdir"
     assert mkdir.kwargs["stdin"] is subprocess.DEVNULL
+    exclude = Path(tee.argv[-1]).parents[1] / ".git/info/exclude"
+    assert exclude.read_text() == "/.claude/settings.local.json\n"
 
 
 def test_launch_captures_the_streams_into_runner_owned_files(
@@ -777,7 +788,7 @@ def test_main_refuses_to_start_without_an_input_it_needs_late(
     ordinary run green and surface months later, mid-outage, as a bare exit 1.
     """
     for name in (
-        "RUNNER_TEMP",
+        "TEND_RUN_DIR",
         "GITHUB_WORKSPACE",
         "TEND_MODEL",
         "TEND_ALLOWED_TOOLS",
@@ -801,5 +812,5 @@ def test_main_refuses_to_create_a_second_execution_boundary(
 ) -> None:
     monkeypatch.delenv("TEND_INSIDE_SANDBOX", raising=False)
 
-    with pytest.raises(RuntimeError, match="only inside the SRT lifecycle"):
+    with pytest.raises(RuntimeError, match="only inside the sandbox lifecycle"):
         run_claude.main()

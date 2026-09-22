@@ -2,7 +2,11 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""Own the monthly evidence lifecycle for the review-runs workflow."""
+"""Own the review-runs workflow's persisted records.
+
+Two of them: the monthly below-threshold evidence tracker, and the lookup that
+tells the sweep which `tend-outage` trackers still owe it a drain.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +28,10 @@ BODY = """Monthly tracking issue for below-threshold findings. Each run appends 
 **Do not close manually** — a new issue is created each month, and prior months are closed automatically.
 """
 EVIDENCE_HEADING = re.compile(r"(^|\n)## Run [0-9]")
+OUTAGE_LABEL = "tend-outage"
+# `report_failure.py`'s title. The label alone also carries durable trackers,
+# which hold no run rows and must not be drained or closed here.
+OUTAGE_TITLE = "Bot temporarily unavailable"
 TEMP_DIR = Path(tempfile.gettempdir())
 
 
@@ -35,6 +43,13 @@ def _state_path() -> Path:
 
 def _findings_path() -> Path:
     return Path(os.environ.get("REVIEW_RUNS_FINDINGS", str(TEMP_DIR / "findings.md")))
+
+
+def _since_path() -> Path:
+    """The sweep's window anchor, as `list_recent_runs.py` writes it."""
+    return Path(
+        os.environ.get("REVIEW_RUNS_SINCE_FILE", str(TEMP_DIR / "review-runs-since"))
+    )
 
 
 def _issue_number(url: str) -> int:
@@ -120,6 +135,77 @@ def prepare(*, now: datetime | None = None) -> int:
     return 0
 
 
+def _rows(number: int) -> list[str]:
+    """Return a tracker's run rows: the body holds the first, comments the rest."""
+    issue = github_cli.json_call(
+        "issue", "view", str(number), "--json", "body,comments"
+    )
+    return [
+        str(issue.get("body") or ""),
+        *(str(comment.get("body") or "") for comment in issue["comments"]),
+    ]
+
+
+def outage_trackers() -> int:
+    """Report every outage tracker whose rows this sweep still owes a drain.
+
+    Open trackers, plus any closed since the window anchor by someone other
+    than this bot. Only the drain closes a tracker, so a close by anyone else
+    — a maintainer watching the incident end — leaves live rows behind that no
+    live-repository scan can recover: a merged PR whose review died with the
+    outage looks exactly like one the maintainer merged unreviewed.
+    """
+    since = _since_path().read_text().strip()
+    if not since:
+        print(
+            f"{_since_path()} is empty; run list_recent_runs.py first", file=sys.stderr
+        )
+        return 2
+    repo = github_cli.repository()
+    bot = str(github_cli.json_call("api", "user")["login"])
+    issues = github_cli.json_call(
+        "issue",
+        "list",
+        "--state",
+        "all",
+        "--label",
+        OUTAGE_LABEL,
+        "--author",
+        "@me",
+        "--limit",
+        "100",
+        "--json",
+        "number,title,state,closedAt",
+    )
+    trackers: list[dict[str, Any]] = []
+    for issue in sorted(issues, key=lambda row: int(row["number"])):
+        if str(issue.get("title") or "") != OUTAGE_TITLE:
+            continue
+        number = int(issue["number"])
+        state = str(issue.get("state") or "")
+        closed_by = ""
+        if state != "OPEN":
+            # Both stamps are `%Y-%m-%dT%H:%M:%SZ` UTC, so they order as text.
+            if str(issue.get("closedAt") or "") < since:
+                continue
+            # `closed_by` is on the single-issue REST response only; the list
+            # endpoint and `gh issue list --json` both omit it.
+            closed = github_cli.json_call("api", f"repos/{repo}/issues/{number}")
+            closed_by = github_cli.actor_login(closed.get("closed_by"))
+            if closed_by == bot:
+                continue
+        trackers.append(
+            {
+                "number": number,
+                "state": state,
+                "closed_by": closed_by,
+                "rows": _rows(number),
+            }
+        )
+    github_cli.dump({"since": since, "trackers": trackers})
+    return 0
+
+
 def _post_comment(repo: str, number: int, body: str) -> None:
     github_cli.run(
         "api",
@@ -187,7 +273,12 @@ def main(argv: list[str] | None = None) -> int:
         return prepare()
     if args == ["append-evidence"]:
         return append()
-    print(f"usage: {sys.argv[0]} prepare-evidence|append-evidence", file=sys.stderr)
+    if args == ["outage-trackers"]:
+        return outage_trackers()
+    print(
+        f"usage: {sys.argv[0]} prepare-evidence|append-evidence|outage-trackers",
+        file=sys.stderr,
+    )
     return 2
 
 

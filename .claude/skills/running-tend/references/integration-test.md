@@ -7,7 +7,8 @@ resets the repo for the next week.
 ## Safety — read first
 
 This recipe issues destructive operations (close issues, close PRs,
-delete branches, push regenerated workflows to `main`) against
+delete branches, lift the merge ruleset to push regenerated workflows to
+`main`) against
 **exactly one** repo:
 `tend-agent/tend-integration`. The literal string `tend-agent/tend-integration`
 appears as `--repo` argument on every destructive call below — not a
@@ -44,12 +45,15 @@ they always exercise current workflows. Any step failing jumps to §7
 fixture unable to run anything, and which reports without needing the
 reset since it created nothing.
 
-## 1. Bootstrap (first run only) and reseed (every run)
+## 1. Bootstrap (first run only), merge ruleset and reseed (every run)
 
-Create the test repo if missing, with workflows installed on `main`
-and branch protection enabled on the default branch; the creation
-block is a no-op once the repo exists. Then dispatch the
-`integration-secrets` workflow to seed the fixture's secrets from
+Create the test repo if missing, with workflows installed on `main`; the
+creation block is a no-op once the repo exists. Then make sure `main`
+carries the merge restriction tend's preflight requires: an active update
+ruleset that GitHub reports the bot cannot bypass. The bot owns this repo,
+so an admin-role bypass actor would let it through; the ruleset names no
+bypass actor at all, and §2 lifts it around its own push. Last, dispatch
+the `integration-secrets` workflow to seed the fixture's secrets from
 outside the sandbox (see Safety above — exporting `$GITHUB_TOKEN` from
 here would store the placeholder).
 
@@ -60,11 +64,6 @@ if ! gh repo view tend-agent/tend-integration --json name >/dev/null 2>&1; then
   WORK=$(mktemp -d)
   gh repo clone tend-agent/tend-integration "$WORK"
   cd "$WORK"
-
-  # The runner has no global git identity; commit needs both fields set
-  # locally or `git commit` aborts and the follow-up push silently no-ops.
-  git config user.email "tend-agent@users.noreply.github.com"
-  git config user.name "tend-agent"
 
   mkdir -p .config
   cat > .config/tend.yaml <<'EOF'
@@ -86,28 +85,34 @@ EOF
 
   cd - >/dev/null
   rm -rf "$WORK"
+fi
 
-  # tend's preflight requires the default branch to be protected
-  # (`gh api .../branches/main --jq '.protected'` must be true). Without
-  # this, every tend-* run on the repo aborts at the Security preflight
-  # step. The bot owns this repo so it has admin to set protection.
-  gh api -X PUT repos/tend-agent/tend-integration/branches/main/protection \
-    -H "Accept: application/vnd.github+json" \
-    --input - <<'EOF'
+RULESET_ID=$(gh api repos/tend-agent/tend-integration/rulesets \
+  --jq '.[] | select(.name == "Merge access") | .id')
+if [ -z "$RULESET_ID" ]; then
+  RULESET_ID=$(gh api repos/tend-agent/tend-integration/rulesets \
+    --method POST --input - --jq .id <<'EOF'
 {
-  "required_status_checks": null,
-  "enforce_admins": false,
-  "required_pull_request_reviews": {
-    "dismiss_stale_reviews": false,
-    "require_code_owner_reviews": false,
-    "required_approving_review_count": 1
-  },
-  "restrictions": null,
-  "allow_force_pushes": false,
-  "allow_deletions": false
+  "name": "Merge access",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "rules": [{ "type": "update" }],
+  "bypass_actors": []
 }
 EOF
+  )
 fi
+case $RULESET_ID in
+  ''|*[!0-9]*) echo "tend-integration: no Merge access ruleset: $RULESET_ID"; exit 1 ;;
+esac
+# Active again if an earlier §2 died between lifting and restoring it.
+gh api -X PUT repos/tend-agent/tend-integration/rulesets/"$RULESET_ID" \
+  -f enforcement=active >/dev/null
+STATE=$(gh api repos/tend-agent/tend-integration/rulesets/"$RULESET_ID" \
+  --jq '"\(.enforcement) \(.current_user_can_bypass)"')
+[ "$STATE" = "active never" ] \
+  || { echo "tend-integration: Merge access is '$STATE', not 'active never'"; exit 1; }
 
 # Reseed the fixture's secrets. Compare against the previous run ID so
 # a stale earlier run is never mistaken for this dispatch.
@@ -155,12 +160,23 @@ gh repo clone tend-agent/tend-integration "$WORK"
 cd "$WORK"
 uv tool run tend@latest init
 if [ -n "$(git status --porcelain)" ]; then
-  git config user.email "tend-agent@users.noreply.github.com"
-  git config user.name "tend-agent"
   gh auth setup-git
   git add .
   git commit -m "chore: regenerate tend workflows (weekly integration self-heal)"
-  git push origin main \
+  # §1's ruleset holds `main` against the bot too: lift it for this one
+  # push, and restore it whatever the push does.
+  RULESET_ID=$(gh api repos/tend-agent/tend-integration/rulesets \
+    --jq '.[] | select(.name == "Merge access") | .id')
+  case $RULESET_ID in
+    ''|*[!0-9]*) echo "tend-integration: no Merge access ruleset: $RULESET_ID"; exit 1 ;;
+  esac
+  gh api -X PUT repos/tend-agent/tend-integration/rulesets/"$RULESET_ID" \
+    -f enforcement=disabled >/dev/null
+  if git push origin main; then PUSHED=0; else PUSHED=1; fi
+  gh api -X PUT repos/tend-agent/tend-integration/rulesets/"$RULESET_ID" \
+    -f enforcement=active >/dev/null \
+    || { echo "tend-integration: Merge access left disabled after the push"; exit 1; }
+  [ "$PUSHED" = 0 ] \
     || { echo "tend-integration: push to main failed; fixture not updated"; exit 1; }
 fi
 uv tool run tend@latest init
@@ -244,7 +260,7 @@ Clone, create a branch with a trivial README edit, open a PR, wait for
 `tend-review` to register and finish, assert the action invoked the
 Claude session (artifact present).
 
-The `tend-review` skill is explicitly directed to exit silently on
+The `/tend-ci-runner:review` skill is explicitly directed to exit silently on
 self-authored, trivial PRs (GitHub blocks self-approval; the skill keeps
 quiet when there are no concerns). So an "is there a bot review on the
 PR?" assertion can't distinguish "the action never ran" from "the action
@@ -261,9 +277,6 @@ TS=$(date -u +%Y%m%d-%H%M%S)
 WORK=$(mktemp -d)
 gh repo clone tend-agent/tend-integration "$WORK"
 cd "$WORK"
-
-git config user.email "tend-agent@users.noreply.github.com"
-git config user.name "tend-agent"
 
 BRANCH="integration-test-review-$TS"
 git checkout -b "$BRANCH"
@@ -319,8 +332,9 @@ rm -rf "$WORK"
 ## 6. Verify tend-mention (review events)
 
 Submit a comment review on the §5 PR that names the bot, and assert that
-a dispatched session ran. The chain is review submitted → relay (the
-review event re-posted as a `repository_dispatch`) → verify → handle. A
+a dispatched session ran. The chain is review submitted →
+`tend-mention-relay` (the review event re-posted as a
+`repository_dispatch`) → verify → handle. A
 review the bot writes otherwise starts no session, since the review
 workflow applies its own findings; naming the bot is the gate's
 mention-wins rule, and it is the only event the single bot identity can

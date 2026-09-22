@@ -6,31 +6,18 @@ import os
 from pathlib import Path
 
 import _common
-
-CLAUDE_DIRECTIVE = "Use /tend-ci-runner:running-in-ci before starting work."
-AUTONOMY_DIRECTIVE = (
-    "You are running in CI; no human is available to answer questions. Never "
-    "prompt for clarification or approval. When uncertain, make the best "
-    "reasonable choice from the available evidence and proceed. Permissions "
-    "are pre-approved; tool calls execute without confirmation."
-)
-
-
-def _substitute_runtime(text: str, bot_name: str, merge: str) -> str:
-    return (
-        text.replace("${BOT_NAME}", bot_name)
-        .replace("$BOT_NAME", bot_name)
-        .replace("${TEND_MERGE}", merge)
-        .replace("$TEND_MERGE", merge)
-    )
+import _prompt
 
 
 def main() -> int:
     shared = Path(os.environ["SYSTEM_PROMPT_FILE"]).read_text()
-    base = _substitute_runtime(
-        shared, os.environ["BOT_NAME"], os.environ["TEND_MERGE"]
+    base = _prompt.render(
+        shared,
+        bot_name=os.environ["BOT_NAME"],
+        merge=os.environ["TEND_MERGE"],
+        harness="claude",
     ).rstrip("\n")
-    parts = [CLAUDE_DIRECTIVE, AUTONOMY_DIRECTIVE, base]
+    parts = [base]
     extra = os.environ.get("EXTRA", "")
     if extra:
         parts.append(extra)

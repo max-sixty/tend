@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Triages new GitHub issues — classifies, reproduces bugs, attempts conservative fixes, and comments. Use when a new issue is opened and needs automated triage.
+description: Triages a newly opened GitHub issue — classifies, reproduces bugs, attempts conservative fixes, and comments.
 argument-hint: "[issue number]"
 metadata:
   internal: true
@@ -14,15 +14,19 @@ Triage a newly opened GitHub issue.
 
 ## Step 1: Setup
 
-Load `/tend-ci-runner:running-in-ci` first (CI environment rules, security). It will also prompt you to load any repo-specific skills (e.g., `running-tend`) — do so before proceeding.
+Load `/tend-ci-runner:run-tend` first (CI environment rules, security). It will also prompt you to load any repo-specific skills (e.g., `running-tend`) — do so before proceeding.
 
-Follow the AD FONTES principle throughout: reproduce before fixing, evidence before speculation, test before committing.
+Reproduce before fixing, find evidence before speculating, and test before committing.
 
 ## Step 2: Read and classify the issue
 
 ```bash
 gh issue view $ARGUMENTS --json title,body,labels,author
 ```
+
+An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on, not a self-conversation: the system prompt's self-loop guard covers the bot's own *comments*, and triage runs on these normally while no bot comment answers them yet.
+
+One exception: a tracker the bot maintains for its own evidence — its body says **Do not close manually**, and later runs append to it — carries no report. End the run without commenting.
 
 Classify into one of:
 
@@ -37,11 +41,11 @@ Classify into one of:
 
 ```bash
 # Search open issues for similar problems
-gh issue list --state open --json number,title,labels --limit 50
+gh issue list --state open --json number,title,labels --limit 200
 
 # Check for existing fix branches and PRs
 git branch -r --list 'origin/fix/*'
-gh pr list --state open --json number,title,headRefName --limit 50
+gh pr list --state open --json number,title,headRefName --limit 200
 ```
 
 If a duplicate or existing fix is found, note it for the comment in step 7. Don't create a duplicate fix.
@@ -63,98 +67,61 @@ Record what you found (or didn't find) for use in step 7.
 
 *Bug reports only.*
 
-1. **Understand the report** — What command was run? What was expected? What actually happened?
-2. **Find relevant code** — Search the codebase for the functionality described
-3. **Write a failing test** — Add a test to the appropriate *existing* test file that demonstrates the bug. Don't create new test files.
-4. **Run the test** to confirm it fails. Use the test commands from the project's instruction files.
+Follow **Reproduce first** in `/tend-ci-runner:fix-a-bug`: a failing test in an existing test file, run to confirm it fails.
 
-If the test passes (bug may already be fixed), note this for the comment.
-
-If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7. Do NOT proceed to Step 6 without a failing test — a fix without reproduction evidence is not a conservative fix.
+If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7. If the test passes, the bug may already be fixed — note that for the comment.
 
 ## Step 6: Fix (conservative)
 
 *Bug reports only.*
 
-**CRITICAL — gate check before proceeding:**
-
-You MUST have a failing test from Step 5 before writing any fix. If you skipped the test (couldn't write one, environment-specific bug, etc.), do NOT attempt a fix — go directly to Step 7 and report the outcome you established.
-
-**Only attempt a fix if ALL of these conditions are met:**
-
-- Bug is clearly reproducible (test written in Step 5 fails)
-- Root cause is understood
-- Fix is localized (1-3 files changed)
-- Confident the fix is correct
-
-### Skill text fixes
-
-When the bug is about bot behavior (e.g., "bot didn't use links", "bot posted wrong format"), the root cause is often a skill/prompt compliance issue, not missing code. Before adding guidance to a skill:
-
-1. **Check ALL co-loaded skills** — Skills loaded together in the same workflow share context. If the guidance already exists in a co-loaded skill, the issue is behavioral compliance, not missing instructions.
-2. **Don't duplicate guidance across skills.**
-
-### Don't "fix" tests by adding skip guards
-
-If the proposed change removes coverage for the failing scenario instead of restoring the assertion, stop. Smell patterns: a newly-added early-return at the top of the test (`let Ok(_) = X else { return };`, `if !path.exists() { return; }`), a fresh `#[ignore]`, a newly-inserted `skipIf` / `pytest.skip` keyed on the failing condition. The fix belongs in production code or test setup, not in a guard that makes the test bail when the bug fires.
-
-### Don't pin undefined behavior in a test
-
-When a doc claim and the code disagree and which of the two is wrong is still an open question, the finding *is* that question. A test asserting the current output settles it without the authority to — it turns unspecified behavior into a pinned contract, so the eventual fix arrives looking like a regression. Report the discrepancy and let a maintainer say which side moves; write the test after that.
-
-### Defer to in-flight same-root-cause PRs
-
-Step 3's duplicate check catches identical fixes. It misses the *same root cause class, different surface* pattern: several failing tests share one underlying cause, and an outstanding PR fixes some of them but not the one being triaged. When the triage analysis itself names an existing PR as same-root-cause, that's the signal to wait for it to merge and re-run, or to mirror its approach for the remaining sites — not to open a parallel narrow workaround.
+`/tend-ci-runner:fix-a-bug` carries the gates: the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
 
 ### If fixing
 
-1. Fix the root cause (not just the symptom)
-2. Confirm the reproduction test now passes — that targeted pass plus a clean compile is enough local confidence to ship. Leave the comprehensive suite to PR CI per `/tend-ci-runner:running-in-ci`'s "End the turn only when work is shipped"; backgrounding a long suite before push risks ending the session while the result is still local.
-3. Create branch, commit, push, and create PR:
+1. Clear the local bar in `/tend-ci-runner:fix-a-bug`.
+2. Create branch, commit, push, and create PR:
    ```bash
    git checkout -b fix/issue-$ARGUMENTS
    git add -A
+   # <trailer>: `Closes #$ARGUMENTS` where the fix settles the whole report,
+   # `Refs #$ARGUMENTS` where it settles part of one.
    git commit -m "fix: <description>
 
-   Closes #$ARGUMENTS"
+   <trailer>"
    git push -u origin fix/issue-$ARGUMENTS
    ```
-   Compose the body at `$TMPDIR/pr-body.md`. Write for a maintainer deciding whether the current fix resolves the issue: explain the causal finding, the resulting behavior change, and the reproduction test that now passes. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`, and end with `Closes #$ARGUMENTS — automated triage` so merging closes the issue.
-
-   The headings below are one possible shape when they help a reviewer scan the case. They are not a required outline; choose the structure that fits the change.
+   Compose the body at `$TMPDIR/pr-body.md`. Write for a maintainer deciding whether the current fix resolves the issue: explain the causal finding, the resulting behavior change, and the reproduction test that now passes. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`, and end with the commit's trailer plus ` — automated triage`: `Closes #$ARGUMENTS — automated triage` where the fix settles the whole report, `Refs #$ARGUMENTS — automated triage` where it settles part of one, with the body naming what it leaves. See **Closing keywords** in `/tend-ci-runner:open-pr`.
 
    <example>
-   <bad reason="The headings are filled with a restatement, investigation chronology, and a generic test claim">
+   <bad reason="Restates the report, narrates the investigation, and claims a generic test run">
 
    Bad:
 
    ```markdown
-   ## Problem
-   The issue reports that retries fail.
-
-   ## Solution
-   I inspected the retry loop, compared several paths, and changed three files.
-
-   ## Testing
-   I ran the test suite.
+   The issue reports that retries fail. I inspected the retry loop, compared several paths, and changed three files. I ran the test suite.
    ```
 
    </bad>
-   <good reason="The same headings carry the cause, resulting behavior, and evidence a reviewer needs">
+   <good reason="Carries the cause, the resulting behavior, and the evidence a reviewer needs">
 
    Good:
 
    ```markdown
-   ## Problem
-   A retry drops the resolved workspace root, so its second attempt reads from the process directory and fails outside the repository.
-
-   ## Solution
-   Keep the resolved root in retry state. Both attempts now address the same workspace.
-
-   ## Testing
-   The regression test reproduces the second-attempt failure before the change and passes after it.
+   A retry dropped the resolved workspace root, so its second attempt read from the process directory and failed outside the repository. Retry state now keeps the root, so both attempts address the same workspace. The regression test reproduces the second-attempt failure before the change and passes after it.
 
    Closes #123 — automated triage
+   ```
+
+   </good>
+   <good reason="A partial fix names what it leaves and references the issue instead of closing it">
+
+   Good, where the fix settles part of the report:
+
+   ```markdown
+   A retry dropped the resolved workspace root, so its second attempt read from the process directory and failed outside the repository. Retry state now keeps the root, and the regression test covers the second attempt. The report's other half — the retry budget resetting between attempts — runs through a different code path and is untouched here.
+
+   Refs #123 — automated triage
    ```
 
    </good>
@@ -163,7 +130,7 @@ Step 3's duplicate check catches identical fixes. It misses the *same root cause
    ```bash
    gh pr create --title "fix: <description>" --body-file "$TMPDIR/pr-body.md"
    ```
-4. Wait for CI per **CI Monitoring** in `/tend-ci-runner:running-in-ci`.
+3. Wait for CI per `/tend-ci-runner:monitor-ci`.
 
 ### If reproduction test works but fix is not confident
 
@@ -176,7 +143,7 @@ git commit -m "test: add reproduction for #$ARGUMENTS"
 git push -u origin repro/issue-$ARGUMENTS
 ```
 
-Compose the body at `$TMPDIR/pr-body.md`. Make clear that the PR deliberately adds a failing reproduction without a fix, what behavior it captures, and any causal boundary already established so a maintainer knows what remains to decide. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`, and end with `Automated triage for #$ARGUMENTS`.
+Compose the body at `$TMPDIR/pr-body.md`. Make clear that the PR deliberately adds a failing reproduction without a fix, what behavior it captures, and any causal boundary already established so a maintainer knows what remains to decide. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`, and end with `Automated triage for #$ARGUMENTS`.
 
 ```bash
 gh pr create --title "test: reproduction for #$ARGUMENTS" --body-file "$TMPDIR/pr-body.md"
@@ -186,9 +153,9 @@ Note the PR number for the comment.
 
 ## Step 7: Comment on the issue
 
-**Recheck before posting** per **Recheck Before Posting** in `/tend-ci-runner:running-in-ci` — triage can take minutes, so re-fetch the issue and skip any point a new human comment or a sibling tend workflow already covered.
+Re-fetch before posting, per **Recheck before posting** in `/tend-ci-runner:post-to-github` — triage can take minutes, so re-fetch the issue and skip any point a new human comment or a sibling tend workflow already covered.
 
-Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:running-in-ci`; do not restate the report or narrate the investigation. Never claim the issue is fully resolved by automation alone — an opened fix still needs maintainer review and landing. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
+Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`; do not restate the report or narrate the investigation. Never claim the issue is fully resolved by automation alone — an opened fix still needs maintainer review and landing. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
 
 Read the reporter's relationship to the repository before composing the reply:
 

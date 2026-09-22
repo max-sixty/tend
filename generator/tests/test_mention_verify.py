@@ -484,6 +484,67 @@ def test_a_bare_commented_review_is_not_terminal(env: dict[str, str]) -> None:
     assert _verdict(env) == ("true", "participation")
 
 
+def test_a_review_bots_approval_is_terminal_whatever_its_body_says(
+    env: dict[str, str],
+) -> None:
+    """A code-health badge or a "looks safe to merge" template is a body, and
+    an emptiness-keyed gate counts it as prose. Nobody is being asked for
+    anything, and a repo carrying several review bots pays one session per bot
+    per push."""
+    _review(
+        env,
+        user={"login": "codescene-access[bot]", "type": "Bot"},
+        state="APPROVED",
+        body="[//]: # (cs-code-health)\n![Code Health](https://example/badge.svg)",
+    )
+    _write(env, "PR_REVIEWS_JSON", [{"user": {"login": BOT}, "id": 5}])
+
+    assert _verdict(env) == ("false", "")
+
+
+def test_a_persons_approval_with_a_body_still_runs(env: dict[str, str]) -> None:
+    """The author type is the whole of what narrows the skip: a person writing
+    prose alongside an approval is saying something to somebody."""
+    _review(
+        env,
+        user={"login": "human", "type": "User"},
+        state="APPROVED",
+        body="Looks right — though I'd still rename that helper.",
+    )
+    _write(env, "PR_REVIEWS_JSON", [{"user": {"login": BOT}, "id": 5}])
+
+    assert _verdict(env) == ("true", "participation")
+
+
+def test_a_review_bots_approval_carrying_inline_findings_runs(
+    env: dict[str, str],
+) -> None:
+    """Inline comments are findings wherever they come from."""
+    _review(
+        env, user={"login": "codescene-access[bot]", "type": "Bot"}, state="APPROVED"
+    )
+    _write(env, "PR_REVIEWS_JSON", [{"user": {"login": BOT}, "id": 5}])
+    _inline(env, _fresh("this method got long"))
+
+    assert _verdict(env) == ("true", "participation")
+
+
+def test_a_review_bots_commented_review_still_runs(env: dict[str, str]) -> None:
+    """Deliberately unfixed here. A review bot's COMMENTED review is sometimes
+    a real finding and sometimes a fixed template, and no state or author field
+    separates them — telling them apart needs a reader, so the gate lets them
+    through and the session decides."""
+    _review(
+        env,
+        user={"login": "graphify-labs[bot]", "type": "Bot"},
+        state="COMMENTED",
+        body="Graphify reviewed this change. Looks safe to merge.",
+    )
+    _write(env, "PR_REVIEWS_JSON", [{"user": {"login": BOT}, "id": 5}])
+
+    assert _verdict(env) == ("true", "participation")
+
+
 # ---------------------------------------------------------------------------
 # Engagement heuristics for comments
 # ---------------------------------------------------------------------------
@@ -608,3 +669,17 @@ def test_engagement_survives_a_paginated_lookup(env: dict[str, str]) -> None:
     _write(env, "ISSUE_COMMENTS_JSON", [{"user": {"login": BOT}, "id": 6}])
 
     assert _verdict(env) == ("true", "participation")
+
+
+def test_the_gate_survives_a_colour_forcing_job_environment(
+    env: dict[str, str],
+) -> None:
+    """A consumer whose workflow env carries `CLICOLOR_FORCE=1` — an `env:`
+    override, or a `setup:` step that wrote one into `$GITHUB_ENV` — would
+    otherwise get ANSI codes inside every `gh` body. The dispatch readers
+    catch the decode error and skip, so the mention goes unanswered with
+    nothing but a "not found" line on a green job to say so."""
+    env["CLICOLOR_FORCE"] = "1"
+    _review(env, body=f"@{BOT} please look")
+
+    assert _verdict(env) == ("true", "mention")

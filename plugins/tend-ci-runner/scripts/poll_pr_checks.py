@@ -17,6 +17,7 @@ from typing import Any
 import github_cli
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+RUN_ID_RE = re.compile(r"/actions/runs/(\d+)/")
 RED_CONCLUSIONS = {
     "FAILURE",
     "TIMED_OUT",
@@ -24,6 +25,11 @@ RED_CONCLUSIONS = {
     "ACTION_REQUIRED",
     "ERROR",
 }
+# The conclusions that pass. Anything else terminal and not red produced no
+# result — CANCELLED or STALE, a COMPLETED check carrying no conclusion, or a
+# conclusion GitHub adds later — so it is neither red nor green. Naming green
+# rather than the no-result set keeps the unrecognized case fail-closed.
+GREEN_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 GRAPHQL_QUERY = """
 query($owner: String!, $name: String!, $oid: GitObjectID!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -64,7 +70,7 @@ def reduce_rollup(
     workflow: str,
     allow_filtered_empty: bool = False,
 ) -> dict[str, list[str]] | None:
-    """Filter and collapse raw contexts to pending and failed check names."""
+    """Filter and collapse raw contexts to pending, failed and unverified names."""
     contexts: list[dict[str, str]] = []
     own_run = f"/runs/{run_id}/" if run_id else ""
     for node in nodes:
@@ -100,7 +106,11 @@ def reduce_rollup(
         contexts.append(context)
 
     if not contexts:
-        return {"pending": [], "failed": []} if allow_filtered_empty else None
+        return (
+            {"pending": [], "failed": [], "unverified": []}
+            if allow_filtered_empty
+            else None
+        )
 
     groups: dict[tuple[str, str], list[dict[str, str]]] = {}
     for context in contexts:
@@ -123,6 +133,12 @@ def reduce_rollup(
             for context in current
             if context["status"] == "COMPLETED"
             and context["conclusion"] in RED_CONCLUSIONS
+        ],
+        "unverified": [
+            f"{context['name']} {context['url']}"
+            for context in current
+            if context["status"] == "COMPLETED"
+            and context["conclusion"] not in (RED_CONCLUSIONS | GREEN_CONCLUSIONS)
         ],
     }
 
@@ -205,15 +221,77 @@ def head_note(*, pr: str, repo: str, sha: str) -> None:
         )
 
 
-def _head_sha(pr: str, repo: str) -> str:
-    response = github_cli.json_call(
-        "pr", "view", pr, "--repo", repo, "--json", "headRefOid"
-    )
-    return str(response["headRefOid"])
+def _settle(
+    *, repo: str, sha: str, sleep: Callable[[float], None]
+) -> tuple[bool, dict[str, list[str]] | None]:
+    """Poll until nothing pends on two reads 30s apart, or the cap expires.
+
+    Returns whether the rollup settled, and the last complete rollup read.
+    """
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    workflow = os.environ.get("GITHUB_WORKFLOW", "")
+    last: dict[str, list[str]] | None = None
+    for _ in range(9):
+        sleep(60)
+        current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
+        if current is None:
+            continue
+        last = current
+        if current["pending"]:
+            continue
+        sleep(30)
+        current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
+        if current is None:
+            continue
+        last = current
+        if not current["pending"]:
+            return True, current
+    return False, last
 
 
-def snapshot(pr: str, sha: str) -> int:
-    """Print the current non-own check state for one pinned PR commit."""
+def _run_conclusion(repo: str, failure: str) -> str | None:
+    """The conclusion of the Actions run behind a failed check.
+
+    "" for a status context, which names no run; None when the run can't be read.
+    """
+    match = RUN_ID_RE.search(failure)
+    if not match:
+        return ""
+    try:
+        view = github_cli.json_call(
+            "run",
+            "view",
+            match.group(1),
+            "--repo",
+            repo,
+            "--json",
+            "conclusion",
+            quiet=True,
+        )
+        return str(view["conclusion"])
+    except (subprocess.CalledProcessError, ValueError, KeyError, TypeError):
+        return None
+
+
+def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
+    """Decide whether one pinned PR commit's checks allow an approval.
+
+    A failure beside checks still running is often a cancellation cascade: a
+    concurrency group cancels a run, an `if: always()` merge-gate omnibus
+    reports that as FAILURE rather than cancelled, and a replacement run is
+    already under way. So a red with checks pending waits for them to settle,
+    and a red still standing at the cap approves only when every failing check
+    belongs to a cancelled Actions run. A run that can't be read decides nothing,
+    unless another failure is already real.
+
+    A check that settled without a result — cancelled, stale, or a conclusion
+    outside the passing set — never reached a verdict, so it cannot withhold on
+    its merits. It approves under the same policy, named as unverified so the
+    approval doesn't read as a check that passed.
+
+    Whether *sha* is still the head is not judged here: the review skill posts
+    every review behind `review_preflight.py post`, which refuses a moved head.
+    """
     repo = os.environ["GITHUB_REPOSITORY"]
     rollup = fetch_rollup(
         repo=repo,
@@ -225,8 +303,43 @@ def snapshot(pr: str, sha: str) -> int:
     if rollup is None:
         print(f"could not read a complete check rollup for {sha}", file=sys.stderr)
         return 2
-    github_cli.dump({"sha": sha, "head_sha": _head_sha(pr, repo), **rollup})
+    if rollup["failed"] and rollup["pending"]:
+        _, rollup = _settle(repo=repo, sha=sha, sleep=sleep)
+        if rollup is None:
+            print(f"no complete rollup read for {sha} while waiting", file=sys.stderr)
+            return 2
+
+    failures = rollup["failed"]
+    if failures and rollup["pending"]:
+        conclusions = [(f, _run_conclusion(repo, f)) for f in failures]
+        failures = [f for f, c in conclusions if c not in {"cancelled", None}]
+        unread = [f for f, c in conclusions if c is None]
+        if unread and not failures:
+            print(
+                f"could not read the run behind: {', '.join(unread)}", file=sys.stderr
+            )
+            return 2
+        if not failures:
+            print(f"approve: every failure on {sha} is a cancelled run; unverified:")
+            print(*rollup["pending"], *rollup["unverified"], sep="\n")
+            return 0
+    if failures:
+        print(f"withhold: red on {sha}:")
+        print(*failures, sep="\n")
+        return 1
+    if rollup["unverified"]:
+        print(f"approve: no failing check on {sha}; unverified:")
+        print(*rollup["unverified"], sep="\n")
+        return 0
+    print(f"approve: no failing check on {sha}")
     return 0
+
+
+def _unverified_note(rollup: dict[str, list[str]]) -> None:
+    """Name checks that settled without a result, beside another verdict."""
+    if rollup["unverified"]:
+        print("settled without a result (cancelled, stale, or unrecognized):")
+        print(*rollup["unverified"], sep="\n")
 
 
 def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
@@ -244,41 +357,22 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
             )
             return 2
 
-    last: dict[str, list[str]] | None = None
-    for _ in range(9):
-        sleep(60)
-        current = fetch_rollup(
-            repo=repo,
-            sha=sha,
-            run_id=os.environ.get("GITHUB_RUN_ID", ""),
-            workflow=os.environ.get("GITHUB_WORKFLOW", ""),
-        )
-        if current is None:
-            continue
-        last = current
-        if current["pending"]:
-            continue
-        sleep(30)
-        current = fetch_rollup(
-            repo=repo,
-            sha=sha,
-            run_id=os.environ.get("GITHUB_RUN_ID", ""),
-            workflow=os.environ.get("GITHUB_WORKFLOW", ""),
-        )
-        if current is None:
-            continue
-        last = current
-        if current["pending"]:
-            continue
-        if current["failed"]:
-            print(f"red on {sha}:")
-            print(*current["failed"], sep="\n")
-            head_note(pr=pr, repo=repo, sha=sha)
-            return 1
+    settled, last = _settle(repo=repo, sha=sha, sleep=sleep)
+    if settled and last["failed"]:
+        print(f"red on {sha}:")
+        print(*last["failed"], sep="\n")
+        _unverified_note(last)
+        head_note(pr=pr, repo=repo, sha=sha)
+        return 1
+    if settled and last["unverified"]:
+        print(f"no result from these checks on {sha} — UNVERIFIED, not green:")
+        print(*last["unverified"], sep="\n")
+        head_note(pr=pr, repo=repo, sha=sha)
+        return 2
+    if settled:
         print(f"green: every gating check on {sha} settled green")
         head_note(pr=pr, repo=repo, sha=sha)
         return 0
-
     if last is None:
         print(f"no gating check settled on {sha} — UNVERIFIED, not green")
         head_note(pr=pr, repo=repo, sha=sha)
@@ -288,6 +382,7 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
     if last["failed"]:
         print("failures observed so far (unconfirmed while checks pend):")
         print(*last["failed"], sep="\n")
+    _unverified_note(last)
     head_note(pr=pr, repo=repo, sha=sha)
     return 3
 
@@ -302,14 +397,14 @@ def main(
     sha = args[1] if len(args) > 1 else ""
     if len(args) != 2 or not SHA_RE.fullmatch(sha):
         print(
-            "poll_pr_checks.py: poll|snapshot <pr-number> <sha>; <sha> must be "
+            "poll_pr_checks.py: poll|approval <pr-number> <sha>; <sha> must be "
             "a full 40-char lowercase commit "
             f"OID, got '{sha}' — UNVERIFIED, not green",
             file=sys.stderr,
         )
         return 2
-    if command == "snapshot":
-        return snapshot(pr, sha)
+    if command == "approval":
+        return approval(pr, sha, sleep=sleep)
     if command == "poll":
         return poll(pr, sha, sleep=sleep)
     print(f"unknown command: {command or '<none>'}", file=sys.stderr)

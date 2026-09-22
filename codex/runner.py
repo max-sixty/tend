@@ -4,7 +4,7 @@
 # ///
 """Run the three stateful phases of Tend's Codex harness.
 
-The shared SRT supervisor owns the execution lifetime; Tend's proxies own
+The shared sandbox supervisor owns the execution lifetime; Tend's proxies own
 credentials. This module owns only Codex-specific mechanics that benefit from
 argv construction and file handling: installing Tend's plugins, staging the
 global instructions, and writing the fixed final-message file around
@@ -13,6 +13,7 @@ global instructions, and writing the fixed final-message file around
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import subprocess
@@ -21,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "shared/steps"))
 
+import _prompt
 import _sandbox
 
 PLUGIN_ROOT_PREFIX = "Installed plugin root: "
@@ -55,7 +57,7 @@ def _append_agent_environment(name: str, value: str) -> None:
 
 
 def _sandbox_command(*args: str) -> list[str]:
-    """Run a preparation command as the agent uid before SRT starts."""
+    """Run a preparation command as the agent uid before the launch."""
     environment = _sandbox.agent_env(_required_path("AGENT_ENV_FILE"))
     return [
         "/usr/bin/sudo",
@@ -138,15 +140,6 @@ def install_plugin() -> int:
     return 0
 
 
-def _substitute_runtime(text: str, bot_name: str, merge: str) -> str:
-    return (
-        text.replace("${BOT_NAME}", bot_name)
-        .replace("$BOT_NAME", bot_name)
-        .replace("${TEND_MERGE}", merge)
-        .replace("$TEND_MERGE", merge)
-    )
-
-
 def stage_agents() -> int:
     """Compose the harness-neutral prompt and Codex tail into AGENTS.md."""
     action_path = _required_path("ACTION_PATH").resolve()
@@ -158,11 +151,14 @@ def stage_agents() -> int:
         raise ValueError(f"unknown TEND_MERGE: {merge or '<unset>'}")
     shared = (action_path.parent / "shared/system-prompt.md").read_text()
     tail = (action_path / "agents-tail.md").read_text()
+    render = functools.partial(
+        _prompt.render, bot_name=bot_name, merge=merge, harness="codex"
+    )
     body = (
-        "# Tend CI guidance (Codex harness)\n\n"
-        + _substitute_runtime(shared, bot_name, merge).rstrip("\n")
+        "# Tend CI instructions (Codex harness)\n\n"
+        + render(shared).rstrip("\n")
         + "\n\n"
-        + _substitute_runtime(tail, bot_name, merge).rstrip("\n")
+        + render(tail).rstrip("\n")
         + "\n"
     )
     sandbox = os.environ.get("SANDBOX", "")
@@ -182,7 +178,7 @@ def stage_agents() -> int:
 def run_codex() -> int:
     """Run Codex and export its final message even when the process fails."""
     if os.environ.get("TEND_INSIDE_SANDBOX") != "1":
-        raise RuntimeError("Codex may run only inside the SRT lifecycle")
+        raise RuntimeError("Codex may run only inside the sandbox lifecycle")
     codex = str(_required_path("CODEX_BIN"))
     auth_mode = os.environ.get("AUTH_MODE", "")
     auth_args: list[str]
@@ -200,8 +196,8 @@ def run_codex() -> int:
             ),
             "--config",
             'model_provider="tend-openai"',
-            # Only Codex's own model client must cross SRT's HTTP broker to
-            # reach the runner-owned Responses proxy. Restore SRT's loopback
+            # Only Codex's own model client must cross the credential proxy to
+            # reach the runner-owned Responses proxy. Restore the loopback
             # exclusions for shell tools so sandbox-local test servers remain
             # local to the sandbox.
             "--config",
@@ -221,8 +217,9 @@ def run_codex() -> int:
         "exec",
         *(arg for arg in os.environ.get("EXTRA_ARGS", "").splitlines() if arg),
         *(["--model", model] if model else []),
-        # SRT is the sole execution sandbox. A nested Codex sandbox creates a
-        # second, divergent policy surface and is deliberately not selected.
+        # The agent's unit is the sole execution sandbox. A nested Codex
+        # sandbox creates a second, divergent policy surface and is
+        # deliberately not selected.
         "--dangerously-bypass-approvals-and-sandbox",
         "--output-last-message",
         str(output_file),
@@ -236,9 +233,9 @@ def run_codex() -> int:
     args.append(os.environ.get("PROMPT", ""))
     launch = ["/usr/bin/env"]
     if auth_mode == "api-key":
-        # SRT owns the effective proxy variables. Its NO_PROXY includes
-        # loopback, but the runner-owned Responses proxy lives on host
-        # loopback, so only Codex's API client bypasses those exclusions.
+        # The agent's NO_PROXY includes loopback, but the runner-owned
+        # Responses proxy lives on host loopback, so only Codex's API client
+        # bypasses those exclusions.
         launch.extend(["NO_PROXY=", "no_proxy="])
     launch.extend(args)
     insert_at = launch.index(codex)

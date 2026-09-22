@@ -5,7 +5,7 @@ A step body is a flat module beside this one, run by the composite action as
 inputs in the environment, exactly as the shell bodies were. Only the standard
 library is available: the steps run on the runner's ``/usr/bin/python3``, before
 and without tend's own ``uv``. That is 3.12 on the pinned ubuntu-24.04 image,
-but an adopter can select an older image through the documented ``runs-on``
+but a consumer can select an older image through the documented ``runs-on``
 override, so these modules stay 3.10-compatible.
 
 Every GitHub call goes through :func:`gh`, and every step module calls it as
@@ -59,12 +59,21 @@ def gh(*args: str, input: str | None = None) -> str:
     caller tolerates the failure: "Bad credentials" or "Not Found" is the whole
     diagnosis for a misconfigured install, and the shell bodies had it on the
     step log for free.
+
+    A job environment that forces color makes ``gh`` colorize even a piped
+    ``--json``/``--jq`` body, and the ANSI codes land inside what
+    :func:`gh_json` parses. ``CLICOLOR_FORCE=0`` is the setting that defeats
+    it: ``gh`` ranks a forced value above ``NO_COLOR``, so ``NO_COLOR`` alone
+    loses.
     """
+    env = os.environ.copy()
+    env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
     result = subprocess.run(
         ["gh", *args],
         input=input,
         capture_output=True,
         text=True,
+        env=env,
         check=False,
     )
     if result.returncode != 0:
@@ -81,13 +90,17 @@ def gh_json(*args: str, input: str | None = None) -> Any:
     return json.loads(gh(*args, input=input))
 
 
+class UnexpectedShape(Exception):
+    """A ``gh`` read whose body parsed, but not into what the endpoint serves."""
+
+
 # What a `gh` read can fail with, for a step that tolerates one failing.
 # Catching the non-zero exit alone is not enough: a GitHub blip can answer a
-# request with an HTML error page under a 200, so `gh` exits zero and the parse
-# is what fails. The shell bodies got both for free — they read through
-# `gh --jq`, which made `gh` itself fail on an unparsable body, and their
-# `|| true` swallowed that too.
-GH_READ_FAILED = (subprocess.CalledProcessError, json.JSONDecodeError)
+# request with an HTML error page, or an error object, under a 200, so `gh`
+# exits zero and the parse or its shape is what fails. The shell bodies got
+# both for free — they read through `gh --jq`, which made `gh` itself fail on
+# an unparsable body, and their `|| true` swallowed that too.
+GH_READ_FAILED = (subprocess.CalledProcessError, json.JSONDecodeError, UnexpectedShape)
 
 
 def gh_paginated(path: str) -> list[Any]:
@@ -96,16 +109,20 @@ def gh_paginated(path: str) -> list[Any]:
     ``--paginate`` alone prints one JSON document per page, which is not a
     document; ``--slurp`` makes it the array of pages, flattened here. It also
     refuses ``--jq``, which is the point — the filtering stays in Python, where
-    a test sees the predicate rather than a jq string.
+    a test sees the predicate rather than a jq string. Anything but an array of
+    pages raises :class:`UnexpectedShape`: a short listing would read as an
+    answer.
     """
     pages = gh_json("api", "--paginate", "--slurp", path)
+    if not isinstance(pages, list) or not all(isinstance(p, list) for p in pages):
+        raise UnexpectedShape(f"{path}: not an array of pages")
     return [item for page in pages for item in page]
 
 
 # Where each event keeps the number of the issue or PR it is about.
-# `repository_dispatch` is tend-mention relaying review events through a
-# secretless job that re-posts them, so its PR number arrives in the dispatch
-# payload — and as a form field, hence a string.
+# `repository_dispatch` is a review event tend-mention-relay re-posted to
+# tend-mention, so its PR number arrives in the dispatch payload — and as a
+# form field, hence a string.
 _SUBJECT_NUMBER_KEYS = {
     "pull_request_target": ("pull_request", "number"),
     "pull_request_review": ("pull_request", "number"),
@@ -194,8 +211,9 @@ def subject_sha() -> str | None:
     ref the run was queued on — for the events that name neither a thread nor
     a commit, ``schedule`` and ``workflow_dispatch``. An event that names a
     thread gets ``None``, because ``GITHUB_SHA`` is the default branch's tip
-    there and the run is not about it: a mention on a PR ``gh pr checkout``s
-    the PR's head straight after. :func:`subject_number` has that subject.
+    there and the run is not about it: a mention on a PR has the PR's head
+    checked out in the event tree. :func:`subject_number` has that
+    subject.
 
     ``GITHUB_SHA`` is likewise the wrong commit for the events that do carry
     their own, which is why the payload wins: a ``pull_request_target`` run

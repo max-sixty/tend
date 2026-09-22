@@ -59,6 +59,8 @@ from tend.config import (
 )
 from tend.workflows import TEND_ENVIRONMENT, generate_all
 
+from tests import GH_PREAMBLE, fake_bin, tool_path
+
 
 def _config(
     *,
@@ -123,7 +125,8 @@ def _make_branch_rules(
     source_type: str = "Repository",
     source: str = "owner/repo",
 ) -> str:
-    """Build a JSON array of branch rules (as returned by /rules/branches/{branch})."""
+    """Build a branch-rules listing as `gh api --paginate --slurp` returns
+    /rules/branches/{branch}: an array of pages, here one."""
     rule: dict[str, object]
     rules = []
     for t in rule_types:
@@ -131,7 +134,7 @@ def _make_branch_rules(
         if ruleset_id is not None:
             rule["ruleset_id"] = ruleset_id
         rules.append(rule)
-    return json.dumps(rules)
+    return json.dumps([rules])
 
 
 def _workflow_tree(workflows: dict[str, str | None]) -> str:
@@ -212,7 +215,7 @@ def _gh_ruleset(
     def fake(*args: str, **kwargs: object) -> subprocess.CompletedProcess[str] | None:
         if args[1] == "user":
             return _login_response(login)
-        if "/rules/branches/" in args[1]:
+        if "/rules/branches/" in _url(args):
             return _make_completed(rules)
         if args[1].startswith("users/"):
             if user_id is None:
@@ -382,10 +385,7 @@ def test_branch_protection_no_gh() -> None:
 
 
 def test_branch_protected_ruleset_inconclusive_skips() -> None:
-    """Branch is protected, no reviews, ruleset check inconclusive → SKIP not FAIL."""
-    protection_data = json.dumps(
-        {"required_pull_request_reviews": {"required_approving_review_count": 0}}
-    )
+    """Branch is protected, ruleset check inconclusive → SKIP not FAIL."""
 
     def fake_gh(*args, **kwargs):
         url = _url(args)
@@ -393,14 +393,73 @@ def test_branch_protected_ruleset_inconclusive_skips() -> None:
             return _make_completed("true\n")
         if "rules/branches" in url:
             return _make_completed(returncode=1, stderr="HTTP 403")
-        if "branches/main/protection" in url:
-            return _make_completed(protection_data)
         return _make_completed(returncode=1)
 
     with patch("tend.checks._gh", side_effect=fake_gh):
         result = check_branch_protection("owner/repo", "main", "my-bot")
     assert result.passed is None
     assert "could not verify that the bot cannot bypass" in result.message
+
+
+def test_branch_protected_without_an_update_rule_fails() -> None:
+    """A branch protected by required reviews alone carries no update rule, and
+    reviews don't restrict the bot: its own approval counts on a PR someone
+    else opened, and it holds write, so it can then merge that PR."""
+
+    def fake_gh(*args, **kwargs):
+        url = _url(args)
+        if url == "repos/owner/repo/branches/main" and ".protected" in args:
+            return _make_completed("true\n")
+        if "rules/branches" in url:
+            return _make_completed(_make_branch_rules("pull_request"))
+        return _make_completed(returncode=1)
+
+    with patch("tend.checks._gh", side_effect=fake_gh):
+        result = check_branch_protection("owner/repo", "main", "my-bot")
+    assert result.passed is False
+    assert "bot can still merge" in result.message
+
+
+# `gh` stand-in for the one test that runs `_gh` for real rather than patching
+# it. Colorizes only the bodies real `gh` paints — it pretty-prints a JSON
+# object or array and leaves a scalar `--jq` result alone — so a fake body that
+# survives is one the guard actually had to clear.
+FAKE_GH_PROTECTION = (
+    GH_PREAMBLE
+    + r"""
+case "$*" in
+  *"rules/branches/main"*)
+    emit '[[{"type":"creation","ruleset_id":1},{"type":"update","ruleset_id":1},{"type":"deletion","ruleset_id":1}]]'
+    ;;
+  *"rulesets/1"*)
+    emit '{"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"exempt"}]}'
+    ;;
+  *"branches/main"*".protected"*)
+    printf 'true\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+"""
+)
+
+
+def test_branch_protection_survives_a_colour_forcing_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`gh` ranks a forced colour setting above `NO_COLOR` and paints a piped
+    body, so without the guard in `_gh` every JSON read here fails to decode,
+    and the audit could not verify the repo's primary security boundary."""
+    bindir = fake_bin(tmp_path, gh=FAKE_GH_PROTECTION)
+    monkeypatch.setenv("PATH", tool_path(bindir))
+    monkeypatch.setenv("GH_CALLS", str(tmp_path / "gh-calls.log"))
+    monkeypatch.setenv("CLICOLOR_FORCE", "1")
+
+    result = check_branch_protection("owner/repo", "main", "my-bot")
+
+    assert result.passed is True
+    assert "cannot update" in result.message
 
 
 def test_branch_protection_result_name_includes_branch() -> None:
@@ -548,6 +607,21 @@ def test_control_plane_codeowners_requires_generated_block_last() -> None:
     assert result.passed is True
 
 
+def test_control_plane_codeowners_does_not_skip_an_unreadable_higher_priority_file() -> (
+    None
+):
+    with patch(
+        "tend.checks._gh",
+        return_value=_make_completed(returncode=1, stderr="HTTP 500"),
+    ):
+        result = check_control_plane_codeowners(
+            "owner/repo", "main", "@octocat", "my-bot"
+        )
+
+    assert result.passed is None
+    assert ".github/CODEOWNERS" in result.message
+
+
 def test_control_plane_codeowners_rejects_the_bot_as_owner() -> None:
     result = check_control_plane_codeowners("owner/repo", "main", "@my-bot", "my-bot")
 
@@ -556,7 +630,7 @@ def test_control_plane_codeowners_rejects_the_bot_as_owner() -> None:
 
 
 def test_control_plane_ruleset_must_not_be_bypassable_by_bot() -> None:
-    branch_rules = json.dumps([{"type": "pull_request", "ruleset_id": 8}])
+    branch_rules = _make_branch_rules("pull_request", ruleset_id=8)
     detail = json.dumps(
         {
             "current_user_can_bypass": "pull_requests_only",
@@ -809,6 +883,24 @@ def test_branch_rules_non_list_response() -> None:
         return_value=_make_completed('{"message": "Not Found"}'),
     ):
         assert update_ruleset_bypass("owner/repo", "main", "my-bot") is None
+
+
+def test_branch_rules_page_that_is_not_a_list() -> None:
+    """One page answered with an error object leaves the listing unread → None,
+    rather than a listing that happens to lack the update rule."""
+    pages = json.dumps([[{"type": "deletion", "ruleset_id": 2}], {"message": "502"}])
+    with patch("tend.checks._gh", return_value=_make_completed(pages)):
+        assert update_ruleset_bypass("owner/repo", "main", "my-bot") is None
+
+
+def test_update_rule_on_a_later_page() -> None:
+    """The listing serves 30 rules a page; an update rule past the first page
+    still protects the branch."""
+    first = [{"type": "required_signatures", "ruleset_id": 2}] * 30
+    pages = json.dumps([first, [{"type": "update", "ruleset_id": 1}]])
+    fake = _gh_ruleset(pages, [_role_actor(ROLE_ID_ADMIN)])
+    with patch("tend.checks._gh", side_effect=fake):
+        assert update_ruleset_bypass("owner/repo", "main", "my-bot") == "never"
 
 
 # ---------------------------------------------------------------------------
@@ -1395,15 +1487,116 @@ def test_check_immutable_releases_reads_setting(enabled: bool, expected: bool) -
     )
 
 
-def test_check_immutable_releases_404_is_unverified() -> None:
+_SETTING_404 = _make_completed(returncode=1, stderr="gh: Not Found (HTTP 404)")
+
+
+def _release(tag: str, published_at: str, immutable: bool, draft: bool = False) -> dict:
+    return {
+        "tag_name": tag,
+        "published_at": published_at,
+        "immutable": immutable,
+        "draft": draft,
+    }
+
+
+def _release_pages(*pages: list[dict]) -> subprocess.CompletedProcess[str]:
+    """What `gh api --paginate --slurp` returns: one array holding each page."""
+    return _make_completed(json.dumps(list(pages)))
+
+
+@pytest.mark.parametrize(("immutable", "expected"), [(True, True), (False, False)])
+def test_check_immutable_releases_falls_back_to_newest_release(
+    immutable: bool, expected: bool
+) -> None:
+    """Admin reads the setting; the bot 404s on it and reads the release flag.
+
+    Without the fallback this check skips in every scheduled run, and the
+    nightly files nothing for a skip — so the setting could drift off unseen.
+    """
     with patch(
         "tend.checks._gh",
-        return_value=_make_completed(returncode=1, stderr="gh: Not Found (HTTP 404)"),
+        side_effect=[
+            _SETTING_404,
+            _release_pages([_release("v1.2.3", "2026-01-01T00:00:00Z", immutable)]),
+        ],
+    ) as gh:
+        result = check_immutable_releases("owner/repo")
+
+    assert result.passed is expected
+    assert "v1.2.3" in result.message
+    assert gh.call_args.args == (
+        "api",
+        "--paginate",
+        "--slurp",
+        "repos/owner/repo/releases",
+    )
+
+
+def test_check_immutable_releases_picks_the_latest_published_across_pages() -> None:
+    """Neither the listing's order nor its first page is publication order.
+
+    A release's `created_at` is its tag's commit date, so a repository
+    publishing from several trains serves a backport published later further
+    down — and past a page boundary when there are enough releases. Reading
+    the first entry, or only the first page, would report the setting as it
+    stood at an earlier publication and pass while a rewritable release
+    exists.
+    """
+    with patch(
+        "tend.checks._gh",
+        side_effect=[
+            _SETTING_404,
+            _release_pages(
+                [
+                    _release("v13.2.2", "2026-09-15T12:21:32Z", True),
+                    _release("v13.2.1", "2026-09-01T00:00:00Z", True),
+                ],
+                [_release("v13.0.9", "2026-09-15T12:43:46Z", False)],
+            ),
+        ],
     ):
+        result = check_immutable_releases("owner/repo")
+
+    assert result.passed is False
+    assert "v13.0.9" in result.message
+
+
+def test_check_immutable_releases_ignores_drafts() -> None:
+    """A draft is unpublished, so nothing can consume or rewrite it yet."""
+    with patch(
+        "tend.checks._gh",
+        side_effect=[
+            _SETTING_404,
+            _release_pages(
+                [
+                    _release("draft", "2026-09-16T00:00:00Z", False, draft=True),
+                    _release("v1.0.0", "2026-09-15T00:00:00Z", True),
+                ]
+            ),
+        ],
+    ):
+        result = check_immutable_releases("owner/repo")
+
+    assert result.passed is True
+    assert "v1.0.0" in result.message
+
+
+def test_check_immutable_releases_404_with_no_releases_is_unverified() -> None:
+    with patch("tend.checks._gh", side_effect=[_SETTING_404, _release_pages([])]):
         result = check_immutable_releases("owner/repo")
 
     assert result.passed is None
     assert "admin" in result.message
+
+
+def test_check_immutable_releases_404_and_failed_release_read_is_unverified() -> None:
+    with patch(
+        "tend.checks._gh",
+        side_effect=[_SETTING_404, _make_completed(returncode=1, stderr="HTTP 500")],
+    ):
+        result = check_immutable_releases("owner/repo")
+
+    assert result.passed is None
 
 
 def test_check_immutable_releases_other_api_error_is_unknown() -> None:
@@ -1512,7 +1705,7 @@ def test_fix_branch_protection_reconciles_yolo_back_to_maintainer() -> None:
                 for ruleset_id, body in rulesets.items()
                 for rule in body["rules"]
             ]
-            return _make_completed(json.dumps(rules))
+            return _make_completed(json.dumps([rules]))
         if url == "repos/owner/repo/rulesets" and "--paginate" in args:
             return _make_completed(
                 "".join(
@@ -1560,7 +1753,7 @@ def _gh_all_pass(*admitted: str, environment_secrets: tuple[str, ...] | None = N
         if "graphql" in args:
             return _make_completed(_workflow_tree({}))
         url = _url(args)
-        # The common adopter shape: only the ref-gated environment exists.
+        # The common consumer shape: only the ref-gated environment exists.
         if url.endswith("/environments"):
             return _make_completed(f"{TEND_ENVIRONMENT}\n")
         if url.endswith("/secrets") and "/environments/" in url:
@@ -1672,10 +1865,12 @@ def test_run_all_checks_yolo_uses_separate_operational_and_credential_refs() -> 
             return _make_completed(
                 json.dumps(
                     [
-                        {"type": "creation", "ruleset_id": 1},
-                        {"type": "update", "ruleset_id": 1},
-                        {"type": "deletion", "ruleset_id": 1},
-                        {"type": "pull_request", "ruleset_id": 2},
+                        [
+                            {"type": "creation", "ruleset_id": 1},
+                            {"type": "update", "ruleset_id": 1},
+                            {"type": "deletion", "ruleset_id": 1},
+                            {"type": "pull_request", "ruleset_id": 2},
+                        ]
                     ]
                 )
             )
@@ -2109,21 +2304,6 @@ def test_cli_check_all_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert "PASS" in result.output
 
 
-def test_cli_check_reports_disabled_runtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _write_config(tmp_path, "bot_name: test-bot\nenabled: false\n")
-    monkeypatch.chdir(tmp_path)
-
-    with patch("tend.cli.run_all_checks", return_value=[]):
-        result = CliRunner().invoke(main, ["check"])
-
-    assert result.exit_code == 0
-    assert (
-        "Tend is disabled in config; new operational jobs will skip." in result.output
-    )
-
-
 def test_cli_check_failure_exits_1(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2393,6 +2573,77 @@ def test_cli_check_fix_enables_yolo_only_after_prerequisites_pass(
 
     assert result.exit_code == 0, result.output
     fix.assert_called_once_with("owner/repo", "main", "test-bot", "yolo", [])
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Branch 'main' is NOT protected.",
+        "Branch 'main' is protected but the bot can still merge PRs",
+    ],
+    ids=["unprotected", "reviews-only"],
+)
+def test_cli_check_fix_creates_the_ruleset_for_any_branch_protection_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, message: str
+) -> None:
+    """The ruleset is the fix for every way the branch check fails, an
+    unprotected branch included — the case a new install meets first."""
+    _write_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    failures = [CheckResult("branch-protection:main", False, message)]
+    passes = [CheckResult("branch-protection:main", True, "protected")]
+    with (
+        patch("tend.cli.run_all_checks", side_effect=[failures, passes, passes]),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch(
+            "tend.cli.fix_branch_protection",
+            return_value=CheckResult("branch-protection:main", True, "fixed"),
+        ) as fix_branch,
+    ):
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+
+    assert result.exit_code == 0, result.output
+    fix_branch.assert_called_once_with(
+        "owner/repo", "main", "test-bot", "maintainer", []
+    )
+
+
+def test_cli_check_fix_configures_the_environment_from_the_reread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On an unprotected branch the environment check has nothing verified to
+    admit, so it reports unknown; only the re-read after the ruleset lands
+    shows it failing, with the branch the policy must admit."""
+    _write_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    before = [
+        CheckResult("branch-protection:main", False, "NOT protected"),
+        CheckResult("environment", None, "nothing verified"),
+    ]
+    reread = [
+        CheckResult("branch-protection:main", True, "protected"),
+        CheckResult("environment", False, "missing"),
+    ]
+    after = [
+        CheckResult("branch-protection:main", True, "protected"),
+        CheckResult("environment", True, "configured"),
+    ]
+    with (
+        patch("tend.cli.run_all_checks", side_effect=[before, reread, after]),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch(
+            "tend.cli.fix_branch_protection",
+            return_value=CheckResult("branch-protection:main", True, "fixed"),
+        ),
+        patch(
+            "tend.cli.fix_environment",
+            return_value=CheckResult("environment", True, "fixed"),
+        ) as fix_env,
+    ):
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+
+    assert result.exit_code == 0, result.output
+    fix_env.assert_called_once_with("owner/repo", ["main"])
 
 
 # ---------------------------------------------------------------------------
@@ -3480,7 +3731,7 @@ def test_credential_environments_unreached_dynamic_environment_spends_nothing() 
     """What an unreachable workflow leaves unreadable is not this repo's to
     gate either. A reusable deploy parameterised by its caller's input names no
     environment tend can resolve, and reporting that would hold the check at
-    unverified for as long as the adopter keeps the workflow."""
+    unverified for as long as the consumer keeps the workflow."""
     result = _credential_check(
         {"pypi": ([], {"protection_rules": []}, "")},
         workflows={

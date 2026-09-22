@@ -10,13 +10,13 @@ code but keeps the repository control plane maintainer-owned. The agent is expec
 API for any repository the bot account can access, including repositories
 other than the one that started the run.
 
-Each adopting repo should document its specific configuration (admin accounts,
+Each consumer repo should document its specific configuration (admin accounts,
 token names, protected environments) in its own
-`.claude/skills/running-tend/SKILL.md`, the adopter-owned overlay the rest of
+`.claude/skills/running-tend/SKILL.md`, the consumer-owned overlay the rest of
 the docs name. Not a `docs/agent-notes.md` of its own: PR instruction
-pinning covers `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.claude/`, and
-`.agents/` at any depth under both harnesses
-(`shared/steps/restore-sensitive-config.sh`), so notes parked outside those
+pinning covers `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`,
+`AGENTS.override.md`, `.claude/`, and `.agents/` at any depth under both
+harnesses (`shared/steps/restore-sensitive-config.sh`), so notes parked outside those
 paths are read from the PR's own tree.
 
 ## Threats
@@ -69,13 +69,23 @@ Three load-bearing boundaries, with one deliberate policy choice:
    environment use is dynamic or hidden in an external or ref-qualified
    reusable workflow.
    Their harness isolates the long-lived credentials from agent code.
-3. **Future published releases cannot be rewritten.** GitHub immutable
-   releases lock the release record, its assets, and the associated tag from
-   the point the repository setting is enabled.
+3. **Future releases' assets and tags cannot be rewritten.** GitHub immutable
+   releases lock a published release's assets and its associated tag from
+   the point the repository setting is enabled. The release's body is not
+   locked: a write-access actor can still edit the notes of an immutable
+   release, verified against live GitHub with a write-scoped token.
 
 `tend check` fails until the first two hold and the third is enabled, so a
-passing check *is* the claim for future releases. GitHub does not apply the
-setting retroactively.
+passing check by a repository admin *is* the claim for the assets and tag of
+every release published afterwards. GitHub does not apply the setting
+retroactively.
+
+A run below admin cannot read the setting and reads the newest published
+release's `immutable` flag instead, which is retrospective: it establishes that
+the setting was enabled when that release was published, not that it is enabled
+now. Turning the setting off is therefore invisible to the nightly run until
+the repository publishes again — at which point the check fails. Closing that
+window takes an admin-run `tend check`.
 
 **Merge rulesets.** Tend separates default-branch merge access from protection of
 other long-lived refs. `Merge access` targets only the default branch. In
@@ -86,6 +96,10 @@ not by direct push. `Protected branch access` targets only configured
 updates, and deletion, so a bot cannot delete and recreate an admitted ref.
 The composite action verifies the bot's exact effective answer from
 `current_user_can_bypass`: `never` for maintainer, `pull_requests_only` for yolo.
+Required reviews alone do not qualify because the bot's own approval counts on
+another author's PR. If GitHub cannot answer the ruleset read, maintainer
+preflight settles for the branch-protected floor; yolo fails closed because it
+must verify the exact middle state.
 
 Yolo adds `Control-plane review`, a default-branch pull-request rule that the
 bot cannot bypass. `tend init` puts a managed block last in the effective
@@ -161,7 +175,7 @@ refresher's credential, and optional auto-memory Gist ID — live in the `tend`
 environment, whose policy names the default branch and any
 `protected_branches`. Every generated job that reads a secret carries
 `environment: {name: tend, deployment: false}`; jobs that hold none
-(mention's relay, below) must not, since naming it would cost them the refs
+(tend-mention-relay, below) must not, since naming it would cost them the refs
 the policy excludes. `deployment: false` keeps GitHub from filing a
 deployment record for a job that deploys nothing — under
 `pull_request_target` those land on the pull request itself, one line per
@@ -204,14 +218,15 @@ Only one workflow legitimately needs a refused ref: tend-mention answers
 review submissions and inline review comments. The merge ref can
 never be admitted, because a same-repo `pull_request` run executes the PR
 head's own workflow files on that same ref — admitting it would hand a
-pushed workflow the secrets back. So tend-mention re-enters those events
-instead: a secretless `relay` job (only the workflow-scoped `GITHUB_TOKEN`,
-`contents: write`, which is what the dispatch POST requires — `read` is
-refused 403, probed) receives the review event and re-posts it as a
-`repository_dispatch` carrying identifiers only (`{kind, pr, id}`). The
-dispatch run carries the default branch, passes the gate, and its verify
-job re-reads the review or comment from the API before applying the
-engagement checks. Any write-scoped actor can forge such a dispatch, which
+pushed workflow the secrets back. So those events go to a separate
+workflow, tend-mention-relay, whose one secretless job (only the
+workflow-scoped `GITHUB_TOKEN`, `contents: write`, which is what the
+dispatch POST requires — `read` is refused 403, probed) receives the
+review event and re-posts it as a `repository_dispatch` carrying
+identifiers only (`{kind, pr, id}`). The dispatch run, in tend-mention,
+carries the default branch, passes the gate, and its verify job re-reads
+the review or comment from the API before applying the engagement
+checks. Any write-scoped actor can forge such a dispatch, which
 is why the payload carries no judgement: a forged dispatch runs the same
 reviewed workflow file, faces the same engagement checks against the record
 GitHub holds, and can point the bot at nothing the actor couldn't reach by
@@ -229,7 +244,7 @@ property the relay depends on: a fork run that could start a secret-bearing
 run in the base repo would be a fork run with write access to it.
 
 *Release secrets* (registry tokens, signing keys) use the same mechanism in
-adopter-owned environments whose policies list the default branch and/or
+consumer-owned environments whose policies list the default branch and/or
 all tags (a tag-target ruleset gates `creation` and `update` with
 admin-only bypass; `update` is what force-push of an existing tag fires, so
 it must be blocked alongside `creation`). Rulesets are the only mechanism —
@@ -241,7 +256,11 @@ yet, so the Releases API is not a way around it. The
 Immutable releases close the separate write path: once a release is published,
 GitHub locks its assets and associated tag. This is a repository setting, not a
 ruleset inference; `tend check` verifies it directly and `--fix` enables it.
-The setting is prospective, so enable it before the repository's next release.
+Both the read and the write take repository admin, so the nightly run — which
+holds only the bot's write-scoped token — verifies the newest published
+release's own `immutable` flag instead, and fails when that release can still
+be rewritten. The setting is prospective, so enable it before the repository's
+next release.
 It does not make `release: published` safe for secrets: a write actor
 can still publish a new release against an existing unpublished tag.
 
@@ -312,71 +331,114 @@ load-bearing.
 
 ### Agent execution boundary
 
-The harness has four states and only four transitions:
+The harness has three states and three transitions:
 
-| State | Runner checkout | Disposable checkout | Sandbox processes | Allowed next step |
+| State | The job's tree on disk | The agent's view of it | Sandbox processes | Allowed next step |
 |---|---|---|---|---|
-| **trusted setup** | runner-owned, reviewed base | absent | none | clone |
-| **prepared** | unchanged | runner-owned, exact event topology, startup config pinned | none | launch |
-| **running** | unreadable and unwritable to the payload | sandbox-owned | one SRT process tree | reap |
-| **quiescent** | unchanged | no live writer | none | bounded export |
+| **trusted setup** | runner-owned, reviewed base, whatever `setup:` built | none | none | launch |
+| **running** | unchanged, and unreachable except through the view | writable copy-on-write overlay at the same paths | one systemd unit | reap |
+| **quiescent** | unchanged, byte for byte | unmounted | none | bounded export |
 
 Each transition is a bottleneck with one job:
 
-- **Content ingress** creates a full remote clone inside a dedicated `/tmp`
-  container with no hardlinks or object-store alternates and with runner/system
-  Git config and attributes disabled. It selects the exact base, PR merge/head,
-  or open-PR head ref, pins startup configuration to the exact chosen base
-  commit, removes the temporary credential, makes the otherwise-empty parent
-  traversable but not listable, then changes ownership of that clone only.
-  `RUNNER_TEMP` remains unreadable except for the exact read-only event payload
-  named by `GITHUB_EVENT_PATH`. SRT, the Codex binaries, and the immutable agent
-  environment live in one dedicated runner-owned, sandbox-readable runtime
-  directory; the sandbox cannot write it.
-- **Launch and lifetime** invokes the adopter's `sandbox_setup:` and the whole
-  Claude or Codex turn as one command under the pinned Anthropic Sandbox
-  Runtime. Tend supplies absolute `node`, `bwrap`, `socat`, `rg`, and seccomp
-  paths, treats dependency warnings as fatal, and probes AF_UNIX denial plus
-  runner-checkout unreadability before setup executes. The hosted integration
-  probe additionally asserts that direct host loopback is unreachable while
-  the HTTP broker remains reachable. Ubuntu 24.04's AppArmor policy strips the
-  user-namespace capabilities SRT needs. Tend temporarily applies SRT's
-  documented sysctl prerequisite on disposable GitHub-hosted VMs and restores
-  it immediately after the sandbox is reaped; Tend never changes self-hosted
-  policy, where a scoped AppArmor profile may satisfy the same prerequisite.
-  Without either, the run fails closed inside `bwrap` with `Failed
-  RTM_NEWADDR: Operation not permitted`, rather than with a capability
-  diagnosis.
-- **Authority brokerage** leaves long-lived credentials in runner-owned
-  proxies. SRT supplies the isolated network namespace and routes HTTP through
-  Tend's credential proxy; the agent gets dummy credentials. Codex and Claude
-  do not add a second nested filesystem sandbox.
-- **Result export** begins only after SRT exits and the sandbox UID has no live
-  process. The supervisor reads fixed result and skill-summary files, and the
-  later token step copies bounded session data, all through no-follow reads;
-  the agent never receives GitHub's command-file paths. Codex then stops its
-  runner-owned Responses proxy, and one fixed cleanup deletes both the event
-  checkout and the per-run SRT/package directory before restoring any
-  temporary GitHub-hosted runner policy. Subsequent steps consume the bounded
-  exports or the sandbox user's session tree; none executes from the event
-  checkout or the deleted runtime.
+- **The view** puts the agent in the job's own checkout and home, at their real
+  paths, with the job's PATH and environment. The supervisor
+  (`shared/steps/launch_agent.py`) mounts an overlay of the runner's home at a
+  staging path in the per-run `/var/tmp` runtime container, and the agent's
+  unit binds it over the home. The lower layer is a read-only bind of that
+  home, *idmapped* so the runner's and the sandbox's ids swap; the upper layer
+  sits beside it in the runtime container. The agent reads what `setup:` left
+  and writes wherever the runner could — a path only root can write is not one
+  of them. Every write lands in the upper layer, so the runner's filesystem
+  stays byte-for-byte what `setup:` left and no cleanup step can fail open. The
+  supervisor unmounts the view after the reap. Because the overlay is of the
+  home, the job's checkout must sit inside it; the sandbox setup step refuses a
+  self-hosted work folder elsewhere by name rather than letting the agent start
+  on a checkout it cannot write.
 
-The Actions checkout is therefore orchestration state, not an agent
-workspace. Local `setup:` composites and all their POST chains continue to see
-the same reviewed tree, so Tend no longer checks out a PR over them and no
-longer needs a post-agent restore or recursive ownership repair.
+  The idmap makes the agent the runner account for file permissions on that
+  tree. **Anything `setup:` leaves readable in the runner's home or checkout is
+  readable by the agent, and so by anyone who can open a pull request.**
+  `docs/tend.example.yaml` tells consumers to log in only in steps tend does
+  not run. Two things in the home are unreadable to the agent (the unit's
+  `InaccessiblePaths=`), both derived from the running
+  job: the Actions runner's installation, found from the `Runner.Worker`
+  ancestor (every entry except one a job path lives under, since the default
+  self-hosted layout keeps `_work` there), and GitHub's file-command
+  directory, which holds `$GITHUB_OUTPUT` and `$GITHUB_STATE` values no step
+  exported. A `$GITHUB_ENV` export is an environment variable by launch and
+  crosses. Tend's own runner-side secrets (the proxy CA key, the Codex
+  credentials) sit in a 0700 directory in the runtime container, outside the
+  home. The hosted integration test asserts they are unreadable from inside,
+  and sweeps the home for a runner credential the mask missed. The auto-memory
+  key is read after that container is deleted, so it sits beside the memory
+  directory in `/var/tmp` instead, a 0600 runner file.
+
+  Root runs `mount`, `umount`, `chown`, `systemd-run`, `systemctl` and `pkill`
+  from fixed argvs, and no file of Tend's. The job's environment crosses in a
+  0600 file in the private directory, which the unit reads as its
+  `EnvironmentFile=` and the supervisor removes after the run, rather than on
+  the command line, where `sudo` would log it. It needs kernel 5.19,
+  util-linux 2.39 and systemd 247, with no fallback.
+- **Content ingress** happens inside the sandbox. The workflow's checkout
+  arrives on reviewed code, and the lifecycle's first step selects the event's
+  topology in it — the PR's merge or head ref, a mentioned PR's head branch, or
+  the base branch — then pins startup configuration to the chosen base commit.
+  Git parses a contributor's packfile as the sandbox uid, and the fetch
+  authenticates through the credential proxy. The Codex binaries and the
+  immutable agent environment live in one runner-owned, sandbox-readable
+  runtime directory under `/var/tmp`; the sandbox cannot write it. The unit
+  mounts private tmpfs over `/tmp` and `/dev/shm`, so tooling that hard-codes
+  a path there writes to a directory that dies with the unit.
+- **Launch and lifetime** runs the event checkout and the whole Claude or
+  Codex turn as one transient systemd unit. Its settings are the boundary, and
+  systemd enforces each of them:
+  - the filesystem read-only (`ProtectSystem=strict`) except the view, the
+    sandbox's home and the auto-memory directory, and a minimal `/dev`;
+  - the sandbox uid, with no capabilities, no new privileges and no new
+    namespaces (`RestrictNamespaces=`);
+  - other users' processes hidden from `/proc` (`ProtectProc=invisible`). There
+    is no PID namespace, which systemd adds only in version 257; the separate
+    uid means the agent can signal nothing outside its own processes;
+  - no `AF_UNIX` socket and no io_uring. The network namespace does not cover
+    sockets on the filesystem (the system bus, systemd-resolved's DNS), so the
+    family is refused outright, and io_uring could open one without the
+    `socket(2)` call the filter sees.
+
+  The lifecycle probes AF_UNIX denial and the view (writable, masks
+  unreadable) before anything from the event runs. The hosted integration test
+  additionally asserts that direct host loopback and DNS are unreachable, that
+  the credential proxy is reachable, and that nothing of either unit or the
+  view outlives the run. The unit is built from the runner image's systemd,
+  which moves with the image rather than with a Tend commit; `test-sandbox`
+  runs it every six hours.
+- **Authority brokerage** leaves long-lived credentials in runner-owned
+  proxies. The unit's network namespace holds loopback alone. A socket unit
+  listens on the credential proxy's port inside it, and `systemd-socket-proxyd`,
+  outside it, forwards each connection to the proxy; the agent gets dummy
+  credentials. Codex and Claude do not add a second nested filesystem sandbox.
+- **Result export** begins only after the unit exits and the sandbox UID has
+  no live process. The supervisor reads fixed result and skill-summary files,
+  and the later token step copies bounded session data, all through no-follow
+  reads; the agent never receives GitHub's command-file paths. Codex then stops
+  its runner-owned Responses proxy, and one fixed cleanup deletes the per-run
+  runtime directory. Subsequent steps consume the bounded exports or the
+  sandbox user's session tree; none executes from the deleted runtime.
+
+Local `setup:` composites and all their POST chains therefore see the same
+reviewed tree they started on, with no post-agent restore.
 
 **Action distribution integrity.** Generated workflows pin the composite
 action to the generator's own release version
 (`max-sixty/tend/<harness>@X.Y.Z`), never a floating ref. Release-tag
 immutability is the boundary this relies on for new releases: GitHub's
-immutable-releases setting locks each release, its assets, and its tag when it
+immutable-releases setting locks each release's assets and its tag when it
 is published. The tag ruleset also restricts updates. Tend's releases from
 before the setting was enabled have no uploaded assets and their tag code is
 protected by a no-bypass tag ruleset, but their GitHub release records are not
 retroactively immutable. The separate all-tags ruleset prevents the bot from
 creating or repointing any release tag, so a leaked bot token or hijacked
-session cannot change the action code every adopter already runs. Adopters
+session cannot change the action code every consumer already runs. Consumers
 extend trust to `max-sixty/tend`'s release-tag integrity the same way they
 trust any third-party action's publisher; pinning to `X.Y.Z` (or a commit
 SHA) bounds that trust to a reviewed, immutable point.
@@ -384,8 +446,8 @@ SHA) bounds that trust to a reviewed, immutable point.
 **Config pinning.** Before the agent starts, both harnesses restore every
 `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md`, `.claude/`,
 and `.agents/` at any depth from the PR base branch. Their CLIs load nearby
-instruction files and skills from those directories. Both harnesses also restore RCE-relevant config
-at the root: `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, and
+instruction files and skills from those directories. Both harnesses also
+restore RCE-relevant config at the root: `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, and
 `.husky`. A malicious PR's `SessionStart` hook, MCP server, or injected skill
 is reverted before an agent reads it. The restoration is
 `git restore --source=<exact base commit>` in shell:
@@ -393,28 +455,28 @@ base-branch versions are written back, fork-added paths removed, and a
 fork-planted symlink replaced rather than written through. The root path list
 and ordering mirror claude-code-action's `restore-config.ts`. The PR's own
 versions stay readable at `git show HEAD:<path>` for a review that wants to see
-what it changed; nothing copies them into the worktree, since a copy made by
-the runner user would follow a fork-planted symlink into files the agent must
-never see, such as the checkout credential in `.git/config`.
+what it changed.
 
-**Setup runs on reviewed code.** Adopter `setup:` steps execute as the runner
+**Setup runs on reviewed code.** Consumer `setup:` steps execute as the runner
 user against the stable Actions checkout: the default branch, or in
-`tend-review` the PR's reviewed base. That tree is never replaced or handed to
-the agent, and files `setup:` writes there do not appear in the independent
-agent checkout. A contributor's build backend and dependencies therefore
-execute only from the disposable event checkout, through `sandbox_setup:` or
-the agent itself, inside SRT. Both harnesses run `sandbox_setup:` as the
-non-sudo sandbox user in the same SRT process lifetime as the agent.
+`tend-review` the PR's reviewed base. The PR's own tree reaches that checkout
+only inside the sandbox, so a contributor's build backend and dependencies
+execute only there, when the agent builds or tests that tree, as the non-sudo
+sandbox user in the same unit.
 
 Yolo refuses all runner-side `setup:` because ordinary code merged by the bot
 could steer even a fixed command running against the default branch. It also
 refuses workflow and job overrides so credential-bearing jobs retain their
 audited shape.
 
-After SRT exits, the trusted supervisor kills and verifies the complete sandbox
-UID process tree, then copies only size-bounded fixed outputs. The next fixed
-action step deletes the dedicated `/tmp/tend-agent-workspace-*` container; no
-post-sandbox step executes a file from that checkout.
+After the unit exits, the trusted supervisor kills and verifies the complete
+sandbox UID process tree, then copies only size-bounded fixed outputs. The next fixed
+action step deletes the per-run `/var/tmp/tend-runtime.*` directory, which
+holds the staged lifecycle bundle, Tend's runner-side secrets and the view's
+upper layer. On a self-hosted runner nothing deletes the `tend-sandbox` user,
+so `/home/tend-sandbox` persists between jobs under one shared uid, and what
+one run leaves there the next run's agent can read. A run whose reap failed
+deletes nothing: the live writer is the reason not to delete underneath it.
 
 **Credential isolation.** Both harness actions run the agent as a separate
 non-sudo `tend-sandbox` user, sharing the GitHub proxy machinery under the
@@ -431,33 +493,26 @@ Tend can stop it during teardown. The agent holds only a dummy PAT and the
 local inference endpoint. Under subscription auth, it additionally receives an
 expiring access-only `auth.json`, but not the rotating refresh token. A
 different UID with no sudo cannot read either proxy's
-`/proc/<pid>/environ`; the runner checkout and its persisted checkout
-credential never enter the sandbox; and the PAT and API credentials are never
+`/proc/<pid>/environ`; the persisted checkout credential is stripped before
+launch; and the PAT and API credentials are never
 written to the agent's env or disk. The injection
 allowlist is exact-match on the connection's real destination, so a request to
 a lookalike host gets no token. The GitHub proxy is launched by a pinned `uv`
 that Tend installs into its own directory, off `$PATH`, so the process holding the PAT
-starts from a known binary rather than whatever an adopter's
+starts from a known binary rather than whatever a consumer's
 `setup:` happened to leave on the runner. (`claude` is Node and ignores the
-system trust store, so it trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) Shared
-system and hosted-toolcache PATH entries remain available to the sandbox. Tend
-appends a pinned `uv` fallback after those paths before `sandbox_setup:` runs. A
-runner-home PATH entry may select an independently seeded directory already
-owned by the sandbox user; runner-home files themselves stay off the sandbox
-PATH. Tend does not infer which files under the
-runner home are runtimes rather than secrets; later home-scoped changes must be
-made as the sandbox user with `sandbox_setup:`. A generic failure shim keeps a
-dropped home-selected command from silently falling through to a different
-same-named system tool.
+system trust store, so it trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) The
+job's PATH crosses entry for entry, with the sandbox home's `bin` prepended and
+a pinned `uv` fallback appended.
 
 **Session-log upload.** The token-usage step uploads the agent's session JSONL
-only after the SRT process tree and sandbox UID are quiescent. One privileged
+only after the unit and sandbox UID are quiescent. One privileged
 helper opens every source component and descendant relative to no-follow file
 descriptors, copies regular files only, and enforces per-file, total-byte, and
 file-count bounds. Symlinks, devices, and FIFOs never enter the runner-owned
 artifact tree.
 
-The weekly subscription refresh job checks out no adopter code and gives Codex
+The weekly subscription refresh job checks out no consumer code and gives Codex
 only Tend's fixed refresh prompt. Codex receives the full refresh bundle there;
 the environment-write PAT appears only in the separate publish step after
 Codex exits.
@@ -488,6 +543,22 @@ the composite action and the tend marketplace, not from the PR. An attacker
 can influence what the agent *reads* (the diff, the issue body) but not the
 *instructions* it follows or the *tools* it has access to.
 
+The account the session signs in as is the other source that could add to that
+set without review. Claude Code syncs the skills and plugins enabled on the
+signed-in claude.ai account into a session, and separately auto-fetches that
+account's MCP cloud connectors, headless runs included — so anything enabled on
+the bot's account would become an instruction and tool source for every
+consumer's CI session, in a process that pushes commits and posts as the bot,
+reviewed by nobody in either repository. The session settings
+`shared/steps/run_claude.py` writes refuse all three: `syncClaudeAiSkills` and
+`syncClaudeAiPlugins` false, `disableClaudeAiConnectors` true. Its test asserts
+that settings file exactly, so a key that silently stops being written fails
+the suite rather than quietly reopening the surface. The sync pair is honored
+only as `false`, and from `.claude/settings.local.json` or `--settings` rather
+than project `settings.json` — the layer the action already writes. The feature
+it refuses turns on server-side per account, so the refusal has to be in place
+ahead of it rather than written in response to it.
+
 **GitHub's log masking.** Secrets stored in GitHub are automatically redacted
 from workflow logs. This is exact-match only — if a token appears
 base64-encoded or embedded in JSON, the redaction misses it.
@@ -503,11 +574,11 @@ expiring access token is the deliberate exception described below. Config
 pinning prevents
 *Claude Code's own* startup hooks from being hijacked, but it can't prevent
 an agent from voluntarily running `make test` on a repo where `make test` has
-been weaponized. Anthropic Sandbox Runtime contains that process tree to the
-disposable checkout, sandbox home, scratch paths, and brokered network. This
-protects the runner checkout and host authority; it does not make the checked
-out repository content confidential or prevent the agent from deliberately
-publishing content it can read.
+been weaponized. The agent's systemd unit contains that process tree to the
+view of the job's home, the sandbox home, scratch paths, and brokered network.
+This protects the runner's own filesystem and host authority; it does not make
+the checked out repository content confidential or prevent the agent from
+deliberately publishing content it can read.
 
 **Write access still starts workflows.** With the operational secrets
 environment-gated, a write-scoped actor can no longer read them out of a
@@ -517,12 +588,15 @@ that tend-mention's relay uses — both start only the default branch's
 reviewed workflow files, with the engagement checks applied to the record
 GitHub holds rather than to the payload.
 
-**Data exfiltration via side channels.** An attacker who gets code execution
-can exfiltrate repository contents and agent-visible context via DNS queries,
-HTTP requests to an external server, or workflow logs. SRT removes direct
-network access, but Tend's HTTP broker currently tunnels arbitrary destinations
-because the agent needs general package and GitHub access; destination
-allowlisting is deferred. Credential isolation keeps the PAT and API
+**Data exfiltration.** An attacker who gets code execution can send
+repository contents and anything else the agent can read to a server of their
+choosing, or publish it through what the run leaves behind: the workflow log,
+the job summary, the uploaded session logs, or a post to GitHub as the bot.
+The unit's network namespace removes direct network access, DNS included, but
+Tend's credential proxy connects to any host the agent names, the runner's
+loopback included, because the agent needs general package and GitHub access;
+destination allowlisting is deferred.
+Credential isolation keeps the PAT and API
 credentials out of what a hijacked session can send. A Codex subscription
 session can send its expiring access token, but it never receives the rotating
 refresh token or the PAT that rewrites environment secrets.

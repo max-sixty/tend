@@ -7,33 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
-from ruamel.yaml import YAML
-from ruamel.yaml.nodes import MappingNode, Node, SequenceNode
+from ruamel.yaml import YAML, YAMLError
 
 # ruamel.yaml parses YAML 1.2 by default, which fixes PyYAML's `on:` → True
 # trap and the Norway problem (yes/no/on/off coerced to bool).
 _YAML = YAML(typ="safe", pure=True)
-
-
-def _has_yaml_merge_key(node: Node | None, seen: set[int] | None = None) -> bool:
-    """Return whether a parsed YAML tree contains a `<<` merge key."""
-    if node is None:
-        return False
-    if seen is None:
-        seen = set()
-    if id(node) in seen:
-        return False
-    seen.add(id(node))
-
-    if isinstance(node, MappingNode):
-        for key, value in node.value:
-            if key.tag == "tag:yaml.org,2002:merge":
-                return True
-            if _has_yaml_merge_key(key, seen) or _has_yaml_merge_key(value, seen):
-                return True
-    elif isinstance(node, SequenceNode):
-        return any(_has_yaml_merge_key(value, seen) for value in node.value)
-    return False
 
 
 STANDARD_WORKFLOWS = {
@@ -48,6 +26,9 @@ STANDARD_WORKFLOWS = {
 }
 KNOWN_WORKFLOWS = {
     *STANDARD_WORKFLOWS,
+    # Generated with mention to carry its review events; runs no agent. Honors
+    # the common workflow enabled/override contract.
+    "mention-relay",
     # Generated whenever at least one workflow uses Codex. It still honors
     # the common workflow enabled/override contract.
     "codex-auth-refresh",
@@ -59,7 +40,6 @@ KNOWN_TOP_LEVEL = {
     "bot_name",
     "merge",
     "control_plane_owner",
-    "enabled",
     "memory_gist",
     "harness",
     "model",
@@ -68,9 +48,10 @@ KNOWN_TOP_LEVEL = {
     "protected_branches",
     "secrets",
     "setup",
-    "sandbox_setup",
+    # Deprecated; see `_migrated_sandbox_steps`.
     "sandbox_env",
     "sandbox_path",
+    "sandbox_setup",
     "workflows",
 }
 KNOWN_HARNESSES = {"claude", "codex"}
@@ -78,11 +59,11 @@ KNOWN_MERGE_POLICIES = {"maintainer", "yolo"}
 KNOWN_SECRETS_KEYS = {"allowed"}
 
 # The operational secrets, by fixed name. Claude reads the OAuth token
-# (subscription) or the API key (console.anthropic.com) — adopters set one;
+# (subscription) or the API key (console.anthropic.com) — consumers set one;
 # Codex reads either the OpenAI key or an access-only ChatGPT auth bundle.
 # Not configurable: `install-tend` creates the
 # `tend` environment and fills it from scratch, so there is no pre-existing
-# secret whose name an adopter would want to keep.
+# secret whose name a consumer would want to keep.
 BOT_TOKEN_SECRET = "TEND_BOT_TOKEN"
 CLAUDE_TOKEN_SECRET = "CLAUDE_CODE_OAUTH_TOKEN"
 ANTHROPIC_API_KEY_SECRET = "ANTHROPIC_API_KEY"
@@ -103,7 +84,7 @@ OPERATIONAL_SECRETS = {
 }
 # Keys that once renamed those secrets. A leftover one is refused rather
 # than warned past: ignoring it would generate workflows reading the fixed
-# name while the adopter's secret still answers to the old one, and every
+# name while the consumer's secret still answers to the old one, and every
 # job would fail on an empty token.
 REMOVED_SECRETS_KEYS = {
     "bot_token": BOT_TOKEN_SECRET,
@@ -115,45 +96,6 @@ _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 _CODEOWNER_USER = re.compile(r"^@[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 # POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-# Env names an adopter's `sandbox_env` may NOT set. These carry the sandbox's
-# credential isolation and routing — letting an adopter override them (via a
-# committed config, but also as a defense against a hand-edited workflow) could
-# redirect the agent's traffic off the injecting proxy or clobber the dummy
-# credentials the proxy swaps for the real secrets. `PATH` is reserved too:
-# use `sandbox_path` (which prepends to the fixed base) instead of replacing it.
-# Kept in sync with RESERVED_SANDBOX_ENV in proxy/setup_sandbox.py — the
-# `sandbox-env-reserved-parity` pre-commit hook fails the commit on drift.
-RESERVED_SANDBOX_ENV = {
-    "HOME",
-    "PATH",
-    "XDG_CONFIG_HOME",
-    "XDG_CACHE_HOME",
-    "XDG_DATA_HOME",
-    "XDG_STATE_HOME",
-    "HTTPS_PROXY",
-    "HTTP_PROXY",
-    "https_proxy",
-    "http_proxy",
-    "NO_PROXY",
-    "no_proxy",
-    "NODE_EXTRA_CA_CERTS",
-    "SSL_CERT_FILE",
-    "REQUESTS_CA_BUNDLE",
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "GITHUB_WORKSPACE",
-    "CLAUDE_CODE_REMOTE",
-    "ANTHROPIC_API_KEY",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "OPENAI_API_KEY",
-    "CODEX_API_KEY",
-    "CODEX_AUTH_JSON",
-    "CODEX_HOME",
-    "TMPDIR",
-    "TMPPREFIX",
-}
-
 
 ALLOWED_STEP_FIELDS = {
     "uses",
@@ -209,6 +151,131 @@ MERGE_POLICIES = {
 }
 
 
+def _deprecated_list(raw: dict, key: str) -> list[str]:
+    values = raw.get(key) or []
+    if not isinstance(values, list) or not all(
+        isinstance(value, str) and value.strip() for value in values
+    ):
+        raise click.ClickException(f"{key} must be a list of non-empty strings")
+    return values
+
+
+def _deprecated_env(raw: dict) -> dict[str, str]:
+    values = raw.get("sandbox_env") or {}
+    if not isinstance(values, dict):
+        raise click.ClickException(
+            "sandbox_env must be a mapping of NAME: VALUE "
+            '(e.g. sandbox_env: {RUST_BACKTRACE: "1"})'
+        )
+    env: dict[str, str] = {}
+    for name, value in values.items():
+        if not isinstance(name, str) or not _ENV_NAME.match(name):
+            raise click.ClickException(
+                f"sandbox_env key '{name}' is not a valid environment "
+                "variable name (letters, digits, underscore; not starting "
+                "with a digit)"
+            )
+        # `bool` is an `int` subclass, so it is tested first, and written as
+        # the shell's `true`/`false` rather than Python's `True`/`False`.
+        if isinstance(value, bool):
+            env[name] = "true" if value else "false"
+        elif isinstance(value, (str, int, float)):
+            env[name] = str(value)
+        else:
+            raise click.ClickException(
+                f"sandbox_env value for '{name}' must be a scalar "
+                "(string, number, or boolean)"
+            )
+        # `$GITHUB_ENV` reads one NAME=VALUE per line, so a second line
+        # would set a variable of its own.
+        if "\n" in env[name]:
+            raise click.ClickException(
+                f"sandbox_env value for '{name}' must be a single line"
+            )
+    return env
+
+
+def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
+    """`setup:` steps doing what the deprecated `sandbox_*` keys did.
+
+    All three existed to reach an agent with its own environment, home and
+    checkout. Under the copy-on-write view it runs with the job's environment
+    and PATH and sees what `setup:` built, so their documented migration is to
+    move the entries into `setup:`, and this performs it: one step per key,
+    appended after the consumer's own steps, so those still do not see a
+    `sandbox_env` value. Variables and paths come first, since `sandbox_setup`
+    ran with both. A variable's value stays in the step's `env:`, where an
+    Actions expression still evaluates, rather than in its script. A leading
+    `~` named the sandbox's home, which under the view is the job's `$HOME`.
+    The runner puts a later `$GITHUB_PATH` line ahead of an earlier one, so the
+    directories are written last-first to keep the first entry first. The
+    commands share one `-eo pipefail` bash, as they did, so a `cd`, `export` or
+    `source` still reaches the ones after it.
+
+    Warned about rather than refused, at the maintainer's call and against the
+    no-backward-compatibility rule in CLAUDE.md, so that nothing breaks in a
+    consumer before it migrates; a warning that dropped the entries would
+    silently stop installing what its agent relies on.
+    TODO(2026-10-21): refuse all three keys, with these messages as the
+    migration, once the consumers that set them have moved their entries into
+    `setup:`.
+    """
+    steps: list[SetupStep] = []
+    env = _deprecated_env(raw)
+    if env:
+        click.echo(
+            "Warning: `sandbox_env` is deprecated and will be refused in a "
+            "later release. The agent now runs with the job's own "
+            "environment, so a variable a `setup:` step exports to "
+            "`$GITHUB_ENV` reaches it; its entries are exported from a "
+            "`setup:` step after yours for now. Export them yourself from "
+            'the last `setup:` step (e.g. `- run: echo "MY_TOKEN=$MY_TOKEN" '
+            '>> "$GITHUB_ENV"`, with the value under the step\'s `env:` as '
+            "`MY_TOKEN:`, where an expression still works), since every step "
+            "after the export sees the value, and delete the key.",
+            err=True,
+        )
+        run = "\n".join(f'echo "{name}=${name}" >> "$GITHUB_ENV"' for name in env)
+        steps.append(SetupStep(fields={"run": run, "env": env}))
+    paths = _deprecated_list(raw, "sandbox_path")
+    if paths:
+        click.echo(
+            "Warning: `sandbox_path` is deprecated and will be refused in a "
+            "later release. The agent now runs with the job's own PATH, so "
+            "a directory a `setup:` step adds reaches it; its entries are "
+            "added from a `setup:` step after yours for now. Add each "
+            "directory yourself (e.g. "
+            '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`) and delete '
+            "the key.",
+            err=True,
+        )
+        directories = [
+            "$HOME" + d[1:] if d == "~" or d.startswith("~/") else d for d in paths
+        ]
+        run = "\n".join(f'echo "{d}" >> "$GITHUB_PATH"' for d in reversed(directories))
+        steps.append(SetupStep(fields={"run": run}))
+    commands = _deprecated_list(raw, "sandbox_setup")
+    if commands:
+        click.echo(
+            "Warning: `sandbox_setup` is deprecated and will be refused in a "
+            "later release. The agent now works in the job's own checkout "
+            "and home, so what `setup:` builds reaches it; its commands run "
+            "in one `setup:` step after yours for now. That is an ordinary "
+            "workflow step, and tend puts nothing on its PATH, so a command "
+            "that calls `uv` needs a step that installs it, such as "
+            "`astral-sh/setup-uv`, earlier in your `setup:`. Move the "
+            "commands into `setup:` as `run:` steps (e.g. "
+            "`- run: rustup component add clippy`) and delete the key; a "
+            "`cd`, `export` or `source` reaches only the rest of its own "
+            "step. `setup:` runs on reviewed code; what a pull "
+            "request itself changes, such as a new dependency in its "
+            "lockfile, the agent installs in the session.",
+            err=True,
+        )
+        steps.append(SetupStep(fields={"run": "\n".join(commands), "shell": "bash"}))
+    return steps
+
+
 @dataclass
 class WorkflowConfig:
     enabled: bool = True
@@ -218,7 +285,7 @@ class WorkflowConfig:
     branches: list[str] | None = None
     workflow_extra: dict | None = None
     jobs: dict[str, dict] | None = None
-    # Per-workflow harness override. Lets adopters trial a new harness on
+    # Per-workflow harness override. Lets consumers trial a new harness on
     # a single workflow (e.g. `codex` on nightly only) before flipping the
     # whole bot. None means inherit from top-level `harness`.
     harness: str | None = None
@@ -231,23 +298,19 @@ class WorkflowConfig:
     args: list[str] | None = None
 
 
-# Claude model allowlist — the set is small and stable enough that a
-# typo-catching gate at config load is worth the maintenance.
-# Codex models are NOT enumerated here: Codex's catalog churns
-# (gpt-5.1-codex was current at harness bring-up; gone by the next month),
-# and a stale allowlist would silently block adopters from picking a newer
-# model. We pass any user-supplied string through and let `codex exec` error
-# at runtime if it's wrong.
-KNOWN_MODELS_BY_HARNESS = {
-    "claude": {"opus", "sonnet", "haiku"},
-}
+# Models are not enumerated for either harness. Both catalogs churn, both
+# accept an alias (`opus`) or an exact id (`claude-opus-5`, which a consumer
+# pins to keep behavior fixed across a promotion), and a stale allowlist
+# would refuse a newer model the CLI accepts. Any non-empty string passes
+# through to `--model`; an unknown one fails the job with the CLI's own
+# message naming it.
 DEFAULT_MODEL_BY_HARNESS = {
     "claude": "opus",
     "codex": "gpt-5.6-sol",
 }
 
 
-def _effective_model(
+def effective_model(
     harness: str,
     model: str,
     workflow_harness: str | None,
@@ -280,10 +343,6 @@ class Config:
     workflows: dict[str, WorkflowConfig]
     # Exact additional argv elements passed to the selected harness CLI.
     args: list[str] = field(default_factory=list)
-    # Runtime kill switch. Generated workflows stay installed and read this
-    # value from the default branch at the start of every operational job.
-    enabled: bool = True
-    config_path: str = ".config/tend.yaml"
     # Owner of the repo where workflows will run. Used to gate jobs that fail
     # noisily on forks (no access to bot/Claude secrets). Not user-configurable;
     # cli.init populates this via `gh repo view` so fork-based maintainer
@@ -291,14 +350,6 @@ class Config:
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
-    # Adopter levers that reach inside either harness's sandbox, before the
-    # agent launches (runner-side `setup:` doesn't — it runs as the runner user
-    # around the composite action). `sandbox_path` prepends dirs to the sandbox
-    # PATH; `sandbox_env` adds NAME=VALUE pairs to the agent's launch env;
-    # `sandbox_setup` runs shell commands as the sandbox user.
-    sandbox_path: list[str] = field(default_factory=list)
-    sandbox_env: dict[str, str] = field(default_factory=dict)
-    sandbox_setup: list[str] = field(default_factory=list)
     # Opt-in experiment that persists Claude Code's model-authored auto memory
     # in a bot-owned secret Gist. The Gist ID stays in a fixed environment
     # secret so a public repository does not publish the unlisted URL.
@@ -341,11 +392,10 @@ class Config:
                     "and regenerates workflows in one step)."
                 )
             raise click.ClickException(f"Config not found: {path}")
-        text = path.read_text(encoding="utf-8")
-        if _has_yaml_merge_key(_YAML.compose(text)):
-            raise click.ClickException("YAML merge keys (<<) are not supported")
-        raw = _YAML.load(text) or {}
-
+        try:
+            raw = _YAML.load(path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, YAMLError) as error:
+            raise click.ClickException(f"Could not parse {path}: {error}") from error
         if not isinstance(raw, dict):
             raise click.ClickException(
                 f"{path} must contain a YAML mapping at the top level"
@@ -371,14 +421,13 @@ class Config:
             )
 
         model = raw.get("model", DEFAULT_MODEL_BY_HARNESS[harness])
-        known_models = KNOWN_MODELS_BY_HARNESS.get(harness)
-        if known_models is not None and model not in known_models:
+        if not isinstance(model, str) or not model.strip():
             raise click.ClickException(
-                f"model '{model}' is not recognized for harness '{harness}' "
-                f"(known: {', '.join(sorted(known_models))})"
+                "model must be a non-empty string naming a model the "
+                f"{harness} CLI accepts"
             )
 
-        effort = _parse_effort(raw.get("effort", ""), harness, model, "effort")
+        effort = _parse_effort(raw.get("effort", ""), harness, "effort")
 
         args = _parse_args(raw.get("args", []), "args")
 
@@ -386,9 +435,15 @@ class Config:
         if not isinstance(memory_gist, bool):
             raise click.ClickException("memory_gist must be true or false")
 
-        enabled = raw.get("enabled", True)
-        if not isinstance(enabled, bool):
-            raise click.ClickException("enabled must be true or false")
+        # Refused rather than warned past as unknown: a config that paused tend
+        # would otherwise regenerate running workflows.
+        if "enabled" in raw:
+            raise click.ClickException(
+                "Top-level `enabled` was removed; pausing is now the "
+                "TEND_ENABLED repository variable. To keep tend paused, run "
+                "`gh variable set TEND_ENABLED --body false` before removing "
+                "the key."
+            )
 
         merge = raw.get("merge", "maintainer")
         if merge not in KNOWN_MERGE_POLICIES:
@@ -443,12 +498,6 @@ class Config:
             click.echo(f"Warning: unknown secrets key '{key}'", err=True)
 
         setup_raw = raw.get("setup", []) or []
-        if merge == "yolo" and setup_raw:
-            raise click.ClickException(
-                "setup is not allowed when merge is 'yolo'; move repository "
-                "setup into sandbox_setup so ordinary code cannot execute on the "
-                "credential-bearing runner"
-            )
         setup: list[SetupStep] = []
         for i, entry in enumerate(setup_raw):
             if not isinstance(entry, dict):
@@ -501,82 +550,12 @@ class Config:
                     )
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
-
-        sandbox_path = raw.get("sandbox_path", []) or []
-        if not isinstance(sandbox_path, list) or not all(
-            isinstance(d, str) and d for d in sandbox_path
-        ):
+        setup.extend(_migrated_sandbox_steps(raw))
+        if merge == "yolo" and setup:
             raise click.ClickException(
-                "sandbox_path must be a list of non-empty strings "
-                '(e.g. sandbox_path: ["~/.cargo/bin"]); '
-                "`~` expands to the sandbox home"
-            )
-        # A newline in a dir would drop an un-indented continuation line into
-        # the rendered `|` block scalar (which has no indent() filter),
-        # terminating it and breaking the workflow — fail at `init` instead.
-        if any("\n" in d for d in sandbox_path):
-            raise click.ClickException(
-                "sandbox_path entries must each be a single line"
-            )
-
-        sandbox_env_raw = raw.get("sandbox_env", {}) or {}
-        if not isinstance(sandbox_env_raw, dict):
-            raise click.ClickException(
-                "sandbox_env must be a mapping of NAME: VALUE "
-                '(e.g. sandbox_env: {RUST_BACKTRACE: "1"})'
-            )
-        sandbox_env: dict[str, str] = {}
-        for name, value in sandbox_env_raw.items():
-            if not isinstance(name, str) or not _ENV_NAME.match(name):
-                raise click.ClickException(
-                    f"sandbox_env key '{name}' is not a valid environment "
-                    "variable name (letters, digits, underscore; not starting "
-                    "with a digit)"
-                )
-            if name in RESERVED_SANDBOX_ENV:
-                hint = (
-                    " Use `sandbox_path` to extend PATH."
-                    if name == "PATH"
-                    else " It carries the sandbox's credential isolation and "
-                    "cannot be overridden."
-                )
-                raise click.ClickException(
-                    f"sandbox_env may not set reserved key '{name}'.{hint}"
-                )
-            # Coerce a YAML scalar (1, true) to its string form; reject a
-            # non-scalar (a list/dict would otherwise str() into a Python repr
-            # and silently smuggle garbage into the agent env line). `bool` is
-            # an `int` subclass, so handle it first and emit the shell-
-            # conventional lowercase rather than Python's `True`/`False`.
-            if isinstance(value, bool):
-                coerced = "true" if value else "false"
-            elif isinstance(value, str):
-                coerced = value
-            elif isinstance(value, (int, float)):
-                coerced = str(value)
-            else:
-                raise click.ClickException(
-                    f"sandbox_env value for '{name}' must be a scalar "
-                    "(string, number, or boolean)"
-                )
-            # The action splits this input one NAME=VALUE pair per line, so a
-            # value carrying a newline would be read as a pair and a malformed
-            # line rather than one value — fail at `init` instead. (The block
-            # scalar itself is safe: `block_input` indents a continuation line
-            # like any other.)
-            if "\n" in coerced:
-                raise click.ClickException(
-                    f"sandbox_env value for '{name}' must be a single line"
-                )
-            sandbox_env[name] = coerced
-
-        sandbox_setup = raw.get("sandbox_setup", []) or []
-        if not isinstance(sandbox_setup, list) or not all(
-            isinstance(c, str) and c.strip() for c in sandbox_setup
-        ):
-            raise click.ClickException(
-                "sandbox_setup must be a list of non-empty shell command strings "
-                '(e.g. sandbox_setup: ["rustup component add clippy"])'
+                "setup is not allowed when merge is 'yolo': once the bot may "
+                "merge ordinary code, runner-side setup could execute that code "
+                "outside the hardened agent boundary"
             )
 
         workflows: dict[str, WorkflowConfig] = {}
@@ -657,38 +636,28 @@ class Config:
                         f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
                     )
                 eff_harness = wf_harness or harness
-                eff_model = _effective_model(harness, model, wf_harness, wf_model)
+                if wf_model is not None and (
+                    not isinstance(wf_model, str) or not wf_model.strip()
+                ):
+                    raise click.ClickException(
+                        f"workflows.{name}.model must be a non-empty string "
+                        f"naming a model the {eff_harness} CLI accepts"
+                    )
                 wf_effort = (
                     _parse_effort(
                         wf_raw["effort"],
                         eff_harness,
-                        eff_model,
                         f"workflows.{name}.effort",
                     )
                     if "effort" in wf_raw
                     else None
                 )
-                # Validate an explicit per-workflow model against the effective
-                # harness. A harness change without one uses that harness's
-                # default instead of carrying a model across families.
-                if wf_harness is not None or wf_model is not None:
-                    eff_known = KNOWN_MODELS_BY_HARNESS.get(eff_harness)
-                    if eff_known is not None and eff_model not in eff_known:
-                        raise click.ClickException(
-                            f"workflows.{name} harness '{eff_harness}' is incompatible "
-                            f"with model '{eff_model}' "
-                            f"(known for {eff_harness}: {', '.join(sorted(eff_known))}). "
-                            f"Set `workflows.{name}.model:` (or change the top-level "
-                            "`model:`) to a valid value for this harness."
-                        )
-
-                if wf_effort is None and (
-                    wf_harness is not None or wf_model is not None
-                ):
+                # A workflow that switches harness inherits the top-level
+                # effort, which the other CLI may not accept.
+                if wf_effort is None and wf_harness is not None:
                     _parse_effort(
                         effort,
                         eff_harness,
-                        eff_model,
                         "effort",
                         inherited_by=f"workflows.{name}",
                     )
@@ -709,7 +678,7 @@ class Config:
                     raise click.ClickException(
                         "workflows.mention.prompt is not supported: mention "
                         "composes its prompt from the triggering event. Put "
-                        "standing guidance in the repo's `running-tend` skill "
+                        "standing instructions in the repo's `running-tend` skill "
                         "overlay instead."
                     )
                 # A whitespace-only prompt is truthy, so it beats the default
@@ -717,7 +686,7 @@ class Config:
                 # Claude action fails on by name and the Codex action hands to
                 # `codex exec` and runs. `""` and a bare `prompt:` are falsy and
                 # fall through to the default instead, which is quieter but no
-                # more what the adopter wrote. All three are typos; refuse them
+                # more what the consumer wrote. All three are typos; refuse them
                 # here, where the key's presence still tells them apart from an
                 # absent one.
                 if "prompt" in wf_raw and not wf_prompt.strip():
@@ -782,13 +751,9 @@ class Config:
             effort=effort,
             args=args,
             setup=setup,
-            sandbox_path=sandbox_path,
-            sandbox_env=sandbox_env,
-            sandbox_setup=sandbox_setup,
             memory_gist=memory_gist,
             merge=merge,
             control_plane_owner=control_plane_owner,
-            enabled=enabled,
             workflows=workflows,
             allowed_repo_secrets=allowed,
         )
@@ -815,29 +780,18 @@ def _parse_args(raw: object, key: str) -> list[str]:
 def _parse_effort(
     raw: object,
     harness: str,
-    model: str,
     key: str,
     *,
     inherited_by: str | None = None,
 ) -> str:
-    """Validate an effort value against the CLI and model selected for it."""
+    """Validate an effort value against the CLI selected for it, not the model:
+    which models read the level is the harness CLI's to know."""
     source = key if inherited_by is None else f"{key} (inherited by {inherited_by})"
     known = KNOWN_EFFORTS_BY_HARNESS[harness]
     if not isinstance(raw, str) or raw not in known:
         raise click.ClickException(
             f"{source} '{raw}' is not recognized for harness '{harness}' "
             f"(known: {', '.join(sorted(e for e in known if e))})"
-        )
-    if raw and harness == "claude" and model == "haiku":
-        if inherited_by is not None:
-            raise click.ClickException(
-                f"{source} is not supported for Claude model 'haiku'; "
-                f'set `{inherited_by}.effort: ""` to use that model\'s default '
-                "or drop the top-level `effort:`"
-            )
-        raise click.ClickException(
-            f"{key} is not supported for Claude model 'haiku'; "
-            "drop the key to use that model"
         )
     return raw
 

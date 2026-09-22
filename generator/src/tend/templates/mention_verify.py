@@ -15,7 +15,15 @@ from typing import Any
 
 
 def gh(*args: str, quiet: bool = False) -> str:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
+    # `gh` colorizes a piped `--json`/`--jq` response when the job's
+    # environment forces color, and the ANSI codes land inside the body
+    # `gh_json` parses. `CLICOLOR_FORCE=0` is the setting that defeats it:
+    # `gh` ranks a forced value above `NO_COLOR`, so `NO_COLOR` alone loses.
+    env = os.environ.copy()
+    env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
+    result = subprocess.run(
+        ["gh", *args], capture_output=True, text=True, env=env, check=False
+    )
     if result.returncode:
         if result.stderr and not quiet:
             sys.stderr.write(result.stderr)
@@ -53,6 +61,13 @@ def actor_login(actor: object) -> str:
     return str(actor.get("login") or "")
 
 
+def actor_type(actor: object) -> str:
+    """Return a GitHub actor type — `User`, `Bot`, or "" when unrecorded."""
+    if not isinstance(actor, dict):
+        return ""
+    return str(actor.get("type") or "")
+
+
 def output(name: str, value: str | bool) -> None:
     rendered = str(value).lower() if isinstance(value, bool) else value
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
@@ -74,6 +89,7 @@ def main() -> int:
     comment_body = env.get("COMMENT_BODY", "")
     comment_author = env.get("COMMENT_AUTHOR", "")
     review_author = ""
+    review_author_type = ""
     review_state = ""
     inline: list[dict[str, Any]] = []
 
@@ -93,6 +109,7 @@ def main() -> int:
                 print(f"review {item_id} not found on PR {pr} — skipping")
                 return verdict(False)
             review_author = actor_login(review.get("user"))
+            review_author_type = actor_type(review.get("user"))
             review_state = str(review["state"]).lower()
             comment_body = review.get("body") or ""
             output("url", review["html_url"])
@@ -142,7 +159,16 @@ def main() -> int:
         # naming the bot in a review still summons a session.
         if review_author == bot:
             return verdict(False)
-        if review_state == "approved" and not comment_body and not inline:
+        # An approval asks nobody for anything; the only thing that can hand
+        # the bot work alongside one is prose. A person's prose counts, so
+        # theirs is read. A review bot's is generated status — a code-health
+        # badge, a "looks safe" template — and weighing it costs a session
+        # that can only exit silently, once per review bot per push.
+        if (
+            review_state == "approved"
+            and not inline
+            and (not comment_body or review_author_type == "Bot")
+        ):
             return verdict(False)
 
     if kind == "issue_comment":

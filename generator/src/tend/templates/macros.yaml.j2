@@ -48,43 +48,23 @@
 {% if cfg.args %}
           <<block_input('args', cfg.args|join('\n'))>>
 {% endif %}
-{% if cfg.sandbox_path %}
-          <<block_input('sandbox_path', cfg.sandbox_path|join('\n'))>>
-{% endif %}
-{% if cfg.sandbox_env %}
-          <<block_input('sandbox_env', cfg.sandbox_env.items()|map('join', '=')|join('\n'))>>
-{% endif %}
-{% if cfg.sandbox_setup %}
-          <<block_input('sandbox_setup', cfg.sandbox_setup|join('\n'))>>
-{% endif %}
           <<prompt_body>>
 {%- endmacro %}
 
-{# Read the runtime kill switch from the repository's default branch. This is
-   the first step of every operational job, before checkout, setup, reactions,
-   or the agent action. The Contents API defaults to the default branch when no
-   ref is supplied, so a PR cannot disable its own review from its head tree.
-   The one-shot install test passes its PR head explicitly because the config
-   does not exist on the default branch until that PR lands.
-
-   Ruby and its YAML parser ship on GitHub's pinned ubuntu-24.04 runner. The
-   parser lives in its own source file so its behavior can be tested directly;
-   it is inlined here because the gate runs before checkout. A missing or
-   unreadable config, invalid YAML document, or invalid `enabled` value fails
-   the step and therefore the job. #}
-{% macro check_tend_enabled(cfg, ref='') %}
-      - name: Check whether tend is enabled
-        id: tend_enabled
+{# The uv that tend's own script steps run. It stays off PATH, and those steps
+   call it by the path setup-uv outputs: on PATH it would shadow a uv the
+   consumer's setup or runner image provides, for the setup steps and the agent
+   alike. Its cache stays off because the post-job save would store the job's
+   later uv downloads under this step's key and restore them on every run. #}
+{% macro setup_tend_uv() %}
+      - uses: astral-sh/setup-uv@v10.2.0
+        id: tend_uv
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api \
-            -H "Accept: application/vnd.github.raw+json" \
-            "repos/$GITHUB_REPOSITORY/contents/<<cfg.config_path|urlencode>>{% if ref %}?ref=<<ref>>{% endif %}" \
-            > "$RUNNER_TEMP/tend.yaml"
-          ruby - "$RUNNER_TEMP/tend.yaml" <<'<<'>>'RUBY' >> "$GITHUB_OUTPUT"
-<<check_enabled_script|indent(10, first=True)>>
-          RUBY
+          UV_NO_MODIFY_PATH: "1"
+        with:
+          version: "<<uv_version>>"
+          enable-cache: false
+          ignore-empty-workdir: true
 {%- endmacro %}
 
 {# Environment block at column 4. The environment is a secret scope, not a
@@ -115,7 +95,7 @@
    No `id-token: write`: nothing in the harness actions requests an OIDC
    token, and a job holding it can mint the repository's OIDC identity for
    any relying party whose trust policy doesn't pin the workflow and ref.
-   An adopter whose `setup:` authenticates over OIDC re-adds it with a
+   A consumer whose `setup:` authenticates over OIDC re-adds it with a
    `jobs.<name>.permissions` override. #}
 {% macro permissions(issues=True) %}
       contents: write
@@ -125,9 +105,8 @@
 
 {# Skip a job when running outside the canonical owner. Compares
    `github.repository_owner` against the configured owner: `secrets` isn't
-   available in `jobs.<job_id>.if`, and `github.event.repository.fork` is null
-   for `schedule` events, so the owner string is the only check that works
-   across all the affected event types.
+   available in `jobs.<job_id>.if`, and the `github` context carries the owner
+   for every event, whatever that event's payload holds.
 
    Two shapes:
    - fork_guard_if(cfg): emits `    if: <expr>` on its own line, or nothing
@@ -224,20 +203,11 @@
 
 {# Shared `actions/checkout@v7` step. Omitting `ref` takes the event's own ref,
    which under `pull_request_target` is the PR's base branch — what mention and
-   review's first checkout both want. Callers needing a specific tree pass one:
-   the configured default branch, or review's pr_ref dispatch. `if_condition`
-   gates the step for notifications' empty-inbox path.
-
-   `allow_unsafe_pr_checkout` opts into checkout's fork-PR guard: v7 refuses to
-   check out a fork's `refs/pull/N/{merge,head}` under `pull_request_target`
-   (the "pwn request" guard) unless this input is set. Only review feeds a fork
-   ref straight to the action, so only it sets this; mention checks out the base
-   repo then `gh pr checkout`s, never handing the action a fork ref.
-
-   `clean=False` drops checkout's `git clean -ffdx && git reset --hard`, which
-   would otherwise delete what an earlier step wrote into the workspace. Review
-   sets it on its second checkout, where `setup:` has already run. #}
-{% macro checkout(cfg, ref=None, if_condition='', allow_unsafe_pr_checkout=False, clean=True) %}
+   review want. The other callers pass the configured default branch.
+   `if_condition` gates the step for notifications' empty-inbox path. No caller
+   passes a pull request's own ref: `shared/steps/event_checkout.py` moves the
+   tree to the event's topology inside the sandbox. #}
+{% macro checkout(cfg, ref=None, if_condition='') %}
       - uses: actions/checkout@v7
 {% if if_condition %}
         if: <<if_condition>>
@@ -246,19 +216,13 @@
 {% if ref %}
           ref: <<ref>>
 {% endif %}
-{% if allow_unsafe_pr_checkout %}
-          allow-unsafe-pr-checkout: true
-{% endif %}
-{% if not clean %}
-          clean: false
-{% endif %}
           fetch-depth: 0
           fetch-tags: true
           token: ${{ secrets.<<bot_token_secret>> }}
 {%- endmacro %}
 
 {# A multi-line action input, as a YAML block scalar at column 10 with the text
-   indented at column 12. Every input whose value is adopter-supplied and may
+   indented at column 12. Every input whose value is consumer-supplied and may
    span lines renders through here — `prompt`, and the three `sandbox_*` levers
    — so the indentation is written once rather than per call site. A caller with
    extra context to append (ci-fix's run coordinates) composes the text first
@@ -269,7 +233,7 @@
    text. Without it YAML infers the block's indent from its first line, and a
    value whose first line is itself indented makes every following line look
    like the end of the scalar — a file GitHub rejects, from a config that is
-   valid YAML in the adopter's own hands.
+   valid YAML in the consumer's own hands.
 
    `${{ ... }}` in the text reaches the generated file verbatim, and GitHub
    Actions evaluates it when it sets the input — that is how a prompt's

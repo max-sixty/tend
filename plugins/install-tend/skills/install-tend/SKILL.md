@@ -87,7 +87,7 @@ itself the go-ahead.
 
 1. **Harness** — which model runs the bot and which credential it
    bills to:
-   - **Claude — OAuth token** (recommended for adopters with a Claude
+   - **Claude — OAuth token** (recommended for consumers with a Claude
      subscription) — draws from the subscription's usage limits.
    - **Claude — API key** — a console.anthropic.com key, billed per token.
      Fits when there's no subscription to draw on, or the user wants a
@@ -111,7 +111,7 @@ itself the go-ahead.
    come back available.
 4. **Defaults** — accept the default setup, or pick areas to change:
    - **Accept all defaults** (recommended) — no workflow overrides, a
-     placeholder guidance overlay, the badge added, and the bot bio
+     placeholder instructions overlay, the badge added, and the bot bio
      "tend agent for `<owner>/<repo>`. I triage issues and help maintain
      `<repo>`." Nothing is locked in: every default is an ordinary edit later
      (`.config/tend.yaml`, the files the install writes) or a re-run of
@@ -130,7 +130,7 @@ question at 4 options, so a new area means grouping, not appending.
 
 - **Workflow config** — setup commands, workflow conditions, schedules, job
   permissions/timeouts, env vars (default: no overrides)
-- **Bot guidance overlay** — PR title format, labels, review routing,
+- **Bot instructions overlay** — PR title format, labels, review routing,
   target branch, nightly actions (default: a placeholder overlay)
 - **README badge** — placement and style, or leaving it out (default:
   added, matching the README's existing badge style)
@@ -145,6 +145,11 @@ account, approving OAuth — still interact when they arrive.
 
 Follow each step in order. Skip steps that are already done — check each
 prerequisite before acting.
+
+Whatever the user has to act on — a URL, a code, a command — goes in the reply
+itself, ready to use: a clickable link where the runtime renders one, and the
+bare URL on its own line where they may need to copy it. Repeat it while its
+window is still open.
 
 ## Browser sessions
 
@@ -180,7 +185,7 @@ bot_name: <bot-name>
 # harness: codex
 # model: gpt-5.6-sol
 # Both harnesses optionally accept:
-# effort: medium   # low | medium | high | xhigh; Claude Opus/Sonnet also accept max
+# effort: medium   # low | medium | high | xhigh; Claude also accepts max
 ```
 
 Write the Codex model into the config. It is the installation's reviewed pin;
@@ -345,14 +350,15 @@ RFC 7396 (JSON Merge Patch): mappings deep-merge, scalars and lists replace.
 
 Common example — skip review on PRs labeled `tend:dismissed` (so authors can
 opt out of re-reviews after the initial pass). Because scalars replace under
-Merge Patch, the override must duplicate the default draft check:
+Merge Patch, the override must repeat the generated `TEND_ENABLED` pause check
+(`init` refuses one that drops it):
 
 ```yaml
 workflows:
   review:
     jobs:
       review:
-        if: "github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
+        if: "vars.TEND_ENABLED != 'false' && !contains(github.event.pull_request.labels.*.name, 'tend:dismissed')"
 ```
 
 See ${CLAUDE_SKILL_DIR}/references/tend.example.yaml for more override
@@ -466,8 +472,11 @@ repos that need stronger protection against published-tag deletion can
 add a no-bypass `deletion` ruleset (see the publisher uplift below).
 
 **Immutable releases.** Enable this before the next release. It locks that
-release, its assets, and its associated tag; GitHub does not apply the setting
-retroactively:
+release's assets and its associated tag, but not its body — a write-access
+actor can still edit the notes. GitHub does not apply the setting
+retroactively. Reading the setting takes repository admin, so the nightly
+`tend check` verifies the newest published release's own `immutable` flag —
+on a repo that already had releases, that check fails until the next one:
 
 ```bash
 gh api "repos/$REPO/immutable-releases" \
@@ -549,13 +558,13 @@ reachable by the bot.
 mixed bypass actors, layered no-bypass immutability rulesets for repos
 that publish actions consumed via tag pins). Install-tend packages the
 recipe above because it is the simplest configuration that holds the chain;
-adopters with stricter requirements can layer additional rulesets or
+consumers with stricter requirements can layer additional rulesets or
 environment protection rules on top.
 
 ## 4. Create skill overlay (recommended)
 
 Create `.claude/skills/running-tend/SKILL.md` with tend-specific project
-guidance, opening with the frontmatter below so discovery lists it by
+instructions, opening with the frontmatter below so discovery lists it by
 description rather than by its first heading. An existing overlay without
 frontmatter needs it added in place.
 
@@ -589,10 +598,10 @@ placeholder:
 ```markdown
 ---
 name: running-tend
-description: Project-specific guidance for tend workflows running on this repo.
+description: Project-specific instructions for tend workflows running on this repo.
 ---
 
-No project-specific tend preferences yet. Add guidance here as
+No project-specific tend preferences yet. Add instructions here as
 needed — this file is loaded by tend workflows alongside the project's
 instruction file.
 ```
@@ -702,86 +711,39 @@ flow or a resumed install lands here without one — first ask the user to choos
 between the two Claude options from Kickoff question 1.
 
 For **OAuth token** (`sk-ant-oat01-…` from `claude setup-token`; advertised
-as 1-year), two mint paths, routed by environment rather than asked:
+as 1-year), the user mints it. Hand over both commands, fully substituted,
+for their own terminal (any machine with Claude Code installed and `gh`
+logged in as the maintainer; `https://claude.com/claude-code` to install
+it), whenever suits them:
 
-- **CLI** — the default when `claude` is on PATH (`command -v claude`) and
-  `uname` reports macOS or Linux; the bundled wrapper needs `python3` and a
-  pty and has only been validated there, so `MINGW*`, `CYGWIN*`, `MSYS*`,
-  `Windows_NT`, etc. route to Manual. The wrapper drives
-  `claude setup-token` (OAuth 2.0 PKCE) and prints only the token to
-  stdout, so piping straight into `gh` keeps it out of the transcript.
+```bash
+claude setup-token
+```
 
-  Launch the command below as a background task — a foreground call sits
-  blocked with the URL trapped in its pending
-  result, and times out before the user has anything to click. Start it
-  only once the user says they are at the browser: the wrapper prints the
-  authorize URL within seconds, then waits — up to 15 minutes — for their
-  approval, and a run started ahead of them spends its window and takes
-  its own URL down.
+```bash
+gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO" --env tend
+```
 
-  ```bash
-  TOKEN=$("${CLAUDE_SKILL_DIR}/scripts/oauth_token.py" --code-file /tmp/tend-oauth-code)
-  [ -n "$TOKEN" ] && printf '%s' "$TOKEN" \
-    | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO" --env tend
-  ```
+Offer both endings when handing the commands over: run `gh secret set`
+themselves so the value never leaves their terminal, or paste the token back
+for the agent to set it. Recommend the first and say why — a token pasted
+into chat is a live credential in a transcript that outlives the install.
+Given neither `--body` nor a pipe, `gh secret set` prompts for the value, so
+taken that way the token goes from `claude setup-token`'s output to the
+prompt and nowhere else.
 
-  Read the task's output as it runs and hand the user the authorize URL
-  it prints. Approving it normally ends the run on its own — the CLI holds
-  a localhost listener that takes the redirect, so the approval is the
-  whole of the user's job. Only when the browser lands on a page showing a
-  `code#state` string is a paste needed; have them send that string back
-  and write it to the watched path while the task runs, and the wrapper
-  types it into the prompt:
+When setting it from a pasted value, check it starts with `sk-ant-oat01-`
+first. `gh secret set` stores an empty or malformed body and exits 0, and
+every check downstream reads names rather than values (`check_secrets`, and
+this step's own pre-check above), so a bad one reads as already set on the
+next run, which skips it and finishes green.
 
-  ```bash
-  printf '%s' '<code#state>' > /tmp/tend-oauth-code
-  ```
+Either way, give them this alongside, which shows the secret's name and when
+it was written without exposing the value:
 
-  Each run generates a fresh PKCE challenge and each code is good once, so
-  a code from an earlier run — or one the localhost listener already
-  redeemed — is dead, and a restart needs a fresh approval. Keep reading
-  the task's output either way: the wrapper reports whatever
-  `claude setup-token` says and exits on it, so a rejected code names its
-  own cause within seconds instead of going quiet until the window ends.
-
-  The window needs the user at the browser throughout it. The authorize
-  URL logs the browser out on the way in
-  (`claude.ai/login?reauth=1&from=logout`), which means an
-  already-signed-in Claude session doesn't shorten the job, and the login
-  in front of the approval is theirs — an agent driving Chrome reaches
-  that page and stops there. After a window lapses twice, stop reissuing
-  and hand over the Manual path, which has no window.
-
-  When the task exits, its status alone says whether the secret was
-  stored: 0 stored it; anything else wrote nothing. The guard is
-  load-bearing for that — `gh secret set` stores empty stdin as an empty
-  secret and exits 0, and every check downstream reads names rather than
-  values (`check_secrets`, and this step's own pre-check above) — so one
-  unguarded failed run would leave a `CLAUDE_CODE_OAUTH_TOKEN` that the
-  next run reads as already set, skips, and finishes green on.
-
-- **Manual** — when the CLI path is unavailable, the wrapper errors out,
-  or the user isn't at the browser when the agent is. Hand over both
-  commands, fully substituted, for them to run in their own terminal (any
-  machine with Claude Code installed and `gh` logged in as the
-  maintainer; `https://claude.com/claude-code` to install it), whenever
-  suits them:
-
-  ```bash
-  claude setup-token
-  ```
-
-  ```bash
-  gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo "$REPO" --env tend
-  ```
-
-  Given neither `--body` nor a pipe, `gh secret set` prompts for the
-  value, so the token goes from the first command's output to that prompt
-  and nowhere else. Don't ask for it in chat: the agent has no use for the
-  value, and a token pasted there is a live credential sitting in the
-  transcript. The prompt refuses an empty submission and keeps waiting, so
-  the empty-value hazard that makes the CLI path's guard load-bearing has
-  no counterpart here.
+```bash
+gh secret list --repo "$REPO" --env tend
+```
 
 For **API key**: the user takes a key from
 `https://console.anthropic.com/settings/keys` and runs this themselves,

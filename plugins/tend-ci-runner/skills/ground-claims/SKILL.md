@@ -1,0 +1,255 @@
+---
+name: ground-claims
+description: Ground a public claim in evidence. Use before claiming anything about a tool's behavior, an incident, or code you did not run.
+metadata:
+  internal: true
+---
+
+# Grounded analysis
+
+- [Source evidence for user-facing claims](#source-evidence-for-user-facing-claims)
+- [Verifying external-tool behavior](#verifying-external-tool-behavior)
+- [Recurring hallucination shapes](#recurring-hallucination-shapes)
+- [Transient incidents vs. durable bugs](#transient-incidents-vs-durable-bugs)
+- [Who to ask when you can't do it yourself](#who-to-ask-when-you-cant-do-it-yourself)
+
+## Source evidence for user-facing claims
+
+Before posting any specific claim — a configuration snippet, command syntax,
+variable name, or API behavior — find the **source text** that confirms it:
+documentation, help output, test expectations, or the code implementing the
+public interface. Internal implementation code shows what exists internally,
+not how it's exposed; read the docs or user-facing layer too.
+
+<example>
+<bad reason="Read Rust code showing a 'target' variable and invented $WT_TARGET">
+
+Bad: Saw `extra_vars.push(("target", target_branch))` in Rust source → posted a hook example using `$WT_TARGET` (an environment variable that doesn't exist — hooks use `{{ target }}` Jinja templates).
+
+</bad>
+<good reason="Verified syntax against user-facing documentation before posting">
+
+Good: Saw `("target", target_branch)` in Rust source → read `docs/hook.md` → confirmed hooks use `{{ target }}` syntax → posted correct example.
+
+</good>
+</example>
+
+For **behavioral claims** — "X happens when you run Y" — reading code is not
+enough. Conditional branches, early returns, and error paths are easy to miss
+when tracing mentally. Find a test that exercises that exact scenario, or run
+the command. If neither is feasible, hedge explicitly: "Based on code reading,
+I believe X, but I haven't verified this end-to-end."
+
+<example>
+<bad reason="Traced one code path but missed a guard clause in a called function">
+
+Bad: Read `CommandEnv::for_action("commit", config)` → saw it constructs an env → concluded `wt step commit` works in a detached worktree. Missed that `for_action()` calls `require_current_branch()`, which errors on detached HEAD.
+
+</bad>
+<good reason="Built and tested the actual behavior before claiming">
+
+Good: Read `for_action()` → noticed it calls `require_current_branch()` → uncertain whether detached HEAD hits that path → ran `cargo build && wt step commit` in a detached worktree → confirmed the error → posted accurate answer.
+
+</good>
+</example>
+
+Link to user-facing documentation where a project has it — finding the link
+forces verifying the claim. Where no source evidence turns up, say so ("I'm not
+sure of the exact syntax"). An honest gap is fixable; a confident hallucination
+gets copy-pasted.
+
+**Rewriting is authoring.** Cross-posting, summarizing, or paraphrasing carries
+the same bar for anything *added*: a config section header inferred from a
+command name (`[step]` from `wt step`, where the real section is `[aliases]`)
+is a fresh claim, not a copy.
+
+## Verifying external-tool behavior
+
+When a claim turns on how an external CLI, API, or system behaves, verify by
+running the code. Two paths, in order:
+
+1. **Run the tool.** If it's installable here, install it and invoke the
+   specific command or flag. Link the output in your reply.
+2. **Read the source.** Tend can clone any public repo. `gh repo clone
+   <owner>/<repo>`, then grep for the flag or behavior. Source doesn't lag
+   itself, and a flag the parser doesn't define doesn't exist.
+
+If both fail (GUI-only tool, private repo, environment-specific behavior), cite
+what you found and name the gap — then see **Who to ask** below.
+
+<example>
+<bad reason="Trusted upstream docs for a fast-moving external CLI and shipped a broken recipe">
+
+Bad: Review asked whether `cmux list-workspaces` had structured output. Read a mintlify page describing `--json` → rewrote the recipe to `cmux list-workspaces --json | jq ...` → committed. The installed cmux had no `--json` flag; every reader hit a broken recipe.
+
+</bad>
+<good reason="Cloned the upstream source and verified the flag before shipping">
+
+Good: Same question. Cloned cmux's source repo → grepped the CLI parser for `list-workspaces` → saw no `--json` flag defined → replied with the source link and proposed an alternative that matched the actual CLI surface.
+
+</good>
+</example>
+
+**Path 1 runs against the live repo.** Verifying a skill's own recipe is the
+common case, and those recipes write: `gh issue close`, `gh pr comment`, `git
+push`. Never extract a block programmatically to run it — not by position
+(`awk` on the Nth fence, `sed` on a line range) and not by anchor: both hand
+you a block you haven't read, and the ordinal moves with every edit, so what
+runs isn't even the block you meant to test. Read the file, then run the
+commands directly. Run the read half and stop before the pipe into the write:
+
+```bash
+gh issue list --state open --author '@me' --search '"..." in:title' --json number --jq '.[].number'
+# ...and read that, rather than piping it into `xargs gh issue close`.
+```
+
+If the write is the part in question, point it at a scratch object you own. A
+wrong write is only partly recoverable: reopening an issue leaves the close in
+its timeline, and a deleted comment has already fired its `issue_comment`
+event, so any workflow it triggered ran and is still in the run list.
+
+## Recurring hallucination shapes
+
+**A claim about what a past run executed is read at that run's own commit.**
+The checkout is the current default branch; a run from earlier is not. Before
+explaining a failure in terms of a branch, guard, or helper, read the file at
+the run's head, and pin the body's links to that SHA rather than to `HEAD`. A
+fix that landed between the run and the session inverts the reading: the code
+being cited as the cause may be the code added *because* of the failure.
+
+```bash
+# Bail if the run lookup fails: an empty `ref=` serves the default branch,
+# which is the reading this rule exists to prevent.
+SHA=$(gh api "repos/{owner}/{repo}/actions/runs/<id>" --jq .head_sha) || exit 1
+gh api "repos/{owner}/{repo}/contents/<path>?ref=$SHA" \
+  -H 'Accept: application/vnd.github.raw'
+```
+
+Fetch it rather than reaching for `git show <sha>:<path>`: the checkout holds
+only what a ref reaches, so the head of a squash-merged or deleted branch is
+absent from it, and `git show` then fails into the same wrong answer — the
+`fatal:` goes to stderr while a `| grep -c` downstream prints `0`,
+indistinguishable from a genuine no-match, which reads as "the guard was
+absent at that run".
+
+**Links must be fetched, not guessed.** Before pasting any URL, run `curl -sI
+<url> | head -1` and confirm `200`. Docs-site slugs are treacherous —
+`escaping.html`, `quoting.html`, and `quote-strings.html` are all plausible;
+only one (or none) exists.
+
+**`--jq` projections must keep the ID when downstream URLs cite individual
+items.** Composing `actions/runs/<id>`, `#issuecomment-<id>`, or `pull/<n>`
+needs the ID in the projection (`databaseId` for runs, `id` for comments,
+`number` for PRs/issues). A projection that kept only timestamps or titles
+leaves the bot fabricating the missing ID, and the link 404s. Re-query instead.
+
+**`gh` list commands truncate silently — pass `--limit` whenever the result set
+is the answer.** `gh issue list`, `gh pr list`, and `gh search` return 30 items
+by default; `gh run list` returns 20, and nothing in the output says it
+truncated. A dedup scan then misses the existing issue past the cap and opens a
+duplicate; a survey reports complete coverage of the rows it happened to see. A
+count that lands exactly on the cap in force — the default, or the `--limit`
+you passed — is the signature, and an explicit `--limit` moves that threshold
+rather than removing it. Client-side filtering inside `--jq` is the worst
+variant: the filter hides the truncation, so a capped result reads as a
+legitimately short one. A wide `--limit` also needs a narrow projection to
+survive the trip back: past roughly 32 KB the harness saves the output to a
+file and shows a 2 KB preview, so the scan reads the first item or two and
+reports the rest as absent. Total size crosses that line, not any one field —
+dropping `body` is not enough when `number,title,state,mergedAt,headRefName`
+over 200 PRs already runs to 34 KB. Project `number,title,state`, then read
+the bodies of the candidates the titles narrow to.
+
+**An exhaustiveness claim needs a method that could have found a
+counterexample.** Before publishing "all", "every", "none", "the only", or
+"exactly complete", name what would make the claim false and confirm the method
+can see it. A set difference over two `--help` outputs finds the flags one
+command rejects, never a flag both accept that still must not be forwarded; a
+`head -120` diff finds changes in the first 120 lines. The tell is a criterion
+swap — the method answered a narrower question than the sentence asserts.
+Either widen the method, or publish the claim the method did establish ("no
+flag the receiving command rejects is missing from the denylist"), which is
+worth as much to the reader and stays true.
+
+**"Likely" is a stop-sign.** A hedge in a user-facing claim — "likely works",
+"probably parses as", "I think" — means it rests on an unverified guess. Verify
+and replace the hedge with the answer, or hedge explicitly ("I haven't tested
+this — would appreciate if you can confirm"). The shape is the tell, not the
+exact words: an unverified guess dressed as confident analysis erodes trust
+fastest.
+
+**Never ship literal placeholders.** `<PLACEHOLDER>`, `PR #PLACEHOLDER`,
+`<SHA>`, `TBD`, `XXX`, `<TODO(fill)>` in an issue body, PR body, or comment are
+corruption — a deferred substitution that never ran, rendered permanently.
+Sequence the work so a referenced artifact exists before the referencing body
+is composed: create the PR → read its number → compose the issue with the
+number filled in → file it. Where the cross-reference can't be resolved before
+posting, omit it or rephrase ("a follow-up PR will…"). Before any `gh issue
+create`, `gh pr create`, or `gh ... comment --body-file`, grep the body for
+those strings and refuse to post on a match. A session that times out
+mid-sequence leaves an unsubstituted placeholder visible forever —
+pre-substitute, don't post-substitute.
+
+## Transient incidents vs. durable bugs
+
+Intermittent or inconsistent behavior — the same query returning different
+results within seconds, an API returning empty when records demonstrably exist,
+a CLI flag working sometimes — points at an active upstream incident more
+strongly than at a CLI or skill bug. Reproducing the flake confirms the symptom,
+not the cause, and a code workaround committed during an incident outlives it.
+Check upstream status before designing one. For GitHub-side symptoms:
+
+```bash
+# Fetch first, parse second. The endpoint sits behind an edge that sometimes
+# answers a CI runner with an HTML challenge page instead of JSON; piping that
+# straight into jq gives a parse error on stderr and an empty stdout, which
+# reads exactly like "no open incidents". `-f` catches a challenge served as a
+# non-200 and the `jq -e` probe catches one served as 200; capturing the body
+# means the status is curl's or jq's, not a pipeline's (a bare
+# `curl … | jq … || …` exits 0 on the challenge page).
+if ! INCIDENTS=$(curl -fsS 'https://www.githubstatus.com/api/v2/incidents/unresolved.json') \
+   || ! echo "$INCIDENTS" | jq -e . >/dev/null 2>&1; then
+  echo 'STATUS PROBE FAILED — upstream state unknown, not clear'
+else
+  echo "$INCIDENTS" \
+    | jq '.incidents[] | {created_at, name, impact, components: [.components[].name]}'
+fi
+```
+
+When an open incident's components and timing match the symptom, treat the
+symptom as transient. Report it with the incident link wherever your workflow
+reports findings, and skip the workaround PR. **A failed probe is `unknown`,
+never `clear`**: an errored probe means you didn't check, and it is no more a
+reason to file a workaround than a matching incident is.
+
+<example>
+<bad reason="Reproduced an API flake during an active incident, opened a code workaround without checking upstream status">
+
+Bad: `gh issue list` returns `[]` intermittently for queries whose matching issues clearly exist. Bot opens a PR adding a retry loop. The flake was an active upstream search-degradation incident, and the PR is closed once the incident link surfaces.
+
+</bad>
+<good reason="Checked status.github.com first, treated the symptom as transient">
+
+Good: Same flake → `curl /api/v2/incidents/unresolved.json` returns an active "GitHub search is degraded" incident touching Issues + Pull Requests → report the symptom with the incident link, skip the PR, let the incident resolve.
+
+</good>
+</example>
+
+## Who to ask when you can't do it yourself
+
+Some checks need hardware or an environment CI doesn't have (Windows, a GPU, a
+physical terminal). Escalate in this order and stop at the first rung that works:
+
+1. **Do it yourself.** Exhaust what's reachable from CI — install the tool,
+   clone and read the source, stand up the missing surface in a container.
+2. **Offer to make it doable yourself.** Propose adding the capability to *your
+   own* repo — a Windows CI job that exercises the path — so no future run
+   needs a person to run the check by hand.
+3. **Ask a contributor of your own repo**, and only for something that follows
+   from what they're already doing (a PR author testing their own change).
+4. **Escalate to your own repo's maintainer** that you're blocked.
+
+Never route the ask *outward* — least of all to the maintainer of another repo
+who is reviewing or merging your change as a favor. State the gap honestly
+there ("verified by source inspection, not on hardware") and make rung 2's offer
+in your own repo.

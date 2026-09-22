@@ -15,7 +15,7 @@ on:
 
 jobs:
   fix-ci:
-    if: <<fork_guard_prefix(cfg)>>contains(fromJSON('["failure", "cancelled"]'), github.event.workflow_run.conclusion)
+    if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && contains(fromJSON('["failure", "cancelled"]'), github.event.workflow_run.conclusion)
     concurrency:
       # A red branch fails every push that follows, each on its own commit, so
       # one session per branch — not per commit — is what collapses the burst.
@@ -30,7 +30,6 @@ jobs:
     permissions:
 <<permissions(issues=False)>>
     steps:
-<<check_tend_enabled(cfg)>>
-<<checkout(cfg, ref=cfg.default_branch, if_condition=tend_enabled_condition)>>
+<<checkout(cfg, ref=cfg.default_branch)>>
 <<setup>>
-<<agent_step(cfg, block_input('prompt', full_prompt), if_condition=tend_enabled_condition)>>
+<<agent_step(cfg, block_input('prompt', full_prompt))>>

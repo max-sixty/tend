@@ -17,19 +17,19 @@ durable cause, and create a PR when code or configuration needs to change.
 
 ### 0. Load environment skills
 
-Load `/tend-ci-runner:running-in-ci` first — it contains CI security rules, polling conventions, and comment formatting guidance. It will also prompt you to load any repo-specific skills (e.g., `running-tend`).
+Load `/tend-ci-runner:run-tend` first — it contains CI security rules and comment formatting, and it will prompt you to load any repo-specific skills (e.g., `running-tend`). This job diagnoses a failure and then either opens a PR or files an issue, so load `/tend-ci-runner:fix-a-bug`, `/tend-ci-runner:open-pr`, `/tend-ci-runner:post-to-github`, `/tend-ci-runner:push-commits`, and `/tend-ci-runner:monitor-ci` once you know which path you are on.
 
 ### 1. Check for existing fixes
 
 List recent PRs (open and closed) and check whether any already address the same failure — a prior bot attempt, a prior bot fix a maintainer rejected, or a maintainer's in-flight fix under any branch name.
 
 ```bash
-gh pr list --state all --limit 30 --json number,title,state,author,headRefName,body,closedAt
+gh pr list --state all --limit 200 --json number,title,state
 ```
 
-Match by **failure shape** — the diagnostic snippet in the bot's PR body, or the diff for a maintainer-authored PR — not branch name; branch names encode run IDs and never repeat.
+Match by **failure shape** — the diagnostic snippet in the bot's PR body, or the diff for a maintainer-authored PR — not branch name; branch names encode run IDs and never repeat. The listing carries titles only; pull the body and author per candidate (`gh pr view <n> --json body,author`).
 
-- If an existing **open** PR addresses the same failure, comment on it linking the new run and stop.
+- If an existing **open** PR addresses the same failure, comment on it per `/tend-ci-runner:post-to-github`, linking the new run, and stop.
 - If a **closed** PR with a maintainer rejection covers the same failure, exit silently; check the closure comment for the rationale before referencing it. Re-deriving the same fix forces a maintainer to close it twice.
 
 Also check for open tracking issues left by a prior unfixable diagnosis (see 3b) — if one matches the current failure shape, the fix PR you eventually open should reference it via `Fixes #<n>` so the issue closes when the PR merges:
@@ -41,6 +41,8 @@ gh issue list --state open --author "$BOT_LOGIN" --search "ci-fix: in:title" \
 ```
 
 ### 2. Diagnose and fix
+
+The gates every fix clears are in `/tend-ci-runner:fix-a-bug`; read it before writing one.
 
 1. Read the run's conclusion and jobs: `gh run view <run-id> --json conclusion,jobs,url`
 2. For a failure, read its logs: `gh run view <run-id> --log-failed`
@@ -60,7 +62,7 @@ steps and current branch normally.
 
 ### 3. Create PR
 
-Re-run step 1's author-agnostic PR query, then follow **Dedup recheck immediately before `gh pr create`** in `running-in-ci` to check for a fix committed to the default branch. If the failure no longer reproduces there, don't open the PR.
+Re-run step 1's author-agnostic PR query, then follow **Dedup recheck immediately before `gh pr create`** in `/tend-ci-runner:open-pr` to check for a fix committed to the default branch. If the failure no longer reproduces there, don't open the PR. Before the push, review the change per **Review the change before the push** in `/tend-ci-runner:push-commits`.
 
 ```bash
 git checkout -b fix/ci-<run-id>
@@ -69,7 +71,7 @@ git commit -m "fix: <description>"
 git push -u origin fix/ci-<run-id>
 ```
 
-Create the PR with `gh pr create`, composing its body in a file per `running-in-ci`. Write for a maintainer deciding whether the current fix addresses the failure: explain the causal finding, why the change fixes it at the right level, and the verification relevant to that decision. Link the failed run as supporting evidence and follow **Reader-facing prose** in `running-in-ci`.
+Create the PR with `gh pr create`, composing its body in a file per `/tend-ci-runner:post-to-github`. Write for a maintainer deciding whether the current fix addresses the failure: explain the causal finding, why the change fixes it at the right level, and the verification relevant to that decision. Link the failed run as supporting evidence and follow **Reader-facing prose** in `/tend-ci-runner:run-tend`.
 
 ### 3a. Diagnosis without a fix (transient causes)
 
@@ -95,11 +97,11 @@ Match by failure-shape keyword against the issue body (e.g. `rustup-init`, `comp
 
 If the current failure shape has 2+ prior occurrences on separate days within the past 7, escalate to durable: a fault that keeps coming back within a week is not transient even when individual reruns pass. Count occurrences, not trackers — the same root cause taking down several jobs in one afternoon files several trackers and is still one occurrence.
 
-An escalated fault still reruns green, so a mitigation buys back runner time, not correctness — the compute-only bar in **Weighing a Fix** (`running-in-ci`) applies. Open a fix PR proposing a knob-sized mitigation (pin the runner image, skip the affected leg, disable the relevant cache layer), preferring an upstream-documented workaround — `gh issue search` against the action's repo, the action's README, GitHub Community threads — and linking the upstream issue if the search surfaced one. If the fault has no knob-sized mitigation, treat it as a durable cause without a safe fix and follow 3b.
+An escalated fault still reruns green, so a mitigation prevents future red runs rather than fixing a bug. Open a fix PR proposing the smallest mitigation that holds, usually one setting in one place (pin the runner image, skip the affected leg, disable the relevant cache layer), preferring an upstream-documented workaround — `gh issue search` against the action's repo, the action's README, GitHub Community threads — and linking the upstream issue if the search surfaced one. If the fault has no such mitigation, treat it as a durable cause without a safe fix and follow 3b.
 
 #### File the transient tracker
 
-If the failure stays classified transient, open an issue with the diagnosis and close it immediately. The closure records "diagnosed, no further action" while keeping the analysis discoverable and off the commit timeline. Apply the `tend-outage` label — the workflow-level `if:` in `tend-triage` and `tend-mention` skip labelled issues, suppressing the no-op cascade runs (`opened` → silent-exit; `closed`-comment → silent-exit) that would otherwise fire on every transient tracker:
+If the failure stays classified transient, open an issue with the diagnosis per `/tend-ci-runner:open-pr` and close it immediately. The closure records "diagnosed, no further action" while keeping the analysis discoverable and off the commit timeline. Apply the `tend-outage` label — the job-level `if:` in `tend-triage` and `tend-mention` skip labelled issues, suppressing the no-op cascade runs (`opened` → silent-exit; `closed`-comment → silent-exit) that would otherwise fire on every transient tracker:
 
 ```bash
 gh label create tend-outage --description "Tracks bot outage incidents" --color "d93f0b" 2>/dev/null || true
@@ -113,7 +115,7 @@ Skip step 4 — there's no PR to monitor.
 
 If the diagnosis identifies a durable root cause but a safe fix can't be produced — the cause is in an external system the bot can't change, the fix requires judgment the bot shouldn't make unilaterally, or an attempted fix didn't validate locally — leave a tracking issue. Without one, a durable failure that the bot can't fix lives only on the workflow-run page and is invisible in the issues list.
 
-Leave the issue **open**. A subsequent fix PR closes it via `Fixes #<n>` in the PR body (see step 1 — search for a matching open tracking issue before opening the fix PR). This mirrors the consumer-side `create-issue-on-nightly-failure` pattern and gives maintainers a durable "still broken" signal until a fix ships.
+Leave the issue **open**, so maintainers have a durable "still broken" signal until a fix ships. A subsequent fix PR closes it via `Fixes #<n>` in the PR body (see step 1 — search for a matching open tracking issue before opening the fix PR).
 
 **Dedup first.** Search for an open tracking issue covering the same failure shape; if one exists, comment with the new run link rather than opening a duplicate. Match by failure shape (workflow name + diagnostic snippet), not run ID — each run ID is unique and won't dedup:
 
@@ -129,7 +131,7 @@ If an open tracking issue matches:
 gh issue comment <issue-number> --body-file "$TMPDIR/recurrence.md"
 ```
 
-Otherwise, open a new tracking issue. Use a title prefix that future runs can search on (`ci-fix: <workflow-name> failing`) with a short root-cause suffix for human readability:
+Otherwise, open a new tracking issue per `/tend-ci-runner:open-pr`. Use a title prefix that future runs can search on (`ci-fix: <workflow-name> failing`) with a short root-cause suffix for human readability:
 
 ```bash
 gh issue create \
@@ -137,10 +139,10 @@ gh issue create \
   --body-file "$TMPDIR/diagnosis.md"
 ```
 
-Compose `$TMPDIR/diagnosis.md` as a durable account for a maintainer deciding what happens next. Include the failed workflow and run, the root cause and mechanism, why no safe automated fix was produced, and the current blocker or decision. Follow **Reader-facing prose** in `running-in-ci`; the issue should preserve the conclusion, not the diagnostic transcript.
+Compose `$TMPDIR/diagnosis.md` as a durable account for a maintainer deciding what happens next. Include the failed workflow and run, the root cause and mechanism, why no safe automated fix was produced, and the current blocker or decision. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`; the issue should preserve the conclusion, not the diagnostic transcript.
 
 Skip step 4 — there's no PR to monitor.
 
 ### 4. Monitor CI
 
-Wait for CI per **CI Monitoring** in `running-in-ci` (loaded in step 0).
+Wait for CI per `/tend-ci-runner:monitor-ci`.
