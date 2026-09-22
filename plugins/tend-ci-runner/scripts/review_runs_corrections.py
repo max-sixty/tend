@@ -31,23 +31,25 @@ def correction_report(
         ],
         "comments": [
             {
+                "author": author,
                 "created": comment["created_at"],
                 "updated": comment["updated_at"],
                 "url": comment["html_url"],
                 "body": (comment.get("body") or "")[:300],
             }
             for comment in comments
-            if github_cli.actor_login(comment.get("user")) != bot
+            if (author := github_cli.actor_login(comment.get("user"))) != bot
         ],
         "reviews": [
             {
+                "author": author,
                 "at": review["submitted_at"],
                 "state": review["state"],
                 "url": review["html_url"],
                 "body": review["body"][:300],
             }
             for review in reviews
-            if github_cli.actor_login(review.get("user")) != bot
+            if (author := github_cli.actor_login(review.get("user"))) != bot
             and review.get("submitted_at", "") >= since
             and review.get("body")
         ],
