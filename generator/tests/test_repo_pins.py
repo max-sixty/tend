@@ -777,10 +777,14 @@ def test_plugin_skill_citations_resolve() -> None:
 # inside the throwaway home would rotate the refresh-token chain your own login
 # depends on.
 #
-# Codex prints "Skill descriptions were shortened to fit the skills context
-# budget" when any description is cut, and a description it cut, quoted back by
-# the model, shows the length each share gets. Tighten the descriptions to fit
-# and re-run until the warning is gone.
+# Codex does not say when it shortens a description: 0.156.0 removed the
+# "Skill descriptions were shortened to fit the skills context budget" warning,
+# and the budget path cuts at a character index with no ellipsis. So the listing
+# the model quotes back is the whole signal — a description that stops
+# mid-sentence was cut, and its length is the share each one gets. Tighten the
+# descriptions and re-run until none is cut. Codex still warns when a skill is
+# left out of the listing entirely, which is the budget exhausted rather than
+# shared thin.
 DESCRIPTION_BUDGET = 130
 SKILLS_MEASURED_AT = 24
 
