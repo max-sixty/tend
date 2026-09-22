@@ -1806,7 +1806,7 @@ def test_fix_branch_protection_refuses_retiring_refs_before_any_write(
 
     with patch("tend.checks._gh", side_effect=fake_gh):
         result = fix_branch_protection(
-            "owner/repo", "main", "my-bot", "maintainer", ["release"]
+            "owner/repo", "main", "my-bot", "yolo", ["release"]
         )
 
     assert result.passed is (None if old_include is None else False)
@@ -1869,6 +1869,122 @@ def test_fix_branch_protection_reconciles_yolo_back_to_maintainer() -> None:
     assert after.passed is True
     assert rulesets[1]["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
     assert 2 not in rulesets
+
+
+@pytest.mark.parametrize(
+    ("listed", "path", "method"),
+    [
+        ("", "repos/owner/repo/rulesets", "POST"),
+        ("41\tMerge access\n", "repos/owner/repo/rulesets/41", "PUT"),
+    ],
+    ids=["absent", "present"],
+)
+def test_fix_branch_protection_maintainer_reconciles_merge_access(
+    listed: str, path: str, method: str
+) -> None:
+    """Repair creates an absent ruleset or replaces an edited one."""
+    writes: list[tuple[str, str, dict]] = []
+
+    def fake(*args, **kwargs):
+        if "--paginate" in args:
+            return _make_completed(listed)
+        if "--method" in args:
+            writes.append(
+                (
+                    _url(args),
+                    args[args.index("--method") + 1],
+                    json.loads(kwargs["input"]),
+                )
+            )
+            return _make_completed()
+        return _make_completed(_restrict_updates_ruleset(["release"]))
+
+    with patch("tend.checks._gh", side_effect=fake):
+        result = fix_branch_protection(
+            "owner/repo", "main", "my-bot", "maintainer", ["release"]
+        )
+
+    assert result.passed is True
+    assert len(writes) == 1
+    url, write_method, body = writes[0]
+    assert (url, write_method) == (path, method)
+    assert body["name"] == "Merge access"
+    assert body["enforcement"] == "active"
+    assert body["conditions"]["ref_name"]["include"] == [
+        "~DEFAULT_BRANCH",
+        "refs/heads/release",
+    ]
+    assert {rule["type"] for rule in body["rules"]} == {
+        "creation",
+        "update",
+        "deletion",
+    }
+    assert body["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
+
+
+def test_fix_branch_protection_maintainer_preserves_existing_targets() -> None:
+    """Maintainer repair keeps existing conditions, including future selectors."""
+    current = json.loads(_restrict_updates_ruleset(["old-release", "release/*"]))
+    current["conditions"]["ref_name"]["include"].append("~FUTURE_SELECTOR")
+    current["conditions"]["ref_name"]["exclude"] = ["refs/heads/release/test"]
+    current["conditions"]["future_condition"] = {"enabled": True}
+    writes = []
+
+    def fake(*args, **kwargs):
+        if "--paginate" in args:
+            return _make_completed("41\tMerge access\n")
+        if "--method" in args:
+            writes.append(json.loads(kwargs["input"]))
+            return _make_completed()
+        return _make_completed(json.dumps(current))
+
+    with patch("tend.checks._gh", side_effect=fake):
+        result = fix_branch_protection(
+            "owner/repo", "main", "my-bot", "maintainer", ["new-release"]
+        )
+    assert result.passed is True
+    assert writes[0]["conditions"]["ref_name"] == {
+        "include": [
+            "~DEFAULT_BRANCH",
+            "refs/heads/new-release",
+            "refs/heads/old-release",
+            "refs/heads/release/*",
+            "~FUTURE_SELECTOR",
+        ],
+        "exclude": ["refs/heads/release/test"],
+    }
+    assert writes[0]["conditions"]["future_condition"] == {"enabled": True}
+    assert {rule["type"] for rule in writes[0]["rules"]} == {
+        "creation",
+        "update",
+        "deletion",
+    }
+    assert result.message == (
+        "Replaced 'Merge access' ruleset — admin-only; include: ~DEFAULT_BRANCH, "
+        "refs/heads/new-release, refs/heads/old-release, refs/heads/release/*, "
+        "~FUTURE_SELECTOR; "
+        "exclude: refs/heads/release/test."
+    )
+
+
+@pytest.mark.parametrize("include", [None, [42]])
+def test_fix_branch_protection_cannot_inspect_existing_targets(include) -> None:
+    def fake(*args, **kwargs):
+        if "--paginate" in args:
+            return _make_completed("41\tMerge access\n")
+        assert "--method" not in args, "Must not change any ruleset"
+        if include is None:
+            return _make_completed("", returncode=1, stderr="HTTP 403")
+        current = json.loads(_restrict_updates_ruleset([]))
+        current["conditions"]["ref_name"]["include"] = include
+        return _make_completed(json.dumps(current))
+
+    with patch("tend.checks._gh", side_effect=fake):
+        result = fix_branch_protection("owner/repo", "main", "my-bot", "maintainer", [])
+    assert result.passed is (None if include is None else False)
+    assert (
+        "Could not read" if include is None else "Cannot safely preserve"
+    ) in result.message
 
 
 def _gh_all_pass(*admitted: str, environment_secrets: tuple[str, ...] | None = None):
@@ -3784,9 +3900,8 @@ def test_credential_environments_reusable_caller_job_is_not_ungated_oidc() -> No
     assert result.passed is True
 
 
-def test_credential_environments_ref_qualified_self_call_is_unread() -> None:
-    """Even a same-repo absolute call can pin historical workflow code, so
-    the default-branch file cannot stand in for the callee."""
+def test_credential_environments_absolute_self_call_is_unverified() -> None:
+    """Ref-qualified calls may run different code from the inspected tree."""
     result = _credential_check(
         {"pypi": (["PYPI_TOKEN"], _CUSTOM_POLICY, "branch main")},
         workflows={
@@ -3804,7 +3919,7 @@ def test_credential_environments_ref_qualified_self_call_is_unread() -> None:
         },
     )
     assert result.passed is None
-    assert "calls a ref-qualified or external workflow" in result.message
+    assert "ref-qualified or external workflow" in result.message
 
 
 def test_credential_environments_own_triggers_reach_a_callable_workflow() -> None:

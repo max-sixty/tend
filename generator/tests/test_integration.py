@@ -213,17 +213,22 @@ def test_init_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert first_run == second_run
 
 
-def test_init_writes_only_under_the_two_directories_it_owns(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("codeowners_path", [None, "CODEOWNERS", "docs/CODEOWNERS"])
+def test_init_writes_only_paths_the_regeneration_checks_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codeowners_path: str | None
 ) -> None:
-    """The nightly regeneration stages `.github` and `.config` and nothing else.
+    """Nightly regeneration and install-test cover every file init may write.
 
-    A file `init` newly creates outside those two is invisible to that
-    staging, so the regeneration PR ships without it — which is how
-    `.github/actionlint.yaml` once left consumers who lint workflows red, and
-    left the file untracked again every night.
+    CODEOWNERS can live at the root or under docs in a consumer repo, so
+    neither output can be omitted from those jobs' staging paths.
     """
-    _write_config(tmp_path, "bot_name: test-bot")
+    config = "bot_name: test-bot"
+    if codeowners_path is not None:
+        config += '\nmerge: yolo\ncontrol_plane_owner: "@octocat"'
+        codeowners = tmp_path / codeowners_path
+        codeowners.parent.mkdir(parents=True, exist_ok=True)
+        codeowners.write_text("*.py @python-team\n")
+    _write_config(tmp_path, config)
     monkeypatch.chdir(tmp_path)
 
     assert _run_init().exit_code == 0
@@ -235,16 +240,17 @@ def test_init_writes_only_under_the_two_directories_it_owns(
     }
     assert ".github/actionlint.yaml" in written, "review no longer writes the ignore"
 
-    staged = [".github", ".config"]
+    staged = [".github", ".config", "CODEOWNERS", "docs/CODEOWNERS"]
     uncovered = sorted(
         path
         for path in written
         if not any(path == spec or path.startswith(f"{spec}/") for spec in staged)
     )
     assert not uncovered, (
-        f"`tend init` writes paths the nightly regeneration never stages: {uncovered}. "
-        "Widen the nightly recipe's `git add -A` pathspecs so the regeneration "
-        "PR carries them."
+        f"`tend init` writes paths neither the nightly regeneration nor the "
+        f"install-test drift check stages: {uncovered}. Widen the `git add` "
+        "pathspecs in `nightly_workflow_update.py` and `generate_install_test` "
+        "so the regeneration PR carries them and the drift check sees them."
     )
 
 
@@ -528,8 +534,9 @@ def test_init_wires_detected_owner_into_workflows(
     assert "github.repository_owner == 'PRQL'" in content
 
 
+@pytest.mark.parametrize("codeowners_path", ["CODEOWNERS", "docs/CODEOWNERS"])
 def test_yolo_init_manages_the_effective_codeowners_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codeowners_path: str
 ) -> None:
     _write_config(
         tmp_path,
@@ -539,7 +546,8 @@ def test_yolo_init_manages_the_effective_codeowners_file(
             control_plane_owner: "@octocat"
             """),
     )
-    codeowners = tmp_path / "CODEOWNERS"
+    codeowners = tmp_path / codeowners_path
+    codeowners.parent.mkdir(parents=True, exist_ok=True)
     codeowners.write_text("*.py @python-team\n")
     monkeypatch.chdir(tmp_path)
 
@@ -1234,6 +1242,9 @@ def test_install_test_workflow_shape(
     assert "pull_request" in data["on"]
     assert data["on"]["pull_request"]["paths"] == [
         ".github/workflows/tend-*.yaml",
+        ".github/CODEOWNERS",
+        "CODEOWNERS",
+        "docs/CODEOWNERS",
         ".config/tend.yaml",
     ]
 
@@ -1257,3 +1268,85 @@ def test_install_test_workflow_shape(
     assert "git remote set-head" not in content
     assert "gh api" in content and ".default_branch" in content
     assert "git symbolic-ref" in content
+
+
+@pytest.mark.parametrize(
+    "drift",
+    ["added", "removed", "actionlint", "root-codeowners", "docs-codeowners", "none"],
+)
+def test_install_test_drift_check_sees_every_direction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
+) -> None:
+    """The drift check must fail on generator output the PR never committed —
+    a workflow or the actionlint ignore — and on a workflow the regen no
+    longer emits.
+
+    A plain `git diff` misses the uncommitted cases: untracked files are
+    invisible to it, which is the add-a-file case the one-shot check exists to
+    cover (switching a workflow to the Codex harness emits
+    tend-codex-auth-refresh.yaml, and `git commit -a` leaves it behind, as it
+    does the `.github/actionlint.yaml` every install newly creates).
+    Staging intents to fix that stages removals along with them, so the
+    comparison has to be against HEAD or the removal case goes green instead.
+    The pathspecs also cover both consumer-owned CODEOWNERS locations that
+    yolo `init` can update.
+
+    Runs the check the generated step carries, minus the regen call above it
+    (that needs the network); editing the workflow files is what the regen
+    does."""
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+    _run_init(["--with-install-test"])
+
+    data = yaml.safe_load(
+        (_workflow_dir(tmp_path) / "tend-install-test.yaml").read_text()
+    )
+    script = data["jobs"]["install-test"]["steps"][-1]["run"]
+    _, regen, drift_check = script.partition("init --with-install-test\n")
+    assert regen, "regen call moved: the drift check can no longer be split out"
+
+    git = ("git", "-c", "user.email=tend@example.com", "-c", "user.name=tend")
+    subprocess.run([*git, "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "add", "."], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-qm", "install tend"], cwd=tmp_path, check=True)
+
+    wf_dir = _workflow_dir(tmp_path)
+    expected: str | None = None
+    if drift == "added":
+        expected = "tend-codex-auth-refresh.yaml"
+        (wf_dir / expected).write_text("# emitted by the regen, never committed\n")
+    elif drift == "removed":
+        expected = "tend-triage.yaml"
+        (wf_dir / expected).unlink()
+    elif drift == "actionlint":
+        # Committed without the ignore `init` newly created, which stays in
+        # the worktree as an untracked file — what `git commit -a` leaves.
+        expected = "actionlint.yaml"
+        subprocess.run(
+            [*git, "rm", "-q", "--cached", f".github/{expected}"],
+            cwd=tmp_path,
+            check=True,
+        )
+        subprocess.run(
+            [*git, "commit", "-qm", "forget the ignore"], cwd=tmp_path, check=True
+        )
+    elif drift in {"root-codeowners", "docs-codeowners"}:
+        expected = "CODEOWNERS" if drift == "root-codeowners" else "docs/CODEOWNERS"
+        path = tmp_path / expected
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# regenerated control-plane ownership\n")
+
+    result = subprocess.run(
+        [BASH, "-e", "-c", drift_check],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+
+    if expected is None:
+        assert result.returncode == 0, f"drift check failed on a clean tree:\n{output}"
+    else:
+        assert result.returncode != 0, f"drift check passed on the {drift} case"
+        assert expected in output

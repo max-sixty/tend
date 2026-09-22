@@ -368,10 +368,15 @@ def check_branch_protection(
                 f"Branch '{branch}' update access is correct, but its creation "
                 "and deletion rules could not be verified.",
             )
+        permitted_lifecycle = (
+            {"never", "pull_requests_only"}
+            if expected_bypass == "pull_requests_only"
+            else {"never"}
+        )
         unrestricted = [
             verb
             for rule_type, verb in (("creation", "create"), ("deletion", "delete"))
-            if lifecycle[rule_type] in {"absent", "always"}
+            if lifecycle[rule_type] not in permitted_lifecycle
         ]
         if unrestricted:
             return CheckResult(
@@ -2256,11 +2261,13 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
 
     GitHub refuses a second ruleset under a name the repo already uses, and a
     failing check can mean exactly that one exists but is disabled, in
-    evaluate mode, or edited to let the bot bypass it. Branch target retirement
-    is checked by the branch reconciliation path before any writes. Return the
-    verdict plus the success verb ("Created" or "Replaced") or an error.
+    evaluate mode, or edited to let the bot bypass it. Replace rules and bypass
+    actors, union branch includes, and preserve exclusions: existing protected
+    branches may admit credentials, while excluded branches may host bot work.
+    Return the verdict plus the actual target selection or an error.
     """
-    name = json.loads(body)["name"]
+    intended = json.loads(body)
+    name = intended["name"]
     listed = _gh(
         "api",
         "--paginate",
@@ -2274,6 +2281,28 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
         return None, f"Could not list repository rulesets: {detail}"
     existing = listed.stdout.split()
     if existing:
+        if intended["target"] == "branch":
+            current = _fetch_ruleset(repo, existing[0])
+            if current is None:
+                return None, "Could not read the existing branch ruleset from GitHub"
+            conditions = current.get("conditions")
+            refs = conditions.get("ref_name") if isinstance(conditions, dict) else None
+            includes = refs.get("include") if isinstance(refs, dict) else None
+            excludes = refs.get("exclude") if isinstance(refs, dict) else None
+            if (
+                current.get("target") != "branch"
+                or not isinstance(includes, list)
+                or not isinstance(excludes, list)
+                or not all(isinstance(ref, str) for ref in includes + excludes)
+            ):
+                return False, (
+                    "Cannot safely preserve existing branch ruleset conditions. "
+                    "No rulesets changed."
+                )
+            intended_refs = intended["conditions"]["ref_name"]["include"]
+            refs["include"] = list(dict.fromkeys([*intended_refs, *includes]))
+            intended["conditions"] = conditions
+            body = json.dumps(intended)
         path, method, verb = f"repos/{repo}/rulesets/{existing[0]}", "PUT", "Replaced"
     else:
         path, method, verb = f"repos/{repo}/rulesets", "POST", "Created"
@@ -2282,22 +2311,29 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
         return None, "gh CLI not found"
     if result.returncode != 0:
         return False, result.stderr.strip()
-    return True, verb
+    if intended["target"] == "branch":
+        refs = intended["conditions"]["ref_name"]
+        return True, (
+            f"{verb} '{name}' ruleset — admin-only; "
+            f"include: {', '.join(refs['include'])}; "
+            f"exclude: {', '.join(refs['exclude']) or 'none'}."
+        )
+    return True, f"{verb} '{name}' ruleset — only admins can create or update tags."
 
 
 def fix_tag_protection(repo: str) -> CheckResult:
     """Set the canonical admin-gated all-tags ruleset."""
-    result, verb = _put_ruleset(repo, _tag_operations_ruleset())
+    result, message = _put_ruleset(repo, _tag_operations_ruleset())
     if result is not True:
         return CheckResult(
             "tag-protection",
             result,
-            f"Failed to set tag ruleset: {verb}",
+            f"Failed to set tag ruleset: {message}",
         )
     return CheckResult(
         "tag-protection",
         True,
-        f"{verb} 'Tag operations' ruleset — only admins can create or update tags.",
+        message,
     )
 
 
@@ -2362,13 +2398,32 @@ def fix_branch_protection(
     merge: str,
     extra_branches: list[str] | None = None,
 ) -> CheckResult:
-    """Reconcile the merge and extra-branch rulesets without a protection gap."""
+    """Reconcile branch rulesets, preserving admin-only targets in maintainer mode.
+
+    Yolo changes an existing ruleset's bypass authority, so it accepts only
+    known explicit targets that can first be covered by Protected branch access.
+    """
     name = f"branch-protection:{default_branch}"
+    extra = [b for b in (extra_branches or []) if b != default_branch]
+
+    if merge == "maintainer":
+        result, message = _put_ruleset(repo, _restrict_updates_ruleset(extra))
+        if result is not True:
+            return CheckResult(name, result, f"Failed to set ruleset: {message}")
+        existing = _repository_rulesets(repo)
+        if existing is None:
+            return CheckResult(name, None, "Could not list repository rulesets")
+        error = _remove_ruleset(repo, existing, "Control-plane review")
+        if error:
+            return CheckResult(
+                name, False, f"Failed to remove yolo control-plane review: {error}"
+            )
+        return CheckResult(name, True, message)
+
     existing = _repository_rulesets(repo)
     if existing is None:
         return CheckResult(name, None, "Could not list repository rulesets")
 
-    extra = [b for b in (extra_branches or []) if b != default_branch]
     extra_refs = {f"refs/heads/{branch}" for branch in extra}
     # Extra-branch protection is written first. Only Merge access can transfer
     # targets to it; the reverse would leave a gap before Merge access is written.
@@ -2397,6 +2452,7 @@ def fix_branch_protection(
                 and set(conditions) == {"ref_name"}
                 and set(refs) == {"include", "exclude"}
                 and isinstance(refs["include"], list)
+                and all(isinstance(ref, str) for ref in refs["include"])
                 and refs["exclude"] == []
                 and set(refs["include"]) <= intended_refs
             )
@@ -2411,6 +2467,10 @@ def fix_branch_protection(
                 "gate their access to credential environments (including tend), "
                 "then manually retire the old ruleset targets. No rulesets changed.",
             )
+
+    bot_id = _user_id(bot_name)
+    if bot_id is None:
+        return CheckResult(name, False, f"Could not resolve bot '{bot_name}'")
 
     protected_body = _restrict_updates_ruleset(
         extra,
@@ -2430,53 +2490,35 @@ def fix_branch_protection(
             f"Failed to reconcile protected branches: {error}",
         )
 
-    bot_id = None
-    bypass_mode = None
-    if merge == "yolo":
-        bot_id = _user_id(bot_name)
-        if bot_id is None:
-            return CheckResult(name, False, f"Could not resolve bot '{bot_name}'")
-        bypass_mode = "pull_request"
-        error = _reconcile_ruleset(
-            repo, existing, "Control-plane review", _control_plane_ruleset()
+    error = _reconcile_ruleset(
+        repo, existing, "Control-plane review", _control_plane_ruleset()
+    )
+    if error:
+        return CheckResult(
+            name, False, f"Failed to reconcile control-plane review: {error}"
         )
-        if error:
-            return CheckResult(
-                name, False, f"Failed to reconcile control-plane review: {error}"
-            )
-        verified = check_control_plane_ruleset(repo, default_branch, bot_name)
-        if verified.passed is not True:
-            return CheckResult(
-                name,
-                verified.passed,
-                "Control-plane review was written but did not verify; merge "
-                f"access remains maintainer-only: {verified.message}",
-            )
+    verified = check_control_plane_ruleset(repo, default_branch, bot_name)
+    if verified.passed is not True:
+        return CheckResult(
+            name,
+            verified.passed,
+            "Control-plane review was written but did not verify; merge "
+            f"access remains maintainer-only: {verified.message}",
+        )
 
     merge_body = _restrict_updates_ruleset(
         [],
         bot_id=bot_id,
-        bot_bypass_mode=bypass_mode,
+        bot_bypass_mode="pull_request",
     )
     error = _reconcile_ruleset(repo, existing, "Merge access", merge_body)
     if error:
         return CheckResult(name, False, f"Failed to reconcile merge access: {error}")
-    if merge == "maintainer":
-        error = _remove_ruleset(repo, existing, "Control-plane review")
-        if error:
-            return CheckResult(
-                name, False, f"Failed to remove yolo control-plane review: {error}"
-            )
-
-    access = (
-        "the bot may merge pull requests but cannot push directly"
-        if merge == "yolo"
-        else "only admins can update the default branch"
-    )
     return CheckResult(
         name,
         True,
-        f"Reconciled branch rulesets: {access}; extra protected branches remain "
+        "Reconciled branch rulesets: the bot may merge pull requests but cannot "
+        "push directly; extra protected branches remain "
         "admin-only.",
     )
 
