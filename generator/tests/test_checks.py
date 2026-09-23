@@ -32,7 +32,6 @@ from tend.checks import (
     check_secrets,
     check_tag_protection,
     check_yolo_workflows,
-    credential_safe_refs,
     detect_canonical_owner,
     detect_repo,
     fix_branch_protection,
@@ -2085,7 +2084,7 @@ def test_run_all_checks_with_explicit_repo() -> None:
     assert all(r.passed is True for r in results)
 
 
-def test_run_all_checks_yolo_uses_separate_operational_and_credential_refs() -> None:
+def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
     base = _gh_all_pass("main", "release")
     codeowners = (
         "# BEGIN tend control plane\n"
@@ -2106,6 +2105,14 @@ def test_run_all_checks_yolo_uses_separate_operational_and_credential_refs() -> 
 
     def fake_gh(*args, **kwargs):
         url = _url(args)
+        if url.endswith("/environments"):
+            return _make_completed("tend\ndeploy\n")
+        if url.endswith("/environments/deploy/secrets"):
+            return _make_completed("DEPLOY_TOKEN\n")
+        if url.endswith("/environments/deploy/deployment-branch-policies"):
+            return _make_completed('{"type": "branch", "name": "main"}\n')
+        if url.endswith("/environments/deploy"):
+            return _make_completed(json.dumps(_CUSTOM_POLICY))
         if url == "graphql" and any("entries { name mode }" in arg for arg in args):
             return _make_completed(
                 json.dumps(
@@ -2633,7 +2640,7 @@ def test_cli_check_fix_repairs_tag_and_release_protection(
     fix_releases.assert_called_once_with("owner/repo")
 
 
-def test_cli_check_fix_bootstraps_maintainer_mode_while_yolo_credentials_fail(
+def test_cli_check_fix_bootstraps_maintainer_mode_while_other_refs_expose_credentials(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _write_config(
@@ -2647,7 +2654,7 @@ def test_cli_check_fix_bootstraps_maintainer_mode_while_yolo_credentials_fail(
         CheckResult("control-plane-ruleset", False, "missing"),
         CheckResult("yolo-workflows", True, "ready"),
         CheckResult("bot-permission", True, "write"),
-        CheckResult("credential-environments", False, "main exposed"),
+        CheckResult("credential-environments", False, "staging exposed"),
     ]
     with (
         patch("tend.cli.run_all_checks", return_value=blocked),
@@ -3051,21 +3058,6 @@ def test_operational_refs_excludes_unverified_branches() -> None:
         CheckResult("bot-permission", True, ""),
     ]
     assert operational_refs(results) == ["main"]
-
-
-def test_yolo_default_branch_is_operational_but_not_generic_credential_safe() -> None:
-    results = [
-        CheckResult("branch-protection:main", True, ""),
-        CheckResult("branch-protection:release", True, ""),
-    ]
-    cfg = _config(
-        merge="yolo",
-        control_plane_owner="@octocat",
-        protected_branches=["release"],
-    )
-
-    assert operational_refs(results) == ["main", "release"]
-    assert credential_safe_refs(results, cfg, "main") == ["release"]
 
 
 def test_yolo_workflows_require_exact_generated_output() -> None:
@@ -3522,6 +3514,20 @@ def test_credential_environments_accepts_tags_under_an_admin_ruleset() -> None:
     assert result.passed is True, result.message
 
 
+def test_yolo_keeps_tag_only_credentials_behind_admin_tags() -> None:
+    release = {"release": (["PYPI_TOKEN"], _CUSTOM_POLICY, "tag v*")}
+    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    with patch(
+        "tend.checks._gh",
+        side_effect=_credential_env_gh(release, tag_rulesets={"7": _ADMIN_TAG_RULESET}),
+    ):
+        assert check_credential_environments("owner/repo", cfg, ["main"]).passed is True
+    with patch("tend.checks._gh", side_effect=_credential_env_gh(release)):
+        result = check_credential_environments("owner/repo", cfg, ["main"])
+    assert result.passed is False
+    assert "admits tags" in result.message
+
+
 def test_credential_environments_rejects_tags_without_a_ruleset() -> None:
     """With no admin-gated all-tags ruleset, a tag entry admits a ref the bot
     can create, workflow file and all."""
@@ -3784,6 +3790,42 @@ def test_credential_environments_steerable_trigger_defeats_a_ref_policy() -> Non
             )
         },
     )
+    assert result.passed is False
+    assert "`release`" in result.message
+
+
+def test_yolo_main_credentials_reject_a_steerable_trigger() -> None:
+    fake = _credential_env_gh(
+        {"deploy": (["DEPLOY_TOKEN"], _CUSTOM_POLICY, "branch main")},
+        workflows={
+            "deploy.yaml": (
+                "on: repository_dispatch\njobs:\n  deploy:\n    environment: deploy\n"
+            )
+        },
+    )
+    with patch("tend.checks._gh", side_effect=fake):
+        result = check_credential_environments(
+            "owner/repo", _config(merge="yolo"), ["main"]
+        )
+    assert result.passed is False
+    assert "`repository_dispatch`" in result.message
+
+
+def test_yolo_tag_only_credentials_still_reject_a_steerable_trigger() -> None:
+    fake = _credential_env_gh(
+        {"release": (["PYPI_TOKEN"], _CUSTOM_POLICY, "tag v*")},
+        tag_rulesets={"7": _ADMIN_TAG_RULESET},
+        workflows={
+            "release.yaml": (
+                "on:\n  release:\n    types: [published]\n"
+                "jobs:\n  release:\n    environment: release\n"
+            )
+        },
+    )
+    with patch("tend.checks._gh", side_effect=fake):
+        result = check_credential_environments(
+            "owner/repo", _config(merge="yolo"), ["main"]
+        )
     assert result.passed is False
     assert "`release`" in result.message
 

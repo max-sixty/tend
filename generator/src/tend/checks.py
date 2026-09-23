@@ -1594,17 +1594,20 @@ def _policy_gate(
 ) -> _Gap | None:
     """Why this environment's deployment policy does not gate the bot, or None.
 
-    A policy gates only when every entry names a ref verified out of the bot's
-    reach: a branch in `admitted`, or tags under an admin-only all-tags
-    ruleset (`tags_ok`, computed lazily since most repos have no tag entries).
+    A policy is accepted only when every branch entry passed the configured
+    merge-mode check and every tag entry has an admin-only all-tags ruleset
+    (`tags_ok`, computed lazily since most repos have no tag entries). In yolo,
+    the default branch is intentionally writable through pull requests; other
+    admitted branches remain out of the bot's reach.
     A pattern entry is refused rather than matched — deciding what a pattern
     covers would re-implement GitHub's matcher.
 
     A ref-gated policy still loses to a trigger the bot fires and steers
-    itself (`steerable`), since the run starts from a ref the policy already
-    admits. Only the reviewer gate covers those. A workflow carrying such a
-    trigger counts even when an `if:` on the deploying job would skip that
-    event — reading the expression to decide otherwise is the same
+    itself (`steerable`), even if it admits yolo's bot-writable default branch:
+    a fixed workflow can let the event payload steer its credential use. Only
+    the reviewer gate covers those. A workflow
+    carrying such a trigger counts even when an `if:` on the deploying job
+    would skip that event — reading the expression to decide otherwise is the same
     re-implementation the pattern rule above declines, and the conservative
     answer fails closed.
     """
@@ -1672,17 +1675,14 @@ def _policy_gate(
 def check_credential_environments(
     repo: str, cfg: Config, admitted: list[str]
 ) -> CheckResult:
-    """Every environment holding a credential is gated against the bot.
+    """Audit credential environments against the configured merge authority.
 
-    A credential is released only to a job naming its environment, so the
-    environment's own gate is the whole question — for release tokens exactly
-    as for the operational secrets, which is what lets the security model
-    claim a run the bot can cause reaches no credential at all. A gate is a
-    required reviewer that is not the bot, or a deployment policy admitting
-    only refs verified out of the bot's reach and carrying no trigger the bot
-    can steer (`_policy_gate`); either suffices, since each alone stops the
-    bot causing a run that the environment feeds. `tend` itself is
-    `check_environment`'s job.
+    Yolo accepts generic credentials used by code merged to the default branch.
+    The policy still refuses unverified branches, ungated tags, and triggers
+    that let the bot steer a credential-bearing run's payload. A non-bot reviewer
+    or a policy admitted by `_policy_gate` settles each environment. Tend's
+    operational credentials have a separate, stricter check in
+    `check_environment` and `check_yolo_workflows`.
 
     An environment holds a credential when it stores a secret, or when a job
     deploying to it requests `id-token: write` — trusted publishing (PyPI,
@@ -1788,8 +1788,8 @@ def check_credential_environments(
             "A run the bot can cause reaches a credential: "
             f"{'; '.join(ungated)}. Gate each environment with a required "
             "reviewer that is not the bot, or a deployment policy listing "
-            "only verified refs — branches this run confirmed the bot cannot "
-            "write, or tags under an admin-only all-tags ruleset; move an "
+            "only branches verified under the configured merge mode or tags "
+            "under an admin-only all-tags ruleset; move an "
             "OIDC job into such an environment. The policy's 'protected "
             "branches' setting is not one of them.",
         )
@@ -2137,22 +2137,6 @@ def operational_refs(results: list[CheckResult]) -> list[str]:
             if r.name.startswith(prefix) and r.passed is True
         )
     )
-
-
-def credential_safe_refs(
-    results: list[CheckResult], cfg: Config, default_branch: str
-) -> list[str]:
-    """Refs that may gate credentials outside Tend's hardened runtime.
-
-    In yolo mode the bot can cause arbitrary ordinary code to land on the
-    default branch, so a generic credential environment may admit that branch
-    only when it also requires a non-bot reviewer. Extra protected branches stay
-    bot-inaccessible and remain safe ref gates.
-    """
-    refs = operational_refs(results)
-    if cfg.merge_policy.bot_can_merge:
-        return [branch for branch in refs if branch != default_branch]
-    return refs
 
 
 def fix_environment(repo: str, admitted: list[str]) -> CheckResult:
@@ -2595,11 +2579,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
     operational = operational_refs(results)
     results.append(check_environment(repo, operational))
     results.append(check_environment_deployments(repo))
-    results.append(
-        check_credential_environments(
-            repo, cfg, credential_safe_refs(results, cfg, default_branch)
-        )
-    )
+    results.append(check_credential_environments(repo, cfg, operational))
     results.append(check_secrets(repo, required_secrets))
     if cfg.memory_gist:
         results.append(check_memory_gist_repository(repo))
