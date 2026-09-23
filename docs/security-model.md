@@ -61,14 +61,15 @@ Three load-bearing boundaries, with one deliberate policy choice:
    PRs but cannot push directly; changes to `.github/**` or
    `.config/tend.yaml` still need fresh CODEOWNER approval. Extra protected
    branches and tags remain admin-only in both policies.
-2. **A run the bot can cause cannot extract protected secrets.** Generic
-   credentials sit behind a gate the bot cannot pass, or are explicitly
-   allowlisted as accepted repo-level exposure. Tend's own environment is the
-   deliberate yolo exception: Tend verifies the exact generated workflows,
-   reserves this environment for them, and rejects other workflows whose
-   environment use is dynamic or hidden in an external or ref-qualified
-   reusable workflow.
-   Their harness isolates the long-lived credentials from agent code.
+2. **Tend's operational credentials stay out of bot-controlled code.** Tend
+   verifies the exact generated workflows, reserves its environment for them,
+   and rejects other workflows whose environment use is dynamic or hidden in
+   an external or ref-qualified reusable workflow. Their harness isolates
+   the long-lived credentials from agent code. Generic credentials are gated
+   on bot-inaccessible refs in maintainer mode. Yolo deliberately accepts
+   their exposure to code the bot merges to the default branch; a deployment
+   from that branch needs no additional reviewer. Credentials restricted to
+   tags or extra protected branches keep their ref gates.
 3. **Future releases' assets and tags cannot be rewritten.** GitHub immutable
    releases lock a published release's assets and its associated tag from
    the point the repository setting is enabled. The release's body is not
@@ -131,23 +132,25 @@ policy; otherwise the job is refused before its first step, and the
 environment's secrets are released only to jobs that name it. Pinning the
 policy to authorized refs therefore decides secret access by ref. In maintainer
 mode those are refs the bot cannot move. In yolo, Tend's own environment also
-admits the default branch because generated workflows run there; that is safe
-only in conjunction with the control-plane rule and the harness's credential
-isolation. Generic credential environments do not inherit that exception: a
-default-branch policy is insufficient in yolo and they need a non-bot required
-reviewer. Tags remain admin-only, and managing environments requires admin,
-which the bot lacks.
+admits the default branch because generated workflows run there; its
+operational credentials remain protected by the control-plane rule and
+harness isolation. A generic environment may admit the default branch without
+a reviewer, accepting that bot-merged code can reach its credentials. Tags
+remain admin-only, and managing environments requires admin, which the bot
+lacks.
 
-The claim in sentence 2 is the conjunction of three checks, each keyed on
+The credential boundary is the conjunction of three checks, each keyed on
 where a credential can live:
 
-- *Every credential-holding environment is gated*
+- *Every generic credential-holding environment follows the merge policy*
   (`credential-environments`): a required reviewer who is not the bot, or
-  a deployment policy naming only verified refs — branches the same run
-  confirmed the bot cannot write, or tags under an admin-only all-tags
-  ruleset — with no workflow reaching it on a trigger the bot steers. This
-  covers release tokens exactly as it covers tend's own secrets, keyed on
-  holding a credential rather than on any environment name. A credential
+  a deployment policy naming only branches verified under that mode and tags
+  under an admin-only all-tags ruleset. A workflow reached on a trigger the
+  bot steers also needs a reviewer unless its policy admits yolo's default
+  branch. Yolo's verified default branch is intentionally
+  writable through pull requests; extra protected branches are not. This
+  covers release tokens keyed on holding a credential rather than on any
+  environment name. A credential
   is a stored secret, or the OIDC token a job minting `id-token: write`
   in the environment's name can spend: trusted publishing (PyPI, npm, a
   cloud role) stores nothing, so a sweep reading stored secrets alone
@@ -250,11 +253,12 @@ the slower backstop for a missed notification. That is the cost of the
 property the relay depends on: a fork run that could start a secret-bearing
 run in the base repo would be a fork run with write access to it.
 
-*Release secrets* (registry tokens, signing keys) use the same mechanism in
-consumer-owned environments whose policies list the default branch and/or
-all tags (a tag-target ruleset gates `creation` and `update` with
+*Release secrets* (registry tokens, signing keys) stay outside yolo's
+default-branch risk only when their environments admit tags or other
+bot-inaccessible refs, not the default branch. A tag-target ruleset gates
+`creation` and `update` with
 admin-only bypass; `update` is what force-push of an existing tag fires, so
-it must be blocked alongside `creation`). Rulesets are the only mechanism —
+it must be blocked alongside `creation`. Rulesets are the only mechanism —
 GitHub sunset tag protection rules in 2024 — and the `creation` rule also
 refuses `POST /repos/{repo}/releases` when the named tag does not exist
 yet, so the Releases API is not a way around it. The
@@ -272,25 +276,26 @@ It does not make `release: published` safe for secrets: a write actor
 can still publish a new release against an existing unpublished tag.
 
 The gate bounds what a run can *read*; it does not by itself bound *when*
-a reviewed workflow fires. A workflow reachable only by updating a gated
-ref (`push: tags:` for release, `push: branches: [main]` for continuous
-deploy) is fully chained: causing the run at all takes an admin action, and
-the code the run executes is fixed by the ref, so the worst a write-scoped
-bot achieves is re-publishing what an admin already published. `schedule`,
-`workflow_run`, `deployment` and an input-free `workflow_dispatch` sit in
-that class too.
+a workflow fires. In maintainer mode, a workflow reachable only by updating
+a gated ref (`push: tags:` for release, `push: branches: [main]` for continuous
+deploy) needs an admin action and runs code fixed by that ref. In yolo, a
+default-branch push follows a bot merge and may run with generic credentials;
+tag pushes still need an admin action. `schedule`, `workflow_run`,
+`deployment` and an input-free `workflow_dispatch` cannot give the bot
+control of a run's payload beyond the code on its ref.
 
-Three triggers do not, because the bot supplies the run's payload as well
-as firing it, and it fires them at a ref the policy already admits:
+Three triggers let the bot supply a run's payload without landing code through
+the merge gate, even when the ref policy admits only protected refs:
 `release: published` (creating a release against an existing tag takes no
 tag operation, and the release's body and assets are the bot's own),
 `repository_dispatch` (`client_payload` wholesale), and a
-`workflow_dispatch` carrying inputs. A ref policy cannot gate these; only a
-required reviewer can, since it holds every trigger regardless of ref. The
-sweep therefore refuses a ref-gated environment that a workflow reaches on
-one of the three. A workflow that must run on one puts its secrets in a
-second environment behind a required reviewer instead of a branch policy,
-so each run waits for a maintainer; the sweep verifies any such environment,
+`workflow_dispatch` carrying inputs. A ref policy admitting only
+bot-inaccessible refs cannot gate these; only a required reviewer can. A
+yolo policy admitting the default branch already exposes its generic
+credentials to bot-merged code, so these triggers do not add a new boundary.
+For credentials that must stay beyond the bot's reach, a workflow using one
+of these triggers puts its secrets in an environment behind a required
+reviewer. The sweep verifies any such environment,
 keyed on the credential rather than the name, with the bot excluded from
 the reviewer list since a bot that can approve its own run makes the wait
 a formality.

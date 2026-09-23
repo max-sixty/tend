@@ -216,17 +216,18 @@ place. Classify each remaining secret and act now — don't defer:
   keys, deploy credentials) at the repo level are reachable from any
   workflow run, including ones a write-access bot can trigger with no
   merge. Don't allowlist them. Migrate each to a GitHub Environment whose
-  deployment policy pins to the bot-inaccessible refs from §3 (all tags
-  and, under maintainer mode, the default branch). Under yolo, a generic
-  credential environment that admits the default branch needs a non-bot
-  required reviewer. `tend check` sweeps every credential-holding
+  deployment policy pins to refs from §3 (all tags and the default branch).
+  Under yolo, a generic credential environment admitting the default branch
+  accepts that bot-merged code can use its credentials. Keep tag-only release
+  credentials behind the all-tags ruleset or a non-bot required reviewer.
+  `tend check` sweeps every credential-holding
   environment — one that stores a secret, or that an `id-token: write` job
   deploys to, since trusted publishing stores nothing — and fails on any it
   cannot confirm gated: no reviewer and no policy, an unverified branch
   entry, tag entries without §3's all-tags ruleset, or a ref policy on an
   environment some workflow reaches on `release`, `repository_dispatch`, or
-  a `workflow_dispatch` with inputs, which the bot fires at a ref the policy
-  already admits. A half-migrated environment surfaces on the next check
+  a `workflow_dispatch` with inputs, unless that policy admits yolo's
+  default branch. A half-migrated environment surfaces on the next check
   rather than passing silently.
 
   Migrate the secret: recreate it on the Environment, delete the
@@ -496,16 +497,17 @@ gh api "repos/$REPO/environments" \
 ```
 
 Each environment that holds a secret, or that a job with `id-token: write`
-names, needs a gate: a deployment policy pinned to bot-inaccessible refs, or
-required reviewers who exclude the bot. Under yolo, the default branch is not
-a bot-inaccessible ref, so a generic credential environment admitting it must
-use the reviewer gate. Either clears
+names, needs a policy pinned to refs verified under the selected merge mode
+or required reviewers who exclude the bot. Under yolo, the default branch
+qualifies: code the bot merges there may use generic credentials. A credential
+that must stay beyond the bot's reach belongs on tags or extra protected
+branches, or behind reviewers. Either gate clears
 `credential-environments`, so an environment already behind reviewers
 stays as it is.
 
-Pin the policy to bot-inaccessible refs its workflows actually use — all tags
-for a release, and under maintainer mode the default branch for a continuous
-deploy. Under yolo, use required reviewers for continuous deploys:
+Pin the policy to the refs its workflows actually use — all tags for a release,
+and the default branch for a continuous deploy under either merge mode. In
+yolo, a default-branch deploy can use its credential without another review:
 
 ```bash
 gh api "repos/$REPO/environments/$ENV" --method PUT --input - << 'EOF'
@@ -544,11 +546,13 @@ Triggers a write-scoped bot can fire *and* steer are outside the packaged
 recipe: `release: published` (creating a release against an existing tag
 takes no tag operation, and its body and assets are the bot's),
 `repository_dispatch`, and a `workflow_dispatch` carrying inputs. Their
-workflow files still run from the default branch, so the code is
-admin-vetted, but the bot chooses when they fire and what payload they
+workflow files still run from the default branch, so the code is reviewed
+under maintainer mode or subject to yolo's control-plane rules, but the bot
+chooses when they fire and what payload they
 see. If a repo keeps one on a release/deploy workflow, gate that
 Environment with required reviewers before migrating release or deploy
-secrets to it.
+secrets to it, unless the policy admits yolo's default branch and that
+exposure is intentional.
 
 Run `uvx tend@latest check` after this section. It exits non-zero until
 the later steps set the secrets and grant the bot access; read its
@@ -1077,7 +1081,7 @@ line picks the row that matches the chosen harness):
 - [ ] Workflows: generated in `.github/workflows/`
 - [ ] Rulesets: merge mode on the default branch, extra protected branches admin-only, tag operations admin-only; yolo also has control-plane CODEOWNERS review
 - [ ] Immutable releases: enabled before the next release
-- [ ] Release/deploy credentials: environment-protected; policies list only bot-inaccessible refs, and yolo default-branch deploys require a non-bot reviewer
+- [ ] Release/deploy credentials: environment-protected; policies list only verified refs, with default-branch credentials deliberately reachable by bot-merged code in yolo
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
 - [ ] Project instructions: `CLAUDE.md` and `AGENTS.md` share one source when only one existed before install
 - [ ] Badge: added to README (unless skipped, or no README)

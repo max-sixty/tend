@@ -140,7 +140,7 @@ bot_name: my-project-bot
 # it from one entry with `uses`. In `yolo`, all `setup:` entries are refused
 # because ordinary code can steer even a fixed runner-side command.
 #
-# Setup runs against reviewed code — the default branch, or in `tend-review`
+# In maintainer mode, setup runs against reviewed code — the default branch, or in `tend-review`
 # the PR's base branch, checked out before the PR's own tree lands. What it
 # builds reaches the agent (see "The agent's sandbox" below); what the PR itself
 # changes, such as a new dependency in its lockfile, the agent installs in the
