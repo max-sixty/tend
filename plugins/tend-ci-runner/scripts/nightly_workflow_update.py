@@ -8,7 +8,8 @@ The two commands bracket the one agent-authored artifact, the PR body. All git
 state, version comparison, and temporary-worktree ownership stays in a JSON
 state file so separate agent shell calls cannot lose their cwd or variables.
 Shipping creates a PR for a fresh update branch or updates the PR already
-riding that branch.
+riding that branch. `version` prints the oldest tend version stamped into the
+current checkout's workflows, empty when none is stamped.
 """
 
 from __future__ import annotations
@@ -76,7 +77,11 @@ def _version(worktree: Path) -> str:
         for line in path.read_text().splitlines()
         if (match := VERSION_RE.match(line))
     }
-    return min(versions, default="")
+    return min(
+        versions,
+        key=lambda version: tuple(int(part) for part in version.split(".")),
+        default="",
+    )
 
 
 def _non_stamp_changes(diff: str) -> int:
@@ -238,7 +243,10 @@ def main(argv: list[str] | None = None) -> int:
         return _prepare()
     if args == ["ship"]:
         return _ship()
-    print(f"usage: {sys.argv[0]} prepare|ship", file=sys.stderr)
+    if args == ["version"]:
+        print(_version(Path.cwd()))
+        return 0
+    print(f"usage: {sys.argv[0]} prepare|ship|version", file=sys.stderr)
     return 2
 
 
