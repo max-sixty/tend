@@ -37,10 +37,10 @@ When the system prompt says the merge mode is `yolo`, exit 0 is the merge gate. 
 ```bash
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 PR_STATE=$(gh pr view <number> --json state,headRefOid)
-test "$(jq -r .state <<<"$PR_STATE")" = OPEN
-test "$(jq -r .headRefOid <<<"$PR_STATE")" = "$PINNED_SHA"
-gh api "repos/$REPO/pulls/<number>/merge" -X PUT \
-  -f sha="$PINNED_SHA" -f merge_method=squash
+test "$(jq -r .state <<<"$PR_STATE")" = OPEN \
+  && test "$(jq -r .headRefOid <<<"$PR_STATE")" = "$PINNED_SHA" \
+  && gh api "repos/$REPO/pulls/<number>/merge" -X PUT \
+    -f sha="$PINNED_SHA" -f merge_method=squash
 ```
 
 Before calling a failure pre-existing (**Grounded Analysis** in `/tend-ci-runner:run-tend`), check the recent default-branch runs of the workflow it belongs to. Filter by that workflow — on a bot-active repo an unfiltered listing fills with other workflows' runs.

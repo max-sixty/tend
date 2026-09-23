@@ -93,10 +93,10 @@ itself the go-ahead.
      Fits when there's no subscription to draw on, or the user wants a
      dedicated billing surface and per-key revocation.
    - **Codex — Plus/Pro subscription** — experimental. It needs two browser
-     handoffs: a Codex device approval and a repo-scoped GitHub token form.
-     Concurrent jobs receive an access-only token; one serialized weekly
-     workflow owns renewal. It depends on Codex's internal auth mode; detail in
-     ${CLAUDE_SKILL_DIR}/references/security-model.md.
+     handoffs: a Codex login for this repo and a repo-scoped GitHub token.
+     Concurrent jobs receive access-only auth; this repo's serialized weekly
+     workflow owns its refresh token. This depends on Codex's internal auth
+     mode; detail in ${CLAUDE_SKILL_DIR}/references/security-model.md.
    - **Codex — OpenAI API key** — standard pay-per-token path.
 2. **Merge mode** — who may merge into the default branch:
    - **Maintainer** (recommended) — the bot opens and updates PRs; only admins can
@@ -574,16 +574,17 @@ description rather than by its first heading. An existing overlay without
 frontmatter needs it added in place.
 
 **Do not create a second independent copy of project instructions** and **do
-not invent project conventions.** If the repo has only one of `CLAUDE.md` or
-`AGENTS.md`, create a relative symlink at the other name so both harnesses read
-the same content. Preserve both when both already exist, and create neither
-when neither exists:
+not invent project conventions.** If the repo has only `CLAUDE.md`, link
+`AGENTS.md` to it so Codex reads the same instructions. If the repo has only
+`AGENTS.md`, create a `CLAUDE.md` import wrapper so Claude Code reads it even
+when native `AGENTS.md` loading is unavailable. Preserve both when both already
+exist, and create neither when neither exists:
 
 ```bash
 if [ -f CLAUDE.md ] && [ ! -e AGENTS.md ] && [ ! -L AGENTS.md ]; then
   ln -s CLAUDE.md AGENTS.md
 elif [ -f AGENTS.md ] && [ ! -e CLAUDE.md ] && [ ! -L CLAUDE.md ]; then
-  ln -s AGENTS.md CLAUDE.md
+  printf '@AGENTS.md\n' > CLAUDE.md
 fi
 ```
 
@@ -779,9 +780,15 @@ that mode. If neither secret exists, use the mode selected at Kickoff or
 ask the user to choose between the two Codex options there.
 
 For **Plus/Pro subscription**, explain that the path is experimental because it
-depends on Codex's internal auth mode. Use an isolated Codex login: the weekly
-workflow will rotate its refresh-token chain, so copying the user's ordinary
-`~/.codex/auth.json` would eventually break their local Codex login.
+depends on Codex's internal auth mode. Give this repository's generated
+`tend-codex-auth-refresh` workflow a full login with its own refresh-token
+chain. Do not copy another repository's full `auth.json` or the user's
+`~/.codex/auth.json`: rotating a shared token would break the other
+refresher. Separate device logins on one ChatGPT account have not been
+verified to remain independent; use a dedicated account for this repository
+unless that independence has been verified. If
+`workflows.codex-auth-refresh.enabled: false` is set,
+remove the override and regenerate the workflow for unattended CI.
 
 Run the bundled provisioner yourself. The user approves the device login in
 their browser; they do not run commands or handle the resulting Codex
@@ -1083,11 +1090,11 @@ line picks the row that matches the chosen harness):
 - [ ] Immutable releases: enabled before the next release
 - [ ] Release/deploy credentials: environment-protected; policies list only verified refs, with default-branch credentials deliberately reachable by bot-merged code in yolo
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
-- [ ] Project instructions: `CLAUDE.md` and `AGENTS.md` share one source when only one existed before install
+- [ ] Project instructions: an AGENTS-only repo has a `CLAUDE.md` import wrapper; a CLAUDE-only repo has an `AGENTS.md` symlink
 - [ ] Badge: added to README (unless skipped, or no README)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
-- [ ] Harness auth (codex): `OPENAI_API_KEY`, or all of `CODEX_AUTH_JSON` + `CODEX_REFRESH_AUTH_JSON` + `CODEX_REFRESH_PAT`
+- [ ] Harness auth (codex): `OPENAI_API_KEY`, or this repo's refresh chain with `CODEX_AUTH_JSON` + `CODEX_REFRESH_AUTH_JSON` + `CODEX_REFRESH_PAT`
 - [ ] Bot token: `TEND_BOT_TOKEN` set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot notifications: watching the repository

@@ -2561,25 +2561,46 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
         if branch != default_branch:
             results.append(check_branch_protection(repo, branch, cfg.bot_name))
     if cfg.merge_policy.requires_control_plane_review:
-        generation_cfg = replace(
-            cfg,
-            default_branch=default_branch,
-            repo_owner=detect_canonical_owner(repo) or "",
-        )
+        owner = detect_canonical_owner(repo)
         results.append(
             check_control_plane_codeowners(
                 repo, default_branch, cfg.control_plane_owner, cfg.bot_name
             )
         )
         results.append(check_control_plane_ruleset(repo, default_branch, cfg.bot_name))
-        results.append(check_yolo_workflows(repo, generation_cfg))
+        # Without the owner the expected output drops the fork guard every
+        # committed file carries, so the comparison would report false drift.
+        if owner is None:
+            results.append(
+                CheckResult(
+                    "yolo-workflows",
+                    None,
+                    "Could not resolve the canonical owner to generate the "
+                    "expected workflows",
+                )
+            )
+        else:
+            generation_cfg = replace(
+                cfg, default_branch=default_branch, repo_owner=owner
+            )
+            results.append(check_yolo_workflows(repo, generation_cfg))
     results.append(check_bot_permission(repo, cfg.bot_name))
     results.append(check_tag_protection(repo, cfg.bot_name))
     results.append(check_immutable_releases(repo))
     operational = operational_refs(results)
     results.append(check_environment(repo, operational))
     results.append(check_environment_deployments(repo))
-    results.append(check_credential_environments(repo, cfg, operational))
+    # Before `--fix` activates yolo, the default branch still carries
+    # maintainer's bypass, so its yolo check fails and leaves it out of
+    # `operational`. The bot cannot write it at all then, so a generic
+    # environment admitting it is gated; refusing it would block the very
+    # activation that makes the branch pass.
+    credential_refs = operational
+    if default_branch not in operational and cfg.merge == "yolo":
+        maintainer = check_branch_protection(repo, default_branch, cfg.bot_name)
+        if maintainer.passed is True:
+            credential_refs = [*operational, default_branch]
+    results.append(check_credential_environments(repo, cfg, credential_refs))
     results.append(check_secrets(repo, required_secrets))
     if cfg.memory_gist:
         results.append(check_memory_gist_repository(repo))

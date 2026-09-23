@@ -213,7 +213,7 @@ def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
     `source` still reaches the ones after it.
 
     Warned about rather than refused, at the maintainer's call and against the
-    no-backward-compatibility rule in CLAUDE.md, so that nothing breaks in a
+    no-backward-compatibility rule in AGENTS.md, so that nothing breaks in a
     consumer before it migrates; a warning that dropped the entries would
     silently stop installing what its agent relies on.
     TODO(2026-10-21): refuse all three keys, with these messages as the

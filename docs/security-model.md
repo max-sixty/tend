@@ -531,10 +531,13 @@ descriptors, copies regular files only, and enforces per-file, total-byte, and
 file-count bounds. Symlinks, devices, and FIFOs never enter the runner-owned
 artifact tree.
 
-The weekly subscription refresh job checks out no consumer code and gives Codex
-only Tend's fixed refresh prompt. Codex receives the full refresh bundle there;
-the environment-write PAT appears only in the separate publish step after
-Codex exits.
+Each repository's weekly subscription refresh job needs its own full refresh
+bundle and repository-scoped environment-write PAT. It checks out no consumer
+code and gives Codex only Tend's fixed refresh prompt. Codex receives the full
+refresh bundle there; the PAT appears only in the separate publish step after
+Codex exits. Sharing a full bundle across repositories lets one refresh job
+invalidate the others. Sharing only access tokens depends on the external
+refresher remaining available before those tokens expire.
 
 **Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort

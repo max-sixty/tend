@@ -290,8 +290,7 @@ schedules — are documented in
 
 ## Project context
 
-Tend reads `CLAUDE.md` like any Claude Code session — build commands, test
-commands, project conventions all go there.
+Tend reads project instruction files (`AGENTS.md` or `CLAUDE.md`) like any Claude Code session — build commands, test commands, and project conventions go there.
 
 For tend-specific instructions, add a skill overlay at
 `.claude/skills/running-tend/SKILL.md`. Common uses: recording which CI
@@ -337,16 +336,22 @@ harnesses.
 Two auth modes:
 
 - **ChatGPT Plus or Pro (experimental):** concurrent jobs receive
-  `CODEX_AUTH_JSON`, an access-only bundle that Codex cannot refresh. A single
-  serialized weekly workflow holds `CODEX_REFRESH_AUTH_JSON`, rotates it, then
-  publishes the next access-only bundle using `CODEX_REFRESH_PAT`.
+  `CODEX_AUTH_JSON`, an access-only bundle that Codex cannot refresh. Each
+  repository's serialized weekly workflow holds its own
+  `CODEX_REFRESH_AUTH_JSON`, rotates it, then publishes the next access-only
+  bundle using a `CODEX_REFRESH_PAT` scoped to that repository. Do not copy a
+  full `auth.json` between repositories: their refresh jobs would race on the
+  same rotating token.
 - **API:** `OPENAI_API_KEY` is a standard pay-per-token key from
   platform.openai.com.
 
-The split fixes the old race: no consumer receives the rotating refresh token,
-so concurrent jobs cannot invalidate one another's refresh state. This is
-experimental because it uses Codex's internal `chatgptAuthTokens` mode. The
-weekly job runs Codex's built-in refresh and persists the updated full bundle.
+Agent jobs cannot invalidate the refresh state because they receive no refresh
+token. An external rotator can temporarily publish access-only auth to several
+repositories, but jobs lose authentication after that token expires if the
+rotator is offline.
+This is experimental because it uses Codex's internal `chatgptAuthTokens`
+mode. The weekly job runs Codex's built-in refresh and persists the updated
+full bundle.
 Tend pins and tests the Codex version, but an OpenAI change can still break the
 weekly refresh until Tend updates.
 

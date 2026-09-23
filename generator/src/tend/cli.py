@@ -237,7 +237,7 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
     # behind their YAML, and workflows renamed across generator versions.
     # Runs even when the generated set is empty (every workflow disabled)
     # so the cleanup contract still applies. The tend-*.yaml glob is the
-    # generator's filename contract per CLAUDE.md — consumer-owned workflows
+    # generator's filename contract per AGENTS.md — consumer-owned workflows
     # live under other names.
     generated = {wf.filename for wf in workflows}
     removed = 0

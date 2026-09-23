@@ -257,7 +257,7 @@ earns its keep — until then, demand-fetch is cheap enough.
 `workflows.py` builds every other agent-invoking workflow's prompt from
 `default_prompt(skill)`; mention's is written inline in `mention.yaml.j2` and
 names no skill — the one exception `test_repo_pins.py` allows to the invariant
-under "Which file" in `CLAUDE.md`.
+under "Which file" in `AGENTS.md`.
 
 The rules with mention's shape — reading the thread, a review's inline
 comments, the closed-target check, whether to respond — no longer need that
