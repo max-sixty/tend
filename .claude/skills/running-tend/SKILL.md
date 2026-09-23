@@ -111,7 +111,7 @@ diagnosis to a maintainer; `worker/README.md` covers the Worker's setup.
 
 When the survey reads a skill, a reference, or a project instruction file, ask
 of it the two questions under **Shipped instructions and tend's own** in
-`CLAUDE.md`: does it ship, and who acts on it.
+`AGENTS.md`: does it ship, and who acts on it.
 
 ## Nightly: don't duplicate the release's regeneration PR
 

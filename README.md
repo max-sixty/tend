@@ -286,8 +286,7 @@ schedules — are documented in
 
 ## Project context
 
-Tend reads `CLAUDE.md` like any Claude Code session — build commands, test
-commands, project conventions all go there.
+Tend reads project instruction files (`AGENTS.md` or `CLAUDE.md`) like any Claude Code session — build commands, test commands, and project conventions go there.
 
 For tend-specific instructions, add a skill overlay at
 `.claude/skills/running-tend/SKILL.md`. Common uses: recording which CI

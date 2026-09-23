@@ -474,7 +474,7 @@ BARE_MD = re.compile(r"`(?P<file>[\w-]+\.md)`")
 # root, and `SKILL.md`, which reference files name literally (a path in a shell
 # recipe, the file a new skill starts as). Citing a *rule* in the skill's own
 # `SKILL.md` still goes by section and skill, which no regex can tell from the
-# literal mentions — CLAUDE.md's Authoring skills carries that half.
+# literal mentions — AGENTS.md's Authoring skills carries that half.
 ROOT_FILES = {
     "AGENTS.md",
     "CLAUDE.local.md",
