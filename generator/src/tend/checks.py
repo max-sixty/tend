@@ -2561,18 +2561,29 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
         if branch != default_branch:
             results.append(check_branch_protection(repo, branch, cfg.bot_name))
     if cfg.merge_policy.requires_control_plane_review:
-        generation_cfg = replace(
-            cfg,
-            default_branch=default_branch,
-            repo_owner=detect_canonical_owner(repo) or "",
-        )
+        owner = detect_canonical_owner(repo)
         results.append(
             check_control_plane_codeowners(
                 repo, default_branch, cfg.control_plane_owner, cfg.bot_name
             )
         )
         results.append(check_control_plane_ruleset(repo, default_branch, cfg.bot_name))
-        results.append(check_yolo_workflows(repo, generation_cfg))
+        # Without the owner the expected output drops the fork guard every
+        # committed file carries, so the comparison would report false drift.
+        if owner is None:
+            results.append(
+                CheckResult(
+                    "yolo-workflows",
+                    None,
+                    "Could not resolve the canonical owner to generate the "
+                    "expected workflows",
+                )
+            )
+        else:
+            generation_cfg = replace(
+                cfg, default_branch=default_branch, repo_owner=owner
+            )
+            results.append(check_yolo_workflows(repo, generation_cfg))
     results.append(check_bot_permission(repo, cfg.bot_name))
     results.append(check_tag_protection(repo, cfg.bot_name))
     results.append(check_immutable_releases(repo))
