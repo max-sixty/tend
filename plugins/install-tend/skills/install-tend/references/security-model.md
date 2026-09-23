@@ -134,9 +134,10 @@ in depth.
 
 ## Experimental Codex subscription auth
 
-Sharing Codex's normal `auth.json` across repositories does not work: one
-refresh job can rotate its token and leave the others with invalid state.
-Agent jobs receive only an access-only projection:
+Sharing Codex's normal `auth.json` within a repository or across
+repositories does not work: a job near access-token expiry, or one recovering
+from a 401, can rotate the refresh token and leave the other holders with
+invalid state. Agent jobs receive only an access-only projection:
 
 - `CODEX_AUTH_JSON` uses Codex's internal `chatgptAuthTokens` mode and has an
   empty refresh token. Every consumer may reuse its bearer token concurrently,
