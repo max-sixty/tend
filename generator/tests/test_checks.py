@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import quote
@@ -2193,6 +2194,7 @@ def _run_yolo_checks(fake_gh) -> list[CheckResult]:
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks._gh", side_effect=fake_gh),
+        patch("tend.checks.detect_canonical_owner", return_value="owner"),
         patch(
             "tend.checks.check_yolo_workflows",
             return_value=CheckResult("yolo-workflows", True, ""),
@@ -3101,6 +3103,24 @@ def test_yolo_workflows_require_exact_generated_output() -> None:
         result = check_yolo_workflows("owner/repo", cfg)
     assert result.passed is False
     assert "tend-nightly.yaml" in result.message
+
+
+def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
+    """Without the owner, the expected output lacks the fork guard every
+    committed file carries, so a comparison could only report a false drift."""
+    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    current = replace(cfg, repo_owner="owner")
+    files = {w.filename: w.content for w in generate_all(current)}
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("tend.checks._gh", side_effect=_gh_all_pass()),
+        patch("tend.checks.detect_canonical_owner", return_value=None),
+        patch("tend.checks._fetch_workflow_files", return_value=files),
+    ):
+        results = run_all_checks(cfg, repo="owner/repo")
+
+    result = next(r for r in results if r.name == "yolo-workflows")
+    assert result.passed is None
 
 
 def test_yolo_workflows_reject_other_users_of_tend_environment() -> None:
