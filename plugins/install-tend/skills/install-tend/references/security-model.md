@@ -145,11 +145,10 @@ only an access-only projection:
   bundle unique to this repo. Only its serialized `tend-codex-auth-refresh`
   workflow reads it. After rotation, that workflow writes the full replacement
   first and the derived access-only bundle second.
-- With external renewal, one rotator holds the full bundle and publishes
-  access-only `CODEX_AUTH_JSON` to any assigned repos. Disable each repo's
-  generated refresh workflow with `workflows.codex-auth-refresh.enabled:
-  false`; these repos do not need `CODEX_REFRESH_AUTH_JSON` or
-  `CODEX_REFRESH_PAT`.
+- A Mac rotator can temporarily publish access-only `CODEX_AUTH_JSON` to
+  several repos while their generated refresh workflows are disabled. If it
+  is offline at token expiry, those repos cannot authenticate. This is a
+  manual bridge, not an unattended CI setup.
 
 For repo-owned renewal, `CODEX_REFRESH_PAT` is a fine-grained maintainer token
 scoped to this repository with `Environments: write`; the workflow needs it
@@ -159,8 +158,9 @@ passed to an agent session.
 The consumer path is experimental and may break when OpenAI changes Codex
 because it depends on an internal auth mode. A repo-owned weekly job runs
 Codex's built-in refresh and persists its updated `auth.json`. Its login must
-have its own refresh chain, independent of other repos and a maintainer's local
-Codex login; an external owner can instead share one chain across repos.
+have a unique refresh chain, independent of other repos and a maintainer's
+local Codex login. Separate device logins on one ChatGPT account have not been
+verified to stay independent; do not assume they satisfy that requirement.
 
 ## Token assignment
 
@@ -176,7 +176,7 @@ harness-auth credential whose form depends on `harness` in
 | Bot token (PAT or App) | GitHub API and git operations. Consistent bot identity. |
 | Harness auth (one of, per harness) | Authenticates the agent runtime. |
 | ↳ Claude OAuth token | `harness: claude`: authenticates Claude Code to the Anthropic API. |
-| ↳ Codex subscription auth | `harness: codex`: access-only consumer auth plus one repo-owned or external rotating writer (experimental; see above). |
+| ↳ Codex subscription auth | `harness: codex`: access-only consumer auth plus a unique repo-owned refresh chain (experimental; see above). |
 | ↳ `OPENAI_API_KEY` | `harness: codex`: standard OpenAI API key, per-token billing. |
 
 A single bot token is used across workflows because the same merge rules

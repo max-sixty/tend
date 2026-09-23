@@ -528,10 +528,11 @@ artifact tree.
 When a repo owns subscription renewal, its weekly refresh job checks out no
 consumer code and gives Codex only Tend's fixed refresh prompt. Codex receives
 the full refresh bundle there; the environment-write PAT appears only in the
-separate publish step after Codex exits. Each repo-owned job needs a distinct
-full refresh-token chain. Alternatively, an external rotator owns one chain and
-publishes access-only `CODEX_AUTH_JSON` to its repos; their generated refresh
-workflows are disabled.
+separate publish step after Codex exits. Each repo-owned job needs a unique
+full refresh-token chain. A Mac rotator can temporarily publish access-only
+`CODEX_AUTH_JSON` to several repos whose generated refresh workflows are
+disabled, but those repos cannot authenticate after token expiry if the Mac is
+offline.
 
 **Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort

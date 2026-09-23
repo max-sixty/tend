@@ -51,7 +51,6 @@ from tend.config import (
     MEMORY_GIST_SECRET,
     OPENAI_KEY_SECRET,
     Config,
-    WorkflowConfig,
 )
 from tend.workflows import (
     CODEOWNERS_BEGIN,
@@ -2588,10 +2587,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
     if "claude" in enabled_harnesses:
         results.append(check_claude_auth(repo))
     if "codex" in enabled_harnesses:
-        refresh_enabled = cfg.workflows.get(
-            "codex-auth-refresh", WorkflowConfig()
-        ).enabled
-        results.append(check_codex_auth(repo, refresh_enabled=refresh_enabled))
+        results.append(check_codex_auth(repo))
     results.append(check_repo_secret_allowlist(repo, allowed))
     return results
 
@@ -2617,29 +2613,11 @@ def check_claude_auth(repo: str) -> CheckResult:
     )
 
 
-def check_codex_auth(repo: str, *, refresh_enabled: bool = True) -> CheckResult:
-    """Require the credentials for the configured Codex refresh owner."""
+def check_codex_auth(repo: str) -> CheckResult:
+    """Codex needs an API key or the complete subscription secret set."""
     names, err = _env_secret_names(repo)
     if names is None:
         return CheckResult("codex-auth", None, err)
-    if not refresh_enabled:
-        if CODEX_AUTH_SECRET in names:
-            return CheckResult(
-                "codex-auth",
-                True,
-                f"Codex access-only auth secret present: {CODEX_AUTH_SECRET}; "
-                "an external owner must refresh it.",
-            )
-        if OPENAI_KEY_SECRET in names:
-            return CheckResult(
-                "codex-auth", True, f"Codex auth secret present: {OPENAI_KEY_SECRET}"
-            )
-        return CheckResult(
-            "codex-auth",
-            False,
-            f"Codex refresh workflow is disabled but neither {CODEX_AUTH_SECRET} "
-            f"nor {OPENAI_KEY_SECRET} is set in the '{TEND_ENVIRONMENT}' environment.",
-        )
     subscription = {
         CODEX_AUTH_SECRET,
         CODEX_REFRESH_AUTH_SECRET,

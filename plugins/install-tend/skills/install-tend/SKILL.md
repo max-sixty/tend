@@ -93,10 +93,9 @@ itself the go-ahead.
      Fits when there's no subscription to draw on, or the user wants a
      dedicated billing surface and per-key revocation.
    - **Codex — Plus/Pro subscription** — experimental. Concurrent jobs receive
-     access-only auth. Ask who owns renewal: this repo's serialized weekly
-     workflow (a dedicated login and repo-scoped GitHub token), or an existing
-     external rotator that publishes access-only auth to this repo. A full
-     refresh-token bundle must have one writer across all repos. Detail in
+     access-only auth; this repo's serialized weekly workflow owns a unique
+     full refresh-token chain and uses a repo-scoped GitHub token to publish
+     renewal. It needs two browser handoffs. Detail in
      ${CLAUDE_SKILL_DIR}/references/security-model.md.
    - **Codex — OpenAI API key** — standard pay-per-token path.
 2. **Merge mode** — who may merge into the default branch:
@@ -780,32 +779,17 @@ that mode. If neither secret exists, use the mode selected at Kickoff or
 ask the user to choose between the two Codex options there.
 
 For **Plus/Pro subscription**, explain that the path is experimental because it
-depends on Codex's internal auth mode. Determine who owns the refresh-token
-chain before provisioning. Never copy one full `auth.json` into multiple repos
-or from the user's ordinary Codex login: independent refreshers can invalidate
-one another's token. Use one of these ownership modes:
+depends on Codex's internal auth mode. For unattended CI, each repo's
+`codex-auth-refresh` workflow must own a unique full refresh-token chain.
+Never copy one full `auth.json` into multiple repos or from the user's ordinary
+Codex login: a second refresher can invalidate the first. Separate device
+logins on one ChatGPT account are not verified to stay independent, so do not
+assume a second login alone establishes a unique chain. Use a dedicated
+ChatGPT account for this repo unless that independence has been verified.
+If `.config/tend.yaml` has `workflows.codex-auth-refresh.enabled: false`,
+remove that override and regenerate workflows before relying on this setup.
 
-- **Repo-owned refresh:** give this repo a dedicated login and full refresh
-  chain. Keep `codex-auth-refresh` enabled and follow the provisioner and PAT
-  steps below. A second repo using the same account needs its own login, not a
-  copy of this repo's full bundle.
-- **External refresh:** the existing rotator alone holds the full refresh
-  chain and publishes access-only `CODEX_AUTH_JSON` into this repo's `tend`
-  environment. Disable the generated refresh workflow in `.config/tend.yaml`
-  and regenerate workflows:
-
-  ```yaml
-  workflows:
-    codex-auth-refresh:
-      enabled: false
-  ```
-
-  Do not provision
-  `CODEX_REFRESH_AUTH_JSON` or `CODEX_REFRESH_PAT` here. Verify the rotator
-  republishes access-only auth before it expires and `uvx tend@latest check`
-  passes. The repo does not need a separate ChatGPT account or refresh token.
-
-For repo-owned refresh, run the bundled provisioner yourself. The user approves
+Run the bundled provisioner yourself. The user approves
 the device login in their browser; they do not run commands or handle the
 resulting Codex credentials. Start it in the background, surface the URL and
 one-time code from its output, and keep reading until it exits:
@@ -1109,7 +1093,7 @@ line picks the row that matches the chosen harness):
 - [ ] Badge: added to README (unless skipped, or no README)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
-- [ ] Harness auth (codex): `OPENAI_API_KEY`; or repo-owned `CODEX_AUTH_JSON` + `CODEX_REFRESH_AUTH_JSON` + `CODEX_REFRESH_PAT`; or external refresh with access-only `CODEX_AUTH_JSON` and `codex-auth-refresh` disabled
+- [ ] Harness auth (codex): `OPENAI_API_KEY`, or a unique repo-owned refresh chain with `CODEX_AUTH_JSON` + `CODEX_REFRESH_AUTH_JSON` + `CODEX_REFRESH_PAT`
 - [ ] Bot token: `TEND_BOT_TOKEN` set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot notifications: watching the repository

@@ -82,7 +82,7 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 | **weekly**        | Weekly                     | Reviews dependency PRs and approves safe patch and minor updates; merging follows the configured mode.                                                     |
 | **notifications** | Every 15 minutes           | Drains unread notifications as a recovery queue and repairs conflicts on bot-authored PRs.                                                                  |
 | **review-runs**   | Daily                      | Reviews recent CI runs for behavioral problems and proposes skill/config improvements.                                                                      |
-| **codex-auth-refresh** | Weekly                 | When enabled, renews experimental Plus/Pro auth owned by this repo; no-ops for API-key installs.                           |
+| **codex-auth-refresh** | Weekly                 | When any workflow uses Codex, renews experimental Plus/Pro auth through its single-writer credential; no-ops for API-key installs.                           |
 
 The bot reacts 👀 while a session is working: on an issue when it opens, on a
 PR whenever a review starts, and on a comment that mentions the bot. The
@@ -269,14 +269,14 @@ it; `tend check` verifies it), depend on the harness:
 | Harness    | Required secrets                                                                                                         |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `claude`   | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription) or `ANTHROPIC_API_KEY` (API-billed)                   |
-| `codex`    | `TEND_BOT_TOKEN` + either `OPENAI_API_KEY`, access-only `CODEX_AUTH_JSON` with external renewal, or `CODEX_AUTH_JSON` + `CODEX_REFRESH_AUTH_JSON` + `CODEX_REFRESH_PAT` for repo-owned renewal |
+| `codex`    | `TEND_BOT_TOKEN` + either `OPENAI_API_KEY`, or the subscription trio `CODEX_AUTH_JSON`, `CODEX_REFRESH_AUTH_JSON`, and `CODEX_REFRESH_PAT` |
 
 `TEND_BOT_TOKEN` is the bot account's PAT — see
 [example config](docs/tend.example.yaml) for scopes.
 `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token`. The API keys are
 from console.anthropic.com and platform.openai.com. See
 [Codex (experimental alternative)](#codex-experimental-alternative) for the
-subscription renewal modes.
+subscription trio.
 [docs/security-model.md](docs/security-model.md) has the full leak
 breakdown.
 
@@ -333,20 +333,21 @@ harnesses.
 Two auth modes:
 
 - **ChatGPT Plus or Pro (experimental):** concurrent jobs receive
-  `CODEX_AUTH_JSON`, an access-only bundle that Codex cannot refresh. One owner
-  holds each full refresh-token chain: either this repo's serialized weekly
-  workflow (with a unique `CODEX_REFRESH_AUTH_JSON` login and
-  `CODEX_REFRESH_PAT`) or an external rotator that publishes access-only auth
-  to several repos. With an external owner, set
-  `workflows.codex-auth-refresh.enabled: false` in `.config/tend.yaml`.
+  `CODEX_AUTH_JSON`, an access-only bundle that Codex cannot refresh. This
+  repo's serialized weekly workflow holds a unique full refresh-token chain
+  in `CODEX_REFRESH_AUTH_JSON` and publishes the next access-only bundle using
+  `CODEX_REFRESH_PAT`. Provision each repo's full login separately; never copy
+  one full `auth.json` across repos.
 - **API:** `OPENAI_API_KEY` is a standard pay-per-token key from
   platform.openai.com.
 
-The split keeps agent jobs from racing on refresh. Distinct repo-owned
-refreshers must not share one full login; an external owner can share access-only
-auth with its repos. This is experimental because it uses Codex's internal
-`chatgptAuthTokens` mode. A repo-owned weekly job runs Codex's built-in refresh
-and persists the updated full bundle.
+The split keeps agent jobs from racing on refresh. A Mac rotator can temporarily
+publish access-only auth to several repos, but those repos stop authenticating
+after that token expires if the Mac is offline; it is not an unattended setup.
+This is experimental because it uses Codex's internal `chatgptAuthTokens` mode.
+The weekly job runs Codex's built-in refresh and persists the updated full
+bundle. Weekly renewal is intended to precede access-token expiry; a missed
+scheduled run can still leave jobs without valid auth.
 Tend pins and tests the Codex version, but an OpenAI change can still break the
 weekly refresh until Tend updates.
 
