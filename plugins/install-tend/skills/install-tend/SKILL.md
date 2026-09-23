@@ -574,14 +574,17 @@ description rather than by its first heading. An existing overlay without
 frontmatter needs it added in place.
 
 **Do not create a second independent copy of project instructions** and **do
-not invent project conventions.** Both harnesses read `AGENTS.md` directly.
-If the repo has only `CLAUDE.md`, create a relative `AGENTS.md` symlink so
-Codex reads the same instructions. Preserve both when both already exist,
-and create neither when neither exists:
+not invent project conventions.** If the repo has only `CLAUDE.md`, link
+`AGENTS.md` to it so Codex reads the same instructions. If the repo has only
+`AGENTS.md`, create a `CLAUDE.md` import wrapper so Claude Code reads it even
+when native `AGENTS.md` loading is unavailable. Preserve both when both already
+exist, and create neither when neither exists:
 
 ```bash
 if [ -f CLAUDE.md ] && [ ! -e AGENTS.md ] && [ ! -L AGENTS.md ]; then
   ln -s CLAUDE.md AGENTS.md
+elif [ -f AGENTS.md ] && [ ! -e CLAUDE.md ] && [ ! -L CLAUDE.md ]; then
+  printf '@AGENTS.md\n' > CLAUDE.md
 fi
 ```
 
@@ -1081,7 +1084,7 @@ line picks the row that matches the chosen harness):
 - [ ] Immutable releases: enabled before the next release
 - [ ] Release/deploy credentials: environment-protected; policies list only verified refs, with default-branch credentials deliberately reachable by bot-merged code in yolo
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
-- [ ] Project instructions: Claude-only repos have an `AGENTS.md` symlink; AGENTS-only repos need no `CLAUDE.md` symlink
+- [ ] Project instructions: an AGENTS-only repo has a `CLAUDE.md` import wrapper; a CLAUDE-only repo has an `AGENTS.md` symlink
 - [ ] Badge: added to README (unless skipped, or no README)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
