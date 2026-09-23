@@ -1,6 +1,6 @@
 bot_name: tend-agent
-memory_gist: true
-
+harness: codex
+model: gpt-6-sol
 setup:
   - uses: astral-sh/setup-uv@v10.2.0
 

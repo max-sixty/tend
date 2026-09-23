@@ -183,7 +183,7 @@ bot_name: <bot-name>
 # control_plane_owner: "@maintainer"
 # For Codex:
 # harness: codex
-# model: gpt-5.6-sol
+# model: gpt-6-sol
 # Both harnesses optionally accept:
 # effort: medium   # low | medium | high | xhigh; Claude also accepts max
 ```

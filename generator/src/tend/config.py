@@ -306,7 +306,7 @@ class WorkflowConfig:
 # message naming it.
 DEFAULT_MODEL_BY_HARNESS = {
     "claude": "opus",
-    "codex": "gpt-5.6-sol",
+    "codex": "gpt-6-sol",
 }
 
 

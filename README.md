@@ -242,7 +242,7 @@ bot_name: my-project-bot
 
 # Codex installs pin both values; omit both to use Claude.
 # harness: codex
-# model: gpt-5.6-sol
+# model: gpt-6-sol
 # effort: medium   # low | medium | high | xhigh; Claude also accepts max
 # args: [--max-turns, "40"]   # exact additional CLI arguments
 ```
