@@ -192,12 +192,15 @@ def test_disabling_mention_drops_its_relay(tmp_path: Path) -> None:
     assert "tend-mention-relay.yaml" not in names
 
 
-def test_setup_steps_rendered(tmp_path: Path) -> None:
+@pytest.mark.parametrize("merge", ["maintainer", "yolo"])
+def test_setup_steps_rendered(tmp_path: Path, merge: str) -> None:
     extra = dedent("""\
         setup:
           - uses: ./.github/actions/my-setup
           - run: echo FOO=bar >> $GITHUB_ENV
     """)
+    if merge == "yolo":
+        extra += 'merge: yolo\ncontrol_plane_owner: "@octocat"\n'
     cfg = Config.load(_minimal_config(tmp_path, extra))
     for wf in without_relay(generate_all(cfg)):
         assert "./.github/actions/my-setup" in wf.content, (
@@ -206,6 +209,20 @@ def test_setup_steps_rendered(tmp_path: Path) -> None:
         assert "echo FOO=bar >> $GITHUB_ENV" in wf.content, (
             f"{wf.filename} missing run step"
         )
+        jobs = yaml.safe_load(wf.content)["jobs"]
+        checkouts = [
+            step
+            for job in jobs.values()
+            for step in job.get("steps", [])
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        ]
+        assert checkouts
+        if merge == "yolo":
+            assert all(
+                step["with"]["persist-credentials"] is False for step in checkouts
+            )
+        else:
+            assert all("persist-credentials" not in step["with"] for step in checkouts)
 
 
 def _eyes_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:

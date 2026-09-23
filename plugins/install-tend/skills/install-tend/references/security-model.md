@@ -74,9 +74,11 @@ before its first step: write access does not imply secret access.
 Under yolo, `tend check` additionally requires the exact current generated
 workflows on the default branch and refuses any other workflow that uses the
 `tend` environment, names an environment dynamically, or calls an external or
-ref-qualified reusable workflow whose environment use Tend cannot inspect. Yolo config
-rejects runner-side setup and workflow/job overrides, so those generated jobs
-retain the credential-isolating shape that justifies this exception.
+ref-qualified reusable workflow whose environment use Tend cannot inspect.
+Yolo config rejects workflow/job overrides, so those generated jobs retain
+their audited shape. Runner-side `setup:` is permitted as a trial: bot-merged
+code may execute there before the sandbox starts and reach the job's
+operational credentials. This policy may change with experience.
 Environment secrets overlay repo-level ones, and a job naming a
 missing environment still runs, so an unfinished migration degrades to
 repo-level exposure rather than breakage; `tend check` fails until the
@@ -112,8 +114,8 @@ triggers were probed rather than inferred, is the source repo's
 secrets.
 
 The composite action refuses to start if the default branch does not match the
-configured merge mode. Yolo refuses runner-side `setup` plus workflow and job
-overrides. The agent itself runs as a non-sudo user in a hardened systemd unit;
+configured merge mode. Yolo refuses workflow and job overrides. The agent
+itself runs as a non-sudo user in a hardened systemd unit;
 the supervisor reaps that UID's complete process tree before any later action
 step handles the runner-owned checkout or output.
 

@@ -95,8 +95,8 @@
    No `id-token: write`: nothing in the harness actions requests an OIDC
    token, and a job holding it can mint the repository's OIDC identity for
    any relying party whose trust policy doesn't pin the workflow and ref.
-   A consumer whose `setup:` authenticates over OIDC re-adds it with a
-   `jobs.<name>.permissions` override. #}
+   In maintainer mode, a consumer whose `setup:` authenticates over OIDC
+   re-adds it with a `jobs.<name>.permissions` override. #}
 {% macro permissions(issues=True) %}
       contents: write
       pull-requests: write
@@ -218,7 +218,7 @@
 {% endif %}
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ secrets.<<bot_token_secret>> }}
+          token: ${{ secrets.<<bot_token_secret>> }}<<'\n          persist-credentials: false' if cfg.merge == 'yolo' else ''>>
 {%- endmacro %}
 
 {# A multi-line action input, as a YAML block scalar at column 10 with the text

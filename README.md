@@ -150,19 +150,23 @@ keeping the repository control plane behind a maintainer. Credential
 isolation, the sandbox, and the environment gate keep the bot and model
 credentials out of the agent process.
 
-**Merge mode** is explicit. `maintainer` (the default) gives the write-access
-bot no bypass of the default branch's update rule. `yolo` gives that bot a
-pull-request-only bypass, so it can merge through GitHub but cannot push the
-branch directly. A separate CODEOWNERS rule requires fresh maintainer approval for
-changes to `.github/**`, `.config/tend.yaml`, CODEOWNERS, and agent instruction
-files; additional protected branches and tags stay admin-only. Preflight asks
-GitHub for the bot's own effective bypass and refuses to run unless it exactly
-matches the configured policy. `tend check --fix` reconciles the rulesets.
+**Merge mode** determines who can land code on the default branch:
 
-Maintainer mode may use runner-side `setup`; yolo refuses it because ordinary
-code the bot merged could steer even a fixed command before the hardened agent
-unit starts. Yolo also refuses workflow and job overrides so secret-bearing
-jobs retain their audited shape.
+| | `maintainer` (default) | `yolo` |
+|---|---|---|
+| Bot may merge PRs | No; a maintainer lands them | Yes, for ordinary code; direct pushes stay blocked |
+| Changes to workflows, Tend config, CODEOWNERS, or agent instructions | Maintainer lands them | Fresh approval from an independent CODEOWNER |
+| Workflow and job overrides | Allowed | Refused; generated jobs retain their audited shape |
+
+Both modes allow runner-side `setup:`, keep extra protected branches and tags
+admin-only, and run security preflight against their respective branch policies
+before the agent starts. `tend check --fix` reconciles the rulesets.
+
+Yolo's runner-side setup support is a trial. A fixed setup command may execute
+ordinary code the bot merged to the default branch as the runner, before the
+sandbox starts. That code could reach Tend's job credentials. We may revise
+this policy as we learn from use. Bot-merged default-branch code can also use
+generic credentials exposed by other jobs on that branch.
 
 **Credential isolation** — the bot's GitHub token and the long-lived model
 credential never enter the agent's process. Tend's proxy on the runner holds

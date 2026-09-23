@@ -236,7 +236,7 @@ def test_invalid_merge_config_rejected(
     "step",
     ["run: make bootstrap", "uses: astral-sh/setup-uv@v10.0.1"],
 )
-def test_yolo_rejects_all_runner_setup(tmp_path: Path, step: str) -> None:
+def test_yolo_accepts_runner_setup(tmp_path: Path, step: str) -> None:
     path = _write_config(
         tmp_path,
         dedent(f"""\
@@ -248,11 +248,11 @@ def test_yolo_rejects_all_runner_setup(tmp_path: Path, step: str) -> None:
             """),
     )
 
-    with pytest.raises(ClickException, match="setup is not allowed.*hardened"):
-        Config.load(path)
+    cfg = Config.load(path)
+    assert len(cfg.setup) == 1
 
 
-def test_yolo_rejects_deprecated_sandbox_setup(tmp_path: Path) -> None:
+def test_yolo_migrates_deprecated_sandbox_setup(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,
         dedent("""\
@@ -264,8 +264,8 @@ def test_yolo_rejects_deprecated_sandbox_setup(tmp_path: Path) -> None:
             """),
     )
 
-    with pytest.raises(ClickException, match="setup is not allowed.*hardened"):
-        Config.load(path)
+    cfg = Config.load(path)
+    assert [step.fields["run"] for step in cfg.setup] == ["make bootstrap"]
 
 
 @pytest.mark.parametrize(

@@ -61,16 +61,18 @@ Three load-bearing boundaries, with one deliberate policy choice:
    PRs but cannot push directly; changes to `.github/**` or
    `.config/tend.yaml` still need fresh CODEOWNER approval. Extra protected
    branches and tags remain admin-only in both policies.
-2. **Tend's operational credentials stay out of bot-controlled code.** Tend
+2. **Tend's operational credentials stay out of the agent process.** Tend
    verifies the exact generated workflows, reserves its environment for them,
    and rejects other workflows whose environment use is dynamic or hidden in
    an external or ref-qualified reusable workflow. Their harness isolates
-   the long-lived credentials from agent code. Generic credentials are gated
-   on bot-inaccessible refs in maintainer mode. Yolo deliberately accepts
-   their exposure to code the bot merges to the default branch; a deployment
-   from that branch needs no additional reviewer unless its workflow accepts
-   a payload the bot can steer. Credentials restricted to
-   tags or extra protected branches keep their ref gates.
+   the long-lived credentials from the agent. In yolo, runner-side setup may
+   execute bot-merged code before that isolation starts; this trial accepts
+   possible exposure of Tend's job credentials. Generic credentials are gated
+   on bot-inaccessible refs in maintainer mode. Yolo also accepts their
+   exposure to code the bot merges to the default branch; a deployment from
+   that branch needs no additional reviewer unless its workflow accepts a
+   payload the bot can steer. Credentials restricted to tags or extra protected
+   branches keep their ref gates.
 3. **Future releases' assets and tags cannot be rewritten.** GitHub immutable
    releases lock a published release's assets and its associated tag from
    the point the repository setting is enabled. The release's body is not
@@ -133,10 +135,10 @@ policy; otherwise the job is refused before its first step, and the
 environment's secrets are released only to jobs that name it. Pinning the
 policy to authorized refs therefore decides secret access by ref. In maintainer
 mode those are refs the bot cannot move. In yolo, Tend's own environment also
-admits the default branch because generated workflows run there; its
-operational credentials remain protected by the control-plane rule and
-harness isolation. A generic environment may admit the default branch without
-a reviewer unless a workflow reaching it accepts a payload the bot can steer;
+admits the default branch because generated workflows run there. Tend's
+harness isolates operational credentials from the agent, while
+runner-side setup may expose them. A generic environment may admit the default
+branch without a reviewer unless a workflow reaching it accepts a payload the bot can steer;
 the policy accepts that bot-merged code may reach its credentials. Tags
 remain admin-only, and managing environments requires admin, which the bot
 lacks.
@@ -348,7 +350,7 @@ The harness has three states and three transitions:
 
 | State | The job's tree on disk | The agent's view of it | Sandbox processes | Allowed next step |
 |---|---|---|---|---|
-| **trusted setup** | runner-owned, reviewed base, whatever `setup:` built | none | none | launch |
+| **runner setup** | runner-owned default or PR base tree, whatever `setup:` built | none | none | launch |
 | **running** | unchanged, and unreachable except through the view | writable copy-on-write overlay at the same paths | one systemd unit | reap |
 | **quiescent** | unchanged, byte for byte | unmounted | none | bounded export |
 
@@ -394,9 +396,10 @@ Each transition is a bottleneck with one job:
   the command line, where `sudo` would log it. It needs kernel 5.19,
   util-linux 2.39 and systemd 247, with no fallback.
 - **Content ingress** happens inside the sandbox. The workflow's checkout
-  arrives on reviewed code, and the lifecycle's first step selects the event's
-  topology in it — the PR's merge or head ref, a mentioned PR's head branch, or
-  the base branch — then pins startup configuration to the chosen base commit.
+  arrives on the default or PR base tree. The lifecycle's first step selects
+  the event's topology in it — the PR's merge or head ref, a mentioned PR's
+  head branch, or the base branch — then pins startup configuration to the
+  chosen base commit.
   Git parses a contributor's packfile as the sandbox uid, and the fetch
   authenticates through the credential proxy. The Codex binaries and the
   immutable agent environment live in one runner-owned, sandbox-readable
@@ -470,17 +473,20 @@ and ordering mirror claude-code-action's `restore-config.ts`. The PR's own
 versions stay readable at `git show HEAD:<path>` for a review that wants to see
 what it changed.
 
-**Setup runs on reviewed code.** Consumer `setup:` steps execute as the runner
+**Setup runs on the base tree.** Consumer `setup:` steps execute as the runner
 user against the stable Actions checkout: the default branch, or in
-`tend-review` the PR's reviewed base. The PR's own tree reaches that checkout
-only inside the sandbox, so a contributor's build backend and dependencies
-execute only there, when the agent builds or tests that tree, as the non-sudo
-sandbox user in the same unit.
+`tend-review` the PR's base. The PR's own tree reaches that checkout only inside
+the sandbox, so a contributor's build backend and dependencies execute there
+when the agent builds or tests that tree.
 
-Yolo refuses all runner-side `setup:` because ordinary code merged by the bot
-could steer even a fixed command running against the default branch. It also
-refuses workflow and job overrides so credential-bearing jobs retain their
-audited shape.
+Yolo permits runner-side `setup:` as a trial. Its fixed steps may execute
+ordinary code the bot already merged to the default branch. That code runs as
+the runner before Tend's sandbox or credential proxy protects the agent and
+could reach the job's operational credentials. Checkout does not persist its
+PAT for later steps, but runner-side setup can still affect later steps in the
+same job. This policy may change with experience. Yolo continues to refuse
+workflow and job overrides so credential-bearing jobs retain their audited
+shape.
 
 After the unit exits, the trusted supervisor kills and verifies the complete
 sandbox UID process tree, then copies only size-bounded fixed outputs. The next fixed
