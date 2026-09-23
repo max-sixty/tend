@@ -185,25 +185,26 @@ home, so its writes never reach the job's own files, and the steps after it see
 the tree that setup left. Its own home sits outside the view, and on a
 self-hosted runner that home persists between jobs.
 
-**Environment-gated credentials** — generic credentials remain behind a gate
-the bot cannot pass. In yolo, Tend verifies the exact generated workflows,
-rejects any other workflow whose environment use is dynamic or hidden behind
-an external or ref-qualified reusable workflow, and reserves Tend's operational
-environment for the generated jobs. The harness keeps its long-lived credentials out of the
-agent process. A bot-controlled workflow cannot reach the bot token,
-model auth, or a release
-token or a trusted-publishing identity. The bot token and model auth live in
-the repo's `tend` GitHub Environment, whose deployment policy admits only
-the refs `tend check` confirmed for Tend's hardened runtime, so a workflow
-pushed to any other branch is refused them before its first step. In `yolo`,
-the default branch is not accepted as a sufficient ref gate for other
-credential environments; those need a non-bot required reviewer. The same
-check sweeps every other credential-holding environment — one that stores a
-secret, or that a job requesting `id-token: write` deploys to — for a gate
-the bot cannot pass: a non-bot required reviewer, or a policy naming only
-verified refs that no workflow reaches on a trigger the bot both fires and
-steers. It flags any repo-level secret not explicitly listed in
-`secrets.allowed`, where the operational names are refused outright.
+**Environment-gated credentials** — yolo deliberately lets code the bot merges
+to the default branch use generic credentials in jobs on that branch. Extra
+branches and tags still need bot-inaccessible ref protection or a non-bot
+environment reviewer. Tend verifies the exact generated workflows, rejects
+other workflows whose environment use is dynamic or hidden behind an external
+or ref-qualified reusable workflow, and reserves Tend's operational environment
+for the generated jobs. The harness keeps its long-lived credentials out of the
+agent process. A bot-controlled workflow cannot reach the bot token or model
+auth. A release token or trusted-publishing identity is protected only when
+its job stays on a ref the bot cannot update, such as an admin-gated tag. The
+bot token and model auth live in the repo's `tend` GitHub Environment, whose
+deployment policy admits only the refs `tend check` confirmed for Tend's
+hardened runtime, so a workflow pushed to any other branch is refused them
+before its first step. The credential check accepts the default branch as an
+explicit yolo risk. It checks other credential-holding environments — ones
+that store a secret or whose jobs request `id-token: write` — for a non-bot
+reviewer or a policy naming verified refs. A trigger the bot both fires and
+steers requires a reviewer even when the policy admits yolo's default branch.
+It flags any repo-level secret not explicitly
+listed in `secrets.allowed`, where the operational names are refused outright.
 `tend check --fix` creates the environment and sets its policy; moving the
 secrets into it stays manual — their values can't be read back.
 

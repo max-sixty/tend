@@ -269,8 +269,10 @@ ruleset requires fresh CODEOWNER approval for `.github/**`,
 `.config/tend.yaml`, and the CODEOWNERS files themselves. Extra protected
 branches and tags remain admin-only.
 The `tend` environment releases operational secrets only on those configured
-branches, and generic credential environments require refs the bot cannot
-move (or a non-bot reviewer). In yolo mode, Tend also requires exact generated
+branches. Generic credential environments may admit the default branch under
+either merge mode: yolo deliberately exposes those credentials to bot-merged
+code on that branch. Other admitted branches and tags need bot-inaccessible
+ref protection or a non-bot reviewer. In yolo mode, Tend also requires exact generated
 workflows and rejects other workflows whose environment use is dynamic or
 hidden in an external or ref-qualified reusable workflow. `tend check` verifies the complete
 policy, and `--fix` reconciles it. See
