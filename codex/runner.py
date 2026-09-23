@@ -147,7 +147,7 @@ def stage_agents() -> int:
     if not bot_name:
         raise ValueError("BOT_NAME is unset")
     merge = os.environ.get("TEND_MERGE", "")
-    if merge not in {"maintainer", "yolo"}:
+    if merge not in {"restricted", "yolo"}:
         raise ValueError(f"unknown TEND_MERGE: {merge or '<unset>'}")
     shared = (action_path.parent / "shared/system-prompt.md").read_text()
     tail = (action_path / "agents-tail.md").read_text()

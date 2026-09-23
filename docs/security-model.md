@@ -56,7 +56,7 @@ prompts apply to every workflow; the table lists what is specific to each.
 
 Three load-bearing boundaries, with one deliberate policy choice:
 
-1. **Merge authority is explicit.** Under the default `maintainer` mode, the
+1. **Merge authority is explicit.** Under the default `restricted` mode, the
    bot cannot update the default branch. Under `yolo`, it can merge ordinary
    PRs but cannot push directly; changes to `.github/**` or
    `.config/tend.yaml` still need fresh CODEOWNER approval. Extra protected
@@ -68,7 +68,7 @@ Three load-bearing boundaries, with one deliberate policy choice:
    the long-lived credentials from the agent. In yolo, runner-side setup may
    execute bot-merged code before that isolation starts; this trial accepts
    possible exposure of Tend's job credentials. Generic credentials are gated
-   on bot-inaccessible refs in maintainer mode. Yolo also accepts their
+   on bot-inaccessible refs in restricted mode. Yolo also accepts their
    exposure to code the bot merges to the default branch; a deployment from
    that branch needs no additional reviewer unless its workflow accepts a
    payload the bot can steer. Credentials restricted to tags or extra protected
@@ -91,7 +91,7 @@ now. Turning the setting off is therefore invisible to the nightly run until
 the repository publishes again — at which point the check fails. Closing that
 window takes an admin-run `tend check`.
 
-**Merge rulesets.** In `maintainer`, `Merge access` protects the default branch
+**Merge rulesets.** In `restricted`, `Merge access` protects the default branch
 and configured `protected_branches` with an admin-only bypass. Reconciliation
 preserves its existing branch targets and exclusions; it also leaves any
 admin-only `Protected branch access` ruleset from an earlier yolo setup in place.
@@ -106,9 +106,10 @@ environments, then manually retire their ruleset targets. This keeps a mode
 change or failed reconciliation from exposing secrets through a newly writable
 branch.
 The composite action verifies the bot's exact effective answer from
-`current_user_can_bypass`: `never` for maintainer, `pull_requests_only` for yolo.
+`current_user_can_bypass`: `never` for restricted mode,
+`pull_requests_only` for yolo.
 Required reviews alone do not qualify because the bot's own approval counts on
-another author's PR. If GitHub cannot answer the ruleset read, maintainer
+another author's PR. If GitHub cannot answer the ruleset read, restricted-mode
 preflight settles for the branch-protected floor; yolo fails closed because it
 must verify the exact middle state.
 
@@ -133,7 +134,7 @@ generator defaults.
 only if the run's `GITHUB_REF` matches the environment's deployment branch
 policy; otherwise the job is refused before its first step, and the
 environment's secrets are released only to jobs that name it. Pinning the
-policy to authorized refs therefore decides secret access by ref. In maintainer
+policy to authorized refs therefore decides secret access by ref. In restricted
 mode those are refs the bot cannot move. In yolo, Tend's own environment also
 admits the default branch because generated workflows run there. Tend's
 harness isolates operational credentials from the agent, while
@@ -280,7 +281,7 @@ It does not make `release: published` safe for secrets: a write actor
 can still publish a new release against an existing unpublished tag.
 
 The gate bounds what a run can *read*; it does not by itself bound *when*
-a workflow fires. In maintainer mode, a workflow reachable only by updating
+a workflow fires. In restricted mode, a workflow reachable only by updating
 a gated ref (`push: tags:` for release, `push: branches: [main]` for continuous
 deploy) needs an admin action and runs code fixed by that ref. In yolo, a
 default-branch push follows a bot merge and may run with generic credentials;
@@ -628,7 +629,7 @@ can steal the long-lived tokens, but it does not protect against compromise of
 the runner-owned proxy or the runner itself. A stolen classic PAT remains valid
 until revoked and grants access to every repository both its scope and the bot
 account can reach. A stolen subscription access token remains valid until it
-expires. Under maintainer mode, the merge restriction prevents that credential
+expires. Under restricted mode, the merge restriction prevents that credential
 from landing code. Under yolo, it can land ordinary code by design, while the
 control-plane rule, environment gates, and immutable releases still prevent
 repository takeover and release rewriting unless one of those runner-owned

@@ -70,7 +70,7 @@ def _config(
     harness: str = "claude",
     model: str = "opus",
     memory_gist: bool = False,
-    merge: str = "maintainer",
+    merge: str = "restricted",
     control_plane_owner: str = "",
     workflows: dict[str, WorkflowConfig] | None = None,
 ) -> Config:
@@ -545,10 +545,10 @@ def test_yolo_branch_rejects_direct_push_bypass() -> None:
     assert "push directly" in result.message
 
 
-def test_maintainer_branch_rejects_remaining_yolo_bypass_without_classic_protection() -> (
+def test_restricted_branch_rejects_remaining_yolo_bypass_without_classic_protection() -> (
     None
 ):
-    """A yolo→maintainer transition must not accept `.protected` and leave the
+    """A yolo→restricted transition must not accept `.protected` and leave the
     bot's pull-request-only ruleset bypass installed."""
 
     def fake_gh(*args, **kwargs):
@@ -1816,7 +1816,7 @@ def test_fix_branch_protection_refuses_retiring_refs_before_any_write(
     assert writes == []
 
 
-def test_fix_branch_protection_reconciles_yolo_back_to_maintainer() -> None:
+def test_fix_branch_protection_reconciles_yolo_back_to_restricted() -> None:
     rulesets = {
         1: json.loads(
             _restrict_updates_ruleset([], bot_id=99, bot_bypass_mode="pull_request")
@@ -1867,7 +1867,7 @@ def test_fix_branch_protection_reconciles_yolo_back_to_maintainer() -> None:
 
     with patch("tend.checks._gh", side_effect=fake_gh):
         before = check_branch_protection("owner/repo", "main", "my-bot")
-        fixed = fix_branch_protection("owner/repo", "main", "my-bot", "maintainer")
+        fixed = fix_branch_protection("owner/repo", "main", "my-bot", "restricted")
         after = check_branch_protection("owner/repo", "main", "my-bot")
 
     assert before.passed is False
@@ -1886,7 +1886,7 @@ def test_fix_branch_protection_reconciles_yolo_back_to_maintainer() -> None:
     ],
     ids=["absent", "present"],
 )
-def test_fix_branch_protection_maintainer_reconciles_merge_access(
+def test_fix_branch_protection_restricted_reconciles_merge_access(
     listed: str, path: str, method: str
 ) -> None:
     """Repair creates an absent ruleset or replaces an edited one."""
@@ -1908,7 +1908,7 @@ def test_fix_branch_protection_maintainer_reconciles_merge_access(
 
     with patch("tend.checks._gh", side_effect=fake):
         result = fix_branch_protection(
-            "owner/repo", "main", "my-bot", "maintainer", ["release"]
+            "owner/repo", "main", "my-bot", "restricted", ["release"]
         )
 
     assert result.passed is True
@@ -1929,8 +1929,8 @@ def test_fix_branch_protection_maintainer_reconciles_merge_access(
     assert body["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
 
 
-def test_fix_branch_protection_maintainer_preserves_existing_targets() -> None:
-    """Maintainer repair keeps existing conditions, including future selectors."""
+def test_fix_branch_protection_restricted_preserves_existing_targets() -> None:
+    """Restricted-mode repair keeps conditions, including future selectors."""
     current = json.loads(_restrict_updates_ruleset(["old-release", "release/*"]))
     current["conditions"]["ref_name"]["include"].append("~FUTURE_SELECTOR")
     current["conditions"]["ref_name"]["exclude"] = ["refs/heads/release/test"]
@@ -1947,7 +1947,7 @@ def test_fix_branch_protection_maintainer_preserves_existing_targets() -> None:
 
     with patch("tend.checks._gh", side_effect=fake):
         result = fix_branch_protection(
-            "owner/repo", "main", "my-bot", "maintainer", ["new-release"]
+            "owner/repo", "main", "my-bot", "restricted", ["new-release"]
         )
     assert result.passed is True
     assert writes[0]["conditions"]["ref_name"] == {
@@ -1987,7 +1987,7 @@ def test_fix_branch_protection_cannot_inspect_existing_targets(include) -> None:
         return _make_completed(json.dumps(current))
 
     with patch("tend.checks._gh", side_effect=fake):
-        result = fix_branch_protection("owner/repo", "main", "my-bot", "maintainer", [])
+        result = fix_branch_protection("owner/repo", "main", "my-bot", "restricted", [])
     assert result.passed is (None if include is None else False)
     assert (
         "Could not read" if include is None else "Cannot safely preserve"
@@ -2210,7 +2210,7 @@ def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
 
 
 def test_run_all_checks_yolo_accepts_main_deploy_before_activation() -> None:
-    """Before `--fix` grants yolo's bypass, main still carries maintainer's.
+    """Before `--fix` grants yolo's bypass, main still carries restricted mode's.
 
     Its branch-protection check fails against the yolo expectation, which is
     what `--fix` repairs. The deploy environment admitting main must not fail
@@ -2670,7 +2670,7 @@ def test_cli_check_fix_repairs_tag_and_release_protection(
     fix_releases.assert_called_once_with("owner/repo")
 
 
-def test_cli_check_fix_bootstraps_maintainer_mode_while_other_refs_expose_credentials(
+def test_cli_check_fix_bootstraps_restricted_mode_while_other_refs_expose_credentials(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _write_config(
@@ -2698,7 +2698,7 @@ def test_cli_check_fix_bootstraps_maintainer_mode_while_other_refs_expose_creden
         result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
 
     assert result.exit_code == 1
-    fix.assert_called_once_with("owner/repo", "main", "test-bot", "maintainer", [])
+    fix.assert_called_once_with("owner/repo", "main", "test-bot", "restricted", [])
     assert "credential-environments" in result.output
 
 
@@ -2909,7 +2909,7 @@ def test_cli_check_fix_creates_the_ruleset_for_any_branch_protection_failure(
 
     assert result.exit_code == 0, result.output
     fix_branch.assert_called_once_with(
-        "owner/repo", "main", "test-bot", "maintainer", []
+        "owner/repo", "main", "test-bot", "restricted", []
     )
 
 

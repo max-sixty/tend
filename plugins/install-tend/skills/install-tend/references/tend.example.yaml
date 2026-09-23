@@ -55,7 +55,7 @@ bot_name: my-project-bot
 
 # ## Merge mode
 #
-# `maintainer` is the default: the bot can push branches and open PRs, but only an
+# `restricted` is the default: the bot can push branches and open PRs, but only an
 # admin can update the default branch. `yolo` lets the bot merge PRs into the
 # default branch while still blocking direct pushes. In yolo mode, `tend init`
 # owns a final CODEOWNERS block for `.github/**`, `.config/tend.yaml`, the

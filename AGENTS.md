@@ -222,7 +222,7 @@ workflows:
 ```
 
 Workflow-level (`workflow_extra`) and job-level (`jobs.<name>`) overrides
-are supported in maintainer merge mode; step-level is not — `setup:` handles
+are supported in restricted merge mode; step-level is not — `setup:` handles
 injected runner steps in both modes. Yolo refuses the two override forms so
 credential-bearing jobs retain their audited shape. Runner-side setup in yolo
 is a trial: bot-merged code may execute there before the sandbox starts.
@@ -243,7 +243,7 @@ anything narrower as missing. The PAT and a Claude OAuth token are
 stored as secrets in the repo's `tend` GitHub Environment, whose deployment
 branch policy admits the default branch and any `protected_branches` that
 exist and are protected. A workflow the bot pushes to any other ref is
-refused them before its first step. In `maintainer` mode the bot cannot
+refused them before its first step. In `restricted` mode the bot cannot
 move any admitted branch. In `yolo`, it may merge pull requests to the
 default branch, while a CODEOWNERS-backed ruleset reserves Tend's workflows
 and config, CODEOWNERS, and agent instructions for a maintainer owner. Two things use the `gist` scope, both
@@ -264,7 +264,7 @@ collaborators ([GitHub roadmap
 #601](https://github.com/github/roadmap/issues/601), not shipped).
 
 **Current privilege model: write + merge mode + environment gate.**
-The bot has write access. `merge: maintainer` keeps it out of the default branch;
+The bot has write access. `merge: restricted` keeps it out of the default branch;
 `merge: yolo` grants a pull-request-only bypass there, while a second
 ruleset requires fresh CODEOWNER approval for `.github/**`,
 `.config/tend.yaml`, the CODEOWNERS files themselves, and agent instructions

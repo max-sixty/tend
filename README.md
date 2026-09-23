@@ -64,7 +64,7 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 - A compromise of the runner or credential proxy could expose the bot PAT or
   long-lived model credential. The agent cannot read those during normal
   operation; subscription-mode Codex receives only an expiring access token.
-  In the default `maintainer` merge mode, the merge restriction prevents a
+  In the default `restricted` merge mode, the merge restriction prevents a
   stolen bot credential from landing code. `yolo` deliberately gives that up
   for ordinary code while retaining maintainer ownership of Tend's workflows and
   config, admin-only tags and extra protected branches, and credential gates.
@@ -144,7 +144,7 @@ on every `tend@latest init`.
 
 Tend gives an agent write access to a repository and points it at input anyone
 can write: pull requests, issues, comments. The design assumes a session can be
-hijacked, and bounds what a hijacked session can do. Maintainer mode keeps it
+hijacked, and bounds what a hijacked session can do. Restricted mode keeps it
 from landing code; yolo intentionally permits ordinary code changes while
 keeping the repository control plane behind a maintainer. Credential
 isolation, the sandbox, and the environment gate keep the bot and model
@@ -152,7 +152,7 @@ credentials out of the agent process.
 
 **Merge mode** determines who can land code on the default branch:
 
-| | `maintainer` (default) | `yolo` |
+| | `restricted` (default) | `yolo` |
 |---|---|---|
 | Bot may merge PRs | No; a maintainer lands them | Yes, for ordinary code; direct pushes stay blocked |
 | Changes to workflows, Tend config, CODEOWNERS, or agent instructions | Maintainer lands them | Fresh approval from an independent CODEOWNER |

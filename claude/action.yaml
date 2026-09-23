@@ -13,8 +13,8 @@ inputs:
     required: true
     description: GitHub token for API access and pushing commits
   merge:
-    default: maintainer
-    description: Merge mode generated from .config/tend.yaml (maintainer or yolo)
+    default: restricted
+    description: Merge mode generated from .config/tend.yaml (restricted or yolo)
   control_plane_owner:
     default: ""
     description: CODEOWNER for yolo-protected workflow and Tend config changes
@@ -222,7 +222,7 @@ runs:
     # path resolves. See ../proxy/setup_sandbox.py and
     # ../proxy/inject_credentials.py.
     - name: Cache mitmproxy
-      if: inputs.merge == 'maintainer'
+      if: inputs.merge == 'restricted'
       uses: actions/cache@v6
       with:
         path: ${{ runner.temp }}/tend-mitmproxy-uv

@@ -343,13 +343,13 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
             )
             rules_fixable = False
         else:
-            merge_to_apply = "maintainer"
+            merge_to_apply = "restricted"
 
-    if rules_fixable or (activation_blockers and merge_to_apply == "maintainer"):
+    if rules_fixable or (activation_blockers and merge_to_apply == "restricted"):
         click.echo()
         if merge_to_apply != cfg.merge:
             click.echo(
-                "Yolo prerequisites are not all verified; configuring maintainer "
+                "Yolo prerequisites are not all verified; configuring restricted "
                 "merge mode until these pass: "
                 + ", ".join(result.name for result in activation_blockers)
             )
@@ -395,7 +395,7 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
 
     environment_refs = operational_refs(results)
     can_fix_environment = not activation_blockers or (
-        merge_to_apply == "maintainer" and default_branch in environment_refs
+        merge_to_apply == "restricted" and default_branch in environment_refs
     )
     if any(r.name == "environment" for r in failures) and can_fix_environment:
         click.echo()
