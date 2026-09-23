@@ -55,7 +55,7 @@ KNOWN_TOP_LEVEL = {
     "workflows",
 }
 KNOWN_HARNESSES = {"claude", "codex"}
-KNOWN_MERGE_POLICIES = {"maintainer", "yolo"}
+KNOWN_MERGE_POLICIES = {"restricted", "yolo"}
 KNOWN_SECRETS_KEYS = {"allowed"}
 
 # The operational secrets, by fixed name. Claude reads the OAuth token
@@ -138,7 +138,7 @@ class MergePolicy:
 
 
 MERGE_POLICIES = {
-    "maintainer": MergePolicy(
+    "restricted": MergePolicy(
         bot_can_merge=False,
         expected_runtime_bypass="never",
         requires_control_plane_review=False,
@@ -345,8 +345,8 @@ class Config:
     args: list[str] = field(default_factory=list)
     # Owner of the repo where workflows will run. Used to gate jobs that fail
     # noisily on forks (no access to bot/Claude secrets). Not user-configurable;
-    # cli.init populates this via `gh repo view` so fork-based maintainer
-    # workflows still get the canonical owner. Empty means "skip the guard"
+    # cli.init populates this via `gh repo view` so workflows in forks still
+    # get the canonical owner. Empty means "skip the guard"
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
@@ -354,7 +354,7 @@ class Config:
     # in a bot-owned secret Gist. The Gist ID stays in a fixed environment
     # secret so a public repository does not publish the unlisted URL.
     memory_gist: bool = False
-    merge: str = "maintainer"
+    merge: str = "restricted"
     control_plane_owner: str = ""
 
     @property
@@ -445,7 +445,7 @@ class Config:
                 "the key."
             )
 
-        merge = raw.get("merge", "maintainer")
+        merge = raw.get("merge", "restricted")
         if merge not in KNOWN_MERGE_POLICIES:
             raise click.ClickException(
                 f"merge '{merge}' is not recognized "

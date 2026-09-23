@@ -22,7 +22,7 @@ def _generated_codeowners(existing: str | None = None) -> str:
 @pytest.fixture(autouse=True)
 def actions_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
-    monkeypatch.setenv("TEND_MERGE", "maintainer")
+    monkeypatch.setenv("TEND_MERGE", "restricted")
     monkeypatch.setenv("TEND_CONTROL_PLANE_OWNER", "@octocat")
 
 

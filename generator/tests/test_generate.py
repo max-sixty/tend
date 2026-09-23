@@ -119,7 +119,7 @@ def test_codeowners_block_is_removed_when_yolo_is_disabled() -> None:
     assert codeowners_config(existing, None) == "*.py @python\n"
 
 
-def test_maintainer_mode_leaves_an_unmanaged_codeowners_file_byte_stable() -> None:
+def test_restricted_mode_leaves_an_unmanaged_codeowners_file_byte_stable() -> None:
     assert codeowners_config("*.py @python", None) is None
 
 
@@ -192,7 +192,7 @@ def test_disabling_mention_drops_its_relay(tmp_path: Path) -> None:
     assert "tend-mention-relay.yaml" not in names
 
 
-@pytest.mark.parametrize("merge", ["maintainer", "yolo"])
+@pytest.mark.parametrize("merge", ["restricted", "yolo"])
 def test_setup_steps_rendered(tmp_path: Path, merge: str) -> None:
     extra = dedent("""\
         setup:
