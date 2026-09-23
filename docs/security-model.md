@@ -68,7 +68,8 @@ Three load-bearing boundaries, with one deliberate policy choice:
    the long-lived credentials from agent code. Generic credentials are gated
    on bot-inaccessible refs in maintainer mode. Yolo deliberately accepts
    their exposure to code the bot merges to the default branch; a deployment
-   from that branch needs no additional reviewer. Credentials restricted to
+   from that branch needs no additional reviewer unless its workflow accepts
+   a payload the bot can steer. Credentials restricted to
    tags or extra protected branches keep their ref gates.
 3. **Future releases' assets and tags cannot be rewritten.** GitHub immutable
    releases lock a published release's assets and its associated tag from
@@ -135,7 +136,8 @@ mode those are refs the bot cannot move. In yolo, Tend's own environment also
 admits the default branch because generated workflows run there; its
 operational credentials remain protected by the control-plane rule and
 harness isolation. A generic environment may admit the default branch without
-a reviewer, accepting that bot-merged code can reach its credentials. Tags
+a reviewer unless a workflow reaching it accepts a payload the bot can steer;
+the policy accepts that bot-merged code may reach its credentials. Tags
 remain admin-only, and managing environments requires admin, which the bot
 lacks.
 
