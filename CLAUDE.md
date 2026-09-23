@@ -266,7 +266,8 @@ collaborators ([GitHub roadmap
 The bot has write access. `merge: maintainer` keeps it out of the default branch;
 `merge: yolo` grants a pull-request-only bypass there, while a second
 ruleset requires fresh CODEOWNER approval for `.github/**`,
-`.config/tend.yaml`, and the CODEOWNERS files themselves. Extra protected
+`.config/tend.yaml`, the CODEOWNERS files themselves, and agent instructions
+(`CONTROL_PLANE_PATHS` in `workflows.py`). Extra protected
 branches and tags remain admin-only.
 The `tend` environment releases operational secrets only on those configured
 branches. Generic credential environments may admit the default branch under
