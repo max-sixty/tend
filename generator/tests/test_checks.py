@@ -2084,7 +2084,12 @@ def test_run_all_checks_with_explicit_repo() -> None:
     assert all(r.passed is True for r in results)
 
 
-def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
+def _yolo_main_deploy_gh(main_bypass: str):
+    """A yolo repo with a reviewer-less `deploy` environment admitting main.
+
+    *main_bypass* is the bot's verdict on main's update ruleset:
+    ``pull_requests_only`` once yolo is active, ``never`` before activation.
+    """
     base = _gh_all_pass("main", "release")
     codeowners = (
         "# BEGIN tend control plane\n"
@@ -2154,9 +2159,7 @@ def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
                 _make_branch_rules("creation", "update", "deletion", ruleset_id=3)
             )
         if url.endswith("rulesets/1"):
-            return _make_completed(
-                json.dumps({"current_user_can_bypass": "pull_requests_only"})
-            )
+            return _make_completed(json.dumps({"current_user_can_bypass": main_bypass}))
         if url.endswith("rulesets/2"):
             return _make_completed(
                 json.dumps(
@@ -2178,6 +2181,10 @@ def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
             return _make_completed(json.dumps({"current_user_can_bypass": "never"}))
         return base(*args, **kwargs)
 
+    return fake_gh
+
+
+def _run_yolo_checks(fake_gh) -> list[CheckResult]:
     cfg = _config(
         merge="yolo",
         control_plane_owner="@octocat",
@@ -2191,9 +2198,30 @@ def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
             return_value=CheckResult("yolo-workflows", True, ""),
         ),
     ):
-        results = run_all_checks(cfg, repo="owner/repo")
+        return run_all_checks(cfg, repo="owner/repo")
+
+
+def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
+    results = _run_yolo_checks(_yolo_main_deploy_gh("pull_requests_only"))
 
     assert all(result.passed is True for result in results)
+
+
+def test_run_all_checks_yolo_accepts_main_deploy_before_activation() -> None:
+    """Before `--fix` grants yolo's bypass, main still carries maintainer's.
+
+    Its branch-protection check fails against the yolo expectation, which is
+    what `--fix` repairs. The deploy environment admitting main must not fail
+    with it: `credential-environments` is not fixable, so it would block the
+    activation that makes main pass, and yolo could never be switched on.
+    """
+    results = {
+        result.name: result
+        for result in _run_yolo_checks(_yolo_main_deploy_gh("never"))
+    }
+
+    assert results["branch-protection:main"].passed is False
+    assert results["credential-environments"].passed is True
 
 
 def test_run_all_checks_requires_auth_for_each_effective_harness() -> None:
