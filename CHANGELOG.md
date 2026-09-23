@@ -11,6 +11,7 @@ https://github.com/max-sixty/tend/compare for their history.
 ### Improved
 
 - **Yolo mode permits runner-side `setup:` as a trial.** Setup runs on the default or PR base tree, and generated yolo checkouts do not persist the bot token in Git configuration. Action-based setup and workflow or job overrides remain disallowed. ([#1407](https://github.com/max-sixty/tend/pull/1407))
+- **The default merge policy is now named `restricted`.** Configs that omit `merge:` keep the same policy; explicit `merge: maintainer` must change to `merge: restricted` or validation fails. Both harnesses and the runtime preflight use the new name. ([#1408](https://github.com/max-sixty/tend/pull/1408))
 
 ### Fixed
 
