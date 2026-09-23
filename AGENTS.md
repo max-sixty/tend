@@ -458,7 +458,7 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
   inside a `references/` directory too, where the file being cited is a
   neighbour — one form reads the same wherever the sentence ends up, and
   `test_skill_reference_citations_resolve` rejects the bare filename. Only
-  files a repo keeps at its root (`AGENTS.md`, `CONTRIBUTING.md`)
+  files a repo keeps at its root (`CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`)
   are named bare; `ROOT_FILES` in that test is the list. To point at a rule
   rather than a whole file, name its section and the skill, which also covers
   a rule in a skill's own `SKILL.md`: **Reader-facing prose** in
