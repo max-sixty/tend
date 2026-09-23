@@ -134,17 +134,18 @@ in depth.
 
 ## Experimental Codex subscription auth
 
-Sharing Codex's normal `auth.json` does not work: a consumer near access-token
-expiry, or one recovering from a 401, can rotate the refresh token and leave
-every other runner with invalid state. Tend instead stores two projections:
+Sharing Codex's normal `auth.json` within a repository or across
+repositories does not work: a job near access-token expiry, or one recovering
+from a 401, can rotate the refresh token and leave the other holders with
+invalid state. Agent jobs receive only an access-only projection:
 
 - `CODEX_AUTH_JSON` uses Codex's internal `chatgptAuthTokens` mode and has an
   empty refresh token. Every consumer may reuse its bearer token concurrently,
   but none can rotate the chain.
-- `CODEX_REFRESH_AUTH_JSON` is the normal full `chatgpt` bundle. Only the
-  serialized `tend-codex-auth-refresh` workflow reads it. Once OpenAI rotates
-  the token, that workflow writes the full replacement first and the derived
-  access-only bundle second.
+- `CODEX_REFRESH_AUTH_JSON` is a full `chatgpt` bundle unique to this
+  repository. Only its serialized `tend-codex-auth-refresh` workflow reads
+  it. Once OpenAI rotates the token, that workflow writes the full
+  replacement first and the derived access-only bundle second.
 
 `CODEX_REFRESH_PAT` is a fine-grained maintainer token scoped to this repository
 with `Environments: write`; the workflow needs it because `GITHUB_TOKEN` cannot
@@ -152,9 +153,13 @@ rewrite Actions environment secrets. It is never passed to an agent session.
 
 The consumer path is experimental and may break when OpenAI changes Codex
 because it depends on an internal auth mode. The serialized weekly job runs
-Codex's built-in refresh and persists its updated `auth.json`. Use a dedicated
-ChatGPT account so the workflow's token rotation is independent of a
-maintainer's local Codex login.
+Codex's built-in refresh and persists its updated `auth.json`. Its login
+must have a refresh chain independent of other repositories and the
+maintainer's local Codex login. Separate device logins on one ChatGPT account
+have not been verified to remain independent. An external rotator can
+temporarily distribute access-only `CODEX_AUTH_JSON` to multiple
+repositories, but they lose authentication after token expiry if that
+rotator is offline.
 
 ## Token assignment
 
