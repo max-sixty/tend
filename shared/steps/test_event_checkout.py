@@ -170,10 +170,11 @@ def test_mention_on_a_closed_pr_keeps_the_default_branch_instructions(
 ) -> None:
     """A closed PR's base commit must not pin the default branch's own tree.
 
-    The fallback checks out the default branch, which is reviewed code. Pinning
-    it to the base the PR opened against reverts every `CLAUDE.md`, `AGENTS.md`
-    and `.claude/**` the branch has gained since — so the session runs on stale
-    repo instructions, and the revert is staged by any later `git add -A`.
+    The fallback checks out the default branch, whose instruction paths require
+    maintainer approval. Pinning it to the base the PR opened against reverts
+    every `CLAUDE.md`, `AGENTS.md` and `.claude/**` the branch has gained since.
+    The session then runs on stale instructions, and any later `git add -A`
+    stages the revert.
     """
     _origin, workspace, base, _head = repository(tmp_path)
     (workspace / "CLAUDE.md").write_text("current instructions\n")

@@ -139,14 +139,14 @@ bot_name: my-project-bot
 # For multi-step setup, add multiple entries to the `setup:` list — they
 # render in declared order. For anything more elaborate, move the YAML into a
 # local composite action (`.github/actions/tend-setup/action.yaml`) and reference
-# it from one entry with `uses`. In `yolo`, all `setup:` entries are refused
-# because ordinary code can steer even a fixed runner-side command.
+# it from one entry with `uses`. In `yolo`, runner-side setup is a trial:
+# ordinary code the bot merged to the default branch can run here before the
+# sandbox starts, with the job's credentials available to runner processes.
 #
-# In maintainer mode, setup runs against reviewed code — the default branch, or in `tend-review`
-# the PR's base branch, checked out before the PR's own tree lands. What it
-# builds reaches the agent (see "The agent's sandbox" below); what the PR itself
-# changes, such as a new dependency in its lockfile, the agent installs in the
-# session.
+# Setup runs against the default branch, or in `tend-review` the PR's base
+# branch, checked out before the PR's own tree lands. What it builds reaches
+# the agent (see "The agent's sandbox" below); what the PR itself changes,
+# such as a new dependency in its lockfile, the agent installs in the session.
 #
 # `tend-notifications` decides up front whether the agent needs to boot and
 # injects an `if:` guard on every setup step so a run with no unread
@@ -200,10 +200,9 @@ bot_name: my-project-bot
 
 # ## The agent's sandbox (both harnesses)
 #
-# `setup:` is available only in maintainer mode. Yolo refuses it because code
-# the bot merged to the default branch could steer a fixed runner-side command.
-# In maintainer mode it runs as the RUNNER user, around the composite action. The
-# agent then runs as a separate, non-sudo user inside a hardened systemd
+# `setup:` runs as the runner user in both modes, before the composite action.
+# In yolo, bot-merged code can run here before the sandbox starts.
+# The agent then runs as a separate, non-sudo user inside a hardened systemd
 # unit, in the job's own checkout and home, with the job's PATH and
 # environment. It sees them through a copy-on-write view: what `setup:`
 # prepared (a toolchain, a warm cache) is there at its own path, the agent

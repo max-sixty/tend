@@ -68,8 +68,8 @@ Four pieces:
    and rate-limit preflight, then select the event's topology and run the
    complete agent turn in one systemd unit over a copy-on-write view of the
    runner's home, reap it, and upload bounded session logs. The generated
-   workflow's checkout stays on reviewed code for setup and local-action POST
-   chains; nothing the agent writes reaches it.
+   workflow's checkout stays on the default or PR base tree for setup and
+   local-action POST chains; nothing the agent writes reaches it.
 
    `max-sixty/tend/codex/refresh@X.Y.Z` is the Codex support action. A generated
    serialized workflow runs it weekly to rotate Plus/Pro credentials and
@@ -98,9 +98,9 @@ Four pieces:
 
 Generated workflows are standalone — full `steps:` jobs, not
 `workflow_call`. The generator owns the entire file. Setup (system tools,
-dependencies, Actions caches) is defined in `setup:` and runs on reviewed code;
-the agent sees what it built through the view, and installs whatever the
-event's own tree changes in the session.
+dependencies, Actions caches) is defined in `setup:` and runs on the default
+or PR base tree; the agent sees what it built through the view, and installs
+whatever the event's own tree changes in the session.
 
 ## Structure
 
@@ -223,9 +223,10 @@ workflows:
 
 Workflow-level (`workflow_extra`) and job-level (`jobs.<name>`) overrides
 are supported in maintainer merge mode; step-level is not — `setup:` handles
-injected runner steps. Yolo refuses both override forms and all runner-side `setup:` so
-credential-bearing jobs retain their audited shape. No allowlist of override
-keys; unknown job names produce a warning.
+injected runner steps in both modes. Yolo refuses the two override forms so
+credential-bearing jobs retain their audited shape. Runner-side setup in yolo
+is a trial: bot-merged code may execute there before the sandbox starts.
+No allowlist of override keys; unknown job names produce a warning.
 
 When overrides are present, the generator renders the base template,
 parses it, merges the overrides, and re-serializes. Output YAML formatting

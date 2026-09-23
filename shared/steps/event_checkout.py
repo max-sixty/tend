@@ -1,8 +1,9 @@
 """Move the job's checkout to the event's topology, inside the sandbox.
 
-The checkout arrives on reviewed code; this selects the PR's merge or head ref
-for a review, the head branch of the PR a mention names, and the base branch
-otherwise, then restores the startup configuration a PR head must not choose.
+The checkout arrives on the default or PR base tree. This selects the PR's merge
+or head ref for a review, the head branch of the PR a mention names, and the
+base branch otherwise, then restores the startup configuration a PR head must
+not choose.
 It runs as the sandbox uid, so Git parses a contributor's packfile there, and
 it holds no credential: the proxy authenticates every request. Writes land in
 the view, so the runner's own checkout is unchanged.
@@ -129,10 +130,11 @@ def checkout_mention(
 ) -> tuple[str, str]:
     pr = api_json(f"/repos/{repository}/pulls/{number}")
     if pr.get("state") != "open":
-        # The fallback selects the default branch, which is reviewed code — so
-        # there is nothing to pin away, and pinning to the closed PR's base
-        # would revert this tree's instruction files to whatever they were
-        # when that PR opened.  Same answer as a mention on an issue thread.
+        # The fallback selects the default branch, whose instruction paths
+        # require maintainer approval, so there is nothing to pin away.
+        # Pinning to the closed PR's base would revert this tree's instruction
+        # files to whatever they were when that PR opened. Same answer as a
+        # mention on an issue thread.
         return checkout_base(workspace, base_branch, base_sha), ""
     head = pr.get("head")
     if not isinstance(head, dict) or not isinstance(head.get("repo"), dict):
@@ -227,8 +229,8 @@ def main() -> int:
             )
         else:
             # An issue thread: `number` is an issue number, which the PR
-            # endpoint 404s on.  The default branch is reviewed code, so
-            # it needs no pin either.
+            # endpoint 404s on. Default-branch instruction paths require
+            # maintainer approval, so they need no pin either.
             selected = checkout_base(workspace, base_branch, base_sha)
             config_base_sha = ""
         if config_base_sha:

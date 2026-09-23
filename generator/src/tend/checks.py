@@ -1471,11 +1471,11 @@ def _credential_surface(files: dict[str, str | None] | None) -> _CredentialSurfa
 
 
 def check_yolo_workflows(repo: str, cfg: Config) -> CheckResult:
-    """Require the default branch to contain only the audited generated jobs.
+    """Confine yolo's operational environment to current generated workflows.
 
-    The ``tend`` environment may release operational secrets on main in yolo,
-    so its exception cannot extend to a consumer workflow or a stale generated
-    workflow that still executes repository code as the runner.
+    The ``tend`` environment may release secrets on main. Consumer workflows
+    must not use it, and stale generated workflows may have a different job
+    shape than the one Tend currently audits.
     """
     name = "yolo-workflows"
     files = _fetch_workflow_files(repo)

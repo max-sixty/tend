@@ -267,7 +267,7 @@ def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
             "commands into `setup:` as `run:` steps (e.g. "
             "`- run: rustup component add clippy`) and delete the key; a "
             "`cd`, `export` or `source` reaches only the rest of its own "
-            "step. `setup:` runs on reviewed code; what a pull "
+            "step. `setup:` runs on the default or PR base tree; what a pull "
             "request itself changes, such as a new dependency in its "
             "lockfile, the agent installs in the session.",
             err=True,
@@ -551,12 +551,6 @@ class Config:
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
         setup.extend(_migrated_sandbox_steps(raw))
-        if merge == "yolo" and setup:
-            raise click.ClickException(
-                "setup is not allowed when merge is 'yolo': once the bot may "
-                "merge ordinary code, runner-side setup could execute that code "
-                "outside the hardened agent boundary"
-            )
 
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in (raw.get("workflows") or {}).items():
