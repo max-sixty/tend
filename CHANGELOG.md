@@ -11,10 +11,11 @@ https://github.com/max-sixty/tend/compare for their history.
 ### Improved
 
 - **Yolo permits generic deployment credentials on the default branch without a reviewer for each ordinary deployment.** Tend continues to require admin-gated tags and a reviewer for workflows whose event payload the bot can steer; its operational credentials retain their separate checks. ([#1390](https://github.com/max-sixty/tend/pull/1390))
+- **Installer guidance now walks through credential rotation as an operational procedure.** It preserves the active auth mode, verifies a replacement bot token before writing it, revokes the old token at its issuer, and reports incomplete rotation when revocation cannot be verified. ([#1385](https://github.com/max-sixty/tend/pull/1385))
 
 ### Documentation
 
-- **Installer guidance makes credential rotation and migration explicit**, and the Worker setup documents the scoped deployment token. ([#1385](https://github.com/max-sixty/tend/pull/1385), [#1386](https://github.com/max-sixty/tend/pull/1386))
+- The Worker setup documents its scoped deployment token. ([#1386](https://github.com/max-sixty/tend/pull/1386))
 
 ### Internal
 
