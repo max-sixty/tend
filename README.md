@@ -192,7 +192,7 @@ self-hosted runner that home persists between jobs.
 **Environment-gated credentials** — yolo deliberately lets code the bot merges
 to the default branch use generic credentials in jobs on that branch. Extra
 branches and tags still need bot-inaccessible ref protection or a non-bot
-environment reviewer. Tend verifies the exact generated workflows, rejects
+environment reviewer. In yolo, Tend also verifies the exact generated workflows, rejects
 other workflows whose environment use is dynamic or hidden behind an external
 or ref-qualified reusable workflow, and reserves Tend's operational environment
 for the generated jobs. The harness keeps its long-lived credentials out of the

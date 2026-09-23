@@ -58,11 +58,12 @@ Three load-bearing boundaries, with one deliberate policy choice:
 
 1. **Merge authority is explicit.** Under the default `restricted` mode, the
    bot cannot update the default branch. Under `yolo`, it can merge ordinary
-   PRs but cannot push directly; changes to `.github/**` or
-   `.config/tend.yaml` still need fresh CODEOWNER approval. Extra protected
+   PRs but cannot push directly; changes to `.github/**`,
+   `.config/tend.yaml`, CODEOWNERS, or agent instructions still need fresh
+   CODEOWNER approval. Extra protected
    branches and tags remain admin-only in both policies.
-2. **Tend's operational credentials stay out of the agent process.** Tend
-   verifies the exact generated workflows, reserves its environment for them,
+2. **Tend's operational credentials stay out of the agent process.** In
+   yolo, Tend also verifies the exact generated workflows, reserves its environment for them,
    and rejects other workflows whose environment use is dynamic or hidden in
    an external or ref-qualified reusable workflow. Their harness isolates
    the long-lived credentials from the agent. In yolo, runner-side setup may
