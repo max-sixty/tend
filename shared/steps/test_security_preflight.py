@@ -6,8 +6,17 @@ import subprocess
 import pytest
 import security_preflight
 from _fakes import FakeGh
+from tend.workflows import codeowners_config
 
 REPO = "owner/repo"
+
+
+def _generated_codeowners(existing: str | None = None) -> str:
+    """What `tend init` writes, so the preflight's copy of the block is checked
+    against the generator's rather than against a third copy here."""
+    content = codeowners_config(existing, "@octocat")
+    assert content is not None
+    return content
 
 
 @pytest.fixture(autouse=True)
@@ -70,22 +79,7 @@ def _codeowners(fake_gh: FakeGh) -> None:
             }
         },
     )
-    content = (
-        "# BEGIN tend control plane\n"
-        "/.github/** @octocat\n"
-        "/.config/tend.yaml @octocat\n"
-        "/CODEOWNERS @octocat\n"
-        "/docs/CODEOWNERS @octocat\n"
-        "**/CLAUDE.md @octocat\n"
-        "**/CLAUDE.local.md @octocat\n"
-        "**/AGENTS.md @octocat\n"
-        "**/AGENTS.override.md @octocat\n"
-        "**/.claude @octocat\n"
-        "**/.claude/** @octocat\n"
-        "**/.agents @octocat\n"
-        "**/.agents/** @octocat\n"
-        "# END tend control plane\n"
-    )
+    content = _generated_codeowners()
     fake_gh.respond(
         "api",
         f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main",
@@ -133,22 +127,7 @@ def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file(
             }
         },
     )
-    content = (
-        "# BEGIN tend control plane\n"
-        "/.github/** @octocat\n"
-        "/.config/tend.yaml @octocat\n"
-        "/CODEOWNERS @octocat\n"
-        "/docs/CODEOWNERS @octocat\n"
-        "**/CLAUDE.md @octocat\n"
-        "**/CLAUDE.local.md @octocat\n"
-        "**/AGENTS.md @octocat\n"
-        "**/AGENTS.override.md @octocat\n"
-        "**/.claude @octocat\n"
-        "**/.claude/** @octocat\n"
-        "**/.agents @octocat\n"
-        "**/.agents/** @octocat\n"
-        "# END tend control plane\n"
-    )
+    content = _generated_codeowners()
 
     def not_found(args: tuple[str, ...], stdin: str | None) -> str:
         raise subprocess.CalledProcessError(
@@ -169,6 +148,21 @@ def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file(
         "api", f"repos/{REPO}/codeowners/errors?ref=main", with_={"errors": []}
     )
 
+    assert security_preflight.has_valid_control_plane_codeowners(
+        REPO, "main", "@octocat"
+    )
+
+
+def test_control_plane_codeowners_accepts_the_generated_block_after_consumer_rules(
+    fake_gh: FakeGh,
+) -> None:
+    _codeowners(fake_gh)
+    content = _generated_codeowners("* @someone-else\n/docs/ @docs-team\n")
+    fake_gh.respond(
+        "api",
+        f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main",
+        with_={"content": base64.b64encode(content.encode()).decode()},
+    )
     assert security_preflight.has_valid_control_plane_codeowners(
         REPO, "main", "@octocat"
     )
