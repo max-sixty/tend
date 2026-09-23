@@ -525,10 +525,13 @@ descriptors, copies regular files only, and enforces per-file, total-byte, and
 file-count bounds. Symlinks, devices, and FIFOs never enter the runner-owned
 artifact tree.
 
-The weekly subscription refresh job checks out no consumer code and gives Codex
-only Tend's fixed refresh prompt. Codex receives the full refresh bundle there;
-the environment-write PAT appears only in the separate publish step after
-Codex exits.
+When a repo owns subscription renewal, its weekly refresh job checks out no
+consumer code and gives Codex only Tend's fixed refresh prompt. Codex receives
+the full refresh bundle there; the environment-write PAT appears only in the
+separate publish step after Codex exits. Each repo-owned job needs a distinct
+full refresh-token chain. Alternatively, an external rotator owns one chain and
+publishes access-only `CODEX_AUTH_JSON` to its repos; their generated refresh
+workflows are disabled.
 
 **Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort

@@ -7,8 +7,9 @@ of building it if revisited.
 
 Pause Tend with `TEND_ENABLED=false` before merging the Codex config and
 workflows. Once they reach `main`, run
-`uv run --script ~/Mackup/scripts/rotate.py` to assign a Codex account, disable
-the generated refresh workflow, and publish its access-only credential. Restore
+`uv run --script ~/Mackup/scripts/rotate.py` to assign a Codex account and
+publish its access-only credential. The refresh workflow is omitted by
+`.config/tend.yaml`. Restore
 the previous variable value, verify a review or triage run, and confirm
 token-usage parsing reports non-zero values.
 
