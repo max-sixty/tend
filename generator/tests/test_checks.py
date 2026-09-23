@@ -3794,7 +3794,7 @@ def test_credential_environments_steerable_trigger_defeats_a_ref_policy() -> Non
     assert "`release`" in result.message
 
 
-def test_yolo_main_credentials_accept_a_steerable_trigger() -> None:
+def test_yolo_main_credentials_reject_a_steerable_trigger() -> None:
     fake = _credential_env_gh(
         {"deploy": (["DEPLOY_TOKEN"], _CUSTOM_POLICY, "branch main")},
         workflows={
@@ -3807,7 +3807,8 @@ def test_yolo_main_credentials_accept_a_steerable_trigger() -> None:
         result = check_credential_environments(
             "owner/repo", _config(merge="yolo"), ["main"]
         )
-    assert result.passed is True, result.message
+    assert result.passed is False
+    assert "`repository_dispatch`" in result.message
 
 
 def test_yolo_tag_only_credentials_still_reject_a_steerable_trigger() -> None:

@@ -1591,7 +1591,6 @@ def _policy_gate(
     admitted: list[str],
     tags_ok,
     steerable: frozenset[str],
-    yolo_default_branch: str | None = None,
 ) -> _Gap | None:
     """Why this environment's deployment policy does not gate the bot, or None.
 
@@ -1604,8 +1603,9 @@ def _policy_gate(
     covers would re-implement GitHub's matcher.
 
     A ref-gated policy still loses to a trigger the bot fires and steers
-    itself (`steerable`), unless it already admits yolo's bot-writable default
-    branch. Only the reviewer gate covers those for other refs. A workflow
+    itself (`steerable`), even if it admits yolo's bot-writable default branch:
+    a fixed workflow can let the event payload steer its credential use. Only
+    the reviewer gate covers those. A workflow
     carrying such a trigger counts even when an `if:` on the deploying job
     would skip that event — reading the expression to decide otherwise is the same
     re-implementation the pattern rule above declines, and the conservative
@@ -1658,10 +1658,7 @@ def _policy_gate(
                 f"admits '{p['name']}', which tend has not verified the bot "
                 "cannot write"
             )
-    admits_yolo_main = yolo_default_branch is not None and any(
-        p.get("type") == "branch" and p["name"] == yolo_default_branch for p in policies
-    )
-    if steerable and not admits_yolo_main:
+    if steerable:
         triggers = ", ".join(f"`{t}`" for t in sorted(steerable))
         # Not "admits only verified refs": a held `unverified` means one entry
         # didn't settle. The ref list is beside the point here anyway — the bot
@@ -1682,7 +1679,7 @@ def check_credential_environments(
 
     Yolo accepts generic credentials used by code merged to the default branch.
     The policy still refuses unverified branches, ungated tags, and triggers
-    that let the bot steer a run on a ref it cannot update. A non-bot reviewer
+    that let the bot steer a credential-bearing run's payload. A non-bot reviewer
     or a policy admitted by `_policy_gate` settles each environment. Tend's
     operational credentials have a separate, stricter check in
     `check_environment` and `check_yolo_workflows`.
@@ -1770,7 +1767,6 @@ def check_credential_environments(
             admitted,
             tags_ok,
             surface.env_steerable.get(normalized_env, frozenset()),
-            cfg.default_branch if cfg.merge == "yolo" else None,
         )
         if gap is None:
             continue
@@ -2583,11 +2579,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
     operational = operational_refs(results)
     results.append(check_environment(repo, operational))
     results.append(check_environment_deployments(repo))
-    results.append(
-        check_credential_environments(
-            repo, replace(cfg, default_branch=default_branch), operational
-        )
-    )
+    results.append(check_credential_environments(repo, cfg, operational))
     results.append(check_secrets(repo, required_secrets))
     if cfg.memory_gist:
         results.append(check_memory_gist_repository(repo))

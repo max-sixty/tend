@@ -226,8 +226,8 @@ place. Classify each remaining secret and act now — don't defer:
   cannot confirm gated: no reviewer and no policy, an unverified branch
   entry, tag entries without §3's all-tags ruleset, or a ref policy on an
   environment some workflow reaches on `release`, `repository_dispatch`, or
-  a `workflow_dispatch` with inputs, unless that policy admits yolo's
-  default branch. A half-migrated environment surfaces on the next check
+  a `workflow_dispatch` with inputs. This applies even when that policy
+  admits yolo's default branch. A half-migrated environment surfaces on the next check
   rather than passing silently.
 
   Migrate the secret: recreate it on the Environment, delete the
@@ -551,8 +551,8 @@ under maintainer mode or subject to yolo's control-plane rules, but the bot
 chooses when they fire and what payload they
 see. If a repo keeps one on a release/deploy workflow, gate that
 Environment with required reviewers before migrating release or deploy
-secrets to it, unless the policy admits yolo's default branch and that
-exposure is intentional.
+secrets to it. The payload can steer a fixed workflow even when its policy
+admits yolo's default branch.
 
 Run `uvx tend@latest check` after this section. It exits non-zero until
 the later steps set the secrets and grant the bot access; read its

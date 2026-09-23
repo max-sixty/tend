@@ -146,8 +146,8 @@ where a credential can live:
   (`credential-environments`): a required reviewer who is not the bot, or
   a deployment policy naming only branches verified under that mode and tags
   under an admin-only all-tags ruleset. A workflow reached on a trigger the
-  bot steers also needs a reviewer unless its policy admits yolo's default
-  branch. Yolo's verified default branch is intentionally
+  bot steers also needs a reviewer, including when its policy admits yolo's
+  default branch. Yolo's verified default branch is intentionally
   writable through pull requests; extra protected branches are not. This
   covers release tokens keyed on holding a credential rather than on any
   environment name. A credential
@@ -290,12 +290,11 @@ the merge gate, even when the ref policy admits only protected refs:
 tag operation, and the release's body and assets are the bot's own),
 `repository_dispatch` (`client_payload` wholesale), and a
 `workflow_dispatch` carrying inputs. A ref policy admitting only
-bot-inaccessible refs cannot gate these; only a required reviewer can. A
-yolo policy admitting the default branch already exposes its generic
-credentials to bot-merged code, so these triggers do not add a new boundary.
-For credentials that must stay beyond the bot's reach, a workflow using one
-of these triggers puts its secrets in an environment behind a required
-reviewer. The sweep verifies any such environment,
+bot-inaccessible refs cannot gate these; only a required reviewer can. Even
+when a yolo policy admits the default branch, a fixed workflow can pass the
+event payload to a credential-bearing step without running bot-merged code.
+Such a workflow puts its secrets in an environment behind a required reviewer.
+The sweep verifies any such environment,
 keyed on the credential rather than the name, with the bot excluded from
 the reviewer list since a bot that can approve its own run makes the wait
 a formality.

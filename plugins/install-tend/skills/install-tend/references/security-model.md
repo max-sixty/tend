@@ -102,8 +102,8 @@ Three triggers let a write-scoped bot supply the run's payload as well as
 fire it, at a ref the policy already admits: `release: published`
 (creating a release against an existing tag takes no tag operation),
 `repository_dispatch`, and a `workflow_dispatch` carrying inputs. Those
-need a required reviewer unless the policy admits yolo's default branch,
-which already exposes generic credentials to bot-merged code. A job
+need a required reviewer even if the policy admits yolo's default branch:
+their payload can steer a fixed credential-bearing workflow. A job
 requesting `id-token: write` outside any environment has no
 gate at all — the token carries no environment claim, and the bot can
 mint it from a branch it pushes. The canonical treatment, including which

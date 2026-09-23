@@ -202,7 +202,7 @@ before its first step. The credential check accepts the default branch as an
 explicit yolo risk. It checks other credential-holding environments — ones
 that store a secret or whose jobs request `id-token: write` — for a non-bot
 reviewer or a policy naming verified refs. A trigger the bot both fires and
-steers requires a reviewer unless the policy admits yolo's default branch.
+steers requires a reviewer even when the policy admits yolo's default branch.
 It flags any repo-level secret not explicitly
 listed in `secrets.allowed`, where the operational names are refused outright.
 `tend check --fix` creates the environment and sets its policy; moving the
