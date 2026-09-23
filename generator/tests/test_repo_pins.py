@@ -786,20 +786,16 @@ SKILLS_MEASURED_AT = 24
 
 
 def test_skill_frontmatter_is_loadable() -> None:
-    """Every `tend-ci-runner` skill's frontmatter parses and carries a trigger.
+    """Installed skill frontmatter parses and fits the discovery listing.
 
     The harness reads `name` and `description` out of this block to build the
     listing that is the plugin's index. An unquoted `: ` inside a description
     makes the block invalid YAML, and a description over the budget is truncated
     in the listing — either way the skill stops being findable at the moment it
-    is needed, with nothing failing. `install-tend` is out of scope: a person
-    reads its two descriptions and invokes them by name, so neither the budget
-    nor `internal` applies.
+    is needed, with nothing failing. Only bundled CI skills must be internal.
     """
     yaml = YAML(typ="safe", pure=True)
     broken = []
-    runner = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
-
     installed = sorted((REPO_ROOT / "plugins").glob("*/skills/*/SKILL.md"))
     assert len(installed) == SKILLS_MEASURED_AT, (
         f"{len(installed)} skills across both plugins, not the "
@@ -807,9 +803,7 @@ def test_skill_frontmatter_is_loadable() -> None:
         "share against the install, and move DESCRIPTION_BUDGET with the count"
     )
 
-    paths = sorted(runner.glob("*/SKILL.md"))
-
-    for path in paths:
+    for path in installed:
         name = path.relative_to(REPO_ROOT)
         head, _, _ = path.read_text().removeprefix("---\n").partition("\n---\n")
         try:
@@ -824,7 +818,9 @@ def test_skill_frontmatter_is_loadable() -> None:
             continue
         if front.get("name") != path.parent.name:
             broken.append(f"{name}: `name: {front.get('name')}` isn't the directory")
-        if not (front.get("metadata") or {}).get("internal"):
+        if "tend-ci-runner" in path.parts and not (front.get("metadata") or {}).get(
+            "internal"
+        ):
             broken.append(f"{name}: bundled skills are `metadata: internal: true`")
         description = front.get("description", "")
         if not description:

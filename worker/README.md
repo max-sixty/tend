@@ -234,11 +234,21 @@ deploy, CI handles subsequent deploys via
 [`../.github/workflows/worker-deploy.yaml`](../.github/workflows/worker-deploy.yaml),
 which authenticates with the `CLOUDFLARE_API_TOKEN` secret stored in the
 `cloudflare-deploy` GitHub environment (pinned to `main`, so PR-triggered
-workflow runs can't read it). That secret is a scoped token named
-`tend-ci-worker-deploy` (Workers Scripts + KV + Routes edit), generated to
-keep the account's Global API Key out of CI; regenerate at
-<https://dash.cloudflare.com/profile/api-tokens> with the "Edit Cloudflare
-Workers" template if it's ever lost.
+workflow runs can't read it).
+
+That secret is `Tend site deploy (CI)`, an account-owned token holding
+`Individual Workers Editor` on `tend-website`, `Workers Routes Write` on the
+`tend-src.com` zone, and `Account Settings Read`. The account also serves
+Leaf's Workers and other zones, and the per-Worker role refuses every Worker
+it does not name, so the token cannot change another Worker or zone. It needs
+no KV permission: the deploy binds the existing `CACHE` namespace by id.
+Cloudflare keys the scope to the Worker's script tag, so a recreated
+`tend-website` needs the token re-scoped.
+
+Recreate it under **Manage Account → Account API Tokens** with the Workers
+scope set to `tend-website`. Cloudflare refuses a per-Worker scope on a
+user-owned token, and the "Edit Cloudflare Workers" template grants every
+Worker and every zone in the account.
 
 ## Local development
 
