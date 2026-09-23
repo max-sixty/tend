@@ -399,19 +399,19 @@ uvx tend@latest check --fix --repo "$REPO"
 ```
 
 The command is expected to remain non-zero until later steps install the
-secrets. Fix every ref-protection finding now. Under `maintainer`, `Merge access`
+secrets. Fix every ref-protection finding now. Under `restricted`, `Merge access`
 keeps the default and extra protected branches admin-only. Under `yolo`, it
 targets only the default branch and grants the bot user a pull-request-only
 bypass, while `Control-plane review` requires a fresh,
 non-bypassable CODEOWNER approval for `.github/**` and
 `.config/tend.yaml`, including the CODEOWNERS files and agent instructions.
 `Protected branch access` keeps configured extra branches admin-only in yolo;
-an existing copy is retained when returning to maintainer. `Tag operations`
+an existing copy is retained when returning to restricted. `Tag operations`
 keeps all tags admin-only.
 
 Yolo bootstraps in two safe phases. Before the generated CODEOWNERS block and
 exact generated workflows are on the default branch, or while any credential
-check is unresolved, `--fix` keeps maintainer mode and refuses to grant the bot
+check is unresolved, `--fix` keeps restricted mode and refuses to grant the bot
 a bypass. Merge the install PR manually and fix any credential gates, then
 rerun this section; only then does it enable the pull-request-only bypass. Once
 that bypass is active, an unresolved prerequisite makes `--fix` preserve the
@@ -547,7 +547,7 @@ recipe: `release: published` (creating a release against an existing tag
 takes no tag operation, and its body and assets are the bot's),
 `repository_dispatch`, and a `workflow_dispatch` carrying inputs. Their
 workflow files still run from the default branch, so the code is reviewed
-under maintainer mode or subject to yolo's control-plane rules, but the bot
+under restricted mode or subject to yolo's control-plane rules, but the bot
 chooses when they fire and what payload they
 see. If a repo keeps one on a release/deploy workflow, gate that
 Environment with required reviewers before migrating release or deploy

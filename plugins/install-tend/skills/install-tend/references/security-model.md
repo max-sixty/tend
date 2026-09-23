@@ -9,7 +9,7 @@ the subset an installing agent needs.
 ## The chain: merge authority is explicit
 
 Tend runs an agent with write access on attacker-controlled input. The
-boundary is structural and policy-dependent. Under `maintainer`, the bot cannot
+boundary is structural and policy-dependent. Under `restricted`, the bot cannot
 update the default branch. Under `yolo`, it receives a pull-request-only
 bypass, but direct pushes remain blocked and `.github/**` plus
 `.config/tend.yaml` require a fresh CODEOWNER approval the bot cannot bypass.
@@ -29,11 +29,11 @@ Ref protection depends on the merge mode:
   and deletion with an admin bypass. In yolo, the bot also has a `pull_request`
   bypass, while `Control-plane review` layers fresh CODEOWNER approval over
   workflow and Tend-config paths.
-- **Updating extra protected branches.** In maintainer, `Merge access` protects
+- **Updating extra protected branches.** In restricted mode, `Merge access` protects
   them with an admin-only bypass, preserving existing targets and exclusions.
   In yolo, `Protected branch access` protects configured extra branches with
   an admin-only bypass. An existing `Protected branch access` ruleset remains
-  in place when returning to maintainer, rather than retiring old targets.
+  in place when returning to restricted mode, rather than retiring old targets.
 - **Operating on a tag.** A ruleset with the `creation` and `update`
   rules covering all tags (`~ALL` on a `tag`-target ruleset), admin-only
   bypass. Blocks the bot from pushing a new tag and from force-pushing
@@ -87,7 +87,7 @@ copies are deleted.
 
 Deploy and publish workflows declare their own Environments whose policies
 list verified refs, and their secrets live there rather than at repo level.
-Under maintainer mode the default branch is bot-inaccessible. Under yolo,
+Under restricted mode the default branch is bot-inaccessible. Under yolo,
 generic credentials used by default-branch jobs are deliberately reachable
 by bot-merged code; a credential that must stay beyond the bot belongs on
 tags or extra protected branches, or behind a non-bot reviewer. `tend check`
@@ -97,7 +97,7 @@ in the environment's name, so a trusted-publishing repo that stores nothing
 is swept the same way.
 
 Protection by ref holds only for a workflow whose sole path to invocation is
-updating a bot-inaccessible ref (`push: tags:`, or under maintainer `push:`
+updating a bot-inaccessible ref (`push: tags:`, or under restricted mode `push:`
 on the default branch). A yolo default-branch deploy grants its generic
 credentials to bot-merged code without an additional reviewer.
 Three triggers let a write-scoped bot supply the run's payload as well as

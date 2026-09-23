@@ -427,8 +427,8 @@ COMPOSITE_ACTIONS = (
 
 
 @pytest.mark.parametrize("action", COMPOSITE_ACTIONS)
-def test_credential_actions_cache_only_in_maintainer_mode(action: str) -> None:
-    """Only maintainer mode trusts main-branch code that can publish caches."""
+def test_credential_actions_cache_only_in_restricted_mode(action: str) -> None:
+    """Only restricted mode trusts main-branch code that can publish caches."""
     data = YAML(typ="safe").load((REPO_ROOT / action).read_text())
     restores = [
         step
@@ -437,8 +437,10 @@ def test_credential_actions_cache_only_in_maintainer_mode(action: str) -> None:
         in {"actions/cache", "actions/cache/restore"}
     ]
     if action != "codex/refresh/action.yaml":
-        assert restores, f"{action} must retain caching in maintainer mode"
-    assert all(step.get("if") == "inputs.merge == 'maintainer'" for step in restores)
+        assert restores, f"{action} must retain caching in restricted mode"
+        assert all(
+            step.get("if") == "inputs.merge == 'restricted'" for step in restores
+        )
 
 
 @pytest.mark.parametrize("action", COMPOSITE_ACTIONS)
@@ -944,7 +946,7 @@ def test_shipped_prompt_skill_tokens_resolve_to_a_bundled_skill() -> None:
             )
         for harness in prompt.SKILL_PREFIX:
             rendered = prompt.render(
-                text, bot_name="bot", merge="maintainer", harness=harness
+                text, bot_name="bot", merge="restricted", harness=harness
             )
             assert "${SKILL" not in rendered, (
                 f"{path.relative_to(REPO_ROOT)} has a malformed skill token; "

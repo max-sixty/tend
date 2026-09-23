@@ -5,7 +5,7 @@ step is ``id: security`` and a non-zero exit is what the "Report failure" step
 reads off ``steps.security.outcome``.
 
 The step runs with the bot's own token, so ``current_user_can_bypass`` is
-GitHub's direct answer. Maintainer mode requires a non-bypassable update rule.
+GitHub's direct answer. Restricted mode requires a non-bypassable update rule.
 Yolo requires the exact middle state: the bot may bypass an update rule only
 through a pull request, and a separate rule requires fresh CODEOWNER approval
 that the bot cannot bypass. Required reviews alone do not restrict a
@@ -14,7 +14,7 @@ write-access bot from approving another author's pull request.
 Decisions this encodes:
 
 - A ruleset whose ``current_user_can_bypass`` cannot be read proves nothing
-  either way. Maintainer mode may fall through to the branch-protected floor
+  either way. Restricted mode may fall through to the branch-protected floor
   only when GitHub's ruleset read is inconclusive; yolo fails closed because
   it needs the exact pull-request-only state.
 - Any readable value other than ``never`` counts as bypassable, JSON ``null``
@@ -232,7 +232,7 @@ def main() -> int:
     env = _common.require_env("GITHUB_REPOSITORY", "TEND_MERGE")
     repo = env["GITHUB_REPOSITORY"]
     merge = env["TEND_MERGE"]
-    if merge not in {"maintainer", "yolo"}:
+    if merge not in {"restricted", "yolo"}:
         return _common.fail(f"Unknown Tend merge mode: {merge}")
 
     # The two reads the gate cannot proceed without are left to raise. A red

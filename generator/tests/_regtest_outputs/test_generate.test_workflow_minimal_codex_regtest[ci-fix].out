@@ -45,7 +45,7 @@ jobs:
       - uses: max-sixty/tend/codex@X.Y.Z
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
-          merge: maintainer
+          merge: restricted
           control_plane_owner: ""
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}

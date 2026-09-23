@@ -95,7 +95,7 @@
    No `id-token: write`: nothing in the harness actions requests an OIDC
    token, and a job holding it can mint the repository's OIDC identity for
    any relying party whose trust policy doesn't pin the workflow and ref.
-   In maintainer mode, a consumer whose `setup:` authenticates over OIDC
+   In restricted mode, a consumer whose `setup:` authenticates over OIDC
    re-adds it with a `jobs.<name>.permissions` override. #}
 {% macro permissions(issues=True) %}
       contents: write
