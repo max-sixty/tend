@@ -6,6 +6,22 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.2
+
+### Improved
+
+- **Yolo mode permits runner-side `setup:` as a trial.** Setup runs on the default or PR base tree, and generated yolo checkouts do not persist the bot token in Git configuration. Action-based setup and workflow or job overrides remain disallowed. ([#1407](https://github.com/max-sixty/tend/pull/1407))
+
+### Fixed
+
+- **Yolo setup and checks handle the transition from maintainer mode.** `tend check --fix` can activate yolo when a credential environment admits the default branch, and workflow verification reports an unknown result when the canonical owner cannot be resolved. Review guidance also checks the PR state and head before merging. ([#1398](https://github.com/max-sixty/tend/pull/1398), [#1396](https://github.com/max-sixty/tend/pull/1396), [#1394](https://github.com/max-sixty/tend/pull/1394))
+- The nightly check uses the Tend version stamped into this repository's workflows, so a newer release's checks wait for workflow regeneration. ([#1406](https://github.com/max-sixty/tend/pull/1406))
+
+### Documentation
+
+- Tend's repository instructions now live in `AGENTS.md`, and the installer documents a separate Codex refresh-token chain for each repository. ([#1400](https://github.com/max-sixty/tend/pull/1400), [#1404](https://github.com/max-sixty/tend/pull/1404))
+- The yolo example lists agent instructions among paths requiring control-plane approval. ([#1399](https://github.com/max-sixty/tend/pull/1399))
+
 ## 0.3.1
 
 ### Improved
