@@ -6,6 +6,21 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.1
+
+### Improved
+
+- **Yolo permits generic deployment credentials on the default branch without a reviewer for each ordinary deployment.** Tend continues to require admin-gated tags and a reviewer for workflows whose event payload the bot can steer; its operational credentials retain their separate checks. ([#1390](https://github.com/max-sixty/tend/pull/1390))
+- **Installer guidance now walks through credential rotation as an operational procedure.** It preserves the active auth mode, verifies a replacement bot token before writing it, directs revocation of the old token at its issuer, and reports incomplete rotation when revocation cannot be verified. ([#1385](https://github.com/max-sixty/tend/pull/1385))
+
+### Documentation
+
+- The Worker setup documents its scoped deployment token. ([#1386](https://github.com/max-sixty/tend/pull/1386))
+
+### Internal
+
+- The Claude and Codex harnesses use Claude Code 2.1.280 and Codex 0.156.0. ([#1387](https://github.com/max-sixty/tend/pull/1387), [#1388](https://github.com/max-sixty/tend/pull/1388))
+
 ## 0.3.0
 
 ### Improved
