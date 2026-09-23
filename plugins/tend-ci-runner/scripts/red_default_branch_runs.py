@@ -11,9 +11,11 @@ red listing under-reports and the sweep can publish "the branch is green" while
 a failure stands on it. The closure read fails the other way, serving a green
 older than the true latest and leaving a fixed path reported as still red.
 
-Both are handled the same way: re-read each URL until two consecutive answers
-agree, then reduce across every answer seen -- union for the red rows, newest
-for the green.
+A stale snapshot can also be durable: a cached entry answers every read of its
+URL alike. So each read asks for a different `per_page`, which is a different
+URL, and reads continue until two consecutive answers agree over the rows both
+asked for. The answers are then reduced across every read -- union for the red
+rows, newest for the green -- so one fresh read wins outright.
 """
 
 from __future__ import annotations
@@ -59,45 +61,69 @@ def _rows(response: Any) -> list[dict[str, Any]]:
 
 
 class Listing(NamedTuple):
-    """One URL's answer: every row seen, the last page read, whether it settled.
+    """One listing's answer: every row seen, the settled page, whether that
+    page filled its `per_page`, and whether the reads settled.
 
     `rows` unions the reads so a row a later answer stopped returning is not
-    lost. `page` is the last answer alone -- the single page `per_page` bounded,
+    lost. `page` is one answer alone -- the single page `per_page` bounded,
     and so the only one that says how far the endpoint was read.
     """
 
     rows: list[dict[str, Any]]
     page: list[dict[str, Any]]
+    truncated: bool
     converged: bool
 
 
-def converged_read(url: str, *, quiet: bool = False) -> Listing:
+def page_sizes(first: int) -> list[int]:
+    """The `per_page` of each read: *first*, then stepping down from it, or up
+    where stepping down would reach an empty page."""
+    step = -1 if first >= MAX_READS else 1
+    return [first + step * read for read in range(MAX_READS)]
+
+
+def paged(url: str, per_page: int) -> str:
+    return f"{url}&per_page={per_page}"
+
+
+def converged_read(url: str, per_page: int, *, quiet: bool = False) -> Listing:
     """Read *url* until two consecutive answers agree; union what they returned.
 
     A stale page is internally coherent and `total_count` moves with it, so
-    agreement between consecutive reads is the only convergence signal the
-    response carries.
+    agreement between reads is the only convergence signal the response
+    carries -- and only between different URLs, since a cached entry agrees
+    with itself. Each read therefore takes the next of `page_sizes(per_page)`,
+    and two answers agree when they list the same rows up to the smaller size.
+    The settled page is the larger of the two.
     """
     seen: dict[int, dict[str, Any]] = {}
-    page: list[dict[str, Any]] = []
-    previous: list[int] | None = None
-    for _ in range(MAX_READS):
-        page = _rows(github_cli.json_call("api", url, quiet=quiet))
+    previous: tuple[list[dict[str, Any]], int] | None = None
+    for size in page_sizes(per_page):
+        page = _rows(github_cli.json_call("api", paged(url, size), quiet=quiet))
         for row in page:
             seen.setdefault(int(row["id"]), row)
-        ids = [int(row["id"]) for row in page]
-        if ids == previous:
-            return Listing(list(seen.values()), page, True)
-        previous = ids
-    return Listing(list(seen.values()), page, False)
+        if previous is not None:
+            common = min(size, previous[1])
+            if _ids(page)[:common] == _ids(previous[0])[:common]:
+                settled, settled_size = max(previous, (page, size), key=lambda p: p[1])
+                truncated = len(settled) >= settled_size
+                return Listing(list(seen.values()), settled, truncated, True)
+        previous = (page, size)
+    assert previous is not None
+    page, size = previous
+    return Listing(list(seen.values()), page, len(page) >= size, False)
+
+
+def _ids(page: list[dict[str, Any]]) -> list[int]:
+    return [int(row["id"]) for row in page]
 
 
 def green_url(repo: str, branch: str, path: str) -> str:
-    """The closure listing for the workflow file at *path*."""
+    """The closure listing for the workflow file at *path*, without its
+    `per_page`: only the newest row is needed, so the reads start at one."""
     basename = path.rsplit("/", 1)[-1]
     return (
-        f"repos/{repo}/actions/workflows/{basename}/runs"
-        f"?branch={branch}&status=success&per_page=1"
+        f"repos/{repo}/actions/workflows/{basename}/runs?branch={branch}&status=success"
     )
 
 
@@ -117,7 +143,7 @@ def latest_green(
     against `generated_greens` instead.
     """
     try:
-        listing = converged_read(green_url(repo, branch, path), quiet=True)
+        listing = converged_read(green_url(repo, branch, path), 1, quiet=True)
     except subprocess.CalledProcessError as error:
         if "HTTP 404" in (error.stderr or ""):
             return None, True
@@ -128,10 +154,11 @@ def latest_green(
 
 
 def generated_green_url(repo: str, branch: str, workflow_id: int) -> str:
-    """The closure listing for a generated workflow, addressed by its id."""
+    """The closure listing for a generated workflow, addressed by its id,
+    without its `per_page`."""
     return (
         f"repos/{repo}/actions/workflows/{workflow_id}/runs"
-        f"?branch={branch}&status=success&per_page={GREEN_PAGE}"
+        f"?branch={branch}&status=success"
     )
 
 
@@ -158,7 +185,7 @@ def generated_greens(
     """
     url = generated_green_url(repo, branch, workflow_id)
     try:
-        listing = converged_read(url, quiet=True)
+        listing = converged_read(url, GREEN_PAGE, quiet=True)
     except subprocess.CalledProcessError as error:
         if "HTTP 404" in (error.stderr or ""):
             return {}, True
@@ -185,17 +212,14 @@ def main(argv: list[str] | None = None) -> int:
     unconverged: list[str] = []
     floors: list[str] = []
     for conclusion in RED_CONCLUSIONS:
-        url = (
-            f"repos/{repo}/actions/runs"
-            f"?branch={branch}&status={conclusion}&per_page={PER_PAGE}"
-        )
-        listing = converged_read(url)
+        url = f"repos/{repo}/actions/runs?branch={branch}&status={conclusion}"
+        listing = converged_read(url, PER_PAGE)
         if not listing.converged:
-            unconverged.append(url)
+            unconverged.append(paged(url, PER_PAGE))
         # Truncation and the floor come from the settled page, not the union: a
         # stale read answers from its own window, so a union across the two
         # reaches back past everything the settled listing read.
-        if len(listing.page) >= PER_PAGE:
+        if listing.truncated:
             floors.append(min(row["created_at"] for row in listing.page))
         for row in listing.rows:
             red[int(row["id"])] = row
@@ -218,13 +242,16 @@ def main(argv: list[str] | None = None) -> int:
                     generated[workflow_id] = greens
                     if not converged:
                         unconverged.append(
-                            generated_green_url(repo, branch, workflow_id)
+                            paged(
+                                generated_green_url(repo, branch, workflow_id),
+                                GREEN_PAGE,
+                            )
                         )
                 closures[subject] = generated[workflow_id].get(row["name"])
             else:
                 green, converged = latest_green(repo, branch, row["path"])
                 if not converged:
-                    unconverged.append(green_url(repo, branch, row["path"]))
+                    unconverged.append(paged(green_url(repo, branch, row["path"]), 1))
                 closures[subject] = green["created_at"] if green else None
         closed_at = closures[subject]
         if closed_at and closed_at > row["created_at"]:
