@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import quote
@@ -2084,7 +2085,12 @@ def test_run_all_checks_with_explicit_repo() -> None:
     assert all(r.passed is True for r in results)
 
 
-def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
+def _yolo_main_deploy_gh(main_bypass: str):
+    """A yolo repo with a reviewer-less `deploy` environment admitting main.
+
+    *main_bypass* is the bot's verdict on main's update ruleset:
+    ``pull_requests_only`` once yolo is active, ``never`` before activation.
+    """
     base = _gh_all_pass("main", "release")
     codeowners = (
         "# BEGIN tend control plane\n"
@@ -2154,9 +2160,7 @@ def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
                 _make_branch_rules("creation", "update", "deletion", ruleset_id=3)
             )
         if url.endswith("rulesets/1"):
-            return _make_completed(
-                json.dumps({"current_user_can_bypass": "pull_requests_only"})
-            )
+            return _make_completed(json.dumps({"current_user_can_bypass": main_bypass}))
         if url.endswith("rulesets/2"):
             return _make_completed(
                 json.dumps(
@@ -2178,6 +2182,10 @@ def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
             return _make_completed(json.dumps({"current_user_can_bypass": "never"}))
         return base(*args, **kwargs)
 
+    return fake_gh
+
+
+def _run_yolo_checks(fake_gh) -> list[CheckResult]:
     cfg = _config(
         merge="yolo",
         control_plane_owner="@octocat",
@@ -2186,14 +2194,36 @@ def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks._gh", side_effect=fake_gh),
+        patch("tend.checks.detect_canonical_owner", return_value="owner"),
         patch(
             "tend.checks.check_yolo_workflows",
             return_value=CheckResult("yolo-workflows", True, ""),
         ),
     ):
-        results = run_all_checks(cfg, repo="owner/repo")
+        return run_all_checks(cfg, repo="owner/repo")
+
+
+def test_run_all_checks_yolo_accepts_main_deploy_without_reviewer() -> None:
+    results = _run_yolo_checks(_yolo_main_deploy_gh("pull_requests_only"))
 
     assert all(result.passed is True for result in results)
+
+
+def test_run_all_checks_yolo_accepts_main_deploy_before_activation() -> None:
+    """Before `--fix` grants yolo's bypass, main still carries maintainer's.
+
+    Its branch-protection check fails against the yolo expectation, which is
+    what `--fix` repairs. The deploy environment admitting main must not fail
+    with it: `credential-environments` is not fixable, so it would block the
+    activation that makes main pass, and yolo could never be switched on.
+    """
+    results = {
+        result.name: result
+        for result in _run_yolo_checks(_yolo_main_deploy_gh("never"))
+    }
+
+    assert results["branch-protection:main"].passed is False
+    assert results["credential-environments"].passed is True
 
 
 def test_run_all_checks_requires_auth_for_each_effective_harness() -> None:
@@ -3073,6 +3103,24 @@ def test_yolo_workflows_require_exact_generated_output() -> None:
         result = check_yolo_workflows("owner/repo", cfg)
     assert result.passed is False
     assert "tend-nightly.yaml" in result.message
+
+
+def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
+    """Without the owner, the expected output lacks the fork guard every
+    committed file carries, so a comparison could only report a false drift."""
+    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    current = replace(cfg, repo_owner="owner")
+    files = {w.filename: w.content for w in generate_all(current)}
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("tend.checks._gh", side_effect=_gh_all_pass()),
+        patch("tend.checks.detect_canonical_owner", return_value=None),
+        patch("tend.checks._fetch_workflow_files", return_value=files),
+    ):
+        results = run_all_checks(cfg, repo="owner/repo")
+
+    result = next(r for r in results if r.name == "yolo-workflows")
+    assert result.passed is None
 
 
 def test_yolo_workflows_reject_other_users_of_tend_environment() -> None:

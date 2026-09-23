@@ -80,6 +80,8 @@ CONTROL_PLANE_OWNER_ERROR = (
     "GitHub user, not the Tend bot account."
 )
 
+# The block `tend init` writes (tend.workflows.codeowners_config). The action
+# cannot import the generator, so the tests feed its output through this copy.
 CODEOWNERS_BEGIN = "# BEGIN tend control plane"
 CODEOWNERS_END = "# END tend control plane"
 CONTROL_PLANE_PATHS = (
