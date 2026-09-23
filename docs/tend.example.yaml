@@ -58,10 +58,11 @@ bot_name: my-project-bot
 # `maintainer` is the default: the bot can push branches and open PRs, but only an
 # admin can update the default branch. `yolo` lets the bot merge PRs into the
 # default branch while still blocking direct pushes. In yolo mode, `tend init`
-# owns a final CODEOWNERS block for `.github/**`, `.config/tend.yaml`, and the
-# CODEOWNERS files themselves. GitHub requires a fresh approval from the
-# configured maintainer user (never the bot or a team) before those control-plane
-# changes can merge.
+# owns a final CODEOWNERS block for `.github/**`, `.config/tend.yaml`, the
+# CODEOWNERS files themselves, and agent instructions at any depth (`CLAUDE.md`,
+# `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md`, `.claude/`, `.agents/`).
+# GitHub requires a fresh approval from the configured maintainer user (never the
+# bot or a team) before those control-plane changes can merge.
 #
 # merge: yolo
 # control_plane_owner: "@octocat"
