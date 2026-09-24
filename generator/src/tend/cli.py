@@ -11,6 +11,7 @@ import click
 
 from tend.checks import (
     CheckResult,
+    detect_authenticated_user,
     detect_canonical_owner,
     detect_default_branch,
     detect_repo,
@@ -24,7 +25,12 @@ from tend.checks import (
 )
 from tend.config import Config
 from tend.migrate import migrate_toml_to_yaml, render_toml_as_yaml
-from tend.workflows import actionlint_config, codeowners_config, generate_all
+from tend.workflows import (
+    actionlint_config,
+    codeowners_config,
+    control_plane_block,
+    generate_all,
+)
 
 
 def _detect_default_branch_local() -> str:
@@ -75,14 +81,13 @@ def _update_actionlint_config(dry_run: bool) -> None:
     click.echo(f"  wrote {path}")
 
 
-def _update_codeowners(owner: str | None, dry_run: bool) -> None:
-    """Put Tend's ownership rules in the effective CODEOWNERS file."""
+def _codeowners_path() -> Path:
     candidates = (
         Path(".github/CODEOWNERS"),
         Path("CODEOWNERS"),
         Path("docs/CODEOWNERS"),
     )
-    path = next(
+    return next(
         (
             candidate
             for candidate in candidates
@@ -90,15 +95,19 @@ def _update_codeowners(owner: str | None, dry_run: bool) -> None:
         ),
         candidates[0],
     )
-    if owner and any(part.is_symlink() for part in (path, *path.parents)):
-        raise click.ClickException(
-            f"{path} must be a regular file in the repository for yolo; "
-            "replace its symbolic link before running tend init"
-        )
+
+
+def _update_codeowners(owner: str | None, dry_run: bool) -> None:
+    """Put Tend's ownership rules in the effective CODEOWNERS file."""
+    path = _codeowners_path()
     existing = path.read_text(encoding="utf-8") if path.exists() else None
     updated = codeowners_config(existing, owner)
     if updated is None:
         return
+    if any(part.is_symlink() for part in (path, *path.parents)):
+        raise click.ClickException(
+            f"{path} must be a regular file in the repository, not a symbolic link"
+        )
     if dry_run:
         click.echo(f"  would update {path} (tend control-plane ownership)")
         return
@@ -210,12 +219,8 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
 
     workflows = generate_all(cfg, with_install_test=with_install_test)
 
-    _update_codeowners(
-        cfg.control_plane_owner
-        if cfg.merge_policy.requires_control_plane_review
-        else None,
-        dry_run,
-    )
+    if not cfg.merge_policy.requires_control_plane_review:
+        _update_codeowners(None, dry_run)
 
     if workflows and not dry_run:
         outdir.mkdir(parents=True, exist_ok=True)
@@ -316,6 +321,39 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
     if default_branch is None:
         click.echo(f"Could not detect the default branch for {repo} — not fixing.")
         raise SystemExit(1)
+
+    if cfg.merge == "yolo" and any(
+        r.name == "control-plane-codeowners" and r.passed is False for r in results
+    ):
+        local_repo = detect_repo()
+        if local_repo is None or local_repo.casefold() != repo.casefold():
+            click.echo(
+                "Control-plane ownership fix requires the target repository checkout."
+            )
+        else:
+            path = _codeowners_path()
+            if any(part.is_symlink() for part in (path, *path.parents)):
+                click.echo(f"{path} must be a regular file for yolo.")
+            else:
+                content = path.read_text(encoding="utf-8") if path.exists() else ""
+                if control_plane_block(content, cfg.bot_name) is not None:
+                    click.echo(
+                        "Review the existing control-plane CODEOWNERS block, "
+                        "commit any correction, and rerun `tend check --fix`."
+                    )
+                else:
+                    login = detect_authenticated_user()
+                    if login is None or login.casefold() == cfg.bot_name.casefold():
+                        click.echo(
+                            "Sign in to gh as a maintainer other than the Tend bot "
+                            "to fix CODEOWNERS."
+                        )
+                    else:
+                        _update_codeowners(f"@{login}", dry_run=False)
+                        click.echo(
+                            "Commit and merge the CODEOWNERS change, then rerun "
+                            "`tend check --fix`."
+                        )
 
     fixed_any = False
     rules_fixable = any(

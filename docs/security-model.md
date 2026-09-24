@@ -116,12 +116,13 @@ preflight settles for the branch-protected floor; yolo fails closed because it
 must verify the exact middle state.
 
 Yolo adds `Control-plane review`, a default-branch pull-request rule that the
-bot cannot bypass. `tend init` puts a managed block last in the effective
+bot cannot bypass. `tend check` verifies a managed block last in the effective
 CODEOWNERS file, assigning `/.github/**`, `/.config/tend.yaml`, and every
-possible CODEOWNERS location to `control_plane_owner`. The block also covers
+possible CODEOWNERS location to independent GitHub users. The block also covers
 every `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md`,
-`.claude/`, and `.agents/` path because these files steer later agent runs. The owner must be one
-maintainer GitHub user distinct from the bot. Protecting the ownership files
+`.claude/`, and `.agents/` path because these files steer later agent runs. Each path
+may name several users, but none may be the bot or a team. `tend check --fix`
+creates the block using the authenticated `gh` user. Protecting the ownership files
 themselves prevents the bot from replacing the effective one before changing
 another control-plane path. GitHub therefore admits ordinary PRs with zero
 blanket approvals, but requires a fresh owner approval for control-plane

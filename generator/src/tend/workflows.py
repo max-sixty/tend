@@ -6,6 +6,7 @@ import copy
 import dataclasses
 import importlib.resources
 import io
+import re
 import sys
 import textwrap
 from collections.abc import Callable
@@ -122,6 +123,27 @@ CONTROL_PLANE_PATHS = (
     "**/.agents",
     "**/.agents/**",
 )
+
+
+def control_plane_block(content: str, bot_name: str) -> list[str] | None:
+    """Return the final managed block if every path excludes the Tend bot."""
+    lines = content.rstrip().splitlines()
+    if lines.count(CODEOWNERS_BEGIN) != 1 or lines.count(CODEOWNERS_END) != 1:
+        return None
+    block = lines[lines.index(CODEOWNERS_BEGIN) :]
+    if len(block) != len(CONTROL_PLANE_PATHS) + 2 or block[-1] != CODEOWNERS_END:
+        return None
+    for path, line in zip(CONTROL_PLANE_PATHS, block[1:-1], strict=True):
+        parts = line.split()
+        if len(parts) < 2 or parts[0] != path:
+            return None
+        if any(
+            not re.fullmatch(r"@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", owner)
+            or owner.casefold() == f"@{bot_name}".casefold()
+            for owner in parts[1:]
+        ):
+            return None
+    return block
 
 
 # Available to every template without being passed to render().

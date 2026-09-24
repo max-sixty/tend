@@ -54,9 +54,8 @@ from tend.config import (
 )
 from tend.workflows import (
     CODEOWNERS_BEGIN,
-    CODEOWNERS_END,
-    CONTROL_PLANE_PATHS,
     TEND_ENVIRONMENT,
+    control_plane_block,
     generate_all,
 )
 
@@ -149,6 +148,15 @@ def detect_repo() -> str | None:
     if result and result.returncode == 0:
         repo = result.stdout.strip()
         return repo or None
+    return None
+
+
+def detect_authenticated_user() -> str | None:
+    """Return the GitHub login whose credentials `gh` is using."""
+    result = _gh("api", "user", "--jq", ".login")
+    if result and result.returncode == 0:
+        login = result.stdout.strip()
+        return login or None
     return None
 
 
@@ -478,17 +486,10 @@ def _default_branch_file(repo: str, branch: str, path: str) -> str | None | obje
 
 
 def check_control_plane_codeowners(
-    repo: str, branch: str, owner: str, bot_name: str
+    repo: str, branch: str, bot_name: str
 ) -> CheckResult:
     """Check that Tend's final CODEOWNERS block protects its control plane."""
     name = "control-plane-codeowners"
-    if owner.casefold() == f"@{bot_name}".casefold():
-        return CheckResult(
-            name,
-            False,
-            "control_plane_owner is the Tend bot; yolo requires an independent "
-            "GitHub user.",
-        )
     for path in (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"):
         content = _default_branch_file(repo, branch, path)
         if content is _FILE_ABSENT:
@@ -496,15 +497,8 @@ def check_control_plane_codeowners(
         if content is None:
             return CheckResult(name, None, f"Could not read {path} from {branch}")
         assert isinstance(content, str)
-        lines = [CODEOWNERS_BEGIN]
-        lines.extend(f"{protected} {owner}" for protected in CONTROL_PLANE_PATHS)
-        lines.append(CODEOWNERS_END)
-        block = "\n".join(lines)
-        if (
-            content.count(CODEOWNERS_BEGIN) == 1
-            and content.count(CODEOWNERS_END) == 1
-            and content.rstrip().endswith(block)
-        ):
+        block = control_plane_block(content, bot_name)
+        if block is not None:
             # Contents dereferences in-repository symlinks and even labels them
             # `file`. Only the Git tree establishes that ownership lives here,
             # rather than in a target outside the protected paths.
@@ -558,7 +552,7 @@ def check_control_plane_codeowners(
                 return CheckResult(
                     name, None, "GitHub returned unreadable CODEOWNERS errors"
                 )
-            managed_lines = range(begin_line, begin_line + len(lines))
+            managed_lines = range(begin_line, begin_line + len(block))
             managed_errors = [
                 error
                 for error in errors
@@ -570,27 +564,27 @@ def check_control_plane_codeowners(
                 return CheckResult(
                     name,
                     False,
-                    "GitHub reports an error in Tend's generated CODEOWNERS block; "
-                    "verify that control_plane_owner exists and has repository "
+                    "GitHub reports an error in Tend's control-plane CODEOWNERS block; "
+                    "verify that each listed owner exists and has repository "
                     "write access.",
                 )
             return CheckResult(
                 name,
                 True,
-                f"{path} gives {owner} final ownership of Tend's control plane.",
+                f"{path} gives independent users final ownership of Tend's control plane.",
             )
         return CheckResult(
             name,
             False,
-            f"{path} does not end with Tend's generated control-plane ownership "
-            "block. Run `tend init`, commit it, and merge it before `tend check "
-            "--fix` enables yolo merge mode.",
+            f"{path} needs a final control-plane block with GitHub users other "
+            "than the bot for every protected path. Run `tend check --fix`, "
+            "commit it, and merge it before enabling yolo merge mode.",
         )
     return CheckResult(
         name,
         False,
         "No effective CODEOWNERS file exists on the default branch. Run `tend "
-        "init`, commit it, and merge it before `tend check --fix` enables yolo "
+        "check --fix`, commit it, and merge it before yolo "
         "merge mode.",
     )
 
@@ -640,7 +634,7 @@ def check_control_plane_ruleset(repo: str, branch: str, bot_name: str) -> CheckR
         name,
         False,
         "No active rule requires fresh, non-bypassable CODEOWNER approval. "
-        "Run `tend check --fix` after the generated CODEOWNERS block is on the "
+        "Run `tend check --fix` after the control-plane CODEOWNERS block is on the "
         "default branch.",
     )
 
@@ -2564,9 +2558,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
     if cfg.merge_policy.requires_control_plane_review:
         owner = detect_canonical_owner(repo)
         results.append(
-            check_control_plane_codeowners(
-                repo, default_branch, cfg.control_plane_owner, cfg.bot_name
-            )
+            check_control_plane_codeowners(repo, default_branch, cfg.bot_name)
         )
         results.append(check_control_plane_ruleset(repo, default_branch, cfg.bot_name))
         # Without the owner the expected output drops the fork guard every
