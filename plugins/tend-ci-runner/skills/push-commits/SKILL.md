@@ -12,6 +12,10 @@ metadata:
 - [Merging upstream into PR branches](#merging-upstream-into-pr-branches)
 - [A terminal action collides with branch state, not comments](#a-terminal-action-collides-with-branch-state-not-comments)
 
+## Required skills
+
+- Load `/tend-ci-runner:code-review` when **Review the change before the push** calls for a structured pass.
+
 ## Pushing to PR branches
 
 Always use `git push` without specifying a remote — `gh pr checkout` configures tracking to the correct remote, including for fork PRs. Specifying `origin` explicitly can push to the wrong place.

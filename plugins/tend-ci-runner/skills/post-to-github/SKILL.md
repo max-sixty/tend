@@ -13,6 +13,12 @@ In the order a post takes:
 - [Where the reply goes](#where-the-reply-goes)
 - [Before posting](#before-posting)
 
+## Required skills
+
+- Load `/tend-ci-runner:run-tend` for the reader-facing prose rules.
+- Load `/tend-ci-runner:ground-claims` before posting a factual claim.
+- Load `/tend-ci-runner:respond-on-thread` before replying to an existing issue or PR thread.
+
 ## Composing the body
 
 Write the content per **Reader-facing prose** in `/tend-ci-runner:run-tend`. The rules below keep it rendering and linking correctly.

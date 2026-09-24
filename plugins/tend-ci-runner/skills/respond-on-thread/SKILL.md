@@ -12,6 +12,10 @@ metadata:
 - [Triggering issue/PR already closed](#triggering-issuepr-already-closed)
 - [Whether to respond](#whether-to-respond)
 
+## Required skills
+
+- Load `/tend-ci-runner:post-to-github` before composing a response.
+
 ## Read the thread
 
 Read the full context before responding. The prompt provides a URL — extract the PR/issue number from it.

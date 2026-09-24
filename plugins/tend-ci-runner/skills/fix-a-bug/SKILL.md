@@ -9,6 +9,11 @@ metadata:
 
 The gates every fix attempt clears, whichever workflow you are running.
 
+## Required skills
+
+- Load `/tend-ci-runner:propose-instructions` if the fix edits a skill or instruction file.
+- Load `/tend-ci-runner:push-commits` before reviewing the fix for a push.
+
 ## Reproduce first
 
 1. **Understand the report** — What command was run? What was expected? What actually happened?

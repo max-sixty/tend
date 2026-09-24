@@ -13,6 +13,12 @@ After pushing, what to do depends on whether a red result creates a follow-up.
 
 **Nothing gated** (review-only, a reply, a no-op): end, stating anything still in flight. Don't background-poll — the completion notification isn't reliably delivered to a CI session.
 
+## Required skills
+
+- Load `/tend-ci-runner:dismiss-approval` if an approved PR turns red.
+- Load `/tend-ci-runner:fix-a-bug` and `/tend-ci-runner:push-commits` before fixing and pushing a red check.
+- Load `/tend-ci-runner:post-to-github` before composing a comment about unaddressed findings.
+
 Poll with the bundled script, pinned to the commit this session is accountable for — never the PR's current head: another actor can advance the head while the loop sleeps, and a poll that follows it reports *their* commit's results as yours:
 
 ```bash

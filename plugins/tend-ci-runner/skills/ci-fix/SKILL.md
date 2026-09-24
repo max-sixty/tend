@@ -15,9 +15,13 @@ durable cause, and create a PR when code or configuration needs to change.
 
 ## Workflow
 
-### 0. Load environment skills
+### 0. Load required skills
 
-Load `/tend-ci-runner:run-tend` first — it contains CI security rules and comment formatting, and it will prompt you to load any repo-specific skills (e.g., `running-tend`). This job diagnoses a failure and then either opens a PR or files an issue, so load `/tend-ci-runner:fix-a-bug`, `/tend-ci-runner:open-pr`, `/tend-ci-runner:post-to-github`, `/tend-ci-runner:push-commits`, and `/tend-ci-runner:monitor-ci` once you know which path you are on.
+- Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay.
+- Load `/tend-ci-runner:fix-a-bug` before attempting a fix.
+- Load `/tend-ci-runner:post-to-github` before composing a comment, issue, or PR body.
+- Load `/tend-ci-runner:open-pr` before opening an issue or PR.
+- Load `/tend-ci-runner:push-commits` before pushing a fix and `/tend-ci-runner:monitor-ci` after it.
 
 ### 1. Check for existing fixes
 
