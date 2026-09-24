@@ -32,6 +32,7 @@ from tend.workflows import (
     _deep_merge,
     _inline_script,
     codeowners_config,
+    control_plane_block,
     generate_all,
     generate_codex_auth_refresh,
     generate_install_test,
@@ -66,7 +67,7 @@ def test_codeowners_block_is_final_and_idempotent() -> None:
         * @fallback
         """)
 
-    updated = codeowners_config(existing, "@octo-org/security")
+    updated = codeowners_config(existing, "@alice @bob")
 
     assert updated == dedent(f"""\
         *.py @python-team
@@ -75,21 +76,50 @@ def test_codeowners_block_is_final_and_idempotent() -> None:
         * @fallback
 
         {CODEOWNERS_BEGIN}
-        /.github/** @octo-org/security
-        /.config/tend.yaml @octo-org/security
-        /CODEOWNERS @octo-org/security
-        /docs/CODEOWNERS @octo-org/security
-        **/CLAUDE.md @octo-org/security
-        **/CLAUDE.local.md @octo-org/security
-        **/AGENTS.md @octo-org/security
-        **/AGENTS.override.md @octo-org/security
-        **/.claude @octo-org/security
-        **/.claude/** @octo-org/security
-        **/.agents @octo-org/security
-        **/.agents/** @octo-org/security
+        /.github/** @alice @bob
+        /.config/tend.yaml @alice @bob
+        /CODEOWNERS @alice @bob
+        /docs/CODEOWNERS @alice @bob
+        **/CLAUDE.md @alice @bob
+        **/CLAUDE.local.md @alice @bob
+        **/AGENTS.md @alice @bob
+        **/AGENTS.override.md @alice @bob
+        **/.claude @alice @bob
+        **/.claude/** @alice @bob
+        **/.agents @alice @bob
+        **/.agents/** @alice @bob
         {CODEOWNERS_END}
         """)
-    assert codeowners_config(updated, "@octo-org/security") is None
+    assert codeowners_config(updated, "@alice @bob") is None
+
+
+def test_control_plane_block_requires_independent_owners_on_every_path() -> None:
+    content = codeowners_config(None, "@alice @bob")
+    assert content is not None
+    assert control_plane_block(content, "tend-bot") is not None
+    assert (
+        control_plane_block(
+            content.replace("/.github/** @alice @bob", "/.github/** @alice @tend-bot"),
+            "tend-bot",
+        )
+        is None
+    )
+    assert (
+        control_plane_block(
+            content.replace(
+                "/.config/tend.yaml @alice @bob", "/.config/tend.yaml @org/team"
+            ),
+            "tend-bot",
+        )
+        is None
+    )
+    assert (
+        control_plane_block(
+            content.replace("/CODEOWNERS @alice @bob", "/CODEOWNERS"),
+            "tend-bot",
+        )
+        is None
+    )
 
 
 def test_codeowners_rejects_a_malformed_managed_block() -> None:
@@ -200,7 +230,7 @@ def test_setup_steps_rendered(tmp_path: Path, merge: str) -> None:
           - run: echo FOO=bar >> $GITHUB_ENV
     """)
     if merge == "yolo":
-        extra += 'merge: yolo\ncontrol_plane_owner: "@octocat"\n'
+        extra += "merge: yolo\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     for wf in without_relay(generate_all(cfg)):
         assert "./.github/actions/my-setup" in wf.content, (

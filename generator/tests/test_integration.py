@@ -23,8 +23,8 @@ from tend.cli import main
 from tend.workflows import (
     ACTIONLINT_QUEUE_IGNORE,
     ACTIONLINT_TEND_GLOB,
-    CODEOWNERS_BEGIN,
-    CODEOWNERS_END,
+    CONTROL_PLANE_PATHS,
+    codeowners_config,
 )
 
 from tests import ACTION_VERSION, BASH, UV, tool_path
@@ -224,7 +224,7 @@ def test_init_writes_only_paths_the_regeneration_checks_stage(
     """
     config = "bot_name: test-bot"
     if codeowners_path is not None:
-        config += '\nmerge: yolo\ncontrol_plane_owner: "@octocat"'
+        config += "\nmerge: yolo"
         codeowners = tmp_path / codeowners_path
         codeowners.parent.mkdir(parents=True, exist_ok=True)
         codeowners.write_text("*.py @python-team\n")
@@ -535,7 +535,7 @@ def test_init_wires_detected_owner_into_workflows(
 
 
 @pytest.mark.parametrize("codeowners_path", ["CODEOWNERS", "docs/CODEOWNERS"])
-def test_yolo_init_manages_the_effective_codeowners_file(
+def test_yolo_init_leaves_the_effective_codeowners_file_for_check_fix(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codeowners_path: str
 ) -> None:
     _write_config(
@@ -543,7 +543,6 @@ def test_yolo_init_manages_the_effective_codeowners_file(
         dedent("""\
             bot_name: test-bot
             merge: yolo
-            control_plane_owner: "@octocat"
             """),
     )
     codeowners = tmp_path / codeowners_path
@@ -555,23 +554,7 @@ def test_yolo_init_manages_the_effective_codeowners_file(
 
     assert result.exit_code == 0
     assert not (tmp_path / ".github" / "CODEOWNERS").exists()
-    content = codeowners.read_text()
-    assert content.endswith(
-        f"{CODEOWNERS_BEGIN}\n"
-        "/.github/** @octocat\n"
-        "/.config/tend.yaml @octocat\n"
-        "/CODEOWNERS @octocat\n"
-        "/docs/CODEOWNERS @octocat\n"
-        "**/CLAUDE.md @octocat\n"
-        "**/CLAUDE.local.md @octocat\n"
-        "**/AGENTS.md @octocat\n"
-        "**/AGENTS.override.md @octocat\n"
-        "**/.claude @octocat\n"
-        "**/.claude/** @octocat\n"
-        "**/.agents @octocat\n"
-        "**/.agents/** @octocat\n"
-        f"{CODEOWNERS_END}\n"
-    )
+    assert codeowners.read_text() == "*.py @python-team\n"
     workflow = (_workflow_dir(tmp_path) / "tend-nightly.yaml").read_text()
     assert "merge: yolo" in workflow
 
@@ -587,7 +570,6 @@ def test_yolo_init_output_passes_exact_workflow_check_with_same_context(
         dedent("""\
             bot_name: test-bot
             merge: yolo
-            control_plane_owner: "@octocat"
             """),
         encoding="utf-8",
     )
@@ -649,12 +631,12 @@ def test_yolo_init_output_passes_exact_workflow_check_with_same_context(
 
 
 @pytest.mark.parametrize("target_exists", [False, True])
-def test_yolo_init_rejects_codeowners_symlink_without_writing(
+def test_yolo_check_fix_rejects_codeowners_symlink_without_writing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target_exists: bool
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     target = tmp_path / "owners.txt"
@@ -663,10 +645,11 @@ def test_yolo_init_rejects_codeowners_symlink_without_writing(
         target.write_text(original)
     (tmp_path / "CODEOWNERS").symlink_to(target)
 
-    result = _run_init()
+    from tend.cli import _update_codeowners
 
-    assert result.exit_code == 1, result.output
-    assert "symbolic link" in result.output
+    with pytest.raises(click.ClickException, match="symbolic link"):
+        _update_codeowners("@octocat", dry_run=False)
+
     assert not _workflow_dir(tmp_path).exists()
     assert target.exists() == target_exists
     if target_exists:
@@ -682,7 +665,7 @@ def test_yolo_check_requires_verified_results(
     """An unreadable protection cannot report success, including after repair."""
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     unverified = [CheckResult("immutable-releases", None, "No published release")]
@@ -712,14 +695,90 @@ def test_yolo_init_dry_run_does_not_write_codeowners(
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
 
     result = _run_init(["--dry-run"])
 
     assert result.exit_code == 0
-    assert "would update .github/CODEOWNERS" in result.output
+    assert "would update .github/CODEOWNERS" not in result.output
+    assert not (tmp_path / ".github" / "CODEOWNERS").exists()
+
+
+def test_yolo_check_fix_uses_authenticated_user_and_preserves_local_owners(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_config(tmp_path, "bot_name: test-bot\nmerge: yolo\n")
+    monkeypatch.chdir(tmp_path)
+    failed = [CheckResult("control-plane-codeowners", False, "missing")]
+    with (
+        patch("tend.cli.run_all_checks", return_value=failed),
+        patch("tend.cli.detect_repo", return_value="owner/repo"),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch("tend.cli.detect_authenticated_user", return_value="alice") as identity,
+        patch("tend.cli.update_ruleset_bypass", return_value="pull_requests_only"),
+    ):
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+        assert result.exit_code == 1, result.output
+        path = tmp_path / ".github" / "CODEOWNERS"
+        assert path.read_text() == codeowners_config(None, "@alice")
+
+        owners = codeowners_config(None, "@alice @bob")
+        assert owners is not None
+        path.write_text(owners)
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+        assert result.exit_code == 1, result.output
+        assert path.read_text() == owners
+        assert all(
+            f"{protected} @alice @bob" in owners for protected in CONTROL_PLANE_PATHS
+        )
+
+        unrelated = "*.py @python\n\n"
+        path.write_text(unrelated + owners)
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+        assert result.exit_code == 1, result.output
+        assert path.read_text() == unrelated + owners
+        assert "Review the existing control-plane CODEOWNERS block" in result.output
+
+        path.write_text("*.py @python\n")
+        identity.return_value = "test-bot"
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+        assert result.exit_code == 1, result.output
+        assert "other than the Tend bot" in result.output
+        assert path.read_text() == "*.py @python\n"
+
+
+@pytest.mark.parametrize(
+    "local_repo,login", [(None, "alice"), ("owner/repo", "test-bot")]
+)
+def test_yolo_check_fix_keeps_remote_repairs_when_local_owner_cannot_be_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    local_repo: str | None,
+    login: str,
+) -> None:
+    _write_config(tmp_path, "bot_name: test-bot\nmerge: yolo\n")
+    monkeypatch.chdir(tmp_path)
+    failures = [
+        CheckResult("control-plane-codeowners", False, "missing"),
+        CheckResult("branch-protection:main", False, "missing"),
+    ]
+    with (
+        patch("tend.cli.run_all_checks", return_value=failures),
+        patch("tend.cli.detect_repo", return_value=local_repo),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch("tend.cli.detect_authenticated_user", return_value=login),
+        patch("tend.cli.update_ruleset_bypass", return_value="pull_requests_only"),
+        patch(
+            "tend.cli.fix_branch_protection",
+            return_value=CheckResult("branch-protection:main", False, "still missing"),
+        ) as fix_rules,
+    ):
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+
+    assert result.exit_code == 1, result.output
+    fix_rules.assert_called_once()
     assert not (tmp_path / ".github" / "CODEOWNERS").exists()
 
 

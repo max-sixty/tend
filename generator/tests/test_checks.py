@@ -71,7 +71,6 @@ def _config(
     model: str = "opus",
     memory_gist: bool = False,
     merge: str = "restricted",
-    control_plane_owner: str = "",
     workflows: dict[str, WorkflowConfig] | None = None,
 ) -> Config:
     """Build a Config for tests without hand-listing every positional arg."""
@@ -86,7 +85,6 @@ def _config(
         workflows=workflows or {},
         memory_gist=memory_gist,
         merge=merge,
-        control_plane_owner=control_plane_owner,
     )
 
 
@@ -615,6 +613,7 @@ def test_control_plane_codeowners_requires_regular_file(
         "**/.agents/** @octocat\n"
         "# END tend control plane\n"
     )
+    content = content.replace("@octocat\n", "@octocat @bob\n")
 
     def fake_gh(*args, **kwargs):
         if _url(args) == "graphql":
@@ -639,9 +638,7 @@ def test_control_plane_codeowners_requires_regular_file(
         return _make_completed(returncode=1)
 
     with patch("tend.checks._gh", side_effect=fake_gh):
-        result = check_control_plane_codeowners(
-            "owner/repo", "main", "@octocat", "my-bot"
-        )
+        result = check_control_plane_codeowners("owner/repo", "main", "my-bot")
 
     assert result.passed is passed
 
@@ -653,9 +650,7 @@ def test_control_plane_codeowners_does_not_skip_an_unreadable_higher_priority_fi
         "tend.checks._gh",
         return_value=_make_completed(returncode=1, stderr="HTTP 500"),
     ):
-        result = check_control_plane_codeowners(
-            "owner/repo", "main", "@octocat", "my-bot"
-        )
+        result = check_control_plane_codeowners("owner/repo", "main", "my-bot")
 
     assert result.passed is None
     assert ".github/CODEOWNERS" in result.message
@@ -698,19 +693,21 @@ def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file()
         return _make_completed(returncode=1)
 
     with patch("tend.checks._gh", side_effect=fake_gh):
-        result = check_control_plane_codeowners(
-            "owner/repo", "main", "@octocat", "my-bot"
-        )
+        result = check_control_plane_codeowners("owner/repo", "main", "my-bot")
 
     assert result.passed is True
     assert result.message.startswith("CODEOWNERS gives")
 
 
 def test_control_plane_codeowners_rejects_the_bot_as_owner() -> None:
-    result = check_control_plane_codeowners("owner/repo", "main", "@my-bot", "my-bot")
+    from tend.workflows import control_plane_block
 
-    assert result.passed is False
-    assert "independent GitHub user" in result.message
+    content = (
+        "# BEGIN tend control plane\n"
+        + "".join(f"{path} @octocat @my-bot\n" for path in CONTROL_PLANE_PATHS)
+        + "# END tend control plane\n"
+    )
+    assert control_plane_block(content, "my-bot") is None
 
 
 def test_control_plane_ruleset_must_not_be_bypassable_by_bot() -> None:
@@ -2188,7 +2185,6 @@ def _yolo_main_deploy_gh(main_bypass: str):
 def _run_yolo_checks(fake_gh) -> list[CheckResult]:
     cfg = _config(
         merge="yolo",
-        control_plane_owner="@octocat",
         protected_branches=["release"],
     )
     with (
@@ -2675,7 +2671,7 @@ def test_cli_check_fix_bootstraps_restricted_mode_while_other_refs_expose_creden
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     blocked = [
@@ -2707,7 +2703,7 @@ def test_cli_check_fix_creates_environment_during_yolo_bootstrap(
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     before = [
@@ -2770,7 +2766,7 @@ def test_cli_check_fix_does_not_create_environment_if_bootstrap_rules_fail(
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     before = [
@@ -2799,7 +2795,7 @@ def test_cli_check_fix_repairs_rules_without_demoting_live_yolo_access(
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     blocked = [
@@ -2828,7 +2824,7 @@ def test_cli_check_fix_leaves_rules_unchanged_when_yolo_access_is_unreadable(
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     blocked = [
@@ -2854,7 +2850,7 @@ def test_cli_check_fix_enables_yolo_only_after_prerequisites_pass(
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     before = [
@@ -3091,7 +3087,7 @@ def test_operational_refs_excludes_unverified_branches() -> None:
 
 
 def test_yolo_workflows_require_exact_generated_output() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
 
     with patch("tend.checks._fetch_workflow_files", return_value=files):
@@ -3108,7 +3104,7 @@ def test_yolo_workflows_require_exact_generated_output() -> None:
 def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
     """Without the owner, the expected output lacks the fork guard every
     committed file carries, so a comparison could only report a false drift."""
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     current = replace(cfg, repo_owner="owner")
     files = {w.filename: w.content for w in generate_all(current)}
     with (
@@ -3124,7 +3120,7 @@ def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
 
 
 def test_yolo_workflows_reject_other_users_of_tend_environment() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
     files["publish.yaml"] = """\
 on: push
@@ -3143,7 +3139,7 @@ jobs:
 
 
 def test_yolo_workflows_environment_names_are_case_insensitive() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
     files["publish.yaml"] = """\
 on: push
@@ -3162,7 +3158,7 @@ jobs:
 
 
 def test_yolo_workflows_reject_external_reusable_workflows() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
     files["publish.yaml"] = """\
 on: push
@@ -3180,7 +3176,7 @@ jobs:
 
 
 def test_yolo_workflows_reject_ref_qualified_same_repo_workflows() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
     files["publish.yaml"] = """\
 on: push
@@ -3198,7 +3194,7 @@ jobs:
 
 
 def test_yolo_workflows_reject_unresolved_environment_names() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
     files["publish.yaml"] = """\
 on: push
@@ -3564,7 +3560,7 @@ def test_credential_environments_accepts_tags_under_an_admin_ruleset() -> None:
 
 def test_yolo_keeps_tag_only_credentials_behind_admin_tags() -> None:
     release = {"release": (["PYPI_TOKEN"], _CUSTOM_POLICY, "tag v*")}
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     with patch(
         "tend.checks._gh",
         side_effect=_credential_env_gh(release, tag_rulesets={"7": _ADMIN_TAG_RULESET}),
