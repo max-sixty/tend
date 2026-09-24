@@ -401,6 +401,17 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
     return 3
 
 
+VERDICTS = {
+    "poll": {
+        0: "GREEN",
+        1: "RED",
+        2: "UNVERIFIED, not green",
+        3: "still pending at the cap — UNVERIFIED, not green",
+    },
+    "approval": {0: "approve", 1: "withhold", 2: "undecided — do not approve"},
+}
+
+
 def main(
     argv: list[str] | None = None, *, sleep: Callable[[float], None] = time.sleep
 ) -> int:
@@ -417,12 +428,14 @@ def main(
             file=sys.stderr,
         )
         return 2
-    if command == "approval":
-        return approval(pr, sha, sleep=sleep)
-    if command == "poll":
-        return poll(pr, sha, sleep=sleep)
-    print(f"unknown command: {command or '<none>'}", file=sys.stderr)
-    return 2
+    if command not in VERDICTS:
+        print(f"unknown command: {command or '<none>'}", file=sys.stderr)
+        return 2
+    code = (approval if command == "approval" else poll)(pr, sha, sleep=sleep)
+    # Sessions pipe this through `tail -N`, which drops the leading verdict
+    # behind a long check list, so the last line restates it.
+    print(f"verdict: {VERDICTS[command][code]} on {sha} (exit {code})")
+    return code
 
 
 if __name__ == "__main__":
