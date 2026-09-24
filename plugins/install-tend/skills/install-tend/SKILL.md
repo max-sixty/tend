@@ -102,9 +102,9 @@ itself the go-ahead.
    - **Maintainer** (recommended) — the bot opens and updates PRs; only admins can
      update the default branch.
    - **Yolo** — the bot may merge ordinary PRs, but cannot push directly.
-     Workflow and Tend-config changes require a fresh CODEOWNER approval;
-     ask for the one maintainer GitHub user to own them. Teams are not accepted
-     because Tend cannot prove the bot is not a member.
+     Workflow and Tend-config changes require a fresh approval from an independent
+     CODEOWNER. `tend check --fix` uses the authenticated `gh` user to create
+     the ownership block; more maintainers can be added to its lines.
 3. **Bot name** — the available candidates, recommended first. "Other"
    takes a custom name; check its availability before using it. The tool
    needs 2–4 options, so generate more candidates whenever fewer than two
@@ -178,9 +178,8 @@ README.md "Harnesses" for the comparison.
 
 ```yaml
 bot_name: <bot-name>
-# For autonomous merging (also set the owner selected at kickoff):
+# For autonomous merging:
 # merge: yolo
-# control_plane_owner: "@maintainer"
 # For Codex:
 # harness: codex
 # model: gpt-5.6-sol
@@ -409,7 +408,7 @@ non-bypassable CODEOWNER approval for `.github/**` and
 an existing copy is retained when returning to restricted. `Tag operations`
 keeps all tags admin-only.
 
-Yolo bootstraps in two safe phases. Before the generated CODEOWNERS block and
+Yolo bootstraps in two safe phases. Before the CODEOWNERS block and
 exact generated workflows are on the default branch, or while any credential
 check is unresolved, `--fix` keeps restricted mode and refuses to grant the bot
 a bypass. Merge the install PR manually and fix any credential gates, then
