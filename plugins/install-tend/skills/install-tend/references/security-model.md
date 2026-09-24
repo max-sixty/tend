@@ -15,8 +15,8 @@ bypass, but direct pushes remain blocked and `.github/**` plus
 `.config/tend.yaml` require a fresh CODEOWNER approval the bot cannot bypass.
 The ownership block also protects every possible CODEOWNERS file and every
 agent instruction path (`CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`,
-`AGENTS.override.md`, `.claude/`, and `.agents/`). Its owner must be a maintainer GitHub user
-distinct from the bot.
+`AGENTS.override.md`, `.claude/`, and `.agents/`). Each path names one or more
+GitHub users as owners; teams and the bot are not accepted.
 Preflight reads GitHub's `current_user_can_bypass` answer with the bot's own
 token and requires the exact configured state: `never` or
 `pull_requests_only`.
