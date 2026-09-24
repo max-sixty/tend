@@ -717,7 +717,6 @@ def test_yolo_check_fix_uses_authenticated_user_and_preserves_local_owners(
         patch("tend.cli.detect_repo", return_value="owner/repo"),
         patch("tend.cli.detect_default_branch", return_value="main"),
         patch("tend.cli.detect_authenticated_user", return_value="alice") as identity,
-        patch("tend.cli._default_branch_file", return_value=None) as remote_file,
         patch("tend.cli.update_ruleset_bypass", return_value="pull_requests_only"),
     ):
         result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
@@ -737,16 +736,50 @@ def test_yolo_check_fix_uses_authenticated_user_and_preserves_local_owners(
 
         unrelated = "*.py @python\n\n"
         path.write_text(unrelated + owners)
-        remote_file.return_value = owners
         result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
         assert result.exit_code == 1, result.output
-        assert path.read_text() == codeowners_config(unrelated + owners, "@alice")
+        assert path.read_text() == unrelated + owners
+        assert "Review the existing control-plane CODEOWNERS block" in result.output
 
+        path.write_text("*.py @python\n")
         identity.return_value = "test-bot"
         result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
         assert result.exit_code == 1, result.output
         assert "other than the Tend bot" in result.output
-        assert path.read_text() == codeowners_config(unrelated + owners, "@alice")
+        assert path.read_text() == "*.py @python\n"
+
+
+@pytest.mark.parametrize(
+    "local_repo,login", [(None, "alice"), ("owner/repo", "test-bot")]
+)
+def test_yolo_check_fix_keeps_remote_repairs_when_local_owner_cannot_be_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    local_repo: str | None,
+    login: str,
+) -> None:
+    _write_config(tmp_path, "bot_name: test-bot\nmerge: yolo\n")
+    monkeypatch.chdir(tmp_path)
+    failures = [
+        CheckResult("control-plane-codeowners", False, "missing"),
+        CheckResult("branch-protection:main", False, "missing"),
+    ]
+    with (
+        patch("tend.cli.run_all_checks", return_value=failures),
+        patch("tend.cli.detect_repo", return_value=local_repo),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch("tend.cli.detect_authenticated_user", return_value=login),
+        patch("tend.cli.update_ruleset_bypass", return_value="pull_requests_only"),
+        patch(
+            "tend.cli.fix_branch_protection",
+            return_value=CheckResult("branch-protection:main", False, "still missing"),
+        ) as fix_rules,
+    ):
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+
+    assert result.exit_code == 1, result.output
+    fix_rules.assert_called_once()
+    assert not (tmp_path / ".github" / "CODEOWNERS").exists()
 
 
 def test_check_passes_repo_flag(

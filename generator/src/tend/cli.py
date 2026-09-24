@@ -11,7 +11,6 @@ import click
 
 from tend.checks import (
     CheckResult,
-    _default_branch_file,
     detect_authenticated_user,
     detect_canonical_owner,
     detect_default_branch,
@@ -331,35 +330,30 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
             click.echo(
                 "Control-plane ownership fix requires the target repository checkout."
             )
-            raise SystemExit(1)
-        login = detect_authenticated_user()
-        if login is None or login.casefold() == cfg.bot_name.casefold():
-            click.echo(
-                "Sign in to gh as a maintainer other than the Tend bot to fix CODEOWNERS."
-            )
-            raise SystemExit(1)
-        path = _codeowners_path()
-        if any(part.is_symlink() for part in (path, *path.parents)):
-            raise click.ClickException(f"{path} must be a regular file for yolo")
-        content = path.read_text(encoding="utf-8") if path.exists() else ""
-        local_block = control_plane_block(content, cfg.bot_name)
-        # A valid local block may be awaiting merge. Replace it only when the
-        # same block is already on the default branch and the check rejected it.
-        remote_content = (
-            _default_branch_file(repo, default_branch, path.as_posix())
-            if local_block is not None
-            else None
-        )
-        remote_block = (
-            control_plane_block(remote_content, cfg.bot_name)
-            if isinstance(remote_content, str)
-            else None
-        )
-        if local_block is None or remote_block == local_block:
-            _update_codeowners(f"@{login}", dry_run=False)
-        click.echo(
-            "Commit and merge the CODEOWNERS change, then rerun `tend check --fix`."
-        )
+        else:
+            path = _codeowners_path()
+            if any(part.is_symlink() for part in (path, *path.parents)):
+                click.echo(f"{path} must be a regular file for yolo.")
+            else:
+                content = path.read_text(encoding="utf-8") if path.exists() else ""
+                if control_plane_block(content, cfg.bot_name) is not None:
+                    click.echo(
+                        "Review the existing control-plane CODEOWNERS block, "
+                        "commit any correction, and rerun `tend check --fix`."
+                    )
+                else:
+                    login = detect_authenticated_user()
+                    if login is None or login.casefold() == cfg.bot_name.casefold():
+                        click.echo(
+                            "Sign in to gh as a maintainer other than the Tend bot "
+                            "to fix CODEOWNERS."
+                        )
+                    else:
+                        _update_codeowners(f"@{login}", dry_run=False)
+                        click.echo(
+                            "Commit and merge the CODEOWNERS change, then rerun "
+                            "`tend check --fix`."
+                        )
 
     fixed_any = False
     rules_fixable = any(
