@@ -348,6 +348,25 @@ def test_codex_only_report_has_no_cost_value(report: Report) -> None:
     assert next(row for row in rows if row[0] == "Total")[2] == "n/a"
 
 
+def test_codex_only_tables_rank_by_cached_input(report: Report) -> None:
+    for run_id in range(1, 26):
+        report.add(
+            run_id,
+            harness="codex",
+            workflow="tend-nightly" if run_id % 2 else "tend-review",
+            number=1000 + run_id,
+            model="gpt-6-sol",
+            cost_usd=0,
+            cached_input_tokens=run_id * 1000,
+        )
+    _, rows = report.run()
+
+    assert _table(report, "SUBJECT")[0][0] == "#1025"
+    assert _table(report, "SUBJECT")[-1][0] == "#1006"
+    assert _table(report, "WORKFLOW")[0][0] == "tend-nightly"
+    assert any("reported cost then cached input" in " ".join(row) for row in rows)
+
+
 def test_the_subject_table_stops_at_the_top_and_says_so(report: Report) -> None:
     """Past the top the tail is one-run subjects; the JSON on stdout has them.
 
@@ -362,7 +381,7 @@ def test_the_subject_table_stops_at_the_top_and_says_so(report: Report) -> None:
     assert len(subjects) == 20
     assert subjects[0][0] == "#1025", "the costliest subject leads"
     assert len(output["runs"]) == 25
-    assert any("costliest of 25" in " ".join(row) for row in rows)
+    assert any("showing 20 of 25" in " ".join(row) for row in rows)
 
 
 @pytest.mark.parametrize(

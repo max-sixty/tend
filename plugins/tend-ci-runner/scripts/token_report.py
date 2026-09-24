@@ -103,7 +103,7 @@ def cost_cell:
   if .unpriced and .cost == 0 then "n/a"
   else (.cost | usd) + (.unpriced | floor_marker)
   end;
-def by_cost: sort_by(.cost) | reverse;
+def by_cost: sort_by(.cost, .cr) | reverse;
 def subjects:
   group_by(.subject)
   | map({key: (.[0].subject | short), workflows: (map(.workflow) | unique | join(","))} + rollup);
@@ -184,7 +184,7 @@ def summary($since):
   + [""]
   + (($runs | map(.subject) | unique | length) as $count
      | if $count > 20
-       then ["Subjects: showing the 20 costliest of \($count); the JSON on stdout has them all."]
+       then ["Subjects: showing 20 of \($count), ordered by reported cost then cached input; the JSON on stdout has them all."]
        else []
        end)
   + (if $totals.unpriced_runs > 0
