@@ -7,9 +7,12 @@ metadata:
 
 # Weekly Maintenance
 
-## Step 0: Load environment skills
+## Step 0: Load required skills
 
-Load `/tend-ci-runner:run-tend` first — it contains CI security rules and comment formatting, and will load the repo's `running-tend` overlay if one exists; keep the loaded content in mind for Step 3. This skill approves and comments on PRs, so load `/tend-ci-runner:post-to-github` and `/tend-ci-runner:review`'s `references/approving.md` with it.
+- Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay for Step 3.
+- Load `/tend-ci-runner:post-to-github` before composing comments or reviews.
+- Read `/tend-ci-runner:review`'s `references/approving.md` before approving.
+- Load `/tend-ci-runner:dismiss-approval` if an earlier bot approval must be withdrawn.
 
 ## Step 1: Find dependency PRs
 

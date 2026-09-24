@@ -12,9 +12,12 @@ Triage a newly opened GitHub issue.
 
 **Issue to triage:** $ARGUMENTS
 
-## Step 1: Setup
+## Step 1: Load required skills
 
-Load `/tend-ci-runner:run-tend` first (CI environment rules, security). It will also prompt you to load any repo-specific skills (e.g., `running-tend`) — do so before proceeding.
+- Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay.
+- Load `/tend-ci-runner:post-to-github` before composing a comment or PR body.
+- Load `/tend-ci-runner:fix-a-bug` before attempting a fix.
+- Load `/tend-ci-runner:push-commits` before pushing, `/tend-ci-runner:open-pr` before opening a PR, and `/tend-ci-runner:monitor-ci` after pushing a fix.
 
 Reproduce before fixing, find evidence before speculating, and test before committing.
 

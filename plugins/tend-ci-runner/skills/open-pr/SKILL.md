@@ -12,6 +12,11 @@ metadata:
 - [Atomic PRs](#atomic-prs)
 - [Keeping PR titles and descriptions current](#keeping-pr-titles-and-descriptions-current)
 
+## Required skills
+
+- Load `/tend-ci-runner:post-to-github` before composing or editing any PR or issue body.
+- Load `/tend-ci-runner:act-in-other-repos` if the target is another repository.
+
 ## Filing issues in this repo
 
 An issue here is not a note to a maintainer — where `tend-triage` is enabled (the default), it fires on `issues` and does the work. Filing one for a fix you have already scoped hands your own analysis to a second agent run, which re-derives it from your issue body and opens the PR minutes later at full session cost, on a thread nobody needed.
