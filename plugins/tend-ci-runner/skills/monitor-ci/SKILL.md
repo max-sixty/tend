@@ -19,6 +19,8 @@ After pushing, what to do depends on whether a red result creates a follow-up.
 - Load `/tend-ci-runner:fix-a-bug` and `/tend-ci-runner:push-commits` before fixing and pushing a red check.
 - Load `/tend-ci-runner:post-to-github` before composing a comment about unaddressed findings.
 
+## Poll the pinned commit
+
 Poll with the bundled script, pinned to the commit this session is accountable for — never the PR's current head: another actor can advance the head while the loop sleeps, and a poll that follows it reports *their* commit's results as yours:
 
 ```bash
