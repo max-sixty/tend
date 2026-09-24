@@ -92,11 +92,11 @@ itself the go-ahead.
    - **Claude — API key** — a console.anthropic.com key, billed per token.
      Fits when there's no subscription to draw on, or the user wants a
      dedicated billing surface and per-key revocation.
-   - **Codex — Plus/Pro subscription** — experimental. Concurrent jobs receive
-     access-only auth; this repo's serialized weekly workflow owns a unique
-     full refresh-token chain and uses a repo-scoped GitHub token to publish
-     renewal. It needs two browser handoffs. Detail in
-     ${CLAUDE_SKILL_DIR}/references/security-model.md.
+   - **Codex — Plus/Pro subscription** — experimental. It needs two browser
+     handoffs: a Codex login for this repo and a repo-scoped GitHub token.
+     Concurrent jobs receive access-only auth; this repo's serialized weekly
+     workflow owns its refresh token. This depends on Codex's internal auth
+     mode; detail in ${CLAUDE_SKILL_DIR}/references/security-model.md.
    - **Codex — OpenAI API key** — standard pay-per-token path.
 2. **Merge mode** — who may merge into the default branch:
    - **Maintainer** (recommended) — the bot opens and updates PRs; only admins can
@@ -183,7 +183,7 @@ bot_name: <bot-name>
 # control_plane_owner: "@maintainer"
 # For Codex:
 # harness: codex
-# model: gpt-6-sol
+# model: gpt-5.6-sol
 # Both harnesses optionally accept:
 # effort: medium   # low | medium | high | xhigh; Claude also accepts max
 ```
@@ -333,7 +333,7 @@ If the user picked workflow config at Kickoff, ask which overrides to set in
 a multi-select question — otherwise set none:
 
 - Setup commands and env vars (system deps, language version, pre-build
-  hooks, top-level env vars; maintainer-mode `setup` accepts `run` and `uses` steps)
+  hooks, top-level env vars; `setup` accepts `run` and `uses` steps in both modes)
 - Workflow conditions (e.g., skip review on `tend:dismissed` PRs — see below)
 - Schedule overrides (cron timing for nightly/weekly)
 - Permissions / timeouts on specific jobs
@@ -399,19 +399,19 @@ uvx tend@latest check --fix --repo "$REPO"
 ```
 
 The command is expected to remain non-zero until later steps install the
-secrets. Fix every ref-protection finding now. Under `maintainer`, `Merge access`
+secrets. Fix every ref-protection finding now. Under `restricted`, `Merge access`
 keeps the default and extra protected branches admin-only. Under `yolo`, it
 targets only the default branch and grants the bot user a pull-request-only
 bypass, while `Control-plane review` requires a fresh,
 non-bypassable CODEOWNER approval for `.github/**` and
 `.config/tend.yaml`, including the CODEOWNERS files and agent instructions.
 `Protected branch access` keeps configured extra branches admin-only in yolo;
-an existing copy is retained when returning to maintainer. `Tag operations`
+an existing copy is retained when returning to restricted. `Tag operations`
 keeps all tags admin-only.
 
 Yolo bootstraps in two safe phases. Before the generated CODEOWNERS block and
 exact generated workflows are on the default branch, or while any credential
-check is unresolved, `--fix` keeps maintainer mode and refuses to grant the bot
+check is unresolved, `--fix` keeps restricted mode and refuses to grant the bot
 a bypass. Merge the install PR manually and fix any credential gates, then
 rerun this section; only then does it enable the pull-request-only bypass. Once
 that bypass is active, an unresolved prerequisite makes `--fix` preserve the
@@ -547,7 +547,7 @@ recipe: `release: published` (creating a release against an existing tag
 takes no tag operation, and its body and assets are the bot's),
 `repository_dispatch`, and a `workflow_dispatch` carrying inputs. Their
 workflow files still run from the default branch, so the code is reviewed
-under maintainer mode or subject to yolo's control-plane rules, but the bot
+under restricted mode or subject to yolo's control-plane rules, but the bot
 chooses when they fire and what payload they
 see. If a repo keeps one on a release/deploy workflow, gate that
 Environment with required reviewers before migrating release or deploy
@@ -574,16 +574,17 @@ description rather than by its first heading. An existing overlay without
 frontmatter needs it added in place.
 
 **Do not create a second independent copy of project instructions** and **do
-not invent project conventions.** If the repo has only one of `CLAUDE.md` or
-`AGENTS.md`, create a relative symlink at the other name so both harnesses read
-the same content. Preserve both when both already exist, and create neither
-when neither exists:
+not invent project conventions.** If the repo has only `CLAUDE.md`, link
+`AGENTS.md` to it so Codex reads the same instructions. If the repo has only
+`AGENTS.md`, create a `CLAUDE.md` import wrapper so Claude Code reads it even
+when native `AGENTS.md` loading is unavailable. Preserve both when both already
+exist, and create neither when neither exists:
 
 ```bash
 if [ -f CLAUDE.md ] && [ ! -e AGENTS.md ] && [ ! -L AGENTS.md ]; then
   ln -s CLAUDE.md AGENTS.md
 elif [ -f AGENTS.md ] && [ ! -e CLAUDE.md ] && [ ! -L CLAUDE.md ]; then
-  ln -s AGENTS.md CLAUDE.md
+  printf '@AGENTS.md\n' > CLAUDE.md
 fi
 ```
 
@@ -779,20 +780,20 @@ that mode. If neither secret exists, use the mode selected at Kickoff or
 ask the user to choose between the two Codex options there.
 
 For **Plus/Pro subscription**, explain that the path is experimental because it
-depends on Codex's internal auth mode. For unattended CI, each repo's
-`codex-auth-refresh` workflow must own a unique full refresh-token chain.
-Never copy one full `auth.json` into multiple repos or from the user's ordinary
-Codex login: a second refresher can invalidate the first. Separate device
-logins on one ChatGPT account are not verified to stay independent, so do not
-assume a second login alone establishes a unique chain. Use a dedicated
-ChatGPT account for this repo unless that independence has been verified.
-If `.config/tend.yaml` has `workflows.codex-auth-refresh.enabled: false`,
-remove that override and regenerate workflows before relying on this setup.
+depends on Codex's internal auth mode. Give this repository's generated
+`tend-codex-auth-refresh` workflow a full login with its own refresh-token
+chain. Do not copy another repository's full `auth.json` or the user's
+`~/.codex/auth.json`: rotating a shared token would break the other
+refresher. Separate device logins on one ChatGPT account have not been
+verified to remain independent; use a dedicated account for this repository
+unless that independence has been verified. If
+`workflows.codex-auth-refresh.enabled: false` is set,
+remove the override and regenerate the workflow for unattended CI.
 
-Run the bundled provisioner yourself. The user approves
-the device login in their browser; they do not run commands or handle the
-resulting Codex credentials. Start it in the background, surface the URL and
-one-time code from its output, and keep reading until it exits:
+Run the bundled provisioner yourself. The user approves the device login in
+their browser; they do not run commands or handle the resulting Codex
+credentials. Start it in the background, surface the URL and one-time code from
+its output, and keep reading until it exits:
 
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" provision --repo "$REPO"
@@ -1089,11 +1090,11 @@ line picks the row that matches the chosen harness):
 - [ ] Immutable releases: enabled before the next release
 - [ ] Release/deploy credentials: environment-protected; policies list only verified refs, with default-branch credentials deliberately reachable by bot-merged code in yolo
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
-- [ ] Project instructions: `CLAUDE.md` and `AGENTS.md` share one source when only one existed before install
+- [ ] Project instructions: an AGENTS-only repo has a `CLAUDE.md` import wrapper; a CLAUDE-only repo has an `AGENTS.md` symlink
 - [ ] Badge: added to README (unless skipped, or no README)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
-- [ ] Harness auth (codex): `OPENAI_API_KEY`, or a unique repo-owned refresh chain with `CODEX_AUTH_JSON` + `CODEX_REFRESH_AUTH_JSON` + `CODEX_REFRESH_PAT`
+- [ ] Harness auth (codex): `OPENAI_API_KEY`, or this repo's refresh chain with `CODEX_AUTH_JSON` + `CODEX_REFRESH_AUTH_JSON` + `CODEX_REFRESH_PAT`
 - [ ] Bot token: `TEND_BOT_TOKEN` set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot notifications: watching the repository

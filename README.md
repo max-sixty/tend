@@ -64,7 +64,7 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 - A compromise of the runner or credential proxy could expose the bot PAT or
   long-lived model credential. The agent cannot read those during normal
   operation; subscription-mode Codex receives only an expiring access token.
-  In the default `maintainer` merge mode, the merge restriction prevents a
+  In the default `restricted` merge mode, the merge restriction prevents a
   stolen bot credential from landing code. `yolo` deliberately gives that up
   for ordinary code while retaining maintainer ownership of Tend's workflows and
   config, admin-only tags and extra protected branches, and credential gates.
@@ -144,25 +144,29 @@ on every `tend@latest init`.
 
 Tend gives an agent write access to a repository and points it at input anyone
 can write: pull requests, issues, comments. The design assumes a session can be
-hijacked, and bounds what a hijacked session can do. Maintainer mode keeps it
+hijacked, and bounds what a hijacked session can do. Restricted mode keeps it
 from landing code; yolo intentionally permits ordinary code changes while
 keeping the repository control plane behind a maintainer. Credential
 isolation, the sandbox, and the environment gate keep the bot and model
 credentials out of the agent process.
 
-**Merge mode** is explicit. `maintainer` (the default) gives the write-access
-bot no bypass of the default branch's update rule. `yolo` gives that bot a
-pull-request-only bypass, so it can merge through GitHub but cannot push the
-branch directly. A separate CODEOWNERS rule requires fresh maintainer approval for
-changes to `.github/**`, `.config/tend.yaml`, CODEOWNERS, and agent instruction
-files; additional protected branches and tags stay admin-only. Preflight asks
-GitHub for the bot's own effective bypass and refuses to run unless it exactly
-matches the configured policy. `tend check --fix` reconciles the rulesets.
+**Merge mode** determines who can land code on the default branch:
 
-Maintainer mode may use runner-side `setup`; yolo refuses it because ordinary
-code the bot merged could steer even a fixed command before the hardened agent
-unit starts. Yolo also refuses workflow and job overrides so secret-bearing
-jobs retain their audited shape.
+| | `restricted` (default) | `yolo` |
+|---|---|---|
+| Bot may merge PRs | No; a maintainer lands them | Yes, for ordinary code; direct pushes stay blocked |
+| Changes to workflows, Tend config, CODEOWNERS, or agent instructions | Maintainer lands them | Fresh approval from an independent CODEOWNER |
+| Workflow and job overrides | Allowed | Refused; generated jobs retain their audited shape |
+
+Both modes allow runner-side `setup:`, keep extra protected branches and tags
+admin-only, and run security preflight against their respective branch policies
+before the agent starts. `tend check --fix` reconciles the rulesets.
+
+Yolo's runner-side setup support is a trial. A fixed setup command may execute
+ordinary code the bot merged to the default branch as the runner, before the
+sandbox starts. That code could reach Tend's job credentials. We may revise
+this policy as we learn from use. Bot-merged default-branch code can also use
+generic credentials exposed by other jobs on that branch.
 
 **Credential isolation** — the bot's GitHub token and the long-lived model
 credential never enter the agent's process. Tend's proxy on the runner holds
@@ -188,7 +192,7 @@ self-hosted runner that home persists between jobs.
 **Environment-gated credentials** — yolo deliberately lets code the bot merges
 to the default branch use generic credentials in jobs on that branch. Extra
 branches and tags still need bot-inaccessible ref protection or a non-bot
-environment reviewer. Tend verifies the exact generated workflows, rejects
+environment reviewer. In yolo, Tend also verifies the exact generated workflows, rejects
 other workflows whose environment use is dynamic or hidden behind an external
 or ref-qualified reusable workflow, and reserves Tend's operational environment
 for the generated jobs. The harness keeps its long-lived credentials out of the
@@ -242,7 +246,7 @@ bot_name: my-project-bot
 
 # Codex installs pin both values; omit both to use Claude.
 # harness: codex
-# model: gpt-6-sol
+# model: gpt-5.6-sol
 # effort: medium   # low | medium | high | xhigh; Claude also accepts max
 # args: [--max-turns, "40"]   # exact additional CLI arguments
 ```
@@ -286,8 +290,7 @@ schedules — are documented in
 
 ## Project context
 
-Tend reads `CLAUDE.md` like any Claude Code session — build commands, test
-commands, project conventions all go there.
+Tend reads project instruction files (`AGENTS.md` or `CLAUDE.md`) like any Claude Code session — build commands, test commands, and project conventions go there.
 
 For tend-specific instructions, add a skill overlay at
 `.claude/skills/running-tend/SKILL.md`. Common uses: recording which CI
@@ -333,21 +336,20 @@ harnesses.
 Two auth modes:
 
 - **ChatGPT Plus or Pro (experimental):** concurrent jobs receive
-  `CODEX_AUTH_JSON`, an access-only bundle that Codex cannot refresh. This
-  repo's serialized weekly workflow holds a unique full refresh-token chain
-  in `CODEX_REFRESH_AUTH_JSON` and publishes the next access-only bundle using
-  `CODEX_REFRESH_PAT`. Provision each repo's full login separately; never copy
-  one full `auth.json` across repos.
+  `CODEX_AUTH_JSON`, an access-only bundle that Codex cannot refresh. Each
+  repository's serialized weekly workflow holds its own
+  `CODEX_REFRESH_AUTH_JSON`, rotates it, then publishes the next access-only
+  bundle using a `CODEX_REFRESH_PAT` scoped to that repository. Do not copy a
+  full `auth.json` between repositories: their refresh jobs would race on the
+  same rotating token.
 - **API:** `OPENAI_API_KEY` is a standard pay-per-token key from
   platform.openai.com.
 
-The split keeps agent jobs from racing on refresh. A Mac rotator can temporarily
-publish access-only auth to several repos, but those repos stop authenticating
-after that token expires if the Mac is offline; it is not an unattended setup.
-This is experimental because it uses Codex's internal `chatgptAuthTokens` mode.
-The weekly job runs Codex's built-in refresh and persists the updated full
-bundle. Weekly renewal is intended to precede access-token expiry; a missed
-scheduled run can still leave jobs without valid auth.
+Agent jobs cannot invalidate the refresh state because they receive no refresh
+token.
+This is experimental because it uses Codex's internal `chatgptAuthTokens`
+mode. The weekly job runs Codex's built-in refresh and persists the updated
+full bundle.
 Tend pins and tests the Codex version, but an OpenAI change can still break the
 weekly refresh until Tend updates.
 

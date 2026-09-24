@@ -334,9 +334,10 @@ def check_branch_protection(
 ) -> CheckResult:
     """Check that a branch gives the bot exactly the configured merge access.
 
-    ``never`` is maintainer-only. ``pull_requests_only`` is yolo: the
-    bot may merge through GitHub's pull-request API, but may not push the ref
-    directly. Extra protected branches always use ``never``. Required reviews
+    On the default branch, ``never`` is restricted mode.
+    ``pull_requests_only`` is yolo: the bot may merge through GitHub's
+    pull-request API, but may not push the ref directly. Extra protected
+    branches always use ``never``. Required reviews
     alone never qualify because the write-access bot can approve another
     author's pull request itself.
     """
@@ -422,13 +423,13 @@ def check_branch_protection(
     # A ruleset that positively grants the bot a bypass is authoritative. Do
     # not fall back to classic branch protection: rulesets layer on top of it,
     # and a pull-request-only bypass is exactly the yolo authority that a
-    # switch back to maintainer mode must remove.
+    # switch back to restricted mode must remove.
     if bypass in {"pull_requests_only", "always"}:
         return CheckResult(
             name,
             False,
             f"Branch '{branch}' still gives the bot a ruleset bypass. "
-            "Maintainer mode requires removing that bypass.",
+            "Restricted mode requires removing that bypass.",
         )
     if bypass is None:
         # Ruleset check was inconclusive — don't false-positive.
@@ -1471,11 +1472,11 @@ def _credential_surface(files: dict[str, str | None] | None) -> _CredentialSurfa
 
 
 def check_yolo_workflows(repo: str, cfg: Config) -> CheckResult:
-    """Require the default branch to contain only the audited generated jobs.
+    """Confine yolo's operational environment to current generated workflows.
 
-    The ``tend`` environment may release operational secrets on main in yolo,
-    so its exception cannot extend to a consumer workflow or a stale generated
-    workflow that still executes repository code as the runner.
+    The ``tend`` environment may release secrets on main. Consumer workflows
+    must not use it, and stale generated workflows may have a different job
+    shape than the one Tend currently audits.
     """
     name = "yolo-workflows"
     files = _fetch_workflow_files(repo)
@@ -2382,7 +2383,7 @@ def fix_branch_protection(
     merge: str,
     extra_branches: list[str] | None = None,
 ) -> CheckResult:
-    """Reconcile branch rulesets, preserving admin-only targets in maintainer mode.
+    """Reconcile branch rulesets, preserving admin-only targets in restricted mode.
 
     Yolo changes an existing ruleset's bypass authority, so it accepts only
     known explicit targets that can first be covered by Protected branch access.
@@ -2390,7 +2391,7 @@ def fix_branch_protection(
     name = f"branch-protection:{default_branch}"
     extra = [b for b in (extra_branches or []) if b != default_branch]
 
-    if merge == "maintainer":
+    if merge == "restricted":
         result, message = _put_ruleset(repo, _restrict_updates_ruleset(extra))
         if result is not True:
             return CheckResult(name, result, f"Failed to set ruleset: {message}")
@@ -2561,25 +2562,46 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
         if branch != default_branch:
             results.append(check_branch_protection(repo, branch, cfg.bot_name))
     if cfg.merge_policy.requires_control_plane_review:
-        generation_cfg = replace(
-            cfg,
-            default_branch=default_branch,
-            repo_owner=detect_canonical_owner(repo) or "",
-        )
+        owner = detect_canonical_owner(repo)
         results.append(
             check_control_plane_codeowners(
                 repo, default_branch, cfg.control_plane_owner, cfg.bot_name
             )
         )
         results.append(check_control_plane_ruleset(repo, default_branch, cfg.bot_name))
-        results.append(check_yolo_workflows(repo, generation_cfg))
+        # Without the owner the expected output drops the fork guard every
+        # committed file carries, so the comparison would report false drift.
+        if owner is None:
+            results.append(
+                CheckResult(
+                    "yolo-workflows",
+                    None,
+                    "Could not resolve the canonical owner to generate the "
+                    "expected workflows",
+                )
+            )
+        else:
+            generation_cfg = replace(
+                cfg, default_branch=default_branch, repo_owner=owner
+            )
+            results.append(check_yolo_workflows(repo, generation_cfg))
     results.append(check_bot_permission(repo, cfg.bot_name))
     results.append(check_tag_protection(repo, cfg.bot_name))
     results.append(check_immutable_releases(repo))
     operational = operational_refs(results)
     results.append(check_environment(repo, operational))
     results.append(check_environment_deployments(repo))
-    results.append(check_credential_environments(repo, cfg, operational))
+    # Before `--fix` activates yolo, the default branch still carries
+    # restricted mode's bypass, so its yolo check fails and leaves it out of
+    # `operational`. The bot cannot write it at all then, so a generic
+    # environment admitting it is gated; refusing it would block the very
+    # activation that makes the branch pass.
+    credential_refs = operational
+    if default_branch not in operational and cfg.merge == "yolo":
+        restricted = check_branch_protection(repo, default_branch, cfg.bot_name)
+        if restricted.passed is True:
+            credential_refs = [*operational, default_branch]
+    results.append(check_credential_environments(repo, cfg, credential_refs))
     results.append(check_secrets(repo, required_secrets))
     if cfg.memory_gist:
         results.append(check_memory_gist_repository(repo))

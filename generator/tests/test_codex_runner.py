@@ -153,7 +153,7 @@ def test_stage_agents_writes_as_the_sandbox_user(
     )
     (action / "agents-tail.md").write_text("Look up $BOT_NAME.\n")
     monkeypatch.setenv("BOT_NAME", "tend-bot")
-    monkeypatch.setenv("TEND_MERGE", "maintainer")
+    monkeypatch.setenv("TEND_MERGE", "restricted")
     calls: list[tuple[list[str], dict[str, object]]] = []
 
     def run(args: list[str], **kwargs: object):
@@ -176,7 +176,7 @@ def test_stage_agents_writes_as_the_sandbox_user(
     assert calls[1][0][-2:] == ["/usr/bin/tee", str(agents)]
     assert calls[1][1]["input"] == (
         "# Tend CI instructions (Codex harness)\n\n"
-        "Act as tend-bot under maintainer; keep $GH_TOKEN. Read $run-tend.\n\n"
+        "Act as tend-bot under restricted; keep $GH_TOKEN. Read $run-tend.\n\n"
         "Look up tend-bot.\n"
     )
 

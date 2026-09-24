@@ -24,9 +24,9 @@ bot_name: my-project-bot
 # Model to use for all workflows. Any string the selected harness's CLI accepts
 # — an alias that follows the provider's promotions (`opus`, `sonnet`,
 # `haiku`), or an exact id that stays put across them (`claude-opus-5`,
-# `gpt-6-sol`). Tend passes the value straight to `--model`, so a name the
+# `gpt-5.6-sol`). Tend passes the value straight to `--model`, so a name the
 # CLI does not know fails the job with that CLI's error. The defaults are
-# `opus` for Claude and `gpt-6-sol` for Codex.
+# `opus` for Claude and `gpt-5.6-sol` for Codex.
 #
 # model: opus
 
@@ -55,13 +55,14 @@ bot_name: my-project-bot
 
 # ## Merge mode
 #
-# `maintainer` is the default: the bot can push branches and open PRs, but only an
+# `restricted` is the default: the bot can push branches and open PRs, but only an
 # admin can update the default branch. `yolo` lets the bot merge PRs into the
 # default branch while still blocking direct pushes. In yolo mode, `tend init`
-# owns a final CODEOWNERS block for `.github/**`, `.config/tend.yaml`, and the
-# CODEOWNERS files themselves. GitHub requires a fresh approval from the
-# configured maintainer user (never the bot or a team) before those control-plane
-# changes can merge.
+# owns a final CODEOWNERS block for `.github/**`, `.config/tend.yaml`, the
+# CODEOWNERS files themselves, and agent instructions at any depth (`CLAUDE.md`,
+# `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md`, `.claude/`, `.agents/`).
+# GitHub requires a fresh approval from the configured maintainer user (never the
+# bot or a team) before those control-plane changes can merge.
 #
 # merge: yolo
 # control_plane_owner: "@octocat"
@@ -89,13 +90,12 @@ bot_name: my-project-bot
 # `CLAUDE_CODE_OAUTH_TOKEN` is from `claude setup-token` (PKCE).
 # `ANTHROPIC_API_KEY` is a console.anthropic.com API key.
 # `OPENAI_API_KEY` is a standard OpenAI API key. Experimental Plus/Pro auth
-# always gives agent jobs access-only `CODEX_AUTH_JSON`. For unattended CI,
-# provide this repo's weekly refresher a unique full `CODEX_REFRESH_AUTH_JSON`
-# login and `CODEX_REFRESH_PAT` (repo-scoped, Environments: write). Never copy
-# one full login to another repo. Sharing access-only auth from an external
-# rotator is temporary: jobs fail after expiry when the rotator is offline.
-# This relies on internal Codex auth behavior and may break when it changes;
-# see README.md and the install-tend security model before selecting it.
+# gives agent jobs access-only `CODEX_AUTH_JSON`. For unattended CI, this
+# repository's weekly refresher needs its own full `CODEX_REFRESH_AUTH_JSON`
+# and `CODEX_REFRESH_PAT` (scoped to this repository, Environments: write).
+# Never copy a full Codex login between repositories: their refresh jobs would
+# invalidate one another's tokens. This relies on internal Codex auth behavior;
+# see README.md and the install-tend security model.
 #
 # The Claude action prefers the subscription token
 # (`CLAUDE_CODE_OAUTH_TOKEN`) over the API key when both are set.
@@ -138,14 +138,14 @@ bot_name: my-project-bot
 # For multi-step setup, add multiple entries to the `setup:` list — they
 # render in declared order. For anything more elaborate, move the YAML into a
 # local composite action (`.github/actions/tend-setup/action.yaml`) and reference
-# it from one entry with `uses`. In `yolo`, all `setup:` entries are refused
-# because ordinary code can steer even a fixed runner-side command.
+# it from one entry with `uses`. In `yolo`, runner-side setup is a trial:
+# ordinary code the bot merged to the default branch can run here before the
+# sandbox starts, with the job's credentials available to runner processes.
 #
-# In maintainer mode, setup runs against reviewed code — the default branch, or in `tend-review`
-# the PR's base branch, checked out before the PR's own tree lands. What it
-# builds reaches the agent (see "The agent's sandbox" below); what the PR itself
-# changes, such as a new dependency in its lockfile, the agent installs in the
-# session.
+# Setup runs against the default branch, or in `tend-review` the PR's base
+# branch, checked out before the PR's own tree lands. What it builds reaches
+# the agent (see "The agent's sandbox" below); what the PR itself changes,
+# such as a new dependency in its lockfile, the agent installs in the session.
 #
 # `tend-notifications` decides up front whether the agent needs to boot and
 # injects an `if:` guard on every setup step so a run with no unread
@@ -199,10 +199,9 @@ bot_name: my-project-bot
 
 # ## The agent's sandbox (both harnesses)
 #
-# `setup:` is available only in maintainer mode. Yolo refuses it because code
-# the bot merged to the default branch could steer a fixed runner-side command.
-# In maintainer mode it runs as the RUNNER user, around the composite action. The
-# agent then runs as a separate, non-sudo user inside a hardened systemd
+# `setup:` runs as the runner user in both modes, before the composite action.
+# In yolo, bot-merged code can run here before the sandbox starts.
+# The agent then runs as a separate, non-sudo user inside a hardened systemd
 # unit, in the job's own checkout and home, with the job's PATH and
 # environment. It sees them through a copy-on-write view: what `setup:`
 # prepared (a toolchain, a warm cache) is there at its own path, the agent

@@ -9,7 +9,7 @@ the subset an installing agent needs.
 ## The chain: merge authority is explicit
 
 Tend runs an agent with write access on attacker-controlled input. The
-boundary is structural and policy-dependent. Under `maintainer`, the bot cannot
+boundary is structural and policy-dependent. Under `restricted`, the bot cannot
 update the default branch. Under `yolo`, it receives a pull-request-only
 bypass, but direct pushes remain blocked and `.github/**` plus
 `.config/tend.yaml` require a fresh CODEOWNER approval the bot cannot bypass.
@@ -29,11 +29,11 @@ Ref protection depends on the merge mode:
   and deletion with an admin bypass. In yolo, the bot also has a `pull_request`
   bypass, while `Control-plane review` layers fresh CODEOWNER approval over
   workflow and Tend-config paths.
-- **Updating extra protected branches.** In maintainer, `Merge access` protects
+- **Updating extra protected branches.** In restricted mode, `Merge access` protects
   them with an admin-only bypass, preserving existing targets and exclusions.
   In yolo, `Protected branch access` protects configured extra branches with
   an admin-only bypass. An existing `Protected branch access` ruleset remains
-  in place when returning to maintainer, rather than retiring old targets.
+  in place when returning to restricted mode, rather than retiring old targets.
 - **Operating on a tag.** A ruleset with the `creation` and `update`
   rules covering all tags (`~ALL` on a `tag`-target ruleset), admin-only
   bypass. Blocks the bot from pushing a new tag and from force-pushing
@@ -74,9 +74,11 @@ before its first step: write access does not imply secret access.
 Under yolo, `tend check` additionally requires the exact current generated
 workflows on the default branch and refuses any other workflow that uses the
 `tend` environment, names an environment dynamically, or calls an external or
-ref-qualified reusable workflow whose environment use Tend cannot inspect. Yolo config
-rejects runner-side setup and workflow/job overrides, so those generated jobs
-retain the credential-isolating shape that justifies this exception.
+ref-qualified reusable workflow whose environment use Tend cannot inspect.
+Yolo config rejects workflow/job overrides, so those generated jobs retain
+their audited shape. Runner-side `setup:` is permitted as a trial: bot-merged
+code may execute there before the sandbox starts and reach the job's
+operational credentials. This policy may change with experience.
 Environment secrets overlay repo-level ones, and a job naming a
 missing environment still runs, so an unfinished migration degrades to
 repo-level exposure rather than breakage; `tend check` fails until the
@@ -85,7 +87,7 @@ copies are deleted.
 
 Deploy and publish workflows declare their own Environments whose policies
 list verified refs, and their secrets live there rather than at repo level.
-Under maintainer mode the default branch is bot-inaccessible. Under yolo,
+Under restricted mode the default branch is bot-inaccessible. Under yolo,
 generic credentials used by default-branch jobs are deliberately reachable
 by bot-merged code; a credential that must stay beyond the bot belongs on
 tags or extra protected branches, or behind a non-bot reviewer. `tend check`
@@ -95,7 +97,7 @@ in the environment's name, so a trusted-publishing repo that stores nothing
 is swept the same way.
 
 Protection by ref holds only for a workflow whose sole path to invocation is
-updating a bot-inaccessible ref (`push: tags:`, or under maintainer `push:`
+updating a bot-inaccessible ref (`push: tags:`, or under restricted mode `push:`
 on the default branch). A yolo default-branch deploy grants its generic
 credentials to bot-merged code without an additional reviewer.
 Three triggers let a write-scoped bot supply the run's payload as well as
@@ -112,8 +114,8 @@ triggers were probed rather than inferred, is the source repo's
 secrets.
 
 The composite action refuses to start if the default branch does not match the
-configured merge mode. Yolo refuses runner-side `setup` plus workflow and job
-overrides. The agent itself runs as a non-sudo user in a hardened systemd unit;
+configured merge mode. Yolo refuses workflow and job overrides. The agent
+itself runs as a non-sudo user in a hardened systemd unit;
 the supervisor reaps that UID's complete process tree before any later action
 step handles the runner-owned checkout or output.
 
@@ -134,33 +136,29 @@ in depth.
 
 ## Experimental Codex subscription auth
 
-Sharing Codex's normal `auth.json` across repos does not work: one refresher
-can rotate the token and leave the others with invalid state. Agent jobs use
-only an access-only projection:
+Sharing Codex's normal `auth.json` within a repository or across
+repositories does not work: a job near access-token expiry, or one recovering
+from a 401, can rotate the refresh token and leave the other holders with
+invalid state. Agent jobs receive only an access-only projection:
 
 - `CODEX_AUTH_JSON` uses Codex's internal `chatgptAuthTokens` mode and has an
   empty refresh token. Every consumer may reuse its bearer token concurrently,
   but none can rotate the chain.
-- With repo-owned renewal, `CODEX_REFRESH_AUTH_JSON` is a full `chatgpt`
-  bundle unique to this repo. Only its serialized `tend-codex-auth-refresh`
-  workflow reads it. After rotation, that workflow writes the full replacement
-  first and the derived access-only bundle second.
-- A Mac rotator can temporarily publish access-only `CODEX_AUTH_JSON` to
-  several repos while their generated refresh workflows are disabled. If it
-  is offline at token expiry, those repos cannot authenticate. This is a
-  manual bridge, not an unattended CI setup.
+- `CODEX_REFRESH_AUTH_JSON` is a full `chatgpt` bundle unique to this
+  repository. Only its serialized `tend-codex-auth-refresh` workflow reads
+  it. Once OpenAI rotates the token, that workflow writes the full
+  replacement first and the derived access-only bundle second.
 
-For repo-owned renewal, `CODEX_REFRESH_PAT` is a fine-grained maintainer token
-scoped to this repository with `Environments: write`; the workflow needs it
-because `GITHUB_TOKEN` cannot rewrite Actions environment secrets. It is never
-passed to an agent session.
+`CODEX_REFRESH_PAT` is a fine-grained maintainer token scoped to this repository
+with `Environments: write`; the workflow needs it because `GITHUB_TOKEN` cannot
+rewrite Actions environment secrets. It is never passed to an agent session.
 
 The consumer path is experimental and may break when OpenAI changes Codex
-because it depends on an internal auth mode. A repo-owned weekly job runs
-Codex's built-in refresh and persists its updated `auth.json`. Its login must
-have a unique refresh chain, independent of other repos and a maintainer's
-local Codex login. Separate device logins on one ChatGPT account have not been
-verified to stay independent; do not assume they satisfy that requirement.
+because it depends on an internal auth mode. The serialized weekly job runs
+Codex's built-in refresh and persists its updated `auth.json`. Its login
+must have a refresh chain independent of other repositories and the
+maintainer's local Codex login. Separate device logins on one ChatGPT account
+have not been verified to remain independent.
 
 ## Token assignment
 
@@ -176,7 +174,7 @@ harness-auth credential whose form depends on `harness` in
 | Bot token (PAT or App) | GitHub API and git operations. Consistent bot identity. |
 | Harness auth (one of, per harness) | Authenticates the agent runtime. |
 | ↳ Claude OAuth token | `harness: claude`: authenticates Claude Code to the Anthropic API. |
-| ↳ Codex subscription auth | `harness: codex`: access-only consumer auth plus a unique repo-owned refresh chain (experimental; see above). |
+| ↳ Codex subscription trio | `harness: codex`: access-only consumer auth plus one weekly rotating writer (experimental; see above). |
 | ↳ `OPENAI_API_KEY` | `harness: codex`: standard OpenAI API key, per-token billing. |
 
 A single bot token is used across workflows because the same merge rules

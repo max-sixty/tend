@@ -21,7 +21,7 @@ it.
 
 This repository's Tend merge mode is `${TEND_MERGE}`.
 
-- Under `maintainer`, never merge a pull request or enable auto-merge. A maintainer
+- Under `restricted`, never merge a pull request or enable auto-merge. A maintainer
   decides when to land every proposal.
 - Under `yolo`, you may merge a pull request into the default branch once the
   requested work is complete and GitHub reports that every applying rule is

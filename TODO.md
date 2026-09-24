@@ -5,14 +5,12 @@ of building it if revisited.
 
 ## Verify Tend's Codex rollout
 
-Leaf's first Codex nightly succeeded, but its revert PR restored Claude; a
-Codex pilot is not live there. Restore Leaf first with a unique full Codex
-login and repo-scoped refresh PAT, leave its generated weekly refresher
-enabled, and verify a dispatched refresh plus an agent run before expanding
-the rollout.
+Leaf's Codex pilot is live. Its generated weekly refresher and a nightly agent
+run both succeeded after the switch.
 
-For Tend, provision its own unique full login and repo-scoped PAT. Ensure
-`.config/tend.yaml` leaves `codex-auth-refresh` enabled. Pause Tend with
+For Tend, verify its full login is independent of Leaf's and the local Codex
+login; `tend check` verifies the secret names but cannot inspect their values.
+Pause Tend with
 `TEND_ENABLED=false` before merging the Codex config and workflows. Once they
 reach `main`, dispatch the refresher and verify it publishes the next
 access-only auth bundle. Restore the previous variable value, verify a review
@@ -251,7 +249,7 @@ earns its keep — until then, demand-fetch is cheap enough.
 `workflows.py` builds every other agent-invoking workflow's prompt from
 `default_prompt(skill)`; mention's is written inline in `mention.yaml.j2` and
 names no skill — the one exception `test_repo_pins.py` allows to the invariant
-under "Which file" in `CLAUDE.md`.
+under "Which file" in `AGENTS.md`.
 
 The rules with mention's shape — reading the thread, a review's inline
 comments, the closed-target check, whether to respond — no longer need that

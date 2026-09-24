@@ -175,10 +175,10 @@ def test_protected_branches_empty_string_rejected(tmp_path: Path) -> None:
         Config.load(path)
 
 
-def test_merge_defaults_to_maintainer(tmp_path: Path) -> None:
+def test_merge_defaults_to_restricted(tmp_path: Path) -> None:
     cfg = Config.load(_write_config(tmp_path, "bot_name: my-bot\n"))
 
-    assert cfg.merge == "maintainer"
+    assert cfg.merge == "restricted"
     assert cfg.merge_policy.bot_can_merge is False
     assert cfg.merge_policy.expected_runtime_bypass == "never"
 
@@ -204,6 +204,7 @@ def test_yolo_merge_requires_one_control_plane_owner(tmp_path: Path) -> None:
     ("extra", "message"),
     [
         ("merge: fast\n", "merge 'fast' is not recognized"),
+        ("merge: maintainer\n", "merge 'maintainer' is not recognized"),
         ("merge: yolo\n", "control_plane_owner is required"),
         (
             'merge: yolo\ncontrol_plane_owner: "octocat"\n',
@@ -236,7 +237,7 @@ def test_invalid_merge_config_rejected(
     "step",
     ["run: make bootstrap", "uses: astral-sh/setup-uv@v10.0.1"],
 )
-def test_yolo_rejects_all_runner_setup(tmp_path: Path, step: str) -> None:
+def test_yolo_accepts_runner_setup(tmp_path: Path, step: str) -> None:
     path = _write_config(
         tmp_path,
         dedent(f"""\
@@ -248,11 +249,11 @@ def test_yolo_rejects_all_runner_setup(tmp_path: Path, step: str) -> None:
             """),
     )
 
-    with pytest.raises(ClickException, match="setup is not allowed.*hardened"):
-        Config.load(path)
+    cfg = Config.load(path)
+    assert len(cfg.setup) == 1
 
 
-def test_yolo_rejects_deprecated_sandbox_setup(tmp_path: Path) -> None:
+def test_yolo_migrates_deprecated_sandbox_setup(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,
         dedent("""\
@@ -264,8 +265,8 @@ def test_yolo_rejects_deprecated_sandbox_setup(tmp_path: Path) -> None:
             """),
     )
 
-    with pytest.raises(ClickException, match="setup is not allowed.*hardened"):
-        Config.load(path)
+    cfg = Config.load(path)
+    assert [step.fields["run"] for step in cfg.setup] == ["make bootstrap"]
 
 
 @pytest.mark.parametrize(

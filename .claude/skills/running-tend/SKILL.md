@@ -47,8 +47,8 @@ rather than an all-clear.
 
 It uses the tend composite action and produces `codex-session-logs*` artifacts,
 but its name doesn't match the `tend-*` prefix that scripts filter on by
-default. `uvx tend@latest init` doesn't rewrite them either, so their
-`max-sixty/tend/<harness>@X.Y.Z` pins move only when someone edits the file.
+default. `uvx tend@latest init` doesn't rewrite it either, so its
+`max-sixty/tend/<harness>@X.Y.Z` pin moves only when someone edits the file.
 
 ### Usage analysis
 
@@ -111,7 +111,7 @@ diagnosis to a maintainer; `worker/README.md` covers the Worker's setup.
 
 When the survey reads a skill, a reference, or a project instruction file, ask
 of it the two questions under **Shipped instructions and tend's own** in
-`CLAUDE.md`: does it ship, and who acts on it.
+`AGENTS.md`: does it ship, and who acts on it.
 
 ## Nightly: don't duplicate the release's regeneration PR
 

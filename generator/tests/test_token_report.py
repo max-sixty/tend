@@ -63,8 +63,9 @@ FAKE_GH = (
       prev="$a"
     done
     [ -f "$USAGE_DIR/$3.json" ] || exit 1
-    mkdir -p "$dir/claude-session-logs-1"
-    cp "$USAGE_DIR/$3.json" "$dir/claude-session-logs-1/token-usage.json"
+    harness="$(cat "$USAGE_DIR/$3.harness")"
+    mkdir -p "$dir/$harness-session-logs-1"
+    cp "$USAGE_DIR/$3.json" "$dir/$harness-session-logs-1/token-usage.json"
     ;;
   *)
     exit 1
@@ -117,6 +118,7 @@ class Report:
         run_id: int,
         *,
         workflow: str = "tend-review",
+        harness: str = "claude",
         created_at: str | None = None,
         updated_at: str | None = None,
         **over: Any,
@@ -135,12 +137,14 @@ class Report:
         (self._usage_dir / f"{run_id}.json").write_text(
             json.dumps(_record(run_id=run_id, workflow=workflow, **over))
         )
+        (self._usage_dir / f"{run_id}.harness").write_text(harness)
         return self
 
     def add_raw(self, run_id: int, body: str) -> Report:
         """A run whose artifact holds *body* verbatim, valid JSON or not."""
         self.add_run_without_artifact(run_id)
         (self._usage_dir / f"{run_id}.json").write_text(body)
+        (self._usage_dir / f"{run_id}.harness").write_text("claude")
         return self
 
     def add_run_without_artifact(self, run_id: int) -> Report:
@@ -285,7 +289,7 @@ def test_a_cost_unknown_run_reads_as_a_floor_not_as_free(report: Report) -> None
     total = next(row for row in rows if row[0] == "Total")
     assert total[2] == "$4.00+", "the headline cost is a floor while a run is unpriced"
     assert " ".join(total).endswith("(1 of 2 runs cost-unknown)")
-    assert _table(report, "SUBJECT")[1] == ["#851", "1", "$0.00+", "tend-review", "10K"]
+    assert _table(report, "SUBJECT")[1] == ["#851", "1", "n/a", "tend-review", "10K"]
 
 
 def test_a_run_whose_record_predates_the_subject_fields(report: Report) -> None:
@@ -303,12 +307,45 @@ def test_a_run_whose_record_predates_the_subject_fields(report: Report) -> None:
 
 
 def test_a_run_with_no_artifact_is_skipped(report: Report) -> None:
-    """A run that uploaded nothing — a codex-harness run, or one killed before
-    the token step — contributes no row rather than a zero one."""
+    """A run killed before upload contributes no row rather than a zero one."""
     report.add(1).add_run_without_artifact(2)
     output, _ = report.run()
 
     assert [run["run_id"] for run in output["runs"]] == [1]
+
+
+def test_codex_artifact_counts_tokens_without_claiming_zero_cost(
+    report: Report,
+) -> None:
+    report.add(
+        1,
+        harness="codex",
+        model="gpt-6-sol",
+        cost_usd=0,
+        input_tokens=4200,
+        cache_read_input_tokens=0,
+        cached_input_tokens=3000,
+    )
+    report.add(2, workflow="tend-nightly", cost_usd=2.5)
+    output, rows = report.run()
+
+    assert "--pattern *-session-logs*" in report.calls()
+    assert output["totals"]["input_tokens"] == 4210
+    assert output["totals"]["cache_read_input_tokens"] == 13000
+    assert output["totals"]["unpriced_runs"] == 1
+    assert output["runs"][1]["cost_usd"] is None
+    assert _table(report, "WORKFLOW")[1][2] == "n/a"
+    assert _table(report, "COST-UNKNOWN")[0][0] == "#851"
+    total = next(row for row in rows if row[0] == "Total")
+    assert total[2] == "$2.50+"
+
+
+def test_codex_only_report_has_no_cost_value(report: Report) -> None:
+    report.add(1, harness="codex", model="gpt-6-sol", cost_usd=0)
+    output, rows = report.run()
+
+    assert output["runs"][0]["cost_usd"] is None
+    assert next(row for row in rows if row[0] == "Total")[2] == "n/a"
 
 
 def test_the_subject_table_stops_at_the_top_and_says_so(report: Report) -> None:
@@ -477,6 +514,7 @@ def test_a_repo_with_no_runs_reports_the_same_empty_shape(report: Report) -> Non
             "turns": 0,
             "cost_usd": 0,
             "partial_runs": 0,
+            "unpriced_runs": 0,
             "skipped_runs": 0,
         },
     }

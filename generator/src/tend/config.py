@@ -55,7 +55,7 @@ KNOWN_TOP_LEVEL = {
     "workflows",
 }
 KNOWN_HARNESSES = {"claude", "codex"}
-KNOWN_MERGE_POLICIES = {"maintainer", "yolo"}
+KNOWN_MERGE_POLICIES = {"restricted", "yolo"}
 KNOWN_SECRETS_KEYS = {"allowed"}
 
 # The operational secrets, by fixed name. Claude reads the OAuth token
@@ -138,7 +138,7 @@ class MergePolicy:
 
 
 MERGE_POLICIES = {
-    "maintainer": MergePolicy(
+    "restricted": MergePolicy(
         bot_can_merge=False,
         expected_runtime_bypass="never",
         requires_control_plane_review=False,
@@ -213,7 +213,7 @@ def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
     `source` still reaches the ones after it.
 
     Warned about rather than refused, at the maintainer's call and against the
-    no-backward-compatibility rule in CLAUDE.md, so that nothing breaks in a
+    no-backward-compatibility rule in AGENTS.md, so that nothing breaks in a
     consumer before it migrates; a warning that dropped the entries would
     silently stop installing what its agent relies on.
     TODO(2026-10-21): refuse all three keys, with these messages as the
@@ -267,7 +267,7 @@ def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
             "commands into `setup:` as `run:` steps (e.g. "
             "`- run: rustup component add clippy`) and delete the key; a "
             "`cd`, `export` or `source` reaches only the rest of its own "
-            "step. `setup:` runs on reviewed code; what a pull "
+            "step. `setup:` runs on the default or PR base tree; what a pull "
             "request itself changes, such as a new dependency in its "
             "lockfile, the agent installs in the session.",
             err=True,
@@ -345,8 +345,8 @@ class Config:
     args: list[str] = field(default_factory=list)
     # Owner of the repo where workflows will run. Used to gate jobs that fail
     # noisily on forks (no access to bot/Claude secrets). Not user-configurable;
-    # cli.init populates this via `gh repo view` so fork-based maintainer
-    # workflows still get the canonical owner. Empty means "skip the guard"
+    # cli.init populates this via `gh repo view` so workflows in forks still
+    # get the canonical owner. Empty means "skip the guard"
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
@@ -354,7 +354,7 @@ class Config:
     # in a bot-owned secret Gist. The Gist ID stays in a fixed environment
     # secret so a public repository does not publish the unlisted URL.
     memory_gist: bool = False
-    merge: str = "maintainer"
+    merge: str = "restricted"
     control_plane_owner: str = ""
 
     @property
@@ -445,7 +445,7 @@ class Config:
                 "the key."
             )
 
-        merge = raw.get("merge", "maintainer")
+        merge = raw.get("merge", "restricted")
         if merge not in KNOWN_MERGE_POLICIES:
             raise click.ClickException(
                 f"merge '{merge}' is not recognized "
@@ -551,12 +551,6 @@ class Config:
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
         setup.extend(_migrated_sandbox_steps(raw))
-        if merge == "yolo" and setup:
-            raise click.ClickException(
-                "setup is not allowed when merge is 'yolo': once the bot may "
-                "merge ordinary code, runner-side setup could execute that code "
-                "outside the hardened agent boundary"
-            )
 
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in (raw.get("workflows") or {}).items():
