@@ -18,6 +18,8 @@ Decisions this encodes:
 - ``issue_comment`` fires for both issues and PR conversation comments, but a
   PR notification's ``subject.url`` always names ``/pulls/N``; the issue's
   ``pull_request`` field is what tells the two apart.
+- Review events reach tend-mention re-posted by tend-mention-relay as
+  ``repository_dispatch``, whose ``client_payload.pr`` names the PR.
 
 Inputs (env): ``GITHUB_EVENT_NAME``, ``GITHUB_EVENT_PATH``,
 ``GITHUB_REPOSITORY``, ``GITHUB_RUN_ID`` (from Actions), plus the bot's
@@ -54,6 +56,13 @@ def subject_url(repo: str, event_name: str, event: Any) -> str | None:
         section = event.get("issue")
         on_a_pr = isinstance(section, dict) and section.get("pull_request")
         kind = "pulls" if event_name == "issue_comment" and on_a_pr else "issues"
+    elif event_name == "repository_dispatch":
+        # A review event tend-mention-relay re-posted: the PR number arrives
+        # as a string in the dispatch payload.
+        number = _common.as_int(_common.dig(event, "client_payload", "pr"))
+        if number is None:
+            return None
+        return f"https://api.github.com/repos/{repo}/pulls/{number}"
     else:
         return None
     number = section.get("number") if isinstance(section, dict) else None
