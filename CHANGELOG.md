@@ -6,6 +6,25 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.3
+
+### Improved
+
+- **Codex subscription refresh credentials have a separate environment from agent jobs.** The refresh job reads and rotates the full login in a default-branch-only environment, then publishes access-only auth to `tend`. Provisioning and `tend check` verify the split and detect incomplete or misplaced secrets. ([#1418](https://github.com/max-sixty/tend/pull/1418))
+- Control-plane CODEOWNERS may name multiple independent users per path; checks and preflight verify each owner's access. ([#1413](https://github.com/max-sixty/tend/pull/1413))
+
+### Fixed
+
+- `poll_pr_checks.py` ends with a standalone verdict line so callers can read its result reliably. ([#1417](https://github.com/max-sixty/tend/pull/1417))
+
+### Documentation
+
+- The security model describes exact-workflow verification as a yolo-only gate and clarifies control-plane CODEOWNERS setup. ([#1412](https://github.com/max-sixty/tend/pull/1412), [#1415](https://github.com/max-sixty/tend/pull/1415))
+
+### Internal
+
+- Tend CI skills declare their required companion skills at their entry points. ([#1414](https://github.com/max-sixty/tend/pull/1414))
+
 ## 0.3.2
 
 ### Improved
