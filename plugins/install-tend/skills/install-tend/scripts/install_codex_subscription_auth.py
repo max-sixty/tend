@@ -131,9 +131,22 @@ def _set_secret(
     )
 
 
+def _reader_env() -> dict[str, str]:
+    # A shell that forces color makes `gh` colorize even a piped `--json` or
+    # `--jq` body, and the ANSI codes land inside what the caller parses.
+    # `CLICOLOR_FORCE=0` is the setting that defeats it: `gh` ranks a forced
+    # value above `NO_COLOR`, so `NO_COLOR` alone loses.
+    return {
+        **os.environ,
+        "GH_HOST": "github.com",
+        "NO_COLOR": "1",
+        "CLICOLOR_FORCE": "0",
+    }
+
+
 def _prepare_refresh_environment(repository: str) -> None:
     """Create the refresh secret scope, admitting only the default branch."""
-    gh_env = {**os.environ, "GH_HOST": "github.com"}
+    gh_env = _reader_env()
     branch = subprocess.run(
         ["gh", "api", f"repos/{repository}", "--jq", ".default_branch"],
         text=True,
@@ -211,12 +224,6 @@ def _prepare_refresh_environment(repository: str) -> None:
 
 
 def _verify_secrets(repository: str, environment: str, required: set[str]) -> None:
-    # A shell that forces color makes `gh` colorize even a piped `--json`
-    # body, and the ANSI codes land inside what `json.loads` parses.
-    # `CLICOLOR_FORCE=0` is the setting that defeats it: `gh` ranks a forced
-    # value above `NO_COLOR`, so `NO_COLOR` alone loses.
-    env = {**os.environ, "GH_HOST": "github.com"}
-    env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
     result = subprocess.run(
         [
             "gh",
@@ -231,7 +238,7 @@ def _verify_secrets(repository: str, environment: str, required: set[str]) -> No
         ],
         text=True,
         capture_output=True,
-        env=env,
+        env=_reader_env(),
         check=True,
     )
     names = {item["name"] for item in json.loads(result.stdout)}

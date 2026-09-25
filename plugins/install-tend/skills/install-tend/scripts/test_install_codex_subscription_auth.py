@@ -206,6 +206,53 @@ else:
     assert not Path(home_log.read_text()).exists()
 
 
+def test_prepare_refresh_environment_prunes_policies_under_forced_color(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    call_log = tmp_path / "calls.jsonl"
+    _executable(
+        bin_dir / "gh",
+        """
+import json
+import os
+import sys
+from pathlib import Path
+
+# Mimic gh: a forced-color environment colorizes even piped --jq output.
+color = os.environ.get("CLICOLOR_FORCE", "0") != "0"
+def emit(text):
+    print(f"\\x1b[1;38m{text}\\x1b[m" if color else text)
+
+with Path(os.environ["TEND_TEST_CALL_LOG"]).open("a") as file:
+    file.write(json.dumps(sys.argv[1:]) + "\\n")
+if ".default_branch" in sys.argv:
+    emit("main")
+elif "--paginate" in sys.argv:
+    for policy in (
+        {"id": 1, "name": "main", "type": "branch"},
+        {"id": 2, "name": "v*", "type": "tag"},
+        {"id": 3, "name": "release", "type": "branch"},
+    ):
+        emit(json.dumps(policy))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("CLICOLOR_FORCE", "1")
+    monkeypatch.setenv("TEND_TEST_CALL_LOG", str(call_log))
+
+    auth_module._prepare_refresh_environment("owner/repo")
+
+    calls = [json.loads(line) for line in call_log.read_text().splitlines()]
+    path = "repos/owner/repo/environments/tend-codex-refresh/deployment-branch-policies"
+    assert not [call for call in calls if "POST" in call]
+    assert [call[-1] for call in calls if "DELETE" in call] == [
+        f"{path}/2",
+        f"{path}/3",
+    ]
+
+
 def test_store_pat_rejects_other_input() -> None:
     with pytest.raises(ProvisionError, match="fine-grained GitHub PAT"):
         store_pat("owner/repo", "not-a-token")
