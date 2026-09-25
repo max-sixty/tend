@@ -26,6 +26,7 @@ FULL_AUTH_SECRET = "CODEX_REFRESH_AUTH_JSON"
 CONSUMER_AUTH_SECRET = "CODEX_AUTH_JSON"
 REFRESH_PAT_SECRET = "CODEX_REFRESH_PAT"
 TEND_ENVIRONMENT = "tend"
+REFRESH_ENVIRONMENT = "tend-codex-refresh"
 FORCED_STALE_REFRESH = "1970-01-01T00:00:00Z"
 FORCED_REFRESH_ACCESS_TOKEN = "tend-forces-refresh"
 
@@ -120,7 +121,7 @@ def prepare(*, codex_auth_json: str, openai_api_key: str, destination: Path) -> 
 
 
 def _set_environment_secret(
-    repository: str, name: str, value: Mapping[str, Any]
+    repository: str, environment: str, name: str, value: Mapping[str, Any]
 ) -> None:
     _common.gh(
         "secret",
@@ -129,36 +130,37 @@ def _set_environment_secret(
         "--repo",
         repository,
         "--env",
-        TEND_ENVIRONMENT,
+        environment,
         input=json.dumps(value, separators=(",", ":")),
     )
 
 
 def stage_refresh(
     *,
-    codex_auth_json: str,
+    consumer_auth_configured: bool,
     refresh_auth_json: str,
     refresh_pat: str,
     destination: Path,
 ) -> bool:
     """Validate subscription secrets and stage deliberately stale full auth."""
-    configured = {
-        CONSUMER_AUTH_SECRET: codex_auth_json,
-        FULL_AUTH_SECRET: refresh_auth_json,
-        REFRESH_PAT_SECRET: refresh_pat,
-    }
+    configured = {FULL_AUTH_SECRET: refresh_auth_json, REFRESH_PAT_SECRET: refresh_pat}
     if not any(configured.values()):
+        if consumer_auth_configured:
+            raise SubscriptionAuthError(
+                "subscription auth is partially configured; missing "
+                f"{FULL_AUTH_SECRET}, {REFRESH_PAT_SECRET}"
+            )
         return False
+    if not consumer_auth_configured:
+        raise SubscriptionAuthError(
+            f"refresh secrets are configured without {CONSUMER_AUTH_SECRET}"
+        )
     missing = [name for name, value in configured.items() if not value]
     if missing:
         raise SubscriptionAuthError(
             f"subscription auth is partially configured; missing {', '.join(missing)}"
         )
 
-    # Validate the existing consumer too. This catches a stale installation
-    # where every job still has the refreshable bundle the split design is
-    # specifically meant to remove.
-    _validate_consumer(_object(codex_auth_json, CONSUMER_AUTH_SECRET))
     full = _object(refresh_auth_json, FULL_AUTH_SECRET)
     _validate_full(full)
 
@@ -190,8 +192,12 @@ def publish_refresh(
     # Codex rotates the old token, persist the replacement before updating the
     # disposable consumer view. Persist even if the probe exited non-zero after
     # rotating; otherwise a later model error could strand the only valid token.
-    _set_environment_secret(repository, FULL_AUTH_SECRET, refreshed)
-    _set_environment_secret(repository, CONSUMER_AUTH_SECRET, consumer_auth(refreshed))
+    _set_environment_secret(
+        repository, REFRESH_ENVIRONMENT, FULL_AUTH_SECRET, refreshed
+    )
+    _set_environment_secret(
+        repository, TEND_ENVIRONMENT, CONSUMER_AUTH_SECRET, consumer_auth(refreshed)
+    )
     if not codex_succeeded:
         raise SubscriptionAuthError("Codex failed after refreshing and persisting auth")
 
@@ -217,7 +223,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if command == "stage-refresh" and len(args) == 1:
             configured = stage_refresh(
-                codex_auth_json=os.environ.get(CONSUMER_AUTH_SECRET, ""),
+                consumer_auth_configured=os.environ.get(
+                    "CODEX_CONSUMER_AUTH_CONFIGURED"
+                )
+                == "true",
                 refresh_auth_json=os.environ.get(FULL_AUTH_SECRET, ""),
                 refresh_pat=os.environ.get(REFRESH_PAT_SECRET, ""),
                 destination=Path(args[0]),

@@ -188,12 +188,13 @@ through the API, and expiring with the job. Yolo's PR-only bypass belongs to
 the PAT-authenticated Tend bot instead: it can merge ordinary code, but
 control-plane paths still require a CODEOWNER and tags remain admin-only.
 
-*Operational secrets* — the bot PAT, harness auth, the Codex subscription
-refresher's credential, and optional auto-memory Gist ID — live in the `tend`
-environment, whose policy names the default branch and any
-`protected_branches`. Every generated job that reads a secret carries
-`environment: {name: tend, deployment: false}`; jobs that hold none
-(tend-mention-relay, below) must not, since naming it would cost them the refs
+*Operational secrets* — the bot PAT, agent harness auth, and optional
+auto-memory Gist ID — live in the `tend` environment, whose policy names the
+default branch and any `protected_branches`. The Codex subscription refresher's
+full login and secret-writer PAT live in `tend-codex-refresh`, which admits only
+the default branch. Each job names the environment whose secrets it needs with
+`deployment: false`; jobs that hold none (tend-mention-relay, below) must not,
+since naming it would cost them the refs
 the policy excludes. `deployment: false` keeps GitHub from filing a
 deployment record for a job that deploys nothing — under
 `pull_request_target` those land on the pull request itself, one line per
@@ -536,8 +537,11 @@ file-count bounds. Symlinks, devices, and FIFOs never enter the runner-owned
 artifact tree.
 
 Each repository's weekly subscription refresh job needs its own full refresh
-bundle and repository-scoped environment-write PAT. It checks out no consumer
-code and gives Codex only Tend's fixed refresh prompt. Codex receives the full
+bundle and repository-scoped environment-write PAT in `tend-codex-refresh`.
+The agent receives only access-only auth from `tend`. A first job in `tend`
+exports only whether access-only auth is configured; that presence flag makes
+the refresh job fail if its full auth or PAT is missing. The refresh job checks
+out no consumer code and gives Codex only Tend's fixed refresh prompt. Codex receives the full
 refresh bundle there; the PAT appears only in the separate publish step after
 Codex exits. Sharing a full bundle across repositories lets one refresh job
 invalidate the others. Sharing only access tokens depends on the external

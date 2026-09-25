@@ -799,8 +799,10 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" provisi
 ```
 
 The provisioner uses `codex`, or `npx -y @openai/codex@latest` when the CLI is
-absent. It validates and splits the login, stores both GitHub secrets without
-printing them, verifies the secret names, and removes its temporary Codex home.
+absent. It validates and splits the login, stores `CODEX_AUTH_JSON` in `tend`
+and `CODEX_REFRESH_AUTH_JSON` in `tend-codex-refresh` without printing them,
+verifies the secret names, and removes its temporary Codex home. Before login,
+it creates `tend-codex-refresh` with a policy admitting only the default branch.
 
 For rotation, this installs a replacement but cannot itself revoke the old
 Codex subscription login: the previous `auth.json` is removed and GitHub
@@ -829,9 +831,11 @@ pbpaste | python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.p
 The provisioner validates the fine-grained-token prefix, stores the secret,
 and verifies all three subscription secret names. If no shared clipboard is
 available, have the user run `gh secret set
-CODEX_REFRESH_PAT --repo "$REPO" --env tend` in their own terminal and paste
+CODEX_REFRESH_PAT --repo "$REPO" --env tend-codex-refresh` in their own terminal and paste
 the token at its hidden prompt. Never ask them to paste it into chat. Finish
-only after all three secret names appear in the environment's secret listing.
+only after the consumer secret appears in `tend` and both refresh secrets
+appear in `tend-codex-refresh`. Remove any old copies of refresh secrets from
+`tend`; `tend check` rejects them because agent jobs can read them.
 
 For **API key**, the user takes a key from
 `https://platform.openai.com/api-keys` and runs this themselves, pasting it at
@@ -1093,7 +1097,7 @@ line picks the row that matches the chosen harness):
 - [ ] Badge: added to README (unless skipped, or no README)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
-- [ ] Harness auth (codex): `OPENAI_API_KEY`, or this repo's refresh chain with `CODEX_AUTH_JSON` + `CODEX_REFRESH_AUTH_JSON` + `CODEX_REFRESH_PAT`
+- [ ] Harness auth (codex): `OPENAI_API_KEY`, or `CODEX_AUTH_JSON` in `tend` plus `CODEX_REFRESH_AUTH_JSON` and `CODEX_REFRESH_PAT` in `tend-codex-refresh`
 - [ ] Bot token: `TEND_BOT_TOKEN` set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot notifications: watching the repository

@@ -25,6 +25,7 @@ from tend.config import (
     CLAUDE_TOKEN_SECRET,
     CODEX_AUTH_SECRET,
     CODEX_REFRESH_AUTH_SECRET,
+    CODEX_REFRESH_ENVIRONMENT,
     CODEX_REFRESH_PAT_SECRET,
     MEMORY_GIST_SECRET,
     OPENAI_KEY_SECRET,
@@ -170,6 +171,7 @@ _JINJA.filters["indent_block"] = _indent_block
 _JINJA.globals["header"] = HEADER
 _JINJA.globals["tend_version"] = _TEND_VERSION
 _JINJA.globals["tend_environment"] = TEND_ENVIRONMENT
+_JINJA.globals["codex_refresh_environment"] = CODEX_REFRESH_ENVIRONMENT
 # Secret names reach the templates as globals rather than literals so the
 # names `tend check` looks for and the names the workflows read cannot drift.
 _JINJA.globals["bot_token_secret"] = BOT_TOKEN_SECRET

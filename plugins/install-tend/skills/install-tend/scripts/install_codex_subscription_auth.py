@@ -27,6 +27,7 @@ CONSUMER_SECRET = "CODEX_AUTH_JSON"
 REFRESH_PAT_SECRET = "CODEX_REFRESH_PAT"
 CONSUMER_AUTH_MODE = "chatgptAuthTokens"
 TEND_ENVIRONMENT = "tend"
+REFRESH_ENVIRONMENT = "tend-codex-refresh"
 
 
 class ProvisionError(ValueError):
@@ -94,7 +95,7 @@ def _codex_command() -> list[str]:
     raise ProvisionError("Codex is unavailable: install `codex` or `npx`")
 
 
-def _set_secret(repository: str, name: str, value: str) -> None:
+def _set_secret(repository: str, environment: str, name: str, value: str) -> None:
     subprocess.run(
         [
             "gh",
@@ -104,7 +105,7 @@ def _set_secret(repository: str, name: str, value: str) -> None:
             "--repo",
             repository,
             "--env",
-            TEND_ENVIRONMENT,
+            environment,
         ],
         input=value,
         text=True,
@@ -112,7 +113,80 @@ def _set_secret(repository: str, name: str, value: str) -> None:
     )
 
 
-def _verify_secrets(repository: str, required: set[str]) -> None:
+def _prepare_refresh_environment(repository: str) -> None:
+    """Create the refresh secret scope, admitting only the default branch."""
+    branch = subprocess.run(
+        ["gh", "api", f"repos/{repository}", "--jq", ".default_branch"],
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    if not branch:
+        raise ProvisionError("GitHub did not report a default branch")
+    path = f"repos/{repository}/environments/{REFRESH_ENVIRONMENT}"
+    subprocess.run(
+        ["gh", "api", "-X", "PUT", path, "--input", "-"],
+        input=json.dumps(
+            {
+                "deployment_branch_policy": {
+                    "protected_branches": False,
+                    "custom_branch_policies": True,
+                }
+            }
+        ),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            "--paginate",
+            f"{path}/deployment-branch-policies",
+            "--jq",
+            ".branch_policies[]",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    policies = [json.loads(line) for line in result.stdout.splitlines() if line]
+    if not any(p["type"] == "branch" and p["name"] == branch for p in policies):
+        subprocess.run(
+            [
+                "gh",
+                "api",
+                "-X",
+                "POST",
+                f"{path}/deployment-branch-policies",
+                "-f",
+                f"name={branch}",
+                "-f",
+                "type=branch",
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+    for policy in policies:
+        if policy["type"] == "branch" and policy["name"] == branch:
+            continue
+        subprocess.run(
+            [
+                "gh",
+                "api",
+                "-X",
+                "DELETE",
+                f"{path}/deployment-branch-policies/{policy['id']}",
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+
+def _verify_secrets(repository: str, environment: str, required: set[str]) -> None:
     # A shell that forces color makes `gh` colorize even a piped `--json`
     # body, and the ANSI codes land inside what `json.loads` parses.
     # `CLICOLOR_FORCE=0` is the setting that defeats it: `gh` ranks a forced
@@ -127,7 +201,7 @@ def _verify_secrets(repository: str, required: set[str]) -> None:
             "--repo",
             repository,
             "--env",
-            TEND_ENVIRONMENT,
+            environment,
             "--json",
             "name",
         ],
@@ -149,6 +223,7 @@ def provision(repository: str) -> None:
     _repository_parts(repository)
     if shutil.which("gh") is None:
         raise ProvisionError("GitHub CLI `gh` is unavailable")
+    _prepare_refresh_environment(repository)
 
     with tempfile.TemporaryDirectory(prefix="tend-codex-") as codex_home:
         env = os.environ.copy()
@@ -177,14 +252,19 @@ def provision(repository: str) -> None:
 
         validate_full(full_bundle)
         _set_secret(
-            repository, FULL_SECRET, json.dumps(full_bundle, separators=(",", ":"))
+            repository,
+            REFRESH_ENVIRONMENT,
+            FULL_SECRET,
+            json.dumps(full_bundle, separators=(",", ":")),
         )
         _set_secret(
             repository,
+            TEND_ENVIRONMENT,
             CONSUMER_SECRET,
             json.dumps(consumer_auth(full_bundle), separators=(",", ":")),
         )
-        _verify_secrets(repository, {FULL_SECRET, CONSUMER_SECRET})
+        _verify_secrets(repository, REFRESH_ENVIRONMENT, {FULL_SECRET})
+        _verify_secrets(repository, TEND_ENVIRONMENT, {CONSUMER_SECRET})
 
     print(f"Installed Codex subscription auth for {repository}.")
 
@@ -197,8 +277,10 @@ def store_pat(repository: str, token: str) -> None:
         raise ProvisionError("input is not a fine-grained GitHub PAT")
     if shutil.which("gh") is None:
         raise ProvisionError("GitHub CLI `gh` is unavailable")
-    _set_secret(repository, REFRESH_PAT_SECRET, token)
-    _verify_secrets(repository, {FULL_SECRET, CONSUMER_SECRET, REFRESH_PAT_SECRET})
+    _prepare_refresh_environment(repository)
+    _set_secret(repository, REFRESH_ENVIRONMENT, REFRESH_PAT_SECRET, token)
+    _verify_secrets(repository, REFRESH_ENVIRONMENT, {FULL_SECRET, REFRESH_PAT_SECRET})
+    _verify_secrets(repository, TEND_ENVIRONMENT, {CONSUMER_SECRET})
     print(f"Installed Codex refresh credential for {repository}.")
 
 

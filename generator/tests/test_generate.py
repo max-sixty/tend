@@ -1901,8 +1901,20 @@ def test_codex_generates_one_serialized_weekly_auth_refresher(tmp_path: Path) ->
         "cancel-in-progress": False,
     }
     step = refresh["jobs"]["refresh"]["steps"][0]
+    assert refresh["jobs"]["refresh"]["environment"] == {
+        "name": "tend-codex-refresh",
+        "deployment": False,
+    }
+    assert refresh["jobs"]["subscription"]["environment"] == {
+        "name": "tend",
+        "deployment": False,
+    }
+    assert refresh["jobs"]["subscription"]["steps"][0]["env"] == {
+        "CONFIGURED": "${{ secrets.CODEX_AUTH_JSON != '' }}"
+    }
+    assert refresh["jobs"]["refresh"]["needs"] == "subscription"
     assert step["with"] == {
-        "codex_auth_json": "${{ secrets.CODEX_AUTH_JSON }}",
+        "consumer_auth_configured": "${{ needs.subscription.outputs.configured }}",
         "codex_refresh_auth_json": "${{ secrets.CODEX_REFRESH_AUTH_JSON }}",
         "refresh_pat": "${{ secrets.CODEX_REFRESH_PAT }}",
     }
