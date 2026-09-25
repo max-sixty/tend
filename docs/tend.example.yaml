@@ -92,7 +92,8 @@ bot_name: my-project-bot
 # `OPENAI_API_KEY` is a standard OpenAI API key. Experimental Plus/Pro auth
 # gives agent jobs access-only `CODEX_AUTH_JSON`. For unattended CI, this
 # repository's weekly refresher needs its own full `CODEX_REFRESH_AUTH_JSON`
-# and `CODEX_REFRESH_PAT` (scoped to this repository, Environments: write).
+# and `CODEX_REFRESH_PAT` in `tend-codex-refresh` (scoped to this repository,
+# Environments: write). Only access-only `CODEX_AUTH_JSON` belongs in `tend`.
 # Never copy a full Codex login between repositories: their refresh jobs would
 # invalidate one another's tokens. An external refresher sharing access-only
 # auth must publish a replacement before that token expires. This relies on

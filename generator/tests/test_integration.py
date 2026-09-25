@@ -881,7 +881,7 @@ def _fake_gh_all_pass(*args: str, **kwargs: str) -> subprocess.CompletedProcess[
             )
         )
     if url.endswith("deployment-branch-policies"):
-        return _make_completed('{"name": "main"}\n')
+        return _make_completed('{"type": "branch", "name": "main"}\n')
     if url.endswith("environments/tend"):
         return _make_completed(
             json.dumps(

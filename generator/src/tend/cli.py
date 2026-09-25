@@ -23,7 +23,7 @@ from tend.checks import (
     run_all_checks,
     update_ruleset_bypass,
 )
-from tend.config import Config
+from tend.config import CODEX_REFRESH_ENVIRONMENT, Config
 from tend.migrate import migrate_toml_to_yaml, render_toml_as_yaml
 from tend.workflows import (
     actionlint_config,
@@ -443,6 +443,17 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
         # protection this run could not verify. An empty set can't reach here:
         # the check reports unknown rather than failure when nothing verified.
         fix_result = fix_environment(repo, environment_refs)
+        _print_check_results([fix_result])
+        if fix_result.passed:
+            fixed_any = True
+
+    if (
+        any(r.name == "codex-refresh-environment" for r in failures)
+        and can_fix_environment
+    ):
+        click.echo()
+        click.echo("Configuring the 'tend-codex-refresh' environment...")
+        fix_result = fix_environment(repo, [default_branch], CODEX_REFRESH_ENVIRONMENT)
         _print_check_results([fix_result])
         if fix_result.passed:
             fixed_any = True
