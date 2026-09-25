@@ -15,9 +15,6 @@ inputs:
   merge:
     default: restricted
     description: Merge mode generated from .config/tend.yaml (restricted or yolo)
-  control_plane_owner:
-    default: ""
-    description: CODEOWNER for yolo-protected workflow and Tend config changes
   claude_code_oauth_token:
     required: false
     default: ""
@@ -156,7 +153,6 @@ runs:
         BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MERGE: ${{ inputs.merge }}
-        TEND_CONTROL_PLANE_OWNER: ${{ inputs.control_plane_owner }}
 
     # Also publishes `login`/`id` for the bot: it reads them off the token it
     # already holds, so nothing downstream has to resolve them again from the

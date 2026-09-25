@@ -192,7 +192,7 @@ self-hosted runner that home persists between jobs.
 **Environment-gated credentials** — yolo deliberately lets code the bot merges
 to the default branch use generic credentials in jobs on that branch. Extra
 branches and tags still need bot-inaccessible ref protection or a non-bot
-environment reviewer. Tend verifies the exact generated workflows, rejects
+environment reviewer. In yolo, Tend also verifies the exact generated workflows, rejects
 other workflows whose environment use is dynamic or hidden behind an external
 or ref-qualified reusable workflow, and reserves Tend's operational environment
 for the generated jobs. The harness keeps its long-lived credentials out of the
@@ -267,13 +267,14 @@ subscription's tokens stay valid. The bot's write access lets it change the
 variable too, so the pause is an operating switch rather than a security
 control: to cut off a misbehaving bot, revoke its PAT.
 
-The secrets, stored in the repo's `tend` environment (install-tend creates
-it; `tend check` verifies it), depend on the harness:
+The agent secrets live in the repo's `tend` environment (install-tend creates
+it; `tend check` verifies it). Subscription refresh secrets live in the
+`tend-codex-refresh` environment, which admits only the default branch:
 
 | Harness    | Required secrets                                                                                                         |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `claude`   | `TEND_BOT_TOKEN` + one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription) or `ANTHROPIC_API_KEY` (API-billed)                   |
-| `codex`    | `TEND_BOT_TOKEN` + either `OPENAI_API_KEY`, or the subscription trio `CODEX_AUTH_JSON`, `CODEX_REFRESH_AUTH_JSON`, and `CODEX_REFRESH_PAT` |
+| `codex`    | `TEND_BOT_TOKEN` + either `OPENAI_API_KEY`, or `CODEX_AUTH_JSON` in `tend` plus `CODEX_REFRESH_AUTH_JSON` and `CODEX_REFRESH_PAT` in `tend-codex-refresh` |
 
 `TEND_BOT_TOKEN` is the bot account's PAT — see
 [example config](docs/tend.example.yaml) for scopes.
@@ -338,8 +339,9 @@ Two auth modes:
 - **ChatGPT Plus or Pro (experimental):** concurrent jobs receive
   `CODEX_AUTH_JSON`, an access-only bundle that Codex cannot refresh. Each
   repository's serialized weekly workflow holds its own
-  `CODEX_REFRESH_AUTH_JSON`, rotates it, then publishes the next access-only
-  bundle using a `CODEX_REFRESH_PAT` scoped to that repository. Do not copy a
+  `CODEX_REFRESH_AUTH_JSON` and `CODEX_REFRESH_PAT` in the separate
+  `tend-codex-refresh` environment. It rotates the full bundle there, then
+  publishes the next access-only bundle to `tend`. Do not copy a
   full `auth.json` between repositories: their refresh jobs would race on the
   same rotating token.
 - **API:** `OPENAI_API_KEY` is a standard pay-per-token key from

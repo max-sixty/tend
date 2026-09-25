@@ -11,10 +11,10 @@ from tend.workflows import codeowners_config
 REPO = "owner/repo"
 
 
-def _generated_codeowners(existing: str | None = None) -> str:
-    """What `tend init` writes, so the preflight's copy of the block is checked
+def _generated_codeowners(existing: str | None = None, owner: str = "@octocat") -> str:
+    """What `tend check --fix` writes, so the preflight's copy is checked
     against the generator's rather than against a third copy here."""
-    content = codeowners_config(existing, "@octocat")
+    content = codeowners_config(existing, owner)
     assert content is not None
     return content
 
@@ -23,7 +23,6 @@ def _generated_codeowners(existing: str | None = None) -> str:
 def actions_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
     monkeypatch.setenv("TEND_MERGE", "restricted")
-    monkeypatch.setenv("TEND_CONTROL_PLANE_OWNER", "@octocat")
 
 
 def _repo(fake_gh: FakeGh, *, rules: object, protected: bool | None = None) -> None:
@@ -67,7 +66,7 @@ def _bypass(fake_gh: FakeGh, ruleset_id: int, answer: object) -> None:
     )
 
 
-def _codeowners(fake_gh: FakeGh) -> None:
+def _codeowners(fake_gh: FakeGh, owner: str = "@octocat") -> None:
     fake_gh.respond(
         "api",
         "graphql",
@@ -79,7 +78,7 @@ def _codeowners(fake_gh: FakeGh) -> None:
             }
         },
     )
-    content = _generated_codeowners()
+    content = _generated_codeowners(owner=owner)
     fake_gh.respond(
         "api",
         f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main",
@@ -149,7 +148,7 @@ def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file(
     )
 
     assert security_preflight.has_valid_control_plane_codeowners(
-        REPO, "main", "@octocat"
+        REPO, "main", "tend-bot"
     )
 
 
@@ -164,7 +163,7 @@ def test_control_plane_codeowners_accepts_the_generated_block_after_consumer_rul
         with_={"content": base64.b64encode(content.encode()).decode()},
     )
     assert security_preflight.has_valid_control_plane_codeowners(
-        REPO, "main", "@octocat"
+        REPO, "main", "tend-bot"
     )
 
 
@@ -182,7 +181,7 @@ def test_control_plane_codeowners_rejects_dereferenced_symlink(fake_gh: FakeGh) 
         },
     )
     assert not security_preflight.has_valid_control_plane_codeowners(
-        REPO, "main", "@octocat"
+        REPO, "main", "tend-bot"
     )
 
 
@@ -315,7 +314,7 @@ def test_yolo_requires_pull_request_only_bypass_and_control_plane_review(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setenv("TEND_MERGE", "yolo")
-    _codeowners(fake_gh)
+    _codeowners(fake_gh, owner="@octocat @maintainer")
     _repo(
         fake_gh,
         rules=[*_lifecycle_rules(1), {"type": "pull_request", "ruleset_id": 2}],
@@ -405,19 +404,18 @@ def test_yolo_rejects_a_bypassable_control_plane_rule(
     assert "fresh CODEOWNER approval" in capsys.readouterr().out
 
 
-def test_yolo_rejects_the_bot_as_control_plane_owner(
+def test_yolo_rejects_the_bot_as_codeowner(
     monkeypatch: pytest.MonkeyPatch,
     fake_gh: FakeGh,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setenv("TEND_MERGE", "yolo")
-    monkeypatch.setenv("TEND_CONTROL_PLANE_OWNER", "@tend-bot")
-    _codeowners(fake_gh)
+    _codeowners(fake_gh, owner="@tend-bot")
     _repo(fake_gh, rules=[_update_rule(1)])
     _bypass(fake_gh, 1, "pull_requests_only")
 
     assert security_preflight.main() == 1
-    assert "not the Tend bot account" in capsys.readouterr().out
+    assert "fresh CODEOWNER approval" in capsys.readouterr().out
 
 
 def test_an_unreadable_ruleset_falls_back_to_the_protected_floor(

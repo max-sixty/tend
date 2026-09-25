@@ -102,9 +102,9 @@ itself the go-ahead.
    - **Maintainer** (recommended) — the bot opens and updates PRs; only admins can
      update the default branch.
    - **Yolo** — the bot may merge ordinary PRs, but cannot push directly.
-     Workflow and Tend-config changes require a fresh CODEOWNER approval;
-     ask for the one maintainer GitHub user to own them. Teams are not accepted
-     because Tend cannot prove the bot is not a member.
+     Workflow and Tend-config changes require a fresh approval from an independent
+     CODEOWNER. `tend check --fix` uses the authenticated `gh` user to create
+     the ownership block; more maintainers can be added to its lines.
 3. **Bot name** — the available candidates, recommended first. "Other"
    takes a custom name; check its availability before using it. The tool
    needs 2–4 options, so generate more candidates whenever fewer than two
@@ -178,9 +178,8 @@ README.md "Harnesses" for the comparison.
 
 ```yaml
 bot_name: <bot-name>
-# For autonomous merging (also set the owner selected at kickoff):
+# For autonomous merging:
 # merge: yolo
-# control_plane_owner: "@maintainer"
 # For Codex:
 # harness: codex
 # model: gpt-5.6-sol
@@ -409,7 +408,7 @@ non-bypassable CODEOWNER approval for `.github/**` and
 an existing copy is retained when returning to restricted. `Tag operations`
 keeps all tags admin-only.
 
-Yolo bootstraps in two safe phases. Before the generated CODEOWNERS block and
+Yolo bootstraps in two safe phases. Before the CODEOWNERS block and
 exact generated workflows are on the default branch, or while any credential
 check is unresolved, `--fix` keeps restricted mode and refuses to grant the bot
 a bypass. Merge the install PR manually and fix any credential gates, then
@@ -800,8 +799,10 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" provisi
 ```
 
 The provisioner uses `codex`, or `npx -y @openai/codex@latest` when the CLI is
-absent. It validates and splits the login, stores both GitHub secrets without
-printing them, verifies the secret names, and removes its temporary Codex home.
+absent. It validates and splits the login, stores `CODEX_AUTH_JSON` in `tend`
+and `CODEX_REFRESH_AUTH_JSON` in `tend-codex-refresh` without printing them,
+verifies the secret names, and removes its temporary Codex home. Before login,
+it creates `tend-codex-refresh` with a policy admitting only the default branch.
 
 For rotation, this installs a replacement but cannot itself revoke the old
 Codex subscription login: the previous `auth.json` is removed and GitHub
@@ -827,12 +828,14 @@ provisioner without displaying it. Use the host's clipboard reader; on macOS:
 pbpaste | python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" store-pat --repo "$REPO"
 ```
 
-The provisioner validates the fine-grained-token prefix, stores the secret,
-and verifies all three subscription secret names. If no shared clipboard is
-available, have the user run `gh secret set
-CODEX_REFRESH_PAT --repo "$REPO" --env tend` in their own terminal and paste
-the token at its hidden prompt. Never ask them to paste it into chat. Finish
-only after all three secret names appear in the environment's secret listing.
+The provisioner validates the fine-grained-token prefix, uses that PAT to store
+its own secret so GitHub checks its environment access, and verifies all three
+subscription secret names. If no shared clipboard is available, have the user
+run the provisioner's `store-pat` command above without a pipe in their own
+terminal and paste the token at its hidden prompt. Never ask them to paste it
+into chat. Finish only after the consumer secret appears in `tend` and both
+refresh secrets appear in `tend-codex-refresh`. Remove any old copies from
+`tend`; `tend check` rejects them because agent jobs can read them.
 
 For **API key**, the user takes a key from
 `https://platform.openai.com/api-keys` and runs this themselves, pasting it at
@@ -1094,7 +1097,7 @@ line picks the row that matches the chosen harness):
 - [ ] Badge: added to README (unless skipped, or no README)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
-- [ ] Harness auth (codex): `OPENAI_API_KEY`, or this repo's refresh chain with `CODEX_AUTH_JSON` + `CODEX_REFRESH_AUTH_JSON` + `CODEX_REFRESH_PAT`
+- [ ] Harness auth (codex): `OPENAI_API_KEY`, or `CODEX_AUTH_JSON` in `tend` plus `CODEX_REFRESH_AUTH_JSON` and `CODEX_REFRESH_PAT` in `tend-codex-refresh`
 - [ ] Bot token: `TEND_BOT_TOKEN` set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot notifications: watching the repository

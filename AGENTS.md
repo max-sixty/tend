@@ -73,7 +73,9 @@ Four pieces:
 
    `max-sixty/tend/codex/refresh@X.Y.Z` is the Codex support action. A generated
    serialized workflow runs it weekly to rotate Plus/Pro credentials and
-   publish the full and access-only bundles. It holds no bot token and does not
+   publish the full bundle to `tend-codex-refresh` and access-only auth to
+   `tend`. A preceding `tend` job passes only a consumer-auth presence flag,
+   so a missing refresh credential fails the subscription run. It holds no bot token and does not
    inspect consumer code. Inputs in `codex/refresh/action.yaml`.
 
    Removed: `claude-interactive`, a PTY-supervised variant of the same binary
@@ -243,7 +245,9 @@ anything narrower as missing. The PAT and a Claude OAuth token are
 stored as secrets in the repo's `tend` GitHub Environment, whose deployment
 branch policy admits the default branch and any `protected_branches` that
 exist and are protected. A workflow the bot pushes to any other ref is
-refused them before its first step. In `restricted` mode the bot cannot
+refused them before its first step. Codex subscription refresh credentials live
+in `tend-codex-refresh`, whose policy admits only the default branch; agent
+jobs never name it. In `restricted` mode the bot cannot
 move any admitted branch. In `yolo`, it may merge pull requests to the
 default branch, while a CODEOWNERS-backed ruleset reserves Tend's workflows
 and config, CODEOWNERS, and agent instructions for a maintainer owner. Two things use the `gist` scope, both

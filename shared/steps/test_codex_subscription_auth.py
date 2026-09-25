@@ -94,7 +94,7 @@ def test_stage_refresh_forces_codex_to_use_its_built_in_rotation(
     original = json.loads(json.dumps(FULL_AUTH))
 
     configured = codex_subscription_auth.stage_refresh(
-        codex_auth_json=json.dumps(codex_subscription_auth.consumer_auth(FULL_AUTH)),
+        consumer_auth_configured=True,
         refresh_auth_json=json.dumps(FULL_AUTH),
         refresh_pat="pat",
         destination=destination,
@@ -119,12 +119,9 @@ def test_stage_refresh_cli_publishes_whether_subscription_auth_is_configured(
     output = tmp_path / "output"
     output.touch()
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    monkeypatch.setenv(
-        "CODEX_AUTH_JSON",
-        json.dumps(codex_subscription_auth.consumer_auth(FULL_AUTH)),
-    )
     monkeypatch.setenv("CODEX_REFRESH_AUTH_JSON", json.dumps(FULL_AUTH))
     monkeypatch.setenv("CODEX_REFRESH_PAT", "pat")
+    monkeypatch.setenv("CODEX_CONSUMER_AUTH_CONFIGURED", "true")
 
     assert (
         codex_subscription_auth.main(["stage-refresh", str(tmp_path / "auth.json")])
@@ -160,7 +157,7 @@ def test_publish_refresh_writes_rotated_state_before_access_only_state(
             "--repo",
             "owner/repo",
             "--env",
-            "tend",
+            "tend-codex-refresh",
         ),
         (
             "secret",
@@ -238,7 +235,7 @@ def test_stage_refresh_skips_when_no_subscription_secrets(tmp_path: Path) -> Non
     destination = tmp_path / "auth.json"
 
     assert not codex_subscription_auth.stage_refresh(
-        codex_auth_json="",
+        consumer_auth_configured=False,
         refresh_auth_json="",
         refresh_pat="",
         destination=destination,
@@ -246,25 +243,47 @@ def test_stage_refresh_skips_when_no_subscription_secrets(tmp_path: Path) -> Non
     assert not destination.exists()
 
 
+def test_stage_refresh_fails_when_consumer_has_no_refresh_credentials(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        codex_subscription_auth.SubscriptionAuthError,
+        match="copies in 'tend' are not read; re-run the install-tend provisioner",
+    ):
+        codex_subscription_auth.stage_refresh(
+            consumer_auth_configured=True,
+            refresh_auth_json="",
+            refresh_pat="",
+            destination=tmp_path / "auth.json",
+        )
+
+
+def test_stage_refresh_fails_on_orphan_refresh_credentials(tmp_path: Path) -> None:
+    with pytest.raises(
+        codex_subscription_auth.SubscriptionAuthError,
+        match="without CODEX_AUTH_JSON",
+    ):
+        codex_subscription_auth.stage_refresh(
+            consumer_auth_configured=False,
+            refresh_auth_json=json.dumps(FULL_AUTH),
+            refresh_pat="pat",
+            destination=tmp_path / "auth.json",
+        )
+
+
 @pytest.mark.parametrize(
-    ("consumer", "refresh_auth", "pat", "missing"),
+    ("refresh_auth", "pat", "missing"),
     [
-        (
-            json.dumps(codex_subscription_auth.consumer_auth(FULL_AUTH)),
-            "",
-            "",
-            "CODEX_REFRESH_AUTH_JSON",
-        ),
-        ("", json.dumps(FULL_AUTH), "", "CODEX_REFRESH_PAT"),
-        ("", "", "pat", "CODEX_REFRESH_AUTH_JSON"),
+        (json.dumps(FULL_AUTH), "", "CODEX_REFRESH_PAT"),
+        ("", "pat", "CODEX_REFRESH_AUTH_JSON"),
     ],
 )
 def test_stage_refresh_rejects_partial_subscription_configuration(
-    tmp_path: Path, consumer: str, refresh_auth: str, pat: str, missing: str
+    tmp_path: Path, refresh_auth: str, pat: str, missing: str
 ) -> None:
     with pytest.raises(codex_subscription_auth.SubscriptionAuthError, match=missing):
         codex_subscription_auth.stage_refresh(
-            codex_auth_json=consumer,
+            consumer_auth_configured=True,
             refresh_auth_json=refresh_auth,
             refresh_pat=pat,
             destination=tmp_path / "auth.json",

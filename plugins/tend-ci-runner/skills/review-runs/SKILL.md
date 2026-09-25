@@ -11,15 +11,17 @@ Analyze the previous night's tend CI runs in this repository. Identify behaviora
 
 This skill runs **in the consumer repo**, not in tend. Improvements target `.claude/skills/` and `.config/tend.yaml` in this repository.
 
-## First steps
+## Load required skills
 
-Load `/tend-ci-runner:run-tend` first — it contains CI security rules and comment formatting. This skill opens PRs and issue comments, so load `/tend-ci-runner:post-to-github` and `/tend-ci-runner:open-pr` with it.
+- Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay.
+- Load `/tend-ci-runner:post-to-github` and `/tend-ci-runner:open-pr` before composing posts or opening PRs.
+- Load `/tend-ci-runner:read-session-logs` before Step 3.
+- Load `/tend-ci-runner:act-in-other-repos` before filing a bundled-skill defect upstream, or `/tend-ci-runner:propose-instructions` before editing repo-local skills.
+- Load `/tend-ci-runner:push-commits` before pushing a fix and `/tend-ci-runner:monitor-ci` after the push.
 
 ```bash
 ls .claude/skills/
 ```
-
-Load any repo-specific skill overlay before proceeding.
 
 @review-gates.md
 
@@ -183,7 +185,7 @@ Include the total cost and the per-workflow breakdown in the summary (Step 7). E
 
 ## Step 3: Download and analyze session logs
 
-Load `/tend-ci-runner:read-session-logs`, which picks the runs and sends you to `/install-tend:debug-tend-run` for the download commands and JSONL parsing queries.
+Use `/tend-ci-runner:read-session-logs` to pick the runs and `/install-tend:debug-tend-run` for the download commands and JSONL parsing queries.
 
 Skip runs without artifacts. Trace decision chains: what did tend decide, what evidence did it use, what was the outcome?
 

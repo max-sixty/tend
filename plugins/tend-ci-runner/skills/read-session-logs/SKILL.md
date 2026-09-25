@@ -10,9 +10,13 @@ metadata:
 - [Investigating other CI runs](#investigating-other-ci-runs)
 - [Recalling prior context on this thread](#recalling-prior-context-on-this-thread)
 
+## Required skills
+
+- Load `/install-tend:debug-tend-run` when investigating another run.
+
 ## Investigating other CI runs
 
-Load `/install-tend:debug-tend-run` for session log download, JSONL parsing queries, and diagnostic workflow. The primary evidence for diagnosing bot behavior is the session log artifact — not console output.
+Use `/install-tend:debug-tend-run` for session log download, JSONL parsing queries, and diagnostic workflow. The primary evidence for diagnosing bot behavior is the session log artifact — not console output.
 
 Review events trigger `tend-mention-relay`, whose runs never carry a session or an artifact. The session for a review event runs under the `tend-mention` `repository_dispatch` run the relay creates — look there.
 

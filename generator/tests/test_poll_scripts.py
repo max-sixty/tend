@@ -788,6 +788,29 @@ def test_moved_head_is_reported_not_absorbed(env: dict[str, str]) -> None:
     )
 
 
+def test_verdict_survives_a_piped_tail(env: dict[str, str]) -> None:
+    """Sessions pipe the poll through `tail -N`, which keeps only the end of a
+    long check list — so the last line has to carry the verdict on its own."""
+    Path(env["HEAD_JSON"]).write_text(json.dumps({"headRefOid": "b" * 40}))
+    _serve(
+        env,
+        _resp(
+            _check_run("lint", conclusion="FAILURE", run_id=101),
+            *(_check_run(f"job{i}", conclusion="CANCELLED") for i in range(40)),
+        ),
+    )
+
+    poll = _poll(env)
+    approval = _approval(env)
+
+    assert poll.returncode == 1, poll.stdout
+    assert poll.stdout.splitlines()[-1] == f"verdict: RED on {HEAD_SHA} (exit 1)"
+    assert approval.returncode == 1, approval.stdout
+    assert approval.stdout.splitlines()[-1] == (
+        f"verdict: withhold on {HEAD_SHA} (exit 1)"
+    )
+
+
 # --- rerun_failed_jobs.py ---------------------------------------------------
 
 

@@ -16,9 +16,13 @@ Review a pull request.
 
 Follow these steps in order.
 
-### 0. Load environment skills
+### 0. Load required skills
 
-Load `/tend-ci-runner:run-tend` first — it contains CI security rules and comment formatting, and it will prompt you to load any repo-specific skills (e.g., `running-tend`). The steps below name the per-action skill each one needs.
+- Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay.
+- Load `/tend-ci-runner:post-to-github` before composing the review or any inline reply.
+- Load `/tend-ci-runner:code-review` before the structured second pass.
+- Load `/tend-ci-runner:open-pr` if editing the PR description, `/tend-ci-runner:dismiss-approval` if withdrawing a standing approval, and `/tend-ci-runner:monitor-ci` after approving or pushing a fix.
+- Load `/tend-ci-runner:push-commits` before pushing a fix.
 
 ### 1. Pre-flight checks
 
