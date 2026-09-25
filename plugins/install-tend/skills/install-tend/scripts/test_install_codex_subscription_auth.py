@@ -9,6 +9,7 @@ import sys
 import urllib.parse
 from pathlib import Path
 
+import install_codex_subscription_auth as auth_module
 import pytest
 from install_codex_subscription_auth import (
     CONSUMER_AUTH_MODE,
@@ -223,8 +224,10 @@ from pathlib import Path
 
 log = Path(os.environ["TEND_TEST_SECRET_LOG"])
 if sys.argv[1:3] == ["secret", "set"]:
+    value = sys.stdin.read()
+    assert os.environ["GH_HOST"] == "github.com"
     with log.open("a") as file:
-        file.write(json.dumps({"name": sys.argv[3], "env": sys.argv[-1], "value": sys.stdin.read()}) + "\\n")
+        file.write(json.dumps({"name": sys.argv[3], "env": sys.argv[-1], "value": value, "self_auth": os.environ.get("GH_TOKEN") == value}) + "\\n")
 elif sys.argv[1:3] == ["secret", "list"]:
     names = [item["name"] for line in log.read_text().splitlines()
              if (item := json.loads(line))["env"] == sys.argv[-3]]
@@ -237,6 +240,7 @@ else:
 """,
     )
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("GH_HOST", "enterprise.example")
     monkeypatch.setenv("TEND_TEST_SECRET_LOG", str(secret_log))
 
     store_pat("owner/repo", "  github_pat_secret\n")
@@ -246,4 +250,31 @@ else:
         "name": REFRESH_PAT_SECRET,
         "env": "tend-codex-refresh",
         "value": "github_pat_secret",
+        "self_auth": True,
     }
+
+
+def test_store_pat_prompts_without_a_clipboard_pipe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TerminalInput:
+        def isatty(self) -> bool:
+            return True
+
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(auth_module.sys, "stdin", TerminalInput())
+    monkeypatch.setattr(
+        auth_module.sys,
+        "argv",
+        ["install_codex_subscription_auth.py", "store-pat", "--repo", "owner/repo"],
+    )
+    monkeypatch.setattr(
+        auth_module.getpass, "getpass", lambda prompt: "github_pat_secret"
+    )
+    monkeypatch.setattr(
+        auth_module, "store_pat", lambda repo, token: calls.append((repo, token))
+    )
+
+    auth_module.main()
+
+    assert calls == [("owner/repo", "github_pat_secret")]

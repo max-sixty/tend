@@ -828,13 +828,13 @@ provisioner without displaying it. Use the host's clipboard reader; on macOS:
 pbpaste | python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" store-pat --repo "$REPO"
 ```
 
-The provisioner validates the fine-grained-token prefix, stores the secret,
-and verifies all three subscription secret names. If no shared clipboard is
-available, have the user run `gh secret set
-CODEX_REFRESH_PAT --repo "$REPO" --env tend-codex-refresh` in their own terminal and paste
-the token at its hidden prompt. Never ask them to paste it into chat. Finish
-only after the consumer secret appears in `tend` and both refresh secrets
-appear in `tend-codex-refresh`. Remove any old copies of refresh secrets from
+The provisioner validates the fine-grained-token prefix, uses that PAT to store
+its own secret so GitHub checks its environment access, and verifies all three
+subscription secret names. If no shared clipboard is available, have the user
+run the provisioner's `store-pat` command above without a pipe in their own
+terminal and paste the token at its hidden prompt. Never ask them to paste it
+into chat. Finish only after the consumer secret appears in `tend` and both
+refresh secrets appear in `tend-codex-refresh`. Remove any old copies from
 `tend`; `tend check` rejects them because agent jobs can read them.
 
 For **API key**, the user takes a key from

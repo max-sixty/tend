@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import getpass
 import json
 import os
 import shutil
@@ -95,7 +96,18 @@ def _codex_command() -> list[str]:
     raise ProvisionError("Codex is unavailable: install `codex` or `npx`")
 
 
-def _set_secret(repository: str, environment: str, name: str, value: str) -> None:
+def _set_secret(
+    repository: str,
+    environment: str,
+    name: str,
+    value: str,
+    *,
+    gh_token: str | None = None,
+) -> None:
+    env = os.environ.copy()
+    env["GH_HOST"] = "github.com"
+    if gh_token is not None:
+        env["GH_TOKEN"] = gh_token
     subprocess.run(
         [
             "gh",
@@ -109,16 +121,19 @@ def _set_secret(repository: str, environment: str, name: str, value: str) -> Non
         ],
         input=value,
         text=True,
+        env=env,
         check=True,
     )
 
 
 def _prepare_refresh_environment(repository: str) -> None:
     """Create the refresh secret scope, admitting only the default branch."""
+    gh_env = {**os.environ, "GH_HOST": "github.com"}
     branch = subprocess.run(
         ["gh", "api", f"repos/{repository}", "--jq", ".default_branch"],
         text=True,
         capture_output=True,
+        env=gh_env,
         check=True,
     ).stdout.strip()
     if not branch:
@@ -136,6 +151,7 @@ def _prepare_refresh_environment(repository: str) -> None:
         ),
         text=True,
         capture_output=True,
+        env=gh_env,
         check=True,
     )
     result = subprocess.run(
@@ -149,6 +165,7 @@ def _prepare_refresh_environment(repository: str) -> None:
         ],
         text=True,
         capture_output=True,
+        env=gh_env,
         check=True,
     )
     policies = [json.loads(line) for line in result.stdout.splitlines() if line]
@@ -167,6 +184,7 @@ def _prepare_refresh_environment(repository: str) -> None:
             ],
             text=True,
             capture_output=True,
+            env=gh_env,
             check=True,
         )
     for policy in policies:
@@ -182,6 +200,7 @@ def _prepare_refresh_environment(repository: str) -> None:
             ],
             text=True,
             capture_output=True,
+            env=gh_env,
             check=True,
         )
 
@@ -191,7 +210,7 @@ def _verify_secrets(repository: str, environment: str, required: set[str]) -> No
     # body, and the ANSI codes land inside what `json.loads` parses.
     # `CLICOLOR_FORCE=0` is the setting that defeats it: `gh` ranks a forced
     # value above `NO_COLOR`, so `NO_COLOR` alone loses.
-    env = os.environ.copy()
+    env = {**os.environ, "GH_HOST": "github.com"}
     env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
     result = subprocess.run(
         [
@@ -278,7 +297,11 @@ def store_pat(repository: str, token: str) -> None:
     if shutil.which("gh") is None:
         raise ProvisionError("GitHub CLI `gh` is unavailable")
     _prepare_refresh_environment(repository)
-    _set_secret(repository, REFRESH_ENVIRONMENT, REFRESH_PAT_SECRET, token)
+    # Use the PAT to write itself so an incorrect repository or Environments
+    # permission fails before Tend treats this credential as installed.
+    _set_secret(
+        repository, REFRESH_ENVIRONMENT, REFRESH_PAT_SECRET, token, gh_token=token
+    )
     _verify_secrets(repository, REFRESH_ENVIRONMENT, {FULL_SECRET, REFRESH_PAT_SECRET})
     _verify_secrets(repository, TEND_ENVIRONMENT, {CONSUMER_SECRET})
     print(f"Installed Codex refresh credential for {repository}.")
@@ -296,7 +319,12 @@ def main() -> None:
         elif args.operation == "pat-url":
             print(pat_url(args.repo))
         else:
-            store_pat(args.repo, sys.stdin.read())
+            token = (
+                getpass.getpass("Fine-grained GitHub PAT: ")
+                if sys.stdin.isatty()
+                else sys.stdin.read()
+            )
+            store_pat(args.repo, token)
     except (ProvisionError, subprocess.CalledProcessError) as exc:
         sys.exit(f"Error: {exc}")
 
