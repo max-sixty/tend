@@ -90,6 +90,18 @@ def _patch_calls(fake_gh: FakeGh) -> list[str]:
             f"https://api.github.com/repos/{REPO}/pulls/4",
             id="comment-on-a-pr",
         ),
+        pytest.param(
+            "repository_dispatch",
+            {"action": "tend-mention-review", "client_payload": {"pr": "4"}},
+            f"https://api.github.com/repos/{REPO}/pulls/4",
+            id="relayed-review",
+        ),
+        pytest.param(
+            "repository_dispatch",
+            {"client_payload": {}},
+            None,
+            id="dispatch-without-a-pr",
+        ),
         pytest.param("schedule", {}, None, id="nothing-to-mark"),
     ],
 )
