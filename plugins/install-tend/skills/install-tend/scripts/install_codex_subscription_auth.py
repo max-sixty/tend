@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import copy
 import getpass
+import hashlib
 import json
 import os
 import shutil
@@ -76,9 +77,13 @@ def _repository_parts(repository: str) -> tuple[str, str]:
 def pat_url(repository: str) -> str:
     """Return GitHub's prefilled fine-grained-token form for this repository."""
     owner, _ = _repository_parts(repository)
+    name = f"Tend Codex refresh: {repository}"
+    # GitHub caps token display names at 40 characters.
+    if len(name) > 40:
+        name = f"{name[:31]}-{hashlib.sha256(repository.encode()).hexdigest()[:8]}"
     query = urllib.parse.urlencode(
         {
-            "name": "Tend Codex refresh",
+            "name": name,
             "description": f"Rotates Codex subscription credentials for {repository}",
             "target_name": owner,
             "expires_in": "none",
@@ -297,11 +302,16 @@ def store_pat(repository: str, token: str) -> None:
     if shutil.which("gh") is None:
         raise ProvisionError("GitHub CLI `gh` is unavailable")
     _prepare_refresh_environment(repository)
-    # Use the PAT to write itself so an incorrect repository or Environments
-    # permission fails before Tend treats this credential as installed.
-    _set_secret(
-        repository, REFRESH_ENVIRONMENT, REFRESH_PAT_SECRET, token, gh_token=token
-    )
+    # A failed write leaves the existing refresh secret intact.
+    try:
+        _set_secret(
+            repository, REFRESH_ENVIRONMENT, REFRESH_PAT_SECRET, token, gh_token=token
+        )
+    except subprocess.CalledProcessError as exc:
+        raise ProvisionError(
+            f"PAT cannot write {repository}'s {REFRESH_ENVIRONMENT} environment "
+            "secrets; select only this repository and grant Environments: Read and write"
+        ) from exc
     _verify_secrets(repository, REFRESH_ENVIRONMENT, {FULL_SECRET, REFRESH_PAT_SECRET})
     _verify_secrets(repository, TEND_ENVIRONMENT, {CONSUMER_SECRET})
     print(f"Installed Codex refresh credential for {repository}.")

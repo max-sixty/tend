@@ -99,9 +99,22 @@ def test_pat_url_prefills_owner_and_minimal_permission() -> None:
         "description": ["Rotates Codex subscription credentials for owner/repo"],
         "environments": ["write"],
         "expires_in": ["none"],
-        "name": ["Tend Codex refresh"],
+        "name": ["Tend Codex refresh: owner/repo"],
         "target_name": ["owner"],
     }
+
+
+def test_pat_url_name_stays_specific_for_long_repositories() -> None:
+    first = urllib.parse.parse_qs(
+        urllib.parse.urlparse(pat_url(f"owner/{'a' * 50}")).query
+    )["name"][0]
+    second = urllib.parse.parse_qs(
+        urllib.parse.urlparse(pat_url(f"owner/{'a' * 49}b")).query
+    )["name"][0]
+
+    assert len(first) <= 40
+    assert len(second) <= 40
+    assert first != second
 
 
 @pytest.mark.parametrize("repository", ["owner", "/repo", "owner/", "a/b/c"])
@@ -252,6 +265,34 @@ else:
         "value": "github_pat_secret",
         "self_auth": True,
     }
+
+
+def test_store_pat_reports_pat_without_environment_write_access(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(
+        bin_dir / "gh",
+        """
+import os
+import sys
+
+if sys.argv[1] == "api":
+    if ".default_branch" in sys.argv:
+        print("main")
+elif sys.argv[1:3] == ["secret", "list"]:
+    raise AssertionError("checked secrets after failed PAT write")
+elif sys.argv[1:3] == ["secret", "set"]:
+    assert os.environ["GH_TOKEN"] == "github_pat_without_access"
+    print("HTTP 403: Resource not accessible by personal access token", file=sys.stderr)
+    raise SystemExit(1)
+""",
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    with pytest.raises(ProvisionError, match="Environments: Read and write"):
+        store_pat("owner/repo", "github_pat_without_access")
 
 
 def test_store_pat_prompts_without_a_clipboard_pipe(
