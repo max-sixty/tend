@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import copy
 import getpass
+import hashlib
 import json
 import os
 import shutil
@@ -76,9 +77,13 @@ def _repository_parts(repository: str) -> tuple[str, str]:
 def pat_url(repository: str) -> str:
     """Return GitHub's prefilled fine-grained-token form for this repository."""
     owner, _ = _repository_parts(repository)
+    name = f"Tend Codex refresh: {repository}"
+    # GitHub caps token display names at 40 characters.
+    if len(name) > 40:
+        name = f"{name[:31]}-{hashlib.sha256(repository.encode()).hexdigest()[:8]}"
     query = urllib.parse.urlencode(
         {
-            "name": "Tend Codex refresh",
+            "name": name,
             "description": f"Rotates Codex subscription credentials for {repository}",
             "target_name": owner,
             "expires_in": "none",
@@ -205,30 +210,46 @@ def _prepare_refresh_environment(repository: str) -> None:
         )
 
 
-def _verify_secrets(repository: str, environment: str, required: set[str]) -> None:
+def _verify_secrets(
+    repository: str,
+    environment: str,
+    required: set[str],
+    *,
+    gh_token: str | None = None,
+) -> None:
     # A shell that forces color makes `gh` colorize even a piped `--json`
     # body, and the ANSI codes land inside what `json.loads` parses.
     # `CLICOLOR_FORCE=0` is the setting that defeats it: `gh` ranks a forced
     # value above `NO_COLOR`, so `NO_COLOR` alone loses.
     env = {**os.environ, "GH_HOST": "github.com"}
     env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
-    result = subprocess.run(
-        [
-            "gh",
-            "secret",
-            "list",
-            "--repo",
-            repository,
-            "--env",
-            environment,
-            "--json",
-            "name",
-        ],
-        text=True,
-        capture_output=True,
-        env=env,
-        check=True,
-    )
+    if gh_token is not None:
+        env["GH_TOKEN"] = gh_token
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "secret",
+                "list",
+                "--repo",
+                repository,
+                "--env",
+                environment,
+                "--json",
+                "name",
+            ],
+            text=True,
+            capture_output=True,
+            env=env,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        if gh_token is not None:
+            raise ProvisionError(
+                f"PAT cannot read {repository}'s {environment} environment secrets; "
+                "select only this repository and grant Environments: Read and write"
+            ) from exc
+        raise
     names = {item["name"] for item in json.loads(result.stdout)}
     missing = required - names
     if missing:
@@ -297,12 +318,17 @@ def store_pat(repository: str, token: str) -> None:
     if shutil.which("gh") is None:
         raise ProvisionError("GitHub CLI `gh` is unavailable")
     _prepare_refresh_environment(repository)
-    # Use the PAT to write itself so an incorrect repository or Environments
-    # permission fails before Tend treats this credential as installed.
+    # Check the new PAT before replacing a working refresh secret.
+    _verify_secrets(repository, REFRESH_ENVIRONMENT, {FULL_SECRET}, gh_token=token)
     _set_secret(
         repository, REFRESH_ENVIRONMENT, REFRESH_PAT_SECRET, token, gh_token=token
     )
-    _verify_secrets(repository, REFRESH_ENVIRONMENT, {FULL_SECRET, REFRESH_PAT_SECRET})
+    _verify_secrets(
+        repository,
+        REFRESH_ENVIRONMENT,
+        {FULL_SECRET, REFRESH_PAT_SECRET},
+        gh_token=token,
+    )
     _verify_secrets(repository, TEND_ENVIRONMENT, {CONSUMER_SECRET})
     print(f"Installed Codex refresh credential for {repository}.")
 

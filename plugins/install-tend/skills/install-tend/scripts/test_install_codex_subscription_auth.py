@@ -99,9 +99,22 @@ def test_pat_url_prefills_owner_and_minimal_permission() -> None:
         "description": ["Rotates Codex subscription credentials for owner/repo"],
         "environments": ["write"],
         "expires_in": ["none"],
-        "name": ["Tend Codex refresh"],
+        "name": ["Tend Codex refresh: owner/repo"],
         "target_name": ["owner"],
     }
+
+
+def test_pat_url_name_stays_specific_for_long_repositories() -> None:
+    first = urllib.parse.parse_qs(
+        urllib.parse.urlparse(pat_url(f"owner/{'a' * 50}")).query
+    )["name"][0]
+    second = urllib.parse.parse_qs(
+        urllib.parse.urlparse(pat_url(f"owner/{'a' * 49}b")).query
+    )["name"][0]
+
+    assert len(first) <= 40
+    assert len(second) <= 40
+    assert first != second
 
 
 @pytest.mark.parametrize("repository", ["owner", "/repo", "owner/", "a/b/c"])
@@ -204,6 +217,7 @@ def test_store_pat_sets_and_verifies_all_subscription_secrets(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     secret_log = tmp_path / "secrets.jsonl"
+    check_log = tmp_path / "checks.jsonl"
     secret_log.write_text(
         "\n".join(
             json.dumps({"name": name, "env": environment, "value": "auth"})
@@ -229,6 +243,8 @@ if sys.argv[1:3] == ["secret", "set"]:
     with log.open("a") as file:
         file.write(json.dumps({"name": sys.argv[3], "env": sys.argv[-1], "value": value, "self_auth": os.environ.get("GH_TOKEN") == value}) + "\\n")
 elif sys.argv[1:3] == ["secret", "list"]:
+    with Path(os.environ["TEND_TEST_CHECK_LOG"]).open("a") as file:
+        file.write(json.dumps({"env": sys.argv[-3], "self_auth": os.environ.get("GH_TOKEN") == "github_pat_secret"}) + "\\n")
     names = [item["name"] for line in log.read_text().splitlines()
              if (item := json.loads(line))["env"] == sys.argv[-3]]
     print(json.dumps([{"name": name} for name in names]))
@@ -242,6 +258,7 @@ else:
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("GH_HOST", "enterprise.example")
     monkeypatch.setenv("TEND_TEST_SECRET_LOG", str(secret_log))
+    monkeypatch.setenv("TEND_TEST_CHECK_LOG", str(check_log))
 
     store_pat("owner/repo", "  github_pat_secret\n")
 
@@ -252,6 +269,37 @@ else:
         "value": "github_pat_secret",
         "self_auth": True,
     }
+    assert [json.loads(line) for line in check_log.read_text().splitlines()] == [
+        {"env": "tend-codex-refresh", "self_auth": True},
+        {"env": "tend-codex-refresh", "self_auth": True},
+        {"env": "tend", "self_auth": False},
+    ]
+
+
+def test_store_pat_rejects_pat_without_environment_access_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(
+        bin_dir / "gh",
+        """
+import sys
+
+if sys.argv[1] == "api":
+    if ".default_branch" in sys.argv:
+        print("main")
+elif sys.argv[1:3] == ["secret", "list"]:
+    print("HTTP 403: Resource not accessible by personal access token", file=sys.stderr)
+    raise SystemExit(1)
+elif sys.argv[1:3] == ["secret", "set"]:
+    raise AssertionError("secret was replaced before checking the PAT")
+""",
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    with pytest.raises(ProvisionError, match="Environments: Read and write"):
+        store_pat("owner/repo", "github_pat_without_access")
 
 
 def test_store_pat_prompts_without_a_clipboard_pipe(

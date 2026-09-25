@@ -812,14 +812,20 @@ session-revocation control, and do not report the rotation complete.
 
 The serialized refresh workflow also needs a fine-grained PAT scoped only to
 `$REPO`, with repository permission **Environments: Read and write**;
-`GITHUB_TOKEN` cannot replace environment secrets. GitHub does not provide an
-API for minting this PAT. Open a prefilled token form, then select **Only select
-repositories** and `$REPO`; the user handles any password or 2FA prompt and
-clicks **Generate token**, then **Copy**:
+`GITHUB_TOKEN` cannot replace environment secrets. Mint this PAT in GitHub's
+form; its [supported URL parameters](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#pre-filling-fine-grained-personal-access-token-details-using-url-parameters)
+cannot select one repository. Run this command and give the user its printed URL:
 
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" pat-url --repo "$REPO"
 ```
+
+The URL requests a repo-specific token name, resource owner, non-expiring
+term, and Environments permission. Have the user select **Only select
+repositories** and `$REPO`, then confirm **Environments: Read and write** is
+still selected before clicking **Generate token** and **Copy**. If GitHub
+shows **Read-only**, change it to **Read and write** before generating the
+token. The user handles any password or 2FA prompt.
 
 When the browser and shell share a clipboard, pipe the copied token to the
 provisioner without displaying it. Use the host's clipboard reader; on macOS:
@@ -828,10 +834,11 @@ provisioner without displaying it. Use the host's clipboard reader; on macOS:
 pbpaste | python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" store-pat --repo "$REPO"
 ```
 
-The provisioner validates the fine-grained-token prefix, uses that PAT to store
-its own secret so GitHub checks its environment access, and verifies all three
-subscription secret names. If no shared clipboard is available, have the user
-run the provisioner's `store-pat` command above without a pipe in their own
+The provisioner validates the fine-grained-token prefix, checks that the PAT
+can read this repo's refresh environment before replacing any secret, uses the
+PAT to store its own secret, and verifies all three subscription secret names.
+If no shared clipboard is available, have the user run the provisioner's
+`store-pat` command above without a pipe in their own
 terminal and paste the token at its hidden prompt. Never ask them to paste it
 into chat. Finish only after the consumer secret appears in `tend` and both
 refresh secrets appear in `tend-codex-refresh`. Remove any old copies from
