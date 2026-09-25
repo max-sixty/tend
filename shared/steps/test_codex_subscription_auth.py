@@ -248,7 +248,7 @@ def test_stage_refresh_fails_when_consumer_has_no_refresh_credentials(
 ) -> None:
     with pytest.raises(
         codex_subscription_auth.SubscriptionAuthError,
-        match="partially configured",
+        match="copies in 'tend' are not read; re-run the install-tend provisioner",
     ):
         codex_subscription_auth.stage_refresh(
             consumer_auth_configured=True,

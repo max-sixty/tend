@@ -148,7 +148,9 @@ def stage_refresh(
         if consumer_auth_configured:
             raise SubscriptionAuthError(
                 "subscription auth is partially configured; missing "
-                f"{FULL_AUTH_SECRET}, {REFRESH_PAT_SECRET}"
+                f"{FULL_AUTH_SECRET}, {REFRESH_PAT_SECRET} in '{REFRESH_ENVIRONMENT}' "
+                f"(copies in '{TEND_ENVIRONMENT}' are not read; re-run the "
+                "install-tend provisioner)"
             )
         return False
     if not consumer_auth_configured:
