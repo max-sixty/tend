@@ -10,7 +10,7 @@ https://github.com/max-sixty/tend/compare for their history.
 
 ### Improved
 
-- **Codex subscription refresh credentials have a separate environment from agent jobs.** The refresh job reads and rotates the full login in a default-branch-only environment, then publishes access-only auth to `tend`. Provisioning and `tend check` verify the split and detect incomplete or misplaced secrets. ([#1418](https://github.com/max-sixty/tend/pull/1418))
+- **Codex subscription refresh credentials have a separate environment from agent jobs.** The refresh job reads and rotates the full login in a default-branch-only environment, then publishes access-only auth to `tend`. Provisioning and `tend check` verify the split and detect incomplete or misplaced secrets. Existing subscription installs must re-run install-tend's subscription provisioning and remove `CODEX_REFRESH_AUTH_JSON` and `CODEX_REFRESH_PAT` from `tend`; until then, the weekly refresh and `tend check` fail. ([#1418](https://github.com/max-sixty/tend/pull/1418))
 - Control-plane CODEOWNERS may name multiple independent users per path; checks and preflight verify each owner's access. ([#1413](https://github.com/max-sixty/tend/pull/1413))
 
 ### Fixed
