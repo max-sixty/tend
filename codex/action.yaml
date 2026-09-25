@@ -54,7 +54,7 @@ inputs:
       Additional Codex CLI arguments, one exact argument per line. They are
       passed before Tend's managed arguments; Codex validates conflicts.
   codex_version:
-    default: "0.156.0"
+    default: "0.157.0"
     description: >-
       `@openai/codex` npm version to install. Must ship
       the `codex plugin add` subcommand (PR #21396, first released in
