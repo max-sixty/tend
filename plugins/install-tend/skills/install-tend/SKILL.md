@@ -834,9 +834,9 @@ provisioner without displaying it. Use the host's clipboard reader; on macOS:
 pbpaste | python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" store-pat --repo "$REPO"
 ```
 
-The provisioner validates the fine-grained-token prefix, checks that the PAT
-can read this repo's refresh environment before replacing any secret, uses the
-PAT to store its own secret, and verifies all three subscription secret names.
+The provisioner validates the fine-grained-token prefix and uses the PAT to
+store its own secret, so a token without write access cannot replace an
+existing one. It then verifies all three subscription secret names.
 If no shared clipboard is available, have the user run the provisioner's
 `store-pat` command above without a pipe in their own
 terminal and paste the token at its hidden prompt. Never ask them to paste it

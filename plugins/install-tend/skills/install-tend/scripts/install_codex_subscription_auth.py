@@ -210,46 +210,30 @@ def _prepare_refresh_environment(repository: str) -> None:
         )
 
 
-def _verify_secrets(
-    repository: str,
-    environment: str,
-    required: set[str],
-    *,
-    gh_token: str | None = None,
-) -> None:
+def _verify_secrets(repository: str, environment: str, required: set[str]) -> None:
     # A shell that forces color makes `gh` colorize even a piped `--json`
     # body, and the ANSI codes land inside what `json.loads` parses.
     # `CLICOLOR_FORCE=0` is the setting that defeats it: `gh` ranks a forced
     # value above `NO_COLOR`, so `NO_COLOR` alone loses.
     env = {**os.environ, "GH_HOST": "github.com"}
     env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
-    if gh_token is not None:
-        env["GH_TOKEN"] = gh_token
-    try:
-        result = subprocess.run(
-            [
-                "gh",
-                "secret",
-                "list",
-                "--repo",
-                repository,
-                "--env",
-                environment,
-                "--json",
-                "name",
-            ],
-            text=True,
-            capture_output=True,
-            env=env,
-            check=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        if gh_token is not None:
-            raise ProvisionError(
-                f"PAT cannot read {repository}'s {environment} environment secrets; "
-                "select only this repository and grant Environments: Read and write"
-            ) from exc
-        raise
+    result = subprocess.run(
+        [
+            "gh",
+            "secret",
+            "list",
+            "--repo",
+            repository,
+            "--env",
+            environment,
+            "--json",
+            "name",
+        ],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=True,
+    )
     names = {item["name"] for item in json.loads(result.stdout)}
     missing = required - names
     if missing:
@@ -318,17 +302,17 @@ def store_pat(repository: str, token: str) -> None:
     if shutil.which("gh") is None:
         raise ProvisionError("GitHub CLI `gh` is unavailable")
     _prepare_refresh_environment(repository)
-    # Check the new PAT before replacing a working refresh secret.
-    _verify_secrets(repository, REFRESH_ENVIRONMENT, {FULL_SECRET}, gh_token=token)
-    _set_secret(
-        repository, REFRESH_ENVIRONMENT, REFRESH_PAT_SECRET, token, gh_token=token
-    )
-    _verify_secrets(
-        repository,
-        REFRESH_ENVIRONMENT,
-        {FULL_SECRET, REFRESH_PAT_SECRET},
-        gh_token=token,
-    )
+    # A failed write leaves the existing refresh secret intact.
+    try:
+        _set_secret(
+            repository, REFRESH_ENVIRONMENT, REFRESH_PAT_SECRET, token, gh_token=token
+        )
+    except subprocess.CalledProcessError as exc:
+        raise ProvisionError(
+            f"PAT cannot write {repository}'s {REFRESH_ENVIRONMENT} environment "
+            "secrets; select only this repository and grant Environments: Read and write"
+        ) from exc
+    _verify_secrets(repository, REFRESH_ENVIRONMENT, {FULL_SECRET, REFRESH_PAT_SECRET})
     _verify_secrets(repository, TEND_ENVIRONMENT, {CONSUMER_SECRET})
     print(f"Installed Codex refresh credential for {repository}.")
 
