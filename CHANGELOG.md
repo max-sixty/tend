@@ -6,6 +6,14 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.4
+
+### Fixed
+
+- Codex subscription setup names each refresh PAT for its target repository and checks environment write access before replacing the saved secret. The installer directs users to select that repository and confirm Environments: Read and write; setup also works when the shell forces colored `gh` output. ([#1421](https://github.com/max-sixty/tend/pull/1421), [#1424](https://github.com/max-sixty/tend/pull/1424))
+- Feature-request triage replies lead with the related behavior and remaining decision rather than repeating that the requested capability is absent. ([#1423](https://github.com/max-sixty/tend/pull/1423))
+- Tend marks a PR review notification read after answering a relayed review, avoiding a redundant notification-poll session. ([#1425](https://github.com/max-sixty/tend/pull/1425))
+
 ## 0.3.3
 
 ### Improved
