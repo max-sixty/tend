@@ -50,6 +50,7 @@ from tend.config import (
     CLAUDE_TOKEN_SECRET,
     CODEX_AUTH_SECRET,
     CODEX_REFRESH_AUTH_SECRET,
+    CODEX_REFRESH_ENVIRONMENT,
     CODEX_REFRESH_PAT_SECRET,
     MEMORY_GIST_SECRET,
     OPENAI_KEY_SECRET,
@@ -71,7 +72,6 @@ def _config(
     model: str = "opus",
     memory_gist: bool = False,
     merge: str = "restricted",
-    control_plane_owner: str = "",
     workflows: dict[str, WorkflowConfig] | None = None,
 ) -> Config:
     """Build a Config for tests without hand-listing every positional arg."""
@@ -86,7 +86,6 @@ def _config(
         workflows=workflows or {},
         memory_gist=memory_gist,
         merge=merge,
-        control_plane_owner=control_plane_owner,
     )
 
 
@@ -615,6 +614,7 @@ def test_control_plane_codeowners_requires_regular_file(
         "**/.agents/** @octocat\n"
         "# END tend control plane\n"
     )
+    content = content.replace("@octocat\n", "@octocat @bob\n")
 
     def fake_gh(*args, **kwargs):
         if _url(args) == "graphql":
@@ -639,9 +639,7 @@ def test_control_plane_codeowners_requires_regular_file(
         return _make_completed(returncode=1)
 
     with patch("tend.checks._gh", side_effect=fake_gh):
-        result = check_control_plane_codeowners(
-            "owner/repo", "main", "@octocat", "my-bot"
-        )
+        result = check_control_plane_codeowners("owner/repo", "main", "my-bot")
 
     assert result.passed is passed
 
@@ -653,9 +651,7 @@ def test_control_plane_codeowners_does_not_skip_an_unreadable_higher_priority_fi
         "tend.checks._gh",
         return_value=_make_completed(returncode=1, stderr="HTTP 500"),
     ):
-        result = check_control_plane_codeowners(
-            "owner/repo", "main", "@octocat", "my-bot"
-        )
+        result = check_control_plane_codeowners("owner/repo", "main", "my-bot")
 
     assert result.passed is None
     assert ".github/CODEOWNERS" in result.message
@@ -698,19 +694,21 @@ def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file()
         return _make_completed(returncode=1)
 
     with patch("tend.checks._gh", side_effect=fake_gh):
-        result = check_control_plane_codeowners(
-            "owner/repo", "main", "@octocat", "my-bot"
-        )
+        result = check_control_plane_codeowners("owner/repo", "main", "my-bot")
 
     assert result.passed is True
     assert result.message.startswith("CODEOWNERS gives")
 
 
 def test_control_plane_codeowners_rejects_the_bot_as_owner() -> None:
-    result = check_control_plane_codeowners("owner/repo", "main", "@my-bot", "my-bot")
+    from tend.workflows import control_plane_block
 
-    assert result.passed is False
-    assert "independent GitHub user" in result.message
+    content = (
+        "# BEGIN tend control plane\n"
+        + "".join(f"{path} @octocat @my-bot\n" for path in CONTROL_PLANE_PATHS)
+        + "# END tend control plane\n"
+    )
+    assert control_plane_block(content, "my-bot") is None
 
 
 def test_control_plane_ruleset_must_not_be_bypassable_by_bot() -> None:
@@ -1994,7 +1992,11 @@ def test_fix_branch_protection_cannot_inspect_existing_targets(include) -> None:
     ) in result.message
 
 
-def _gh_all_pass(*admitted: str, environment_secrets: tuple[str, ...] | None = None):
+def _gh_all_pass(
+    *admitted: str,
+    environment_secrets: tuple[str, ...] | None = None,
+    refresh_secrets: tuple[str, ...] | None = None,
+):
     """A gh CLI where every check passes, for a repo whose environment admits
     `admitted` (default `main`). The admitted set is a parameter because the
     environment check demands it match the config's protected refs exactly, so
@@ -2007,7 +2009,10 @@ def _gh_all_pass(*admitted: str, environment_secrets: tuple[str, ...] | None = N
         url = _url(args)
         # The common consumer shape: only the ref-gated environment exists.
         if url.endswith("/environments"):
-            return _make_completed(f"{TEND_ENVIRONMENT}\n")
+            environments = [TEND_ENVIRONMENT]
+            if refresh_secrets is not None:
+                environments.append(CODEX_REFRESH_ENVIRONMENT)
+            return _make_completed("\n".join(environments) + "\n")
         if url.endswith("/secrets") and "/environments/" in url:
             names = (
                 list(
@@ -2016,7 +2021,7 @@ def _gh_all_pass(*admitted: str, environment_secrets: tuple[str, ...] | None = N
                     else environment_secrets
                 )
                 if url.endswith(f"{TEND_ENVIRONMENT}/secrets")
-                else []
+                else list(refresh_secrets or ())
             )
             return _make_completed("".join(f"{n}\n" for n in names))
         if url == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
@@ -2052,9 +2057,17 @@ def _gh_all_pass(*admitted: str, environment_secrets: tuple[str, ...] | None = N
             # all-pass fake answers with the config's own set rather than a fixed
             # list — the check demands the two match exactly.
             return _make_completed(
-                "\n".join(json.dumps({"name": b}) for b in admitted) + "\n"
+                "\n".join(
+                    json.dumps({"type": "branch", "name": b})
+                    for b in (
+                        ("main",) if CODEX_REFRESH_ENVIRONMENT in url else admitted
+                    )
+                )
+                + "\n"
             )
-        if url.endswith("environments/tend"):
+        if url.endswith(
+            ("environments/tend", f"environments/{CODEX_REFRESH_ENVIRONMENT}")
+        ):
             return _make_completed(
                 json.dumps(
                     {
@@ -2188,7 +2201,6 @@ def _yolo_main_deploy_gh(main_bypass: str):
 def _run_yolo_checks(fake_gh) -> list[CheckResult]:
     cfg = _config(
         merge="yolo",
-        control_plane_owner="@octocat",
         protected_branches=["release"],
     )
     with (
@@ -2407,6 +2419,8 @@ def test_codex_engine_passes_with_openai_key() -> None:
             return _make_completed("true\n")
         if "collaborators" in url:
             return _make_completed("write\n")
+        if url.endswith("/environments"):
+            return _make_completed("tend\n")
         if "secrets" in url:
             return _make_completed(_secret_names(BOT_TOKEN_SECRET, OPENAI_KEY_SECRET))
         return _make_completed(returncode=1)
@@ -2420,27 +2434,47 @@ def test_codex_engine_passes_with_openai_key() -> None:
     assert len(codex_check) == 1
     assert codex_check[0].passed is True
     assert OPENAI_KEY_SECRET in codex_check[0].message
+    assert not any(r.name == "codex-refresh-environment" for r in results)
+
+
+def test_codex_api_key_rejects_orphan_refresh_secrets_and_checks_their_gate() -> None:
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch(
+            "tend.checks._gh",
+            side_effect=_gh_all_pass(
+                environment_secrets=(BOT_TOKEN_SECRET, OPENAI_KEY_SECRET),
+                refresh_secrets=(CODEX_REFRESH_AUTH_SECRET, CODEX_REFRESH_PAT_SECRET),
+            ),
+        ),
+    ):
+        results = run_all_checks(_config(harness="codex"), repo="owner/repo")
+    codex = next(r for r in results if r.name == "codex-auth")
+    assert codex.passed is False
+    assert "orphan refresh secrets" in codex.message
+    assert next(r for r in results if r.name == "codex-refresh-environment").passed
 
 
 def test_codex_engine_passes_with_complete_subscription_auth() -> None:
     subscription = (
         BOT_TOKEN_SECRET,
         CODEX_AUTH_SECRET,
-        CODEX_REFRESH_AUTH_SECRET,
-        CODEX_REFRESH_PAT_SECRET,
     )
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch(
             "tend.checks._gh",
-            side_effect=_gh_all_pass(environment_secrets=subscription),
+            side_effect=_gh_all_pass(
+                environment_secrets=subscription,
+                refresh_secrets=(CODEX_REFRESH_AUTH_SECRET, CODEX_REFRESH_PAT_SECRET),
+            ),
         ),
     ):
         results = run_all_checks(_config(harness="codex"), repo="owner/repo")
 
     codex = next(result for result in results if result.name == "codex-auth")
     assert codex.passed is True
-    assert CODEX_AUTH_SECRET in codex.message
+    assert CODEX_REFRESH_ENVIRONMENT in codex.message
 
 
 def test_codex_engine_rejects_partial_subscription_auth_even_with_api_key() -> None:
@@ -2449,7 +2483,7 @@ def test_codex_engine_rejects_partial_subscription_auth_even_with_api_key() -> N
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch(
             "tend.checks._gh",
-            side_effect=_gh_all_pass(environment_secrets=partial),
+            side_effect=_gh_all_pass(environment_secrets=partial, refresh_secrets=()),
         ),
     ):
         results = run_all_checks(_config(harness="codex"), repo="owner/repo")
@@ -2458,6 +2492,54 @@ def test_codex_engine_rejects_partial_subscription_auth_even_with_api_key() -> N
     assert codex.passed is False
     assert CODEX_REFRESH_AUTH_SECRET in codex.message
     assert CODEX_REFRESH_PAT_SECRET in codex.message
+
+
+def test_codex_rejects_refresh_secrets_in_consumer_environment() -> None:
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch(
+            "tend.checks._gh",
+            side_effect=_gh_all_pass(
+                environment_secrets=(
+                    BOT_TOKEN_SECRET,
+                    CODEX_AUTH_SECRET,
+                    CODEX_REFRESH_AUTH_SECRET,
+                    CODEX_REFRESH_PAT_SECRET,
+                ),
+                refresh_secrets=(CODEX_REFRESH_AUTH_SECRET, CODEX_REFRESH_PAT_SECRET),
+            ),
+        ),
+    ):
+        results = run_all_checks(_config(harness="codex"), repo="owner/repo")
+    codex = next(result for result in results if result.name == "codex-auth")
+    assert codex.passed is False
+    assert "agent jobs can read secrets" in codex.message
+
+
+def test_codex_refresh_environment_requires_main_only() -> None:
+    base = _gh_all_pass(
+        environment_secrets=(BOT_TOKEN_SECRET, CODEX_AUTH_SECRET),
+        refresh_secrets=(CODEX_REFRESH_AUTH_SECRET, CODEX_REFRESH_PAT_SECRET),
+    )
+
+    def fake(*args, **kwargs):
+        url = _url(args)
+        if CODEX_REFRESH_ENVIRONMENT in url and url.endswith(
+            "deployment-branch-policies"
+        ):
+            return _make_completed(
+                json.dumps({"type": "branch", "name": "feature"}) + "\n"
+            )
+        return base(*args, **kwargs)
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("tend.checks._gh", side_effect=fake),
+    ):
+        results = run_all_checks(_config(harness="codex"), repo="owner/repo")
+    refresh = next(r for r in results if r.name == "codex-refresh-environment")
+    assert refresh.passed is False
+    assert "feature" in refresh.message
 
 
 def test_codex_engine_fails_when_no_auth() -> None:
@@ -2473,6 +2555,8 @@ def test_codex_engine_fails_when_no_auth() -> None:
             return _make_completed("true\n")
         if "collaborators" in url:
             return _make_completed("write\n")
+        if url.endswith("/environments"):
+            return _make_completed("tend\n")
         if "secrets" in url:
             return _make_completed(_secret_names(BOT_TOKEN_SECRET))
         return _make_completed(returncode=1)
@@ -2675,7 +2759,7 @@ def test_cli_check_fix_bootstraps_restricted_mode_while_other_refs_expose_creden
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     blocked = [
@@ -2707,7 +2791,7 @@ def test_cli_check_fix_creates_environment_during_yolo_bootstrap(
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     before = [
@@ -2770,7 +2854,7 @@ def test_cli_check_fix_does_not_create_environment_if_bootstrap_rules_fail(
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     before = [
@@ -2799,7 +2883,7 @@ def test_cli_check_fix_repairs_rules_without_demoting_live_yolo_access(
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     blocked = [
@@ -2828,7 +2912,7 @@ def test_cli_check_fix_leaves_rules_unchanged_when_yolo_access_is_unreadable(
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     blocked = [
@@ -2854,7 +2938,7 @@ def test_cli_check_fix_enables_yolo_only_after_prerequisites_pass(
 ) -> None:
     _write_config(
         tmp_path,
-        'bot_name: test-bot\nmerge: yolo\ncontrol_plane_owner: "@octocat"\n',
+        "bot_name: test-bot\nmerge: yolo\n",
     )
     monkeypatch.chdir(tmp_path)
     before = [
@@ -2951,6 +3035,33 @@ def test_cli_check_fix_configures_the_environment_from_the_reread(
     fix_env.assert_called_once_with("owner/repo", ["main"])
 
 
+def test_cli_check_fix_configures_subscription_refresh_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_config(tmp_path, "bot_name: test-bot\nharness: codex\n")
+    monkeypatch.chdir(tmp_path)
+    before = [
+        CheckResult("branch-protection:main", True, "protected"),
+        CheckResult("codex-refresh-environment", False, "missing"),
+    ]
+    after = [
+        CheckResult("branch-protection:main", True, "protected"),
+        CheckResult("codex-refresh-environment", True, "configured"),
+    ]
+    with (
+        patch("tend.cli.run_all_checks", side_effect=[before, after]),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch(
+            "tend.cli.fix_environment",
+            return_value=CheckResult("codex-refresh-environment", True, "fixed"),
+        ) as fix_env,
+    ):
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+
+    assert result.exit_code == 0, result.output
+    fix_env.assert_called_once_with("owner/repo", ["main"], CODEX_REFRESH_ENVIRONMENT)
+
+
 # ---------------------------------------------------------------------------
 # CLI: init reminder
 # ---------------------------------------------------------------------------
@@ -2983,7 +3094,10 @@ def _env_gh(env_body: str | None, policies: str = "main"):
         url = _url(args)
         if url.endswith("deployment-branch-policies"):
             return _make_completed(
-                "\n".join(json.dumps({"name": n}) for n in policies.split()) + "\n"
+                "\n".join(
+                    json.dumps({"type": "branch", "name": n}) for n in policies.split()
+                )
+                + "\n"
             )
         if url.endswith("environments/tend"):
             if env_body is None:
@@ -3059,6 +3173,27 @@ def test_environment_admitting_only_verified_refs_passes() -> None:
     assert result.passed is True
 
 
+def test_environment_rejects_tag_named_like_the_default_branch() -> None:
+    body = json.dumps(
+        {
+            "deployment_branch_policy": {
+                "protected_branches": False,
+                "custom_branch_policies": True,
+            }
+        }
+    )
+
+    def fake(*args, **kwargs):
+        if _url(args).endswith("deployment-branch-policies"):
+            return _make_completed('{"type":"tag","name":"main","id":1}\n')
+        return _make_completed(body)
+
+    with patch("tend.checks._gh", side_effect=fake):
+        checked = check_environment("owner/repo", ["main"], CODEX_REFRESH_ENVIRONMENT)
+    assert checked.passed is False
+    assert "non-branch refs" in checked.message
+
+
 def test_environment_missing_admitted_ref_fails() -> None:
     """A ref the policy omits refuses every workflow triggered on it, which
     fails closed — invisible unless the check that owns the setup says so."""
@@ -3091,7 +3226,7 @@ def test_operational_refs_excludes_unverified_branches() -> None:
 
 
 def test_yolo_workflows_require_exact_generated_output() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
 
     with patch("tend.checks._fetch_workflow_files", return_value=files):
@@ -3108,7 +3243,7 @@ def test_yolo_workflows_require_exact_generated_output() -> None:
 def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
     """Without the owner, the expected output lacks the fork guard every
     committed file carries, so a comparison could only report a false drift."""
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     current = replace(cfg, repo_owner="owner")
     files = {w.filename: w.content for w in generate_all(current)}
     with (
@@ -3124,7 +3259,7 @@ def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
 
 
 def test_yolo_workflows_reject_other_users_of_tend_environment() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
     files["publish.yaml"] = """\
 on: push
@@ -3143,7 +3278,7 @@ jobs:
 
 
 def test_yolo_workflows_environment_names_are_case_insensitive() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
     files["publish.yaml"] = """\
 on: push
@@ -3162,7 +3297,7 @@ jobs:
 
 
 def test_yolo_workflows_reject_external_reusable_workflows() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
     files["publish.yaml"] = """\
 on: push
@@ -3180,7 +3315,7 @@ jobs:
 
 
 def test_yolo_workflows_reject_ref_qualified_same_repo_workflows() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
     files["publish.yaml"] = """\
 on: push
@@ -3198,7 +3333,7 @@ jobs:
 
 
 def test_yolo_workflows_reject_unresolved_environment_names() -> None:
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
     files["publish.yaml"] = """\
 on: push
@@ -3372,8 +3507,11 @@ def test_environment_deployments_flags_deployment_true() -> None:
     assert result.passed is False
 
 
-def test_environment_deployments_matches_tend_case_insensitively() -> None:
-    text = _GENERATED_JOB.replace("name: tend", "name: TEND").replace(
+@pytest.mark.parametrize("environment", ["TEND", "TEND-CODEX-REFRESH"])
+def test_environment_deployments_matches_tend_case_insensitively(
+    environment: str,
+) -> None:
+    text = _GENERATED_JOB.replace("name: tend", f"name: {environment}").replace(
         "deployment: false", "deployment: true"
     )
     with patch("tend.checks._fetch_workflow_files", return_value={"manual.yaml": text}):
@@ -3564,7 +3702,7 @@ def test_credential_environments_accepts_tags_under_an_admin_ruleset() -> None:
 
 def test_yolo_keeps_tag_only_credentials_behind_admin_tags() -> None:
     release = {"release": (["PYPI_TOKEN"], _CUSTOM_POLICY, "tag v*")}
-    cfg = _config(merge="yolo", control_plane_owner="@octocat")
+    cfg = _config(merge="yolo")
     with patch(
         "tend.checks._gh",
         side_effect=_credential_env_gh(release, tag_rulesets={"7": _ADMIN_TAG_RULESET}),
@@ -4233,7 +4371,9 @@ def test_fix_environment_reconciles_the_admitted_set() -> None:
         calls.append((args, kwargs))
         if _url(args).endswith("deployment-branch-policies"):
             return _make_completed(
-                '{"name": "main", "id": 1}\n{"name": "stale", "id": 7}\n'
+                '{"type": "branch", "name": "main", "id": 1}\n'
+                '{"type": "branch", "name": "stale", "id": 7}\n'
+                '{"type": "tag", "name": "main", "id": 8}\n'
             )
         return _make_completed("{}")
 
@@ -4253,7 +4393,7 @@ def test_fix_environment_reconciles_the_admitted_set() -> None:
         for args, _ in calls
         if "DELETE" in args and "deployment-branch-policies/" in args[-1]
     }
-    assert deleted == {"7"}
+    assert deleted == {"7", "8"}
 
     # The PUT body is the security-critical half: `protected_branches` mode
     # admits any branch carrying a rule, including ones the bot can push, and
@@ -4278,7 +4418,7 @@ def test_fix_environment_surfaces_a_failed_delete() -> None:
 
     def fake(*args, **kwargs) -> subprocess.CompletedProcess[str]:
         if _url(args).endswith("deployment-branch-policies"):
-            return _make_completed('{"name": "stale", "id": 7}\n')
+            return _make_completed('{"type": "branch", "name": "stale", "id": 7}\n')
         if "DELETE" in args:
             return _make_completed(stderr="HTTP 422", returncode=1)
         return _make_completed("{}")

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import subprocess
 from typing import Any
 from urllib.parse import quote
@@ -73,14 +74,9 @@ YOLO_LIFECYCLE_ERROR = (
 CONTROL_PLANE_ERROR = (
     "Yolo merge mode requires a pull-request rule on '{branch}' with fresh "
     "CODEOWNER approval that this bot cannot bypass. Run `tend check --fix` "
-    "after the generated CODEOWNERS block is merged."
+    "after the control-plane CODEOWNERS block is merged."
 )
-CONTROL_PLANE_OWNER_ERROR = (
-    "Yolo merge mode requires control_plane_owner to be an independent "
-    "GitHub user, not the Tend bot account."
-)
-
-# The block `tend init` writes (tend.workflows.codeowners_config). The action
+# The block `tend check --fix` writes (tend.workflows.codeowners_config). The action
 # cannot import the generator, so the tests feed its output through this copy.
 CODEOWNERS_BEGIN = "# BEGIN tend control plane"
 CODEOWNERS_END = "# END tend control plane"
@@ -149,7 +145,7 @@ def has_control_plane_review(rulesets: list[dict[str, Any] | None]) -> bool:
     return False
 
 
-def has_valid_control_plane_codeowners(repo: str, branch: str, owner: str) -> bool:
+def has_valid_control_plane_codeowners(repo: str, branch: str, bot_name: str) -> bool:
     """Whether GitHub accepts Tend's final managed CODEOWNERS block."""
     content = None
     for path in (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"):
@@ -175,16 +171,25 @@ def has_valid_control_plane_codeowners(repo: str, branch: str, owner: str) -> bo
     if content is None:
         return False
 
-    block_lines = [CODEOWNERS_BEGIN]
-    block_lines.extend(f"{path} {owner}" for path in CONTROL_PLANE_PATHS)
-    block_lines.append(CODEOWNERS_END)
-    block = "\n".join(block_lines)
+    lines = content.rstrip().splitlines()
+    if lines.count(CODEOWNERS_BEGIN) != 1 or lines.count(CODEOWNERS_END) != 1:
+        return False
+    block_lines = lines[lines.index(CODEOWNERS_BEGIN) :]
     if (
-        content.count(CODEOWNERS_BEGIN) != 1
-        or content.count(CODEOWNERS_END) != 1
-        or not content.rstrip().endswith(block)
+        len(block_lines) != len(CONTROL_PLANE_PATHS) + 2
+        or block_lines[-1] != CODEOWNERS_END
     ):
         return False
+    for path, line in zip(CONTROL_PLANE_PATHS, block_lines[1:-1], strict=True):
+        parts = line.split()
+        if len(parts) < 2 or parts[0] != path:
+            return False
+        if any(
+            not re.fullmatch(r"@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", owner)
+            or owner.casefold() == f"@{bot_name}".casefold()
+            for owner in parts[1:]
+        ):
+            return False
 
     # The Contents API follows symlinks and reports type=file for their targets.
     # Verify the Git mode so ownership cannot live outside protected paths.
@@ -276,18 +281,11 @@ def main() -> int:
     bypass = effective_update_bypass(update_rulesets) if update_ids else "always"
 
     if merge == "yolo":
-        owner = _common.require_env("TEND_CONTROL_PLANE_OWNER")[
-            "TEND_CONTROL_PLANE_OWNER"
-        ]
         identity = _common.gh_json("api", "user")
         login = identity.get("login") if isinstance(identity, dict) else None
-        if (
-            not isinstance(login, str)
-            or "/" in owner
-            or owner.casefold() == f"@{login}".casefold()
-        ):
-            return _common.fail(CONTROL_PLANE_OWNER_ERROR)
-        if not has_valid_control_plane_codeowners(repo, default_branch, owner):
+        if not isinstance(login, str):
+            return _common.fail(CONTROL_PLANE_ERROR.format(branch=default_branch))
+        if not has_valid_control_plane_codeowners(repo, default_branch, login):
             return _common.fail(CONTROL_PLANE_ERROR.format(branch=default_branch))
         if bypass != "pull_requests_only":
             return _common.fail(

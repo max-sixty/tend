@@ -7,10 +7,14 @@ metadata:
 
 # Resolve Conflicts
 
-Load `/tend-ci-runner:run-tend` first.
-
 Resolve configured-bot PRs. Include Dependabot and Renovate only when the
 calling skill requests dependency bots.
+
+## Required skills
+
+- Load `/tend-ci-runner:run-tend` before acting.
+- Load `/tend-ci-runner:push-commits` before pushing a resolution and `/tend-ci-runner:post-to-github` before composing a deferral comment.
+- Load `/tend-ci-runner:monitor-ci` after pushing a conflict resolution.
 
 ## Find conflicts
 

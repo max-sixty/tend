@@ -116,12 +116,13 @@ preflight settles for the branch-protected floor; yolo fails closed because it
 must verify the exact middle state.
 
 Yolo adds `Control-plane review`, a default-branch pull-request rule that the
-bot cannot bypass. `tend init` puts a managed block last in the effective
+bot cannot bypass. `tend check` verifies a managed block last in the effective
 CODEOWNERS file, assigning `/.github/**`, `/.config/tend.yaml`, and every
-possible CODEOWNERS location to `control_plane_owner`. The block also covers
+possible CODEOWNERS location to independent GitHub users. The block also covers
 every `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md`,
-`.claude/`, and `.agents/` path because these files steer later agent runs. The owner must be one
-maintainer GitHub user distinct from the bot. Protecting the ownership files
+`.claude/`, and `.agents/` path because these files steer later agent runs. Each path
+may name several users, but none may be the bot or a team. `tend check --fix`
+creates the block using the authenticated `gh` user. Protecting the ownership files
 themselves prevents the bot from replacing the effective one before changing
 another control-plane path. GitHub therefore admits ordinary PRs with zero
 blanket approvals, but requires a fresh owner approval for control-plane
@@ -187,12 +188,13 @@ through the API, and expiring with the job. Yolo's PR-only bypass belongs to
 the PAT-authenticated Tend bot instead: it can merge ordinary code, but
 control-plane paths still require a CODEOWNER and tags remain admin-only.
 
-*Operational secrets* — the bot PAT, harness auth, the Codex subscription
-refresher's credential, and optional auto-memory Gist ID — live in the `tend`
-environment, whose policy names the default branch and any
-`protected_branches`. Every generated job that reads a secret carries
-`environment: {name: tend, deployment: false}`; jobs that hold none
-(tend-mention-relay, below) must not, since naming it would cost them the refs
+*Operational secrets* — the bot PAT, agent harness auth, and optional
+auto-memory Gist ID — live in the `tend` environment, whose policy names the
+default branch and any `protected_branches`. The Codex subscription refresher's
+full login and secret-writer PAT live in `tend-codex-refresh`, which admits only
+the default branch. Each job names the environment whose secrets it needs with
+`deployment: false`; jobs that hold none (tend-mention-relay, below) must not,
+since naming it would cost them the refs
 the policy excludes. `deployment: false` keeps GitHub from filing a
 deployment record for a job that deploys nothing — under
 `pull_request_target` those land on the pull request itself, one line per
@@ -535,8 +537,11 @@ file-count bounds. Symlinks, devices, and FIFOs never enter the runner-owned
 artifact tree.
 
 Each repository's weekly subscription refresh job needs its own full refresh
-bundle and repository-scoped environment-write PAT. It checks out no consumer
-code and gives Codex only Tend's fixed refresh prompt. Codex receives the full
+bundle and repository-scoped environment-write PAT in `tend-codex-refresh`.
+The agent receives only access-only auth from `tend`. A first job in `tend`
+exports only whether access-only auth is configured; that presence flag makes
+the refresh job fail if its full auth or PAT is missing. The refresh job checks
+out no consumer code and gives Codex only Tend's fixed refresh prompt. Codex receives the full
 refresh bundle there; the PAT appears only in the separate publish step after
 Codex exits. Sharing a full bundle across repositories lets one refresh job
 invalidate the others. Sharing only access tokens depends on the external

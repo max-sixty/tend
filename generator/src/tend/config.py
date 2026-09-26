@@ -39,7 +39,6 @@ KNOWN_WORKFLOWS = {
 KNOWN_TOP_LEVEL = {
     "bot_name",
     "merge",
-    "control_plane_owner",
     "memory_gist",
     "harness",
     "model",
@@ -61,9 +60,9 @@ KNOWN_SECRETS_KEYS = {"allowed"}
 # The operational secrets, by fixed name. Claude reads the OAuth token
 # (subscription) or the API key (console.anthropic.com) — consumers set one;
 # Codex reads either the OpenAI key or an access-only ChatGPT auth bundle.
-# Not configurable: `install-tend` creates the
-# `tend` environment and fills it from scratch, so there is no pre-existing
-# secret whose name a consumer would want to keep.
+# Not configurable: `install-tend` creates the `tend` and subscription refresh
+# environments and fills them from scratch, so there is no pre-existing secret
+# whose name a consumer would want to keep.
 BOT_TOKEN_SECRET = "TEND_BOT_TOKEN"
 CLAUDE_TOKEN_SECRET = "CLAUDE_CODE_OAUTH_TOKEN"
 ANTHROPIC_API_KEY_SECRET = "ANTHROPIC_API_KEY"
@@ -71,6 +70,7 @@ OPENAI_KEY_SECRET = "OPENAI_API_KEY"
 CODEX_AUTH_SECRET = "CODEX_AUTH_JSON"
 CODEX_REFRESH_AUTH_SECRET = "CODEX_REFRESH_AUTH_JSON"
 CODEX_REFRESH_PAT_SECRET = "CODEX_REFRESH_PAT"
+CODEX_REFRESH_ENVIRONMENT = "tend-codex-refresh"
 MEMORY_GIST_SECRET = "TEND_MEMORY_GIST_ID"
 OPERATIONAL_SECRETS = {
     MEMORY_GIST_SECRET,
@@ -93,7 +93,6 @@ REMOVED_SECRETS_KEYS = {
     "openai_key": OPENAI_KEY_SECRET,
 }
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
-_CODEOWNER_USER = re.compile(r"^@[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 # POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -355,7 +354,6 @@ class Config:
     # secret so a public repository does not publish the unlisted URL.
     memory_gist: bool = False
     merge: str = "restricted"
-    control_plane_owner: str = ""
 
     @property
     def merge_policy(self) -> MergePolicy:
@@ -451,23 +449,10 @@ class Config:
                 f"merge '{merge}' is not recognized "
                 f"(known: {', '.join(sorted(KNOWN_MERGE_POLICIES))})"
             )
-        control_plane_owner = raw.get("control_plane_owner", "")
-        if not isinstance(control_plane_owner, str):
-            raise click.ClickException("control_plane_owner must be a string")
-        control_plane_owner = control_plane_owner.strip()
-        if control_plane_owner and not _CODEOWNER_USER.fullmatch(control_plane_owner):
+        if "control_plane_owner" in raw:
             raise click.ClickException(
-                "control_plane_owner must be one GitHub user, such as '@octocat'; "
-                "teams are not accepted because Tend cannot prove the bot is not "
-                "a member"
-            )
-        if merge == "yolo" and not control_plane_owner:
-            raise click.ClickException(
-                "control_plane_owner is required when merge is 'yolo'"
-            )
-        if control_plane_owner.casefold() == f"@{bot_name}".casefold():
-            raise click.ClickException(
-                "control_plane_owner must not be the Tend bot account"
+                "control_plane_owner was removed; remove it and run `tend check --fix` to "
+                "create the control-plane CODEOWNERS block"
             )
 
         unknown = set(raw.keys()) - KNOWN_TOP_LEVEL
@@ -747,7 +732,6 @@ class Config:
             setup=setup,
             memory_gist=memory_gist,
             merge=merge,
-            control_plane_owner=control_plane_owner,
             workflows=workflows,
             allowed_repo_secrets=allowed,
         )

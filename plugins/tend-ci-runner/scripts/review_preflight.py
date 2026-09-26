@@ -169,9 +169,18 @@ def _start(pr: str) -> int:
         if status:
             return status
 
+    # Who acts on the review's findings. `self` and `bot` PRs have no human
+    # author, so the review session applies its findings itself; only `self`
+    # also rules out an APPROVE, which GitHub rejects from a PR's author.
+    if str(author["login"]) == str(review_state["bot_login"]):
+        author_kind = "self"
+    elif author["is_bot"]:
+        author_kind = "bot"
+    else:
+        author_kind = "human"
     context = {
         "head_sha": head_sha,
-        "self_authored": str(author["login"]) == str(review_state["bot_login"]),
+        "author": author_kind,
         "is_draft": bool(initial["isDraft"]),
         "already_reviewed": already_reviewed,
         "incremental_path": incremental_path,

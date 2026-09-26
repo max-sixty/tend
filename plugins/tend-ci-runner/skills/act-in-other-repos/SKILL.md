@@ -11,6 +11,12 @@ metadata:
 - [Contributing on invitation](#contributing-on-invitation)
 - [When a scope rule blocks the right action](#when-a-scope-rule-blocks-the-right-action)
 
+## Required skills
+
+- Load `/tend-ci-runner:post-to-github` before composing an issue, PR, or comment.
+- Load `/tend-ci-runner:open-pr` and `/tend-ci-runner:push-commits` before opening a PR in the target repository.
+- Load `/tend-ci-runner:propose-instructions` if a maintainer chooses a standing exception.
+
 ## Filing issues
 
 Default: file an issue in the current repo asking for permission to file in the target. On maintainer approval, file in the target.

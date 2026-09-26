@@ -47,6 +47,7 @@ from tend.config import (
     CLAUDE_TOKEN_SECRET,
     CODEX_AUTH_SECRET,
     CODEX_REFRESH_AUTH_SECRET,
+    CODEX_REFRESH_ENVIRONMENT,
     CODEX_REFRESH_PAT_SECRET,
     MEMORY_GIST_SECRET,
     OPENAI_KEY_SECRET,
@@ -54,9 +55,8 @@ from tend.config import (
 )
 from tend.workflows import (
     CODEOWNERS_BEGIN,
-    CODEOWNERS_END,
-    CONTROL_PLANE_PATHS,
     TEND_ENVIRONMENT,
+    control_plane_block,
     generate_all,
 )
 
@@ -149,6 +149,15 @@ def detect_repo() -> str | None:
     if result and result.returncode == 0:
         repo = result.stdout.strip()
         return repo or None
+    return None
+
+
+def detect_authenticated_user() -> str | None:
+    """Return the GitHub login whose credentials `gh` is using."""
+    result = _gh("api", "user", "--jq", ".login")
+    if result and result.returncode == 0:
+        login = result.stdout.strip()
+        return login or None
     return None
 
 
@@ -478,17 +487,10 @@ def _default_branch_file(repo: str, branch: str, path: str) -> str | None | obje
 
 
 def check_control_plane_codeowners(
-    repo: str, branch: str, owner: str, bot_name: str
+    repo: str, branch: str, bot_name: str
 ) -> CheckResult:
     """Check that Tend's final CODEOWNERS block protects its control plane."""
     name = "control-plane-codeowners"
-    if owner.casefold() == f"@{bot_name}".casefold():
-        return CheckResult(
-            name,
-            False,
-            "control_plane_owner is the Tend bot; yolo requires an independent "
-            "GitHub user.",
-        )
     for path in (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"):
         content = _default_branch_file(repo, branch, path)
         if content is _FILE_ABSENT:
@@ -496,15 +498,8 @@ def check_control_plane_codeowners(
         if content is None:
             return CheckResult(name, None, f"Could not read {path} from {branch}")
         assert isinstance(content, str)
-        lines = [CODEOWNERS_BEGIN]
-        lines.extend(f"{protected} {owner}" for protected in CONTROL_PLANE_PATHS)
-        lines.append(CODEOWNERS_END)
-        block = "\n".join(lines)
-        if (
-            content.count(CODEOWNERS_BEGIN) == 1
-            and content.count(CODEOWNERS_END) == 1
-            and content.rstrip().endswith(block)
-        ):
+        block = control_plane_block(content, bot_name)
+        if block is not None:
             # Contents dereferences in-repository symlinks and even labels them
             # `file`. Only the Git tree establishes that ownership lives here,
             # rather than in a target outside the protected paths.
@@ -558,7 +553,7 @@ def check_control_plane_codeowners(
                 return CheckResult(
                     name, None, "GitHub returned unreadable CODEOWNERS errors"
                 )
-            managed_lines = range(begin_line, begin_line + len(lines))
+            managed_lines = range(begin_line, begin_line + len(block))
             managed_errors = [
                 error
                 for error in errors
@@ -570,27 +565,27 @@ def check_control_plane_codeowners(
                 return CheckResult(
                     name,
                     False,
-                    "GitHub reports an error in Tend's generated CODEOWNERS block; "
-                    "verify that control_plane_owner exists and has repository "
+                    "GitHub reports an error in Tend's control-plane CODEOWNERS block; "
+                    "verify that each listed owner exists and has repository "
                     "write access.",
                 )
             return CheckResult(
                 name,
                 True,
-                f"{path} gives {owner} final ownership of Tend's control plane.",
+                f"{path} gives independent users final ownership of Tend's control plane.",
             )
         return CheckResult(
             name,
             False,
-            f"{path} does not end with Tend's generated control-plane ownership "
-            "block. Run `tend init`, commit it, and merge it before `tend check "
-            "--fix` enables yolo merge mode.",
+            f"{path} needs a final control-plane block with GitHub users other "
+            "than the bot for every protected path. Run `tend check --fix`, "
+            "commit it, and merge it before enabling yolo merge mode.",
         )
     return CheckResult(
         name,
         False,
         "No effective CODEOWNERS file exists on the default branch. Run `tend "
-        "init`, commit it, and merge it before `tend check --fix` enables yolo "
+        "check --fix`, commit it, and merge it before yolo "
         "merge mode.",
     )
 
@@ -640,7 +635,7 @@ def check_control_plane_ruleset(repo: str, branch: str, bot_name: str) -> CheckR
         name,
         False,
         "No active rule requires fresh, non-bypassable CODEOWNER approval. "
-        "Run `tend check --fix` after the generated CODEOWNERS block is on the "
+        "Run `tend check --fix` after the control-plane CODEOWNERS block is on the "
         "default branch.",
     )
 
@@ -924,12 +919,14 @@ def _lines(stdout: str) -> set[str]:
 # left at repo level defeats the gate entirely — any workflow can read it
 # without naming the environment — and that is what `check_repo_secret_allowlist`
 # now catches, since the operational names are no longer in its allowed set.
-def _env_secret_names(repo: str) -> tuple[set[str] | None, str]:
-    """Secret names in the tend environment. Returns (names, error message)."""
+def _env_secret_names(
+    repo: str, environment: str = TEND_ENVIRONMENT
+) -> tuple[set[str] | None, str]:
+    """Secret names in an environment. Returns (names, error message)."""
     result = _gh(
         "api",
         "--paginate",
-        f"repos/{repo}/environments/{TEND_ENVIRONMENT}/secrets",
+        f"repos/{repo}/environments/{_env_path(environment)}/secrets",
         "--jq",
         ".secrets[].name",
     )
@@ -937,11 +934,31 @@ def _env_secret_names(repo: str) -> tuple[set[str] | None, str]:
         return None, "gh CLI not found"
     if result.returncode != 0:
         return None, (
-            f"Could not list secrets in the '{TEND_ENVIRONMENT}' environment "
+            f"Could not list secrets in the '{environment}' environment "
             "(missing environment, or requires admin access). "
             "See the environment check above for how to create it."
         )
     return _lines(result.stdout), ""
+
+
+def _refresh_secret_names(repo: str) -> tuple[set[str] | None, str]:
+    """Return refresh secrets, treating an absent environment as empty."""
+    listed = _gh(
+        "api",
+        "--paginate",
+        f"repos/{repo}/environments",
+        "--jq",
+        ".environments[].name",
+    )
+    if listed is None:
+        return None, "gh CLI not found"
+    if listed.returncode != 0:
+        return None, f"Could not list environments: {listed.stderr.strip()}"
+    if CODEX_REFRESH_ENVIRONMENT.casefold() not in {
+        name.casefold() for name in listed.stdout.splitlines()
+    }:
+        return set(), ""
+    return _env_secret_names(repo, CODEX_REFRESH_ENVIRONMENT)
 
 
 def _env_path(env_name: str) -> str:
@@ -978,8 +995,10 @@ def _branch_policies(repo: str, env_name: str) -> list[dict] | None:
         return None
 
 
-def check_environment(repo: str, admitted: list[str]) -> CheckResult:
-    """The Tend environment admits only verified operational refs.
+def check_environment(
+    repo: str, admitted: list[str], environment: str = TEND_ENVIRONMENT
+) -> CheckResult:
+    """A Tend secret environment admits only its verified refs.
 
     This is the whole mechanism: a job naming the environment runs only from a
     ref in its deployment branch policy, so a workflow pushed to a feature
@@ -987,7 +1006,11 @@ def check_environment(repo: str, admitted: list[str]) -> CheckResult:
     admitted because its generated workflows are protected as control-plane
     code and run the agent inside Tend's credential-isolation sandbox.
     """
-    name = "environment"
+    name = (
+        "environment"
+        if environment == TEND_ENVIRONMENT
+        else "codex-refresh-environment"
+    )
     if not admitted:
         # No branch was verified unwritable, so there is no ref the policy
         # could name. Whatever this environment says, the branch-protection
@@ -998,18 +1021,18 @@ def check_environment(repo: str, admitted: list[str]) -> CheckResult:
             "No branch verified as protected, so the admitted set is unknown — "
             "fix branch protection first.",
         )
-    result = _gh("api", f"repos/{repo}/environments/{TEND_ENVIRONMENT}")
+    result = _gh("api", f"repos/{repo}/environments/{_env_path(environment)}")
     if result is None:
         return CheckResult(name, None, "gh CLI not found")
     if result.returncode != 0:
         return CheckResult(
             name,
             False,
-            f"Environment '{TEND_ENVIRONMENT}' not found. The operational "
-            "secrets must live in it, gated to admin-only refs, or a workflow "
+            f"Environment '{environment}' not found. Its secrets must live "
+            "there behind a branch policy, or a workflow "
             "pushed to any branch can read them. Run `tend check --fix` to "
-            f"create it admitting {', '.join(admitted)}, then move each secret "
-            "into it and delete the repo-level copy.",
+            f"create it admitting {', '.join(admitted)}, then store its secrets "
+            "there and delete any repo-level copy.",
         )
     try:
         env = json.loads(result.stdout)
@@ -1021,7 +1044,7 @@ def check_environment(repo: str, admitted: list[str]) -> CheckResult:
         return CheckResult(
             name,
             False,
-            f"Environment '{TEND_ENVIRONMENT}' has no deployment branch policy, "
+            f"Environment '{environment}' has no deployment branch policy, "
             "so every ref reaches its secrets — including a branch the bot pushes.",
         )
     if policy.get("protected_branches"):
@@ -1034,15 +1057,23 @@ def check_environment(repo: str, admitted: list[str]) -> CheckResult:
         return CheckResult(
             name,
             False,
-            f"Environment '{TEND_ENVIRONMENT}' admits all protected branches. "
+            f"Environment '{environment}' admits all protected branches. "
             "Use a custom branch policy naming the default branch and any "
             "protected_branches, so the admitted set is the one tend verifies.",
         )
 
-    policies = _branch_policies(repo, TEND_ENVIRONMENT)
+    policies = _branch_policies(repo, environment)
     if policies is None:
         return CheckResult(name, None, "Could not list deployment branch policies")
-    names = {p["name"] for p in policies}
+    names = {p["name"] for p in policies if p["type"] == "branch"}
+    non_branch = [p["name"] for p in policies if p["type"] != "branch"]
+    if non_branch:
+        return CheckResult(
+            name,
+            False,
+            f"Environment '{environment}' admits non-branch refs: "
+            f"{', '.join(sorted(non_branch))}. Use branch policies only.",
+        )
 
     # The admitted set must match exactly, in both directions. An extra ref is
     # one tend does not verify the bot is kept off; a missing one refuses every
@@ -1053,7 +1084,7 @@ def check_environment(repo: str, admitted: list[str]) -> CheckResult:
         return CheckResult(
             name,
             False,
-            f"Environment '{TEND_ENVIRONMENT}' admits {', '.join(sorted(extra))}, "
+            f"Environment '{environment}' admits {', '.join(sorted(extra))}, "
             "which tend does not verify the bot is kept off. Restrict the policy "
             f"to: {', '.join(admitted)}.",
         )
@@ -1062,14 +1093,14 @@ def check_environment(repo: str, admitted: list[str]) -> CheckResult:
         return CheckResult(
             name,
             False,
-            f"Environment '{TEND_ENVIRONMENT}' does not admit "
+            f"Environment '{environment}' does not admit "
             f"{', '.join(sorted(missing))}, so every tend workflow triggered on "
             "those refs is refused before its first step. Run `tend check --fix`.",
         )
     return CheckResult(
         name,
         True,
-        f"Environment '{TEND_ENVIRONMENT}' admits only {', '.join(sorted(names))}",
+        f"Environment '{environment}' admits only {', '.join(sorted(names))}",
     )
 
 
@@ -1108,7 +1139,7 @@ def check_environment_deployments(repo: str) -> CheckResult:
         return CheckResult(
             name,
             False,
-            f"Jobs name the '{TEND_ENVIRONMENT}' environment without "
+            "Jobs name a Tend credential environment without "
             f"`deployment: false`, so GitHub files a deployment record for "
             f"every run and posts it on the pull request: {', '.join(offenders)}. "
             "Add `deployment: false` beside the environment's `name:` — a "
@@ -1311,11 +1342,15 @@ def _parse_workflow(path: str, text: str) -> _WorkflowFacts:
         # spelling only where it is needed to address or display the object.
         environment = environment.casefold()
         environments.add(environment)
-        # The operational-secret environment is a secret scope, so a job naming
+        # A Tend credential environment is a secret scope, so a job naming
         # it deploys nothing and the record GitHub would file for it is pure
         # noise on whatever the run belongs to. Only the shorthand and an
         # explicit `deployment: true` file one; both are the same mistake.
-        if environment == TEND_ENVIRONMENT and deployment is not False:
+        if (
+            environment
+            in {TEND_ENVIRONMENT.casefold(), CODEX_REFRESH_ENVIRONMENT.casefold()}
+            and deployment is not False
+        ):
             filed_deployments.add(str(job_id))
         if oidc:
             oidc_environments.add(environment)
@@ -1498,7 +1533,10 @@ def check_yolo_workflows(repo: str, cfg: Config) -> CheckResult:
         if filename in expected or content is None:
             continue
         facts = _parse_workflow(filename, content)
-        if TEND_ENVIRONMENT.casefold() in facts.environments:
+        if facts.environments & {
+            TEND_ENVIRONMENT.casefold(),
+            CODEX_REFRESH_ENVIRONMENT.casefold(),
+        }:
             extra_holders.append(filename)
         if facts.unresolved:
             unresolved.append(filename)
@@ -1511,7 +1549,7 @@ def check_yolo_workflows(repo: str, cfg: Config) -> CheckResult:
             details.append(f"not current generated output: {', '.join(mismatched)}")
         if extra_holders:
             details.append(
-                "non-generated files use the tend environment: "
+                "non-generated files use a Tend credential environment: "
                 f"{', '.join(extra_holders)}"
             )
         if unresolved:
@@ -1527,7 +1565,7 @@ def check_yolo_workflows(repo: str, cfg: Config) -> CheckResult:
         return CheckResult(
             name,
             False,
-            "Yolo requires Tend's operational secrets to reach only the audited "
+            "Yolo requires Tend's secrets to reach only the audited "
             f"generated workflows ({'; '.join(details)}). Run `tend init`, "
             "merge its control-plane changes, and move any other job to a "
             "separate reviewer-gated environment.",
@@ -2140,8 +2178,10 @@ def operational_refs(results: list[CheckResult]) -> list[str]:
     )
 
 
-def fix_environment(repo: str, admitted: list[str]) -> CheckResult:
-    """Create the tend environment and set its branch policy to `admitted`.
+def fix_environment(
+    repo: str, admitted: list[str], environment: str = TEND_ENVIRONMENT
+) -> CheckResult:
+    """Create a Tend environment and set its branch policy to `admitted`.
 
     PUT is create-or-update, so one call owns every environment failure:
     missing, no policy, protected-branches mode. The reconcile below then
@@ -2149,12 +2189,16 @@ def fix_environment(repo: str, admitted: list[str]) -> CheckResult:
     their values cannot be read back, so minting them into the environment
     stays with the installer.
     """
-    name = "environment"
+    name = (
+        "environment"
+        if environment == TEND_ENVIRONMENT
+        else "codex-refresh-environment"
+    )
     result = _gh(
         "api",
         "-X",
         "PUT",
-        f"repos/{repo}/environments/{TEND_ENVIRONMENT}",
+        f"repos/{repo}/environments/{_env_path(environment)}",
         "--input",
         "-",
         input=json.dumps(
@@ -2173,10 +2217,10 @@ def fix_environment(repo: str, admitted: list[str]) -> CheckResult:
             name, False, f"Failed to create environment: {result.stderr.strip()}"
         )
 
-    policies = _branch_policies(repo, TEND_ENVIRONMENT)
+    policies = _branch_policies(repo, environment)
     if policies is None:
         return CheckResult(name, None, "Could not list deployment branch policies")
-    existing = {p["name"]: p["id"] for p in policies}
+    existing = {p["name"] for p in policies if p["type"] == "branch"}
 
     for branch in admitted:
         if branch in existing:
@@ -2185,7 +2229,7 @@ def fix_environment(repo: str, admitted: list[str]) -> CheckResult:
             "api",
             "-X",
             "POST",
-            f"repos/{repo}/environments/{TEND_ENVIRONMENT}/deployment-branch-policies",
+            f"repos/{repo}/environments/{_env_path(environment)}/deployment-branch-policies",
             "-f",
             f"name={branch}",
             "-f",
@@ -2194,25 +2238,27 @@ def fix_environment(repo: str, admitted: list[str]) -> CheckResult:
         if created is None or created.returncode != 0:
             stderr = created.stderr.strip() if created else "gh CLI not found"
             return CheckResult(name, False, f"Failed to admit {branch}: {stderr}")
-    for branch, policy_id in existing.items():
-        if branch in admitted:
+    for policy in policies:
+        if policy["type"] == "branch" and policy["name"] in admitted:
             continue
         deleted = _gh(
             "api",
             "-X",
             "DELETE",
-            f"repos/{repo}/environments/{TEND_ENVIRONMENT}"
-            f"/deployment-branch-policies/{policy_id}",
+            f"repos/{repo}/environments/{_env_path(environment)}"
+            f"/deployment-branch-policies/{policy['id']}",
         )
         if deleted is None or deleted.returncode != 0:
             stderr = deleted.stderr.strip() if deleted else "gh CLI not found"
-            return CheckResult(name, False, f"Failed to remove {branch}: {stderr}")
+            return CheckResult(
+                name, False, f"Failed to remove {policy['name']}: {stderr}"
+            )
 
     return CheckResult(
         name,
         True,
-        f"Environment '{TEND_ENVIRONMENT}' admits only {', '.join(admitted)}. "
-        "Move each operational secret into it and delete the repo-level copy.",
+        f"Environment '{environment}' admits only {', '.join(admitted)}. "
+        "Store its secrets there and delete any repo-level copy.",
     )
 
 
@@ -2564,9 +2610,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
     if cfg.merge_policy.requires_control_plane_review:
         owner = detect_canonical_owner(repo)
         results.append(
-            check_control_plane_codeowners(
-                repo, default_branch, cfg.control_plane_owner, cfg.bot_name
-            )
+            check_control_plane_codeowners(repo, default_branch, cfg.bot_name)
         )
         results.append(check_control_plane_ruleset(repo, default_branch, cfg.bot_name))
         # Without the owner the expected output drops the fork guard every
@@ -2610,6 +2654,14 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
         results.append(check_claude_auth(repo))
     if "codex" in enabled_harnesses:
         results.append(check_codex_auth(repo))
+        consumer_names, _ = _env_secret_names(repo)
+        refresh_names, _ = _refresh_secret_names(repo)
+        if (
+            consumer_names is not None and CODEX_AUTH_SECRET in consumer_names
+        ) or refresh_names:
+            results.append(
+                check_environment(repo, [default_branch], CODEX_REFRESH_ENVIRONMENT)
+            )
     results.append(check_repo_secret_allowlist(repo, allowed))
     return results
 
@@ -2636,30 +2688,50 @@ def check_claude_auth(repo: str) -> CheckResult:
 
 
 def check_codex_auth(repo: str) -> CheckResult:
-    """Codex needs an API key or the complete subscription secret set."""
+    """Codex needs an API key or a split subscription credential set."""
     names, err = _env_secret_names(repo)
     if names is None:
         return CheckResult("codex-auth", None, err)
-    subscription = {
-        CODEX_AUTH_SECRET,
-        CODEX_REFRESH_AUTH_SECRET,
-        CODEX_REFRESH_PAT_SECRET,
-    }
-    configured = subscription & names
-    if configured == subscription:
-        return CheckResult(
-            "codex-auth",
-            True,
-            "Codex subscription auth secrets present: "
-            f"{', '.join(sorted(subscription))}",
-        )
-    if configured:
-        missing = subscription - names
+    refresh_only = {CODEX_REFRESH_AUTH_SECRET, CODEX_REFRESH_PAT_SECRET}
+    leaked = refresh_only & names
+    if leaked:
         return CheckResult(
             "codex-auth",
             False,
-            "Codex subscription auth is partially configured; missing from "
-            f"the '{TEND_ENVIRONMENT}' environment: {', '.join(sorted(missing))}.",
+            f"Move {', '.join(sorted(leaked))} out of the '{TEND_ENVIRONMENT}' "
+            f"environment into '{CODEX_REFRESH_ENVIRONMENT}'; agent jobs can "
+            "read secrets in their environment.",
+        )
+    refresh_names, err = _refresh_secret_names(repo)
+    if refresh_names is None:
+        return CheckResult("codex-auth", None, err)
+    if CODEX_AUTH_SECRET in names:
+        missing = refresh_only - refresh_names
+        misplaced = refresh_names - refresh_only
+        if missing or misplaced:
+            details = []
+            if missing:
+                details.append(f"missing {', '.join(sorted(missing))}")
+            if misplaced:
+                details.append(f"remove {', '.join(sorted(misplaced))}")
+            return CheckResult(
+                "codex-auth",
+                False,
+                f"'{CODEX_REFRESH_ENVIRONMENT}' must hold only the refresh "
+                f"credentials ({'; '.join(details)}).",
+            )
+        return CheckResult(
+            "codex-auth",
+            True,
+            f"Codex subscription auth is split between '{TEND_ENVIRONMENT}' "
+            f"and '{CODEX_REFRESH_ENVIRONMENT}'.",
+        )
+    if refresh_names:
+        return CheckResult(
+            "codex-auth",
+            False,
+            f"'{CODEX_REFRESH_ENVIRONMENT}' holds orphan refresh secrets; "
+            f"configure {CODEX_AUTH_SECRET} in '{TEND_ENVIRONMENT}' or remove them.",
         )
     if OPENAI_KEY_SECRET in names:
         return CheckResult(
@@ -2668,7 +2740,6 @@ def check_codex_auth(repo: str) -> CheckResult:
     return CheckResult(
         "codex-auth",
         False,
-        f"Codex harness selected but neither {OPENAI_KEY_SECRET} nor the "
-        f"subscription set ({', '.join(sorted(subscription))}) is configured "
-        f"in the '{TEND_ENVIRONMENT}' environment.",
+        f"Codex harness selected but neither {OPENAI_KEY_SECRET} nor "
+        f"{CODEX_AUTH_SECRET} is configured in '{TEND_ENVIRONMENT}'.",
     )

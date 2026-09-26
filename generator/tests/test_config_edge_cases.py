@@ -183,13 +183,12 @@ def test_merge_defaults_to_restricted(tmp_path: Path) -> None:
     assert cfg.merge_policy.expected_runtime_bypass == "never"
 
 
-def test_yolo_merge_requires_one_control_plane_owner(tmp_path: Path) -> None:
+def test_yolo_merge_uses_codeowners_without_configured_owner(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,
         dedent("""\
             bot_name: my-bot
             merge: yolo
-            control_plane_owner: "@octocat"
             """),
     )
 
@@ -205,22 +204,9 @@ def test_yolo_merge_requires_one_control_plane_owner(tmp_path: Path) -> None:
     [
         ("merge: fast\n", "merge 'fast' is not recognized"),
         ("merge: maintainer\n", "merge 'maintainer' is not recognized"),
-        ("merge: yolo\n", "control_plane_owner is required"),
-        (
-            'merge: yolo\ncontrol_plane_owner: "octocat"\n',
-            "control_plane_owner must be one GitHub user",
-        ),
-        (
-            'merge: yolo\ncontrol_plane_owner: "@octocat @hubot"\n',
-            "control_plane_owner must be one GitHub user",
-        ),
-        (
-            'merge: yolo\ncontrol_plane_owner: "@octo-org/security"\n',
-            "teams are not accepted",
-        ),
         (
             'merge: yolo\ncontrol_plane_owner: "@my-bot"\n',
-            "must not be the Tend bot",
+            "control_plane_owner was removed",
         ),
     ],
 )
@@ -243,7 +229,6 @@ def test_yolo_accepts_runner_setup(tmp_path: Path, step: str) -> None:
         dedent(f"""\
             bot_name: my-bot
             merge: yolo
-            control_plane_owner: "@octocat"
             setup:
               - {step}
             """),
@@ -259,7 +244,6 @@ def test_yolo_migrates_deprecated_sandbox_setup(tmp_path: Path) -> None:
         dedent("""\
             bot_name: my-bot
             merge: yolo
-            control_plane_owner: "@octocat"
             sandbox_setup:
               - make bootstrap
             """),
@@ -279,7 +263,6 @@ def test_yolo_rejects_workflow_overrides(tmp_path: Path, override: str) -> None:
         dedent(f"""\
             bot_name: my-bot
             merge: yolo
-            control_plane_owner: "@octocat"
             workflows:
               review:
                 {override}

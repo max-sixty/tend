@@ -2,10 +2,10 @@ name: Refresh Tend Codex subscription auth
 description: Rotate the full auth bundle and publish its access-only consumer view.
 
 inputs:
-  codex_auth_json:
+  consumer_auth_configured:
     required: false
-    default: ""
-    description: Current access-only consumer bundle, or empty in API-key mode
+    default: "false"
+    description: Whether the tend environment holds access-only subscription auth
   codex_refresh_auth_json:
     required: false
     default: ""
@@ -13,9 +13,9 @@ inputs:
   refresh_pat:
     required: false
     default: ""
-    description: GitHub PAT allowed to update secrets in the tend environment
+    description: GitHub PAT allowed to update secrets in the refresh and tend environments
   codex_version:
-    default: "0.156.0"
+    default: "0.157.0"
     description: Pinned @openai/codex npm version that performs the refresh
 
 runs:
@@ -25,9 +25,9 @@ runs:
       id: auth
       shell: bash
       env:
-        CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
         CODEX_REFRESH_AUTH_JSON: ${{ inputs.codex_refresh_auth_json }}
         CODEX_REFRESH_PAT: ${{ inputs.refresh_pat }}
+        CODEX_CONSUMER_AUTH_CONFIGURED: ${{ inputs.consumer_auth_configured }}
       run: /usr/bin/python3 -E -s "${{ github.action_path }}/../../shared/steps/codex_subscription_auth.py" stage-refresh "$RUNNER_TEMP/tend-codex-refresh/auth.json"
 
     - name: Install Codex CLI

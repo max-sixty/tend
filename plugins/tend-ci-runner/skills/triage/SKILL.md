@@ -12,9 +12,12 @@ Triage a newly opened GitHub issue.
 
 **Issue to triage:** $ARGUMENTS
 
-## Step 1: Setup
+## Step 1: Load required skills
 
-Load `/tend-ci-runner:run-tend` first (CI environment rules, security). It will also prompt you to load any repo-specific skills (e.g., `running-tend`) — do so before proceeding.
+- Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay.
+- Load `/tend-ci-runner:post-to-github` before composing a comment or PR body.
+- Load `/tend-ci-runner:fix-a-bug` before attempting a fix.
+- Load `/tend-ci-runner:push-commits` before pushing, `/tend-ci-runner:open-pr` before opening a PR, and `/tend-ci-runner:monitor-ci` after pushing a fix.
 
 Reproduce before fixing, find evidence before speculating, and test before committing.
 
@@ -167,7 +170,7 @@ Omit a maintainer-deferral closer when `author_association` is `OWNER`, `MEMBER`
 
 **Stay within what you verified.** State facts you found in the codebase — don't characterize something as "known" unless you find prior issues or documentation about it. Don't speculate beyond the code you read.
 
-**Report the finding, not the search.** For a feature that plainly doesn't exist yet, "I searched the codebase and didn't find an existing implementation" only restates what the requester already knows. Lead with what they don't: the closest related code, where the change would slot in, or a tradeoff worth flagging. Mention searching only when the result is itself the news (e.g. the capability turns out to be computed internally but never surfaced).
+**Report the finding, not the search.** A feature request already tells you the capability is missing, so neither "this isn't available today" nor "I searched and didn't find an existing implementation" is news to the requester. Show you understood the ask by building on it, not by restating it: lead with the closest related code, where the change would slot in, or a tradeoff worth flagging. Say something is missing only when that is itself the news — the requester seems to believe a feature exists that doesn't, part of the request already works, or the capability is computed internally but never surfaced.
 
 **Apply the project lens** (priority 2 in the system prompt — project excellence outranks individual help). Before replying, ask what the issue reveals beyond this one reporter. If the underlying problem affects many users or the project's health — a false positive on a released artifact, a broken install path, a bad default, a misleading doc — foreground the durable, project-level fix, not just the individual's workaround. Take the pro-project action available to you (open a fix PR, or file/link a tracking issue for the durable fix) rather than handing the reporter only a personal stopgap. Deferring *prioritization* of the durable fix to a maintainer is fine; burying it under personal workarounds is not.
 
@@ -201,7 +204,7 @@ Good:
 
 **Feature request**
 
-> Thanks for spelling out the use case. This isn't available today. `--workspace` selects one root but cannot discover nested roots. The request fits beside that behavior; a maintainer still needs to decide whether discovery should be automatic or opt-in.
+> `--workspace` already selects a single root, so nested discovery would build on it. The open question is whether discovery should run automatically or only when asked for, and that is a maintainer decision.
 
 </good>
 </example>

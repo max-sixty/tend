@@ -14,6 +14,12 @@ which every repo tend maintains reads. This skill covers whether the correction
 clears the bar, which of the two it lands in, what the text carries, and the
 mechanics of proposing it.
 
+## Required skills
+
+- Load `/tend-ci-runner:act-in-other-repos` before filing an upstream Tend issue.
+- Load `/tend-ci-runner:post-to-github` and `/tend-ci-runner:open-pr` before composing and opening a repo-local skill PR.
+- Load `/tend-ci-runner:push-commits` before pushing that PR.
+
 ## Whether to propose
 
 The feedback must be **generalizable** — it applies to future runs, not just

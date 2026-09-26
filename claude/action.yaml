@@ -15,9 +15,6 @@ inputs:
   merge:
     default: restricted
     description: Merge mode generated from .config/tend.yaml (restricted or yolo)
-  control_plane_owner:
-    default: ""
-    description: CODEOWNER for yolo-protected workflow and Tend config changes
   claude_code_oauth_token:
     required: false
     default: ""
@@ -70,7 +67,7 @@ inputs:
     default: "false"
     description: Include the rendered Claude transcript in the workflow step summary.
   claude_version:
-    default: "2.1.280"
+    default: "2.1.282"
     description: >-
       Version of the `claude` binary to install via
       `https://claude.ai/install.sh`, pinned to a specific
@@ -93,7 +90,7 @@ inputs:
       Pinned `mitmproxy` version for the credential-injection proxy. Pinned
       so the uv download cache key is stable; bump to upgrade.
   uv_version:
-    default: "0.12.17"
+    default: "0.12.19"
     description: >-
       Pinned `uv` version. The credential-injection proxy always uses a private
       copy off $PATH. The agent gets a separate fallback after the consumer PATH,
@@ -156,7 +153,6 @@ runs:
         BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MERGE: ${{ inputs.merge }}
-        TEND_CONTROL_PLANE_OWNER: ${{ inputs.control_plane_owner }}
 
     # Also publishes `login`/`id` for the bot: it reads them off the token it
     # already holds, so nothing downstream has to resolve them again from the

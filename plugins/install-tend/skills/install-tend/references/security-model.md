@@ -15,8 +15,8 @@ bypass, but direct pushes remain blocked and `.github/**` plus
 `.config/tend.yaml` require a fresh CODEOWNER approval the bot cannot bypass.
 The ownership block also protects every possible CODEOWNERS file and every
 agent instruction path (`CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`,
-`AGENTS.override.md`, `.claude/`, and `.agents/`). Its owner must be a maintainer GitHub user
-distinct from the bot.
+`AGENTS.override.md`, `.claude/`, and `.agents/`). Each path names one or more
+GitHub users as owners; teams and the bot are not accepted.
 Preflight reads GitHub's `current_user_can_bypass` answer with the bot's own
 token and requires the exact configured state: `never` or
 `pull_requests_only`.
@@ -132,7 +132,7 @@ in depth.
 | `OPENAI_API_KEY` | Until revoked | Run Codex/OpenAI calls billed to the account | Access GitHub |
 | `CODEX_AUTH_JSON` | Current access-token lifetime | Run Codex against the ChatGPT account | Refresh itself or access GitHub |
 | `CODEX_REFRESH_AUTH_JSON` | Rotating, effectively long-lived | Mint new ChatGPT access and refresh tokens | Access GitHub |
-| `CODEX_REFRESH_PAT` | Until revoked | Rewrite secrets and configuration in this repo's `tend` environment | Read secret values or push code |
+| `CODEX_REFRESH_PAT` | Until revoked | Rewrite secrets in this repo's `tend` and `tend-codex-refresh` environments | Read secret values or push code |
 
 ## Experimental Codex subscription auth
 
@@ -142,15 +142,18 @@ from a 401, can rotate the refresh token and leave the other holders with
 invalid state. Agent jobs receive only an access-only projection:
 
 - `CODEX_AUTH_JSON` uses Codex's internal `chatgptAuthTokens` mode and has an
-  empty refresh token. Every consumer may reuse its bearer token concurrently,
+  empty refresh token in `tend`. Every consumer may reuse its bearer token
+  concurrently,
   but none can rotate the chain.
 - `CODEX_REFRESH_AUTH_JSON` is a full `chatgpt` bundle unique to this
-  repository. Only its serialized `tend-codex-auth-refresh` workflow reads
+  repository, stored in `tend-codex-refresh`. Only its serialized
+  `tend-codex-auth-refresh` workflow reads
   it. Once OpenAI rotates the token, that workflow writes the full
   replacement first and the derived access-only bundle second.
 
-`CODEX_REFRESH_PAT` is a fine-grained maintainer token scoped to this repository
-with `Environments: write`; the workflow needs it because `GITHUB_TOKEN` cannot
+`CODEX_REFRESH_PAT` lives in `tend-codex-refresh`. It is a fine-grained
+maintainer token scoped to this repository with `Environments: write`; the
+workflow needs it because `GITHUB_TOKEN` cannot
 rewrite Actions environment secrets. It is never passed to an agent session.
 
 The consumer path is experimental and may break when OpenAI changes Codex

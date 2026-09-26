@@ -12,14 +12,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  refresh:
+  subscription:
 <<fork_guard_if(cfg)>><<environment()>>
+    runs-on: ubuntu-24.04
+    permissions: {}
+    outputs:
+      configured: ${{ steps.presence.outputs.configured }}
+    steps:
+      - id: presence
+        env:
+          CONFIGURED: ${{ secrets.<<codex_auth_secret>> != '' }}
+        run: echo "configured=$CONFIGURED" >> "$GITHUB_OUTPUT"
+  refresh:
+<<fork_guard_if(cfg)>><<environment(codex_refresh_environment)>>
+    needs: subscription
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
       - uses: max-sixty/tend/codex/refresh@<<tend_version>>
         with:
-          codex_auth_json: ${{ secrets.<<codex_auth_secret>> }}
+          consumer_auth_configured: ${{ needs.subscription.outputs.configured }}
           codex_refresh_auth_json: ${{ secrets.<<codex_refresh_auth_secret>> }}
           refresh_pat: ${{ secrets.<<codex_refresh_pat_secret>> }}

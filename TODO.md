@@ -8,8 +8,10 @@ of building it if revisited.
 Leaf's Codex pilot is live. Its generated weekly refresher and a nightly agent
 run both succeeded after the switch.
 
-For Tend, verify its full login is independent of Leaf's and the local Codex
-login; `tend check` verifies the secret names but cannot inspect their values.
+For Tend, create the `tend-codex-refresh` environment with `tend check --fix`,
+move `CODEX_REFRESH_AUTH_JSON` and `CODEX_REFRESH_PAT` from `tend` into it,
+and rerun `tend check`. Verify the full login is independent of Leaf's and
+the local Codex login; GitHub does not expose secret values for comparison.
 Pause Tend with
 `TEND_ENABLED=false` before merging the Codex config and workflows. Once they
 reach `main`, dispatch the refresher and verify it publishes the next

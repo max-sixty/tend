@@ -9,14 +9,11 @@ metadata:
 
 Resolve conflicts on bot PRs, review recent commits, survey a slice of existing code/docs, and update tend workflows.
 
-## Step 0: Load environment skills
+## Step 0: Load required skills
 
-Load `/tend-ci-runner:run-tend` first — it contains CI security rules and
-comment formatting, and it will prompt you to load any repo-specific skills
-(e.g., `running-tend`). This sweep comments, files issues, opens PRs, pushes,
-and polls CI from Step 1 onward, so load `/tend-ci-runner:post-to-github`,
-`/tend-ci-runner:open-pr`, `/tend-ci-runner:push-commits`, and
-`/tend-ci-runner:monitor-ci` with it.
+- Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay.
+- Load `/tend-ci-runner:post-to-github`, `/tend-ci-runner:open-pr`, `/tend-ci-runner:push-commits`, and `/tend-ci-runner:monitor-ci` before Step 1; this sweep posts, opens PRs, pushes, and polls CI.
+- Load `/tend-ci-runner:resolve-conflicts` before Step 3 and `/tend-ci-runner:fix-a-bug` before fixing a finding in Step 8.
 
 ## Step 1: Verify bot PAT scopes
 
@@ -80,8 +77,8 @@ a one-line reason) plus a `_Last refreshed: <YYYY-MM-DD>_` footer. Updates:
 
 ## Step 3: Resolve conflicts on bot PRs
 
-Load `/tend-ci-runner:resolve-conflicts` and resolve conflicts for this bot and
-upstream dependency bots.
+Resolve conflicts for this bot and upstream dependency bots per
+`/tend-ci-runner:resolve-conflicts`.
 
 ## Step 4: Review recent commits
 

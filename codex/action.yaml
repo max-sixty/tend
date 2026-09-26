@@ -11,9 +11,6 @@ inputs:
   merge:
     default: restricted
     description: Merge mode generated from .config/tend.yaml (restricted or yolo)
-  control_plane_owner:
-    default: ""
-    description: CODEOWNER for yolo-protected workflow and Tend config changes
   openai_api_key:
     required: false
     default: ""
@@ -57,7 +54,7 @@ inputs:
       Additional Codex CLI arguments, one exact argument per line. They are
       passed before Tend's managed arguments; Codex validates conflicts.
   codex_version:
-    default: "0.156.0"
+    default: "0.157.0"
     description: >-
       `@openai/codex` npm version to install. Must ship
       the `codex plugin add` subcommand (PR #21396, first released in
@@ -69,7 +66,7 @@ inputs:
     description: >-
       Pinned mitmproxy version for the credential-injection proxy.
   uv_version:
-    default: "0.12.17"
+    default: "0.12.19"
     description: >-
       Pinned fallback `uv` version. The agent PATH appends it after any
       consumer-provided version.
@@ -117,7 +114,6 @@ runs:
         BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MERGE: ${{ inputs.merge }}
-        TEND_CONTROL_PLANE_OWNER: ${{ inputs.control_plane_owner }}
 
     # Also publishes `login`/`id` for the bot: it reads them off the token it
     # already holds, so nothing downstream has to resolve them again from the
