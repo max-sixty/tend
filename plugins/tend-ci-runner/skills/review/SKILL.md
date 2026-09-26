@@ -43,6 +43,7 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
 These snapshot fields decide how much of the workflow runs:
 
 - **`already_reviewed`** — a bot review already stands on this exact commit. Finish without posting, unless the conversation holds an unanswered question directed at the bot; then proceed so the review can answer it.
+- **`author`** — who acts on the findings. On `human`, the author does. On `self` (this bot's PR) or `bot` (Dependabot, renovate), nobody else will, so this run is the author as well as the reviewer: it posts the review, then applies the findings itself in one push per **Push fixes**. A run that ends on the review leaves its findings to nobody. `self` also rules out an `APPROVE`, which GitHub rejects from a PR's author.
 - **`is_draft`** — follow `references/draft-mode.md`: a lighter review submitted as `COMMENT` only, carrying the hidden draft marker, with no CI polling and no pushes.
 - **`incremental_path`** — the bot reviewed an earlier commit on this PR, and the file named holds what was pushed since: each commit with its per-file line counts and its patch, then the base merges. Read the whole file the way `references/re-targeting.md` reads a delta file: both logs, and `git show --cc` on each base merge, since what a merge itself changed is part of the push. Review as a person returning to the PR would. The new commits get the close read, with the whole PR (`gh pr diff <number>`, merge-base→head, the same diff **Read and understand the change** uses) and the earlier reviews in view: whether the push answers what was raised, and whether the PR still holds together with it in. Code the earlier review covered isn't audited line by line again, though a problem you notice in it still counts. Neither the incremental nor that diff leaks base-branch churn: the incremental excludes everything reachable from the base tip, so a base merge's own commits are not counted as new PR work, and base-merge commits never enter the three-dot diff.
 
@@ -91,7 +92,7 @@ Check the project's instruction files for language-specific review criteria and 
 
 **Same pattern elsewhere:**
 
-When a PR fixes a bug or changes a pattern, search for the same pattern in other files. If found in the diff, add inline suggestions; if found outside the diff, offer to push a fix commit.
+When a PR fixes a bug or changes a pattern, search for the same pattern in other files. If found in the diff, add inline suggestions; if found outside the diff, it is a fix commit per **Push fixes**.
 
 **Citing code outside the diff:**
 
@@ -178,7 +179,7 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
 
 **Attribute a withheld approval to whatever actually decided it.** Cite the repo's instructions as the reason only when you can name the file and heading they live in. When the call is your own judgment, identify the risky consequence and the human decision it needs; judgment is sufficient authority without inventing a repository policy.
 
-**Self-authored PRs** (`self_authored` in the pre-flight JSON): Complete steps 2–5 — self-review catches real issues (lint failures, edge cases) and is intentionally valuable. Do NOT attempt an `APPROVE` — GitHub rejects self-approvals. That covers the pre-flight close-out approvals too: on a self-authored PR the threads are the only thing to close out. Submit as `COMMENT` when there are concerns, or stay silent and skip to **Monitor CI**. After earlier rounds of your own findings, **Push fixes** says which findings still earn a push and which still go in the review. The self-review exists to find concerns, not to publish a clean-path verdict or proof that earlier findings were resolved. Always post a current CI failure as a `COMMENT` because it is itself a concern.
+**Self-authored PRs** (`author: self`): Complete steps 2–5 — self-review catches real issues (lint failures, edge cases) and is intentionally valuable. Do NOT attempt an `APPROVE` — GitHub rejects self-approvals. That covers the pre-flight close-out approvals too: on a self-authored PR the threads are the only thing to close out. With concerns, submit them as a `COMMENT` and carry on through **Push fixes**, which applies them. With none, stay silent and skip to **Monitor CI**. The self-review exists to find concerns, not to publish a clean-path verdict or proof that earlier findings were resolved. Always post a current CI failure as a `COMMENT` because it is itself a concern.
 
 **Not confident enough to approve** (unfamiliar module, subtle logic): Add a `+1` reaction instead — no review needed unless there are specific observations.
 
@@ -215,7 +216,7 @@ Post at most one review per run. Give a verdict (**approve** or **comment**, nev
 
 **Inline suggestions are mandatory for concrete fixes.** Whenever there's a concrete fix (typos, doc updates, naming, missing imports, minor refactors, test additions), post it as an inline suggestion on the exact line — never as a code block in the review body. Inline suggestions let the author apply with one click; code blocks force them to find the line and copy-paste manually.
 
-For fixes targeting lines outside the diff, offer to push a fix commit instead.
+A fix targeting lines outside the diff is a fix commit per **Push fixes** instead.
 
 Build the review payload — inline comments, `commit_id`, the preflight-wrapped POST — per `references/inline-suggestions.md`, which also carries the multi-line suggestion rules and the 422 recovery.
 
@@ -249,13 +250,13 @@ Pushing to the branch under review fires `synchronize`, which queues another run
 
 Before the push, review the fix itself per **Review the change before the push** in `/tend-ci-runner:push-commits`. Leave the review pinned to the head you reviewed. **Submit**'s re-targeting is for pushes by others during the review; re-target onto your own fix and the queued run reads that head as already reviewed, then finishes without looking at the fix. That run reviews the pushed head and resolves the threads the fix addressed.
 
-**PRs with no human author** (this bot's own, and third-party bot PRs like Dependabot or renovate): Nobody else will act on the feedback — a third-party bot doesn't read it, and on your own PR you are the author. A review that only describes the fix leaves the PR red and pushes the work onto a maintainer — the opposite of the point. If you can articulate the fix, apply it: commit and push it to the PR branch. "Not a one-token change" and "more than one syntactically valid form exists" are **not** reasons to defer — pick the option most consistent with the surrounding code and the repo's existing conventions, push it, and note any alternative in the review. Having to choose is a reason to defer only when *no defensible default exists*: a genuine semantic ambiguity that needs maintainer intent, not merely a fix that took thought to derive. If the review already worked out the answer, that answer is pushable. Rebase onto the latest target branch first if the branch is behind.
+**PRs with no human author** (`author: self` or `bot`): Nobody else will act on the feedback — a third-party bot doesn't read it, and on your own PR you are the author. A review that only describes the fix leaves the PR red and pushes the work onto a maintainer — the opposite of the point. If you can articulate the fix, apply it: commit and push it to the PR branch. "Not a one-token change" and "more than one syntactically valid form exists" are **not** reasons to defer — pick the option most consistent with the surrounding code and the repo's existing conventions, push it, and note any alternative in the review. Having to choose is a reason to defer only when *no defensible default exists*: a genuine semantic ambiguity that needs maintainer intent, not merely a fix that took thought to derive. An option that needs that intent, such as a new flag or an output-format change, doesn't block one that doesn't: push the one that doesn't and leave the other to the review. If the review already worked out the answer, that answer is pushable. Rebase onto the latest target branch first if the branch is behind.
 
 The bar for another fix rises with each round. Every fix is a new diff for the queued run to review, and a review usually finds something, so the rounds don't end on their own. One adjustment after the first review is often fine. After a couple, push only for a significant problem, one that would do harm if the PR merged as it stands, and leave the rest; a finding a maintainer should weigh before merging still goes in the review.
 
 If the rounds are thrashing, with findings of one kind recurring or each fix drawing the next finding, hold your own view of the change with less confidence. Lean the way the project leans, and say in the review that the approach is what's in question.
 
-**Human PRs**: Post inline suggestions first. Additionally, offer to push a commit when the fixes are mechanical and correctness is obvious. Only push after the author accepts.
+**Human PRs** (`author: human`): Post inline suggestions first. Additionally, offer to push a commit when the fixes are mechanical and correctness is obvious. Only push after the author accepts.
 
 ```bash
 gh pr checkout <number>

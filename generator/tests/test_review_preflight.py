@@ -130,7 +130,7 @@ class Fixture:
             "headRefOid": sha,
             "state": state,
             "baseRefOid": self.base,
-            "author": {"login": "author"},
+            "author": {"login": "author", "is_bot": False},
             "isDraft": False,
         }
         self.write("PR_JSON", view)
@@ -250,7 +250,7 @@ def test_start_records_one_snapshot_and_prepares_the_incremental(pr: Fixture) ->
     context = json.loads(result.stdout)
     assert context == {
         "head_sha": moved,
-        "self_authored": False,
+        "author": "human",
         "is_draft": False,
         "already_reviewed": False,
         "incremental_path": context["incremental_path"],
@@ -300,14 +300,25 @@ def test_a_draft_mode_review_bases_an_incremental_only_while_the_pr_is_a_draft(
     assert (context["incremental_path"] is not None) is is_draft
 
 
-def test_start_resolves_self_authorship_against_the_bot_login(pr: Fixture) -> None:
-    """The skill used to be handed both logins and told to compare them, with a
-    warning not to read "authored by the repo owner" as self-authored instead."""
+@pytest.mark.parametrize(
+    ("author", "expected"),
+    [
+        ({"login": BOT, "is_bot": False}, "self"),
+        ({"login": "app/dependabot", "is_bot": True}, "bot"),
+        ({"login": "author", "is_bot": False}, "human"),
+    ],
+)
+def test_start_classifies_the_author_against_the_bot_login(
+    pr: Fixture, author: dict[str, object], expected: str
+) -> None:
+    """The bot's own account is a plain user to GitHub, so `self` comes from the
+    login and only a third-party app reads as `bot`. Both mean the review session
+    applies its own findings; the skill forks on this rather than judging it."""
     view = json.loads(Path(pr.env()["PR_JSON"]).read_text())
-    view["author"] = {"login": BOT}
+    view["author"] = author
     pr.write("PR_JSON", view)
 
-    assert json.loads(pr.start().stdout)["self_authored"] is True
+    assert json.loads(pr.start().stdout)["author"] == expected
 
 
 def test_start_reports_a_review_standing_on_this_head(pr: Fixture) -> None:
