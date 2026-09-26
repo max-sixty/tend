@@ -95,9 +95,8 @@ bot_name: my-project-bot
 # and `CODEX_REFRESH_PAT` in `tend-codex-refresh` (scoped to this repository,
 # Environments: write). Only access-only `CODEX_AUTH_JSON` belongs in `tend`.
 # Never copy a full Codex login between repositories: their refresh jobs would
-# invalidate one another's tokens. An external refresher sharing access-only
-# auth must publish a replacement before that token expires. This relies on
-# internal Codex auth behavior; see README.md and the install-tend security model.
+# invalidate one another's tokens. This relies on internal Codex auth behavior;
+# see README.md and the install-tend security model.
 #
 # The Claude action prefers the subscription token
 # (`CLAUDE_CODE_OAUTH_TOKEN`) over the API key when both are set.

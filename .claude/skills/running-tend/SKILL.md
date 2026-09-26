@@ -32,7 +32,7 @@ test suite exercises them.
 
 ## Non-standard workflows
 
-Tend has Claude-powered workflows beyond the generated `tend-*` set:
+Tend has an agent workflow beyond the generated `tend-*` set:
 
 | Workflow | File | Schedule | Purpose |
 |----------|------|----------|---------|
@@ -45,10 +45,10 @@ covers the day. `list_recent_runs.py` caps it at 49h, wide enough to absorb a
 missed tick; past that it warns on stderr and the run records a coverage gap
 rather than an all-clear.
 
-These use the tend composite action and produce `claude-session-logs*` artifacts,
-but their names don't match the `tend-*` prefix that scripts filter on by
-default. `uvx tend@latest init` doesn't rewrite them either, so their
-`max-sixty/tend/<harness>@X.Y.Z` pins move only when someone edits the file.
+It uses the tend composite action and produces `codex-session-logs*` artifacts,
+but its name doesn't match the `tend-*` prefix that scripts filter on by
+default. `uvx tend@latest init` doesn't rewrite it either, so its
+`max-sixty/tend/<harness>@X.Y.Z` pin moves only when someone edits the file.
 
 ### Usage analysis
 
@@ -73,7 +73,7 @@ Step 1 anchor instead, so its spend covers the same band that step censuses.
 
 ## Session Log Paths
 
-Artifact paths: `-var-tmp-tend-agent-workspace-*-checkout/<session-id>.jsonl`
+Artifact paths: `sessions/YYYY/MM/DD/rollout-*.jsonl`
 
 `review-reviewers` runs produce one session log per matrix repo in
 `.github/workflows/review-reviewers.yaml`.

@@ -845,8 +845,8 @@ def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
 
     `/<plugin>:<name>` resolves in that bundled plugin and `/<name>` in this
     repo's own `.claude/skills/` — which is how the hand-maintained
-    `review-reviewers.yaml` reaches tend's overlay copy. Under `harness: codex`
-    the generator writes the same invocation as `$<name>` (`default_prompt`).
+    `review-reviewers.yaml` reaches tend's overlay copy. Codex uses `$<name>`
+    for either a bundled or a repo-local skill.
     `tend-mention` is the one agent-invoking workflow whose prompt opens with an
     expression instead, because it names no skill at all (TODO.md).
     """
@@ -864,22 +864,25 @@ def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
                 if first.startswith("${{"):
                     continue
                 if first.startswith("$"):
-                    # Codex mentions a bundled skill as `$NAME` (`default_prompt`).
-                    plugin, skill = "tend-ci-runner", first.lstrip("$")
+                    skill = first[1:]
+                    targets = [
+                        REPO_ROOT / ".claude" / "skills" / skill,
+                        REPO_ROOT / "plugins" / "tend-ci-runner" / "skills" / skill,
+                    ]
                 else:
                     assert first.startswith("/"), (
                         f"{path.name}'s prompt opens with `{first}`, neither a "
                         "slash command nor a Codex skill mention"
                     )
                     plugin, _, skill = first.lstrip("/").rpartition(":")
-                target = (
-                    REPO_ROOT / "plugins" / plugin / "skills" / skill
-                    if plugin
-                    else REPO_ROOT / ".claude" / "skills" / skill
-                )
-                assert (target / "SKILL.md").is_file(), (
+                    targets = [
+                        REPO_ROOT / "plugins" / plugin / "skills" / skill
+                        if plugin
+                        else REPO_ROOT / ".claude" / "skills" / skill
+                    ]
+                assert any((target / "SKILL.md").is_file() for target in targets), (
                     f"{path.name} invokes `{first}`, which is not a skill at "
-                    f"{target.relative_to(REPO_ROOT)}"
+                    f"{', '.join(str(target.relative_to(REPO_ROOT)) for target in targets)}"
                 )
                 checked.append(skill)
 

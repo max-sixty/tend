@@ -348,9 +348,7 @@ Two auth modes:
   platform.openai.com.
 
 Agent jobs cannot invalidate the refresh state because they receive no refresh
-token. An external rotator can temporarily publish access-only auth to several
-repositories, but jobs lose authentication after that token expires if the
-rotator is offline.
+token.
 This is experimental because it uses Codex's internal `chatgptAuthTokens`
 mode. The weekly job runs Codex's built-in refresh and persists the updated
 full bundle.

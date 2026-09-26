@@ -161,10 +161,7 @@ because it depends on an internal auth mode. The serialized weekly job runs
 Codex's built-in refresh and persists its updated `auth.json`. Its login
 must have a refresh chain independent of other repositories and the
 maintainer's local Codex login. Separate device logins on one ChatGPT account
-have not been verified to remain independent. An external rotator can
-temporarily distribute access-only `CODEX_AUTH_JSON` to multiple
-repositories, but they lose authentication after token expiry if that
-rotator is offline.
+have not been verified to remain independent.
 
 ## Token assignment
 

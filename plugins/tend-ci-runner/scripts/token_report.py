@@ -42,10 +42,11 @@ def run_entry:
     input_tokens: sum(.input_tokens),
     output_tokens: sum(.output_tokens),
     cache_creation_input_tokens: sum(.cache_creation_input_tokens),
-    cache_read_input_tokens: sum(.cache_read_input_tokens),
+    cache_read_input_tokens: sum(if .harness == "codex" then .cached_input_tokens else .cache_read_input_tokens end),
     turns: sum(.turns),
-    cost_usd: sum(.cost_usd),
-    partial: (map(.partial // false) | any)
+    cost_usd: (if all(.[]; .harness == "codex") then null else sum(.cost_usd) end),
+    partial: (map(.partial // false) | any),
+    unpriced: (map(.harness == "codex" or (.partial // false)) | any)
   }
   | .subject = (
       if .number then "#\(.number)"
@@ -91,14 +92,18 @@ def rollup:
     n: length,
     cost: sum(.cost_usd),
     partial: (map(.partial) | any),
+    unpriced: (map(.unpriced) | any),
     i: sum(.input_tokens),
     o: sum(.output_tokens),
     cc: sum(.cache_creation_input_tokens),
     cr: sum(.cache_read_input_tokens)
   };
 
-def cost_cell: (.cost | usd) + (.partial | floor_marker);
-def by_cost: sort_by(.cost) | reverse;
+def cost_cell:
+  if .unpriced and .cost == 0 then "n/a"
+  else (.cost | usd) + (.unpriced | floor_marker)
+  end;
+def by_cost: sort_by(.cost, .cr) | reverse;
 def subjects:
   group_by(.subject)
   | map({key: (.[0].subject | short), workflows: (map(.workflow) | unique | join(","))} + rollup);
@@ -106,12 +111,16 @@ def subjects:
 def summary($since):
   .totals as $totals
   | .runs as $runs
+  | (if ($runs | length) > 0 and $totals.unpriced_runs == ($runs | length) and $totals.cost_usd == 0
+     then "n/a"
+     else "\($totals.cost_usd | usd)\($totals.unpriced_runs > 0 | floor_marker)"
+     end) as $cost_total
   | [
       "",
       "\($runs | length) runs since \($since)",
-      "Total cost: \($totals.cost_usd | usd)\($totals.partial_runs > 0 | floor_marker)"
-        + (if $totals.partial_runs > 0
-           then " (\($totals.partial_runs) of \($runs | length) runs cost-unknown)"
+      "Total cost: \($cost_total)"
+        + (if $totals.unpriced_runs > 0
+           then " (\($totals.unpriced_runs) of \($runs | length) runs cost-unknown)"
            else ""
            end),
       "Tokens: \($totals.input_tokens | fmt) in, \($totals.output_tokens | fmt) out, \($totals.cache_creation_input_tokens | fmt) cache-create, \($totals.cache_read_input_tokens | fmt) cache-read",
@@ -143,11 +152,11 @@ def summary($since):
          | map([.key, (.n | tostring), cost_cell, .workflows, (.cr | fmt)]))
     )
   + [""]
-  + (if $totals.partial_runs > 0
+  + (if $totals.unpriced_runs > 0
      then table(
        [["COST-UNKNOWN", "RUNS", "CACHE-READ", "OUTPUT", "WORKFLOWS"]]
        + ($runs
-          | map(select(.partial))
+          | map(select(.unpriced))
           | subjects
           | sort_by(.cr)
           | reverse
@@ -162,7 +171,9 @@ def summary($since):
              (.run_id | tostring),
              .workflow,
              (.subject | short),
-             ((.cost_usd | usd) + (.partial | floor_marker)),
+             (if .unpriced and (.cost_usd == 0 or .cost_usd == null) then "n/a"
+              else (.cost_usd | usd) + (.unpriced | floor_marker)
+              end),
              (.input_tokens | fmt),
              (.output_tokens | fmt),
              (.cache_creation_input_tokens | fmt),
@@ -173,18 +184,18 @@ def summary($since):
   + [""]
   + (($runs | map(.subject) | unique | length) as $count
      | if $count > 20
-       then ["Subjects: showing the 20 costliest of \($count); the JSON on stdout has them all."]
+       then ["Subjects: showing 20 of \($count), ordered by reported cost then cached input; the JSON on stdout has them all."]
        else []
        end)
-  + (if $totals.partial_runs > 0
-     then ["COST-UNKNOWN lists the runs that emitted no result event, typically cancelled: their tokens are counted everywhere, their cost is not recoverable. A '+' marks a cost that is a floor rather than the spend."]
+  + (if $totals.unpriced_runs > 0
+     then ["COST-UNKNOWN lists Codex runs (whose cost is not reported) and incomplete Claude runs (whose cost is not recoverable). Their tokens are counted. A '+' marks a cost floor; 'n/a' means no priced runs contributed."]
      else []
      end)
   + (if $totals.skipped_runs > 0
-     then ["\($totals.skipped_runs) run(s) uploaded no readable claude-session-logs artifact and are absent entirely: codex-harness runs, runs that ended before the upload, and torn uploads."]
+     then ["\($totals.skipped_runs) run(s) uploaded no readable session-logs artifact and are absent entirely: runs that ended before the upload or had torn uploads."]
      else []
      end)
-  + ["Cost at API list prices — a large multiple of the effective rate on Claude Code subscriptions."]
+  + ["Claude cost is at API list prices; Codex cost is not reported. Codex cached input is included in its input total."]
   | join("\n") + "\n";
 
 . as $input
@@ -208,6 +219,7 @@ def summary($since):
       turns: sum(.turns),
       cost_usd: (sum(.cost_usd) | (. + 1e-12) * 100 | round / 100),
       partial_runs: (map(select(.partial)) | length),
+      unpriced_runs: (map(select(.unpriced)) | length),
       skipped_runs: $input.skipped
     })
   } as $report
@@ -350,14 +362,23 @@ def main(argv: list[str] | None = None) -> int:
                     str(run_id),
                     *repo_args,
                     "--pattern",
-                    "claude-session-logs*",
+                    "*-session-logs*",
                     "--dir",
                     str(run_dir),
                     quiet=True,
                 )
                 usage_files = list(run_dir.rglob("token-usage.json"))
                 run_jobs = [
-                    record for path in usage_files for record in _json_documents(path)
+                    {
+                        **record,
+                        "harness": (
+                            "codex"
+                            if path.relative_to(run_dir).parts[0].startswith("codex-")
+                            else "claude"
+                        ),
+                    }
+                    for path in usage_files
+                    for record in _json_documents(path)
                 ]
                 if not run_jobs:
                     raise ValueError("no token usage records")

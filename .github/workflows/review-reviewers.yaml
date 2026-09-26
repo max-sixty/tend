@@ -99,12 +99,12 @@ jobs:
           fetch-tags: true
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
-      - uses: max-sixty/tend/claude@0.3.4
+      - uses: max-sixty/tend/codex@0.3.4
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           bot_name: tend-agent
-          model: opus
+          model: gpt-6-sol
           prompt: |
-            /review-reviewers ${{ matrix.repo }}
+            $review-reviewers ${{ matrix.repo }}
