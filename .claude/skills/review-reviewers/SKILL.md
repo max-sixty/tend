@@ -48,7 +48,8 @@ uv run --script "$SCRIPTS/review_reviewers.py" prepare-evidence "$ARGUMENTS"
 ```
 
 The command finds or creates both index and gist, announces a new gist once,
-persists their ids, and prints both evidence windows.
+persists their ids, and prints both evidence windows and the gist's
+`gist_url`, which the PR bodies and summary below link.
 
 After applying the gates, write this run's findings in the format from
 `@review-gates.md` to `$TMPDIR/findings.md`. Append a `## Run
@@ -112,7 +113,7 @@ TARGET_REPO=$ARGUMENTS uv run --script \
   "$SCRIPTS/list_recent_runs.py" review-reviewers
 ```
 
-The script discovers `tend-*` workflows by default. Pass additional prefixes as arguments to include other workflows (e.g., `review-reviewers` when analyzing tend itself).
+The script discovers `tend-*` workflows by default. Prefix arguments replace that default rather than adding to it, so a call that widens the set names `tend-` too.
 
 If empty, record the run as all-clear per **Evidence accumulation** above, then skip to Step 6 — all-clear only where the check above showed tend enabled.
 
@@ -330,20 +331,20 @@ Search the titles for related keywords, then read the bodies of the candidates (
 
 Group multiple findings by broad theme. **Limit to a couple of PRs per run** — if you have more findings, pick the highest-confidence ones and record the rest in the evidence gist.
 
-PR/issue bodies should link to the evidence gist (`$GIST_URL`) so reviewers can see the accumulated history behind the finding.
+PR/issue bodies should link to the evidence gist (`gist_url`) so reviewers can see the accumulated history behind the finding.
 
 **Do not poll CI** after creating a PR. The `tend-review` and `tend-ci-fix` workflows handle PRs independently. Exit after pushing and creating the PR.
 
 ## Step 6: Summary
 
-Report results in the conversation log and save a markdown summary to `$GITHUB_STEP_SUMMARY` (a later workflow step copies this into the GitHub Actions step summary). Include `$GIST_URL` at the top so maintainers viewing the run page can click through to the full evidence log:
+Report results in the conversation log and save a markdown summary to `$GITHUB_STEP_SUMMARY` (a later workflow step copies this into the GitHub Actions step summary). Include the `gist_url` at the top so maintainers viewing the run page can click through to the full evidence log:
 
 ```bash
 # Author $GITHUB_STEP_SUMMARY, starting:
 #
 #   ## Review-reviewers summary
 #
-#   Evidence: <value of $GIST_URL>
+#   Evidence: <gist_url>
 #
 #   ...
 ```
