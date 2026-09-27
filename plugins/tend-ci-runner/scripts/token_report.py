@@ -24,6 +24,9 @@ RUN_LIMIT = 1000
 # enough to see a run that started before the window and finished inside it.
 # Same value as that script's `CREATION_CUSHION`, and for the same reason.
 CREATION_CUSHION = timedelta(hours=24)
+# `gh workflow list` fetches 50 without one, and says nothing when it truncates.
+# Same value as `list_recent_runs.py`'s, so the spend covers the census's fleet.
+WORKFLOW_LIMIT = 200
 
 REPORT_JQ = r"""
 def sum(f): map(f) | add // 0;
@@ -289,8 +292,15 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     workflow_rows = github_cli.json_call(
-        "workflow", "list", *repo_args, "--json", "name"
+        "workflow", "list", *repo_args, "--limit", str(WORKFLOW_LIMIT), "--json", "name"
     )
+    if len(workflow_rows) >= WORKFLOW_LIMIT:
+        print(
+            f"WARNING: the repository has at least {WORKFLOW_LIMIT} workflows, the "
+            "fetch limit — a Tend workflow beyond it is missing from the totals "
+            "below entirely.",
+            file=sys.stderr,
+        )
     prefixes = ["tend-", *extra_prefixes]
     workflows = github_cli.unique(
         row["name"]

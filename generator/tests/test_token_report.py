@@ -450,6 +450,24 @@ def test_a_failed_workflow_listing_aborts_instead_of_reporting_zero(
     assert result.stdout == ""
 
 
+def test_the_workflow_listing_asks_past_gh_s_default_and_warns_at_the_limit(
+    report: Report,
+) -> None:
+    """`gh workflow list` fetches 50 without a limit and says nothing when it
+    truncates, so a Tend workflow past the edge would drop out of the spend
+    while `list_recent_runs.py`'s census still counts its runs."""
+    for i in range(200):
+        report.add(i + 1, workflow=f"tend-{i:03}")
+
+    report.run()
+
+    listings = [
+        line for line in report.calls().splitlines() if line.startswith("workflow list")
+    ]
+    assert listings and all("--limit 200" in line for line in listings), listings
+    assert "at least 200 workflows" in report.stderr
+
+
 def test_runs_with_no_artifact_are_counted_not_dropped(report: Report) -> None:
     """A codex-harness repo would otherwise read a report of zero runs."""
     report.add(1).add_run_without_artifact(2).add_run_without_artifact(3)
