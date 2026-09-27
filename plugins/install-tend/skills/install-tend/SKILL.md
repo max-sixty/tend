@@ -573,8 +573,8 @@ description rather than by its first heading. An existing overlay without
 frontmatter needs it added in place.
 
 **Do not create a second independent copy of project instructions** and **do
-not invent project conventions.** Claude Code 2.1.277 and later reads
-`AGENTS.md` when the repo has no `CLAUDE.md`; tend pins a newer version. If the
+not invent project conventions.** Claude Code 2.1.281 and later reads
+`AGENTS.md` when the repo has no `CLAUDE.md`; tend pins 2.1.282. If the
 repo has only `CLAUDE.md`, link `AGENTS.md` to it so Codex reads the same
 instructions. Preserve both when both already exist, and create neither when
 neither exists:
