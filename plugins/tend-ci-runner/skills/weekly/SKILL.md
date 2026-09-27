@@ -18,8 +18,10 @@ metadata:
 
 ```bash
 gh pr list --state open --limit 200 --json number,title,author,labels \
-  --jq '.[] | select(.author.login == "dependabot[bot]" or .author.login == "renovate[bot]" or (.labels | any(.name == "dependencies")))'
+  --jq '.[] | select((.author.login | IN("app/dependabot", "app/renovate", "dependabot[bot]", "renovate[bot]")) or (.labels | any(.name == "dependencies")))'
 ```
+
+`gh` reports a bot PR's author as `app/dependabot`; `dependabot[bot]` is the commit author. Both spellings stay in the filter so it holds whichever form a `gh` version returns.
 
 If no dependency PRs are open, note "0 dependency PRs to process" and continue to Step 3 — do not exit; repo-specific weekly tasks may still be due.
 
