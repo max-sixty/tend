@@ -33,7 +33,7 @@ gh pr list --state all --limit 200 --json number,title,state
 
 Match by **failure shape** — the diagnostic snippet in the bot's PR body, or the diff for a maintainer-authored PR — not branch name; branch names encode run IDs and never repeat. The listing carries titles only; pull the body and author per candidate (`gh pr view <n> --json body,author`).
 
-- If an existing **open** PR addresses the same failure, comment on it per `/tend-ci-runner:post-to-github`, linking the new run, and stop.
+- If an existing **open** PR addresses the same failure, comment on it per `/tend-ci-runner:post-to-github` with what this run adds to that thread, and stop.
 - If a **closed** PR with a maintainer rejection covers the same failure, exit silently; check the closure comment for the rationale before referencing it. Re-deriving the same fix forces a maintainer to close it twice.
 
 Also check for open tracking issues left by a prior unfixable diagnosis (see 3b) — if one matches the current failure shape, the fix PR you eventually open should reference it via `Fixes #<n>` so the issue closes when the PR merges:
@@ -121,7 +121,7 @@ If the diagnosis identifies a durable root cause but a safe fix can't be produce
 
 Leave the issue **open**, so maintainers have a durable "still broken" signal until a fix ships. A subsequent fix PR closes it via `Fixes #<n>` in the PR body (see step 1 — search for a matching open tracking issue before opening the fix PR).
 
-**Dedup first.** Search for an open tracking issue covering the same failure shape; if one exists, comment with the new run link rather than opening a duplicate. Match by failure shape (workflow name + diagnostic snippet), not run ID — each run ID is unique and won't dedup:
+**Dedup first.** Search for an open tracking issue covering the same failure shape; if one exists, post an update on it rather than opening a duplicate. Match by failure shape (workflow name + diagnostic snippet), not run ID — each run ID is unique and won't dedup:
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
@@ -129,13 +129,14 @@ gh issue list --state open --author "$BOT_LOGIN" --search "ci-fix: in:title" \
   --json number,title,body --limit 10
 ```
 
-If an open tracking issue matches:
+If an open tracking issue matches, read its whole thread first — the listing above returns only the body:
 
 ```bash
+gh issue view <issue-number> --json body,comments
 gh issue comment <issue-number> --body-file "$TMPDIR/recurrence.md"
 ```
 
-A reader of the tracker already knows it is failing, so a recurrence comment leads with what changed since the tracker's preceding report: which failures are newly failing, which were repaired, or that the same ones still fail, naming the latest run as the current case. For example: "The same N cases still fail; the latest is [the run at `<sha>`](...). `<case>` now passes." The run link, the gates that passed or failed, and the per-case diagnosis follow as evidence. Don't reopen each update with the run inventory ("The main run at `<sha>` passed lint, then failed N cases...") — repeated across updates, that opening hides the delta.
+The comment is an update for people following the tracker, not a log entry for this run. They already know CI is failing and have read the earlier reports, so tell them what they don't know yet: what changed since the thread's last update — failures that are new or now pass, a fix that merged or is still in flight, a revised diagnosis — or, when nothing did, that the same failures continue and this run is the latest case. Write it from that delta rather than from the shape of the earlier comments; the run link and supporting diagnosis back it up rather than open it.
 
 Otherwise, open a new tracking issue per `/tend-ci-runner:open-pr`. Use a title prefix that future runs can search on (`ci-fix: <workflow-name> failing`) with a short root-cause suffix for human readability:
 
