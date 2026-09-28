@@ -50,9 +50,16 @@ def main(
         )
         return 1
 
-    response = github_cli.json_call("api", f"{run_api}/jobs?filter=latest")
+    # `filter=latest` lists every job in the run, the ones the rerun left alone
+    # too, so on a wide matrix a re-run job can sit past the first page.
+    pages = github_cli.json_stream(
+        "api", "--paginate", f"{run_api}/jobs?filter=latest&per_page=100"
+    )
     job_ids = [
-        int(job["id"]) for job in response["jobs"] if int(job["run_attempt"]) == attempt
+        int(job["id"])
+        for page in pages
+        for job in page["jobs"]
+        if int(job["run_attempt"]) == attempt
     ]
     if not job_ids:
         print(f"attempt {attempt} exists but lists no jobs yet — UNVERIFIED")
