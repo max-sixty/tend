@@ -135,6 +135,8 @@ If an open tracking issue matches:
 gh issue comment <issue-number> --body-file "$TMPDIR/recurrence.md"
 ```
 
+A reader of the tracker already knows it is failing, so a recurrence comment leads with what changed since the tracker's preceding report: which failures are newly failing, which were repaired, or that the same ones still fail, naming the latest run as the current case. For example: "The same N cases still fail; the latest is [the run at `<sha>`](...). `<case>` now passes." The run link, the gates that passed or failed, and the per-case diagnosis follow as evidence. Don't reopen each update with the run inventory ("The main run at `<sha>` passed lint, then failed N cases...") — repeated across updates, that opening hides the delta.
+
 Otherwise, open a new tracking issue per `/tend-ci-runner:open-pr`. Use a title prefix that future runs can search on (`ci-fix: <workflow-name> failing`) with a short root-cause suffix for human readability:
 
 ```bash
