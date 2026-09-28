@@ -40,8 +40,9 @@ HEAD_SHA = "aaaa111122223333aaaa111122223333aaaa1111"
 # served from $ROLLUP_DIR/page-<cursor>.json instead — so a page reachable
 # only through the cursor is genuinely unreachable without it. The run
 # endpoint serves `run_attempt` values consumed line-by-line from $ATTEMPTS
-# (the last line repeats), so a rerun's attempt bump is scriptable. `pr view`
-# and the jobs endpoints run the script's `--jq` through real jq.
+# (the last line repeats), so a rerun's attempt bump is scriptable. A
+# `--paginate` jobs listing also emits $JOBS_JSON.2, when present, as its
+# second page — so that page is unreachable without the flag.
 FAKE_GH = (
     GH_PREAMBLE
     + r"""case "$1 $2" in
@@ -73,12 +74,17 @@ FAKE_GH = (
   "run rerun")
     ;;
   api*)
-    case "$2" in
+    path=$2
+    [ "$path" = "--paginate" ] && path=$3
+    case "$path" in
       repos/*/actions/runs/*/jobs*)
         emit "$(cat "$JOBS_JSON")"
+        if [ "$2" = "--paginate" ] && [ -f "$JOBS_JSON.2" ]; then
+          emit "$(cat "$JOBS_JSON.2")"
+        fi
         ;;
       repos/*/actions/jobs/*)
-        emit "$(cat "$JOB_DIR/${2##*/}.json")"
+        emit "$(cat "$JOB_DIR/${path##*/}.json")"
         ;;
       repos/*/actions/runs/*)
         a=$(head -n 1 "$ATTEMPTS")
@@ -830,6 +836,15 @@ def _jobs_list(env: dict[str, str], *jobs: tuple[int, str, int]) -> None:
     )
 
 
+def _jobs_second_page(env: dict[str, str], *jobs: tuple[int, str, int]) -> None:
+    """Serve *jobs* as the page after `JOBS_JSON`, reachable only via `--paginate`."""
+    Path(env["JOBS_JSON"] + ".2").write_text(
+        json.dumps(
+            {"jobs": [{"id": i, "status": s, "run_attempt": a} for i, s, a in jobs]}
+        )
+    )
+
+
 def _job(
     env: dict[str, str], job_id: int, status: str, conclusion: str, name: str
 ) -> None:
@@ -873,6 +888,26 @@ def test_rerun_includes_jobs_that_finished_during_the_wait(
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "success\tlint" in result.stdout
+
+
+def test_rerun_reads_jobs_past_the_first_page(env: dict[str, str]) -> None:
+    """`filter=latest` lists every job in the run, not just the re-run ones,
+    and the endpoint returns 30 per page by default. On a wide matrix a re-run
+    job past the first page would drop out of the report while the script
+    still exits 0 on the rest."""
+    _attempts(env, 1, 2)
+    _jobs_list(env, (11, "completed", 1), (12, "queued", 2))
+    _jobs_second_page(env, (13, "queued", 2))
+    _job(env, 12, "completed", "success", "lint")
+    _job(env, 13, "completed", "failure", "tests (ubuntu, 3.13)")
+
+    result = _rerun(env)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "success\tlint" in result.stdout
+    assert "failure\ttests (ubuntu, 3.13)" in result.stdout
+    calls = Path(env["GH_CALLS"]).read_text()
+    assert "per_page=100" in calls
 
 
 def test_rerun_fails_when_no_attempt_surfaces(env: dict[str, str]) -> None:
