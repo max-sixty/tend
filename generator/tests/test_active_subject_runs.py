@@ -72,6 +72,7 @@ def _run(
     return {
         "id": rid,
         "name": name,
+        "path": f".github/workflows/{name}.yaml",
         "status": status,
         "display_title": title,
         "created_at": _ago(created_ago_hours),
@@ -136,6 +137,16 @@ def test_every_non_terminal_status_is_queried(env: dict[str, str]) -> None:
     calls = Path(env["GH_CALLS"]).read_text()
     for status in ("queued", "in_progress", "waiting", "requested", "pending"):
         assert f"status={status}&" in calls
+
+
+def test_a_run_named_for_its_subject_owns_it(env: dict[str, str]) -> None:
+    """A relayed review's tend-mention run is named for the PR by `run-name`,
+    which GitHub reports as the run's `name` too, so ownership is read from the
+    workflow file."""
+    run = _run(110, "tend-mention", "in_progress")
+    run["name"] = TITLE
+    _stage(env, "in_progress", run)
+    assert [(run["id"], run["name"]) for run in _owners(env)] == [(110, "tend-mention")]
 
 
 def test_deployment_gated_run_owns_the_subject(env: dict[str, str]) -> None:

@@ -172,7 +172,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             "--created",
             f">={created_since}",
             "--json",
-            "attempt,databaseId,conclusion,createdAt,updatedAt,name",
+            "attempt,databaseId,conclusion,createdAt,updatedAt,workflowName",
             "--limit",
             str(RUN_LIMIT),
         )

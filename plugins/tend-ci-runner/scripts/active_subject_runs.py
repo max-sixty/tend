@@ -19,6 +19,7 @@ import os
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import PurePosixPath
 from typing import Any
 
 import github_cli
@@ -28,9 +29,11 @@ import github_cli
 # rather than an error, so this list is pinned by tests instead of by a 400.
 ACTIVE_STATUSES = ("queued", "in_progress", "waiting", "requested", "pending")
 
-# Dedicated workflows only. The poll itself is `tend-notifications`, excluded
-# below by run id rather than by name, since a second poll would own nothing.
-WORKFLOW_PREFIX = "tend-"
+# Dedicated workflows only, by workflow file: a run's `name` is its `run-name`
+# where the workflow sets one. The poll itself is `tend-notifications`,
+# excluded below by run id rather than by workflow, since a second poll would
+# own nothing.
+WORKFLOW_PREFIX = ".github/workflows/tend-"
 
 # A run whose state has not moved in this long is never going to deliver.
 # GitHub documents no queue-time cancellation for its hosted runners — the 24h
@@ -79,7 +82,8 @@ def owning_runs(
         run_id = int(run["id"])
         if run_id == own_run_id:
             continue
-        if not str(run.get("name") or "").startswith(WORKFLOW_PREFIX):
+        path = str(run.get("path") or "")
+        if not path.startswith(WORKFLOW_PREFIX):
             continue
         if run.get("display_title") != subject_title:
             continue
@@ -89,7 +93,7 @@ def owning_runs(
             run_id,
             {
                 "id": run_id,
-                "name": run["name"],
+                "name": PurePosixPath(path).stem,
                 "status": run.get("status"),
                 "url": run.get("html_url"),
             },

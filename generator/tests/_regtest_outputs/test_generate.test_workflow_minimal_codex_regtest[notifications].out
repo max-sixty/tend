@@ -195,11 +195,15 @@ jobs:
                   return 0
 
 
+          #: How old a notification must be before this poll takes it. The event run a
+          #: notification started usually finishes, and marks it read, within this, so a
+          #: poll doesn't boot a session only to find that run still holds its subject.
+          GRACE = timedelta(minutes=10)
+
+
           def main(*, now: datetime | None = None) -> int:
               repo = os.environ["GITHUB_REPOSITORY"]
-              cutoff = ((now or datetime.now(UTC)) - timedelta(minutes=10)).strftime(
-                  "%Y-%m-%dT%H:%M:%SZ"
-              )
+              cutoff = ((now or datetime.now(UTC)) - GRACE).strftime("%Y-%m-%dT%H:%M:%SZ")
               _output("cutoff", cutoff)
 
               try:

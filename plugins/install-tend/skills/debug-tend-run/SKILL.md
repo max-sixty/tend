@@ -17,9 +17,9 @@ list recent tend runs:
 ```bash
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 gh run list -R "$REPO" --limit 20 \
-  --json databaseId,name,conclusion,createdAt,headBranch,event \
-  --jq '.[] | select(.name | startswith("tend-")) |
-    "\(.databaseId)\t\(.conclusion)\t\(.createdAt)\t\(.name)\t\(.headBranch)\t\(.event)"'
+  --json databaseId,workflowName,conclusion,createdAt,headBranch,event \
+  --jq '.[] | select(.workflowName | startswith("tend-")) |
+    "\(.databaseId)\t\(.conclusion)\t\(.createdAt)\t\(.workflowName)\t\(.headBranch)\t\(.event)"'
 ```
 
 Narrow by branch (`--branch`), event type, or workflow name as needed. To find
@@ -29,9 +29,9 @@ the run associated with a specific PR:
 PR_NUMBER=<number>
 HEAD=$(gh pr view "$PR_NUMBER" -R "$REPO" --json headRefName --jq '.headRefName')
 gh run list -R "$REPO" --branch "$HEAD" --limit 10 \
-  --json databaseId,name,conclusion,createdAt,event \
-  --jq '.[] | select(.name | startswith("tend-")) |
-    "\(.databaseId)\t\(.conclusion)\t\(.name)\t\(.event)"'
+  --json databaseId,workflowName,conclusion,createdAt,event \
+  --jq '.[] | select(.workflowName | startswith("tend-")) |
+    "\(.databaseId)\t\(.conclusion)\t\(.workflowName)\t\(.event)"'
 ```
 
 ## Download session logs

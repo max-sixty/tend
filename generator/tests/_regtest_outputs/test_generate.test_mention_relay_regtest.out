@@ -62,15 +62,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      # Identifiers only: `verify` re-reads the review or comment from the
+      # The review or comment travels as identifiers: `verify` re-reads it from the
       # API, so the words the bot weighs and acts on are the ones GitHub
       # holds, and a forged dispatch faces the same scrutiny as a relayed one.
+      # The PR title names the tend-mention run and nothing else: the
+      # notifications poll matches a live run to its subject by that name.
       - name: Re-enter on an admitted ref
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/dispatches" \
             -f event_type=tend-mention-review \
             -f "client_payload[kind]=${{ github.event_name }}" \
             -f "client_payload[pr]=${{ github.event.pull_request.number }}" \
-            -f "client_payload[id]=${{ github.event.review.id || github.event.comment.id }}"
+            -f "client_payload[id]=${{ github.event.review.id || github.event.comment.id }}" \
+            -f "client_payload[title]=$PR_TITLE"
