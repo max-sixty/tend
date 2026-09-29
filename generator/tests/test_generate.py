@@ -1048,6 +1048,11 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     relay_wf = yaml.safe_load(workflows["tend-mention-relay.yaml"].content)
 
     assert set(relay_wf["on"]) == {"pull_request_review", "pull_request_review_comment"}
+    # A relayed run is named for its PR, as an issue or comment run is by
+    # default, so the notifications poll sees which subject it holds.
+    assert data["run-name"] == (
+        "${{ github.event.client_payload.title || github.event.issue.title }}"
+    )
     assert relay_wf["on"]["pull_request_review"] == {"types": ["submitted"]}
     assert set(relay_wf["jobs"]) == {"relay"}
     assert set(data["on"]) == {"issues", "issue_comment", "repository_dispatch"}
@@ -1065,14 +1070,19 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     # would leave every review mention unanswered. Pinned as the whole set,
     # so a scope added here has to be argued for.
     assert relay["permissions"] == {"contents": "write"}
-    # Identifiers only: verify re-reads the review from the API, so nothing
-    # judged downstream comes from the forgeable dispatch payload.
-    relay_run = relay["steps"][-1]["run"]
+    # Identifiers, and the PR title that only names the run: verify re-reads
+    # the review from the API, so nothing judged downstream comes from the
+    # forgeable dispatch payload.
+    relay_step = relay["steps"][-1]
+    relay_run = relay_step["run"]
     assert "client_payload[kind]" in relay_run
     assert "client_payload[pr]" in relay_run
     assert "client_payload[id]" in relay_run
     assert "client_payload[url]" not in relay_run
     assert "event_type=tend-mention-review" in relay_run
+    # The title reaches the shell through env, never interpolated into it.
+    assert relay_step["env"]["PR_TITLE"] == "${{ github.event.pull_request.title }}"
+    assert '"client_payload[title]=$PR_TITLE"' in relay_run
 
     # The harness selects the PR branch only inside its sandbox.
     handle_steps = data["jobs"]["handle"]["steps"]

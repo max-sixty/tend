@@ -118,7 +118,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 
   ```bash
   gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs?status=waiting&per_page=100" \
-    --jq '.workflow_runs[] | {id, name, created_at, html_url}'
+    --jq '.workflow_runs[] | {id, path, created_at, html_url}'
   ```
 
   A tend run still `waiting` after several of its own scheduling intervals — or, on an event-driven workflow, long after the event that created it — is wedged. Every generated workflow but the secretless `tend-mention-relay` carries the `tend` environment, so any of the rest can park. `pending_deployments` on it confirms which kind: `wait_timer: 0` with an empty `reviewers` is an environment gate with nothing left to release it, so `gh run cancel <id>` is the remedy and the pending successor starts. `queued` is a different state and not this shape — `gh run cancel` there answers `Cannot cancel a workflow run that is completed` while the runs API still reports the run `queued`. That is GitHub bookkeeping holding nothing live; leave it rather than fighting it.

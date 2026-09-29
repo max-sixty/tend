@@ -322,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
                 "--status",
                 "completed",
                 "--json",
-                "databaseId,createdAt,updatedAt,name",
+                "databaseId,createdAt,updatedAt,workflowName",
                 "--limit",
                 str(RUN_LIMIT),
                 quiet=True,
@@ -383,7 +383,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             stamp = {
                 "run_id": run_id,
-                "workflow": run["name"],
+                "workflow": run["workflowName"],
                 "created_at": run["createdAt"],
             }
             jobs.extend({**record, **stamp} for record in run_jobs)

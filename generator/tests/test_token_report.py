@@ -50,7 +50,7 @@ FAKE_GH = (
       prev="$a"
     done
     emit "$(jq -c --arg wf "$wf" --arg created "$created" \
-      '[.[] | select(.name == $wf) | select($created == "" or .createdAt >= $created)]' \
+      '[.[] | select(.workflowName == $wf) | select($created == "" or .createdAt >= $created)]' \
       "$RUNS_JSON")"
     ;;
   "run download")
@@ -129,7 +129,7 @@ class Report:
                 "conclusion": "success",
                 "createdAt": created_at,
                 "updatedAt": updated_at or created_at,
-                "name": workflow,
+                "workflowName": workflow,
             }
         )
         (self._usage_dir / f"{run_id}.json").write_text(
@@ -150,14 +150,14 @@ class Report:
                 "conclusion": "cancelled",
                 "createdAt": "2026-08-25T12:00:00Z",
                 "updatedAt": "2026-08-25T12:00:00Z",
-                "name": "tend-review",
+                "workflowName": "tend-review",
             }
         )
         return self
 
     def invoke(self, *args: str) -> subprocess.CompletedProcess[str]:
         """Run the script with *args* as its whole command line."""
-        workflows = sorted({run["name"] for run in self._runs})
+        workflows = sorted({run["workflowName"] for run in self._runs})
         Path(self._env["WF_JSON"]).write_text(
             json.dumps([{"name": name} for name in workflows])
         )

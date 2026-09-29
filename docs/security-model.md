@@ -242,7 +242,8 @@ workflow, tend-mention-relay, whose one secretless job (only the
 workflow-scoped `GITHUB_TOKEN`, `contents: write`, which is what the
 dispatch POST requires — `read` is refused 403, probed) receives the
 review event and re-posts it as a `repository_dispatch` carrying
-identifiers only (`{kind, pr, id}`). The dispatch run, in tend-mention,
+identifiers (`{kind, pr, id}`), plus the PR title that only names the run.
+The dispatch run, in tend-mention,
 carries the default branch, passes the gate, and its verify job re-reads
 the review or comment from the API before applying the engagement
 checks. Any write-scoped actor can forge such a dispatch, which

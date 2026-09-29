@@ -8,6 +8,10 @@
 # happen upstream in the tend-ci-runner plugin.
 
 name: tend-mention
+# A relayed review's run would otherwise be named for its event type. Named
+# for the PR, like every other run, the notifications poll can see it holds
+# that PR.
+run-name: ${{ github.event.client_payload.title || github.event.issue.title }}
 on:
   issues:
     types: [edited]
