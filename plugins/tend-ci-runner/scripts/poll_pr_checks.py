@@ -76,9 +76,13 @@ def reduce_rollup(
     *,
     run_id: str,
     workflow: str,
+    skip: frozenset[str] = frozenset(),
     allow_filtered_empty: bool = False,
 ) -> dict[str, list[str]] | None:
-    """Filter and collapse raw contexts to pending, failed and unverified names."""
+    """Filter and collapse raw contexts to pending, failed and unverified names.
+
+    Drops this run's own checks, tend-review's, and any named in *skip*.
+    """
     contexts: list[dict[str, str]] = []
     own_run = f"/runs/{run_id}/" if run_id else ""
     for node in nodes:
@@ -109,7 +113,7 @@ def reduce_rollup(
             continue
         if workflow and context["workflow"] == workflow:
             continue
-        if context["workflow"] == "tend-review":
+        if context["workflow"] == "tend-review" or context["name"] in skip:
             continue
         contexts.append(context)
 
@@ -157,6 +161,7 @@ def fetch_rollup(
     sha: str,
     run_id: str,
     workflow: str,
+    skip: frozenset[str] = frozenset(),
     allow_filtered_empty: bool = False,
 ) -> dict[str, list[str]] | None:
     """Fetch every rollup page; return ``None`` when no complete view exists."""
@@ -209,6 +214,7 @@ def fetch_rollup(
         nodes,
         run_id=run_id,
         workflow=workflow,
+        skip=skip,
         allow_filtered_empty=allow_filtered_empty,
     )
 
@@ -235,7 +241,13 @@ def head_note(*, pr: str, repo: str, sha: str) -> None:
 
 
 def _settle(
-    *, repo: str, pr: str, sha: str, until: float, sleep: Callable[[float], None]
+    *,
+    repo: str,
+    pr: str,
+    sha: str,
+    until: float,
+    skip: frozenset[str] = frozenset(),
+    sleep: Callable[[float], None],
 ) -> tuple[
     Literal["settled", "moved", "deadline", "none"], dict[str, list[str]] | None
 ]:
@@ -263,7 +275,9 @@ def _settle(
     while True:
         sleep(POLL_SEC)
         waited += POLL_SEC
-        current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
+        current = fetch_rollup(
+            repo=repo, sha=sha, run_id=run_id, workflow=workflow, skip=skip
+        )
         if current is None:
             if last is None and waited >= REGISTRATION_SEC:
                 return "none", None
@@ -274,7 +288,9 @@ def _settle(
         else:
             last = current
             sleep(CONFIRM_SEC)
-            current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
+            current = fetch_rollup(
+                repo=repo, sha=sha, run_id=run_id, workflow=workflow, skip=skip
+            )
             if current is not None:
                 last = current
                 if not current["pending"]:
@@ -348,9 +364,14 @@ def _unverified_note(rollup: dict[str, list[str]]) -> None:
 
 
 def poll(
-    pr: str, sha: str, *, until: float, sleep: Callable[[float], None] = time.sleep
+    pr: str,
+    sha: str,
+    *,
+    until: float,
+    skip: frozenset[str] = frozenset(),
+    sleep: Callable[[float], None] = time.sleep,
 ) -> int:
-    """Poll one pinned PR commit until its checks settle."""
+    """Poll one pinned PR commit until its checks, less those in *skip*, settle."""
     repo = os.environ["GITHUB_REPOSITORY"]
     try:
         github_cli.run("api", f"repos/{repo}/commits/{sha}", "--silent", quiet=True)
@@ -364,7 +385,9 @@ def poll(
             )
             return 2
 
-    outcome, last = _settle(repo=repo, pr=pr, sha=sha, until=until, sleep=sleep)
+    outcome, last = _settle(
+        repo=repo, pr=pr, sha=sha, until=until, skip=skip, sleep=sleep
+    )
     if last is None:
         print(
             f"no check registered on {sha} within {REGISTRATION_SEC // 60} minutes "
@@ -419,13 +442,23 @@ def main(
     args = sys.argv[1:] if argv is None else argv
     command = args[0] if args else ""
     args = args[1:]
+    skip: set[str] = set()
+    while command == "poll" and len(args) > 3 and args[-2] == "--skip":
+        skip.add(args.pop())
+        args.pop()
     pr = args[0] if args else ""
     sha = args[1] if len(args) > 1 else ""
-    if len(args) != 2 or not SHA_RE.fullmatch(sha):
+    if len(args) != 2:
         print(
-            "poll_pr_checks.py: poll|approval <pr-number> <sha>; <sha> must be "
-            "a full 40-char lowercase commit "
-            f"OID, got '{sha}' — UNVERIFIED, not green",
+            "usage: poll_pr_checks.py poll <pr-number> <sha> [--skip <check>]... | "
+            "approval <pr-number> <sha> — UNVERIFIED, not green",
+            file=sys.stderr,
+        )
+        return 2
+    if not SHA_RE.fullmatch(sha):
+        print(
+            "poll_pr_checks.py: <sha> must be a full 40-char lowercase commit OID, "
+            f"got '{sha}' — UNVERIFIED, not green",
             file=sys.stderr,
         )
         return 2
@@ -437,9 +470,10 @@ def main(
     except ValueError:
         print("TEND_DEADLINE is not a number", file=sys.stderr)
         return 2
-    code = (approval if command == "approval" else poll)(
-        pr, sha, until=until, sleep=sleep
-    )
+    if command == "approval":
+        code = approval(pr, sha, until=until, sleep=sleep)
+    else:
+        code = poll(pr, sha, until=until, skip=frozenset(skip), sleep=sleep)
     # Sessions pipe this through `tail -N`, which drops the leading verdict
     # behind a long check list, so the last line restates it.
     print(f"verdict: {VERDICTS[command][code]} on {sha} (exit {code})")

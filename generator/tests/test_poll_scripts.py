@@ -608,6 +608,29 @@ def test_tend_review_does_not_gate(env: dict[str, str]) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_a_skipped_check_does_not_gate(env: dict[str, str]) -> None:
+    """A repo can leave a check out of the gate, so a slow advisory job that
+    is still running doesn't hold a green verdict."""
+    _serve(
+        env,
+        _resp(
+            _check_run("tests"),
+            _check_run("macos (advisory)", status="IN_PROGRESS"),
+        ),
+    )
+    result = _poll_args(env, "7", HEAD_SHA, "--skip", "macos (advisory)")
+
+    assert result.returncode == 0, result.stdout
+
+
+def test_approval_takes_no_skip(env: dict[str, str]) -> None:
+    result = _invoke(
+        poll_pr_checks, env, ["approval", "7", HEAD_SHA, "--skip", "tests"]
+    )
+
+    assert result.returncode == 2
+
+
 def test_filtering_to_empty_never_reads_green(env: dict[str, str]) -> None:
     """A rollup holding only exempt entries answers nothing about the commit,
     which is the null-rollup state reached by another route — and this
