@@ -18,7 +18,6 @@ import os
 import re
 import subprocess
 import sys
-import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -188,7 +187,6 @@ def env(tmp_path: Path) -> dict[str, str]:
         "GITHUB_REPOSITORY": "owner/repo",
         "GITHUB_RUN_ID": "555",
         "GITHUB_WORKFLOW": "tend-review",
-        "TEND_DEADLINE": str(START + 24 * 3600),
     }
 
 
@@ -208,25 +206,20 @@ class WaitNeverEnded(Exception):
     """The script under test was still waiting after :data:`SLEEP_LIMIT` sleeps."""
 
 
-#: The fake wall clock's reading when a script starts.
-START = 1_000_000.0
-#: The waits run to the session's end, a day away in the fixture, so a guard
-#: stops one that never ends well before the clock gets there.
+#: The waits have no time bound, so a fake clock stops one that never ends.
 SLEEP_LIMIT = 200
 
 
-class FakeClock:
-    """A wall clock that each fake sleep advances, standing in for ``time``."""
+def _clock() -> Callable[[float], None]:
+    calls = 0
 
-    def __init__(self) -> None:
-        self.now = START
-        self.sleeps = 0
-
-    def sleep(self, seconds: float) -> None:
-        self.sleeps += 1
-        if self.sleeps > SLEEP_LIMIT:
+    def sleep(_: float) -> None:
+        nonlocal calls
+        calls += 1
+        if calls > SLEEP_LIMIT:
             raise WaitNeverEnded
-        self.now += seconds
+
+    return sleep
 
 
 def _invoke(
@@ -235,16 +228,14 @@ def _invoke(
     args: list[str],
     *,
     sleep: Callable[[float], None] | None = None,
-    clock: FakeClock | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    clock = clock or FakeClock()
+    sleep = sleep or _clock()
     stdout, stderr = io.StringIO(), io.StringIO()
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setattr(os, "environ", env.copy())
-        monkeypatch.setattr(time, "time", lambda: clock.now)
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             try:
-                returncode = module.main(args, sleep=sleep or clock.sleep)
+                returncode = module.main(args, sleep=sleep)
             except subprocess.CalledProcessError as error:
                 returncode = error.returncode
     return subprocess.CompletedProcess(
@@ -742,68 +733,12 @@ def test_a_late_api_blip_does_not_end_the_wait(env: dict[str, str]) -> None:
 
 
 def test_a_check_that_never_finishes_holds_the_wait(env: dict[str, str]) -> None:
-    """No fixed bound: a slow suite is waited out for as long as the session
-    has left."""
+    """The wait has no time bound — a slow suite is waited out however long it
+    runs, so a check that never finishes is ended by the session's timeout."""
     _serve(env, _resp(_check_run("slow-matrix", status="IN_PROGRESS")))
 
     with pytest.raises(WaitNeverEnded):
         _poll(env)
-
-
-def test_a_check_that_never_finishes_is_reported_before_the_session_ends(
-    env: dict[str, str],
-) -> None:
-    """A check that never settles would hold the wait until the session is
-    killed with nothing reported, so the poll hands back in time to report it."""
-    _serve(env, _resp(_check_run("cla", status="IN_PROGRESS")))
-    env["TEND_DEADLINE"] = str(START + 2 * 3600)
-    clock = FakeClock()
-
-    result = _invoke(poll_pr_checks, env, ["poll", "7", HEAD_SHA], clock=clock)
-
-    assert result.returncode == 3, result.stdout
-    assert f"session ending on {HEAD_SHA}" in result.stdout
-    assert "cla" in result.stdout
-    assert clock.now <= START + 2 * 3600 - poll_pr_checks.session_end.REPORT_SEC
-
-
-def test_approval_is_undecided_when_the_session_ends_while_it_waits(
-    env: dict[str, str],
-) -> None:
-    _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING))
-    env["TEND_DEADLINE"] = str(START + 2 * 3600)
-
-    result = _approval(env)
-
-    assert result.returncode == 2, result.stdout
-    assert "session ending" in result.stderr
-
-
-def test_a_poll_started_late_still_reads_the_checks(env: dict[str, str]) -> None:
-    """A poll started past the hand-back time reports what pends, not nothing."""
-    _serve(env, _resp(_check_run("cla", status="IN_PROGRESS")))
-    env["TEND_DEADLINE"] = str(START)
-
-    result = _poll(env)
-
-    assert result.returncode == 3, result.stdout
-    assert "cla" in result.stdout
-
-
-def test_outside_a_session_the_wait_has_no_deadline(env: dict[str, str]) -> None:
-    del env["TEND_DEADLINE"]
-    _serve(env, _resp(_check_run("slow-matrix", status="IN_PROGRESS")))
-
-    with pytest.raises(WaitNeverEnded):
-        _poll(env)
-
-
-def test_a_malformed_deadline_is_unverified_not_red(env: dict[str, str]) -> None:
-    """Exit 1 means red, so a deadline the script can't read ends it as 2."""
-    env["TEND_DEADLINE"] = "soon"
-
-    assert _poll(env).returncode == 2
-    assert _rerun(env).returncode == 2
 
 
 def test_a_commit_with_no_checks_is_unverified(env: dict[str, str]) -> None:
@@ -910,10 +845,10 @@ def test_a_head_moved_while_checks_pend_ends_the_wait(env: dict[str, str]) -> No
 
     assert result.returncode == 3, result.stdout
     assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "1"
-    assert f"PR head moved off {HEAD_SHA}" in result.stdout
     assert "tests" in result.stdout
     assert result.stdout.splitlines()[-1] == (
-        f"verdict: still pending — UNVERIFIED, not green on {HEAD_SHA} (exit 3)"
+        f"verdict: still pending when the PR head moved — UNVERIFIED, not green "
+        f"on {HEAD_SHA} (exit 3)"
     )
 
 
@@ -1045,7 +980,7 @@ def test_rerun_fails_when_no_attempt_surfaces(env: dict[str, str]) -> None:
 
 
 def test_rerun_waits_out_jobs_still_running(env: dict[str, str]) -> None:
-    """No fixed bound: a re-run job that outlasts any fixed wait still reports."""
+    """No time bound: a re-run job that outlasts any fixed wait still reports."""
     _attempts(env, 1, 2)
     _jobs_list(env, (11, "queued", 2))
     _job(env, 11, "in_progress", "", "tests")
@@ -1061,20 +996,6 @@ def test_rerun_waits_out_jobs_still_running(env: dict[str, str]) -> None:
 
     assert result.returncode == 0, result.stdout
     assert "failure\ttests" in result.stdout
-
-
-def test_rerun_reports_jobs_still_running_before_the_session_ends(
-    env: dict[str, str],
-) -> None:
-    _attempts(env, 1, 2)
-    _jobs_list(env, (11, "queued", 2))
-    _job(env, 11, "queued", "", "tests (self-hosted)")
-    env["TEND_DEADLINE"] = str(START + 2 * 3600)
-
-    result = _rerun(env)
-
-    assert result.returncode == 3, result.stdout
-    assert "queued\ttests (self-hosted)" in result.stdout
 
 
 def test_skills_leave_the_wait_to_the_scripts() -> None:
