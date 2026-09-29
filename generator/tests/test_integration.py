@@ -824,7 +824,7 @@ def _fake_gh_all_pass(*args: str, **kwargs: str) -> subprocess.CompletedProcess[
     url = _url(args)
     # Only the ref-gated environment exists, holding the operational secrets.
     if url.endswith("/environments"):
-        return _make_completed("tend\n")
+        return _make_completed('{"name": "tend"}\n')
     if url.endswith("/secrets") and "/environments/" in url:
         names = (
             ["TEND_BOT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]

@@ -23,12 +23,11 @@ ENDJSON
 
 BODY=$(cat "$TMPDIR/review-body.md") || exit 0
 REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 jq --arg body "$BODY" --arg sha "$REVIEWED" \
   '.body = $body | .commit_id = $sha' "$TMPDIR/review-payload.json" > "$TMPDIR/review-final.json"
 
 /usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> -- \
-  gh api "repos/$REPO/pulls/<number>/reviews" \
+  gh api "repos/{owner}/{repo}/pulls/<number>/reviews" \
     --method POST \
     --input "$TMPDIR/review-final.json"
 `````
@@ -73,10 +72,9 @@ preserving the hidden marker when this is a draft review, and:
 
 - **If `ORPHAN_ID` is non-empty (case a)**: edit the existing review instead of creating a duplicate.
   ```bash
-  REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
   /usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> \
     --edit-review <orphan-id> -- \
-    gh api "repos/$REPO/pulls/<number>/reviews/<orphan-id>" \
+    gh api "repos/{owner}/{repo}/pulls/<number>/reviews/<orphan-id>" \
       -X PUT -F body=@"$TMPDIR/updated-review-body.md"
   ```
   If the edit itself fails, **do not post another review** — the body-only review is sufficient.
@@ -84,9 +82,8 @@ preserving the hidden marker when this is a draft review, and:
 - **If `ORPHAN_ID` is empty (case b)**: retry the `POST` with `comments` omitted (body-only), since no duplicate is possible.
   ```bash
   jq 'del(.comments)' "$TMPDIR/review-final.json" > "$TMPDIR/review-body-only.json"
-  REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
   /usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> -- \
-    gh api "repos/$REPO/pulls/<number>/reviews" \
+    gh api "repos/{owner}/{repo}/pulls/<number>/reviews" \
       --method POST --input "$TMPDIR/review-body-only.json"
   ```
 

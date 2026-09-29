@@ -52,9 +52,7 @@ def main(
 
     # `filter=latest` lists every job in the run, the ones the rerun left alone
     # too, so on a wide matrix a re-run job can sit past the first page.
-    pages = github_cli.json_stream(
-        "api", "--paginate", f"{run_api}/jobs?filter=latest&per_page=100"
-    )
+    pages = github_cli.pages(f"{run_api}/jobs?filter=latest&per_page=100")
     job_ids = [
         int(job["id"])
         for page in pages

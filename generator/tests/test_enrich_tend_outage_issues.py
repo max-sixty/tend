@@ -453,7 +453,7 @@ def _jobs_for(env: dict[str, str], run_id: str, jobs: dict[str, object]) -> None
 def _jobs_pages_for(
     env: dict[str, str], run_id: str, pages: list[dict[str, object]]
 ) -> None:
-    """Serve one run's jobs as the page stream ``gh api --paginate`` emits."""
+    """Serve one run's jobs as several pages of ``gh api --paginate``."""
     path = Path(env["JOBS_JSON"]).with_name(f"jobs-{run_id}.json")
     path.write_text("".join(json.dumps(page) for page in pages))
 
@@ -516,7 +516,7 @@ def test_the_jobs_read_walks_every_page(env: dict[str, str]) -> None:
     _run(env)
 
     assert (
-        f"api --paginate repos/owner/repo/actions/runs/{RUN_ID}"
+        f"api --paginate --slurp repos/owner/repo/actions/runs/{RUN_ID}"
         "/jobs?filter=all&per_page=100" in Path(env["GH_CALLS"]).read_text()
     )
 

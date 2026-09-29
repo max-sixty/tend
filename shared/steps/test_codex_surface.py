@@ -20,6 +20,7 @@ def fake_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     executable = tmp_path / "codex"
     executable.write_text(
         """#!/usr/bin/env python3
+import json
 import os
 import sys
 from pathlib import Path
@@ -33,8 +34,10 @@ elif args == ["exec", "--help"]:
     print("--model <MODEL> --sandbox <MODE> --output-last-message <FILE> --config <KEY=VALUE> --json --skip-git-repo-check")
 elif args[:3] == ["plugin", "marketplace", "add"]:
     pass
-elif args == ["plugin", "add", "tend-ci-runner@tend"]:
-    print(f"Installed plugin root: {os.environ['FAKE_PLUGIN_ROOT']}")
+elif args == ["plugin", "add", "--json", "tend-ci-runner@tend"]:
+    # Real codex warns on stderr first when CODEX_HOME is under /tmp.
+    print("WARNING: proceeding, even though we could not create PATH aliases", file=sys.stderr, flush=True)
+    print(json.dumps({"installedPath": os.environ["FAKE_PLUGIN_ROOT"]}, indent=2))
 elif args[:3] == ["exec", "--strict-config", "-c"]:
     if "ZZZ" in args[3]:
         print("unknown configuration field")
@@ -56,7 +59,7 @@ def test_verify_exercises_the_whole_codex_contract(
 ) -> None:
     codex_surface.verify(tmp_path, str(fake_codex))
 
-    assert "Installed plugin root:" in capsys.readouterr().out
+    assert '"installedPath"' in capsys.readouterr().out
 
 
 def test_verify_rejects_a_cli_that_rewrites_consumer_auth(

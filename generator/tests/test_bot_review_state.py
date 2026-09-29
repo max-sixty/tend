@@ -38,7 +38,8 @@ FAKE_GH = (
     + r"""
 case "$*" in
   "api user"*)          emit '{"login":"'"$BOT_LOGIN"'"}' ;;
-  "api graphql"*)       emit "$(cat "$GRAPHQL_JSON")" ;;
+  "api graphql"*|"api --paginate --slurp graphql"*)
+                        emit "$(cat "$GRAPHQL_JSON")" ;;
   "pr view "*)          emit "$(cat "$PR_HEAD_JSON")" ;;
   *"/pulls/"*"/comments"*) emit "$(cat "$INLINE_JSON")" ;;
   *"/issues/"*"/timeline"*) emit "$(cat "$TIMELINE_JSON")" ;;
@@ -307,8 +308,8 @@ def test_threads_filters_to_unresolved_threads_started_by_the_bot(
             }
         )
 
-    # `gh api graphql --paginate` prints one document per page. A PR past 100
-    # threads keeps its newest ones on the later pages.
+    # The fixture is the page stream `gh api graphql --paginate` walks. A PR
+    # past 100 threads keeps its newest ones on the later pages.
     Path(env["GRAPHQL_JSON"]).write_text(
         page(thread("keep"), thread("resolved", resolved=True))
         + page(thread("human", bot="human"), thread("newest"))

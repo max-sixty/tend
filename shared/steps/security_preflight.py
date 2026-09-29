@@ -30,10 +30,7 @@ Inputs (env): ``GITHUB_REPOSITORY``, ``TEND_MERGE``, plus the bot's
 
 from __future__ import annotations
 
-import base64
-import json
 import re
-import subprocess
 from typing import Any
 from urllib.parse import quote
 
@@ -94,6 +91,25 @@ CONTROL_PLANE_PATHS = (
     "**/.agents",
     "**/.agents/**",
 )
+# GitHub's CODEOWNERS search order, by the query alias each directory reads as.
+CODEOWNERS_DIRECTORIES = {"github": ".github", "root": "", "docs": "docs"}
+CODEOWNERS_QUERY = """
+query($owner: String!, $name: String!,
+      $githubTree: String!, $github: String!,
+      $rootTree: String!, $root: String!,
+      $docsTree: String!, $docs: String!) {
+  repository(owner: $owner, name: $name) {
+    githubTree: object(expression: $githubTree) { ...entries }
+    github: object(expression: $github) { ...blob }
+    rootTree: object(expression: $rootTree) { ...entries }
+    root: object(expression: $root) { ...blob }
+    docsTree: object(expression: $docsTree) { ...entries }
+    docs: object(expression: $docs) { ...blob }
+  }
+}
+fragment entries on Tree { entries { name mode } }
+fragment blob on Blob { text isTruncated }
+"""
 
 
 def ruleset_ids(rules: Any, rule_type: str) -> list[int]:
@@ -145,29 +161,48 @@ def has_control_plane_review(rulesets: list[dict[str, Any] | None]) -> bool:
     return False
 
 
+def codeowners_text(repo: str, branch: str) -> str | None:
+    """The CODEOWNERS file GitHub reads on *branch*, if it is a readable one.
+
+    GitHub uses the first of ``.github/``, the root, and ``docs/`` holding a
+    CODEOWNERS, so the first directory with that entry decides, and a bad
+    entry there fails rather than falling through to the next. One query reads
+    each directory's entry modes, so a symlink (``120000``) is refused where the
+    Contents API would have followed it, and each candidate blob's text, which
+    GitHub leaves null for binary content and flags when truncated.
+    """
+    owner, name = repo.split("/", 1)
+    fields = [f"query={CODEOWNERS_QUERY}", f"owner={owner}", f"name={name}"]
+    for alias, directory in CODEOWNERS_DIRECTORIES.items():
+        path = f"{directory}/CODEOWNERS" if directory else "CODEOWNERS"
+        fields += [f"{alias}Tree={branch}:{directory}", f"{alias}={branch}:{path}"]
+    argv = [arg for field in fields for arg in ("-f", field)]
+    try:
+        repository = _common.gh_json("api", "graphql", *argv)["data"]["repository"]
+        for alias in CODEOWNERS_DIRECTORIES:
+            entries = (repository[f"{alias}Tree"] or {}).get("entries", [])
+            modes = [
+                entry["mode"] for entry in entries if entry["name"] == "CODEOWNERS"
+            ]
+            if not modes:
+                continue
+            blob = repository[alias] or {}
+            text = blob.get("text")
+            if (
+                modes[0] not in {0o100644, 0o100755}
+                or blob.get("isTruncated") is not False
+                or not isinstance(text, str)
+            ):
+                return None
+            return text
+    except (*_common.GH_READ_FAILED, KeyError, TypeError, AttributeError):
+        return None
+    return None
+
+
 def has_valid_control_plane_codeowners(repo: str, branch: str, bot_name: str) -> bool:
     """Whether GitHub accepts Tend's final managed CODEOWNERS block."""
-    content = None
-    for path in (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"):
-        try:
-            response = _common.gh_json(
-                "api", f"repos/{repo}/contents/{path}?ref={quote(branch, safe='')}"
-            )
-        except _common.GH_READ_FAILED as error:
-            if isinstance(error, subprocess.CalledProcessError) and "HTTP 404" in (
-                error.stderr or ""
-            ):
-                continue
-            return False
-        if not isinstance(response, dict) or not isinstance(
-            response.get("content"), str
-        ):
-            return False
-        try:
-            content = base64.b64decode(response["content"]).decode()
-        except (ValueError, UnicodeDecodeError):
-            return False
-        break
+    content = codeowners_text(repo, branch)
     if content is None:
         return False
 
@@ -190,30 +225,6 @@ def has_valid_control_plane_codeowners(repo: str, branch: str, bot_name: str) ->
             for owner in parts[1:]
         ):
             return False
-
-    # The Contents API follows symlinks and reports type=file for their targets.
-    # Verify the Git mode so ownership cannot live outside protected paths.
-    repo_owner, repo_name = repo.split("/", 1)
-    directory = path.rpartition("/")[0]
-    query = (
-        "{ repository(owner: "
-        + json.dumps(repo_owner)
-        + ", name: "
-        + json.dumps(repo_name)
-        + ") { object(expression: "
-        + json.dumps(f"{branch}:{directory}")
-        + ") { ... on Tree { entries { name mode } } } } }"
-    )
-    try:
-        tree = _common.gh_json("api", "graphql", "-f", f"query={query}")
-        entries = tree["data"]["repository"]["object"]["entries"]
-        if not any(
-            entry["name"] == "CODEOWNERS" and entry["mode"] in {0o100644, 0o100755}
-            for entry in entries
-        ):
-            return False
-    except (*_common.GH_READ_FAILED, KeyError, TypeError, ValueError):
-        return False
 
     try:
         response = _common.gh_json(

@@ -85,7 +85,9 @@ def fake_bin(tmp_path: Path, **scripts: str) -> Path:
 # pre-filtered would assert nothing. `-c` matches `gh --jq`, which writes one
 # line per result: a filter constructing objects (`{body, in_reply_to_id}`)
 # depends on that, and jq's default pretty-printing would hand the script a
-# shape gh never produces.
+# shape gh never produces. Under `--slurp`, emit() takes a fixture as the page
+# stream `--paginate` alone would print — one page or several, concatenated —
+# and prints it as the one array of pages real `gh` does.
 #
 # colorize() models the one `gh` colour rule the scripts have to defend
 # against: `gh` ranks a forced colour setting above `NO_COLOR` and paints a
@@ -99,9 +101,11 @@ GH_PREAMBLE = r"""#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$GH_CALLS"
 
 jq_expr=""
+slurp=""
 prev=""
 for arg in "$@"; do
   [ "$prev" = "--jq" ] && jq_expr="$arg"
+  [ "$arg" = "--slurp" ] && slurp=1
   prev="$arg"
 done
 
@@ -114,7 +118,12 @@ colorize() {
 }
 
 emit() {
-  if [ -n "$jq_expr" ]; then
+  if [ -n "$slurp" ]; then
+    # `gh` serves at least one page, so an empty or unparsable fixture stands
+    # for a failed read.
+    pages=$(printf '%s' "$1" | jq -cs .) && [ "$pages" != "[]" ] || exit 1
+    printf '%s\n' "$pages" | colorize
+  elif [ -n "$jq_expr" ]; then
     printf '%s' "$1" | jq -rc "$jq_expr" | colorize
   else
     printf '%s' "$1" | colorize

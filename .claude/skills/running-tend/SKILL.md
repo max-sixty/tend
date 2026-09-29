@@ -199,8 +199,8 @@ Changes that have required Tend work include:
 
 - Claude Code ignored `defaultMode: bypassPermissions` in project settings, so
   Tend had to pass `--permission-mode` on argv.
-- Codex added non-interactive plugin installation. Tend's action consumes its
-  `Installed plugin root:` output to locate plugin scripts.
+- Codex added non-interactive plugin installation. Tend's action reads the
+  `installedPath` of `codex plugin add --json` to locate plugin scripts.
 
 For any similarly relevant note, search the code, issues, and PRs first. Open a
 PR when the change is small enough to make and verify in this run; reserve an

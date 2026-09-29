@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import _common
 import pytest
 import run_claude
 from _fakes import GithubFiles
@@ -738,7 +739,7 @@ def test_supervise_reaps_the_process_group_when_the_runner_cancels_the_job(
             self.waits += 1
             handlers.append(signal.getsignal(signal.SIGTERM))
             if self.waits == 1:
-                raise run_claude.Cancelled("signal 15")
+                raise _common.Cancelled(signal.SIGTERM)
             return -9
 
     def fake_killpg(pid: int, sent: signal.Signals) -> None:
@@ -749,7 +750,7 @@ def test_supervise_reaps_the_process_group_when_the_runner_cancels_the_job(
     monkeypatch.setattr(os, "killpg", fake_killpg)
     before = signal.getsignal(signal.SIGTERM)
 
-    with pytest.raises(run_claude.Cancelled):
+    with pytest.raises(_common.Cancelled):
         run_claude.supervise(
             ["claude"],
             timeout_sec=900,

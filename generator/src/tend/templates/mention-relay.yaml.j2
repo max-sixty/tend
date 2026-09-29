@@ -35,12 +35,12 @@ jobs:
     # Widening this is a separate decision, and moot while a fork run's token
     # is refused the dispatch POST (403, probed).
     #
-    # The pause variable is deliberately absent: it gates the jobs that boot
-    # the agent, and this job boots none. `TEND_ENABLED=false` skips
-    # tend-mention's `verify` — and `handle`, which needs it — so a relayed
-    # event reaches nothing. A paused repo still runs this job and still POSTs
-    # the dispatch; both runs then do nothing.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # This job boots no agent, but it carries the pause check anyway: a paused
+    # repo's tend-mention skips everything it would dispatch, so running it
+    # would only spend a runner, the dispatch POST, and a second empty run.
+    if: >-
+      <<tend_enabled>> &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     # No secrets here. `contents: write` is what the dispatch POST needs, and
     # is the whole of what this token can do — probed both ways on a live

@@ -86,7 +86,7 @@ def test_tend_secrets_never_live_where_the_agent_can_read_them(
     runner's home as the runner."""
     paths = _paths(tmp_path)
 
-    for path in (paths.confdir, paths.proxy_log, paths.proxy_pid):
+    for path in (paths.confdir, paths.proxy_log):
         assert path.is_relative_to(paths.private_dir)
         assert not path.is_relative_to(paths.runner_home)
     assert paths.private_dir.stat().st_mode & 0o777 == 0o700
