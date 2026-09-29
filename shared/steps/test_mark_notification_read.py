@@ -10,9 +10,8 @@ from _fakes import FakeGh
 REPO = "owner/repo"
 RUN_ID = "12345"
 RUN_STARTED_AT = "2026-01-02T00:00:00Z"
-SETTLED = "2026-01-01T00:00:00Z"
-MID_RUN = "2026-03-01T00:00:00Z"
 ISSUE_URL = f"https://api.github.com/repos/{REPO}/issues/7"
+INBOX = f"repos/{REPO}/notifications?before={RUN_STARTED_AT}&per_page=50"
 
 
 @pytest.fixture
@@ -33,18 +32,21 @@ def _run_metadata(fake_gh: FakeGh, started_at: object) -> None:
     fake_gh.respond("api", f"repos/{REPO}/actions/runs/{RUN_ID}", with_=body)
 
 
-def _inbox(fake_gh: FakeGh, *threads: tuple[str, str, str]) -> None:
-    """Serve an inbox of ``(id, subject_url, updated_at)`` and accept PATCHes."""
+def _inbox(fake_gh: FakeGh, *pages: list[tuple[str, str]]) -> None:
+    """Serve pages of ``(id, subject_url)`` threads and accept PATCHes."""
     fake_gh.respond(
         "api",
-        "notifications",
+        "--paginate",
+        "--slurp",
+        INBOX,
         with_=[
-            {"id": tid, "updated_at": updated_at, "subject": {"url": url}}
-            for tid, url, updated_at in threads
+            [{"id": tid, "subject": {"url": url}} for tid, url in page]
+            for page in pages
         ],
     )
-    for tid, _, _ in threads:
-        fake_gh.respond("api", f"notifications/threads/{tid}", with_="")
+    for page in pages:
+        for tid, _ in page:
+            fake_gh.respond("api", f"notifications/threads/{tid}", with_="")
 
 
 def _patch_calls(fake_gh: FakeGh) -> list[str]:
@@ -106,7 +108,11 @@ def _patch_calls(fake_gh: FakeGh) -> list[str]:
     ],
 )
 def test_subject_url_names_the_thread_the_event_belongs_to(
-    event_name: str, payload: dict[str, object], expected: str | None
+    event: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    event_name: str,
+    payload: dict[str, object],
+    expected: str | None,
 ) -> None:
     """`issue_comment` fires for issues and PR conversations alike.
 
@@ -114,26 +120,46 @@ def test_subject_url_names_the_thread_the_event_belongs_to(
     `pull_request` field is what decides which URL the inbox is searched for —
     an `/issues/N` guess would never match and would leave the thread unread.
     """
-    assert mark_notification_read.subject_url(REPO, event_name, payload) == expected
+    event.write_text(json.dumps(payload))
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event_name)
+    assert mark_notification_read.subject_url(REPO) == expected
 
 
-def test_marks_a_thread_whose_activity_predates_the_run(
-    event: Path, fake_gh: FakeGh
-) -> None:
+def test_marks_the_events_thread_read(event: Path, fake_gh: FakeGh) -> None:
     _run_metadata(fake_gh, RUN_STARTED_AT)
-    _inbox(fake_gh, ("999", ISSUE_URL, SETTLED))
+    _inbox(fake_gh, [("999", ISSUE_URL)])
 
     assert mark_notification_read.main() == 0
     assert ("api", "notifications/threads/999", "-X", "PATCH") in fake_gh.calls
 
 
-def test_leaves_activity_newer_than_the_run(event: Path, fake_gh: FakeGh) -> None:
-    """Mid-run activity is what the next workflow run has to see."""
+def test_reads_only_activity_that_predates_the_run(
+    event: Path, fake_gh: FakeGh
+) -> None:
+    """Mid-run activity is what the next workflow run has to see.
+
+    GitHub applies the cutoff, so the inbox read has to carry the run's start
+    as `before`; a read without it would mark mid-run activity read.
+    """
     _run_metadata(fake_gh, RUN_STARTED_AT)
-    _inbox(fake_gh, ("999", ISSUE_URL, MID_RUN))
+    _inbox(fake_gh, [("999", ISSUE_URL)])
+
+    mark_notification_read.main()
+
+    assert fake_gh.called("api", "--paginate", "--slurp", INBOX)
+
+
+def test_finds_the_thread_past_the_first_page(event: Path, fake_gh: FakeGh) -> None:
+    """A bot whose inbox outgrows one page still clears this run's thread."""
+    _run_metadata(fake_gh, RUN_STARTED_AT)
+    others = [
+        (str(n), f"https://api.github.com/repos/{REPO}/issues/{n}")
+        for n in range(100, 150)
+    ]
+    _inbox(fake_gh, others, [("999", ISSUE_URL)])
 
     assert mark_notification_read.main() == 0
-    assert _patch_calls(fake_gh) == []
+    assert _patch_calls(fake_gh) == ["999"]
 
 
 def test_leaves_a_thread_for_another_subject(event: Path, fake_gh: FakeGh) -> None:
@@ -141,9 +167,10 @@ def test_leaves_a_thread_for_another_subject(event: Path, fake_gh: FakeGh) -> No
     _run_metadata(fake_gh, RUN_STARTED_AT)
     _inbox(
         fake_gh,
-        ("999", ISSUE_URL, SETTLED),
-        ("998", f"https://api.github.com/repos/{REPO}/pulls/7", SETTLED),
-        ("997", "https://api.github.com/repos/other/repo/issues/7", SETTLED),
+        [
+            ("999", ISSUE_URL),
+            ("998", f"https://api.github.com/repos/{REPO}/pulls/7"),
+        ],
     )
 
     assert mark_notification_read.main() == 0
@@ -156,11 +183,11 @@ def test_tolerates_a_run_metadata_failure(
     """A transient failure fetching `run_started_at` must not fail the step.
 
     Both harness actions gate this step on `if: success()`, so a non-zero exit
-    here turns a fully-successful agent run red. Without the timestamp the
-    `updated_at <= started` guard cannot be evaluated, so nothing is marked.
+    here turns a fully-successful agent run red. Without the timestamp there is
+    no cutoff to ask GitHub for, so nothing is marked.
     """
     _run_metadata(fake_gh, 1)
-    _inbox(fake_gh, ("999", ISSUE_URL, SETTLED))
+    _inbox(fake_gh, [("999", ISSUE_URL)])
 
     assert mark_notification_read.main() == 0
     assert _patch_calls(fake_gh) == []
@@ -182,26 +209,24 @@ def test_marks_nothing_for_an_event_whose_shape_it_cannot_read(
     assert fake_gh.calls == []
 
 
-def test_leaves_a_notification_it_cannot_read_as_a_dated_thread(
+def test_skips_a_notification_it_cannot_read_as_a_thread(
     event: Path, fake_gh: FakeGh
 ) -> None:
-    """An entry missing its stamp, its subject or its id is skipped, not read into.
-
-    A missing stamp is an unknown age, which is the same reason a run with no
-    `run_started_at` marks nothing at all: marking it anyway would swallow the
-    mid-run activity the guard exists to preserve.
-    """
+    """An entry missing its subject or its id is skipped, not read into."""
     _run_metadata(fake_gh, RUN_STARTED_AT)
     fake_gh.respond(
         "api",
-        "notifications",
+        "--paginate",
+        "--slurp",
+        INBOX,
         with_=[
-            {"id": "996", "subject": {"url": ISSUE_URL}},
-            {"id": "997", "updated_at": SETTLED},
-            {"id": "995", "subject": None, "updated_at": SETTLED},
-            "not a notification at all",
-            {"subject": {"url": ISSUE_URL}, "updated_at": SETTLED},
-            {"id": "999", "subject": {"url": ISSUE_URL}, "updated_at": SETTLED},
+            [
+                {"id": "997"},
+                {"id": "995", "subject": None},
+                "not a notification at all",
+                {"subject": {"url": ISSUE_URL}},
+                {"id": "999", "subject": {"url": ISSUE_URL}},
+            ]
         ],
     )
     fake_gh.respond("api", "notifications/threads/999", with_="")
@@ -214,7 +239,6 @@ def test_marks_nothing_for_an_event_that_names_no_thread(
     event: Path, fake_gh: FakeGh, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
-    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
 
     assert mark_notification_read.main() == 0
     assert fake_gh.calls == []
@@ -228,7 +252,7 @@ def test_tolerates_an_inbox_it_cannot_read(
 ) -> None:
     """A failed request, an HTML 200, and an error object are all non-fatal."""
     _run_metadata(fake_gh, RUN_STARTED_AT)
-    fake_gh.respond("api", "notifications", with_=inbox)
+    fake_gh.respond("api", "--paginate", "--slurp", INBOX, with_=inbox)
 
     assert mark_notification_read.main() == 0
     assert "::warning::Failed to mark notification as read" in capsys.readouterr().out
@@ -237,7 +261,7 @@ def test_tolerates_an_inbox_it_cannot_read(
 def test_a_failed_patch_leaves_the_step_green(event: Path, fake_gh: FakeGh) -> None:
     """One thread that will not mark must not fail the step or strand the rest."""
     _run_metadata(fake_gh, RUN_STARTED_AT)
-    _inbox(fake_gh, ("998", ISSUE_URL, SETTLED), ("999", ISSUE_URL, SETTLED))
+    _inbox(fake_gh, [("998", ISSUE_URL), ("999", ISSUE_URL)])
     fake_gh.respond("api", "notifications/threads/998", with_=1)
 
     assert mark_notification_read.main() == 0
