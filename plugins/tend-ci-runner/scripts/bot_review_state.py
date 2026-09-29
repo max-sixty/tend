@@ -17,11 +17,13 @@ import github_cli
 
 DRAFT_REVIEW_MARKER = "<!-- tend:draft-review -->"
 LEGACY_DRAFT_REVIEW_PREFIX = "Reviewing as a draft —"
+# `gh api graphql --paginate` follows `$endCursor` through every thread page.
 FEEDBACK_QUERY = """
-query($owner:String!,$repo:String!,$number:Int!) {
+query($owner:String!,$repo:String!,$number:Int!,$endCursor:String) {
   repository(owner:$owner,name:$repo) {
     pullRequest(number:$number) {
-      reviewThreads(first:100) {
+      reviewThreads(first:100,after:$endCursor) {
+        pageInfo { hasNextPage endCursor }
         nodes { comments(first:100) { nodes {
           author { login } path line body createdAt
         } } }
@@ -31,10 +33,11 @@ query($owner:String!,$repo:String!,$number:Int!) {
 }
 """
 THREADS_QUERY = """
-query($owner: String!, $repo: String!, $number: Int!) {
+query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
-      reviewThreads(first: 100) {
+      reviewThreads(first: 100, after: $endCursor) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           id
           isResolved
@@ -247,9 +250,10 @@ def dismiss_stale_approval(pr: str, message: str) -> None:
 
 def _review_threads(pr: str, repo: str, query: str) -> list[dict[str, Any]]:
     owner, name = repo.split("/", 1)
-    response = github_cli.json_call(
+    pages = github_cli.json_stream(
         "api",
         "graphql",
+        "--paginate",
         "-f",
         f"query={query}",
         "-f",
@@ -259,7 +263,13 @@ def _review_threads(pr: str, repo: str, query: str) -> list[dict[str, Any]]:
         "-F",
         f"number={pr}",
     )
-    return response["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+    return [
+        thread
+        for page in pages
+        for thread in page["data"]["repository"]["pullRequest"]["reviewThreads"][
+            "nodes"
+        ]
+    ]
 
 
 def feedback(pr: str) -> dict[str, Any]:
