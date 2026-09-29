@@ -652,18 +652,6 @@ def _user_id(login: str) -> int | None:
         return None
 
 
-def _current_login() -> str | None:
-    """The login the token authenticates as, or None when that can't be read.
-
-    Uncached on purpose: a run makes at most a handful of these calls, and a
-    module-level cache would leak between tests that repatch `_gh`.
-    """
-    result = _gh("api", "user", "--jq", ".login")
-    if result is None or result.returncode != 0:
-        return None
-    return result.stdout.strip() or None
-
-
 def _same_login(a: str, b: str) -> bool:
     """Casefolded equality is the identity test for logins — GitHub logins
     are case-insensitive and the config takes whatever case the maintainer
@@ -680,7 +668,7 @@ def _ruleset_bot_bypass(data: dict, bot_name: str) -> str | None:
     """
     current = data.get("current_user_can_bypass")
     if current in {"never", "pull_requests_only", "always", "exempt"}:
-        login = _current_login()
+        login = detect_authenticated_user()
         if login is not None and _same_login(login, bot_name):
             return "always" if current == "exempt" else current
 
@@ -815,6 +803,21 @@ def update_ruleset_bypass(repo: str, branch: str, bot_name: str) -> str | None:
     return _ruleset_type_bypass(repo, branch, bot_name, "update")
 
 
+def _rulesets(repo: str) -> list[dict] | None:
+    """Every ruleset applying to the repo, as the listing's summaries (id,
+    name, target, enforcement, source), or None when they cannot be listed.
+
+    The listing includes rulesets inherited from the organization.
+    """
+    result = _gh("api", "--paginate", f"repos/{repo}/rulesets", "--jq", ".[]")
+    if result is None or result.returncode != 0:
+        return None
+    try:
+        return [json.loads(line) for line in result.stdout.splitlines() if line]
+    except json.JSONDecodeError:
+        return None
+
+
 def _tags_admin_gated(repo: str, bot_name: str) -> bool | None:
     """Whether an active all-tags ruleset keeps a write-access bot off every tag.
 
@@ -826,19 +829,15 @@ def _tags_admin_gated(repo: str, bot_name: str) -> bool | None:
     set covers an environment policy's tag entries would re-implement
     GitHub's matcher, and the recipe's rule is all-tags on purpose.
     """
-    listed = _gh(
-        "api",
-        "--paginate",
-        f"repos/{repo}/rulesets",
-        "--jq",
-        '.[] | select(.target == "tag" and .enforcement == "active") | .id',
-    )
-    if listed is None or listed.returncode != 0:
+    rulesets = _rulesets(repo)
+    if rulesets is None:
         return None
 
     unresolved = False
-    for ruleset_id in listed.stdout.split():
-        data = _fetch_ruleset(repo, ruleset_id)
+    for summary in rulesets:
+        if summary["target"] != "tag" or summary["enforcement"] != "active":
+            continue
+        data = _fetch_ruleset(repo, summary["id"])
         if data is None:
             unresolved = True
             continue
@@ -941,21 +940,34 @@ def _env_secret_names(
     return _lines(result.stdout), ""
 
 
-def _refresh_secret_names(repo: str) -> tuple[set[str] | None, str]:
-    """Return refresh secrets, treating an absent environment as empty."""
+def _environments(repo: str) -> tuple[list[dict] | None, str]:
+    """Every environment, as the full object the listing serves — name,
+    protection rules, and deployment branch policy. Returns (environments,
+    error message)."""
     listed = _gh(
         "api",
         "--paginate",
         f"repos/{repo}/environments",
         "--jq",
-        ".environments[].name",
+        ".environments[]",
     )
     if listed is None:
         return None, "gh CLI not found"
     if listed.returncode != 0:
         return None, f"Could not list environments: {listed.stderr.strip()}"
+    try:
+        return [json.loads(line) for line in listed.stdout.splitlines() if line], ""
+    except json.JSONDecodeError:
+        return None, "Could not parse the environment list"
+
+
+def _refresh_secret_names(repo: str) -> tuple[set[str] | None, str]:
+    """Return refresh secrets, treating an absent environment as empty."""
+    environments, err = _environments(repo)
+    if environments is None:
+        return None, err
     if CODEX_REFRESH_ENVIRONMENT.casefold() not in {
-        name.casefold() for name in listed.stdout.splitlines()
+        env["name"].casefold() for env in environments
     }:
         return set(), ""
     return _env_secret_names(repo, CODEX_REFRESH_ENVIRONMENT)
@@ -1737,19 +1749,9 @@ def check_credential_environments(
     """
     name = "credential-environments"
 
-    listed = _gh(
-        "api",
-        "--paginate",
-        f"repos/{repo}/environments",
-        "--jq",
-        ".environments[].name",
-    )
-    if listed is None:
-        return CheckResult(name, None, "gh CLI not found")
-    if listed.returncode != 0:
-        return CheckResult(
-            name, None, f"Could not list environments: {listed.stderr.strip()}"
-        )
+    environments, err = _environments(repo)
+    if environments is None:
+        return CheckResult(name, None, err)
 
     surface = _credential_surface(_fetch_workflow_files(repo))
     tags_ok = cache(lambda: _tags_admin_gated(repo, cfg.bot_name))
@@ -1757,16 +1759,8 @@ def check_credential_environments(
     ungated: list[str] = []
     unverified: list[str] = []
     holders: list[str] = []
-    # One name per line, not one per whitespace-separated token: GitHub admits
-    # a space in an environment name, and splitting on whitespace turns one
-    # such environment into two names that exist nowhere. Each answers 404,
-    # which is the `returncode != 0` below, so the whole check reports itself
-    # skipped for want of admin access — a credential check that stops
-    # verifying and blames the token. The real environment goes unexamined
-    # either way.
-    for env_name in listed.stdout.splitlines():
-        if not env_name:
-            continue
+    for env in environments:
+        env_name = env["name"]
         normalized_env = env_name.casefold()
         secrets = _gh(
             "api",
@@ -1789,13 +1783,6 @@ def check_credential_environments(
         holders.append(env_name)
         if normalized_env == TEND_ENVIRONMENT.casefold():
             continue  # Gated by its branch policy; `environment` verifies that.
-        detail = _gh("api", f"repos/{repo}/environments/{_env_path(env_name)}")
-        if detail is None or detail.returncode != 0:
-            return CheckResult(name, None, f"Could not read environment '{env_name}'")
-        try:
-            env = json.loads(detail.stdout)
-        except json.JSONDecodeError:
-            return CheckResult(name, None, f"Could not parse environment '{env_name}'")
         reviewer_reason = _reviewer_gate(env, cfg.bot_name)
         if reviewer_reason is None:
             continue
@@ -2299,49 +2286,35 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
     """
     intended = json.loads(body)
     name = intended["name"]
-    listed = _gh(
-        "api",
-        "--paginate",
-        f"repos/{repo}/rulesets",
-        "--jq",
-        f'.[] | select(.source_type == "Repository" and .name == {json.dumps(name)})'
-        " | .id",
-    )
-    if listed is None or listed.returncode != 0:
-        detail = listed.stderr.strip() if listed else "gh CLI not found"
-        return None, f"Could not list repository rulesets: {detail}"
-    existing = listed.stdout.split()
-    if existing:
-        if intended["target"] == "branch":
-            current = _fetch_ruleset(repo, existing[0])
-            if current is None:
-                return None, "Could not read the existing branch ruleset from GitHub"
-            conditions = current.get("conditions")
-            refs = conditions.get("ref_name") if isinstance(conditions, dict) else None
-            includes = refs.get("include") if isinstance(refs, dict) else None
-            excludes = refs.get("exclude") if isinstance(refs, dict) else None
-            if (
-                current.get("target") != "branch"
-                or not isinstance(includes, list)
-                or not isinstance(excludes, list)
-                or not all(isinstance(ref, str) for ref in includes + excludes)
-            ):
-                return False, (
-                    "Cannot safely preserve existing branch ruleset conditions. "
-                    "No rulesets changed."
-                )
-            intended_refs = intended["conditions"]["ref_name"]["include"]
-            refs["include"] = list(dict.fromkeys([*intended_refs, *includes]))
-            intended["conditions"] = conditions
-            body = json.dumps(intended)
-        path, method, verb = f"repos/{repo}/rulesets/{existing[0]}", "PUT", "Replaced"
-    else:
-        path, method, verb = f"repos/{repo}/rulesets", "POST", "Created"
-    result = _gh("api", path, "--method", method, "--input", "-", input=body)
-    if result is None:
-        return None, "gh CLI not found"
-    if result.returncode != 0:
-        return False, result.stderr.strip()
+    existing = _repository_rulesets(repo)
+    if existing is None:
+        return None, "Could not list repository rulesets"
+    if name in existing and intended["target"] == "branch":
+        current = _fetch_ruleset(repo, existing[name])
+        if current is None:
+            return None, "Could not read the existing branch ruleset from GitHub"
+        conditions = current.get("conditions")
+        refs = conditions.get("ref_name") if isinstance(conditions, dict) else None
+        includes = refs.get("include") if isinstance(refs, dict) else None
+        excludes = refs.get("exclude") if isinstance(refs, dict) else None
+        if (
+            current.get("target") != "branch"
+            or not isinstance(includes, list)
+            or not isinstance(excludes, list)
+            or not all(isinstance(ref, str) for ref in includes + excludes)
+        ):
+            return False, (
+                "Cannot safely preserve existing branch ruleset conditions. "
+                "No rulesets changed."
+            )
+        intended_refs = intended["conditions"]["ref_name"]["include"]
+        refs["include"] = list(dict.fromkeys([*intended_refs, *includes]))
+        intended["conditions"] = conditions
+        body = json.dumps(intended)
+    error = _reconcile_ruleset(repo, existing, name, body)
+    if error:
+        return False, error
+    verb = "Replaced" if name in existing else "Created"
     if intended["target"] == "branch":
         refs = intended["conditions"]["ref_name"]
         return True, (
@@ -2370,25 +2343,16 @@ def fix_tag_protection(repo: str) -> CheckResult:
 
 def _repository_rulesets(repo: str) -> dict[str, int] | None:
     """Repository rulesets by name, or None when they cannot be listed."""
-    result = _gh(
-        "api",
-        "--paginate",
-        f"repos/{repo}/rulesets",
-        "--jq",
-        '.[] | select(.source_type == "Repository") | [.id, .name] | @tsv',
-    )
-    if result is None or result.returncode != 0:
+    listed = _rulesets(repo)
+    if listed is None:
         return None
     rulesets: dict[str, int] = {}
-    for line in result.stdout.splitlines():
-        try:
-            raw_id, name = line.split("\t", 1)
-            ruleset_id = int(raw_id)
-        except ValueError:
+    for summary in listed:
+        if summary["source_type"] != "Repository":
+            continue
+        if summary["name"] in rulesets:
             return None
-        if name in rulesets:
-            return None
-        rulesets[name] = ruleset_id
+        rulesets[summary["name"]] = summary["id"]
     return rulesets
 
 

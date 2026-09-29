@@ -38,20 +38,11 @@ def gh_json(*args: str, quiet: bool = False) -> Any:
 
 
 def gh_paginated(path: str) -> list[dict[str, Any]]:
-    text = gh("api", "--paginate", path)
-    decoder = json.JSONDecoder()
-    position = 0
-    items: list[dict[str, Any]] = []
-    while position < len(text):
-        while position < len(text) and text[position].isspace():
-            position += 1
-        if position == len(text):
-            break
-        page, position = decoder.raw_decode(text, position)
-        if not isinstance(page, list):
-            raise TypeError("paginated GitHub response was not an array")
-        items.extend(page)
-    return items
+    # `--slurp` prints one array holding every page.
+    pages = gh_json("api", "--paginate", "--slurp", path)
+    if not all(isinstance(page, list) for page in pages):
+        raise TypeError("paginated GitHub response was not an array")
+    return [item for page in pages for item in page]
 
 
 def actor_login(actor: object) -> str:

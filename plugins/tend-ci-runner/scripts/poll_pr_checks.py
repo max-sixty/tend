@@ -38,12 +38,12 @@ CONFIRM_SEC = 30
 #: a margin for GitHub's lag and a slow external status, not for CI to run.
 REGISTRATION_SEC = 5 * 60
 GRAPHQL_QUERY = """
-query($owner: String!, $name: String!, $oid: GitObjectID!, $cursor: String) {
+query($owner: String!, $name: String!, $oid: GitObjectID!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
     object(oid: $oid) {
       ... on Commit {
         statusCheckRollup {
-          contexts(first: 100, after: $cursor) {
+          contexts(first: 100, after: $endCursor) {
             pageInfo { hasNextPage endCursor }
             nodes {
               __typename
@@ -165,50 +165,36 @@ def fetch_rollup(
 ) -> dict[str, list[str]] | None:
     """Fetch every rollup page; return ``None`` when no complete view exists."""
     owner, name = repo.split("/", 1)
-    cursor: str | None = None
-    nodes: list[dict[str, Any]] = []
-    while True:
-        cursor_args = (
-            ["-F", "cursor=null"] if cursor is None else ["-f", f"cursor={cursor}"]
+    try:
+        pages = github_cli.pages(
+            "graphql",
+            "-f",
+            f"owner={owner}",
+            "-f",
+            f"name={name}",
+            "-f",
+            f"oid={sha}",
+            "-f",
+            f"query={GRAPHQL_QUERY}",
+            quiet=True,
         )
-        try:
-            response = github_cli.json_call(
-                "api",
-                "graphql",
-                "-f",
-                f"owner={owner}",
-                "-f",
-                f"name={name}",
-                "-f",
-                f"oid={sha}",
-                *cursor_args,
-                "-f",
-                f"query={GRAPHQL_QUERY}",
-                quiet=True,
-            )
-            contexts = _dig(
-                response,
-                "data",
-                "repository",
-                "object",
-                "statusCheckRollup",
-                "contexts",
-            )
-            if not isinstance(contexts, dict) or not isinstance(
-                contexts.get("nodes"), list
-            ):
-                return None
-            nodes.extend(contexts["nodes"])
-            page_info = contexts.get("pageInfo")
-            if not isinstance(page_info, dict):
-                return None
-            if not page_info.get("hasNextPage"):
-                break
-            cursor = page_info.get("endCursor")
-            if not isinstance(cursor, str) or not cursor:
-                return None
-        except (subprocess.CalledProcessError, ValueError, KeyError, TypeError):
+    except (subprocess.CalledProcessError, ValueError):
+        return None
+    if not isinstance(pages, list) or not pages:
+        return None
+    nodes: list[dict[str, Any]] = []
+    for page in pages:
+        contexts = _dig(
+            page, "data", "repository", "object", "statusCheckRollup", "contexts"
+        )
+        if not isinstance(contexts, dict) or not isinstance(
+            contexts.get("nodes"), list
+        ):
             return None
+        nodes.extend(contexts["nodes"])
+    # `gh` stops at a page that reports more but names no cursor to follow.
+    if _dig(contexts, "pageInfo", "hasNextPage"):
+        return None
     return reduce_rollup(
         nodes,
         run_id=run_id,
