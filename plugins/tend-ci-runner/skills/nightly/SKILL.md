@@ -105,12 +105,12 @@ Read the project's instruction files before reviewing. Apply the review checklis
 
 ## Step 5: Check existing issues
 
-This run's seventh of the open issues, so each is checked every seventh run however many are open:
+The bot's own open issues, which include the transient reports the close rule below targets, and this run's seventh of the rest, so every issue is checked at least every seventh run however many are open:
 
 ```bash
 BUCKET=$(( GITHUB_RUN_NUMBER % 7 ))
 gh api --paginate "repos/{owner}/{repo}/issues?state=open&per_page=100" \
-  --jq ".[] | select(.pull_request == null and .number % 7 == $BUCKET) | {number, title}"
+  --jq ".[] | select(.pull_request == null and (.user.login == \"$BOT_NAME\" or .number % 7 == $BUCKET)) | {number, title}"
 ```
 
 For each of these issues, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue) per `/tend-ci-runner:post-to-github`. Close the issue with `gh issue close` when:

@@ -12,6 +12,8 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \
   approval <number> "$(cat "$TMPDIR/reviewed-head")"
 ```
 
+Add the same `--skip` arguments `/tend-ci-runner:monitor-ci` passes the poll, so a check the repo leaves out of the gate can't withhold the approval.
+
 It judges the latest run of each check outside this run and this workflow, and prints one verdict:
 
 - **`approve:`** — post the `APPROVE`. When it lists checks as unverified, those checks settled with no result — cancelled, stale, or a conclusion the script doesn't recognize — so nothing red stands but they did not pass either; name them in the review body.

@@ -294,7 +294,13 @@ def _settle(
             return "settled", current
 
 
-def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
+def approval(
+    pr: str,
+    sha: str,
+    *,
+    skip: frozenset[str] = frozenset(),
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
     """Decide whether one pinned PR commit's checks allow an approval.
 
     A failure beside checks still running is often a cancellation cascade: a
@@ -318,13 +324,14 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
         sha=sha,
         run_id=os.environ.get("GITHUB_RUN_ID", ""),
         workflow=os.environ.get("GITHUB_WORKFLOW", ""),
+        skip=skip,
         allow_filtered_empty=True,
     )
     if rollup is None:
         print(f"could not read a complete check rollup for {sha}", file=sys.stderr)
         return 2
     if rollup["failed"] and rollup["pending"]:
-        outcome, rollup = _settle(repo=repo, pr=pr, sha=sha, sleep=sleep)
+        outcome, rollup = _settle(repo=repo, pr=pr, sha=sha, skip=skip, sleep=sleep)
         if outcome == "moved":
             print(f"PR head moved off {sha} while its checks pend", file=sys.stderr)
             return 2
@@ -424,15 +431,15 @@ def main(
     command = args[0] if args else ""
     args = args[1:]
     skip: set[str] = set()
-    while command == "poll" and len(args) > 3 and args[-2] == "--skip":
+    while len(args) > 3 and args[-2] == "--skip":
         skip.add(args.pop())
         args.pop()
     pr = args[0] if args else ""
     sha = args[1] if len(args) > 1 else ""
     if len(args) != 2:
         print(
-            "usage: poll_pr_checks.py poll <pr-number> <sha> [--skip <check>]... | "
-            "approval <pr-number> <sha> — UNVERIFIED, not green",
+            "usage: poll_pr_checks.py poll|approval <pr-number> <sha> "
+            "[--skip <check>]... — UNVERIFIED, not green",
             file=sys.stderr,
         )
         return 2
@@ -447,7 +454,7 @@ def main(
         print(f"unknown command: {command or '<none>'}", file=sys.stderr)
         return 2
     if command == "approval":
-        code = approval(pr, sha, sleep=sleep)
+        code = approval(pr, sha, skip=frozenset(skip), sleep=sleep)
     else:
         code = poll(pr, sha, skip=frozenset(skip), sleep=sleep)
     # Sessions pipe this through `tail -N`, which drops the leading verdict

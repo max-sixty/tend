@@ -614,12 +614,23 @@ def test_a_skipped_check_does_not_gate(env: dict[str, str]) -> None:
     assert result.returncode == 0, result.stdout
 
 
-def test_approval_takes_no_skip(env: dict[str, str]) -> None:
+def test_a_skipped_red_does_not_withhold(env: dict[str, str]) -> None:
+    """The approval honors the same skips as the poll, so a check the repo
+    leaves out of the gate can't withhold an approval the poll calls green."""
+    _serve(
+        env,
+        _resp(
+            _check_run("tests"),
+            _check_run("macos (advisory)", conclusion="FAILURE"),
+        ),
+    )
     result = _invoke(
-        poll_pr_checks, env, ["approval", "7", HEAD_SHA, "--skip", "tests"]
+        poll_pr_checks,
+        env,
+        ["approval", "7", HEAD_SHA, "--skip", "macos (advisory)"],
     )
 
-    assert result.returncode == 2
+    assert result.returncode == 0, result.stdout
 
 
 def test_filtering_to_empty_never_reads_green(env: dict[str, str]) -> None:
