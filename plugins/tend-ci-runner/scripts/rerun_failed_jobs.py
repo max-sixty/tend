@@ -14,6 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 import github_cli
+import session_end
 
 
 def _run_attempt(path: str) -> int:
@@ -32,6 +33,11 @@ def main(
         print(f"usage: {sys.argv[0]} <run-id>", file=sys.stderr)
         return 2
     run_id = args[0]
+    try:
+        until = session_end.wait_until()
+    except ValueError:
+        print("TEND_DEADLINE is not a number", file=sys.stderr)
+        return 2
     repo = os.environ["GITHUB_REPOSITORY"]
     run_api = f"repos/{repo}/actions/runs/{run_id}"
     base_attempt = _run_attempt(run_api)
@@ -65,14 +71,20 @@ def main(
         print(f"attempt {attempt} exists but lists no jobs yet — UNVERIFIED")
         return 1
 
-    # No time bound: the jobs end by their own timeouts, or the session's ends
-    # the wait.
+    # No fixed bound: the jobs end by their own timeouts, and a job that never
+    # does is reported before the session ends.
     while True:
         jobs = [_job(run_api, job_id) for job_id in job_ids]
         if all(job["status"] == "completed" for job in jobs):
             for job in jobs:
                 print(f"{job.get('conclusion') or ''}\t{job['name']}")
             return 0
+        if time.time() + 60 > until:
+            print("session ending with re-run jobs still running — UNVERIFIED:")
+            for job in jobs:
+                if job["status"] != "completed":
+                    print(f"{job['status']}\t{job['name']}")
+            return 3
         sleep(60)
 
 

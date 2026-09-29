@@ -121,6 +121,7 @@ def launch_argv(
     bot_id: str,
     ci: str,
     timeout_sec: int,
+    deadline: int,
     settings_file: str = "",
 ) -> list[str]:
     """The command that launches the agent inside the existing sandbox.
@@ -133,7 +134,8 @@ def launch_argv(
     command past its timeout is moved to the background, and a headless run
     doesn't reliably act on its completion, so a wait that must end in the
     foreground — a CI poll ahead of a merge or a dismissal — runs as long as
-    the checks it waits on.
+    the checks it waits on. ``TEND_DEADLINE``, the epoch second the supervisor
+    stops the run, is what such a wait ends by when the checks never do.
 
     The model, tools and prompts are argv rather than environment: nothing on
     the far side reads them, and ``--permission-mode`` is what actually sets
@@ -148,6 +150,7 @@ def launch_argv(
         f"BOT_ID={bot_id}",
         f"CI={ci}",
         f"BASH_MAX_TIMEOUT_MS={timeout_sec * 1000}",
+        f"TEND_DEADLINE={deadline}",
         "claude",
         "-p",
         *(arg for arg in extra_args.split("\n") if arg),
@@ -513,6 +516,7 @@ def main() -> int:
         bot_id=env["BOT_ID"],
         ci=os.environ.get("CI") or "true",
         timeout_sec=int(env["TEND_TIMEOUT_SEC"]),
+        deadline=int(time.time()) + int(env["TEND_TIMEOUT_SEC"]),
         settings_file=os.environ.get("TEND_AUTO_MEMORY_SETTINGS", ""),
     )
     run = supervise(

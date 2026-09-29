@@ -15,6 +15,7 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 import github_cli
+import session_end
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 RED_CONCLUSIONS = {
@@ -234,24 +235,26 @@ def head_note(*, pr: str, repo: str, sha: str) -> None:
 
 
 def _settle(
-    *, repo: str, pr: str, sha: str, sleep: Callable[[float], None]
-) -> tuple[Literal["settled", "moved", "none"], dict[str, list[str]] | None]:
+    *, repo: str, pr: str, sha: str, until: float, sleep: Callable[[float], None]
+) -> tuple[
+    Literal["settled", "moved", "deadline", "none"], dict[str, list[str]] | None
+]:
     """Poll until nothing pends on two reads 30s apart.
 
-    Returns how the wait ended, and the last complete rollup read. The wait has
-    no time bound: a running check ends by its own job's timeout, so the wait
-    ends with the checks however long the consumer's CI takes. Two states have
-    no such end, and each is ended by the event that shows it:
+    Returns how the wait ended, and the last complete rollup read. No fixed
+    bound: a running check ends by its own job's timeout, so the wait ends
+    with the checks however long the consumer's CI takes. Three states have no
+    such end, and each is ended by the event that shows it:
 
     * checks still pend and the PR's head has moved off *sha* ("moved"). A
       merge requires *sha* to be the head, and the new head is its pusher's to
       verify — a review of it is already queued behind this session.
     * no complete rollup for :data:`REGISTRATION_SEC` ("none"): the commit
       has no check coming, or GitHub isn't answering for it.
-
-    A check that registers and never finishes — a status its app never
-    reports, a job waiting on an environment approval — holds the wait until
-    the session's own timeout ends the run, which then reads as timed out.
+    * the session nears its end, *until* ("deadline"): a check that registers
+      and never finishes — a status its app never reports, a job waiting on an
+      environment approval — would otherwise hold the wait until the session
+      is killed with nothing reported.
     """
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     workflow = os.environ.get("GITHUB_WORKFLOW", "")
@@ -264,22 +267,26 @@ def _settle(
         if current is None:
             if last is None and waited >= REGISTRATION_SEC:
                 return "none", None
-            continue
-        last = current
-        if current["pending"]:
+        elif current["pending"]:
+            last = current
             if _head(pr=pr, repo=repo) not in {"", sha}:
                 return "moved", last
-            continue
-        sleep(CONFIRM_SEC)
-        current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
-        if current is None:
-            continue
-        last = current
-        if not current["pending"]:
-            return "settled", current
+        else:
+            last = current
+            sleep(CONFIRM_SEC)
+            current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
+            if current is not None:
+                last = current
+                if not current["pending"]:
+                    return "settled", current
+        # After a read, so a poll started late still reports what pends.
+        if time.time() + POLL_SEC + CONFIRM_SEC > until:
+            return "deadline", last
 
 
-def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
+def approval(
+    pr: str, sha: str, *, until: float, sleep: Callable[[float], None] = time.sleep
+) -> int:
     """Decide whether one pinned PR commit's checks allow an approval.
 
     A failure beside checks still running is often a cancellation cascade: a
@@ -293,7 +300,8 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
     its merits. It approves, named as unverified so the approval doesn't read
     as a check that passed.
 
-    A head that moves during that wait leaves the approval undecided; otherwise
+    A head that moves, or a session that nears its end, during that wait leaves
+    the approval undecided; otherwise
     whether *sha* is still the head is not judged here: the review skill posts
     every review behind `review_preflight.py post`, which refuses a moved head.
     """
@@ -309,9 +317,12 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
         print(f"could not read a complete check rollup for {sha}", file=sys.stderr)
         return 2
     if rollup["failed"] and rollup["pending"]:
-        outcome, rollup = _settle(repo=repo, pr=pr, sha=sha, sleep=sleep)
+        outcome, rollup = _settle(repo=repo, pr=pr, sha=sha, until=until, sleep=sleep)
         if outcome == "moved":
             print(f"PR head moved off {sha} while its checks pend", file=sys.stderr)
+            return 2
+        if outcome == "deadline":
+            print(f"session ending while {sha}'s checks pend", file=sys.stderr)
             return 2
         if rollup is None:
             print(f"no complete rollup read for {sha} while waiting", file=sys.stderr)
@@ -336,7 +347,9 @@ def _unverified_note(rollup: dict[str, list[str]]) -> None:
         print(*rollup["unverified"], sep="\n")
 
 
-def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
+def poll(
+    pr: str, sha: str, *, until: float, sleep: Callable[[float], None] = time.sleep
+) -> int:
     """Poll one pinned PR commit until its checks settle."""
     repo = os.environ["GITHUB_REPOSITORY"]
     try:
@@ -351,10 +364,13 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
             )
             return 2
 
-    outcome, last = _settle(repo=repo, pr=pr, sha=sha, sleep=sleep)
-    if outcome == "none" or last is None:
+    outcome, last = _settle(repo=repo, pr=pr, sha=sha, until=until, sleep=sleep)
+    if last is None:
         print(
             f"no check registered on {sha} within {REGISTRATION_SEC // 60} minutes "
+            "— UNVERIFIED, not green"
+            if outcome == "none"
+            else f"no check read on {sha} before the session's end "
             "— UNVERIFIED, not green"
         )
         head_note(pr=pr, repo=repo, sha=sha)
@@ -375,7 +391,8 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
         print(f"green: every gating check on {sha} settled green")
         head_note(pr=pr, repo=repo, sha=sha)
         return 0
-    print(f"PR head moved off {sha} — still pending (UNVERIFIED, not green):")
+    reason = "PR head moved off" if outcome == "moved" else "session ending on"
+    print(f"{reason} {sha} — still pending (UNVERIFIED, not green):")
     print(*last["pending"], sep="\n")
     if last["failed"]:
         print("failures observed so far (unconfirmed while checks pend):")
@@ -390,7 +407,7 @@ VERDICTS = {
         0: "GREEN",
         1: "RED",
         2: "UNVERIFIED, not green",
-        3: "still pending when the PR head moved — UNVERIFIED, not green",
+        3: "still pending — UNVERIFIED, not green",
     },
     "approval": {0: "approve", 1: "withhold", 2: "undecided — do not approve"},
 }
@@ -415,7 +432,14 @@ def main(
     if command not in VERDICTS:
         print(f"unknown command: {command or '<none>'}", file=sys.stderr)
         return 2
-    code = (approval if command == "approval" else poll)(pr, sha, sleep=sleep)
+    try:
+        until = session_end.wait_until()
+    except ValueError:
+        print("TEND_DEADLINE is not a number", file=sys.stderr)
+        return 2
+    code = (approval if command == "approval" else poll)(
+        pr, sha, until=until, sleep=sleep
+    )
     # Sessions pipe this through `tail -N`, which drops the leading verdict
     # behind a long check list, so the last line restates it.
     print(f"verdict: {VERDICTS[command][code]} on {sha} (exit {code})")
