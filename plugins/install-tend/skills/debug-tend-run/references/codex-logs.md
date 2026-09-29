@@ -3,8 +3,10 @@
 Use these recipes when the artifact is `codex-session-logs-*`. `$FILE` is
 the rollout JSONL path set in the skill's download step.
 
-Each JSONL line has a top-level `type` of `session_meta`, `turn_context`,
-`event_msg`, or `response_item`. Response content sits under
+Each JSONL line has a top-level `type`. The recipes below read
+`event_msg` and `response_item`; the rest are `session_meta`, `turn_context`,
+and, in recent Codex versions, `token_usage_record` (per-response token counts)
+and `world_state`. Response content sits under
 `response_item.payload`, with the variant in `.payload.type`:
 
 - `message` — initial input from `user` or `developer` (system prompt,
@@ -30,6 +32,13 @@ with `fromjson`. Long-running commands can also call `tools.write_stdin`.
 Codex has no dedicated Read/Write/Edit tool; file I/O appears inside these
 tool inputs.
 
+One `exec` call can run several commands, and each one it ran is an
+`item_completed` entry of its own whose `.payload.item.type` is
+`CommandExecution`: `.command` is the argv (the command line is its last
+element, after `bash -lc`), with `.exit_code`, `.status`, and
+`.aggregated_output` alongside. Read these for what ran and whether it failed;
+read the `exec` input for how the session composed it.
+
 ## Overview — what happened
 
 ```bash
@@ -52,7 +61,15 @@ jq -r 'select(.payload.type == "item_completed" and .payload.item.type == "Agent
 ## Targeted queries
 
 ```bash
-# All shell commands
+# Each shell command with its exit code
+jq -r 'select(.payload.type == "item_completed" and .payload.item.type == "CommandExecution") |
+  .payload.item | "[\(.exit_code)] \(.command[-1])"' "$FILE"
+
+# Failed commands with the start of their output
+jq -r 'select(.payload.type == "item_completed" and .payload.item.type == "CommandExecution" and .payload.item.exit_code != 0) |
+  .payload.item | "[\(.exit_code)] \(.command[-1])\n\(.aggregated_output | .[0:300])"' "$FILE"
+
+# The JavaScript each exec tool call ran
 jq -r 'select(.payload.type == "custom_tool_call" and .payload.name == "exec") |
   .payload.input' "$FILE"
 
