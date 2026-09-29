@@ -11,7 +11,8 @@ REPO = "owner/repo"
 RUN_ID = "12345"
 RUN_STARTED_AT = "2026-01-02T00:00:00Z"
 ISSUE_URL = f"https://api.github.com/repos/{REPO}/issues/7"
-INBOX = f"repos/{REPO}/notifications?before={RUN_STARTED_AT}&per_page=50"
+SETTLED = "2026-01-01T00:00:00Z"
+INBOX = f"repos/{REPO}/notifications?per_page=50"
 
 
 @pytest.fixture
@@ -32,20 +33,23 @@ def _run_metadata(fake_gh: FakeGh, started_at: object) -> None:
     fake_gh.respond("api", f"repos/{REPO}/actions/runs/{RUN_ID}", with_=body)
 
 
-def _inbox(fake_gh: FakeGh, *pages: list[tuple[str, str]]) -> None:
-    """Serve pages of ``(id, subject_url)`` threads and accept PATCHes."""
+def _inbox(fake_gh: FakeGh, *pages: list[tuple[str, str, str]]) -> None:
+    """Serve pages of ``(id, subject_url, updated_at)`` threads; accept PATCHes."""
     fake_gh.respond(
         "api",
         "--paginate",
         "--slurp",
         INBOX,
         with_=[
-            [{"id": tid, "subject": {"url": url}} for tid, url in page]
+            [
+                {"id": tid, "subject": {"url": url}, "updated_at": updated_at}
+                for tid, url, updated_at in page
+            ]
             for page in pages
         ],
     )
     for page in pages:
-        for tid, _ in page:
+        for tid, _, _ in page:
             fake_gh.respond("api", f"notifications/threads/{tid}", with_="")
 
 
@@ -127,36 +131,51 @@ def test_subject_url_names_the_thread_the_event_belongs_to(
 
 def test_marks_the_events_thread_read(event: Path, fake_gh: FakeGh) -> None:
     _run_metadata(fake_gh, RUN_STARTED_AT)
-    _inbox(fake_gh, [("999", ISSUE_URL)])
+    _inbox(fake_gh, [("999", ISSUE_URL, SETTLED)])
 
     assert mark_notification_read.main() == 0
     assert ("api", "notifications/threads/999", "-X", "PATCH") in fake_gh.calls
 
 
-def test_reads_only_activity_that_predates_the_run(
-    event: Path, fake_gh: FakeGh
+@pytest.mark.parametrize(
+    "updated_at",
+    [
+        pytest.param(RUN_STARTED_AT, id="at-the-start"),
+        pytest.param("2026-01-02T00:05:00Z", id="mid-run"),
+        pytest.param(None, id="unstamped"),
+    ],
+)
+def test_leaves_activity_that_does_not_predate_the_run(
+    event: Path, fake_gh: FakeGh, updated_at: str | None
 ) -> None:
     """Mid-run activity is what the next workflow run has to see.
 
-    GitHub applies the cutoff, so the inbox read has to carry the run's start
-    as `before`; a read without it would mark mid-run activity read.
+    The comparison is made here: the API's `before` filter has returned
+    threads bumped after its cutoff.
     """
     _run_metadata(fake_gh, RUN_STARTED_AT)
-    _inbox(fake_gh, [("999", ISSUE_URL)])
+    fake_gh.respond(
+        "api",
+        "--paginate",
+        "--slurp",
+        INBOX,
+        with_=[
+            [{"id": "999", "subject": {"url": ISSUE_URL}, "updated_at": updated_at}]
+        ],
+    )
 
-    mark_notification_read.main()
-
-    assert fake_gh.called("api", "--paginate", "--slurp", INBOX)
+    assert mark_notification_read.main() == 0
+    assert _patch_calls(fake_gh) == []
 
 
 def test_finds_the_thread_past_the_first_page(event: Path, fake_gh: FakeGh) -> None:
     """A bot whose inbox outgrows one page still clears this run's thread."""
     _run_metadata(fake_gh, RUN_STARTED_AT)
     others = [
-        (str(n), f"https://api.github.com/repos/{REPO}/issues/{n}")
+        (str(n), f"https://api.github.com/repos/{REPO}/issues/{n}", SETTLED)
         for n in range(100, 150)
     ]
-    _inbox(fake_gh, others, [("999", ISSUE_URL)])
+    _inbox(fake_gh, others, [("999", ISSUE_URL, SETTLED)])
 
     assert mark_notification_read.main() == 0
     assert _patch_calls(fake_gh) == ["999"]
@@ -168,8 +187,8 @@ def test_leaves_a_thread_for_another_subject(event: Path, fake_gh: FakeGh) -> No
     _inbox(
         fake_gh,
         [
-            ("999", ISSUE_URL),
-            ("998", f"https://api.github.com/repos/{REPO}/pulls/7"),
+            ("999", ISSUE_URL, SETTLED),
+            ("998", f"https://api.github.com/repos/{REPO}/pulls/7", SETTLED),
         ],
     )
 
@@ -184,10 +203,10 @@ def test_tolerates_a_run_metadata_failure(
 
     Both harness actions gate this step on `if: success()`, so a non-zero exit
     here turns a fully-successful agent run red. Without the timestamp there is
-    no cutoff to ask GitHub for, so nothing is marked.
+    no cutoff to compare against, so nothing is marked.
     """
     _run_metadata(fake_gh, 1)
-    _inbox(fake_gh, [("999", ISSUE_URL)])
+    _inbox(fake_gh, [("999", ISSUE_URL, SETTLED)])
 
     assert mark_notification_read.main() == 0
     assert _patch_calls(fake_gh) == []
@@ -225,7 +244,7 @@ def test_skips_a_notification_it_cannot_read_as_a_thread(
                 {"id": "995", "subject": None},
                 "not a notification at all",
                 {"subject": {"url": ISSUE_URL}},
-                {"id": "999", "subject": {"url": ISSUE_URL}},
+                {"id": "999", "subject": {"url": ISSUE_URL}, "updated_at": SETTLED},
             ]
         ],
     )
@@ -261,7 +280,7 @@ def test_tolerates_an_inbox_it_cannot_read(
 def test_a_failed_patch_leaves_the_step_green(event: Path, fake_gh: FakeGh) -> None:
     """One thread that will not mark must not fail the step or strand the rest."""
     _run_metadata(fake_gh, RUN_STARTED_AT)
-    _inbox(fake_gh, [("998", ISSUE_URL), ("999", ISSUE_URL)])
+    _inbox(fake_gh, [("998", ISSUE_URL, SETTLED), ("999", ISSUE_URL, SETTLED)])
     fake_gh.respond("api", "notifications/threads/998", with_=1)
 
     assert mark_notification_read.main() == 0

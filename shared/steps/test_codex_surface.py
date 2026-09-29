@@ -35,6 +35,8 @@ elif args == ["exec", "--help"]:
 elif args[:3] == ["plugin", "marketplace", "add"]:
     pass
 elif args == ["plugin", "add", "--json", "tend-ci-runner@tend"]:
+    # Real codex warns on stderr first when CODEX_HOME is under /tmp.
+    print("WARNING: proceeding, even though we could not create PATH aliases", file=sys.stderr, flush=True)
     print(json.dumps({"installedPath": os.environ["FAKE_PLUGIN_ROOT"]}, indent=2))
 elif args[:3] == ["exec", "--strict-config", "-c"]:
     if "ZZZ" in args[3]:

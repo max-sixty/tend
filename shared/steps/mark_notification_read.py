@@ -8,10 +8,11 @@ Decisions this encodes:
 
 - A thread is marked only when its ``updated_at`` predates this run's start.
   Activity that arrived mid-run is what the next workflow run has to see, so
-  it stays unread. GitHub applies the cutoff: the repository's unread threads
-  are read with ``before=run_started_at``, which excludes the instant itself,
-  and every page of them, since a busy inbox outgrows the first.
-- Without ``run_started_at`` that cutoff cannot be set, and marking
+  it stays unread. The comparison is made here rather than through the API's
+  ``before`` filter, which has returned threads bumped after the cutoff. Every
+  page of the repository's unread threads is read, since a busy inbox
+  outgrows the first.
+- Without ``run_started_at`` that comparison cannot be made, and marking
   unconditionally would swallow exactly the mid-run activity the guard exists
   to preserve — so a failed or absent timestamp skips this cycle and leaves
   the thread to the scheduled poll.
@@ -57,14 +58,23 @@ def subject_url(repo: str) -> str | None:
     return f"https://api.github.com/repos/{repo}/{kind}/{number}"
 
 
-def threads_to_mark(notifications: list[Any], url: str) -> list[str]:
-    """The ids of the threads whose subject is *url*."""
+def threads_to_mark(
+    notifications: list[Any], url: str, run_started_at: str
+) -> list[str]:
+    """The ids of the threads for *url* last touched before the run started.
+
+    Both timestamps are ISO-8601 in UTC, so comparing them as strings orders
+    them chronologically. A thread carrying no stamp stays unread: its age is
+    unknown, and marking it could swallow the mid-run activity this guards.
+    """
     return [
         str(notification["id"])
         for notification in notifications
         if isinstance(notification, dict)
         and _common.dig(notification, "subject", "url") == url
         and notification.get("id") is not None
+        and isinstance(notification.get("updated_at"), str)
+        and notification["updated_at"] < run_started_at
     ]
 
 
@@ -97,14 +107,12 @@ def main() -> int:
     # An unreachable API, or a 200 carrying HTML or an error object rather than
     # the inbox, is the same non-fatal outcome: warn and leave the thread.
     try:
-        notifications = _common.gh_paginated(
-            f"repos/{repo}/notifications?before={run_started_at}&per_page=50"
-        )
+        notifications = _common.gh_paginated(f"repos/{repo}/notifications?per_page=50")
     except _common.GH_READ_FAILED:
         _common.annotate("warning", "Failed to mark notification as read (non-fatal)")
         return 0
 
-    for thread_id in threads_to_mark(notifications, url):
+    for thread_id in threads_to_mark(notifications, url, run_started_at):
         try:
             _common.gh("api", f"notifications/threads/{thread_id}", "-X", "PATCH")
         except subprocess.CalledProcessError:
