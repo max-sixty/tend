@@ -39,8 +39,10 @@ generated workflow files succeeds through the proxy) but **does not**
 need `delete_repo` — the recipe never deletes the test repo; it resets
 in place.
 
-Run steps in order. The self-heal (§2) precedes the verification steps so
-they always exercise current workflows. Any step failing jumps to §7
+Run steps in order, each wait in the foreground with the longest command
+timeout the harness allows: the waits have no fixed limit. The self-heal
+(§2) precedes the verification steps so they always exercise current
+workflows. Any step failing jumps to §7
 (reset), then §8 (report) — including §1, whose reseed failure leaves the
 fixture unable to run anything, and which reports without needing the
 reset since it created nothing.
@@ -115,16 +117,20 @@ STATE=$(gh api repos/tend-agent/tend-integration/rulesets/"$RULESET_ID" \
   || { echo "tend-integration: Merge access is '$STATE', not 'active never'"; exit 1; }
 
 # Reseed the fixture's secrets. Piped, `gh workflow run` prints only the
-# created run's URL. `gh run watch` redraws the whole run on every refresh,
-# which piped is a new block each time, so its output is discarded.
+# created run's URL.
 RUN_URL=$(gh workflow run integration-secrets --repo max-sixty/tend)
 RUN_ID=${RUN_URL##*/}
 case $RUN_ID in
   ''|*[!0-9]*) echo "integration-secrets: dispatch returned no run: '$RUN_URL'"; exit 1 ;;
 esac
-gh run watch "$RUN_ID" --repo max-sixty/tend --exit-status --interval 30 >/dev/null \
-  || { echo "integration-secrets: $(gh run view "$RUN_ID" --repo max-sixty/tend \
-         --json status,conclusion --jq '"\(.status)/\(.conclusion)"')"; exit 1; }
+# No fixed limit: the wait ends with the run. A failed read leaves
+# status empty, and the loop reads again.
+until read -r status conclusion < <(gh run view "$RUN_ID" --repo max-sixty/tend \
+        --json status,conclusion --jq '"\(.status) \(.conclusion // "")"') \
+      && [ "$status" = completed ]; do
+  sleep 30
+done
+[ "$conclusion" = success ] || { echo "integration-secrets: $conclusion"; exit 1; }
 ```
 
 ## 2. Verify the generator (self-healing)
@@ -228,10 +234,14 @@ done
 { [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ]; } \
   || { echo "tend-triage: workflow run never registered"; exit 1; }
 
-gh run watch "$RUN_ID" --repo tend-agent/tend-integration --exit-status \
-  --interval 30 >/dev/null \
-  || { echo "tend-triage: $(gh run view "$RUN_ID" --repo tend-agent/tend-integration \
-         --json status,conclusion --jq '"\(.status)/\(.conclusion)"')"; exit 1; }
+# No fixed limit: the wait ends with the run. A failed read leaves
+# status empty, and the loop reads again.
+until read -r status conclusion < <(gh run view "$RUN_ID" --repo tend-agent/tend-integration \
+        --json status,conclusion --jq '"\(.status) \(.conclusion // "")"') \
+      && [ "$status" = completed ]; do
+  sleep 30
+done
+[ "$conclusion" = success ] || { echo "tend-triage: $conclusion"; exit 1; }
 
 COMMENTS=$(gh issue view "$ISSUE" --repo tend-agent/tend-integration \
   --json comments --jq '[.comments[] | select(.author.login == "tend-agent")] | length')
@@ -292,10 +302,14 @@ done
 { [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ]; } \
   || { echo "tend-review: workflow run never registered"; exit 1; }
 
-gh run watch "$RUN_ID" --repo tend-agent/tend-integration --exit-status \
-  --interval 30 >/dev/null \
-  || { echo "tend-review: $(gh run view "$RUN_ID" --repo tend-agent/tend-integration \
-         --json status,conclusion --jq '"\(.status)/\(.conclusion)"')"; exit 1; }
+# No fixed limit: the wait ends with the run. A failed read leaves
+# status empty, and the loop reads again.
+until read -r status conclusion < <(gh run view "$RUN_ID" --repo tend-agent/tend-integration \
+        --json status,conclusion --jq '"\(.status) \(.conclusion // "")"') \
+      && [ "$status" = completed ]; do
+  sleep 30
+done
+[ "$conclusion" = success ] || { echo "tend-review: $conclusion"; exit 1; }
 
 # Session-log artifact presence proves the tend harness action invoked the
 # Claude session. The skill may then post a review, post nothing, or
