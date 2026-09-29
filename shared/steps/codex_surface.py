@@ -11,7 +11,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -39,6 +38,7 @@ def _run(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     check: bool = True,
+    stderr: int | None = subprocess.STDOUT,
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         [codex, *args],
@@ -46,7 +46,7 @@ def _run(
         env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=stderr,
         text=True,
         check=False,
     )
@@ -103,14 +103,18 @@ def _probe_exec_flags(codex: str, env: dict[str, str]) -> None:
 
 def _probe_plugin(codex: str, repository: Path, env: dict[str, str]) -> None:
     _run(codex, "plugin", "marketplace", "add", str(repository), env=env)
-    output = _run(codex, "plugin", "add", "tend-ci-runner@tend", env=env).stdout
+    # Codex warns on stderr (a CODEX_HOME under /tmp, say), which would land in
+    # front of the JSON; it goes to the log instead, as in the runner.
+    output = _run(
+        codex, "plugin", "add", "--json", "tend-ci-runner@tend", env=env, stderr=None
+    ).stdout
     print(output, end="" if output.endswith("\n") else "\n")
-    match = re.search(r"^Installed plugin root: (.+)$", output, re.MULTILINE)
-    if not match:
+    try:
+        root = Path(json.loads(output)["installedPath"])
+    except (ValueError, KeyError, TypeError) as error:
         raise SurfaceError(
-            "codex plugin add no longer prints 'Installed plugin root: <path>'"
-        )
-    root = Path(match.group(1))
+            "codex plugin add --json no longer reports installedPath"
+        ) from error
     required = (
         root / "skills" / "triage" / "SKILL.md",
         root / "scripts" / "list_recent_runs.py",

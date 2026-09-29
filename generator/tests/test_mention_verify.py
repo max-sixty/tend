@@ -32,17 +32,18 @@ BOT = "test-bot"
 # response by rewriting a file. Ordered longest-path-first: the review-comments
 # path is a prefix-extension of the single-review path.
 #
-# PAGES emits the same page N times, which is what `--paginate` does to a
-# `--jq`: the filter runs once per page rather than once over the union.
+# PAGES serves the same page N times, so a reader that keeps only one page
+# of a paginated listing sees a different answer from one that reads them all.
 FAKE_GH = (
     GH_PREAMBLE
     + r"""
 emit_paged() {
-  local i=0
+  local i=0 stream=""
   while [ "$i" -lt "${PAGES:-1}" ]; do
-    emit "$1"
+    stream="$stream$1"
     i=$((i + 1))
   done
+  emit "$stream"
 }
 
 case "$*" in

@@ -109,7 +109,7 @@ def prepare(target: str, *, now: datetime | None = None) -> int:
             )
         )
 
-    gists = github_cli.paginated("api", "--paginate", "gists?per_page=100")
+    gists = github_cli.paginated("gists?per_page=100")
     description = f"review-reviewers evidence: {target} {month}"
     gist = next(
         (gist for gist in gists if gist.get("description") == description), None

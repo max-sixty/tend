@@ -234,7 +234,7 @@ def append() -> int:
     repo = github_cli.repository()
     bot = str(github_cli.json_call("api", "user")["login"])
     comments = github_cli.paginated(
-        "api", "--paginate", f"repos/{repo}/issues/{number}/comments?per_page=100"
+        f"repos/{repo}/issues/{number}/comments?per_page=100"
     )
     existing = [
         comment

@@ -53,8 +53,7 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
    # file substitutes the empty string and the POST still runs, which is the
    # unpinned approval this pins against.
    CHECKED=$(cat "$TMPDIR/checked-head-<number>") || exit 0
-   REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-   gh api "repos/$REPO/pulls/<number>/reviews" --method POST \
+   gh api "repos/{owner}/{repo}/pulls/<number>/reviews" --method POST \
      -f event=APPROVE -f commit_id="$CHECKED" -F body=@"$TMPDIR/review-body.md"
    ```
 4. If CI is failing, comment the failure summary per `/tend-ci-runner:post-to-github` and skip

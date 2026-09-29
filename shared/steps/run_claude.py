@@ -39,7 +39,6 @@ import time
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from types import FrameType
 from typing import Any
 
 import _common
@@ -180,44 +179,6 @@ class Supervised:
     elapsed: int
 
 
-class Cancelled(BaseException):
-    """The runner asked this process to stop, mid-supervision.
-
-    A ``BaseException`` like ``KeyboardInterrupt``: it has to pass through an
-    ``except Exception`` on its way to the reap rather than be caught as a
-    failure of the run.
-    """
-
-
-@contextlib.contextmanager
-def raise_on_cancel() -> Iterator[None]:
-    """Turn SIGTERM and SIGINT into :class:`Cancelled` for the block's duration.
-
-    A cancelled workflow — ``cancel-in-progress``, a maintainer pressing cancel
-    — reaches this step as a signal. SIGTERM's default disposition ends the
-    process where it stands, which would skip the reap below and leave the
-    agent running as an orphan, still writing to the workspace, while the
-    runner tears the job down. Raising instead routes the cancellation through
-    the same ``finally`` every other exit takes.
-
-    Restored on the way out, so a second signal during the reap ends the
-    process outright, which is what an escalating runner means by it.
-    """
-
-    def cancel(number: int, frame: FrameType | None) -> None:
-        raise Cancelled(f"signal {number}")
-
-    previous = {
-        number: signal.signal(number, cancel)
-        for number in (signal.SIGINT, signal.SIGTERM)
-    }
-    try:
-        yield
-    finally:
-        for number, handler in previous.items():
-            signal.signal(number, handler)
-
-
 def supervise(
     argv: list[str],
     *,
@@ -243,7 +204,7 @@ def supervise(
 
     The KILL is this function's ``finally`` and the only unconditional step: it
     is what actually stops a run the TERM did not, so no path out of here,
-    exception included, may skip it. :func:`raise_on_cancel` is what makes
+    exception included, may skip it. :func:`_common.raise_on_cancel` is what makes
     "every path" include a cancelled job, which arrives as a signal rather than
     as anything Python would raise on its own.
 
@@ -255,7 +216,7 @@ def supervise(
     agent: subprocess.Popen[bytes] | None = None
     try:
         with (
-            raise_on_cancel(),
+            _common.raise_on_cancel(),
             stream_json.open("wb") as out,
             stderr_log.open("wb") as err,
         ):
