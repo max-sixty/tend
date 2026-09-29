@@ -17,7 +17,6 @@ from typing import Any, Literal
 import github_cli
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-RUN_ID_RE = re.compile(r"/actions/runs/(\d+)/")
 RED_CONCLUSIONS = {
     "FAILURE",
     "TIMED_OUT",
@@ -34,17 +33,10 @@ GREEN_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 #: confirms it.
 POLL_SEC = 60
 CONFIRM_SEC = 30
-#: How long a session waits on a consumer's CI before reporting it unverified,
-#: here and in `rerun_failed_jobs.py`. The wait holds the session's runner and
-#: concurrency group, so it is sized to consumers' CI rather than left open:
-#: the slowest check on their recent PRs ran 26 minutes, apart from advisory
-#: jobs that run past an hour and end up unverified (sampled 2026-09).
-#: Both polling and confirmation sleeps consume it. Each harness lets one
-#: foreground command run this long.
-WAIT_SEC = 30 * 60
-#: The final poll may add one confirmation sleep. Request time and poll()'s
-#: commit-resolution retry are additional.
-MAX_SLEEP_SEC = WAIT_SEC + CONFIRM_SEC
+#: How long a commit may show no check before it counts as having none. A
+#: check registers when its run is queued, seconds after the push, so this is
+#: a margin for GitHub's lag and a slow external status, not for CI to run.
+REGISTRATION_SEC = 5 * 60
 GRAPHQL_QUERY = """
 query($owner: String!, $name: String!, $oid: GitObjectID!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -242,67 +234,49 @@ def head_note(*, pr: str, repo: str, sha: str) -> None:
 
 
 def _settle(
-    *, repo: str, sha: str, sleep: Callable[[float], None], pr: str = ""
-) -> tuple[Literal["settled", "capped", "moved"], dict[str, list[str]] | None]:
-    """Poll until nothing pends on two reads 30s apart, or the budget expires.
+    *, repo: str, pr: str, sha: str, sleep: Callable[[float], None]
+) -> tuple[Literal["settled", "moved", "none"], dict[str, list[str]] | None]:
+    """Poll until nothing pends on two reads 30s apart.
 
-    Returns how the wait ended, and the last complete rollup read. Both sleeps
-    draw on :data:`WAIT_SEC`, so the total stays within :data:`MAX_SLEEP_SEC`
-    however often the rollup goes pending again.
+    Returns how the wait ended, and the last complete rollup read. The wait has
+    no time bound: a running check ends by its own job's timeout, so the wait
+    ends with the checks however long the consumer's CI takes. Two states have
+    no such end, and each is ended by the event that shows it:
 
-    Given *pr*, a read with checks still pending also ends the wait once the
-    PR's head has moved off *sha*. The merge requires *sha* to be the head,
-    and the new head is its pusher's to verify, so the wait gates nothing
-    more; a review session's successor is already queued behind it.
+    * checks still pend and the PR's head has moved off *sha* ("moved"). A
+      merge requires *sha* to be the head, and the new head is its pusher's to
+      verify — a review of it is already queued behind this session.
+    * no complete rollup for :data:`REGISTRATION_SEC` ("none"): the commit
+      has no check coming, or GitHub isn't answering for it.
+
+    A check that registers and never finishes — a status its app never
+    reports, a job waiting on an environment approval — holds the wait until
+    the session's own timeout ends the run, which then reads as timed out.
     """
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     workflow = os.environ.get("GITHUB_WORKFLOW", "")
     last: dict[str, list[str]] | None = None
-    budget = WAIT_SEC
-    while budget >= POLL_SEC:
+    waited = 0
+    while True:
         sleep(POLL_SEC)
-        budget -= POLL_SEC
+        waited += POLL_SEC
         current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
         if current is None:
+            if last is None and waited >= REGISTRATION_SEC:
+                return "none", None
             continue
         last = current
         if current["pending"]:
-            if pr and _head(pr=pr, repo=repo) not in {"", sha}:
+            if _head(pr=pr, repo=repo) not in {"", sha}:
                 return "moved", last
             continue
         sleep(CONFIRM_SEC)
-        budget -= CONFIRM_SEC
         current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
         if current is None:
             continue
         last = current
         if not current["pending"]:
             return "settled", current
-    return "capped", last
-
-
-def _run_conclusion(repo: str, failure: str) -> str | None:
-    """The conclusion of the Actions run behind a failed check.
-
-    "" for a status context, which names no run; None when the run can't be read.
-    """
-    match = RUN_ID_RE.search(failure)
-    if not match:
-        return ""
-    try:
-        view = github_cli.json_call(
-            "run",
-            "view",
-            match.group(1),
-            "--repo",
-            repo,
-            "--json",
-            "conclusion",
-            quiet=True,
-        )
-        return str(view["conclusion"])
-    except (subprocess.CalledProcessError, ValueError, KeyError, TypeError):
-        return None
 
 
 def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
@@ -312,16 +286,15 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
     concurrency group cancels a run, an `if: always()` merge-gate omnibus
     reports that as FAILURE rather than cancelled, and a replacement run is
     already under way. So a red with checks pending waits for them to settle,
-    and a red still standing at the cap approves only when every failing check
-    belongs to a cancelled Actions run. A run that can't be read decides nothing,
-    unless another failure is already real.
+    where the replacement's result supersedes the cancelled one's.
 
     A check that settled without a result — cancelled, stale, or a conclusion
     outside the passing set — never reached a verdict, so it cannot withhold on
-    its merits. It approves under the same policy, named as unverified so the
-    approval doesn't read as a check that passed.
+    its merits. It approves, named as unverified so the approval doesn't read
+    as a check that passed.
 
-    Whether *sha* is still the head is not judged here: the review skill posts
+    A head that moves during that wait leaves the approval undecided; otherwise
+    whether *sha* is still the head is not judged here: the review skill posts
     every review behind `review_preflight.py post`, which refuses a moved head.
     """
     repo = os.environ["GITHUB_REPOSITORY"]
@@ -336,28 +309,17 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
         print(f"could not read a complete check rollup for {sha}", file=sys.stderr)
         return 2
     if rollup["failed"] and rollup["pending"]:
-        _, rollup = _settle(repo=repo, sha=sha, sleep=sleep)
+        outcome, rollup = _settle(repo=repo, pr=pr, sha=sha, sleep=sleep)
+        if outcome == "moved":
+            print(f"PR head moved off {sha} while its checks pend", file=sys.stderr)
+            return 2
         if rollup is None:
             print(f"no complete rollup read for {sha} while waiting", file=sys.stderr)
             return 2
 
-    failures = rollup["failed"]
-    if failures and rollup["pending"]:
-        conclusions = [(f, _run_conclusion(repo, f)) for f in failures]
-        failures = [f for f, c in conclusions if c not in {"cancelled", None}]
-        unread = [f for f, c in conclusions if c is None]
-        if unread and not failures:
-            print(
-                f"could not read the run behind: {', '.join(unread)}", file=sys.stderr
-            )
-            return 2
-        if not failures:
-            print(f"approve: every failure on {sha} is a cancelled run; unverified:")
-            print(*rollup["pending"], *rollup["unverified"], sep="\n")
-            return 0
-    if failures:
+    if rollup["failed"]:
         print(f"withhold: red on {sha}:")
-        print(*failures, sep="\n")
+        print(*rollup["failed"], sep="\n")
         return 1
     if rollup["unverified"]:
         print(f"approve: no failing check on {sha}; unverified:")
@@ -375,7 +337,7 @@ def _unverified_note(rollup: dict[str, list[str]]) -> None:
 
 
 def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
-    """Poll one pinned PR commit until its checks settle or the cap expires."""
+    """Poll one pinned PR commit until its checks settle."""
     repo = os.environ["GITHUB_REPOSITORY"]
     try:
         github_cli.run("api", f"repos/{repo}/commits/{sha}", "--silent", quiet=True)
@@ -389,7 +351,14 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
             )
             return 2
 
-    outcome, last = _settle(repo=repo, sha=sha, sleep=sleep, pr=pr)
+    outcome, last = _settle(repo=repo, pr=pr, sha=sha, sleep=sleep)
+    if outcome == "none" or last is None:
+        print(
+            f"no check registered on {sha} within {REGISTRATION_SEC // 60} minutes "
+            "— UNVERIFIED, not green"
+        )
+        head_note(pr=pr, repo=repo, sha=sha)
+        return 2
     settled = outcome == "settled"
     if settled and last["failed"]:
         print(f"red on {sha}:")
@@ -406,21 +375,14 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
         print(f"green: every gating check on {sha} settled green")
         head_note(pr=pr, repo=repo, sha=sha)
         return 0
-    if last is None:
-        print(f"no gating check settled on {sha} — UNVERIFIED, not green")
-        head_note(pr=pr, repo=repo, sha=sha)
-        return 2
-    if outcome == "moved":
-        print(f"PR head moved off {sha} — still pending (UNVERIFIED, not green):")
-    else:
-        print(f"poll cap hit — still pending on {sha} (UNVERIFIED, not green):")
+    print(f"PR head moved off {sha} — still pending (UNVERIFIED, not green):")
     print(*last["pending"], sep="\n")
     if last["failed"]:
         print("failures observed so far (unconfirmed while checks pend):")
         print(*last["failed"], sep="\n")
     _unverified_note(last)
     head_note(pr=pr, repo=repo, sha=sha)
-    return 4 if outcome == "moved" else 3
+    return 3
 
 
 VERDICTS = {
@@ -428,8 +390,7 @@ VERDICTS = {
         0: "GREEN",
         1: "RED",
         2: "UNVERIFIED, not green",
-        3: "still pending at the cap — UNVERIFIED, not green",
-        4: "still pending when the PR head moved — UNVERIFIED, not green",
+        3: "still pending when the PR head moved — UNVERIFIED, not green",
     },
     "approval": {0: "approve", 1: "withhold", 2: "undecided — do not approve"},
 }

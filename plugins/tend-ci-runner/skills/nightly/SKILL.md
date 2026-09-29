@@ -211,8 +211,8 @@ uv run --script \
 
 The command commits, pushes, creates or updates the PR, records the pushed OID,
 removes the temporary worktree, and prints the PR number and URL. Poll that
-exact commit per `/tend-ci-runner:monitor-ci` — foreground,
-`timeout: 2400000`:
+exact commit per `/tend-ci-runner:monitor-ci` — foreground, with the
+longest command timeout the harness allows:
 
 ```bash
 uv run --script \

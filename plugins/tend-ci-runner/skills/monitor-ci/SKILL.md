@@ -36,9 +36,9 @@ uv run --script \
   "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" poll <number> "$PINNED_SHA"
 ```
 
-Run this command in the foreground with a 40-minute command timeout (`timeout: 2400000`); it caps its own wait below that.
+Run this command in the foreground with the longest command timeout the harness allows. It has no time limit of its own: it waits until every check settles, however long the repo's CI takes, and returns early only when the PR head moves while checks still pend.
 
-Exit 0 is green, judged on the latest run of each check — where one workflow ran twice *independently* on the same SHA, read the earlier run's own conclusion before relying on it. Exit 1 is red, with the failing checks and their run URLs: diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and poll the new commit. Any other exit or command timeout is **unverified, not green**. The cap is the whole poll budget — the pending count includes advisory jobs, and a benchmark matrix can run for an hour, so don't re-enter the loop; report the still-pending checks as unverified, marking each required or advisory (`gh pr checks <number> --required` lists the required contexts already registered on the commit; an omnibus that hasn't registered yet is required too).
+Exit 0 is green, judged on the latest run of each check — where one workflow ran twice *independently* on the same SHA, read the earlier run's own conclusion before relying on it. Exit 1 is red, with the failing checks and their run URLs: diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and poll the new commit. Any other exit or command timeout is **unverified, not green**. Exit 3 means the head moved: report the checks it lists as unverified, marking each required or advisory (`gh pr checks <number> --required` lists the required contexts already registered on the commit; an omnibus that hasn't registered yet is required too).
 
 When the system prompt says the merge mode is `yolo`, exit 0 is the merge gate. Re-read the PR and require it to be open with `headRefOid == PINNED_SHA`, then merge through the pull-request REST endpoint with that SHA. Never use auto-merge, never omit `sha`, and leave the PR open if the head moved or GitHub refuses the merge:
 
@@ -79,4 +79,4 @@ uv run --script \
   "${CLAUDE_PLUGIN_ROOT}/scripts/rerun_failed_jobs.py" <run-id>
 ```
 
-Same foreground invocation and `timeout` as above. Exit 0 prints each job's conclusion — `completed` is not `success`; the follow-up turns on the conclusions. Any other exit means the rerun never took or the jobs are still running at the cap: report them as unverified rather than re-entering.
+Same foreground invocation as above; it waits until the re-run jobs finish. Exit 0 prints each job's conclusion — `completed` is not `success`; the follow-up turns on the conclusions. Any other exit means the rerun never took: report the jobs as unverified.

@@ -14,7 +14,6 @@ from collections.abc import Callable
 from typing import Any
 
 import github_cli
-from poll_pr_checks import POLL_SEC, WAIT_SEC
 
 
 def _run_attempt(path: str) -> int:
@@ -66,19 +65,15 @@ def main(
         print(f"attempt {attempt} exists but lists no jobs yet — UNVERIFIED")
         return 1
 
-    waited = 0
+    # No time bound: the jobs end by their own timeouts, or the session's ends
+    # the wait.
     while True:
         jobs = [_job(run_api, job_id) for job_id in job_ids]
         if all(job["status"] == "completed" for job in jobs):
             for job in jobs:
                 print(f"{job.get('conclusion') or ''}\t{job['name']}")
             return 0
-        if waited >= WAIT_SEC:
-            break
-        sleep(POLL_SEC)
-        waited += POLL_SEC
-    print(f"Rerun jobs still running after {WAIT_SEC // 60} minutes — UNVERIFIED")
-    return 3
+        sleep(60)
 
 
 if __name__ == "__main__":

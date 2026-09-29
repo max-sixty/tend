@@ -132,8 +132,8 @@ def launch_argv(
     timeout from Claude Code's 10-minute default to the run's own bound. A
     command past its timeout is moved to the background, and a headless run
     doesn't reliably act on its completion, so a wait that must end in the
-    foreground — a CI poll ahead of a merge or a dismissal — is sized by the
-    step that waits, not by this default.
+    foreground — a CI poll ahead of a merge or a dismissal — runs as long as
+    the checks it waits on.
 
     The model, tools and prompts are argv rather than environment: nothing on
     the far side reads them, and ``--permission-mode`` is what actually sets
