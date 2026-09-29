@@ -214,6 +214,7 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
         return _result(args)
 
     monkeypatch.setattr(codex_runner, "_run", run)
+    monkeypatch.setattr(codex_runner.time, "time", lambda: 1_000_000.4)
 
     assert codex_runner.main(["run"]) == 7
     codex = next(args for args, _kwargs in calls if "/opt/codex/bin/codex" in args)
@@ -229,6 +230,7 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
     assert "OPENAI_API_KEY=real-openai-key" not in launch
     assert "BOT_NAME=tend-bot" in launch
     assert "BOT_ID=123" in launch
+    assert f"TEND_DEADLINE={1_000_000 + 6 * 3600 - 10 * 60}" in launch
     assert "NO_PROXY=" in launch
     assert "no_proxy=" in launch
     codex_at = launch.index("/opt/codex/bin/codex")
@@ -256,6 +258,8 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
         'shell_environment_policy.set.no_proxy="localhost,127.0.0.1"',
         "--config",
         'cli_auth_credentials_store="file"',
+        "--config",
+        "background_terminal_max_timeout=21600000",
         "--config",
         'model_reasoning_effort="high"',
         "Review this",
@@ -303,6 +307,8 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
         str(run_dir / "codex-final-message.md"),
         "--config",
         'cli_auth_credentials_store="file"',
+        "--config",
+        "background_terminal_max_timeout=21600000",
         "Review this",
     ]
 

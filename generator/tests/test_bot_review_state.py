@@ -296,32 +296,32 @@ def test_threads_filters_to_unresolved_threads_started_by_the_bot(
             },
         }
 
-    _write(
-        env,
-        "GRAPHQL_JSON",
-        {
-            "data": {
-                "repository": {
-                    "pullRequest": {
-                        "reviewThreads": {
-                            "nodes": [
-                                thread("keep"),
-                                thread("resolved", resolved=True),
-                                thread("human", bot="human"),
-                            ]
-                        }
+    def page(*threads: dict) -> str:
+        return json.dumps(
+            {
+                "data": {
+                    "repository": {
+                        "pullRequest": {"reviewThreads": {"nodes": list(threads)}}
                     }
                 }
             }
-        },
+        )
+
+    # `gh api graphql --paginate` prints one document per page. A PR past 100
+    # threads keeps its newest ones on the later pages.
+    Path(env["GRAPHQL_JSON"]).write_text(
+        page(thread("keep"), thread("resolved", resolved=True))
+        + page(thread("human", bot="human"), thread("newest"))
     )
 
     result = _run_cli(env, "threads", "7")
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == [
-        {"id": "keep", "path": "a.py", "line": 3, "body": "finding"}
+        {"id": "keep", "path": "a.py", "line": 3, "body": "finding"},
+        {"id": "newest", "path": "a.py", "line": 3, "body": "finding"},
     ]
+    assert "--paginate" in Path(env["GH_CALLS"]).read_text()
 
 
 def test_resolve_thread_uses_the_graphql_mutation(env: dict[str, str]) -> None:

@@ -13,6 +13,10 @@ from urllib.parse import quote
 
 import github_cli
 
+#: GitHub search returns at most 1000 results, so both searches below read to
+#: the API's own ceiling rather than a guessed count.
+SEARCH_LIMIT = 1000
+
 
 def correction_report(
     *,
@@ -82,7 +86,11 @@ def main(argv: list[str] | None = None) -> int:
         "--state",
         "all",
         "--limit",
-        "200",
+        str(SEARCH_LIMIT),
+        # Selected by closure, not recency: the newest bot PRs by creation
+        # miss an older one a maintainer closed inside the window.
+        "--search",
+        f"closed:>={since}",
         "--json",
         "number,title,state,closedAt",
     )
@@ -105,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         "--state",
         "all",
         "--limit",
-        "200",
+        str(SEARCH_LIMIT),
         "--search",
         f"updated:>={since}",
         "--json",

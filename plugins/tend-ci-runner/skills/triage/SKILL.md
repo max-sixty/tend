@@ -43,8 +43,10 @@ Classify into one of:
 *Skip for questions and other.*
 
 ```bash
-# Search open issues for similar problems
-gh issue list --state open --json number,title,labels --limit 200
+# Search open issues for similar problems. <keywords>: the symptom, error
+# text, or component the issue names, and the words another reporter would
+# use for it; search matches titles and bodies, so run one per term
+gh issue list --state open --search "<keywords>" --json number,title,labels --limit 100
 
 # Check for existing fix branches and PRs
 git branch -r --list 'origin/fix/*'

@@ -18,6 +18,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "shared/steps"))
@@ -26,6 +27,10 @@ import _prompt
 import _sandbox
 
 PLUGIN_ROOT_PREFIX = "Installed plugin root: "
+#: How long a Codex run may last. Nothing here bounds it: GitHub's 6-hour cap
+#: on the job does, less the 10 minutes the Claude action's default bound
+#: leaves for the job's other steps.
+RUN_BOUND_SEC = 6 * 3600 - 10 * 60
 
 
 def _run(
@@ -226,6 +231,12 @@ def run_codex() -> int:
         *auth_args,
         "--config",
         'cli_auth_credentials_store="file"',
+        # How long one empty `write_stdin` may wait on a running command; it
+        # returns as soon as the command exits. Codex's 5-minute default turns
+        # a long foreground wait — a CI poll — into a model turn every five
+        # minutes, so it is lifted to GitHub's 6-hour cap on the whole job.
+        "--config",
+        "background_terminal_max_timeout=21600000",
     ]
     effort = os.environ.get("EFFORT", "")
     if effort:
@@ -243,6 +254,8 @@ def run_codex() -> int:
         f"BOT_NAME={os.environ.get('BOT_NAME', '')}",
         f"BOT_ID={os.environ.get('BOT_ID', '')}",
         f"CI={os.environ.get('CI') or 'true'}",
+        # When the run ends, so a wait on CI can hand control back before it.
+        f"TEND_DEADLINE={int(time.time()) + RUN_BOUND_SEC}",
     ]
     result = _run(launch, check=False)
     return result.returncode

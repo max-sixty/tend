@@ -591,6 +591,7 @@ def test_launch_only_adds_harness_names_inside_the_sandbox(
     # The fixture has to overwrite it, or the crossing below carries that run's
     # flags into a launch the test never configured for them.
     monkeypatch.setenv("TEND_AUTO_MEMORY_SETTINGS", "/host-run/.tend-settings.json")
+    monkeypatch.setattr(run_claude.time, "time", lambda: 1_000_000.4)
     result = launch(stream=_ev_result())
     argv = result.command("claude").argv
     crossing = argv[1 : argv.index("claude")]
@@ -600,6 +601,9 @@ def test_launch_only_adds_harness_names_inside_the_sandbox(
         "BOT_NAME=tend-bot",
         "BOT_ID=42",
         "CI=true",
+        "BASH_MAX_TIMEOUT_MS=900000",
+        # The supervisor's bound, from launch: the 900s timeout the fixture sets.
+        "TEND_DEADLINE=1000900",
     ]
     assert argv[0] == "/usr/bin/env"
 

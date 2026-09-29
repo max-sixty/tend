@@ -224,7 +224,7 @@ Build the review payload — inline comments, `commit_id`, the preflight-wrapped
 
 If you **stayed silent** (no review posted, nothing to dismiss), finish — there's no follow-up gated on the CI result. Don't background-poll: per `/tend-ci-runner:run-tend` under "End the turn only when work is shipped", the completion notification isn't reliably delivered to a CI session.
 
-If you **approved**, the dismissal-on-failure is a gated follow-up. Poll in the foreground per `/tend-ci-runner:monitor-ci`, pinned to `$TMPDIR/reviewed-head`, then handle the outcome per **After the approval** in `references/approving.md`. If the PR head moves while polling, stop polling the stale commit; the queued review handles the new HEAD.
+If you **approved**, the dismissal-on-failure is a gated follow-up. Poll in the foreground per `/tend-ci-runner:monitor-ci`, pinned to `$TMPDIR/reviewed-head`, then handle the outcome per **After the approval** in `references/approving.md`. If the PR head moves while checks still pend, the poll ends on its own; the queued review handles the new HEAD.
 
 ### 8. Resolve handled suggestions
 

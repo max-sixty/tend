@@ -15,8 +15,10 @@ import importlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -186,6 +188,7 @@ def env(tmp_path: Path) -> dict[str, str]:
         "GITHUB_REPOSITORY": "owner/repo",
         "GITHUB_RUN_ID": "555",
         "GITHUB_WORKFLOW": "tend-review",
+        "TEND_DEADLINE": str(START + 24 * 3600),
     }
 
 
@@ -201,19 +204,47 @@ def _serve_page(env: dict[str, str], cursor: str, response: str) -> None:
     (Path(env["ROLLUP_DIR"]) / f"page-{cursor}.json").write_text(response)
 
 
+class WaitNeverEnded(Exception):
+    """The script under test was still waiting after :data:`SLEEP_LIMIT` sleeps."""
+
+
+#: The fake wall clock's reading when a script starts.
+START = 1_000_000.0
+#: The waits run to the session's end, a day away in the fixture, so a guard
+#: stops one that never ends well before the clock gets there.
+SLEEP_LIMIT = 200
+
+
+class FakeClock:
+    """A wall clock that each fake sleep advances, standing in for ``time``."""
+
+    def __init__(self) -> None:
+        self.now = START
+        self.sleeps = 0
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps += 1
+        if self.sleeps > SLEEP_LIMIT:
+            raise WaitNeverEnded
+        self.now += seconds
+
+
 def _invoke(
     module: object,
     env: dict[str, str],
     args: list[str],
     *,
-    sleep: Callable[[float], None] = lambda _: None,
+    sleep: Callable[[float], None] | None = None,
+    clock: FakeClock | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    clock = clock or FakeClock()
     stdout, stderr = io.StringIO(), io.StringIO()
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setattr(os, "environ", env.copy())
+        monkeypatch.setattr(time, "time", lambda: clock.now)
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             try:
-                returncode = module.main(args, sleep=sleep)
+                returncode = module.main(args, sleep=sleep or clock.sleep)
             except subprocess.CalledProcessError as error:
                 returncode = error.returncode
     return subprocess.CompletedProcess(
@@ -224,7 +255,7 @@ def _invoke(
 def _poll_args(
     env: dict[str, str],
     *args: str,
-    sleep: Callable[[float], None] = lambda _: None,
+    sleep: Callable[[float], None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return _invoke(poll_pr_checks, env, ["poll", *args], sleep=sleep)
 
@@ -251,10 +282,10 @@ MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
 
 
 @pytest.mark.parametrize(
-    ("responses", "runs", "verdict", "named", "polled"),
+    ("responses", "verdict", "named", "polled"),
     [
         # Nothing failing approves at once, even beside a running check.
-        ((_resp(_check_run("tests"), MATRIX_RUNNING),), {}, "approve:", "", False),
+        ((_resp(_check_run("tests"), MATRIX_RUNNING),), "approve:", "", False),
         # This run and tend-review are all there is: nothing else gates.
         (
             (
@@ -263,7 +294,6 @@ MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
                     _check_run("review", status="IN_PROGRESS", workflow="tend-review"),
                 ),
             ),
-            {},
             "approve:",
             "",
             False,
@@ -271,7 +301,6 @@ MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
         # A red with nothing pending is terminal.
         (
             (_resp(OMNIBUS_RED, _check_run("matrix")),),
-            {},
             "withhold: red",
             "check-ok-to-merge",
             False,
@@ -284,32 +313,26 @@ MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
                     _check_run("check-ok-to-merge", run_id=101), _check_run("matrix")
                 ),
             ),
-            {},
             "approve:",
             "",
             True,
         ),
-        # Still pending at the cap: a red from a cancelled run approves, naming
-        # what never finished ...
+        # A red that still stands once the rest settles withholds ...
         (
-            (_resp(OMNIBUS_RED, MATRIX_RUNNING),),
-            {100: "cancelled"},
-            "approve:",
-            "matrix",
-            True,
-        ),
-        # ... a real failure withholds ...
-        (
-            (_resp(OMNIBUS_RED, MATRIX_RUNNING),),
-            {100: "failure"},
+            (
+                _resp(OMNIBUS_RED, MATRIX_RUNNING),
+                _resp(OMNIBUS_RED, _check_run("matrix")),
+            ),
             "withhold: red",
             "check-ok-to-merge",
             True,
         ),
-        # ... and so does a status context, which names no run to inspect.
+        # ... and so does a status context.
         (
-            (_resp(_status_ctx("codecov/patch", "FAILURE"), MATRIX_RUNNING),),
-            {},
+            (
+                _resp(_status_ctx("codecov/patch", "FAILURE"), MATRIX_RUNNING),
+                _resp(_status_ctx("codecov/patch", "FAILURE"), _check_run("matrix")),
+            ),
             "withhold: red",
             "codecov/patch",
             True,
@@ -319,16 +342,11 @@ MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
 def test_approval_verdict(
     env: dict[str, str],
     responses: tuple[str, ...],
-    runs: dict[int, str],
     verdict: str,
     named: str,
     polled: bool,
 ) -> None:
     _serve(env, *responses)
-    for run_id, conclusion in runs.items():
-        (Path(env["RUN_DIR"]) / f"{run_id}.json").write_text(
-            json.dumps({"conclusion": conclusion})
-        )
 
     result = _approval(env)
 
@@ -338,29 +356,18 @@ def test_approval_verdict(
     assert (Path(env["GRAPHQL_CALLS"]).read_text().strip() != "1") is polled
 
 
-@pytest.mark.parametrize(
-    ("also_failing", "returncode", "stdout"),
-    [
-        # The only failure's run can't be read: nothing is decided.
-        ((), 2, ""),
-        # Another failure is real, so the unreadable run can't change the verdict.
-        ((_check_run("lint", conclusion="FAILURE", run_id=300),), 1, "withhold: red"),
-    ],
-)
-def test_approval_with_a_run_it_cannot_read(
-    env: dict[str, str], also_failing: tuple[dict, ...], returncode: int, stdout: str
+def test_approval_is_undecided_when_the_head_moves_while_it_waits(
+    env: dict[str, str],
 ) -> None:
-    """`gh run view` exits 1 on a 5xx or a run id this repo can't resolve, which
-    is also `withhold:`'s code — so the failure has to be decided, not escape."""
-    _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING, *also_failing))
-    (Path(env["RUN_DIR"]) / "300.json").write_text(
-        json.dumps({"conclusion": "failure"})
-    )
+    """A red beside running checks waits for them, and a push during that wait
+    makes the reviewed commit's approval moot."""
+    Path(env["HEAD_JSON"]).write_text(json.dumps({"headRefOid": "b" * 40}))
+    _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING))
 
     result = _approval(env)
 
-    assert result.returncode == returncode, result.stdout + result.stderr
-    assert result.stdout.startswith(stdout)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "moved" in result.stderr
 
 
 def test_red_names_the_failing_check_with_its_url(env: dict[str, str]) -> None:
@@ -540,12 +547,20 @@ def test_queued_replacement_without_startedat_stays_pending(
             ),
             _check_run("tests", status="QUEUED", run_id=222, started=None),
         ),
+        _resp(
+            _check_run(
+                "tests",
+                conclusion="FAILURE",
+                run_id=111,
+                started="2026-01-01T00:00:00Z",
+            ),
+            _check_run("tests", run_id=222, started="2026-01-01T01:00:00Z"),
+        ),
     )
 
     result = _poll(env)
 
-    assert result.returncode == 3, "an unsettled FAILURE was reported as a verdict"
-    assert "UNVERIFIED" in result.stdout
+    assert result.returncode == 0, "an unsettled FAILURE was reported as a verdict"
 
 
 def test_own_run_and_same_workflow_are_filtered(env: dict[str, str]) -> None:
@@ -572,9 +587,10 @@ def test_own_run_and_same_workflow_are_filtered(env: dict[str, str]) -> None:
 
 def test_tend_review_does_not_gate(env: dict[str, str]) -> None:
     """`tend-review` fires on the very push this poll is verifying, so its
-    agent job is created seconds after the loop starts and routinely outlives
-    the 9-minute cap — every session that pushes to a PR would report
-    UNVERIFIED with every repo check already green.
+    agent job is created seconds after the loop starts and can outlive the
+    whole wait — a session that pushes to a PR would report UNVERIFIED with
+    every repo check already green, waiting on a job that is no verdict on
+    the code.
 
     Both checks are deliberately named `review`: the exemption keys on the
     workflow, so a repo's own same-named job must survive it."""
@@ -610,11 +626,15 @@ def test_filtering_to_empty_never_reads_green(env: dict[str, str]) -> None:
 
 
 def test_pending_status_context_gates(env: dict[str, str]) -> None:
-    _serve(env, _resp(_check_run("tests"), _status_ctx("codecov/patch", "PENDING")))
+    _serve(
+        env,
+        _resp(_check_run("tests"), _status_ctx("codecov/patch", "PENDING")),
+        _resp(_check_run("tests"), _status_ctx("codecov/patch", "FAILURE")),
+    )
 
     result = _poll(env)
 
-    assert result.returncode == 3
+    assert result.returncode == 1
     assert "codecov/patch" in result.stdout
 
 
@@ -683,16 +703,97 @@ def test_truncated_pagination_never_reads_green(env: dict[str, str]) -> None:
     assert "UNVERIFIED, not green" in result.stdout
 
 
-def test_cap_report_survives_a_late_api_blip(env: dict[str, str]) -> None:
-    """A transient failure on a later iteration must not discard what earlier
-    polls saw: the cap report still names the pending checks instead of
-    misdiagnosing 'no rollup'."""
-    _serve(env, _resp(_check_run("slow-matrix", status="IN_PROGRESS")), NULL_ROLLUP)
+def test_a_late_api_blip_does_not_end_the_wait(env: dict[str, str]) -> None:
+    """A read that fails after a complete one is a blip, not a commit with no
+    checks: the wait goes on to the checks' result."""
+    _serve(
+        env,
+        _resp(_check_run("slow-matrix", status="IN_PROGRESS")),
+        NULL_ROLLUP,
+        _resp(_check_run("slow-matrix")),
+    )
 
     result = _poll(env)
 
-    assert result.returncode == 3
-    assert "slow-matrix" in result.stdout
+    assert result.returncode == 0, result.stdout
+
+
+def test_a_check_that_never_finishes_holds_the_wait(env: dict[str, str]) -> None:
+    """No fixed bound: a slow suite is waited out for as long as the session
+    has left."""
+    _serve(env, _resp(_check_run("slow-matrix", status="IN_PROGRESS")))
+
+    with pytest.raises(WaitNeverEnded):
+        _poll(env)
+
+
+def test_a_check_that_never_finishes_is_reported_before_the_session_ends(
+    env: dict[str, str],
+) -> None:
+    """A check that never settles would hold the wait until the session is
+    killed with nothing reported, so the poll hands back in time to report it."""
+    _serve(env, _resp(_check_run("cla", status="IN_PROGRESS")))
+    env["TEND_DEADLINE"] = str(START + 2 * 3600)
+    clock = FakeClock()
+
+    result = _invoke(poll_pr_checks, env, ["poll", "7", HEAD_SHA], clock=clock)
+
+    assert result.returncode == 3, result.stdout
+    assert f"session ending on {HEAD_SHA}" in result.stdout
+    assert "cla" in result.stdout
+    assert clock.now <= START + 2 * 3600 - poll_pr_checks.session_end.REPORT_SEC
+
+
+def test_approval_is_undecided_when_the_session_ends_while_it_waits(
+    env: dict[str, str],
+) -> None:
+    _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING))
+    env["TEND_DEADLINE"] = str(START + 2 * 3600)
+
+    result = _approval(env)
+
+    assert result.returncode == 2, result.stdout
+    assert "session ending" in result.stderr
+
+
+def test_a_poll_started_late_still_reads_the_checks(env: dict[str, str]) -> None:
+    """A poll started past the hand-back time reports what pends, not nothing."""
+    _serve(env, _resp(_check_run("cla", status="IN_PROGRESS")))
+    env["TEND_DEADLINE"] = str(START)
+
+    result = _poll(env)
+
+    assert result.returncode == 3, result.stdout
+    assert "cla" in result.stdout
+
+
+def test_outside_a_session_the_wait_has_no_deadline(env: dict[str, str]) -> None:
+    del env["TEND_DEADLINE"]
+    _serve(env, _resp(_check_run("slow-matrix", status="IN_PROGRESS")))
+
+    with pytest.raises(WaitNeverEnded):
+        _poll(env)
+
+
+def test_a_malformed_deadline_is_unverified_not_red(env: dict[str, str]) -> None:
+    """Exit 1 means red, so a deadline the script can't read ends it as 2."""
+    env["TEND_DEADLINE"] = "soon"
+
+    assert _poll(env).returncode == 2
+    assert _rerun(env).returncode == 2
+
+
+def test_a_commit_with_no_checks_is_unverified(env: dict[str, str]) -> None:
+    """No check registered and none ever coming look the same, so a commit
+    that shows none for the registration margin reads as having none."""
+    _serve(env, NULL_ROLLUP)
+    slept: list[float] = []
+
+    result = _poll_args(env, "7", HEAD_SHA, sleep=slept.append)
+
+    assert result.returncode == 2, result.stdout
+    assert "no check registered" in result.stdout
+    assert sum(slept) == poll_pr_checks.REGISTRATION_SEC
 
 
 def test_waits_out_pending_then_reports_green(env: dict[str, str]) -> None:
@@ -707,25 +808,6 @@ def test_waits_out_pending_then_reports_green(env: dict[str, str]) -> None:
     assert result.returncode == 0
     # One poll saw pending, the settle needed the 30s grace re-check: 3 calls.
     assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "3"
-
-
-def test_a_flapping_rollup_stays_inside_the_sleep_budget(
-    env: dict[str, str],
-) -> None:
-    """A check appearing during confirmation consumes the same sleep budget.
-
-    Charging each pass its own confirmation slept 810 seconds instead of
-    staying within the 570-second bound on settle sleeps.
-    """
-    clean = _resp(_check_run("tests"))
-    pending = _resp(_check_run("tests"), _check_run("late", status="QUEUED"))
-    _serve(env, *([clean, pending] * 12))
-    slept: list[float] = []
-
-    result = _poll_args(env, "7", HEAD_SHA, sleep=slept.append)
-
-    assert result.returncode == 3, result.stdout + result.stderr
-    assert sum(slept) <= poll_pr_checks.MAX_SLEEP_SEC
 
 
 def test_abbreviated_sha_is_rejected_at_entry(env: dict[str, str]) -> None:
@@ -791,6 +873,24 @@ def test_moved_head_is_reported_not_absorbed(env: dict[str, str]) -> None:
     assert HEAD_SHA in result.stdout
     assert "pr view 7 --repo owner/repo" in Path(env["GH_CALLS"]).read_text(), (
         "the head re-read must name the repo explicitly"
+    )
+
+
+def test_a_head_moved_while_checks_pend_ends_the_wait(env: dict[str, str]) -> None:
+    """The wait holds the session's concurrency group, and a review of the
+    new head queues behind it — so once the pinned commit can no longer be
+    merged or approved, waiting out its checks only delays that review."""
+    Path(env["HEAD_JSON"]).write_text(json.dumps({"headRefOid": "b" * 40}))
+    _serve(env, _resp(_check_run("tests", status="IN_PROGRESS")))
+
+    result = _poll(env)
+
+    assert result.returncode == 3, result.stdout
+    assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "1"
+    assert f"PR head moved off {HEAD_SHA}" in result.stdout
+    assert "tests" in result.stdout
+    assert result.stdout.splitlines()[-1] == (
+        f"verdict: still pending — UNVERIFIED, not green on {HEAD_SHA} (exit 3)"
     )
 
 
@@ -921,12 +1021,49 @@ def test_rerun_fails_when_no_attempt_surfaces(env: dict[str, str]) -> None:
     assert "did not take" in result.stdout
 
 
-def test_rerun_cap_reports_unverified(env: dict[str, str]) -> None:
+def test_rerun_waits_out_jobs_still_running(env: dict[str, str]) -> None:
+    """No fixed bound: a re-run job that outlasts any fixed wait still reports."""
     _attempts(env, 1, 2)
     _jobs_list(env, (11, "queued", 2))
     _job(env, 11, "in_progress", "", "tests")
+    polls: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        if seconds == 60:
+            polls.append(seconds)
+            if len(polls) == 45:
+                _job(env, 11, "completed", "failure", "tests")
+
+    result = _invoke(rerun_failed_jobs, env, ["9000"], sleep=sleep)
+
+    assert result.returncode == 0, result.stdout
+    assert "failure\ttests" in result.stdout
+
+
+def test_rerun_reports_jobs_still_running_before_the_session_ends(
+    env: dict[str, str],
+) -> None:
+    _attempts(env, 1, 2)
+    _jobs_list(env, (11, "queued", 2))
+    _job(env, 11, "queued", "", "tests (self-hosted)")
+    env["TEND_DEADLINE"] = str(START + 2 * 3600)
 
     result = _rerun(env)
 
-    assert result.returncode == 3
-    assert "UNVERIFIED" in result.stdout
+    assert result.returncode == 3, result.stdout
+    assert "queued\ttests (self-hosted)" in result.stdout
+
+
+def test_skills_leave_the_wait_to_the_scripts() -> None:
+    """A command timeout a skill names cuts the wait short, and under Claude
+    the harness then moves the command to the background, where a headless run
+    doesn't reliably act on its result — the merge or dismissal it gated never
+    happens. The scripts end their own waits."""
+    skills = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
+    named = [
+        f"{path.relative_to(skills)}: {match}"
+        for path in skills.rglob("*.md")
+        for match in re.findall(r"`timeout: \d+`", path.read_text())
+    ]
+
+    assert named == []

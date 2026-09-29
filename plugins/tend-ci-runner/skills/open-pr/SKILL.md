@@ -58,8 +58,7 @@ A separate mention on a different issue/PR can trigger a concurrent run asking f
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
-gh pr list --state all --author "$BOT_LOGIN" --limit 200 \
-  --json number,title,state,mergedAt,headRefName,createdAt
+gh pr list --state all --author "$BOT_LOGIN" --limit 200 --json number,title,state
 ```
 
 When the trigger is an issue/PR comment, also search for sibling PRs that reference that issue number — a merged PR's title or body often cites the issue (`Fixes #123`, `#123` in title) even when the branch name diverged:

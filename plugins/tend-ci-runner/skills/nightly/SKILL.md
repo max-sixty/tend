@@ -82,18 +82,23 @@ Resolve conflicts for this bot and upstream dependency bots per
 
 ## Step 4: Review recent commits
 
+Review every commit since the last nightly that succeeded, so a night that was skipped, failed, or paused leaves its commits for this one rather than dropping them:
+
 ```bash
-git log --since='24 hours ago' --oneline main
+DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
+git fetch origin "$DEFAULT_BRANCH"
+LAST=$(gh run list --workflow tend-nightly --branch "$DEFAULT_BRANCH" --status success \
+  --limit 1 --json headSha --jq '.[0].headSha // empty')
+# No earlier success, or its commit is gone from history: the last 24 hours.
+git merge-base --is-ancestor "$LAST" "origin/$DEFAULT_BRANCH" 2>/dev/null \
+  || LAST=$(git rev-list -1 --before='24 hours ago' "origin/$DEFAULT_BRANCH")
+git log --format='%h %s' "$LAST..origin/$DEFAULT_BRANCH"
 ```
 
-If no commits in the past 24 hours, skip this step.
-
-Get the aggregate diff:
+If that lists no commits, skip this step. Otherwise get the aggregate diff:
 
 ```bash
-OLDEST=$(git log --since='24 hours ago' --format='%H' main | tail -1)
-git diff ${OLDEST}^..HEAD
-git log --since='24 hours ago' --format='%h %s' main
+git diff "$LAST" "origin/$DEFAULT_BRANCH"
 ```
 
 Read the project's instruction files before reviewing. Apply the review checklist below to the diff, focusing on changes rather than unchanged code. Also check whether those instructions need updating to reflect the new code (e.g., new file paths, changed commands, removed patterns).
@@ -206,8 +211,8 @@ uv run --script \
 
 The command commits, pushes, creates or updates the PR, records the pushed OID,
 removes the temporary worktree, and prints the PR number and URL. Poll that
-exact commit per `/tend-ci-runner:monitor-ci` — foreground,
-`timeout: 600000`:
+exact commit per `/tend-ci-runner:monitor-ci` — foreground, with the
+longest command timeout the harness allows:
 
 ```bash
 uv run --script \
