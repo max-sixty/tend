@@ -1451,14 +1451,14 @@ def test_fork_guard_rendered_shape_regtest(
 
 def test_tend_enabled_variable_guards_every_agent_job(tmp_path: Path) -> None:
     """Every job that can boot the agent checks the TEND_ENABLED variable
-    before a runner starts, itself or through a job it `needs`; the workflows
-    that run no agent carry none."""
+    before a runner starts, itself or through a job it `needs`, as does the
+    relay that only feeds one; the other workflows that run no agent carry
+    none."""
     cfg = Config.load(
         _minimal_config(tmp_path, _extra_for("ci-fix") + "harness: codex\n")
     )
     cfg.repo_owner = "test-owner"
     no_agent = {
-        "tend-mention-relay.yaml",
         "tend-codex-auth-refresh.yaml",
         "tend-install-test.yaml",
     }

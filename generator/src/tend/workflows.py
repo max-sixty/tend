@@ -197,9 +197,9 @@ _JINJA.globals["bookkeeping_labels"] = BOOKKEEPING_LABELS
 # variable resumes them; unset reads as enabled. Only a repository or
 # organization variable works: GitHub evaluates `jobs.<id>.if` before the job
 # enters the `tend` environment, so an environment variable is invisible to it.
-# Jobs that run no agent carry no check — the relay dispatches into
-# tend-mention's checked verify job, and the Codex refresher keeps a paused
-# subscription's tokens valid.
+# The relay carries it too, though it boots no agent: everything it dispatches
+# would be skipped. The Codex refresher does not, so a paused subscription's
+# tokens stay valid.
 TEND_ENABLED_CONDITION = "vars.TEND_ENABLED != 'false'"
 _JINJA.globals["tend_enabled"] = TEND_ENABLED_CONDITION
 _JINJA.globals["uv_version"] = UV_VERSION
