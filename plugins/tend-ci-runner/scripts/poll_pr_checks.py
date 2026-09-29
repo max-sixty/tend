@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 import github_cli
 
@@ -37,7 +37,8 @@ CONFIRM_SEC = 30
 #: How long a session waits on a consumer's CI before reporting it unverified,
 #: here and in `rerun_failed_jobs.py`. The wait holds the session's runner and
 #: concurrency group, so it is sized to consumers' CI rather than left open:
-#: their slowest PR check that gates a merge ran 26 minutes (sampled 2026-09).
+#: the slowest check on their recent PRs ran 26 minutes, apart from advisory
+#: jobs that run past an hour and end up unverified (sampled 2026-09).
 #: Both polling and confirmation sleeps consume it. Each harness lets one
 #: foreground command run this long.
 WAIT_SEC = 30 * 60
@@ -219,15 +220,20 @@ def fetch_rollup(
     )
 
 
-def head_note(*, pr: str, repo: str, sha: str) -> None:
-    """Report a moved branch without retargeting the commit verdict."""
+def _head(*, pr: str, repo: str) -> str:
+    """The PR's current head, or "" when it can't be read."""
     try:
         response = github_cli.json_call(
             "pr", "view", pr, "--repo", repo, "--json", "headRefOid", quiet=True
         )
-        current = response.get("headRefOid") or ""
+        return response.get("headRefOid") or ""
     except (subprocess.CalledProcessError, ValueError, AttributeError):
-        current = ""
+        return ""
+
+
+def head_note(*, pr: str, repo: str, sha: str) -> None:
+    """Report a moved branch without retargeting the commit verdict."""
+    current = _head(pr=pr, repo=repo)
     if current and current != sha:
         print(
             f"note: branch advanced to {current} — the result above is still "
@@ -236,13 +242,18 @@ def head_note(*, pr: str, repo: str, sha: str) -> None:
 
 
 def _settle(
-    *, repo: str, sha: str, sleep: Callable[[float], None]
-) -> tuple[bool, dict[str, list[str]] | None]:
+    *, repo: str, sha: str, sleep: Callable[[float], None], pr: str = ""
+) -> tuple[Literal["settled", "capped", "moved"], dict[str, list[str]] | None]:
     """Poll until nothing pends on two reads 30s apart, or the budget expires.
 
-    Returns whether the rollup settled, and the last complete rollup read.
-    Both sleeps draw on :data:`WAIT_SEC`, so the total stays within
-    :data:`MAX_SLEEP_SEC` however often the rollup goes pending again.
+    Returns how the wait ended, and the last complete rollup read. Both sleeps
+    draw on :data:`WAIT_SEC`, so the total stays within :data:`MAX_SLEEP_SEC`
+    however often the rollup goes pending again.
+
+    Given *pr*, a read with checks still pending also ends the wait once the
+    PR's head has moved off *sha*. The merge requires *sha* to be the head,
+    and the new head is its pusher's to verify, so the wait gates nothing
+    more; a review session's successor is already queued behind it.
     """
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     workflow = os.environ.get("GITHUB_WORKFLOW", "")
@@ -256,6 +267,8 @@ def _settle(
             continue
         last = current
         if current["pending"]:
+            if pr and _head(pr=pr, repo=repo) not in {"", sha}:
+                return "moved", last
             continue
         sleep(CONFIRM_SEC)
         budget -= CONFIRM_SEC
@@ -264,8 +277,8 @@ def _settle(
             continue
         last = current
         if not current["pending"]:
-            return True, current
-    return False, last
+            return "settled", current
+    return "capped", last
 
 
 def _run_conclusion(repo: str, failure: str) -> str | None:
@@ -376,7 +389,8 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
             )
             return 2
 
-    settled, last = _settle(repo=repo, sha=sha, sleep=sleep)
+    outcome, last = _settle(repo=repo, sha=sha, sleep=sleep, pr=pr)
+    settled = outcome == "settled"
     if settled and last["failed"]:
         print(f"red on {sha}:")
         print(*last["failed"], sep="\n")
@@ -396,14 +410,17 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
         print(f"no gating check settled on {sha} — UNVERIFIED, not green")
         head_note(pr=pr, repo=repo, sha=sha)
         return 2
-    print(f"poll cap hit — still pending on {sha} (UNVERIFIED, not green):")
+    if outcome == "moved":
+        print(f"PR head moved off {sha} — still pending (UNVERIFIED, not green):")
+    else:
+        print(f"poll cap hit — still pending on {sha} (UNVERIFIED, not green):")
     print(*last["pending"], sep="\n")
     if last["failed"]:
         print("failures observed so far (unconfirmed while checks pend):")
         print(*last["failed"], sep="\n")
     _unverified_note(last)
     head_note(pr=pr, repo=repo, sha=sha)
-    return 3
+    return 4 if outcome == "moved" else 3
 
 
 VERDICTS = {
@@ -412,6 +429,7 @@ VERDICTS = {
         1: "RED",
         2: "UNVERIFIED, not green",
         3: "still pending at the cap — UNVERIFIED, not green",
+        4: "still pending when the PR head moved — UNVERIFIED, not green",
     },
     "approval": {0: "approve", 1: "withhold", 2: "undecided — do not approve"},
 }

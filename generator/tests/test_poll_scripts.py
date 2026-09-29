@@ -796,6 +796,24 @@ def test_moved_head_is_reported_not_absorbed(env: dict[str, str]) -> None:
     )
 
 
+def test_a_head_moved_while_checks_pend_ends_the_wait(env: dict[str, str]) -> None:
+    """The wait holds the session's concurrency group, and a review of the
+    new head queues behind it — so once the pinned commit can no longer be
+    merged or approved, waiting out its checks only delays that review."""
+    Path(env["HEAD_JSON"]).write_text(json.dumps({"headRefOid": "b" * 40}))
+    _serve(env, _resp(_check_run("tests", status="IN_PROGRESS")))
+
+    result = _poll(env)
+
+    assert result.returncode == 4, result.stdout
+    assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "1"
+    assert "tests" in result.stdout
+    assert result.stdout.splitlines()[-1] == (
+        f"verdict: still pending when the PR head moved — UNVERIFIED, not green "
+        f"on {HEAD_SHA} (exit 4)"
+    )
+
+
 def test_verdict_survives_a_piped_tail(env: dict[str, str]) -> None:
     """Sessions pipe the poll through `tail -N`, which keeps only the end of a
     long check list — so the last line has to carry the verdict on its own."""
