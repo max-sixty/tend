@@ -84,11 +84,6 @@ inputs:
       budget still gets the supervisor's clean kill and failure report
       instead of GitHub's own silent one. Short tasks finish well before
       the cap regardless.
-  mitmproxy_version:
-    default: "12.2.3"
-    description: >-
-      Pinned `mitmproxy` version for the credential-injection proxy. Pinned
-      so the uv download cache key is stable; bump to upgrade.
   uv_version:
     default: "0.12.19"
     description: >-
@@ -217,12 +212,21 @@ runs:
     # ACTION_PATH points at the repo root so setup_sandbox.py's proxy addon
     # path resolves. See ../proxy/setup_sandbox.py and
     # ../proxy/inject_credentials.py.
-    - name: Cache mitmproxy
+    # Restricted mode trusts the default branch's cache writes. Keyed on the
+    # lock the proxy installs from, which hashFiles can't reach outside the
+    # workspace.
+    - name: Hash the proxy lock
+      id: proxy_lock
+      if: inputs.merge == 'restricted'
+      shell: bash
+      run: echo "sha256=$(sha256sum "${{ github.action_path }}/../uv.lock" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache the proxy's uv downloads
       if: inputs.merge == 'restricted'
       uses: actions/cache@v6
       with:
-        path: ${{ runner.temp }}/tend-mitmproxy-uv
-        key: tend-mitmproxy-${{ runner.os }}-${{ inputs.mitmproxy_version }}
+        path: ${{ runner.temp }}/tend-proxy-uv
+        key: tend-proxy-uv-${{ runner.os }}-${{ inputs.uv_version }}-${{ steps.proxy_lock.outputs.sha256 }}
 
     - name: Set up credential-isolation sandbox
       # Resolve the interpreter outside consumer-controlled PATH: this step is
@@ -243,10 +247,9 @@ runs:
         # claude/ dir) so the script's `${ACTION_PATH}/proxy/inject_credentials.py`
         # resolves to the shared proxy addon at the top-level proxy/.
         ACTION_PATH: ${{ github.action_path }}/..
-        MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
         # Yolo keeps this job-local: bot-merged main code can poison shared caches.
-        UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
+        UV_CACHE_DIR: ${{ runner.temp }}/tend-proxy-uv
       run: |
         set +x
         /usr/bin/env -i \
@@ -263,7 +266,6 @@ runs:
           TEND_ANTHROPIC_API_KEY="$TEND_ANTHROPIC_API_KEY" \
           ACTION_PATH="$ACTION_PATH" \
           TEND_RUNTIME_ROOT="$TEND_RUNTIME_ROOT" \
-          MITMPROXY_VERSION="$MITMPROXY_VERSION" \
           TEND_UV_DIR="$TEND_UV_DIR" \
           UV_CACHE_DIR="$UV_CACHE_DIR" \
           UV_NO_CONFIG=1 \

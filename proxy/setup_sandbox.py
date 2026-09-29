@@ -166,6 +166,9 @@ def base_agent_env(path: str, anthropic_dummy: tuple[str, str] | None) -> list[s
         "GH_TOKEN": GITHUB_DUMMY,
         "GITHUB_TOKEN": GITHUB_DUMMY,
         "CLAUDE_CODE_REMOTE": "1",
+        # The action installs a pinned `claude`; a background update would
+        # swap a later invocation in the job onto whatever is newest.
+        "DISABLE_AUTOUPDATER": "1",
         "TMPDIR": str(AGENT_TMP_DIR),
     }
     if anthropic_dummy:
@@ -272,32 +275,49 @@ def _show_proxy_log(path: Path) -> None:
         pass
 
 
-def uvx_command(paths: Paths, *, version: str, args: list[str]) -> list[str]:
-    """Build a uv tool command pinned to the runner's trusted Python."""
+def mitmdump_command(paths: Paths, args: list[str]) -> list[str]:
+    """Run mitmdump from the proxy group's closure in the action's ``uv.lock``.
+
+    ``--frozen`` installs the locked versions and checks every distribution
+    against the lock's hashes, so nothing the process holding the real
+    credentials imports is resolved at job time. The venv lives in the private
+    dir, out of the agent's reach and gone with the runtime root.
+    ``--no-build`` refuses an sdist, whose build backend the lock doesn't pin.
+    The ``uv run --script`` running this file exports ``VIRTUAL_ENV``, which the
+    inner uv would only warn about.
+    """
     return [
-        str(paths.tend_uv_dir / "uvx"),
+        "/usr/bin/env",
+        "-u",
+        "VIRTUAL_ENV",
+        f"UV_PROJECT_ENVIRONMENT={paths.private_dir / 'tend-proxy-venv'}",
+        str(paths.tend_uv_dir / "uv"),
+        "run",
         "--no-config",
         "--no-python-downloads",
         "--python",
         "/usr/bin/python3",
-        "--from",
-        f"mitmproxy=={version}",
+        "--project",
+        str(paths.action_path),
+        "--frozen",
+        "--no-build",
+        "--only-group",
+        "proxy",
         "mitmdump",
         *args,
     ]
 
 
-def start_proxy(paths: Paths, *, version: str) -> bool:
+def start_proxy(paths: Paths) -> bool:
     paths.confdir.mkdir(parents=True, exist_ok=True)
     paths.confdir.chmod(0o700)
-    command(uvx_command(paths, version=version, args=["--version"]))
+    command(mitmdump_command(paths, ["--version"]))
     log("starting proxy")
     proxy_log = paths.proxy_log.open("wb")
     process = subprocess.Popen(
-        uvx_command(
+        mitmdump_command(
             paths,
-            version=version,
-            args=[
+            [
                 "-s",
                 str(paths.action_path / "proxy/inject_credentials.py"),
                 "--listen-host",
@@ -380,9 +400,6 @@ def main() -> int:
     os.environ["PATH"] = SYSTEM_PATH
     if not os.environ.get("TEND_GH_TOKEN"):
         return error("TEND_GH_TOKEN is unset; cannot start the credential proxy")
-    version = os.environ.get("MITMPROXY_VERSION", "")
-    if not version:
-        return error("MITMPROXY_VERSION is unset; the action must pin it")
     workspace_value = os.environ.get("GITHUB_WORKSPACE", "")
     if not workspace_value or not Path(workspace_value).is_dir():
         return error("GITHUB_WORKSPACE must name the job's checkout")
@@ -424,7 +441,7 @@ def main() -> int:
 
     if not strip_checkout_credentials(paths):
         return 1
-    if not start_proxy(paths, version=version):
+    if not start_proxy(paths):
         return 1
     auth = "GitHub" if github_only else "GitHub + Anthropic"
     log(f"done; agent runs as {SANDBOX}, {auth} auth via the proxy")
