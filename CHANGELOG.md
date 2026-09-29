@@ -6,6 +6,31 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.5
+
+### Improved
+
+- **The CI poll waits for checks to settle instead of giving up after 9 minutes.** `poll_pr_checks.py` has no time limit: it returns when every check settles, when checks still pend and the PR head moves off the pinned commit (exit 3, unverified), or when no check registers within 5 minutes. Claude runs raise `BASH_MAX_TIMEOUT_MS` and Codex runs raise `background_terminal_max_timeout` to the job's timeout, so one poll can outlast a slow CI. `rerun_failed_jobs.py` waits for its jobs the same way. ([#1448](https://github.com/max-sixty/tend/pull/1448), [#1450](https://github.com/max-sixty/tend/pull/1450))
+- A repo's overlay can name advisory checks for the poll to leave out, passed as `--skip '<check name>'`; the approval check honours the same skips. By default every check gates. ([#1450](https://github.com/max-sixty/tend/pull/1450))
+- Dedup lookups in ci-fix, triage, review-runs and review-reviewers search by keyword rather than scanning the newest 200 issues or PRs, and nightly reviews commits since the last successful nightly rather than the last 24 hours. ([#1448](https://github.com/max-sixty/tend/pull/1448))
+- The code-review pass ranks findings by a severity bar rather than a count cap. Nightly's issue sweep rotates through every open issue across seven nights, checking the bot's own issues every night. ([#1450](https://github.com/max-sixty/tend/pull/1450))
+- The credential proxy installs mitmproxy and its dependencies from Tend's `uv.lock` rather than resolving them from PyPI in each job. ([#1458](https://github.com/max-sixty/tend/pull/1458))
+
+### Fixed
+
+- Marking a notification read after a run reads every page of the repository's notifications; it previously read only the first 50 threads of the bot's whole inbox. ([#1457](https://github.com/max-sixty/tend/pull/1457))
+- Relayed `tend-mention` runs are named for their PR, so the notifications poll sees them as owning the thread. ([#1450](https://github.com/max-sixty/tend/pull/1450))
+- A paused repository (`TEND_ENABLED` false) no longer starts `tend-mention-relay` runs. ([#1452](https://github.com/max-sixty/tend/pull/1452))
+- A bot-authored PR's review applies its own findings rather than only commenting. ([#1433](https://github.com/max-sixty/tend/pull/1433))
+- Paginated reads that stopped at the first page now read every page: review threads in `bot_review_state.py`, a rerun's jobs, `token_report`'s workflow list, and review-reviewers' PR reviews. Weekly matches dependency PRs by the `app/dependabot` and `app/renovate` logins `gh` reports. ([#1448](https://github.com/max-sixty/tend/pull/1448), [#1442](https://github.com/max-sixty/tend/pull/1442), [#1435](https://github.com/max-sixty/tend/pull/1435), [#1441](https://github.com/max-sixty/tend/pull/1441), [#1457](https://github.com/max-sixty/tend/pull/1457))
+- `list_recent_runs.py` no longer widens its window from a stale cached run listing. ([#1444](https://github.com/max-sixty/tend/pull/1444))
+- ci-fix's tracker recurrence comments lead with what changed since the last one. ([#1446](https://github.com/max-sixty/tend/pull/1446))
+
+### Internal
+
+- Scripts use `gh api --paginate --slurp`, GraphQL `--paginate`, `codex plugin add --json` and `git diff -I` in place of hand-written equivalents; the CODEOWNERS preflight is one GraphQL query. ([#1457](https://github.com/max-sixty/tend/pull/1457))
+- The installer relies on Claude Code's native `AGENTS.md` loading. Claude Code 2.1.283 and Codex 0.157.1 are pinned. ([#1434](https://github.com/max-sixty/tend/pull/1434), [#1438](https://github.com/max-sixty/tend/pull/1438), [#1439](https://github.com/max-sixty/tend/pull/1439))
+
 ## 0.3.4
 
 ### Fixed
