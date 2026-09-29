@@ -10,7 +10,6 @@ import os
 import re
 import subprocess
 import sys
-from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -22,26 +21,8 @@ from inject_credentials import (
     CredentialInjector,
 )
 from mitmproxy.test import tflow, tutils
-from ruamel.yaml import YAML
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def test_pinned_mitmproxy_matches_the_actions() -> None:
-    # The addon imports mitmproxy.test, an internal helper, so these tests only
-    # mean anything run against the version production runs. That version is
-    # named twice — the workspace dev group installs it, claude/action.yaml
-    # tells a consumer's job which to fetch — and drift between them greens
-    # this suite while every consumer's proxy breaks. Assert on the installed
-    # distribution rather than the pyproject text, so a lock that resolved to
-    # something else fails here too.
-    pins = {
-        YAML(typ="safe", pure=True).load(
-            (REPO_ROOT / harness / "action.yaml").read_text()
-        )["inputs"]["mitmproxy_version"]["default"]
-        for harness in ("claude", "codex")
-    }
-    assert pins == {version("mitmproxy")}
 
 
 def test_proxy_starts_and_finishes_its_empty_replay(tmp_path: Path) -> None:

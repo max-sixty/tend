@@ -92,21 +92,31 @@ def test_tend_secrets_never_live_where_the_agent_can_read_them(
     assert paths.private_dir.stat().st_mode & 0o777 == 0o700
 
 
-def test_proxy_uvx_isolated_from_consumer_python_and_uv_configuration(
+def test_proxy_runs_the_locked_closure_isolated_from_consumer_configuration(
     tmp_path: Path,
 ) -> None:
-    command = setup_sandbox.uvx_command(
-        _paths(tmp_path), version="1.2.3", args=["--version"]
-    )
+    paths = _paths(tmp_path)
+    command = setup_sandbox.mitmdump_command(paths, ["--version"])
 
-    assert command[1:6] == [
+    run = command.index("run")
+    assert command[run + 1 :] == [
         "--no-config",
         "--no-python-downloads",
         "--python",
         "/usr/bin/python3",
-        "--from",
+        "--project",
+        str(paths.action_path),
+        "--frozen",
+        "--no-build",
+        "--only-group",
+        "proxy",
+        "mitmdump",
+        "--version",
     ]
-    assert command[-3:] == ["mitmproxy==1.2.3", "mitmdump", "--version"]
+    # The installed closure stays where the agent can't reach it.
+    assert (
+        command[3] == f"UV_PROJECT_ENVIRONMENT={paths.private_dir / 'tend-proxy-venv'}"
+    )
 
 
 def test_a_checkout_outside_the_runner_home_is_refused_by_name(

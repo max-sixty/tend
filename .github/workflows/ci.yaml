@@ -55,32 +55,34 @@ jobs:
       # the allowlists in inject_credentials.py.
       #
       # It installs uv by running install-uv.sh rather than repeating it,
-      # which also gives that script its only CI coverage, then warms the uvx
-      # cache as setup_sandbox.py does. An empty replay lets mitmdump reach its
+      # which also gives that script its only CI coverage, then installs the
+      # locked proxy group as setup_sandbox.py does, so a uv.lock the pinned uv
+      # can't read fails here too. An empty replay lets mitmdump reach its
       # running lifecycle hook, then its own KeepServing addon shuts it down.
       # The foreground process exits non-zero on startup failure and is reaped
       # by the shell; port 0 gives the fixture a listener it owns.
       - name: Smoke the pinned uv and mitmdump
         run: |
           uv_v=$(yq -e '.inputs.uv_version.default' ../claude/action.yaml)
-          mitm_v=$(yq -e '.inputs.mitmproxy_version.default' ../claude/action.yaml)
           UV_VERSION="$uv_v" UV_INSTALL_DIR="$RUNNER_TEMP/tend-uv" \
             bash ../shared/steps/install-uv.sh
           confdir=$RUNNER_TEMP/tend-mitm-conf
           log=$RUNNER_TEMP/tend-mitm.log
           flows=$RUNNER_TEMP/tend-empty.flows
-          uvx=$RUNNER_TEMP/tend-uv/uvx
+          export UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/tend-proxy-venv
+          mitmdump=("$RUNNER_TEMP/tend-uv/uv" run --no-config --no-python-downloads \
+            --python /usr/bin/python3 --project .. --frozen --no-build --only-group proxy mitmdump)
           touch "$flows"
-          "$uvx" --from "mitmproxy==${mitm_v}" mitmdump --version >/dev/null
+          "${mitmdump[@]}" --version >/dev/null
           if ! TEND_GH_TOKEN=dummy TEND_ANTHROPIC_OAUTH_TOKEN=dummy \
-            "$uvx" --from "mitmproxy==${mitm_v}" mitmdump \
+            "${mitmdump[@]}" \
             -s inject_credentials.py \
             --listen-host 127.0.0.1 --listen-port 0 \
             --set confdir="$confdir" \
             --set rfile="$flows" \
             --allow-hosts '^example\.invalid$' >"$log" 2>&1; then
             cat "$log"
-            echo "::error::mitmdump failed to start under mitmproxy ${mitm_v}"
+            echo "::error::mitmdump failed to start from the locked proxy group"
             exit 1
           fi
           grep -qF 'HTTP(S) proxy listening at 127.0.0.1:' "$log"

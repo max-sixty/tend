@@ -1,9 +1,8 @@
 """Repo-wide invariants that no single suite owns.
 
 Mostly pins: a version named in two places drifts silently unless something
-asserts the pair (`test_pinned_mitmproxy_matches_the_action` in proxy/ is the
-sibling of that idea). The rest are lints over a whole tree — a shape that
-holds for every file, not a phrase pinned in one.
+asserts the pair. The rest are lints over a whole tree — a shape that holds for
+every file, not a phrase pinned in one.
 """
 
 from __future__ import annotations

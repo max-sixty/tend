@@ -269,7 +269,11 @@ session rather than clearing a backlog at once — an unswept pin waits a week, 
 swamped run finishes nothing.
 
 - **Ships to consumers** — `claude/action.yaml`, `codex/action.yaml`, and
-  `codex/refresh/action.yaml` run in consumer jobs from the next release;
+  `codex/refresh/action.yaml` run in consumer jobs from the next release, as
+  does every package `uv.lock` holds for the root `pyproject.toml`'s `proxy`
+  group, which the actions install the credential proxy from — a closure that
+  shares click, jinja2, markupsafe and ruamel-yaml with the generator, so a
+  `uv lock --upgrade` nearly always lands here;
   `generator/src/tend/templates/` and `workflows.py` render into their workflow
   files. One PR each, titled `chore: bump <name> to <version>` (the
   uv-plus-mitmproxy PR names both), its body naming what changed.
@@ -285,8 +289,8 @@ swamped run finishes nothing.
 | Pin | File | Rule |
 |---|---|---|
 | `claude_version` | `claude/action.yaml` | npm's `latest` dist-tag, not `stable` |
-| `mitmproxy_version` | `claude/action.yaml` | move the root `pyproject.toml` `==` pin with it and `uv lock` |
-| `uv_version` | both harness `action.yaml` files | move both defaults together, with `mitmproxy_version` |
+| `mitmproxy` | root `pyproject.toml` `proxy` group | `uv lock --upgrade-package mitmproxy` after the `==` move; the rest of the group's closure moves with `uv lock --upgrade` |
+| `uv_version` | both harness `action.yaml` files | move both defaults together, with `mitmproxy`; the pinned uv must read the `uv.lock` the dev uv writes |
 | `codex_version` | `codex/action.yaml`, `codex/refresh/action.yaml` | move both defaults together; `alpha` only for a fix not yet released |
 | `uv_build` | `generator/pyproject.toml` | its range must contain the uv doing the build; a stale one only warns during `uv build`, so only this sweep catches it |
 | `WORKTRUNK_VERSION` | `.config/codex-cloud/environment.sh` | nothing in CI runs the script, and it dies under `set -euo pipefail` — confirm the release still ships `worktrunk-installer.sh` and that `wt config approvals add --yes` still records approvals without a TTY |
@@ -296,8 +300,8 @@ target, so drift silently downgrades the model. In a bump PR, report the
 release notes between the old and new pins that affect the integration surfaces
 in the release-note pass above.
 
-`mitmproxy_version` pins the process that holds the real PAT and model
-credential, so a security fix there matters here. Check anything security- or
+The `proxy` group locks the process that holds the real PAT and model
+credential, so a security fix anywhere in its closure matters here. Check anything security- or
 addon-related in its CHANGELOG against the `mitmdump` flags in
 `proxy/setup_sandbox.py`, and report the comparison in the PR. `uv_version`
 also supplies the agent fallback in both harnesses. CI smokes the installer and
