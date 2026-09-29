@@ -143,6 +143,8 @@ uv run --script \
 
 Skip files that aren't meaningfully reviewable: lock files (`uv.lock`, `Cargo.lock`, `package-lock.json`), binary assets, vendored dependencies, and generated files (build output, compiled protobuf, auto-generated workflow YAML). When unsure, check the file — a quick glance is cheaper than missing something.
 
+Check which of today's files an open PR already changes (`gh pr list --state open --limit 200 --json number,title,files`), and don't re-derive a fix that PR carries.
+
 Before reviewing files, read the project's instruction files and any project-specific skills or review criteria they reference. Apply the review checklist below to each file in full.
 
 ## Review checklist
