@@ -99,8 +99,6 @@ def main(argv: list[str] | None = None) -> int:
         comment
         for endpoint in ("issues", "pulls")
         for comment in github_cli.paginated(
-            "api",
-            "--paginate",
             f"repos/{repo}/{endpoint}/comments?since={encoded_since}&per_page=100",
         )
     ]
@@ -123,8 +121,6 @@ def main(argv: list[str] | None = None) -> int:
         review
         for candidate in candidates
         for review in github_cli.paginated(
-            "api",
-            "--paginate",
             f"repos/{repo}/pulls/{candidate['number']}/reviews?per_page=100",
         )
     ]

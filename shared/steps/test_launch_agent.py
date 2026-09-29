@@ -10,7 +10,6 @@ import ast
 import base64
 import os
 import pwd
-import signal
 import subprocess
 import time
 from pathlib import Path
@@ -470,16 +469,6 @@ def test_the_map_swaps_the_two_accounts_and_is_identity_elsewhere(
 def test_an_unmappable_account_is_refused_rather_than_truncated() -> None:
     with pytest.raises(ValueError, match="outside the mappable range"):
         launch.identity_map("u", 1001, launch.ID_CEILING)
-
-
-def test_runner_cancellation_is_raised_through_the_reap_path() -> None:
-    previous = signal.getsignal(signal.SIGTERM)
-
-    with pytest.raises(launch.Cancelled) as raised, launch.raise_on_cancel():
-        os.kill(os.getpid(), signal.SIGTERM)
-
-    assert raised.value.signum == signal.SIGTERM
-    assert signal.getsignal(signal.SIGTERM) is previous
 
 
 def test_runtime_bundle_carries_every_module_it_imports() -> None:

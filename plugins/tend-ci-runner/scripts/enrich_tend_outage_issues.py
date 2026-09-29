@@ -98,9 +98,7 @@ def run_jobs(repo: str, run_id: str) -> list[dict[str, Any]]:
     section and no marker because its failed row sat past the cap.
     """
     try:
-        pages = github_cli.json_stream(
-            "api",
-            "--paginate",
+        pages = github_cli.pages(
             f"repos/{repo}/actions/runs/{run_id}/jobs?filter=all&per_page=100",
             quiet=True,
         )

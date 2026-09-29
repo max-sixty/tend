@@ -1,5 +1,6 @@
-# Dev-only workspace root — nothing is published from here (no build-system, so
-# uv never builds it; the package is the `generator/` member). It exists so
+# Workspace root — nothing is published from here (no build-system, so uv never
+# builds it; the package is the `generator/` member), though its `proxy` group
+# and uv.lock ship: the harness actions install the proxy from them. It exists so
 # every Python suite in the repo shares one environment, which makes plain
 # `uv run pytest` from the repo root the whole Python test run: pytest needs no
 # config of its own, since collecting from the root reaches generator/, proxy/,
@@ -24,17 +25,20 @@ members = ["generator"]
 tend = { workspace = true }
 
 [dependency-groups]
+# The credential proxy's runtime. Consumer jobs install exactly this group's
+# closure from uv.lock (`--frozen --only-group proxy` in
+# proxy/setup_sandbox.py), hashes and all, so uv.lock is what the process
+# holding the real PAT and model credential runs — not only what tests see.
+proxy = ["mitmproxy==12.2.3"]
 dev = [
   "tend",
   "pytest>=9.0.2",
   "pytest-regtest>=2.1.1",
-  # The proxy addon imports mitmproxy.test, so its tests run against the version
-  # production runs rather than whatever is latest. Kept equal to
-  # claude/action.yaml's `mitmproxy_version` default by
-  # test_pinned_mitmproxy_matches_the_action.
-  "mitmproxy==12.2.3",
-  # That same test reads claude/action.yaml. `tend` happens to pull ruamel in,
-  # but the proxy suite doesn't depend on the generator, so declare it here.
+  # The proxy addon imports mitmproxy.test, so its tests run against the same
+  # locked closure the proxy runs in consumer jobs.
+  { include-group = "proxy" },
+  # test_repo_pins.py reads YAML. `tend` happens to pull ruamel in, but declare
+  # what the tests import.
   "ruamel.yaml>=0.18",
   # test_repo_pins.py reads a version specifier out of a pyproject and asks
   # whether a version satisfies it. Only ever arrives transitively otherwise.

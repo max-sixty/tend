@@ -170,26 +170,20 @@ def fetch_review_state(pr: str, *, repo: str | None = None) -> dict[str, Any]:
     head = github_cli.json_call(
         "pr", "view", pr, "--repo", repo, "--json", "headRefOid"
     )["headRefOid"]
-    comments = github_cli.paginated(
-        "api", "--paginate", f"repos/{repo}/pulls/{pr}/comments"
-    )
+    comments = github_cli.paginated(f"repos/{repo}/pulls/{pr}/comments")
     substantive_ids = {
         int(comment["pull_request_review_id"])
         for comment in comments
         if comment.get("in_reply_to_id") is None
         and comment.get("pull_request_review_id") is not None
     }
-    timeline = github_cli.paginated(
-        "api", "--paginate", f"repos/{repo}/issues/{pr}/timeline"
-    )
+    timeline = github_cli.paginated(f"repos/{repo}/issues/{pr}/timeline")
     force_push_times = [
         event["created_at"]
         for event in timeline
         if event.get("event") == "head_ref_force_pushed"
     ]
-    reviews = github_cli.paginated(
-        "api", "--paginate", f"repos/{repo}/pulls/{pr}/reviews"
-    )
+    reviews = github_cli.paginated(f"repos/{repo}/pulls/{pr}/reviews")
     return review_state(
         head_sha=head,
         bot=bot,
@@ -250,10 +244,8 @@ def dismiss_stale_approval(pr: str, message: str) -> None:
 
 def _review_threads(pr: str, repo: str, query: str) -> list[dict[str, Any]]:
     owner, name = repo.split("/", 1)
-    pages = github_cli.json_stream(
-        "api",
+    pages = github_cli.pages(
         "graphql",
-        "--paginate",
         "-f",
         f"query={query}",
         "-f",

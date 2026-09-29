@@ -18,7 +18,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 import re
 import subprocess
 import sys
@@ -310,19 +309,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     command = args[0]
+    values = _common.require_env(
+        "GITHUB_TOKEN",
+        "GITHUB_REPOSITORY",
+        "TEND_MEMORY_GIST_ID",
+        "TEND_AUTO_MEMORY_GIST_OWNER",
+        "TEND_AUTO_MEMORY_DIRECTORY",
+        "TEND_AUTO_MEMORY_BASELINE_KEY",
+    )
     try:
-        names = (
-            "GITHUB_TOKEN",
-            "GITHUB_REPOSITORY",
-            "TEND_MEMORY_GIST_ID",
-            "TEND_AUTO_MEMORY_GIST_OWNER",
-            "TEND_AUTO_MEMORY_DIRECTORY",
-            "TEND_AUTO_MEMORY_BASELINE_KEY",
-        )
-        values = {name: os.environ.get(name, "") for name in names}
-        missing = [name for name, value in values.items() if not value]
-        if missing:
-            raise GistMemoryError("missing required environment: " + ", ".join(missing))
         gist_id = values["TEND_MEMORY_GIST_ID"]
         repository = values["GITHUB_REPOSITORY"]
         gist_owner = values["TEND_AUTO_MEMORY_GIST_OWNER"]

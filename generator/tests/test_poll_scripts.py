@@ -37,52 +37,55 @@ HEAD_SHA = "aaaa111122223333aaaa111122223333aaaa1111"
 
 # First-page GraphQL responses are served in sequence: poll N reads
 # $ROLLUP_DIR/N.json, falling back to final.json once the sequence runs out.
-# A call carrying a cursor is a *later page* of the poll in flight and is
-# served from $ROLLUP_DIR/page-<cursor>.json instead — so a page reachable
-# only through the cursor is genuinely unreachable without it. The run
-# endpoint serves `run_attempt` values consumed line-by-line from $ATTEMPTS
-# (the last line repeats), so a rerun's attempt bump is scriptable. A
-# `--paginate` jobs listing also emits $JOBS_JSON.2, when present, as its
+# Like `gh api graphql --paginate --slurp`, the fake then follows each page's
+# `pageInfo` — a page with `hasNextPage` and an `endCursor` is followed by
+# $ROLLUP_DIR/page-<cursor>.json — and prints the pages as one array, so a
+# page reachable only through the cursor is unreachable without the flag. The
+# run endpoint serves `run_attempt` values consumed line-by-line from
+# $ATTEMPTS (the last line repeats), so a rerun's attempt bump is scriptable.
+# A `--paginate` jobs listing also serves $JOBS_JSON.2, when present, as its
 # second page — so that page is unreachable without the flag.
 FAKE_GH = (
     GH_PREAMBLE
-    + r"""case "$1 $2" in
-  "api graphql")
-    cursor=""
-    for arg in "$@"; do
-      case "$arg" in cursor=*) cursor="${arg#cursor=}" ;; esac
+    + r"""case "$*" in
+  "api --paginate --slurp graphql "*)
+    n=$(( $(cat "$GRAPHQL_CALLS" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$GRAPHQL_CALLS"
+    f="$ROLLUP_DIR/$n.json"
+    [ -f "$f" ] || f="$ROLLUP_DIR/final.json"
+    files="$f"
+    while cursor=$(jq -r '[.. | objects | select(has("hasNextPage"))][0]
+        | select(.hasNextPage) | .endCursor // empty' "$f") && [ -n "$cursor" ]; do
+      f="$ROLLUP_DIR/page-$cursor.json"
+      files="$files $f"
     done
-    if [ -n "$cursor" ] && [ "$cursor" != "null" ]; then
-      cat "$ROLLUP_DIR/page-$cursor.json"
-    else
-      n=$(( $(cat "$GRAPHQL_CALLS" 2>/dev/null || echo 0) + 1 ))
-      echo "$n" > "$GRAPHQL_CALLS"
-      f="$ROLLUP_DIR/$n.json"
-      [ -f "$f" ] || f="$ROLLUP_DIR/final.json"
-      cat "$f"
-    fi
+    # shellcheck disable=SC2086
+    jq -cs . $files
     ;;
   "api repos/owner/repo/commits/"*)
     [ "${COMMIT_EXISTS:-true}" = "true" ]
     ;;
-  "pr view")
+  "pr view "*)
     emit "$(cat "$HEAD_JSON")"
     ;;
-  "run view")
+  "run view "*)
     [ -f "$RUN_DIR/$3.json" ] || exit 1
     emit "$(cat "$RUN_DIR/$3.json")"
     ;;
-  "run rerun")
+  "run rerun "*)
+    ;;
+  "api --paginate --slurp "*"/jobs"*)
+    if [ -f "$JOBS_JSON.2" ]; then
+      jq -cs . "$JOBS_JSON" "$JOBS_JSON.2"
+    else
+      jq -cs . "$JOBS_JSON"
+    fi
     ;;
   api*)
     path=$2
-    [ "$path" = "--paginate" ] && path=$3
     case "$path" in
       repos/*/actions/runs/*/jobs*)
         emit "$(cat "$JOBS_JSON")"
-        if [ "$2" = "--paginate" ] && [ -f "$JOBS_JSON.2" ]; then
-          emit "$(cat "$JOBS_JSON.2")"
-        fi
         ;;
       repos/*/actions/jobs/*)
         emit "$(cat "$JOB_DIR/${path##*/}.json")"
@@ -718,8 +721,8 @@ def test_paginates_past_the_first_page(env: dict[str, str]) -> None:
 
 def test_truncated_pagination_never_reads_green(env: dict[str, str]) -> None:
     """`hasNextPage` with no cursor to follow leaves the rollup incomplete —
-    refetching page one would loop forever, and trusting it could hide a
-    failure on a page never read."""
+    `gh` stops there, and trusting the pages it read could hide a failure on
+    one it never did."""
     _serve(env, _resp(_check_run("tests"), has_next=True, end_cursor=None))
 
     result = _poll(env)

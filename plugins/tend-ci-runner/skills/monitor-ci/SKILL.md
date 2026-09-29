@@ -42,15 +42,11 @@ The poll waits for every check, advisory ones included. Where the repo's overlay
 
 Exit 0 is green, judged on the latest run of each check — where one workflow ran twice *independently* on the same SHA, read the earlier run's own conclusion before relying on it. Exit 1 is red, with the failing checks and their run URLs: diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and poll the new commit. Any other exit or command timeout is **unverified, not green**. Exit 3 means the head moved: report the checks it lists as unverified, marking each required or advisory (`gh pr checks <number> --required` lists the required contexts already registered on the commit; an omnibus that hasn't registered yet is required too).
 
-When the system prompt says the merge mode is `yolo`, exit 0 is the merge gate. Re-read the PR and require it to be open with `headRefOid == PINNED_SHA`, then merge through the pull-request REST endpoint with that SHA. Never use auto-merge, never omit `sha`, and leave the PR open if the head moved or GitHub refuses the merge:
+When the system prompt says the merge mode is `yolo`, exit 0 is the merge gate: merge through the pull-request REST endpoint with `PINNED_SHA`. GitHub enforces the preconditions itself — 409 when the head no longer matches `sha`, 405 when the PR is closed or not mergeable. On either refusal, leave the PR open. Never use auto-merge or omit `sha`:
 
 ```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-PR_STATE=$(gh pr view <number> --json state,headRefOid)
-test "$(jq -r .state <<<"$PR_STATE")" = OPEN \
-  && test "$(jq -r .headRefOid <<<"$PR_STATE")" = "$PINNED_SHA" \
-  && gh api "repos/$REPO/pulls/<number>/merge" -X PUT \
-    -f sha="$PINNED_SHA" -f merge_method=squash
+gh api "repos/{owner}/{repo}/pulls/<number>/merge" -X PUT \
+  -f sha="$PINNED_SHA" -f merge_method=squash
 ```
 
 Before calling a failure pre-existing (**Grounded Analysis** in `/tend-ci-runner:run-tend`), check the recent default-branch runs of the workflow it belongs to. Filter by that workflow — on a bot-active repo an unfiltered listing fills with other workflows' runs.

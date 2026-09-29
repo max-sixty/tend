@@ -25,8 +25,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "shared/steps"))
 import _prompt
 import _sandbox
 
-PLUGIN_ROOT_PREFIX = "Installed plugin root: "
-
 
 def _run(
     args: list[str],
@@ -103,39 +101,30 @@ def install_plugin() -> int:
     _run(_sandbox_command(codex, "plugin", "marketplace", "add", str(marketplace_root)))
     _run(_sandbox_command(codex, "plugin", "add", "install-tend@tend"))
     installed = _run(
-        _sandbox_command(codex, "plugin", "add", "tend-ci-runner@tend"),
+        _sandbox_command(codex, "plugin", "add", "--json", "tend-ci-runner@tend"),
         capture=True,
     )
     stdout = installed.stdout or ""
     sys.stdout.write(stdout)
-    roots = [
-        Path(line.removeprefix(PLUGIN_ROOT_PREFIX)).resolve()
-        for line in stdout.splitlines()
-        if line.startswith(PLUGIN_ROOT_PREFIX)
-    ]
-    valid = (
-        len(roots) == 1
-        and roots[0].is_relative_to(agent_home)
-        and _run(
-            [
-                "/usr/bin/sudo",
-                "-u",
-                sandbox,
-                "/usr/bin/test",
-                "-d",
-                str(roots[0]),
-            ],
+    try:
+        root = Path(json.loads(stdout)["installedPath"]).resolve()
+    except (ValueError, KeyError, TypeError):
+        root = None
+    if (
+        root is None
+        or not root.is_relative_to(agent_home)
+        or _run(
+            ["/usr/bin/sudo", "-u", sandbox, "/usr/bin/test", "-d", str(root)],
             check=False,
         ).returncode
-        == 0
-    )
-    if not valid:
+        != 0
+    ):
         print(
-            "::error::Failed to parse one sandbox-owned "
-            "'Installed plugin root: <path>' from codex plugin add output"
+            "::error::codex plugin add --json did not report a sandbox-owned "
+            "installedPath directory"
         )
         return 1
-    _append_agent_environment("CLAUDE_PLUGIN_ROOT", str(roots[0]))
+    _append_agent_environment("CLAUDE_PLUGIN_ROOT", str(root))
     _run(_sandbox_command(codex, "plugin", "list"), check=False)
     return 0
 

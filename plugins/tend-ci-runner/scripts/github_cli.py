@@ -44,29 +44,20 @@ def json_call(*args: str, input: str | None = None, quiet: bool = False) -> Any:
     return json.loads(run(*args, input=input, quiet=quiet))
 
 
-def json_stream(*args: str, quiet: bool = False) -> list[Any]:
-    """Parse the JSON documents emitted by ``gh api --paginate``."""
-    text = run(*args, quiet=quiet)
-    decoder = json.JSONDecoder()
-    documents: list[Any] = []
-    position = 0
-    while position < len(text):
-        while position < len(text) and text[position].isspace():
-            position += 1
-        if position == len(text):
-            break
-        document, position = decoder.raw_decode(text, position)
-        documents.append(document)
-    return documents
+def pages(*args: str, quiet: bool = False) -> list[Any]:
+    """Every page ``gh api --paginate`` serves for *args*, in API order.
+
+    ``--slurp`` wraps the pages, REST arrays or objects and GraphQL responses
+    alike, in one outer array, so the output is a single JSON document.
+    GraphQL pagination follows the query's ``$endCursor`` variable.
+    """
+    return json_call("api", "--paginate", "--slurp", *args, quiet=quiet)
 
 
-def paginated(*args: str, quiet: bool = False) -> list[Any]:
+def paginated(path: str, quiet: bool = False) -> list[Any]:
     """Return every item from a paginated array endpoint in API order."""
     items: list[Any] = []
-    pages = json_stream(*args, quiet=quiet)
-    if not pages:
-        raise ValueError("paginated GitHub response was empty")
-    for page in pages:
+    for page in pages(path, quiet=quiet):
         if not isinstance(page, list):
             raise TypeError("paginated GitHub response was not an array")
         items.extend(page)

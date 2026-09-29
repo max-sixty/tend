@@ -153,9 +153,11 @@ directly.
 The generator is a Python package under `generator/` — uses the uv_build
 backend, requires Python 3.11+. Runtime dependencies: click, jinja2,
 ruamel.yaml. It is the one member of the repo's uv workspace, so the lockfile
-and the dev dependencies (pytest, pytest-regtest, and the pinned mitmproxy the
-proxy addon imports) live in the root `pyproject.toml`, and the dev environment
-needs 3.12+ even though the package supports 3.11.
+and the dev dependencies (pytest, pytest-regtest) live in the root
+`pyproject.toml`, and the dev environment needs 3.12+ even though the package
+supports 3.11. The root's `proxy` group (mitmproxy) is not dev-only: the
+harness actions install the credential proxy from its locked closure in
+`uv.lock`, so a lock change there ships to consumers with the next release.
 
 Consumer repos regenerate their `tend-*.yaml` workflows nightly (tend itself
 included — it dogfoods its own workflows). Changes to the generator do not
