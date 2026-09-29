@@ -232,7 +232,8 @@ git grep -nE '(==|~=|<=?)[0-9]' -- '*pyproject.toml'
 uv lock --upgrade --dry-run
 
 # pre-commit hook revs — the updater rewrites them, `git diff` is the report.
-uv tool run pre-commit autoupdate
+# `--freeze` keeps them commit SHAs, each with a `# frozen: <tag>` comment.
+uv tool run pre-commit autoupdate --freeze
 
 # npm: `Wanted` ≠ `Current` is lockfile drift (`npm update`); `Latest` ≠
 # `Wanted` needs the range in package.json moved. Exits 1 when a row prints.

@@ -399,6 +399,19 @@ def test_third_party_actions_are_pinned_by_sha() -> None:
     assert not split, f"actions pinned at more than one ref: {split}"
 
 
+def test_pre_commit_hooks_are_pinned_by_sha() -> None:
+    """Hook repos are tags too; `pre-commit autoupdate --freeze` keeps them SHAs."""
+    config = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / ".pre-commit-config.yaml").read_text()
+    )
+    unpinned = [
+        f"{repo['repo']}@{repo['rev']}"
+        for repo in config["repos"]
+        if repo["repo"] != "local" and not re.fullmatch(r"[0-9a-f]{40}", repo["rev"])
+    ]
+    assert not unpinned, f"expected `rev: <sha>  # frozen: <tag>`: {unpinned}"
+
+
 @pytest.mark.parametrize("harness", ["claude", "codex"])
 def test_privileged_sandbox_launch_scrubs_consumer_runtime_configuration(
     harness: str,
