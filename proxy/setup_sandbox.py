@@ -123,10 +123,6 @@ class Paths:
     def proxy_log(self) -> Path:
         return self.private_dir / "tend-proxy.log"
 
-    @property
-    def proxy_pid(self) -> Path:
-        return self.private_dir / "tend-proxy.pid"
-
 
 def agent_path(runner_tool_path: str) -> list[str]:
     """The sandbox PATH: the job's own, plus the two directories Tend installs."""
@@ -321,7 +317,6 @@ def start_proxy(paths: Paths, *, version: str) -> bool:
         env=os.environ.copy(),
     )
     proxy_log.close()
-    paths.proxy_pid.write_text(f"{process.pid}\n", encoding="utf-8")
 
     ready = False
     for _ in range(60):

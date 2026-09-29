@@ -11,7 +11,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -103,14 +102,16 @@ def _probe_exec_flags(codex: str, env: dict[str, str]) -> None:
 
 def _probe_plugin(codex: str, repository: Path, env: dict[str, str]) -> None:
     _run(codex, "plugin", "marketplace", "add", str(repository), env=env)
-    output = _run(codex, "plugin", "add", "tend-ci-runner@tend", env=env).stdout
+    output = _run(
+        codex, "plugin", "add", "--json", "tend-ci-runner@tend", env=env
+    ).stdout
     print(output, end="" if output.endswith("\n") else "\n")
-    match = re.search(r"^Installed plugin root: (.+)$", output, re.MULTILINE)
-    if not match:
+    try:
+        root = Path(json.loads(output)["installedPath"])
+    except (ValueError, KeyError, TypeError) as error:
         raise SurfaceError(
-            "codex plugin add no longer prints 'Installed plugin root: <path>'"
-        )
-    root = Path(match.group(1))
+            "codex plugin add --json no longer reports installedPath"
+        ) from error
     required = (
         root / "skills" / "triage" / "SKILL.md",
         root / "scripts" / "list_recent_runs.py",

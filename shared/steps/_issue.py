@@ -116,8 +116,11 @@ def canonical(label: str, state: str, title: str) -> int | None:
 
 
 def ensure_label(label: str, description: str, color: str) -> None:
-    """Best-effort: the label exists on every repo after the first incident,
-    and ``gh label create`` has no idempotent form."""
+    """Best-effort: the label exists on every repo after the first incident.
+
+    Its only idempotent form, ``--force``, overwrites the color and description
+    a maintainer may have set, so an existing label fails the create instead.
+    """
     try:
         _common.gh(
             "label", "create", label, "--description", description, "--color", color
