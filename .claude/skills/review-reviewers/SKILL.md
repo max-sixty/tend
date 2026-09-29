@@ -308,19 +308,18 @@ Evaluate the diagnosis against the repo-specific instructions from Step 1. Deter
 
 ## Step 4: Deduplicate
 
-Before creating issues or PRs, check exhaustively for existing ones:
+Before creating issues or PRs, search for existing ones. A recency listing drops an older match past any `--limit`, so search instead; one search per distinctive term — the skill, component, or symptom the finding names:
 
 ```bash
-gh issue list --state open --label claude-behavior --limit 200 --json number,title,body
-gh issue list --state open --limit 200 --json number,title,body  # also check unlabeled issues
-gh issue list --state closed --label claude-behavior --json number,title,closedAt --limit 200
-# --state all: a merged PR is the most common way a finding is already fixed
-gh pr list --state all --limit 200 --json number,title,state
+# Search matches titles and bodies, labeled or not. --state all: a merged PR
+# is the most common way a finding is already fixed.
+gh issue list --state all --search "<keywords>" --limit 100 --json number,title,state,labels
+gh pr list --state all --search "<keywords>" --limit 100 --json number,title,state
 ```
 
 A merged fix stays dormant in the target repo until the next release tags, so observing the bug there is not evidence the fix is missing — filing it again is churn on something already landed.
 
-Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`). Only comment on existing issues if you have material new cases that would change the approach or increase prioritization. Do not comment with progress updates, fix-PR status, or re-statements of evidence already in the issue.
+Then read the bodies of the candidates (`gh pr view <n> --json body`). Only comment on existing issues if you have material new cases that would change the approach or increase prioritization. Do not comment with progress updates, fix-PR status, or re-statements of evidence already in the issue.
 
 ## Step 5: Act on findings
 

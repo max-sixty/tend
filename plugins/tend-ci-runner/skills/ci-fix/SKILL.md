@@ -25,10 +25,13 @@ durable cause, and create a PR when code or configuration needs to change.
 
 ### 1. Check for existing fixes
 
-List recent PRs (open and closed) and check whether any already address the same failure — a prior bot attempt, a prior bot fix a maintainer rejected, or a maintainer's in-flight fix under any branch name.
+Check whether any PR already addresses the same failure — a prior bot attempt, a prior bot fix a maintainer rejected, or a maintainer's in-flight fix under any branch name. List the open ones; search the closed ones, since a recency listing drops an older rejection past any `--limit`:
 
 ```bash
-gh pr list --state all --limit 200 --json number,title,state
+gh pr list --state open --limit 200 --json number,title,state
+# <shape>: the failing test or job name, or a distinctive phrase from the error;
+# search matches titles and bodies, so run one per term
+gh pr list --state closed --search "<shape>" --limit 100 --json number,title,state
 ```
 
 Match by **failure shape** — the diagnostic snippet in the bot's PR body, or the diff for a maintainer-authored PR — not branch name; branch names encode run IDs and never repeat. The listing carries titles only; pull the body and author per candidate (`gh pr view <n> --json body,author`).
@@ -41,7 +44,7 @@ Also check for open tracking issues left by a prior unfixable diagnosis (see 3b)
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
 gh issue list --state open --author "$BOT_LOGIN" --search "ci-fix: in:title" \
-  --json number,title,body --limit 10
+  --json number,title,body --limit 100
 ```
 
 ### 2. Diagnose and fix
@@ -90,9 +93,8 @@ Before filing the tracker below, check whether the same failure shape has alread
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
 gh issue list --state all --label tend-outage --author "$BOT_LOGIN" \
-  --search "ci-fix: transient failure in:title" \
-  --json number,title,body,createdAt \
-  --jq "[.[] | select(.createdAt >= (now - 7*86400 | todateiso8601))]"
+  --search "ci-fix: transient failure in:title created:>=$(date -u -d '7 days ago' +%F)" \
+  --json number,title,body,createdAt --limit 100
 ```
 
 Both filters are load-bearing: the label keeps 3b's durable trackers out, and the title keeps out the `report_failure.py` **"Bot temporarily unavailable"** issues, which carry the same label and author and vastly outnumber these — without it the first page is all outage rows and the count reads zero.
@@ -126,7 +128,7 @@ Leave the issue **open**, so maintainers have a durable "still broken" signal un
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
 gh issue list --state open --author "$BOT_LOGIN" --search "ci-fix: in:title" \
-  --json number,title,body --limit 10
+  --json number,title,body --limit 100
 ```
 
 If an open tracking issue matches, read its whole thread first — the listing above returns only the body:
