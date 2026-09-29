@@ -39,8 +39,10 @@ generated workflow files succeeds through the proxy) but **does not**
 need `delete_repo` — the recipe never deletes the test repo; it resets
 in place.
 
-Run steps in order. The self-heal (§2) precedes the verification steps so
-they always exercise current workflows. Any step failing jumps to §7
+Run steps in order, each wait in the foreground with the longest command
+timeout the harness allows: the waits have no fixed limit. The self-heal
+(§2) precedes the verification steps so they always exercise current
+workflows. Any step failing jumps to §7
 (reset), then §8 (report) — including §1, whose reseed failure leaves the
 fixture unable to run anything, and which reports without needing the
 reset since it created nothing.
@@ -114,29 +116,21 @@ STATE=$(gh api repos/tend-agent/tend-integration/rulesets/"$RULESET_ID" \
 [ "$STATE" = "active never" ] \
   || { echo "tend-integration: Merge access is '$STATE', not 'active never'"; exit 1; }
 
-# Reseed the fixture's secrets. Compare against the previous run ID so
-# a stale earlier run is never mistaken for this dispatch.
-PREV_ID=$(gh run list --repo max-sixty/tend --workflow integration-secrets \
-  --limit 1 --json databaseId --jq '.[0].databaseId // empty')
-gh workflow run integration-secrets --repo max-sixty/tend
-
-RUN_ID=""
-for _ in $(seq 1 24); do
-  RUN_ID=$(gh run list --repo max-sixty/tend --workflow integration-secrets \
-    --limit 1 --json databaseId --jq '.[0].databaseId // empty')
-  [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_ID" ] && break
-  sleep 5
+# Reseed the fixture's secrets. Piped, `gh workflow run` prints only the
+# created run's URL.
+RUN_URL=$(gh workflow run integration-secrets --repo max-sixty/tend)
+RUN_ID=${RUN_URL##*/}
+case $RUN_ID in
+  ''|*[!0-9]*) echo "integration-secrets: dispatch returned no run: '$RUN_URL'"; exit 1 ;;
+esac
+# No fixed limit: the wait ends with the run. A failed read leaves
+# status empty, and the loop reads again.
+until read -r status conclusion < <(gh run view "$RUN_ID" --repo max-sixty/tend \
+        --json status,conclusion --jq '"\(.status) \(.conclusion // "")"') \
+      && [ "$status" = completed ]; do
+  sleep 30
 done
-{ [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_ID" ]; } \
-  || { echo "integration-secrets: run never registered"; exit 1; }
-
-for _ in $(seq 1 30); do
-  read -r status conclusion < <(gh run view "$RUN_ID" --repo max-sixty/tend \
-    --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
-  [ "$status" = "completed" ] && break
-  sleep 10
-done
-[ "$conclusion" = "success" ] || { echo "integration-secrets: $status/$conclusion"; exit 1; }
+[ "$conclusion" = success ] || { echo "integration-secrets: $conclusion"; exit 1; }
 ```
 
 ## 2. Verify the generator (self-healing)
@@ -220,7 +214,7 @@ assert the bot commented.
 ```bash
 TS=$(date -u +%Y%m%d-%H%M%S)
 # Baseline the latest existing run BEFORE the trigger so a prior
-# week's run is never mistaken for this one (mirrors §1).
+# week's run is never mistaken for this one.
 PREV_RUN=$(gh run list --repo tend-agent/tend-integration \
   --workflow tend-triage --limit 1 \
   --json databaseId --jq '.[0].databaseId // empty')
@@ -240,14 +234,14 @@ done
 { [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ]; } \
   || { echo "tend-triage: workflow run never registered"; exit 1; }
 
-for _ in $(seq 1 60); do
-  read -r status conclusion < <(gh run view "$RUN_ID" \
-    --repo tend-agent/tend-integration \
-    --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
-  [ "$status" = "completed" ] && break
-  sleep 10
+# No fixed limit: the wait ends with the run. A failed read leaves
+# status empty, and the loop reads again.
+until read -r status conclusion < <(gh run view "$RUN_ID" --repo tend-agent/tend-integration \
+        --json status,conclusion --jq '"\(.status) \(.conclusion // "")"') \
+      && [ "$status" = completed ]; do
+  sleep 30
 done
-[ "$conclusion" = "success" ] || { echo "tend-triage: $status/$conclusion"; exit 1; }
+[ "$conclusion" = success ] || { echo "tend-triage: $conclusion"; exit 1; }
 
 COMMENTS=$(gh issue view "$ISSUE" --repo tend-agent/tend-integration \
   --json comments --jq '[.comments[] | select(.author.login == "tend-agent")] | length')
@@ -287,7 +281,7 @@ gh auth setup-git
 git push -u origin "$BRANCH"
 
 # Baseline the latest existing run BEFORE the trigger so a prior
-# week's run is never mistaken for this one (mirrors §1).
+# week's run is never mistaken for this one.
 PREV_RUN=$(gh run list --repo tend-agent/tend-integration \
   --workflow tend-review --limit 1 \
   --json databaseId --jq '.[0].databaseId // empty')
@@ -308,14 +302,14 @@ done
 { [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$PREV_RUN" ]; } \
   || { echo "tend-review: workflow run never registered"; exit 1; }
 
-for _ in $(seq 1 60); do
-  read -r status conclusion < <(gh run view "$RUN_ID" \
-    --repo tend-agent/tend-integration \
-    --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
-  [ "$status" = "completed" ] && break
-  sleep 10
+# No fixed limit: the wait ends with the run. A failed read leaves
+# status empty, and the loop reads again.
+until read -r status conclusion < <(gh run view "$RUN_ID" --repo tend-agent/tend-integration \
+        --json status,conclusion --jq '"\(.status) \(.conclusion // "")"') \
+      && [ "$status" = completed ]; do
+  sleep 30
 done
-[ "$conclusion" = "success" ] || { echo "tend-review: $status/$conclusion"; exit 1; }
+[ "$conclusion" = success ] || { echo "tend-review: $conclusion"; exit 1; }
 
 # Session-log artifact presence proves the tend harness action invoked the
 # Claude session. The skill may then post a review, post nothing, or
