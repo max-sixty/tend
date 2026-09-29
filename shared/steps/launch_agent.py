@@ -421,13 +421,9 @@ def launch(
         "-s",
         str(lifecycle),
     ]
-    # Nothing the agent prints is a workflow command.
-    token = f"tend-{os.urandom(16).hex()}"
-    print(f"::stop-commands::{token}", flush=True)
-    try:
-        return subprocess.run(argv, stdin=subprocess.DEVNULL, check=False).returncode
-    finally:
-        print(f"::{token}::", flush=True)
+    # Workflow commands stay live: the unit's annotations (why the agent run
+    # failed) are its report to the maintainer.
+    return subprocess.run(argv, stdin=subprocess.DEVNULL, check=False).returncode
 
 
 def export_results(
