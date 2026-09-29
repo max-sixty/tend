@@ -162,9 +162,9 @@ count that lands exactly on the cap in force — the default, or the `--limit`
 you passed — is the signature, and an explicit `--limit` moves that threshold
 rather than removing it. Where the set grows with history — closed issues,
 every PR — no `--limit` is wide enough for a dedup: search for the item
-(`--search "<keywords>"`), which matches titles and bodies. Client-side filtering inside `--jq` is the worst
-variant: the filter hides the truncation, so a capped result reads as a
-legitimately short one. A wide `--limit` also needs a narrow projection to
+(`--search "<keywords>"`), which matches titles and bodies. Client-side
+filtering inside `--jq` is the worst variant: the filter hides the truncation,
+so a capped result reads as a legitimately short one. A wide `--limit` also needs a narrow projection to
 survive the trip back: past roughly 32 KB the harness saves the output to a
 file and shows a 2 KB preview, so the scan reads the first item or two and
 reports the rest as absent. Total size crosses that line, not any one field —

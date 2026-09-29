@@ -44,8 +44,8 @@ Classify into one of:
 
 ```bash
 # Search open issues for similar problems. <keywords>: the symptom, error
-# text, or component the issue names; search matches titles and bodies, so
-# run one per distinctive term
+# text, or component the issue names, and the words another reporter would
+# use for it; search matches titles and bodies, so run one per term
 gh issue list --state open --search "<keywords>" --json number,title,labels --limit 100
 
 # Check for existing fix branches and PRs
