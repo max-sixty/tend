@@ -226,6 +226,12 @@ def run_codex() -> int:
         *auth_args,
         "--config",
         'cli_auth_credentials_store="file"',
+        # How long one empty `write_stdin` may wait on a running command; it
+        # returns as soon as the command exits. Codex's 5-minute default turns
+        # a long foreground wait — a CI poll — into a model turn every five
+        # minutes, so it is lifted to GitHub's 6-hour cap on the whole job.
+        "--config",
+        "background_terminal_max_timeout=21600000",
     ]
     effort = os.environ.get("EFFORT", "")
     if effort:

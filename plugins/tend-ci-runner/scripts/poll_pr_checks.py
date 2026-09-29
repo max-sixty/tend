@@ -34,11 +34,16 @@ GREEN_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 #: confirms it.
 POLL_SEC = 60
 CONFIRM_SEC = 30
-#: Both polling and confirmation sleeps consume this budget.
-POLL_BUDGET_SEC = 9 * POLL_SEC
+#: How long a session waits on a consumer's CI before reporting it unverified,
+#: here and in `rerun_failed_jobs.py`. The wait holds the session's runner and
+#: concurrency group, so it is sized to consumers' CI rather than left open:
+#: their slowest PR check that gates a merge ran 26 minutes (sampled 2026-09).
+#: Both polling and confirmation sleeps consume it. Each harness lets one
+#: foreground command run this long.
+WAIT_SEC = 30 * 60
 #: The final poll may add one confirmation sleep. Request time and poll()'s
-#: commit-resolution retry are additional; the harness owns command timeouts.
-MAX_SLEEP_SEC = POLL_BUDGET_SEC + CONFIRM_SEC
+#: commit-resolution retry are additional.
+MAX_SLEEP_SEC = WAIT_SEC + CONFIRM_SEC
 GRAPHQL_QUERY = """
 query($owner: String!, $name: String!, $oid: GitObjectID!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -236,13 +241,13 @@ def _settle(
     """Poll until nothing pends on two reads 30s apart, or the budget expires.
 
     Returns whether the rollup settled, and the last complete rollup read.
-    Both sleeps draw on :data:`POLL_BUDGET_SEC`, so the total stays within
+    Both sleeps draw on :data:`WAIT_SEC`, so the total stays within
     :data:`MAX_SLEEP_SEC` however often the rollup goes pending again.
     """
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     workflow = os.environ.get("GITHUB_WORKFLOW", "")
     last: dict[str, list[str]] | None = None
-    budget = POLL_BUDGET_SEC
+    budget = WAIT_SEC
     while budget >= POLL_SEC:
         sleep(POLL_SEC)
         budget -= POLL_SEC

@@ -5,7 +5,7 @@
 
 ## Before the `APPROVE`
 
-Run the approval check against the commit this session reviewed, in the foreground with `timeout: 600000` — a failure showing while other checks still run makes it wait for them:
+Run the approval check against the commit this session reviewed, in the foreground with `timeout: 2400000` — a failure showing while other checks still run makes it wait for them:
 
 ```bash
 uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \

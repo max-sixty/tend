@@ -600,6 +600,7 @@ def test_launch_only_adds_harness_names_inside_the_sandbox(
         "BOT_NAME=tend-bot",
         "BOT_ID=42",
         "CI=true",
+        "BASH_MAX_TIMEOUT_MS=900000",
     ]
     assert argv[0] == "/usr/bin/env"
 

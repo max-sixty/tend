@@ -29,3 +29,9 @@ you when to read them; read those in full too.
 - `uv` is on PATH for Python environments and one-shot tools.
 - The bot's user ID is available via `gh api users/${BOT_NAME} --jq .id`
   if you need it for `author.id` comparisons.
+- A command a skill says to run in the foreground and wait for (a CI poll)
+  gets one wait, not a series of short ones: when `exec_command` yields
+  with it still running, call `write_stdin` with empty input and a
+  `yield_time_ms` covering the rest of the command's timeout. That call
+  returns as soon as the command exits, while each short poll costs a
+  model turn.

@@ -15,6 +15,7 @@ import importlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -572,9 +573,10 @@ def test_own_run_and_same_workflow_are_filtered(env: dict[str, str]) -> None:
 
 def test_tend_review_does_not_gate(env: dict[str, str]) -> None:
     """`tend-review` fires on the very push this poll is verifying, so its
-    agent job is created seconds after the loop starts and routinely outlives
-    the 9-minute cap — every session that pushes to a PR would report
-    UNVERIFIED with every repo check already green.
+    agent job is created seconds after the loop starts and can outlive the
+    whole wait — a session that pushes to a PR would report UNVERIFIED with
+    every repo check already green, waiting on a job that is no verdict on
+    the code.
 
     Both checks are deliberately named `review`: the exemption keys on the
     workflow, so a repo's own same-named job must survive it."""
@@ -714,8 +716,8 @@ def test_a_flapping_rollup_stays_inside_the_sleep_budget(
 ) -> None:
     """A check appearing during confirmation consumes the same sleep budget.
 
-    Charging each pass its own confirmation slept 810 seconds instead of
-    staying within the 570-second bound on settle sleeps.
+    Charging each pass its own confirmation let the confirmations stack up
+    past :data:`poll_pr_checks.MAX_SLEEP_SEC`, the bound on settle sleeps.
     """
     clean = _resp(_check_run("tests"))
     pending = _resp(_check_run("tests"), _check_run("late", status="QUEUED"))
@@ -930,3 +932,19 @@ def test_rerun_cap_reports_unverified(env: dict[str, str]) -> None:
 
     assert result.returncode == 3
     assert "UNVERIFIED" in result.stdout
+
+
+def test_skill_command_timeouts_outlast_the_wait() -> None:
+    """The skills name each poll's command timeout; the script owns the wait.
+    A timeout inside the wait cuts it short, and under Claude the harness then
+    moves the command to the background, where a headless run doesn't reliably
+    act on its result — the merge or dismissal it gated never happens."""
+    skills = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
+    timeouts = [
+        int(ms)
+        for path in skills.rglob("*.md")
+        for ms in re.findall(r"`timeout: (\d+)`", path.read_text())
+    ]
+
+    assert timeouts
+    assert all(ms > poll_pr_checks.MAX_SLEEP_SEC * 1000 for ms in timeouts)

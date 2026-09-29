@@ -257,6 +257,8 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
         "--config",
         'cli_auth_credentials_store="file"',
         "--config",
+        "background_terminal_max_timeout=21600000",
+        "--config",
         'model_reasoning_effort="high"',
         "Review this",
     ]
@@ -303,6 +305,8 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
         str(run_dir / "codex-final-message.md"),
         "--config",
         'cli_auth_credentials_store="file"',
+        "--config",
+        "background_terminal_max_timeout=21600000",
         "Review this",
     ]
 
