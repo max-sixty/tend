@@ -105,12 +105,15 @@ Read the project's instruction files before reviewing. Apply the review checklis
 
 ## Step 5: Check existing issues
 
+This run's seventh of the open issues, so each is checked every seventh run however many are open:
+
 ```bash
-gh issue list --state open --limit 200 --json number,title
-gh pr list --state open --limit 200 --json number,title,headRefName
+BUCKET=$(( GITHUB_RUN_NUMBER % 7 ))
+gh api --paginate "repos/{owner}/{repo}/issues?state=open&per_page=100" \
+  --jq ".[] | select(.pull_request == null and .number % 7 == $BUCKET) | {number, title}"
 ```
 
-For each open issue, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue) per `/tend-ci-runner:post-to-github`. Close the issue with `gh issue close` when:
+For each of these issues, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue) per `/tend-ci-runner:post-to-github`. Close the issue with `gh issue close` when:
 
 - The bot opened the issue itself to report a transient condition (e.g., a "Nightly tests failed" report from a prior run) and the condition has clearly resolved — the fix PR is merged and the relevant CI on `main` is passing. Skip this case where closing the issue is itself a signal rather than a record of resolution:
   - a body containing "Do not close manually" — recurring trackers with their own lifecycle.
