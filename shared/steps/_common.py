@@ -17,7 +17,9 @@ The runner reads ``::``-prefixed workflow commands from the start of any line a
 step prints. Text a step did not write itself — the agent's stderr, a comment
 body — is printed inside :func:`stop_commands`, which brackets it with a
 per-run token so it can neither post annotations nor switch command processing
-off for the steps that follow.
+off for the steps that follow. The agent's unit is the exception: its output,
+including Codex's own stdout and stderr, reaches the runner unbracketed so the
+lifecycle's failure annotations register (see ``launch_agent.launch``).
 """
 
 from __future__ import annotations
