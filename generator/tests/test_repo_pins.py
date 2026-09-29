@@ -22,7 +22,7 @@ from packaging.version import Version
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 from tend.config import KNOWN_HARNESSES, Config
-from tend.workflows import UV_VERSION
+from tend.workflows import UV_SHA256, UV_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -320,14 +320,7 @@ def test_uv_build_range_admits_the_pinned_uv() -> None:
     ]
     assert len(backends) == 1, f"expected one uv_build requirement, got: {requires}"
 
-    uv_versions = [
-        YAML(typ="safe", pure=True).load(
-            (REPO_ROOT / harness / "action.yaml").read_text()
-        )["inputs"]["uv_version"]["default"]
-        for harness in ("claude", "codex")
-    ]
-    assert uv_versions[0] == uv_versions[1], f"harness uv pins differ: {uv_versions}"
-    uv_version = uv_versions[0]
+    uv_version, _ = _install_uv_pins()
 
     assert Version(uv_version) in backends[0].specifier, (
         f"build-system.requires pins `{backends[0]}`, which does not contain the "
@@ -336,12 +329,74 @@ def test_uv_build_range_admits_the_pinned_uv() -> None:
     )
 
 
-def test_generated_workflow_uv_uses_the_action_pin() -> None:
-    action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / "claude" / "action.yaml").read_text()
-    )
+def _install_uv_pins() -> tuple[str, dict[str, str]]:
+    """The uv version and per-`runner.arch` archive sha256s install-uv.sh pins."""
+    script = (REPO_ROOT / "shared" / "steps" / "install-uv.sh").read_text()
+    (version,) = re.findall(r"^UV_VERSION=(\S+)$", script, re.MULTILINE)
+    arches = {"x86_64": "X64", "aarch64": "ARM64"}
+    sha256 = {
+        arches[machine]: digest
+        for machine, digest in re.findall(
+            r"^  (\w+)\)\n    target=\S+\n    sha256=([0-9a-f]{64})$",
+            script,
+            re.MULTILINE,
+        )
+    }
+    assert set(sha256) == set(arches.values()), f"install-uv.sh arms: {sha256}"
+    return version, sha256
 
-    assert UV_VERSION == action["inputs"]["uv_version"]["default"]
+
+def test_generated_workflow_uv_uses_the_action_pin() -> None:
+    assert (UV_VERSION, UV_SHA256) == _install_uv_pins()
+
+
+# A `uses:` line outside a comment. Tests carry arbitrary refs as fixture data,
+# and the generated tend-*.yaml come from the latest release rather than this
+# tree, so neither is scanned.
+USES_LINE = re.compile(r"^\s*(?:- )?uses: *(\S+)(.*)$", re.MULTILINE)
+PINNED_REF = re.compile(r"(?P<action>[^@]+)@(?P<sha>[0-9a-f]{40})")
+VERSION_COMMENT = re.compile(r" # (v\d+\.\d+\.\d+)")
+
+
+def test_third_party_actions_are_pinned_by_sha() -> None:
+    """A tag, even an exact one, is a pointer its publisher can move.
+
+    The `# vX.Y.Z` comment is what the weekly sweep compares against the latest
+    release, and one pin per action keeps each bump to a single value.
+    """
+    files = subprocess.run(
+        ["git", "ls-files", "*.yaml", "*.yml", "*.j2", "*.py"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    pins: dict[str, set[tuple[str, str]]] = {}
+    bad = []
+    for name in files:
+        path = Path(name)
+        if (
+            "tests" in path.parts
+            or path.name.startswith("test_")
+            or (
+                path.parent == Path(".github/workflows")
+                and path.name.startswith("tend-")
+            )
+        ):
+            continue
+        for ref, rest in USES_LINE.findall((REPO_ROOT / path).read_text()):
+            if ref.startswith(("./", "max-sixty/tend/", "docker://")):
+                continue
+            pinned = PINNED_REF.fullmatch(ref)
+            comment = VERSION_COMMENT.fullmatch(rest)
+            if not (pinned and comment):
+                bad.append(f"{name}: {ref}{rest}")
+                continue
+            pins.setdefault(pinned["action"], set()).add((pinned["sha"], comment[1]))
+    assert not bad, f"expected `owner/repo@<40-hex sha> # vX.Y.Z`: {bad}"
+    assert pins, "no third-party `uses:` refs found"
+    split = {action: refs for action, refs in pins.items() if len(refs) > 1}
+    assert not split, f"actions pinned at more than one ref: {split}"
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])

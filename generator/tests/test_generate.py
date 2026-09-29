@@ -882,7 +882,9 @@ def test_review_delegates_pr_topology_to_the_sandbox(tmp_path: Path) -> None:
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
     steps = data["jobs"]["review"]["steps"]
-    assert sum(s.get("uses") == "actions/checkout@v7" for s in steps) == 1
+    assert (
+        sum(str(s.get("uses", "")).startswith("actions/checkout@") for s in steps) == 1
+    )
     assert all(s.get("id") != "pr_ref" for s in steps)
     agent = next(
         s for s in steps if str(s.get("uses", "")).startswith("max-sixty/tend/")
@@ -899,7 +901,9 @@ def test_setup_runs_on_stable_base_tree_in_review(tmp_path: Path) -> None:
     steps = data["jobs"]["review"]["steps"]
 
     base_idx = next(
-        i for i, s in enumerate(steps) if s.get("uses") == "actions/checkout@v7"
+        i
+        for i, s in enumerate(steps)
+        if str(s.get("uses", "")).startswith("actions/checkout@")
     )
     setup_idx = next(
         i for i, s in enumerate(steps) if s.get("uses") == "./.github/actions/my-setup"
@@ -911,7 +915,9 @@ def test_setup_runs_on_stable_base_tree_in_review(tmp_path: Path) -> None:
     )
 
     assert base_idx < setup_idx < agent_idx
-    assert sum(s.get("uses") == "actions/checkout@v7" for s in steps) == 1
+    assert (
+        sum(str(s.get("uses", "")).startswith("actions/checkout@") for s in steps) == 1
+    )
     assert "ref" not in steps[base_idx].get("with", {}), (
         "the pre-setup checkout must take the event's base ref, not a fork ref"
     )
@@ -924,7 +930,9 @@ def test_review_without_setup_checks_out_once(tmp_path: Path) -> None:
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
     steps = data["jobs"]["review"]["steps"]
 
-    checkouts = [s for s in steps if s.get("uses") == "actions/checkout@v7"]
+    checkouts = [
+        s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")
+    ]
     assert len(checkouts) == 1
     assert "ref" not in checkouts[0]["with"]
     assert "clean" not in checkouts[0]["with"]
@@ -1206,7 +1214,7 @@ def test_setup_before_pr_checkout_in_mention(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     mention = workflows["tend-mention.yaml"]
-    initial_checkout_idx = mention.content.index("actions/checkout@v7")
+    initial_checkout_idx = mention.content.index("actions/checkout@")
     setup_idx = mention.content.index("./.github/actions/my-setup")
     agent_idx = mention.content.index(f"max-sixty/tend/claude@{ACTION_VERSION}")
     assert initial_checkout_idx < setup_idx < agent_idx

@@ -84,12 +84,6 @@ inputs:
       budget still gets the supervisor's clean kill and failure report
       instead of GitHub's own silent one. Short tasks finish well before
       the cap regardless.
-  uv_version:
-    default: "0.12.19"
-    description: >-
-      Pinned `uv` version. The credential-injection proxy always uses a private
-      copy off $PATH. The agent gets a separate fallback after the consumer PATH,
-      so a consumer-provided version stays selected.
   checkout_mode:
     default: "base"
     description: >-
@@ -174,7 +168,6 @@ runs:
       shell: bash
       run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
       env:
-        UV_VERSION: ${{ inputs.uv_version }}
         UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
 
     - name: Create the sandbox runtime container
@@ -213,20 +206,20 @@ runs:
     # path resolves. See ../proxy/setup_sandbox.py and
     # ../proxy/inject_credentials.py.
     # Restricted mode trusts the default branch's cache writes. Keyed on the
-    # lock the proxy installs from, which hashFiles can't reach outside the
-    # workspace.
-    - name: Hash the proxy lock
-      id: proxy_lock
+    # lock the proxy installs from and the script pinning the uv that reads
+    # it, which hashFiles can't reach outside the workspace.
+    - name: Hash the proxy pins
+      id: proxy_pins
       if: inputs.merge == 'restricted'
       shell: bash
-      run: echo "sha256=$(sha256sum "${{ github.action_path }}/../uv.lock" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      run: echo "sha256=$(cat "${{ github.action_path }}/../uv.lock" "${{ github.action_path }}/../shared/steps/install-uv.sh" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
     - name: Cache the proxy's uv downloads
       if: inputs.merge == 'restricted'
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/tend-proxy-uv
-        key: tend-proxy-uv-${{ runner.os }}-${{ inputs.uv_version }}-${{ steps.proxy_lock.outputs.sha256 }}
+        key: tend-proxy-uv-${{ runner.os }}-${{ steps.proxy_pins.outputs.sha256 }}
 
     - name: Set up credential-isolation sandbox
       # Resolve the interpreter outside consumer-controlled PATH: this step is
@@ -292,12 +285,9 @@ runs:
         sudo -u "$SANDBOX" env \
           HOME="$AGENT_HOME" \
           PATH=/usr/bin:/bin \
-          UV_VERSION="$UV_VERSION" \
           UV_INSTALL_DIR="$TEND_AGENT_UV_DIR" \
           /usr/bin/bash -s -- \
           < "${{ github.action_path }}/../shared/steps/install-uv.sh"
-      env:
-        UV_VERSION: ${{ inputs.uv_version }}
 
     # Install the tend plugins into the sandbox's own ~/.claude. MARKETPLACE_ROOT
     # is the dir holding .claude-plugin/ and plugins/; for this root action
@@ -513,7 +503,7 @@ runs:
     # first output: an empty name fails the upload.
     - name: Upload session logs
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ${{ steps.tokens.outputs.artifact_name || 'claude-session-logs' }}
         # The Token usage step consolidates the sandbox user's session JSONL,
