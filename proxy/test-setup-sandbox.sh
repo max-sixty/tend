@@ -95,8 +95,7 @@ host_checksum() {
 setup() {
   local action_run agent_path hostile_python hostile_site
   set_inputs
-  UV_VERSION=$(yq -e '.inputs.uv_version.default' claude/action.yaml) \
-    UV_INSTALL_DIR="$TEND_UV_DIR" bash shared/steps/install-uv.sh
+  UV_INSTALL_DIR="$TEND_UV_DIR" bash shared/steps/install-uv.sh
   # The setup step receives both real credentials. Repository-controlled
   # Python and uv environment variables must not execute code before the
   # runner-owned script has established the sandbox boundary.
@@ -143,8 +142,6 @@ install_agent_uv() {
     echo "::error::private action fixture is readable by the sandbox user"
     exit 1
   fi
-  UV_VERSION=$(yq -e '.inputs.uv_version.default' claude/action.yaml)
-  export UV_VERSION
   for harness in claude codex; do
     action_run=$(yq -er '.runs.steps[] | select(.name == "Install agent uv fallback (sandbox)") | .run' "$harness/action.yaml")
     action_run=${action_run//'${{ github.action_path }}'/"$private_action/$harness"}

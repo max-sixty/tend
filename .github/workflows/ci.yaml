@@ -24,8 +24,8 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       # Pinned to the interpreter production runs: the step bodies under
       # shared/steps/ execute on the runner's own /usr/bin/python3, which is
       # 3.12 on ubuntu-24.04, and an unpinned `uv run` would test them on
@@ -45,8 +45,8 @@ jobs:
       run:
         working-directory: proxy
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       # mitmdump starts the way setup_sandbox.py starts it, so a release that
       # drops a flag, moves the CA file, or breaks the addon's import fails
       # here rather than on every consumer's next run. It goes through the
@@ -63,9 +63,7 @@ jobs:
       # by the shell; port 0 gives the fixture a listener it owns.
       - name: Smoke the pinned uv and mitmdump
         run: |
-          uv_v=$(yq -e '.inputs.uv_version.default' ../claude/action.yaml)
-          UV_VERSION="$uv_v" UV_INSTALL_DIR="$RUNNER_TEMP/tend-uv" \
-            bash ../shared/steps/install-uv.sh
+          UV_INSTALL_DIR="$RUNNER_TEMP/tend-uv" bash ../shared/steps/install-uv.sh
           confdir=$RUNNER_TEMP/tend-mitm-conf
           log=$RUNNER_TEMP/tend-mitm.log
           flows=$RUNNER_TEMP/tend-empty.flows
@@ -99,7 +97,7 @@ jobs:
       # The lifecycle's `base` checkout sets the branch's upstream, so
       # `origin/<base>` has to exist — as it does under the generated
       # workflows, whose own checkout fetches everything.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Create the sandbox runtime container
@@ -132,8 +130,8 @@ jobs:
   test-codex-surface:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
       - name: Install the pinned Codex CLI
@@ -158,8 +156,8 @@ jobs:
       run:
         working-directory: worker
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: npm
@@ -171,6 +169,6 @@ jobs:
   lint:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
-      - uses: pre-commit/action@v3.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
