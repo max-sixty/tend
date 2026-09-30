@@ -63,8 +63,9 @@ FAKE_GH = (
       prev="$a"
     done
     [ -f "$USAGE_DIR/$3.json" ] || exit 1
-    mkdir -p "$dir/claude-session-logs-1"
-    cp "$USAGE_DIR/$3.json" "$dir/claude-session-logs-1/token-usage.json"
+    harness="$(cat "$USAGE_DIR/$3.harness")"
+    mkdir -p "$dir/$harness-session-logs-1"
+    cp "$USAGE_DIR/$3.json" "$dir/$harness-session-logs-1/token-usage.json"
     ;;
   *)
     exit 1
@@ -74,16 +75,8 @@ esac
 )
 
 
-def _record(**over: Any) -> dict[str, Any]:
-    """One job's token-usage.json, as the "Token usage" step writes it."""
-    return {
-        "repo": "owner/repo",
-        "workflow": "tend-review",
-        "run_id": 1,
-        "run_attempt": 1,
-        "event": "pull_request_target",
-        "number": 851,
-        "head_sha": "head0000",
+COUNTS = {
+    "claude": {
         "input_tokens": 10,
         "output_tokens": 100,
         "cache_creation_input_tokens": 1000,
@@ -92,6 +85,31 @@ def _record(**over: Any) -> dict[str, Any]:
         "model": "opus",
         "cost_usd": 1.0,
         "partial": False,
+    },
+    # Codex's `input_tokens` includes `cached_input_tokens`, and its cost is
+    # always 0.
+    "codex": {
+        "input_tokens": 4000,
+        "output_tokens": 100,
+        "cached_input_tokens": 3000,
+        "turns": 3,
+        "model": "gpt-6-sol",
+        "cost_usd": 0,
+    },
+}
+
+
+def _record(harness: str, **over: Any) -> dict[str, Any]:
+    """One job's token-usage.json, as *harness*'s "Token usage" step writes it."""
+    return {
+        "repo": "owner/repo",
+        "workflow": "tend-review",
+        "run_id": 1,
+        "run_attempt": 1,
+        "event": "pull_request_target",
+        "number": 851,
+        "head_sha": "head0000",
+        **COUNTS[harness],
         **over,
     }
 
@@ -117,6 +135,7 @@ class Report:
         run_id: int,
         *,
         workflow: str = "tend-review",
+        harness: str = "claude",
         created_at: str | None = None,
         updated_at: str | None = None,
         **over: Any,
@@ -133,14 +152,16 @@ class Report:
             }
         )
         (self._usage_dir / f"{run_id}.json").write_text(
-            json.dumps(_record(run_id=run_id, workflow=workflow, **over))
+            json.dumps(_record(harness, run_id=run_id, workflow=workflow, **over))
         )
+        (self._usage_dir / f"{run_id}.harness").write_text(harness)
         return self
 
     def add_raw(self, run_id: int, body: str) -> Report:
         """A run whose artifact holds *body* verbatim, valid JSON or not."""
         self.add_run_without_artifact(run_id)
         (self._usage_dir / f"{run_id}.json").write_text(body)
+        (self._usage_dir / f"{run_id}.harness").write_text("claude")
         return self
 
     def add_run_without_artifact(self, run_id: int) -> Report:
@@ -285,7 +306,7 @@ def test_a_cost_unknown_run_reads_as_a_floor_not_as_free(report: Report) -> None
     total = next(row for row in rows if row[0] == "Total")
     assert total[2] == "$4.00+", "the headline cost is a floor while a run is unpriced"
     assert " ".join(total).endswith("(1 of 2 runs cost-unknown)")
-    assert _table(report, "SUBJECT")[1] == ["#851", "1", "$0.00+", "tend-review", "10K"]
+    assert _table(report, "SUBJECT")[1] == ["#851", "1", "n/a", "tend-review", "10K"]
 
 
 def test_a_run_whose_record_predates_the_subject_fields(report: Report) -> None:
@@ -303,12 +324,73 @@ def test_a_run_whose_record_predates_the_subject_fields(report: Report) -> None:
 
 
 def test_a_run_with_no_artifact_is_skipped(report: Report) -> None:
-    """A run that uploaded nothing — a codex-harness run, or one killed before
-    the token step — contributes no row rather than a zero one."""
+    """A run killed before upload contributes no row rather than a zero one."""
     report.add(1).add_run_without_artifact(2)
     output, _ = report.run()
 
     assert [run["run_id"] for run in output["runs"]] == [1]
+
+
+def test_codex_artifact_counts_tokens_without_claiming_zero_cost(
+    report: Report,
+) -> None:
+    report.add(1, harness="codex")
+    report.add(2, workflow="tend-nightly", cost_usd=2.5)
+    output, rows = report.run()
+
+    assert "--pattern *-session-logs*" in report.calls()
+    assert output["totals"]["unpriced_runs"] == 1
+    assert output["runs"][1]["cost_usd"] is None
+    assert _table(report, "WORKFLOW")[1][2] == "n/a"
+    assert _table(report, "COST-UNKNOWN")[0][0] == "#851"
+    total = next(row for row in rows if row[0] == "Total")
+    assert total[2] == "$2.50+"
+
+
+def test_codex_input_excludes_its_cached_input_as_claude_s_does(
+    report: Report,
+) -> None:
+    """INPUT and CACHE-READ mean the same for both harnesses.
+
+    Codex's `input_tokens` includes its cached input; Claude's excludes cache
+    reads. Summed as written, a mixed report would count Codex's cached tokens
+    once as input and again as cache-read.
+    """
+    report.add(1, harness="codex", input_tokens=4200, cached_input_tokens=3000)
+    report.add(2, workflow="tend-nightly")
+    output, _ = report.run()
+
+    codex_run = next(run for run in output["runs"] if run["run_id"] == 1)
+    assert codex_run["input_tokens"] == 1200
+    assert codex_run["cache_read_input_tokens"] == 3000
+    assert output["totals"]["input_tokens"] == 1210
+    assert output["totals"]["cache_read_input_tokens"] == 13000
+
+
+def test_codex_only_report_has_no_cost_value(report: Report) -> None:
+    report.add(1, harness="codex")
+    output, rows = report.run()
+
+    assert output["runs"][0]["cost_usd"] is None
+    assert next(row for row in rows if row[0] == "Total")[2] == "n/a"
+
+
+def test_codex_only_tables_rank_by_cached_input(report: Report) -> None:
+    for run_id in range(1, 26):
+        report.add(
+            run_id,
+            harness="codex",
+            workflow="tend-nightly" if run_id % 2 else "tend-review",
+            number=1000 + run_id,
+            input_tokens=run_id * 1000 + 500,
+            cached_input_tokens=run_id * 1000,
+        )
+    _, rows = report.run()
+
+    assert _table(report, "SUBJECT")[0][0] == "#1025"
+    assert _table(report, "SUBJECT")[-1][0] == "#1006"
+    assert _table(report, "WORKFLOW")[0][0] == "tend-nightly"
+    assert any("reported cost then cached input" in " ".join(row) for row in rows)
 
 
 def test_the_subject_table_stops_at_the_top_and_says_so(report: Report) -> None:
@@ -325,7 +407,7 @@ def test_the_subject_table_stops_at_the_top_and_says_so(report: Report) -> None:
     assert len(subjects) == 20
     assert subjects[0][0] == "#1025", "the costliest subject leads"
     assert len(output["runs"]) == 25
-    assert any("costliest of 25" in " ".join(row) for row in rows)
+    assert any("showing 20 of 25" in " ".join(row) for row in rows)
 
 
 @pytest.mark.parametrize(
@@ -393,7 +475,7 @@ def test_a_matrix_runs_row_agrees_with_its_rollup_to_the_cent(report: Report) ->
         (report._usage_dir / "1.json").write_text(
             (report._usage_dir / "1.json").read_text().rstrip()
             + "\n"
-            + json.dumps(_record(run_id=1, cost_usd=cost))
+            + json.dumps(_record("claude", run_id=1, cost_usd=cost))
         )
     output, _ = report.run()
 
@@ -495,6 +577,7 @@ def test_a_repo_with_no_runs_reports_the_same_empty_shape(report: Report) -> Non
             "turns": 0,
             "cost_usd": 0,
             "partial_runs": 0,
+            "unpriced_runs": 0,
             "skipped_runs": 0,
         },
     }

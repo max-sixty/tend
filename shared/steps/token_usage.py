@@ -23,9 +23,9 @@ Reads (env):
 
 Writes ``token-usage.json`` into the consolidated log dir (uploaded as the
 session-log artifact), the ``usage`` step output (compact JSON), and a
-``## Token Usage`` table in the job summary. The record's shape mirrors the
-interactive harness so downstream consumers (review-reviewers' evidence gist,
-token_report.py, dashboards) don't branch on harness.
+``## Token Usage`` table in the job summary. The two harnesses' records differ
+in shape (see the Codex path below); token_report.py recasts a Codex record in
+Claude's shape before summing.
 
 It also publishes the ``artifact_name`` the upload step uses; see
 :func:`artifact_name`.
