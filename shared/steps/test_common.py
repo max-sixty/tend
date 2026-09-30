@@ -46,18 +46,6 @@ def test_set_output_uses_the_heredoc_form_for_multiline(
     assert github_files.outputs() == {"one": "x", "two": "a\nb"}
 
 
-def test_stop_commands_brackets_untrusted_text(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    with _common.stop_commands():
-        print("::error::forged")
-    out = capsys.readouterr().out.splitlines()
-    assert out[0].startswith("::stop-commands::tend-")
-    token = out[0].removeprefix("::stop-commands::")
-    assert out[1] == "::error::forged"
-    assert out[2] == f"::{token}::"
-
-
 def test_annotate_keeps_the_message_on_one_line(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

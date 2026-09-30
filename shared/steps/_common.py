@@ -14,12 +14,10 @@ attribute (the ``fake_gh`` fixture in ``conftest.py``) instead of standing up a
 shim on ``PATH``.
 
 The runner reads ``::``-prefixed workflow commands from the start of any line a
-step prints. Text a step did not write itself — the agent's stderr, a comment
-body — is printed inside :func:`stop_commands`, which brackets it with a
-per-run token so it can neither post annotations nor switch command processing
-off for the steps that follow. The agent's unit is the exception: its output,
-including Codex's own stdout and stderr, reaches the runner unbracketed so the
-lifecycle's failure annotations register (see ``launch_agent.launch``).
+step prints. Agent-written text — the unit's output, including Codex's own
+stdout and stderr, and the tail of Claude's stderr that ``run_claude`` quotes
+on failure — reaches the runner unbracketed, so the lifecycle's failure
+annotations register (see ``launch_agent.launch``).
 """
 
 from __future__ import annotations
@@ -277,17 +275,6 @@ def annotate(level: str, message: str) -> None:
     text tend did not compose.
     """
     print(f"::{level}::{' '.join(message.splitlines())}", flush=True)
-
-
-@contextlib.contextmanager
-def stop_commands() -> Iterator[None]:
-    """Print untrusted text inside this block so it cannot issue workflow commands."""
-    token = f"tend-{secrets.token_hex(8)}"
-    print(f"::stop-commands::{token}", flush=True)
-    try:
-        yield
-    finally:
-        print(f"::{token}::", flush=True)
 
 
 class Cancelled(BaseException):
