@@ -362,6 +362,25 @@ def test_workflow_boolean_false(tmp_path: Path) -> None:
     assert cfg.workflows["review"].enabled is False
 
 
+@pytest.mark.parametrize(
+    "workflows_yaml",
+    [
+        "review:\n    enabled: no",
+        'review:\n    enabled: "false"',
+        "review: off",
+        "review:",
+    ],
+)
+def test_workflow_enabled_must_be_boolean(tmp_path: Path, workflows_yaml: str) -> None:
+    """YAML 1.2 reads `no`/`off` as strings, which are truthy — refuse them
+    rather than generate the workflow the consumer meant to disable."""
+    path = _write_config(
+        tmp_path, f"bot_name: my-bot\nworkflows:\n  {workflows_yaml}\n"
+    )
+    with pytest.raises(ClickException, match="must be true"):
+        Config.load(path)
+
+
 def test_workflow_boolean_true(tmp_path: Path) -> None:
     """workflows.review: true -- shorthand boolean form."""
     path = _write_config(
