@@ -24,9 +24,9 @@ bot_name: my-project-bot
 # Model to use for all workflows. Any string the selected harness's CLI accepts
 # — an alias that follows the provider's promotions (`opus`, `sonnet`,
 # `haiku`), or an exact id that stays put across them (`claude-opus-5`,
-# `gpt-5.6-sol`). Tend passes the value straight to `--model`, so a name the
+# `gpt-6-sol`). Tend passes the value straight to `--model`, so a name the
 # CLI does not know fails the job with that CLI's error. The defaults are
-# `opus` for Claude and `gpt-5.6-sol` for Codex.
+# `opus` for Claude and `gpt-6-sol` for Codex.
 #
 # model: opus
 
