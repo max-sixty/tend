@@ -10,7 +10,6 @@ import ast
 import base64
 import os
 import pwd
-import re
 import subprocess
 import time
 from pathlib import Path
@@ -149,6 +148,7 @@ def fake_launch(
                 (run_dir / "codex-final-message.md").write_bytes(b"finished\n")
             if write_summary:
                 (run_dir.parent / "tmp/step-summary.md").write_bytes(b"skill result\n")
+            print("::error::claude -p exited non-zero (exit=1)", flush=True)
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(subprocess, "run", run)
@@ -207,11 +207,11 @@ def test_claude_exports_only_fixed_runner_owned_files(
     )
     assert f'XDG_CACHE_HOME="{runner_home / ".cache"}"' in entries
 
-    # Nothing the agent prints between these two lines is a workflow command.
+    # The lifecycle's failure annotation reaches the runner as a workflow
+    # command, not as text inside a stop-commands region (#1449).
     printed = capsys.readouterr().out
-    token = re.search(r"^::stop-commands::(tend-[0-9a-f]+)$", printed, re.MULTILINE)
-    assert token is not None
-    assert f"\n::{token[1]}::\n" in printed
+    assert "::error::claude -p exited non-zero (exit=1)\n" in printed
+    assert "::stop-commands::" not in printed
 
 
 def test_codex_base64_encodes_the_fixed_final_message(
