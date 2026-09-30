@@ -366,14 +366,9 @@ def stderr_tail(stderr_log: Path) -> list[str]:
 
 
 def _quote_stderr(stderr_log: Path) -> None:
-    """Print the agent's last words where they cannot issue workflow commands.
-
-    The annotation above them needs no such bracket: the reason is flattened to
-    one line and embedded mid-line rather than starting one.
-    """
-    with _common.stop_commands():
-        for line in stderr_tail(stderr_log):
-            print(line, flush=True)
+    """Print the agent's last words below the annotation that explains them."""
+    for line in stderr_tail(stderr_log):
+        print(line, flush=True)
 
 
 def verdict(

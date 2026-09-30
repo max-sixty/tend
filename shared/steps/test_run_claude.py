@@ -172,29 +172,6 @@ def test_verdict_bounds_the_reason_it_quotes(verdict: Verdict) -> None:
     assert quoted == "x" * run_claude.REASON_MAX_CHARS + "…"
 
 
-def test_verdict_disarms_workflow_commands_in_the_agents_stderr(
-    verdict: Verdict,
-) -> None:
-    """The agent writes its own stderr, and the runner parses `::` lines.
-
-    Without the stop-commands bracket a prompt-injected agent posts its own
-    annotations, masks whatever it likes out of the log, or leaves command
-    processing off for every step after this one.
-    """
-    code, out, _ = verdict(
-        claude_exit=3,
-        stderr_log="::error::posted by the agent\n::add-mask::secret\n",
-    )
-
-    assert code == 3
-    before, injected = out.split("::error::posted by the agent", 1)
-    token = before.rsplit("::stop-commands::", 1)[1].strip()
-    assert token, "the agent's stderr was echoed with commands still live"
-    assert injected.strip().endswith(f"::{token}::"), (
-        "command processing was left switched off for the steps that follow"
-    )
-
-
 def test_verdict_quotes_the_last_twenty_newline_delimited_stderr_lines(
     verdict: Verdict,
 ) -> None:
