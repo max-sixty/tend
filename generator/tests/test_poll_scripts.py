@@ -755,6 +755,51 @@ def test_a_check_that_never_finishes_holds_the_wait(env: dict[str, str]) -> None
         _poll(env)
 
 
+def test_a_job_awaiting_environment_approval_is_unverified(
+    env: dict[str, str],
+) -> None:
+    """A deployment job parked on an environment's required reviewers never
+    moves without a person, so the poll reports it rather than waiting."""
+    _serve(env, _resp(_check_run("tests"), _check_run("deploy", status="WAITING")))
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "UNVERIFIED, not green" in result.stdout
+    assert "deploy" in result.stdout
+
+
+def test_approval_names_a_job_awaiting_approval_beside_a_red(
+    env: dict[str, str],
+) -> None:
+    """A red beside a waiting job doesn't wait for it: the red stands."""
+    _serve(env, _resp(OMNIBUS_RED, _check_run("deploy", status="WAITING")))
+
+    result = _approval(env)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "check-ok-to-merge" in result.stdout
+
+
+def test_a_waiting_rerun_is_not_read_as_its_earlier_success(
+    env: dict[str, str],
+) -> None:
+    """GitHub may report no startedAt for the waiting attempt; the earlier
+    green attempt of the same check must not stand in for it."""
+    _serve(
+        env,
+        _resp(
+            _check_run("deploy", run_id=100),
+            _check_run("deploy", status="WAITING", run_id=101, started=None),
+        ),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "runs/101/" in result.stdout
+
+
 def test_a_commit_with_no_checks_is_unverified(env: dict[str, str]) -> None:
     """No check registered and none ever coming look the same, so a commit
     that shows none for the registration margin reads as having none."""

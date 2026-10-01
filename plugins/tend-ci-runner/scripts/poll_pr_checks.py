@@ -135,9 +135,13 @@ def reduce_rollup(
             if pending
             else max(group, key=lambda context: context["started_at"])
         )
+    # A job held by an environment's protection rules moves only when someone
+    # outside the run approves it, so it has settled without a result rather
+    # than still pending.
+    settled = {"COMPLETED", "WAITING"}
     return {
         "pending": [
-            context["name"] for context in current if context["status"] != "COMPLETED"
+            context["name"] for context in current if context["status"] not in settled
         ],
         "failed": [
             f"{context['name']} {context['url']}"
@@ -148,7 +152,8 @@ def reduce_rollup(
         "unverified": [
             f"{context['name']} {context['url']}"
             for context in current
-            if context["status"] == "COMPLETED"
+            if context["status"] == "WAITING"
+            or context["status"] == "COMPLETED"
             and context["conclusion"] not in (RED_CONCLUSIONS | GREEN_CONCLUSIONS)
         ],
     }
@@ -247,8 +252,9 @@ def _settle(
       has no check coming, or GitHub isn't answering for it.
 
     A check that registers and never finishes — a status its app never
-    reports, a job waiting on an environment approval — holds the wait until
-    the session's own timeout ends the run, which then reads as timed out.
+    reports — holds the wait until the session's own timeout ends the run,
+    which then reads as timed out. A job waiting on an environment approval
+    doesn't: :func:`reduce_rollup` counts it as settled without a result.
     """
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     workflow = os.environ.get("GITHUB_WORKFLOW", "")
@@ -340,7 +346,10 @@ def approval(
 def _unverified_note(rollup: dict[str, list[str]]) -> None:
     """Name checks that settled without a result, beside another verdict."""
     if rollup["unverified"]:
-        print("settled without a result (cancelled, stale, or unrecognized):")
+        print(
+            "settled without a result "
+            "(cancelled, stale, awaiting approval, or unrecognized):"
+        )
         print(*rollup["unverified"], sep="\n")
 
 
