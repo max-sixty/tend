@@ -43,7 +43,7 @@ Classify into one of:
 
 ## Step 3: Check for duplicates
 
-*Skip for questions, ideas, and other.*
+*Skip for questions and other.*
 
 ```bash
 # Search open issues for similar problems. <keywords>: the symptom, error
@@ -86,7 +86,7 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
 Open a PR when a maintainer is reasonably likely to merge it; otherwise report the finding in Step 7. Weigh at least:
 
 - **What the issue is.** A reproduced bug usually clears the bar. A feature request can, when the repository's docs, tests, or neighbouring code settle how the behavior should work. An idea, or a request that leaves a product choice open, usually doesn't.
-- **Who is asking**, from the `author_association` read in Step 2 and the reporter's history in the repository. A maintainer's or regular contributor's request carries the project's direction; a feature request from a new user usually waits for a maintainer to endorse it.
+- **Who is asking**, from the `author_association` read in Step 2 and the reporter's history in the repository. A maintainer's or regular contributor's request carries the project's direction; a feature request from a new user usually waits for a maintainer to endorse it. An issue the bot opened carries no maintainer direction: its `author_association` reflects the bot's write access.
 
 The change must also be verifiable. For a feature, a test of the new behavior that fails before the change, or a check the repository already runs over the edited files, stands in for the reproduction in `/tend-ci-runner:fix-a-bug`'s gates. Title a feature's commit and PR `feat:` rather than `fix:`.
 
