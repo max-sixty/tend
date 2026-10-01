@@ -80,7 +80,7 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
 
 *Bug reports, and feature requests whose change is settled.*
 
-A feature request goes to a change here when it states the concrete behavior it wants, the repository's docs, tests, or neighbouring code settle how that behavior should work, and the change is localized and verifiable — by a test of the new behavior that fails before the change, or a check the repository already runs over the edited files. Where the request leaves a product choice open, or nothing in reach can verify the change, report the finding in Step 7 instead. Title a feature `feat:` rather than `fix:`.
+A feature request goes to a change here when it states the concrete behavior it wants, the repository's docs, tests, or neighbouring code settle how that behavior should work, and the change is localized and verifiable — by a test of the new behavior that fails before the change, or a check the repository already runs over the edited files. That test or check stands in for the reproduction in `/tend-ci-runner:fix-a-bug`'s gates. Where the request leaves a product choice open, or nothing in reach can verify the change, report the finding in Step 7 instead. Title a feature's commit and PR `feat:` rather than `fix:`.
 
 `/tend-ci-runner:fix-a-bug` carries the gates: the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
 
