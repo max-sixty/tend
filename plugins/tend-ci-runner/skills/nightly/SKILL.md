@@ -87,8 +87,12 @@ Review every commit since the last nightly that succeeded, so a night that was s
 ```bash
 DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
 git fetch origin "$DEFAULT_BRANCH"
-LAST=$(gh run list --workflow tend-nightly --branch "$DEFAULT_BRANCH" --status success \
-  --limit 1 --json headSha --jq '.[0].headSha // empty')
+# GitHub can answer one listing URL from a weeks-old cached snapshot. Each
+# `--limit` is a different URL, so take the newest success across several reads.
+LAST=$(for n in 1 2 3; do
+    gh run list --workflow tend-nightly --branch "$DEFAULT_BRANCH" --status success \
+      --limit "$n" --json headSha,createdAt
+  done | jq -rs 'add // [] | max_by(.createdAt) | .headSha // empty')
 # No earlier success, or its commit is gone from history: the last 24 hours.
 git merge-base --is-ancestor "$LAST" "origin/$DEFAULT_BRANCH" 2>/dev/null \
   || LAST=$(git rev-list -1 --before='24 hours ago' "origin/$DEFAULT_BRANCH")
