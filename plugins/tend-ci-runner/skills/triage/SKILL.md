@@ -33,7 +33,7 @@ One exception: a tracker the bot maintains for its own evidence — its body say
 
 Classify into one of:
 
-- **Bug report** — describes unexpected behavior, includes steps to reproduce or error output. Descriptions of changed behavior ("no longer works", "used to work") strongly signal a bug even with a terse body.
+- **Bug report** — describes unexpected behavior, includes steps to reproduce or error output. Descriptions of changed behavior ("no longer works", "used to work") strongly signal a bug even with a terse body, and so does current behavior that gives a wrong or confusing result, even when the report asks for an enhancement.
 - **Feature request** — asks for new functionality or behavior changes
 - **Question** — asks how to do something or how something works
 - **Other** — doesn't fit the above categories
@@ -66,7 +66,7 @@ Search the codebase to check whether the requested feature already exists.
 3. **Read key files** — If searches find hits, read the relevant source to understand what already exists and how it works.
 4. **Check docs and help text** — Look for user-facing documentation of the feature.
 
-Record what you found (or didn't find) for use in step 7.
+Record what you found (or didn't find) for use in steps 6 and 7.
 
 ## Step 5: Reproduce the bug
 
@@ -78,7 +78,9 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
 
 ## Step 6: Fix (conservative)
 
-*Bug reports only.*
+*Bug reports, and feature requests whose change is settled.*
+
+A feature request goes to a change here when it states the concrete behavior it wants, the repository's docs, tests, or neighbouring code settle how that behavior should work, and the change is localized and verifiable — by a test of the new behavior that fails before the change, or a check the repository already runs over the edited files. Where the request leaves a product choice open, or nothing in reach can verify the change, report the finding in Step 7 instead. Title a feature `feat:` rather than `fix:`.
 
 `/tend-ci-runner:fix-a-bug` carries the gates: the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
 
