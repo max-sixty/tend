@@ -42,10 +42,10 @@ anything — a deliberately maintained hard fork keeps its own name.
 
 A config from a finished install makes this a change: take the harness from
 the config, lay out only the steps the task touches, and start. Finished
-means `uvx tend@latest check` passes — secrets, bot access, protection —
-*and* the workflows are live on the default branch, which that check never
-looks at (step 11 commits without pushing, so an install can stop with
-everything else in place):
+means `uvx tend@latest check --repo "$REPO"` passes — secrets, bot access, protection —
+*and* the workflows are live on the default branch, which that check does
+not look at under `restricted` (step 11 commits without pushing, so an
+install can stop with everything else in place):
 
 ```bash
 gh api "repos/$REPO/contents/.github/workflows" \
@@ -553,8 +553,8 @@ Environment with required reviewers before migrating release or deploy
 secrets to it. The payload can steer a fixed workflow even when its policy
 admits yolo's default branch.
 
-Run `uvx tend@latest check` after this section. It exits non-zero until
-the later steps set the secrets and grant the bot access; read its
+Run `uvx tend@latest check --repo "$REPO"` after this section. It exits
+non-zero until the later steps set the secrets and grant the bot access; read its
 `credential-environments` line, which reports any environment still
 reachable by the bot.
 
@@ -680,7 +680,7 @@ shape (it creates it and admits exactly the default branch and each
 `protected_branches` entry), so create it with:
 
 ```bash
-uvx tend@latest check --fix
+uvx tend@latest check --fix --repo "$REPO"
 ```
 
 It exits non-zero here, reporting the secrets this step and step 8 are
@@ -1065,13 +1065,20 @@ fi
 
 ## 11. Verify, commit and push
 
-Everything `check` inspects is in place by now, so this run must pass:
+Everything `check` inspects is in place by now, so under `restricted`
+this run must pass:
 
 ```bash
-uvx tend@latest check
+uvx tend@latest check --repo "$REPO"
 ```
 
-A failure here is a real one — fix it before committing.
+A failure here is a real one — fix it before committing. Under `yolo`,
+the checks that need the install on the default branch —
+`branch-protection:<default>`, `control-plane-codeowners`,
+`control-plane-ruleset`, and `yolo-workflows` — fail until the install PR
+merges and §3 is rerun. Until then no branch verifies for the `environment`
+check either, so the run ends with "Yolo security checks are incomplete"
+rather than a plain non-zero exit. Any other failure is real.
 
 Stage all changes:
 
