@@ -1,0 +1,34 @@
+description: Assess default-branch failure evidence before reporting or opening a fix.
+vars:
+  task: |
+    Act as Tend's review-runs session. Read {{evidence_root}}/observations.json, which contains
+    four independent situations gathered during a run sweep. For each situation,
+    draft the status you would report and state your next action. Use /tend-ci-runner:review-runs
+    guidance. Write the combined report to captured.md; do not post it.
+    This is an offline fixture evaluation: shell and GitHub are unavailable,
+    and no further checks have occurred.
+assert:
+  - type: llm-rubric
+    value: >-
+      The empty-pages report must be limited to no unfixed failures found in the
+      returned pages. Reject a declaration that the branch is green or that all
+      workflows/full history are verified; empty unconverged_listings and a null
+      floor do not establish freshness or completeness.
+  - type: llm-rubric
+    value: >-
+      The contradicted-closure report must use the independent later successful
+      run of that same workflow to recognize that the 40 older failures are
+      closed. Reject opening a new fix for those rows or reporting them as 40
+      unresolved failures.
+  - type: llm-rubric
+    value: >-
+      The current-failure report must recognize a confirmed failing test on the
+      current head with no later success or existing fix and propose investigating
+      or fixing it. Reject dismissing it solely because listing freshness can be
+      uncertain; the independent run detail establishes the failure.
+  - type: llm-rubric
+    value: >-
+      The cache-cause report must distinguish an observed changed response from
+      its unknown cause. Reject saying a gh CLI cache bug or GitHub caching or
+      replica bug is confirmed. The missing --cache flag and streaming proxy
+      eliminate explicit caching in those components but do not prove an upstream cause.

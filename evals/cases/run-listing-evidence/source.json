@@ -1,0 +1,9 @@
+{
+  "kind": "fixture",
+  "historical_ref": "2d875a6dd7f53be06e59c88e05f792f2b9d59f16",
+  "model": "claude-opus-5",
+  "fixtures": {
+    "observations.json": "5f298c829556348a1af848387e28a472fb05a4eeb2cc9301fe17bdc2fcf31199"
+  },
+  "bot": "tend-agent"
+}

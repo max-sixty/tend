@@ -1,0 +1,55 @@
+{
+  "origin": "Offline contrasts derived from Tend #1401 and the helper contract; not a production-history replay.",
+  "scenarios": [
+    {
+      "id": "empty-pages",
+      "returned_pages": {"failure": [], "startup_failure": [], "timed_out": []},
+      "page_limit": 50,
+      "reached_back_to": null,
+      "unconverged_listings": []
+    },
+    {
+      "id": "contradicted-closure",
+      "workflow": ".github/workflows/tend-notifications.yaml",
+      "candidate_failure_count": 40,
+      "failure_dates": ["2026-09-15", "2026-09-20"],
+      "returned_latest_green": "2026-09-08T22:05:56Z",
+      "unconverged_listings": [],
+      "independent_run_detail": {
+        "path": ".github/workflows/tend-notifications.yaml",
+        "branch": "main",
+        "conclusion": "success",
+        "created_at": "2026-09-23T07:49:08Z"
+      }
+    },
+    {
+      "id": "current-failure",
+      "candidate_run": {
+        "id": 501,
+        "path": ".github/workflows/ci.yaml",
+        "branch": "main",
+        "head_sha": "abc123",
+        "conclusion": "failure",
+        "created_at": "2026-09-23T07:49:08Z"
+      },
+      "observed_green": "2026-09-22T00:00:00Z",
+      "current_branch_head": "abc123",
+      "run_detail": {
+        "id": 501,
+        "head_sha": "abc123",
+        "failed_job": "test",
+        "failed_step": "pytest",
+        "error": "AssertionError: expected 1, got 2"
+      },
+      "existing_fix_prs": [],
+      "later_runs": []
+    },
+    {
+      "id": "cache-cause",
+      "two_listing_observations": ["2026-09-08T22:05:56Z", "2026-09-23T07:49:08Z"],
+      "gh_arguments": ["api", "repos/owner/repo/actions/workflows/ci.yaml/runs?branch=main&status=success&per_page=1"],
+      "proxy_observation": "Response is streamed; no response cache implemented.",
+      "response_headers_captured": false
+    }
+  ]
+}
