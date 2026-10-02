@@ -54,7 +54,8 @@ For each notification, identify the activity that made the thread unread and app
 Process the snapshot oldest first. Read the live issue or PR and decide what it needs now:
 
 - If a dedicated tend workflow is still running for the subject, defer it. Step 4 leaves it unread for the next poll.
-- If the bot already handled the latest activity, record it as handled without posting again.
+- For an open PR authored by the configured bot, continue any outstanding work per `/tend-ci-runner:continue-pr`, even if the latest activity was answered or the live head was reviewed. A current blocker can be recorded without posting it again.
+- If the bot already handled the latest activity and no repair remains, record it as handled without posting again.
 - Otherwise use the normal live workflow: `/tend-ci-runner:triage` for an issue, `/tend-ci-runner:review` for an unreviewed PR head, or answer a comment or review thread that asks the bot for something, per `/tend-ci-runner:respond-on-thread` and `/tend-ci-runner:post-to-github`.
 - A closed thread or a human conversation that needs nothing from the bot has the semantic outcome “no action”.
 - A non-conversational subject, such as a release or check suite, also has the outcome “no action”. Default-branch CI recovery belongs to the daily current-state scan.

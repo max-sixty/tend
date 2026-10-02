@@ -36,6 +36,11 @@ gh issue view <number> --json title,body,comments,state
 
 Read the triggering comment, the PR/issue description, the diff (for PRs), and recent comments to understand the full conversation before taking action.
 
+When an open PR authored by the configured bot still has unfinished work,
+continue it per `/tend-ci-runner:continue-pr` before answering. The current
+comment need not repeat the repair request; apply any new maintainer constraints
+to the outstanding work.
+
 ## A review's inline comments are a separate fetch
 
 Neither `gh pr view --json reviews` nor `GET /pulls/<n>/reviews/<id>` returns a review's inline comments — both hand back the review body alone, with no field signalling that more exists, so a read that stops there looks complete. A one-line review body routinely sits on top of the maintainer's actual instructions. Whenever the trigger names a review ID, fetch them as part of reading context — not only when you already intend to reply inline:

@@ -251,17 +251,3 @@ lives in KV and is what the site renders. If the summary wants a longer
 span than the last week (beyond GitHub's ~90-day events window or one
 Search page), a KV/D1 accumulator that appends activity as it arrives
 earns its keep — until then, demand-fetch is cheap enough.
-
-## Give `tend-mention` a skill of its own
-
-`workflows.py` builds every other agent-invoking workflow's prompt from
-`default_prompt(skill)`; mention's is written inline in `mention.yaml.j2` and
-names no skill — the one exception `test_repo_pins.py` allows to the invariant
-under "Which file" in `AGENTS.md`.
-
-The rules with mention's shape — reading the thread, a review's inline
-comments, the closed-target check, whether to respond — no longer need that
-skill for a home: `/tend-ci-runner:respond-on-thread` holds them,
-keyed on responding to a thread whatever woke the session, so triage,
-notifications, and review reach them too. A `mention` skill earns its cost only
-once rules that bind mention alone start accumulating in `run-tend` again.

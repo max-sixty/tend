@@ -111,7 +111,7 @@ EXISTING=$(gh api "repos/{owner}/{repo}/pulls/{number}/comments?per_page=100" \
   --jq "[.[] | select(.in_reply_to_id == {comment_id} and .user.login == \"$BOT_LOGIN\")] | length")
 ```
 
-If `EXISTING` is greater than 0, **do not post** — another run already handled this comment. Exit silently.
+If `EXISTING` is greater than 0, **do not post** — another run already answered this comment. Continue any remaining work without a duplicate reply.
 
 If any prior entry — from a human or another tend workflow — already addresses a point the response would make, omit that point. The dedup applies equally to comment bodies, review bodies, and inline replies. If the response is now entirely redundant, don't post it.
 
