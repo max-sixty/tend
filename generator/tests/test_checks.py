@@ -186,35 +186,21 @@ def _login_response(login: str | None) -> subprocess.CompletedProcess[str]:
     return _make_completed(f"{login}\n")
 
 
-def _org_secret_gh(
-    *,
-    org_secrets: list[tuple[str, str]],
-    shared: dict[str, list[str]] | None = None,
-    repo_private: bool = False,
-    plan: str = "team",
-    repositories_rc: int = 0,
-):
-    """A `_gh` stand-in serving the endpoints `_list_org_secrets` reads, for the
-    org `acme` and the repo `acme/widget`: the org secret listing as
-    (name, visibility) pairs, each `selected` secret's shared-repo list, the
-    org's plan, and the repo's own visibility. Repo-level secrets come back
-    empty so a test's subject is only what the org contributes."""
-    shared = shared or {}
+def _org_secret_gh(*names: str):
+    """The repo's already-filtered org-secret names, as gh's --jq emits them."""
 
     def fake(*args, **kwargs) -> subprocess.CompletedProcess[str]:
-        url = next(a for a in args if a.startswith(("repos/", "orgs/")))
-        if url.endswith("/repositories"):
-            if repositories_rc != 0:
-                return _make_completed(returncode=repositories_rc, stderr="HTTP 404")
-            return _make_completed("\n".join(shared.get(url.split("/")[-2], [])) + "\n")
-        if url == "orgs/acme/actions/secrets":
-            listed = [{"name": n, "visibility": v} for n, v in org_secrets]
-            return _make_completed("".join(json.dumps(e) + "\n" for e in listed))
-        if url == "orgs/acme":
-            return _make_completed(f"{plan}\n")
+        url = _url(args)
         if url == "repos/acme/widget":
-            return _make_completed(f"{str(repo_private).lower()}\n")
-        return _make_completed("")
+            return _make_completed("Organization\n")
+        if url == "repos/acme/widget/actions/organization-secrets":
+            return _make_completed(_secret_names(*names))
+        if url in {
+            "repos/acme/widget/actions/secrets",
+            "repos/acme/widget/environments/tend/secrets",
+        }:
+            return _make_completed("")
+        raise AssertionError(f"Unexpected endpoint: {url}")
 
     return fake
 
@@ -1183,8 +1169,9 @@ def test_secrets_missing_with_org_403_hint() -> None:
         )
     assert result.passed is False
     assert "CLAUDE_CODE_OAUTH_TOKEN" in result.message
-    assert "admin:org" in result.message
-    assert "gh auth refresh" in result.message
+    assert "repo scope" in result.message
+    assert "Secrets read permission" in result.message
+    assert "admin:org" not in result.message
 
 
 def test_secrets_org_level_copy_fails() -> None:
@@ -1195,7 +1182,7 @@ def test_secrets_org_level_copy_fails() -> None:
 
     with patch(
         "tend.checks._gh",
-        side_effect=_org_secret_gh(org_secrets=[("TEND_BOT_TOKEN", "all")]),
+        side_effect=_org_secret_gh("TEND_BOT_TOKEN"),
     ):
         result = check_secrets("acme/widget", ["TEND_BOT_TOKEN"])
     assert result.passed is False
@@ -1230,30 +1217,92 @@ def test_secrets_reads_every_page_of_the_environment() -> None:
     )
 
 
-def test_org_secrets_read_every_page() -> None:
-    """`_list_org_secrets` feeds both the allowlist and the org-copy hint, and
-    an org past 30 secrets is the ordinary case rather than the exotic one."""
-    calls: list[tuple[str, ...]] = []
+def test_org_secrets_reads_repository_surface_on_every_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Serve raw repository-org-secret responses and run the real jq filters.
 
-    def fake(*args: str, **kwargs: object) -> subprocess.CompletedProcess[str]:
+    The endpoint returns names and dates, without visibility or selected repo
+    lists. Both consumers must read the shared surface, including later pages.
+    """
+    script = (
+        GH_PREAMBLE
+        + r"""
+case "$*" in
+  *"repos/acme/widget/actions/organization-secrets"*)
+    emit '{"total_count":2,"secrets":[{"name":"NPM_TOKEN","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}]}'
+    case "$*" in
+      *"--paginate"*)
+        emit '{"total_count":2,"secrets":[{"name":"TEND_BOT_TOKEN","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}]}'
+        ;;
+    esac
+    ;;
+  *"repos/acme/widget/actions/secrets"*|*"repos/acme/widget/environments/tend/secrets"*)
+    emit '{"total_count":0,"secrets":[]}'
+    ;;
+  *"repos/acme/widget"*)
+    emit '{"owner":{"type":"Organization"}}'
+    ;;
+  *) exit 1 ;;
+esac
+"""
+    )
+    calls_path = tmp_path / "gh-calls.log"
+    bindir = fake_bin(tmp_path, gh=script)
+    monkeypatch.setenv("PATH", tool_path(bindir))
+    monkeypatch.setenv("GH_CALLS", str(calls_path))
+
+    allowlist = check_repo_secret_allowlist("acme/widget", {"NPM_TOKEN"})
+    assert allowlist.passed is False
+    assert "org-level: TEND_BOT_TOKEN" in allowlist.message
+    missing = check_secrets("acme/widget", ["TEND_BOT_TOKEN"])
+    assert missing.passed is False
+    assert "TEND_BOT_TOKEN exists at org level" in missing.message
+    calls = calls_path.read_text().splitlines()
+    assert not any("orgs/" in call for call in calls)
+
+
+@pytest.mark.parametrize(
+    ("owner_type", "listing", "expected"),
+    [
+        ("User", _make_completed(returncode=1, stderr="HTTP 403"), (set(), False)),
+        ("Organization", _make_completed(""), (set(), False)),
+        ("Organization", _make_completed("TOKEN\n"), ({"TOKEN"}, False)),
+        (
+            "Organization",
+            _make_completed(returncode=1, stderr="HTTP 403"),
+            (None, True),
+        ),
+        (
+            "Organization",
+            _make_completed(returncode=1, stderr="HTTP 404"),
+            (None, False),
+        ),
+        ("Organization", None, (None, False)),
+    ],
+)
+def test_org_secrets_owner_and_access(
+    owner_type: str,
+    listing: subprocess.CompletedProcess[str] | None,
+    expected: tuple[set[str] | None, bool],
+) -> None:
+    """A user owner skips the org-only endpoint, even with a narrow token.
+
+    Unread org secrets stay unknown; a permission refusal carries the hint.
+    """
+    calls = []
+
+    def fake(*args, **kwargs):
         calls.append(args)
-        url = _url(args)
-        if url == "orgs/acme/actions/secrets":
-            return _make_completed(
-                '{"name":"FIRST_PAGE","visibility":"all"}\n'
-                '{"name":"SECOND_PAGE","visibility":"all"}\n'
-            )
-        if url == "orgs/acme":
-            return _make_completed("team\n")
-        if url == "repos/acme/widget":
-            return _make_completed("false\n")
-        return _make_completed("")
+        if _url(args) == "repos/owner/repo":
+            return _make_completed(owner_type + "\n")
+        assert _url(args) == "repos/owner/repo/actions/organization-secrets"
+        return listing
 
     with patch("tend.checks._gh", side_effect=fake):
-        secrets, forbidden = _list_org_secrets("acme", "acme/widget")
-    assert forbidden is False
-    assert secrets == {"FIRST_PAGE", "SECOND_PAGE"}
-    assert any("--paginate" in c and "orgs/acme/actions/secrets" in c for c in calls)
+        assert _list_org_secrets("owner/repo") == expected
+    if owner_type == "User":
+        assert len(calls) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1363,7 +1412,9 @@ def test_repo_secret_allowlist_org_forbidden() -> None:
     ):
         result = check_repo_secret_allowlist("owner/repo", {"TEND_BOT_TOKEN"})
     assert result.passed is True
-    assert "admin:org" in result.message
+    assert "repo scope" in result.message
+    assert "Secrets read permission" in result.message
+    assert "admin:org" not in result.message
 
 
 def test_repo_secret_allowlist_with_extra_allowed() -> None:
@@ -1393,129 +1444,9 @@ def test_repo_secret_allowlist_empty_repo() -> None:
     assert result.passed is True
 
 
-def test_repo_secret_allowlist_org_secret_not_shared_with_repo() -> None:
-    """A `selected`-visibility org secret whose repository list omits this repo
-    is unreadable here, so it is not part of the repo's credential surface.
-    Reporting it produces a FAIL no repo-side change can clear — the repo is
-    already at the tightest scoping GitHub offers."""
-    with patch(
-        "tend.checks._gh",
-        side_effect=_org_secret_gh(
-            org_secrets=[("NPM_TOKEN", "selected")],
-            shared={"NPM_TOKEN": ["acme/other"]},
-        ),
-    ):
-        result = check_repo_secret_allowlist("acme/widget", {"TEND_BOT_TOKEN"})
-    assert result.passed is True, result.message
-    assert "NPM_TOKEN" not in result.message
-
-
-def test_repo_secret_allowlist_org_secret_shared_with_repo() -> None:
-    """The same secret, shared with this repo, is readable and still reported."""
-    with patch(
-        "tend.checks._gh",
-        side_effect=_org_secret_gh(
-            org_secrets=[("NPM_TOKEN", "selected")],
-            shared={"NPM_TOKEN": ["acme/other", "acme/widget"]},
-        ),
-    ):
-        result = check_repo_secret_allowlist("acme/widget", {"TEND_BOT_TOKEN"})
-    assert result.passed is False
-    assert "NPM_TOKEN" in result.message
-    assert "org-level" in result.message
-
-
-def test_repo_secret_allowlist_org_secret_shared_case_insensitively() -> None:
-    """GitHub returns `full_name` in canonical casing while `repo` is whatever
-    was passed to `--repo`. A casing difference must not read as "not shared"
-    and drop the secret — that is the under-reporting direction."""
-    with patch(
-        "tend.checks._gh",
-        side_effect=_org_secret_gh(
-            org_secrets=[("NPM_TOKEN", "selected")],
-            shared={"NPM_TOKEN": ["Acme/Widget"]},
-        ),
-    ):
-        result = check_repo_secret_allowlist("acme/widget", {"TEND_BOT_TOKEN"})
-    assert result.passed is False
-    assert "NPM_TOKEN" in result.message
-
-
-def test_repo_secret_allowlist_org_secret_visibility_all() -> None:
-    """`visibility: all` reaches every repo in the org, so it is reported."""
-    with patch(
-        "tend.checks._gh",
-        side_effect=_org_secret_gh(org_secrets=[("NPM_TOKEN", "all")]),
-    ):
-        result = check_repo_secret_allowlist("acme/widget", {"TEND_BOT_TOKEN"})
-    assert result.passed is False
-    assert "NPM_TOKEN" in result.message
-
-
-def test_repo_secret_allowlist_org_secret_private_visibility_public_repo() -> None:
-    """`visibility: private` reaches the org's private repos only."""
-    with patch(
-        "tend.checks._gh",
-        side_effect=_org_secret_gh(
-            org_secrets=[("NPM_TOKEN", "private")], repo_private=False
-        ),
-    ):
-        result = check_repo_secret_allowlist("acme/widget", {"TEND_BOT_TOKEN"})
-    assert result.passed is True, result.message
-    assert "NPM_TOKEN" not in result.message
-
-
-def test_repo_secret_allowlist_org_secret_private_visibility_private_repo() -> None:
-    """The same secret does reach a private repo in the org."""
-    with patch(
-        "tend.checks._gh",
-        side_effect=_org_secret_gh(
-            org_secrets=[("NPM_TOKEN", "private")], repo_private=True
-        ),
-    ):
-        result = check_repo_secret_allowlist("acme/widget", {"TEND_BOT_TOKEN"})
-    assert result.passed is False
-    assert "NPM_TOKEN" in result.message
-
-
-def test_repo_secret_allowlist_org_free_plan_private_repo() -> None:
-    """On GitHub Free, org secrets reach public repositories only — a private
-    repo in a free org reads none of them however they are scoped."""
-    with patch(
-        "tend.checks._gh",
-        side_effect=_org_secret_gh(
-            org_secrets=[("NPM_TOKEN", "all")], repo_private=True, plan="free"
-        ),
-    ):
-        result = check_repo_secret_allowlist("acme/widget", {"TEND_BOT_TOKEN"})
-    assert result.passed is True, result.message
-    assert "NPM_TOKEN" not in result.message
-
-
-def test_repo_secret_allowlist_org_secret_reach_unknown_is_reported() -> None:
-    """Filtering is fail-safe: when the shared-repo list can't be read, the
-    secret stays in the surface rather than being silently dropped."""
-    with patch(
-        "tend.checks._gh",
-        side_effect=_org_secret_gh(
-            org_secrets=[("NPM_TOKEN", "selected")], repositories_rc=1
-        ),
-    ):
-        result = check_repo_secret_allowlist("acme/widget", {"TEND_BOT_TOKEN"})
-    assert result.passed is False
-    assert "NPM_TOKEN" in result.message
-
-
 def test_secrets_org_level_copy_not_shared_with_repo() -> None:
-    """`check_secrets` reads the same surface: an org copy the repo cannot read
-    doesn't keep its workflows running, so it must not be named as if it did."""
-    with patch(
-        "tend.checks._gh",
-        side_effect=_org_secret_gh(
-            org_secrets=[("TEND_BOT_TOKEN", "selected")],
-            shared={"TEND_BOT_TOKEN": ["acme/other"]},
-        ),
-    ):
+    """A copy omitted by the repository endpoint must not be named as usable."""
+    with patch("tend.checks._gh", side_effect=_org_secret_gh()):
         result = check_secrets("acme/widget", ["TEND_BOT_TOKEN"])
     assert result.passed is False
     assert "org level" not in result.message
