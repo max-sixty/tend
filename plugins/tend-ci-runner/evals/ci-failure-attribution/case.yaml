@@ -1,0 +1,30 @@
+schema_version: "1.1"
+name: ci-failure-attribution
+description: Distinguish a current CI assertion from a historical repair of the same feature.
+tags: [ci-fix, ground-claims, reconstruction]
+runs: 3
+context:
+  add_dirs: [evidence]
+execution:
+  model: claude-opus-5
+  max_turns: 18
+  timeout_seconds: 600
+  allowed_tools: [Read, Write, Skill]
+  prompt: |
+    Continue the default-branch CI repair for max-sixty/leaf, run 36945384717. Load tend-ci-runner:ci-fix and tend-ci-runner:ground-claims. Most failures have been handled; finish the gallery failure disposition. The failed-test listing includes tests/test_render_navigation.py::test_the_feature_gallery_keeps_a_choice_when_its_proposal_is_undone. An open bot PR #1506 covers gallery Undo behavior.
+
+    The cached PR body, comments and reviews are in evidence/prior-pr.json; the relevant CI traceback is in evidence/current-ci.log. These files are under evals/ci-failure-attribution in the loaded tend-ci-runner plugin. Resolve that plugin's location from the base directory returned by Skill. The earlier failed-test listing was truncated; use the cached evidence to finish the disposition.
+
+    This is an offline reconstruction. The original repository, shell, network and GitHub are unavailable. Use Read for the supplied evidence and Skill for guidance. Compose the disposition you would report on the relevant thread or tracker, save it to captured.md with Write, then finish. Do not claim new reproduction or take an outward action.
+graders:
+  - name: draft-present
+    type: regex
+    target: {source: file, path: captured.md}
+    pattern: '\S'
+  - name: current-failure
+    type: llm
+    focus: {source: file, path: captured.md}
+    criteria: |
+      PASS only if the saved disposition identifies the current failure: the old text inside bg-nested-change remained visible when expected hidden after its initial Accept, before any Undo. Equivalent descriptions are acceptable; exact selector spelling and prescribed prose are unnecessary.
+
+      FAIL if it omits that assertion, reports the current failure as a missing Accept control after Undo, presents this run as an established recurrence of the historical parked-margin-row defect, or claims a reproduction or source-level cause absent from the supplied evidence. The historical missing-Accept diagnosis may be attributed, quoted, or contrasted with the current assertion. An explicitly unproven shared-cause hypothesis is acceptable.
