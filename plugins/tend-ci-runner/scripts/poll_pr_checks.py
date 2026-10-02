@@ -301,10 +301,10 @@ def approval(
     already under way. So a red with checks pending waits for them to settle,
     where the replacement's result supersedes the cancelled one's.
 
-    A check that settled without a result — cancelled, stale, or a conclusion
-    outside the passing set — never reached a verdict, so it cannot withhold on
-    its merits. It approves, named as unverified so the approval doesn't read
-    as a check that passed.
+    A check that settled without a result — cancelled, stale, held for an
+    environment's approval, or a conclusion outside the passing set — never
+    reached a verdict, so it cannot withhold on its merits. It approves, named
+    as unverified so the approval doesn't read as a check that passed.
 
     A head that moves during that wait leaves the approval undecided; otherwise
     whether *sha* is still the head is not judged here: the review skill posts

@@ -13,5 +13,6 @@
   ],
   "append_sha256": "f5198b1429c51d5689e3ad429d18e4141d9c4ea0cb4d88c255470c1dc2aa0218",
   "pr": "https://github.com/max-sixty/worktrunk/pull/4183",
-  "before": "2026-09-18T06:50:48.283Z"
+  "before": "2026-09-18T06:50:48.283Z",
+  "model": "claude-opus-5"
 }

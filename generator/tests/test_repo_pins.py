@@ -831,13 +831,11 @@ def test_plugin_skill_citations_resolve() -> None:
     assert not broken, "skills cited but absent:\n" + "\n".join(broken)
 
 
-# What Codex 0.155.0 leaves each description, measured against the installed
-# plugin at SKILLS_MEASURED_AT skills: the listing shares one budget across them,
-# so a longer description is cut mid-sentence and every session reads a trigger
-# that stops partway. The share falls as skills are added, and several
-# descriptions sit within a few characters of the ceiling, so the count is pinned
-# below — adding a skill means re-measuring, not raising it. The count spans both
-# plugins, because the install carries both and they share the one budget.
+# A conservative description cap for crowded Codex skill listings. Re-measured
+# with Codex 0.160.0 and both plugins at SKILLS_MEASURED_AT: every description
+# appeared intact, including an 839-character probe. Keep the shorter cap for
+# consumer installations that also carry other skills. The count spans both
+# plugins; adding a skill still calls for checking the installed listing.
 #
 # To re-measure, install both plugins from this checkout into a throwaway Codex
 # home and run any prompt:
@@ -862,7 +860,7 @@ def test_plugin_skill_citations_resolve() -> None:
 # left out of the listing entirely, which is the budget exhausted rather than
 # shared thin.
 DESCRIPTION_BUDGET = 130
-SKILLS_MEASURED_AT = 24
+SKILLS_MEASURED_AT = 26
 
 
 def test_skill_frontmatter_is_loadable() -> None:
@@ -880,7 +878,7 @@ def test_skill_frontmatter_is_loadable() -> None:
     assert len(installed) == SKILLS_MEASURED_AT, (
         f"{len(installed)} skills across both plugins, not the "
         f"{SKILLS_MEASURED_AT} the budget was measured at — re-measure the "
-        "share against the install, and move DESCRIPTION_BUDGET with the count"
+        "installed listing before updating the count and description cap"
     )
 
     for path in installed:
@@ -908,7 +906,7 @@ def test_skill_frontmatter_is_loadable() -> None:
         elif len(description) > DESCRIPTION_BUDGET:
             broken.append(
                 f"{name}: description is {len(description)} chars, over the "
-                f"{DESCRIPTION_BUDGET} the listing shows"
+                f"{DESCRIPTION_BUDGET} character cap"
             )
 
     assert not broken, "unloadable skill frontmatter:\n" + "\n".join(broken)
@@ -921,8 +919,9 @@ def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
     repo's own `.claude/skills/` — which is how the hand-maintained
     `review-reviewers.yaml` reaches tend's overlay copy. Under `harness: codex`
     the generator writes the same invocation as `$<name>` (`default_prompt`).
-    `tend-mention` is the one agent-invoking workflow whose prompt opens with an
-    expression instead, because it names no skill at all (TODO.md).
+    Committed workflows track the published release. Its mention prompt can
+    still open with an expression; generation's harness-parametrized mention
+    test checks that the new prompt names its workflow skill.
     """
     yaml = YAML(typ="safe", pure=True)
     checked = []

@@ -42,7 +42,23 @@ The poll waits for every check, advisory ones included. Where the repo's overlay
 
 Exit 0 is green, judged on the latest run of each check — where one workflow ran twice *independently* on the same SHA, read the earlier run's own conclusion before relying on it. Exit 1 is red, with the failing checks and their run URLs: diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and poll the new commit. Any other exit or command timeout is **unverified, not green**. Exit 3 means the head moved: report the checks it lists as unverified, marking each required or advisory (`gh pr checks <number> --required` lists the required contexts already registered on the commit; an omnibus that hasn't registered yet is required too).
 
-When the system prompt says the merge mode is `yolo`, exit 0 is the merge gate: merge through the pull-request REST endpoint with `PINNED_SHA`. GitHub enforces the preconditions itself — 409 when the head no longer matches `sha`, 405 when the PR is closed or not mergeable. On either refusal, leave the PR open. Never use auto-merge or omit `sha`:
+When the system prompt says the merge mode is `yolo`, exit 0 clears the CI gate.
+Before merging, re-read the PR and its inline review comments and check for
+another dedicated owner:
+
+```bash
+uv run --script \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py" \
+  "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/<number>"
+```
+
+A draft, an unretracted human merge hold, an unresolved actionable finding, or
+another owning run leaves the verified PR open. The CI poll omits Tend's review
+check, so its green result does not settle a review that started after the push.
+Otherwise merge through the pull-request REST endpoint with `PINNED_SHA`.
+GitHub enforces the preconditions itself — 409 when the head no longer matches
+`sha`, 405 when the PR is closed or not mergeable. On either refusal, leave the
+PR open. Never use auto-merge or omit `sha`:
 
 ```bash
 gh api "repos/{owner}/{repo}/pulls/<number>/merge" -X PUT \

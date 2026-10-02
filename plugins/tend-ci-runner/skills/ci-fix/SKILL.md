@@ -54,7 +54,7 @@ gh pr list --state closed --search "<shape>" --limit 100 --json number,title,sta
 
 Match the current diagnostic evidence against the candidate PR's diagnosis and diff, per **Claims of recurrence** in `/tend-ci-runner:ground-claims`. Branch names encode run IDs and never repeat. The listing carries titles only; pull the body and author per candidate (`gh pr view <n> --json body,author`), then read its diff.
 
-- If an existing **open** PR addresses the same failure, comment on it per `/tend-ci-runner:post-to-github` with what this run adds to that thread, and stop.
+- If an existing **open** PR addresses the same failure, read its current head, checks, and conversation. For the configured bot's PR, continue the repair per `/tend-ci-runner:continue-pr`, then stop this workflow without opening another PR. For a human's in-flight fix, leave the work with them; post only new diagnostic evidence per `/tend-ci-runner:post-to-github`.
 - If a **closed** PR with a maintainer rejection covers the same failure, exit silently; check the closure comment for the rationale before referencing it. Re-deriving the same fix forces a maintainer to close it twice.
 
 Also check for open tracking issues left by a prior unfixable diagnosis (see 4b) — compare candidate diagnoses per **Claims of recurrence** in `/tend-ci-runner:ground-claims`. If one covers the current failure, the fix PR you eventually open should reference it via `Fixes #<n>` so the issue closes when the PR merges:

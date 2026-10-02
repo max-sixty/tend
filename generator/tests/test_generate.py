@@ -1275,8 +1275,20 @@ def test_mention_prompt_omits_delay_when_empty(tmp_path: Path) -> None:
     prompt = tend_step["with"]["prompt"]
     # The delay text must be inside a format() conditional, not hardcoded
     assert "format(" in prompt, "delay preamble must use conditional format()"
-    # "Before acting" must always appear (it's the unconditional part)
-    assert "Before acting" in prompt
+    # Workflow behavior lives in the named skill, independent of delay metadata.
+    assert prompt.startswith("/tend-ci-runner:mention")
+
+
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_mention_invokes_its_workflow_skill(tmp_path: Path, harness: str) -> None:
+    """Event metadata must reach a named workflow, which owns task completion.
+
+    Inline instructions that treated a response as completion stranded partial
+    repairs. Both harnesses must load the workflow that interprets the event.
+    """
+    cfg = Config.load(_minimal_config(tmp_path, f"harness: {harness}\n"))
+    prompt = agent_prompt(generate_mention(cfg).content)
+    assert prompt.startswith(cfg.default_prompt("mention"))
 
 
 # ---------------------------------------------------------------------------
