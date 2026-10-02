@@ -1919,8 +1919,10 @@ def _list_org_secrets(repo: str) -> tuple[set[str] | None, bool]:
     owner guard avoids a 403 on user-owned repos before GitHub's 422 check.
     """
     owner = _gh("api", f"repos/{repo}", "--jq", ".owner.type")
-    if owner is None or owner.returncode != 0:
+    if owner is None:
         return None, False
+    if owner.returncode != 0:
+        return None, "HTTP 403" in owner.stderr
     if owner.stdout.strip() == "User":
         return set(), False
     if owner.stdout.strip() != "Organization":

@@ -1417,6 +1417,22 @@ def test_repo_secret_allowlist_org_forbidden() -> None:
     assert "admin:org" not in result.message
 
 
+def test_repo_secret_allowlist_owner_forbidden() -> None:
+    """An unread owner cannot silently turn an incomplete org audit green."""
+
+    def fake(*args, **kwargs):
+        if _url(args) == "repos/owner/repo/actions/secrets":
+            return _make_completed("")
+        assert _url(args) == "repos/owner/repo"
+        return _make_completed(returncode=1, stderr="HTTP 403")
+
+    with patch("tend.checks._gh", side_effect=fake):
+        result = check_repo_secret_allowlist("owner/repo", set())
+    assert result.passed is True
+    assert "could not check org-level" in result.message
+    assert "HTTP 403" in result.message
+
+
 def test_repo_secret_allowlist_with_extra_allowed() -> None:
     """Additional allowed secret (e.g. CODECOV_TOKEN) — passes."""
     with (
