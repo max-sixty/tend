@@ -132,6 +132,16 @@ absent from it, and `git show` then fails into the same wrong answer — the
 indistinguishable from a genuine no-match, which reads as "the guard was
 absent at that run".
 
+**Claims of recurrence use the current run's diagnostic.** Read its failing
+operation, expected and actual result, and the steps it reached. A failed-test
+list identifies where to look; a truncated log may omit the deciding assertion.
+Earlier reports describe earlier evidence: attribute their explanations until
+the current diagnostic confirms them. A shared job, test, or feature does not
+establish the same failure. Different symptoms may share a cause when the
+traceback, code, or reproduction establishes that connection. Compose the
+report from this comparison, keeping an unverified cause distinct from what the
+run actually did.
+
 **A claim about what a past PR proposed is read from its diff.** The body, the
 comments, and the review threads record what was *discussed*; only the diff
 records what was *proposed*, and on a PR closed unmerged the two routinely

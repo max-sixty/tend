@@ -1,11 +1,11 @@
-"""Prepare historical decision replays for Promptfoo’s Claude Agent SDK provider.
+"""Prepare history replays and fixtures for Promptfoo’s Claude Agent SDK provider.
 
 Preparation owns evidence download, transcript cutoffs and guidance replacement;
-Promptfoo executes Claude Code and grades its written PR body. Inputs are
+Promptfoo executes Claude Code and grades its written artifact. Inputs are
 hash-verified; original bad answers stay outside every retained history.
 Prepared plugins are disposable; rebuild before a comparison, never while an
 eval is using them.
-Sources are cached outside the worktree, keyed by transcript hash.
+Sources are cached outside the worktree, keyed by evidence hash.
 
 Prototype: future case authors may need to refine prompt extraction and skill
 replacement for other session formats. Only injected execution guidance changes;
@@ -218,11 +218,46 @@ def prepare_history(
     return payload + "\n", replaced
 
 
+def stage_fixtures(source: dict, case: Path, destination: Path) -> None:
+    """Stage hash-verified local evidence or pinned GitHub failed-run logs."""
+    for name, digest in source["fixtures"].items():
+        relative = Path(name)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"Fixture path must stay inside its case: {name}")
+        if name in source.get("logs", {}):
+            log = source["logs"][name]
+            path = SOURCES / digest / "run.log"
+            if not path.exists():
+                result = subprocess.run(
+                    [
+                        "gh",
+                        "run",
+                        "view",
+                        log["run"],
+                        "--repo",
+                        log["repository"],
+                        "--log-failed",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(result.stdout)
+        else:
+            path = case / relative
+        verify(path, digest)
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+
+
 def main() -> None:
     config = {
         "description": "Tend production regressions: historical versus current guidance",
         "evaluateOptions": {"timeoutMs": 600_000},
-        "prompts": ["{{task}}"],
+        "prompts": [
+            "{{task}}{% if evidence_root %}\n\nCached evidence directory: {{evidence_root}}{% endif %}"
+        ],
         "defaultTest": {
             "assert": [{"type": "regex", "value": r"\S"}],
             "options": {
@@ -245,11 +280,22 @@ def main() -> None:
     }
     for case in sorted(CASES.iterdir()):
         source = json.loads((case / "source.json").read_text())
-        transcript = fetch(source)
-        entries = [json.loads(line) for line in transcript.read_text().splitlines()]
-        prefix = cut_history(entries, source["before"])
+        kind = source.get("kind", "history")
+        if kind not in {"history", "fixture"}:
+            raise ValueError(f"Unknown case kind: {kind}")
+        if kind == "history":
+            transcript = fetch(source)
+            entries = [json.loads(line) for line in transcript.read_text().splitlines()]
+            prefix = cut_history(entries, source["before"])
+        else:
+            evidence = PREPARED / "fixtures" / case.name
+            if evidence.exists():
+                shutil.rmtree(evidence)
+            stage_fixtures(source, case, evidence)
         prompt = append_prompt(source)
         test = YAML_IO.load((case / "case.yaml").read_text())
+        if kind == "fixture":
+            test["vars"]["evidence_root"] = str(evidence)
         for arm in ("historical", "current"):
             destination = PREPARED / arm / case.name
             staged_plugin = destination / "plugin"
@@ -276,14 +322,24 @@ def main() -> None:
                     input=archive,
                     check=True,
                 )
-            payload, replaced = prepare_history(
-                prefix,
-                staged_plugin,
-                current=arm == "current",
-                expected=source["loaded_skills"],
-            )
-            history = destination / "history.jsonl"
-            history.write_text(payload)
+            replay = {}
+            provenance = source | {"arm": arm}
+            if kind == "history":
+                payload, replaced = prepare_history(
+                    prefix,
+                    staged_plugin,
+                    current=arm == "current",
+                    expected=source["loaded_skills"],
+                )
+                history = destination / "history.jsonl"
+                history.write_text(payload)
+                replay = {"resume": str(history), "fork_session": True}
+                provenance |= {
+                    "retained_rows": len(prefix),
+                    "excluded_rows": len(entries) - len(prefix),
+                    "history_sha256": hashlib.sha256(payload.encode()).hexdigest(),
+                    "replaced_skills": replaced,
+                }
             guidance = (
                 prompt.replace(
                     "/tend-ci-runner:running-in-ci", "/tend-ci-runner:run-tend"
@@ -299,12 +355,12 @@ def main() -> None:
                     "config": {
                         "model": source["model"],
                         "apiKeyRequired": False,
-                        "resume": str(history),
-                        "fork_session": True,
+                        **replay,
                         "persist_session": False,
                         "setting_sources": [],
                         "plugins": [{"type": "local", "path": str(staged_plugin)}],
-                        "additional_directories": [str(staged_plugin)],
+                        "additional_directories": [str(staged_plugin)]
+                        + ([str(evidence)] if kind == "fixture" else []),
                         "settings": {
                             "autoMemoryEnabled": False,
                             "permissions": {
@@ -315,32 +371,28 @@ def main() -> None:
                         "append_system_prompt": guidance,
                         "custom_allowed_tools": [
                             "Read",
+                            *(["Grep"] if kind == "fixture" else []),
                             "Skill",
                             "Edit(./captured.md)",
                         ],
-                        "tools": ["Read", "Skill", "Write"],
+                        "tools": ["Read", "Skill", "Write"]
+                        + (["Grep"] if kind == "fixture" else []),
                         "permission_mode": "dontAsk",
-                        "max_turns": 12,
+                        "max_turns": 32 if kind == "fixture" else 12,
                         "env": {
                             "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+                            "ANTHROPIC_CUSTOM_HEADERS": "x-custom-eval-harness: 1",
                         },
                     },
                 }
             )
-            provenance = source | {
-                "arm": arm,
-                "retained_rows": len(prefix),
-                "excluded_rows": len(entries) - len(prefix),
-                "history_sha256": hashlib.sha256(payload.encode()).hexdigest(),
-                "replaced_skills": replaced,
+            provenance |= {
                 "append_sha256": hashlib.sha256(guidance.encode()).hexdigest(),
             }
             (destination / "provenance.json").write_text(
                 json.dumps(provenance, indent=2) + "\n"
             )
-            print(
-                f"Prepared {arm}/{case.name}: {len(prefix)}/{len(entries)} retained rows, {len(replaced)} skill replacements"
-            )
+            print(f"Prepared {arm}/{case.name}: {kind}")
         config["tests"].append(test | {"providers": [f"{case.name}/*"]})
     YAML_IO.dump(config, PREPARED / "promptfooconfig.yaml")
 

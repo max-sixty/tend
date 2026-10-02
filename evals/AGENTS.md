@@ -15,17 +15,19 @@ To narrow a run, append `--filter-pattern Worktrunk` or `Leaf`.
 Use `--filter-providers current` to check only current guidance.
 
 Promptfoo's built-in Claude Agent SDK provider forks the prepared history for
-each attempt. It runs in an empty temporary directory with Read, Skill and Write,
+each history attempt; fixture cases start without a history. It runs in an empty
+temporary directory with Read, Skill and Write (and Grep for fixture evidence),
 no discovered settings or MCP servers, and reads confined to that directory and
-its staged plugin. Existing Claude authentication is used without copying
-credentials. Write is permitted only for `captured.md`. A shared transform
+its staged plugin and any staged fixture evidence. Existing Claude authentication
+is used without copying credentials. Write is permitted only for `captured.md`.
+A shared transform
 extracts its last completed Write from the SDK trace; a missing or failed write
 is an execution error. Inline `llm-rubric` assertions grade the literal body
 against prose criteria, using Claude Sonnet 5 through the same SDK provider and
 local login. Grading adds model calls and can vary between runs.
 
 Preparation replaces staged plugins; never run it during an eval. These cases
-resume the drafting decision, not repository edits or live GitHub actions.
+exercise drafting decisions, not repository edits or live GitHub actions.
 A no-plugin comparison would still contain previously loaded skills in history.
 Deterministic checks run with:
 
@@ -74,6 +76,21 @@ outside the repo and across worktrees. GitHub artifacts expire: a fresh machine
 needs a surviving artifact or a copy of that cache. A URL and time cannot
 recover expired logs or reconstruct edited GitHub state. This is an agent
 case-authoring recipe; the downloader itself is deterministic.
+
+## Add a fixture reconstruction
+
+Use `cases/<name>/source.json` with `kind: fixture`, `historical_ref`, `model`,
+`bot` and `fixtures`: a mapping of case-relative evidence paths to SHA-256
+hashes. Commit local evidence beside `case.yaml`. A `logs` entry for a fixture
+path may instead name `repository` and `run`; preparation fetches that run's
+failed log into the same hash-verified evidence cache. See
+`cases/ci-failure-attribution/source.json`.
+
+The test keeps the same `vars.task` and `assert` format. Its prompt receives the
+staged evidence directory, and both arms read identical inputs through Read or
+Grep. Do not put the expected answer in the task or evidence-selection hints.
+Calibrate the rubric on known bad and good artifacts. A reconstruction that
+both arms pass provides coverage, without demonstrating improvement.
 
 ## Prototype status
 

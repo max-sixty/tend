@@ -1,0 +1,3 @@
+[default]
+# Historical reports contain abbreviated Git hashes in Markdown code spans.
+extend-ignore-re = ['`[0-9a-f]{7,40}`']
