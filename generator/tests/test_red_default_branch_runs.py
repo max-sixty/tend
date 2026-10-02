@@ -32,14 +32,11 @@ DEPENDABOT_ID = 348683058
 # shorter one returned everything there is.
 PER_PAGE = 50
 
-# Reads of the same listing are answered from `$RUNS_DIR/<prefix>-<n>.json`,
-# one file per read, falling back to the newest staged file once the reads
-# outrun them — so a single staged page is a consistent endpoint and several are
-# a moving one. Both listings the script reads work this way: the red rows under
+# Each listing is answered from `$RUNS_DIR/<prefix>.json`: the red rows under
 # the conclusion's name, the closure read under `green-<workflow>`. A staged
-# `<prefix>-per_page-<k>.json` is a durable cache entry instead: every read at
-# that `per_page` gets it, whatever the other URLs answer. Each answer is cut to
-# the `per_page` the URL asked for, as the endpoint does.
+# `<prefix>-per_page-<k>.json` is a durable cache entry instead: a read at that
+# `per_page` gets it in place of the default page. Each answer is cut to the
+# `per_page` the URL asked for, as the endpoint does.
 FAKE_GH = (
     GH_PREAMBLE
     + r"""
@@ -53,14 +50,7 @@ serve() {
   if [ -f "$RUNS_DIR/$1-per_page-$per_page.json" ]; then
     page "$RUNS_DIR/$1-per_page-$per_page.json"; return 0
   fi
-  counter="$RUNS_DIR/count-$1"
-  n=$(( $(cat "$counter" 2>/dev/null || echo 0) + 1 ))
-  printf '%s' "$n" > "$counter"
-  i="$n"
-  while [ "$i" -ge 1 ]; do
-    if [ -f "$RUNS_DIR/$1-$i.json" ]; then page "$RUNS_DIR/$1-$i.json"; return 0; fi
-    i=$(( i - 1 ))
-  done
+  if [ -f "$RUNS_DIR/$1.json" ]; then page "$RUNS_DIR/$1.json"; return 0; fi
   return 1
 }
 
@@ -118,9 +108,9 @@ def env(tmp_path: Path) -> dict[str, str]:
     }
 
 
-def _page(env: dict[str, str], status: str, read: int, *runs: dict) -> None:
-    """Stage the answer the *read*-th call to `status=<status>` receives."""
-    path = Path(env["RUNS_DIR"]) / f"{status}-{read}.json"
+def _page(env: dict[str, str], status: str, *runs: dict) -> None:
+    """Stage the answer a read of `status=<status>` receives."""
+    path = Path(env["RUNS_DIR"]) / f"{status}.json"
     path.write_text(json.dumps({"workflow_runs": list(runs), "total_count": len(runs)}))
 
 
@@ -129,14 +119,13 @@ def _green(
     workflow: str,
     created_at: str,
     *,
-    read: int = 1,
     rid: int = 1,
     per_page: int | None = None,
 ) -> None:
-    """Stage the answer the *read*-th closure read of *workflow* receives, or
-    with *per_page* the durable answer every read at that page size gets."""
-    key = read if per_page is None else f"per_page-{per_page}"
-    path = Path(env["RUNS_DIR"]) / f"green-{workflow}-{key}.json"
+    """Stage the closure read of *workflow*, or with *per_page* the durable
+    answer a read at that page size gets."""
+    suffix = "" if per_page is None else f"-per_page-{per_page}"
+    path = Path(env["RUNS_DIR"]) / f"green-{workflow}{suffix}.json"
     path.write_text(
         json.dumps(
             {
@@ -159,14 +148,13 @@ def _generated_green(
     env: dict[str, str],
     workflow_id: int,
     *runs: tuple[int, str, str],
-    read: int = 1,
 ) -> None:
-    """Stage the *read*-th closure read of the generated workflow *workflow_id*.
+    """Stage the closure read of the generated workflow *workflow_id*.
 
     Each run is `(id, name, created_at)` -- the whole listing is one workflow's,
     so `name` is what separates the subjects within it.
     """
-    path = Path(env["RUNS_DIR"]) / f"green-{workflow_id}-{read}.json"
+    path = Path(env["RUNS_DIR"]) / f"green-{workflow_id}.json"
     path.write_text(
         json.dumps(
             {
@@ -210,7 +198,6 @@ def test_coverage_stops_at_the_listing_that_ran_out_of_page(
     _page(
         env,
         "failure",
-        1,
         *(
             _red(400 + n, f"2026-09-01T00:{n:02d}:00Z")
             for n in reversed(range(PER_PAGE))
@@ -221,13 +208,12 @@ def test_coverage_stops_at_the_listing_that_ran_out_of_page(
     _page(
         env,
         "timed_out",
-        1,
         *(
             _red(500 + n, f"2026-07-01T00:{n:02d}:00Z")
             for n in reversed(range(PER_PAGE))
         ),
     )
-    _page(env, "startup_failure", 1, _red(300, "2026-06-01T00:00:00Z"))
+    _page(env, "startup_failure", _red(300, "2026-06-01T00:00:00Z"))
     _green(env, "ci.yaml", "2026-05-01T00:00:00Z")
 
     sweep = _sweep(env)
@@ -242,7 +228,7 @@ def test_a_cached_closure_page_returns_candidate_evidence(
     env: dict[str, str],
 ) -> None:
     """An old closure leaves a candidate, not a verified unresolved failure."""
-    _page(env, "failure", 1, _red(100, "2026-09-15T00:00:00Z"))
+    _page(env, "failure", _red(100, "2026-09-15T00:00:00Z"))
     _green(env, "ci.yaml", "2026-09-23T07:49:08Z", rid=2)
     _green(env, "ci.yaml", "2026-09-08T22:05:56Z", per_page=1)
 
@@ -259,7 +245,6 @@ def test_a_cached_red_page_reports_only_observed_candidates(
     _page(
         env,
         "failure",
-        1,
         _red(200, "2026-09-14T00:00:00Z"),
         _red(100, "2026-09-01T00:00:00Z"),
     )
@@ -275,7 +260,7 @@ def test_a_cached_red_page_reports_only_observed_candidates(
 def test_a_later_green_closes_the_path(env: dict[str, str]) -> None:
     """The closure read is what keeps a weeks-deep listing from re-reporting
     failures somebody already fixed."""
-    _page(env, "failure", 1, _red(100, "2026-09-01T00:00:00Z"))
+    _page(env, "failure", _red(100, "2026-09-01T00:00:00Z"))
     _green(env, "ci.yaml", "2026-09-02T00:00:00Z")
 
     sweep = _sweep(env)
@@ -290,7 +275,7 @@ def test_a_committed_workflow_whose_file_is_gone_remains_a_candidate(
     """A deleted workflow file 404s the closure endpoint, which is a settled
     answer rather than an error: the row has no closure and remains a candidate, and the
     sweep still reports the rest of the branch."""
-    _page(env, "failure", 1, _red(250, "2026-09-01T00:00:00Z"))
+    _page(env, "failure", _red(250, "2026-09-01T00:00:00Z"))
 
     sweep = _sweep(env)
 
@@ -307,7 +292,6 @@ def test_a_generated_update_that_never_repeats_its_name_remains_a_candidate(
     _page(
         env,
         "failure",
-        1,
         _red(
             300,
             "2026-09-01T00:00:00Z",
@@ -337,7 +321,6 @@ def test_a_later_green_closes_a_generated_run_of_the_same_name(
     _page(
         env,
         "failure",
-        1,
         _red(
             400,
             "2026-09-13T17:20:53Z",
@@ -364,7 +347,6 @@ def test_a_generated_green_older_than_the_failure_closes_nothing(
     _page(
         env,
         "failure",
-        1,
         _red(
             410,
             "2026-09-13T17:20:53Z",
@@ -392,7 +374,6 @@ def test_a_committed_path_is_read_once_whatever_its_runs_are_named(
     _page(
         env,
         "failure",
-        1,
         _red(600, "2026-09-01T00:00:00Z", name="continuous integration"),
         _red(601, "2026-08-01T00:00:00Z", name="ci"),
     )
@@ -420,7 +401,6 @@ def test_a_generated_workflow_with_no_listing_remains_a_candidate(
     _page(
         env,
         "failure",
-        1,
         _red(
             700,
             "2026-09-13T17:20:53Z",
@@ -445,7 +425,6 @@ def test_one_subject_of_a_generated_path_closes_without_closing_the_others(
     _page(
         env,
         "failure",
-        1,
         _red(
             500,
             "2026-09-13T00:00:00Z",
@@ -475,7 +454,7 @@ def test_one_subject_of_a_generated_path_closes_without_closing_the_others(
 
 def test_a_stable_stale_page_is_only_candidate_evidence(env: dict[str, str]) -> None:
     """A stale green leaves a candidate, without an invented freshness signal."""
-    _page(env, "failure", 1, _red(100, "2026-09-10T00:00:00Z"))
+    _page(env, "failure", _red(100, "2026-09-10T00:00:00Z"))
     _green(env, "ci.yaml", "2026-09-04T00:00:00Z")
     sweep = _sweep(env)
     assert [row["id"] for row in sweep["candidates"]] == [100]
