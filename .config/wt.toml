@@ -36,7 +36,7 @@ url = "http://localhost:{{ branch | hash_port }}"
 
 # `wt test` is the whole suite: one pytest from the repo root covers every
 # Python test (generator/, proxy/, shared/steps/, the install-tend scripts),
-# worker/ runs its vitest suite and typecheck, and evals/ checks its graders.
+# worker/ runs its vitest suite and typecheck, and evals/ checks artifact capture.
 # Arguments narrow pytest (`wt test -k render`) and nothing else — every step
 # still runs, so reach for
 # `uv run pytest` when the Python half is all you want.

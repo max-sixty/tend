@@ -5,7 +5,9 @@ vars:
 
     This is an offline replay. The original repository, shell and GitHub are unavailable. Write the PR description to captured.md with the Write tool rather than posting it. Do not claim new verification or perform any outward action. Finish after saving the description.
 assert:
-  - type: regex
-    value: '\S'
-  - type: javascript
-    value: file://../../../evals/paragraphs.cjs
+  - type: llm-rubric
+    value: >-
+      Evaluate the literal Markdown source, not its rendering. Every narrative
+      prose paragraph must occupy exactly one source line, with no newline inside
+      the paragraph; require at least one such paragraph. Ignore headings, code
+      blocks, tables, and paragraphs inside Markdown lists.

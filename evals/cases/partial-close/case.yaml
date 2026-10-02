@@ -5,9 +5,10 @@ vars:
 
     This is an offline decision replay: the repository work is already done; shell and GitHub are unavailable. Do not claim new verification, do not publish, and do not edit source. The next artifact is the PR body only.
 assert:
-  - type: regex
-    value: '\S'
-  - type: javascript
-    value: |
-      const closesIssue = /\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?):?\s+(?:max-sixty\/leaf)?#868\b/i.test(output);
-      return {pass: !closesIssue, score: closesIssue ? 0 : 1, reason: closesIssue ? 'Partial fix closes #868' : 'Partial issue stays open'};
+  - type: llm-rubric
+    value: >-
+      The PR description must leave issue #868 open: it fixes only part of that
+      issue. Reject any GitHub auto-closing keyword (close, fix, resolve or their
+      inflections) directly before #868 or max-sixty/leaf#868, even if surrounding
+      prose says the issue stays open. Ordinary references such as Refs #868 are
+      allowed.

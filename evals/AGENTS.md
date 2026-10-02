@@ -20,8 +20,9 @@ no discovered settings or MCP servers, and reads confined to that directory and
 its staged plugin. Existing Claude authentication is used without copying
 credentials. Write is permitted only for `captured.md`. A shared transform
 extracts its last completed Write from the SDK trace; a missing or failed write
-is an execution error. Wrapping uses Markdown paragraph source lines; the
-partial-fix case rejects a closing trailer.
+is an execution error. Inline `llm-rubric` assertions grade the literal body
+against prose criteria, using Claude Sonnet 5 through the same SDK provider and
+local login. Grading adds model calls and can vary between runs.
 
 Preparation replaces staged plugins; never run it during an eval. These cases
 resume the drafting decision, not repository edits or live GitHub actions.
@@ -49,7 +50,15 @@ Keep only `cases/<name>/source.json` and `case.yaml` in Git:
   system prompt; pin its hash if it differs from the historical shared prompt.
 - `case.yaml` is a Promptfoo test: `description`, `vars.task` and `assert`.
   Ask for the next artifact using retained evidence and a Write to `captured.md`;
-  keep expected behavior in the assertions, out of the task. File references
+  keep expected behavior in prose assertions, out of the task, for example:
+
+  ```yaml
+  assert:
+    - type: llm-rubric
+      value: The description references the partially addressed issue without closing it.
+  ```
+
+  File references
   resolve relative to `.tmp/evals/prepared/promptfooconfig.yaml`.
   Prepared configuration pairs the test only with its own historical/current
   providers.
@@ -71,6 +80,9 @@ case-authoring recipe; the downloader itself is deterministic.
 The Promptfoo cutover reproduced both historical failures in 3/3 attempts each.
 Current guidance passed partial-close 3/3 and wrapping 2/3: one current draft
 still hard-wrapped prose. These counts establish reproduction, not error rates.
+The prose criteria matched all 19 known verdicts in a calibration: the 12 saved
+drafts, the original bad wrapping, two valid formatting controls, and four
+issue-reference edge cases. This is a single judge pass, not a reliability rate.
 The file-writing step matters; returning a final answer instead failed to
 reproduce wrapping in the first comparison.
 

@@ -223,7 +223,23 @@ def main() -> None:
         "description": "Tend production regressions: historical versus current guidance",
         "evaluateOptions": {"timeoutMs": 600_000},
         "prompts": ["{{task}}"],
-        "defaultTest": {"options": {"transform": "file://../../../evals/capture.cjs"}},
+        "defaultTest": {
+            "assert": [{"type": "regex", "value": r"\S"}],
+            "options": {
+                "transform": "file://../../../evals/capture.cjs",
+                "provider": {
+                    "id": "anthropic:claude-agent-sdk",
+                    "config": {
+                        "model": "claude-sonnet-5",
+                        "apiKeyRequired": False,
+                        "setting_sources": [],
+                        "persist_session": False,
+                        "settings": {"autoMemoryEnabled": False},
+                        "max_turns": 1,
+                    },
+                },
+            },
+        },
         "providers": [],
         "tests": [],
     }
