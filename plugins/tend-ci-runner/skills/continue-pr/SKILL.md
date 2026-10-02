@@ -54,6 +54,11 @@ external dependency, or a semantic decision with no defensible default. State
 what is blocked and what would unblock it. Re-check a recorded blocker against
 current state before relying on it.
 
+When prior attempts failed to clear the same failure, another push needs new
+evidence or a materially different approach. Continue diagnosis; if neither
+emerges, record what evidence is missing instead of repeating the attempted
+fix. Each push starts another review round.
+
 Re-check head and state before expensive verification and before pushing per
 **Re-check the head SHA before the expensive verify, not just before the push**
 in `/tend-ci-runner:push-commits`. Preserve any sibling's commits. A review that
