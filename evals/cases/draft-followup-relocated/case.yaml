@@ -1,0 +1,17 @@
+description: Resume the eval-relocation review after the previous review already
+  explained draft scope.
+vars:
+  task: |
+    Continue composing the next review on draft PR #1478 using the completed investigation and second pass recorded in this conversation. Re-read the installed review skill's references/draft-mode.md before drafting; resolve it from the skill's base directory. Compose the review body you would submit.
+
+    This is an offline drafting replay. The original repository, shell, network and GitHub are unavailable. Save the body to captured.md with Write instead of posting it. Do not claim new verification or edit source. Finish after saving the body.
+assert:
+  - type: contains
+    value: <!-- tend:draft-review -->
+  - type: llm-rubric
+    value: |
+      Judge the reader-facing review body, ignoring its hidden HTML marker. Earlier reviews already explained the draft feedback/merge-verdict distinction and how marking ready requests a full review. Nobody has asked about that scope or expressed confusion.
+
+      PASS only if the opening is a concrete current finding or a concise acknowledgment of a resolved earlier finding, and the body does not explain draft-review scope or the mark-ready/full-review procedure again anywhere. Judge the meaning, including paraphrases, rather than particular words. Acknowledging that a push addressed earlier findings is relevant progress and is allowed; mentioning an earlier draft review as the source of a resolved finding does not explain review scope.
+
+      The body must also retain this remaining actionable finding: evals/AGENTS.md still omits the fixture-only layout and staging recipe; document or link that layout there. A progress acknowledgment alone fails. Grade this finding only, not unrelated technical claims, prose style, or review depth.
