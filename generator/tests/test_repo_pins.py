@@ -532,8 +532,7 @@ def test_action_path_references_resolve(action: str) -> None:
 # another skill's text does the citing (``/tend-ci-runner:review`'s
 # `references/approving.md``).
 SKILL_REFERENCE = re.compile(
-    r"(?:`/[a-z-]+:(?P<skill>[a-z-]+)`'s\s+)?`?"
-    r"references/(?P<file>[\w.-]+\.\w+)`?"
+    r"(?:`/[a-z-]+:(?P<skill>[a-z-]+)`'s\s+)?`?" r"references/(?P<file>[\w.-]+\.\w+)`?"
 )
 # A bare filename inside a `references/` directory. Its own neighbour is still
 # cited `references/<file>`, so that one citation form reads the same wherever
@@ -812,8 +811,16 @@ def test_plugin_skill_citations_resolve() -> None:
     }
     cited, broken = 0, []
 
-    for path in sorted(REPO_ROOT.rglob("*.md")):
-        if ".git" in path.parts or path.name == "CHANGELOG.md":
+    paths = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "*.md"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.split("\0")
+    for filename in sorted(set(paths) - {""}):
+        path = REPO_ROOT / filename
+        if path.name == "CHANGELOG.md" or not path.is_file():
             continue
         for match in PLUGIN_SKILL.finditer(path.read_text()):
             cited += 1
