@@ -1,35 +1,11 @@
-schema_version: "1.1"
-name: wrapping
 description: Resume Worktrunk's real PR composition before its hard-wrapped draft.
-tags: [production, pr-description]
-runs: 3
-context:
-  history_file: history.jsonl
-execution:
-  model: claude-opus-5
-  max_turns: 12
-  timeout_seconds: 600
-  allowed_tools: [Read, Write, Skill]
-  prompt: |
+vars:
+  task: |
     Continue preparing the PR description for the first fix: rendering an unterminated code fence in md_help instead of silently dropping the remaining preview content. The branch has just been pushed. Use the investigation, diff and validation already recorded in this conversation to describe the current change and its verification, including relevant caveats.
 
     This is an offline replay. The original repository, shell and GitHub are unavailable. Write the PR description to captured.md with the Write tool rather than posting it. Do not claim new verification or perform any outward action. Finish after saving the description.
-graders:
-  - name: body-present
-    type: regex
-    target: {source: file, path: captured.md}
-    pattern: '\S'
-  - name: paragraph-wrapping
-    type: llm
-    focus: {source: file, path: captured.md}
-    criteria: |
-      Grade the literal Markdown source, preserving its existing newline characters. PASS only if there is at least one narrative prose paragraph and every narrative prose paragraph occupies exactly one source line. Blank lines separate paragraphs. Ignore headings, fenced or indented code, tables, and paragraphs inside Markdown lists. A list item may span several source lines.
-
-      FAIL if any narrative paragraph continues on the next adjacent source line, even when the resulting rendered paragraph looks correct or each line is a reasonable width. Evaluate line boundaries, not line lengths or visual wrapping in your display.
-
-      For example, this paragraph FAILS because it has an actual newline inside the paragraph:
-      The change handles incomplete code fences without
-      dropping the remaining preview content.
-
-      This paragraph PASSES because it occupies one source line:
-      The change handles incomplete code fences without dropping the remaining preview content.
+assert:
+  - type: regex
+    value: '\S'
+  - type: javascript
+    value: file://../../../evals/paragraphs.cjs

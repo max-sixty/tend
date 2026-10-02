@@ -36,8 +36,9 @@ url = "http://localhost:{{ branch | hash_port }}"
 
 # `wt test` is the whole suite: one pytest from the repo root covers every
 # Python test (generator/, proxy/, shared/steps/, the install-tend scripts),
-# and worker/ runs its vitest suite and typecheck. Arguments narrow pytest
-# (`wt test -k render`) and nothing else — every step still runs, so reach for
+# worker/ runs its vitest suite and typecheck, and evals/ checks its graders.
+# Arguments narrow pytest (`wt test -k render`) and nothing else — every step
+# still runs, so reach for
 # `uv run pytest` when the Python half is all you want.
 #
 # One command per block makes each child finish and get reaped before the next
@@ -53,3 +54,9 @@ worker-test = "npm --prefix worker test"
 
 [[aliases.test]]
 worker-typecheck = "npm --prefix worker run typecheck"
+
+[[aliases.test]]
+eval-install = "npm --prefix evals ci --ignore-scripts --prefer-offline --no-audit --no-fund"
+
+[[aliases.test]]
+eval-test = "npm --prefix evals test"

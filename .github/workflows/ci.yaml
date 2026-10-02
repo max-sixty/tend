@@ -166,6 +166,19 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+  test-eval-graders:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: evals/package-lock.json
+      - run: npm --prefix evals ci --ignore-scripts
+      # Pure grading checks; model evaluations are run manually with local auth.
+      - run: npm --prefix evals test
+
   lint:
     runs-on: ubuntu-24.04
     steps:

@@ -16,7 +16,7 @@ rather than by saving compute. Prefer deleting a mechanism over refining it.
 ## Commands
 
 ```bash
-wt test                                # everything: uv run pytest, then worker/'s vitest
+wt test                                # Python, worker tests/typecheck, eval graders
 uv run pytest                          # the Python half alone, from the repo root
 uvx tend@latest init                   # regenerate workflows from .config/tend.yaml
 uvx tend@latest init --dry-run         # preview without writing
@@ -28,8 +28,9 @@ The repo root is a uv workspace, and pytest run from it collects every Python
 test — generator/, proxy/, shared/steps/, and the install-tend scripts — so
 one `pytest` is the whole Python run. `wt test` (defined in
 [`.config/wt.toml`](.config/wt.toml)) adds worker/'s vitest suite and
-typecheck. Its arguments narrow pytest and nothing else, so a filtered run
-still pays for worker/; `uv run pytest -k render`
+typecheck, plus the deterministic eval capture and grader tests. It never runs
+models. Its arguments narrow pytest and nothing else, so a filtered run
+still pays for both Node suites; `uv run pytest -k render`
 is the Python half on its own.
 
 `pre-commit` is not on the CI sandbox's PATH, which is why the lint command
