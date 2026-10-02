@@ -59,3 +59,10 @@ refine cutoff selection, prompt recovery and skill replacement for new session
 formats. Only injected execution guidance is replaced; instruction source and
 diffs read through tools remain evidence. Inspect those for answer leakage or
 conflicting historical guidance before trusting a new comparison.
+
+## Fixture-only reconstructions
+
+`ci-failure-attribution/` keeps a native Claude case, provenance and committed
+evidence outside the installed plugin. Its [README](ci-failure-attribution/README.md)
+owns the temporary-plugin staging recipe. Run it separately; `prepare.py`
+handles transcript cases only.
