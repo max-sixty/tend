@@ -1,11 +1,7 @@
-"""Tests for red_default_branch_runs.py — the live-work red-run sweep.
+"""Behavior tests for the candidate default-branch failure sweep.
 
-The Actions listings answer one URL from more than one snapshot, and reading
-the stale one costs an outward action: the omitted rows are the newest, so the
-sweep publishes "the default branch is green" while a failure stands on it.
-Convergence is the behaviour under test — the fake `gh` serves a different page
-per read of the same listing, or one durably cached page per URL, which is what
-the real endpoint does.
+A returned page is evidence, not proof of freshness. Check closure subjects,
+page bounds, and that the script does not manufacture convergence from reads.
 """
 
 from __future__ import annotations
@@ -205,98 +201,6 @@ def _sweep(env: dict[str, str]) -> dict:
     return json.loads(result.stdout)
 
 
-def test_a_stale_first_page_does_not_hide_the_newest_failure(
-    env: dict[str, str],
-) -> None:
-    """The regression: the rows a stale page omits are the newest ones.
-
-    Nothing downstream recovers a row the listing never returned, so a sweep
-    that read once would report the branch green with run 200 red on it.
-    """
-    _page(env, "failure", 1, _red(100, "2026-09-01T00:00:00Z"))
-    _page(
-        env,
-        "failure",
-        2,
-        _red(200, "2026-09-14T00:00:00Z"),
-        _red(100, "2026-09-01T00:00:00Z"),
-    )
-    _green(env, "ci.yaml", "2026-08-01T00:00:00Z")
-
-    sweep = _sweep(env)
-
-    assert [row["id"] for row in sweep["live"]] == [200, 100]
-    assert sweep["unconverged_listings"] == []
-    # Neither listing filled its page, so the sweep saw every red run there is.
-    assert sweep["reached_back_to"] is None
-
-
-def test_a_consistent_listing_is_read_twice(env: dict[str, str]) -> None:
-    """Agreement between consecutive reads is the only convergence signal the
-    response carries, so the cheapest possible answer is still two reads."""
-    _page(env, "failure", 1, _red(100, "2026-09-01T00:00:00Z"))
-    _green(env, "ci.yaml", "2026-08-01T00:00:00Z")
-
-    _sweep(env)
-
-    calls = Path(env["GH_CALLS"]).read_text().splitlines()
-    for status in ("failure", "startup_failure", "timed_out"):
-        assert sum(f"status={status}&" in call for call in calls) == 2
-
-
-def test_an_empty_listing_is_re_read_before_it_is_believed(
-    env: dict[str, str],
-) -> None:
-    """An empty answer is the one a sweep most needs to re-check: it is what a
-    snapshot older than every row returns, and it reads as an all-clear."""
-    _page(env, "failure", 2, _red(200, "2026-09-14T00:00:00Z"))
-    _green(env, "ci.yaml", "2026-08-01T00:00:00Z")
-
-    assert [row["id"] for row in _sweep(env)["live"]] == [200]
-
-
-def test_a_listing_that_never_settles_is_reported_as_such(
-    env: dict[str, str],
-) -> None:
-    """Capped reads, then the URL is named — a sweep that publishes an
-    unsettled listing as complete is the failure this exists to prevent."""
-    for read in (1, 2, 3, 4):
-        _page(env, "failure", read, _red(100 + read, f"2026-09-0{read}T00:00:00Z"))
-    _green(env, "ci.yaml", "2026-08-01T00:00:00Z")
-
-    sweep = _sweep(env)
-
-    assert sweep["unconverged_listings"] == [
-        "repos/owner/repo/actions/runs?branch=main&status=failure&per_page=50"
-    ]
-    # Everything seen across the capped reads is still reported.
-    assert [row["id"] for row in sweep["live"]] == [104, 103, 102, 101]
-
-
-def test_a_closure_listing_that_never_settles_is_reported_as_such(
-    env: dict[str, str],
-) -> None:
-    """The closure read fails the other way round — an older green reported as
-    the latest leaves a fixed path red — so an unsettled one is named too."""
-    _page(env, "failure", 1, _red(100, "2026-09-10T00:00:00Z"))
-    for read in (1, 2, 3, 4):
-        _green(env, "ci.yaml", f"2026-09-0{read}T00:00:00Z", read=read, rid=read)
-
-    sweep = _sweep(env)
-
-    assert sweep["unconverged_listings"] == [
-        (
-            "repos/owner/repo/actions/workflows/ci.yaml/runs"
-            "?branch=main&status=success&per_page=1"
-        )
-    ]
-    # The newest green seen across the capped reads still closes what it can:
-    # here every one of them predates the red row, so it stays live -- the map
-    # is the closure evidence read, not a set of paths something closed.
-    assert [row["id"] for row in sweep["live"]] == [100]
-    assert sweep["latest_green_by_path"] == {CI: "2026-09-04T00:00:00Z"}
-
-
 def test_coverage_stops_at_the_listing_that_ran_out_of_page(
     env: dict[str, str],
 ) -> None:
@@ -331,71 +235,27 @@ def test_coverage_stops_at_the_listing_that_ran_out_of_page(
     assert sweep["reached_back_to"] == "2026-09-01T00:00:00Z"
     # The June row is still reported; it is the *coverage* claim that stops at
     # September, not the listing of what was found.
-    assert 300 in [row["id"] for row in sweep["live"]]
+    assert 300 in [row["id"] for row in sweep["candidates"]]
 
 
-def test_the_coverage_floor_comes_from_the_settled_page(
+def test_a_cached_closure_page_returns_candidate_evidence(
     env: dict[str, str],
 ) -> None:
-    """A stale read answers from its own window, so a floor taken across the
-    union claims coverage of the gap between that window and the settled one --
-    the over-claim `reached_back_to` exists to bound."""
-    # Read 1 is the stale snapshot: a full page from a July window.
-    _page(
-        env,
-        "failure",
-        1,
-        *(
-            _red(500 + n, f"2026-07-01T00:{n:02d}:00Z")
-            for n in reversed(range(PER_PAGE))
-        ),
-    )
-    # Reads 2 and 3 settle on a full page from a September window, so nothing
-    # between July and September was ever read. They ask for one and two rows
-    # fewer than the stale read, so the oldest September row seen is the 49th.
-    _page(
-        env,
-        "failure",
-        2,
-        *(
-            _red(400 + n, f"2026-09-01T00:{n:02d}:00Z")
-            for n in reversed(range(PER_PAGE))
-        ),
-    )
-    _green(env, "ci.yaml", "2026-05-01T00:00:00Z")
-
-    sweep = _sweep(env)
-
-    assert sweep["reached_back_to"] == "2026-09-01T00:01:00Z"
-    # The stale page's rows are still reported: the union is what keeps a row a
-    # later read stopped returning, and only the coverage claim is bounded.
-    # The September row past the 49th was never returned, so it is not.
-    assert len(sweep["live"]) == 2 * PER_PAGE - 1
-
-
-def test_a_cached_closure_page_cannot_settle_the_read_alone(
-    env: dict[str, str],
-) -> None:
-    """A durable cache entry answers every read of its URL from one snapshot,
-    so re-reading that URL agrees with itself however stale it is. The reads
-    have to address different URLs for agreement to mean anything: the fresh
-    green reached through another page size closes the fixed path."""
+    """An old closure leaves a candidate, not a verified unresolved failure."""
     _page(env, "failure", 1, _red(100, "2026-09-15T00:00:00Z"))
     _green(env, "ci.yaml", "2026-09-23T07:49:08Z", rid=2)
     _green(env, "ci.yaml", "2026-09-08T22:05:56Z", per_page=1)
 
     sweep = _sweep(env)
 
-    assert sweep["live"] == []
-    assert sweep["latest_green_by_path"] == {CI: "2026-09-23T07:49:08Z"}
+    assert [row["id"] for row in sweep["candidates"]] == [100]
+    assert sweep["observed_green_by_path"] == {CI: "2026-09-08T22:05:56Z"}
 
 
-def test_a_cached_red_page_cannot_hide_the_newest_failure(
+def test_a_cached_red_page_reports_only_observed_candidates(
     env: dict[str, str],
 ) -> None:
-    """The red listing's durable entry drops the newest rows, the direction
-    that publishes a live failure as an all-clear. Reads at other page sizes
-    miss the entry and return the row it omits."""
+    """Do not manufacture an unseen row or completeness from a page."""
     _page(
         env,
         "failure",
@@ -409,8 +269,7 @@ def test_a_cached_red_page_cannot_hide_the_newest_failure(
 
     sweep = _sweep(env)
 
-    assert [row["id"] for row in sweep["live"]] == [200, 100]
-    assert sweep["unconverged_listings"] == []
+    assert [row["id"] for row in sweep["candidates"]] == [100]
 
 
 def test_a_later_green_closes_the_path(env: dict[str, str]) -> None:
@@ -421,26 +280,25 @@ def test_a_later_green_closes_the_path(env: dict[str, str]) -> None:
 
     sweep = _sweep(env)
 
-    assert sweep["live"] == []
-    assert sweep["latest_green_by_path"] == {CI: "2026-09-02T00:00:00Z"}
+    assert sweep["candidates"] == []
+    assert sweep["observed_green_by_path"] == {CI: "2026-09-02T00:00:00Z"}
 
 
-def test_a_committed_workflow_whose_file_is_gone_stays_live(
+def test_a_committed_workflow_whose_file_is_gone_remains_a_candidate(
     env: dict[str, str],
 ) -> None:
     """A deleted workflow file 404s the closure endpoint, which is a settled
-    answer rather than an error: the row has no closure and stays live, and the
+    answer rather than an error: the row has no closure and remains a candidate, and the
     sweep still reports the rest of the branch."""
     _page(env, "failure", 1, _red(250, "2026-09-01T00:00:00Z"))
 
     sweep = _sweep(env)
 
-    assert [row["id"] for row in sweep["live"]] == [250]
-    assert sweep["latest_green_by_path"] == {}
-    assert sweep["unconverged_listings"] == []
+    assert [row["id"] for row in sweep["candidates"]] == [250]
+    assert sweep["observed_green_by_path"] == {}
 
 
-def test_a_generated_update_that_never_repeats_its_name_stays_live(
+def test_a_generated_update_that_never_repeats_its_name_remains_a_candidate(
     env: dict[str, str],
 ) -> None:
     """Dependabot's updates share one workflow, so its closure listing is full
@@ -466,8 +324,8 @@ def test_a_generated_update_that_never_repeats_its_name_stays_live(
 
     sweep = _sweep(env)
 
-    assert [row["id"] for row in sweep["live"]] == [300]
-    assert sweep["latest_green_by_path"] == {}
+    assert [row["id"] for row in sweep["candidates"]] == [300]
+    assert sweep["observed_green_by_path"] == {}
 
 
 def test_a_later_green_closes_a_generated_run_of_the_same_name(
@@ -494,8 +352,8 @@ def test_a_later_green_closes_a_generated_run_of_the_same_name(
 
     sweep = _sweep(env)
 
-    assert sweep["live"] == []
-    assert sweep["latest_green_by_path"] == {CODE_SCANNING: "2026-09-13T17:24:00Z"}
+    assert sweep["candidates"] == []
+    assert sweep["observed_green_by_path"] == {CODE_SCANNING: "2026-09-13T17:24:00Z"}
 
 
 def test_a_generated_green_older_than_the_failure_closes_nothing(
@@ -521,43 +379,7 @@ def test_a_generated_green_older_than_the_failure_closes_nothing(
 
     sweep = _sweep(env)
 
-    assert [row["id"] for row in sweep["live"]] == [410]
-
-
-def test_an_unsettled_generated_green_listing_is_reported_as_such(
-    env: dict[str, str],
-) -> None:
-    """A moving green listing can serve a page without the passing analysis in
-    it, which reports a fixed path as still red — the same over-claim the red
-    listing's convergence loop exists to prevent, reached from the other side."""
-    _page(
-        env,
-        "failure",
-        1,
-        _red(
-            420,
-            "2026-09-13T17:20:53Z",
-            path=CODE_SCANNING,
-            name="Push on main",
-            workflow_id=CODE_SCANNING_ID,
-        ),
-    )
-    for read in range(1, 5):
-        _generated_green(
-            env,
-            CODE_SCANNING_ID,
-            (430 + read, "Push on main", f"2026-09-1{read}T00:00:00Z"),
-            read=read,
-        )
-
-    sweep = _sweep(env)
-
-    assert sweep["unconverged_listings"] == [
-        (
-            f"repos/owner/repo/actions/workflows/{CODE_SCANNING_ID}/runs"
-            "?branch=main&status=success&per_page=100"
-        )
-    ]
+    assert [row["id"] for row in sweep["candidates"]] == [410]
 
 
 def test_a_committed_path_is_read_once_whatever_its_runs_are_named(
@@ -578,18 +400,18 @@ def test_a_committed_path_is_read_once_whatever_its_runs_are_named(
 
     sweep = _sweep(env)
 
-    assert sweep["live"] == []
-    assert sweep["latest_green_by_path"] == {CI: "2026-09-02T00:00:00Z"}
+    assert sweep["candidates"] == []
+    assert sweep["observed_green_by_path"] == {CI: "2026-09-02T00:00:00Z"}
     reads = [
         line
         for line in Path(env["GH_CALLS"]).read_text().splitlines()
         if "/actions/workflows/ci.yaml/runs" in line
     ]
-    # One `converged_read`: two answers that agree, and no third.
-    assert len(reads) == 2
+    # One read per committed path, regardless of run names.
+    assert len(reads) == 1
 
 
-def test_a_generated_workflow_with_no_listing_stays_live(
+def test_a_generated_workflow_with_no_listing_remains_a_candidate(
     env: dict[str, str],
 ) -> None:
     """A 404 on the id-addressed listing is a settled answer, as it is for a
@@ -610,17 +432,16 @@ def test_a_generated_workflow_with_no_listing_stays_live(
 
     sweep = _sweep(env)
 
-    assert [row["id"] for row in sweep["live"]] == [700]
-    assert sweep["latest_green_by_path"] == {}
-    assert sweep["unconverged_listings"] == []
+    assert [row["id"] for row in sweep["candidates"]] == [700]
+    assert sweep["observed_green_by_path"] == {}
 
 
 def test_one_subject_of_a_generated_path_closes_without_closing_the_others(
     env: dict[str, str],
 ) -> None:
-    """`latest_green_by_path` reduces a per-subject closure onto the path, so a
+    """`observed_green_by_path` reduces a per-subject closure onto the path, so a
     generated path's published green can be the one that closed a different
-    name. The row it did not close stays live even though it is older."""
+    name. The row it did not close remains a candidate even though it is older."""
     _page(
         env,
         "failure",
@@ -646,7 +467,34 @@ def test_one_subject_of_a_generated_path_closes_without_closing_the_others(
 
     sweep = _sweep(env)
 
-    assert [row["id"] for row in sweep["live"]] == [501]
+    assert [row["id"] for row in sweep["candidates"]] == [501]
     # Older than the green published for its own path: the green closed
     # `Push on main`, and nothing has closed `Scheduled`.
-    assert sweep["latest_green_by_path"] == {CODE_SCANNING: "2026-09-15T00:00:00Z"}
+    assert sweep["observed_green_by_path"] == {CODE_SCANNING: "2026-09-15T00:00:00Z"}
+
+
+def test_a_stable_stale_page_is_only_candidate_evidence(env: dict[str, str]) -> None:
+    """A stale green leaves a candidate, without an invented freshness signal."""
+    _page(env, "failure", 1, _red(100, "2026-09-10T00:00:00Z"))
+    _green(env, "ci.yaml", "2026-09-04T00:00:00Z")
+    sweep = _sweep(env)
+    assert [row["id"] for row in sweep["candidates"]] == [100]
+    assert sweep["observed_green_by_path"] == {CI: "2026-09-04T00:00:00Z"}
+    assert set(sweep) == {
+        "branch",
+        "candidates",
+        "observed_green_by_path",
+        "reached_back_to",
+    }
+    calls = Path(env["GH_CALLS"]).read_text().splitlines()
+    assert sum("status=failure&" in call for call in calls) == 1
+    assert sum("/actions/workflows/ci.yaml/runs" in call for call in calls) == 1
+
+
+def test_empty_returned_pages_do_not_claim_a_green_branch(env: dict[str, str]) -> None:
+    sweep = _sweep(env)
+    assert sweep["candidates"] == []
+    assert sweep["observed_green_by_path"] == {}
+    assert "converged" not in json.dumps(sweep)
+    calls = Path(env["GH_CALLS"]).read_text().splitlines()
+    assert sum("/actions/runs?" in call for call in calls) == 3
