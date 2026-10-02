@@ -9,7 +9,6 @@
   "original_model": "gpt-6-sol",
   "pr": "https://github.com/max-sixty/leaf/pull/1506",
   "ci_run": "https://github.com/max-sixty/leaf/actions/runs/36945384717",
-  "ci_log_sha256": "b364b3ad8617b80f7fef9bd0622530f12c9c17bfb77b11c197e5b509021b9f9d",
   "ci_log_lines": [
     15212,
     15237
