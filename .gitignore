@@ -11,3 +11,6 @@ __pycache__/
 
 # Disposable eval preparation, captures and other worktree scratch files.
 .tmp/
+
+# JavaScript dependencies, including the local evaluation toolchain.
+node_modules/
