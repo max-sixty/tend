@@ -175,7 +175,7 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: evals/package-lock.json
-      - run: npm --prefix evals ci --ignore-scripts
+      - run: npm --prefix evals ci --ignore-scripts --omit=optional
       # Pure grading checks; model evaluations are run manually with local auth.
       - run: npm --prefix evals test
 
