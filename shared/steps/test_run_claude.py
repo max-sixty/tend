@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import _common
 import pytest
 import run_claude
 from _fakes import GithubFiles
@@ -169,29 +170,6 @@ def test_verdict_bounds_the_reason_it_quotes(verdict: Verdict) -> None:
     assert code == 1
     quoted = out.split("(exit=1): ", 1)[1].split(" — see the session-logs", 1)[0]
     assert quoted == "x" * run_claude.REASON_MAX_CHARS + "…"
-
-
-def test_verdict_disarms_workflow_commands_in_the_agents_stderr(
-    verdict: Verdict,
-) -> None:
-    """The agent writes its own stderr, and the runner parses `::` lines.
-
-    Without the stop-commands bracket a prompt-injected agent posts its own
-    annotations, masks whatever it likes out of the log, or leaves command
-    processing off for every step after this one.
-    """
-    code, out, _ = verdict(
-        claude_exit=3,
-        stderr_log="::error::posted by the agent\n::add-mask::secret\n",
-    )
-
-    assert code == 3
-    before, injected = out.split("::error::posted by the agent", 1)
-    token = before.rsplit("::stop-commands::", 1)[1].strip()
-    assert token, "the agent's stderr was echoed with commands still live"
-    assert injected.strip().endswith(f"::{token}::"), (
-        "command processing was left switched off for the steps that follow"
-    )
 
 
 def test_verdict_quotes_the_last_twenty_newline_delimited_stderr_lines(
@@ -600,6 +578,7 @@ def test_launch_only_adds_harness_names_inside_the_sandbox(
         "BOT_NAME=tend-bot",
         "BOT_ID=42",
         "CI=true",
+        "BASH_MAX_TIMEOUT_MS=900000",
     ]
     assert argv[0] == "/usr/bin/env"
 
@@ -737,7 +716,7 @@ def test_supervise_reaps_the_process_group_when_the_runner_cancels_the_job(
             self.waits += 1
             handlers.append(signal.getsignal(signal.SIGTERM))
             if self.waits == 1:
-                raise run_claude.Cancelled("signal 15")
+                raise _common.Cancelled(signal.SIGTERM)
             return -9
 
     def fake_killpg(pid: int, sent: signal.Signals) -> None:
@@ -748,7 +727,7 @@ def test_supervise_reaps_the_process_group_when_the_runner_cancels_the_job(
     monkeypatch.setattr(os, "killpg", fake_killpg)
     before = signal.getsignal(signal.SIGTERM)
 
-    with pytest.raises(run_claude.Cancelled):
+    with pytest.raises(_common.Cancelled):
         run_claude.supervise(
             ["claude"],
             timeout_sec=900,

@@ -42,10 +42,10 @@ anything — a deliberately maintained hard fork keeps its own name.
 
 A config from a finished install makes this a change: take the harness from
 the config, lay out only the steps the task touches, and start. Finished
-means `uvx tend@latest check` passes — secrets, bot access, protection —
-*and* the workflows are live on the default branch, which that check never
-looks at (step 11 commits without pushing, so an install can stop with
-everything else in place):
+means `uvx tend@latest check --repo "$REPO"` passes — secrets, bot access, protection —
+*and* the workflows are live on the default branch, which that check does
+not look at under `restricted` (step 11 commits without pushing, so an
+install can stop with everything else in place):
 
 ```bash
 gh api "repos/$REPO/contents/.github/workflows" \
@@ -182,7 +182,7 @@ bot_name: <bot-name>
 # merge: yolo
 # For Codex:
 # harness: codex
-# model: gpt-5.6-sol
+# model: gpt-6-sol
 # Both harnesses optionally accept:
 # effort: medium   # low | medium | high | xhigh; Claude also accepts max
 ```
@@ -553,8 +553,8 @@ Environment with required reviewers before migrating release or deploy
 secrets to it. The payload can steer a fixed workflow even when its policy
 admits yolo's default branch.
 
-Run `uvx tend@latest check` after this section. It exits non-zero until
-the later steps set the secrets and grant the bot access; read its
+Run `uvx tend@latest check --repo "$REPO"` after this section. It exits
+non-zero until the later steps set the secrets and grant the bot access; read its
 `credential-environments` line, which reports any environment still
 reachable by the bot.
 
@@ -573,17 +573,15 @@ description rather than by its first heading. An existing overlay without
 frontmatter needs it added in place.
 
 **Do not create a second independent copy of project instructions** and **do
-not invent project conventions.** If the repo has only `CLAUDE.md`, link
-`AGENTS.md` to it so Codex reads the same instructions. If the repo has only
-`AGENTS.md`, create a `CLAUDE.md` import wrapper so Claude Code reads it even
-when native `AGENTS.md` loading is unavailable. Preserve both when both already
-exist, and create neither when neither exists:
+not invent project conventions.** Claude Code 2.1.281 and later reads
+`AGENTS.md` when the repo has no `CLAUDE.md`; tend pins 2.1.283. If the
+repo has only `CLAUDE.md`, link `AGENTS.md` to it so Codex reads the same
+instructions. Preserve both when both already exist, and create neither when
+neither exists:
 
 ```bash
 if [ -f CLAUDE.md ] && [ ! -e AGENTS.md ] && [ ! -L AGENTS.md ]; then
   ln -s CLAUDE.md AGENTS.md
-elif [ -f AGENTS.md ] && [ ! -e CLAUDE.md ] && [ ! -L CLAUDE.md ]; then
-  printf '@AGENTS.md\n' > CLAUDE.md
 fi
 ```
 
@@ -682,7 +680,7 @@ shape (it creates it and admits exactly the default branch and each
 `protected_branches` entry), so create it with:
 
 ```bash
-uvx tend@latest check --fix
+uvx tend@latest check --fix --repo "$REPO"
 ```
 
 It exits non-zero here, reporting the secrets this step and step 8 are
@@ -1067,13 +1065,20 @@ fi
 
 ## 11. Verify, commit and push
 
-Everything `check` inspects is in place by now, so this run must pass:
+Everything `check` inspects is in place by now, so under `restricted`
+this run must pass:
 
 ```bash
-uvx tend@latest check
+uvx tend@latest check --repo "$REPO"
 ```
 
-A failure here is a real one — fix it before committing.
+A failure here is a real one — fix it before committing. Under `yolo`,
+the checks that need the install on the default branch —
+`branch-protection:<default>`, `control-plane-codeowners`,
+`control-plane-ruleset`, and `yolo-workflows` — fail until the install PR
+merges and §3 is rerun. Until then no branch verifies for the `environment`
+check either, so the run ends with "Yolo security checks are incomplete"
+rather than a plain non-zero exit. Any other failure is real.
 
 Stage all changes:
 
@@ -1100,7 +1105,7 @@ line picks the row that matches the chosen harness):
 - [ ] Immutable releases: enabled before the next release
 - [ ] Release/deploy credentials: environment-protected; policies list only verified refs, with default-branch credentials deliberately reachable by bot-merged code in yolo
 - [ ] Skill overlay: `.claude/skills/running-tend/SKILL.md` (tend-specific only)
-- [ ] Project instructions: an AGENTS-only repo has a `CLAUDE.md` import wrapper; a CLAUDE-only repo has an `AGENTS.md` symlink
+- [ ] Project instructions: a CLAUDE-only repo has an `AGENTS.md` symlink; an AGENTS-only repo is ready as is
 - [ ] Badge: added to README (unless skipped, or no README)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set

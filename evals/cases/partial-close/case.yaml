@@ -1,0 +1,14 @@
+description: Resume Leaf's partial issue fix before its erroneous closing trailer.
+vars:
+  task: |
+    Continue from the recorded investigation and completed fix. Compose the PR description using that evidence and the applicable Tend guidance. Write the PR description to captured.md with the Write tool rather than posting it.
+
+    This is an offline decision replay: the repository work is already done; shell and GitHub are unavailable. Do not claim new verification, do not publish, and do not edit source. The next artifact is the PR body only.
+assert:
+  - type: llm-rubric
+    value: >-
+      The PR description must leave issue #868 open: it fixes only part of that
+      issue. Reject any GitHub auto-closing keyword (close, fix, resolve or their
+      inflections) directly before #868 or max-sixty/leaf#868, even if surrounding
+      prose says the issue stays open. Ordinary references such as Refs #868 are
+      allowed.

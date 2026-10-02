@@ -24,10 +24,23 @@ RUN_LIMIT = 1000
 # enough to see a run that started before the window and finished inside it.
 # Same value as that script's `CREATION_CUSHION`, and for the same reason.
 CREATION_CUSHION = timedelta(hours=24)
+# `gh workflow list` fetches 50 without one, and says nothing when it truncates.
+# Same value as `list_recent_runs.py`'s, so the spend covers the census's fleet.
+WORKFLOW_LIMIT = 200
 
 REPORT_JQ = r"""
 def sum(f): map(f) | add // 0;
 def pick(f): map(f // empty) | first;
+
+# Codex's `input_tokens` includes its cached input; Claude's excludes cache
+# reads. Recast a Codex record in Claude's shape so every column means the
+# same for both harnesses.
+def claude_shape:
+  if .harness == "codex"
+  then .cache_read_input_tokens = (.cached_input_tokens // 0)
+    | .input_tokens = (.input_tokens // 0) - .cache_read_input_tokens
+  else .
+  end;
 
 def run_entry:
   {
@@ -42,7 +55,7 @@ def run_entry:
     input_tokens: sum(.input_tokens),
     output_tokens: sum(.output_tokens),
     cache_creation_input_tokens: sum(.cache_creation_input_tokens),
-    cache_read_input_tokens: sum(if .harness == "codex" then .cached_input_tokens else .cache_read_input_tokens end),
+    cache_read_input_tokens: sum(.cache_read_input_tokens),
     turns: sum(.turns),
     cost_usd: (if all(.[]; .harness == "codex") then null else sum(.cost_usd) end),
     partial: (map(.partial // false) | any),
@@ -195,13 +208,13 @@ def summary($since):
      then ["\($totals.skipped_runs) run(s) uploaded no readable session-logs artifact and are absent entirely: runs that ended before the upload or had torn uploads."]
      else []
      end)
-  + ["Claude cost is at API list prices; Codex cost is not reported. Codex cached input is included in its input total."]
+  + ["Claude cost is at API list prices; Codex cost is not reported. Codex cached input is counted as cache-read, not input."]
   | join("\n") + "\n";
 
 . as $input
 | ($input.jobs
    | to_entries
-   | map(.value + {_order: .key})
+   | map(.value + {_order: .key} | claude_shape)
    | group_by(.run_id)
    | map(run_entry)
    | sort_by(.created_at, ._order)
@@ -301,8 +314,15 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     workflow_rows = github_cli.json_call(
-        "workflow", "list", *repo_args, "--json", "name"
+        "workflow", "list", *repo_args, "--limit", str(WORKFLOW_LIMIT), "--json", "name"
     )
+    if len(workflow_rows) >= WORKFLOW_LIMIT:
+        print(
+            f"WARNING: the repository has at least {WORKFLOW_LIMIT} workflows, the "
+            "fetch limit — a Tend workflow beyond it is missing from the totals "
+            "below entirely.",
+            file=sys.stderr,
+        )
     prefixes = ["tend-", *extra_prefixes]
     workflows = github_cli.unique(
         row["name"]
@@ -324,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
                 "--status",
                 "completed",
                 "--json",
-                "databaseId,createdAt,updatedAt,name",
+                "databaseId,createdAt,updatedAt,workflowName",
                 "--limit",
                 str(RUN_LIMIT),
                 quiet=True,
@@ -394,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             stamp = {
                 "run_id": run_id,
-                "workflow": run["name"],
+                "workflow": run["workflowName"],
                 "created_at": run["createdAt"],
             }
             jobs.extend({**record, **stamp} for record in run_jobs)

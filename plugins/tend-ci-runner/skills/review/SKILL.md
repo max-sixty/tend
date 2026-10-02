@@ -129,13 +129,12 @@ What counts as core is repo-specific; let the project's own instruction files, a
 **Unless the author withheld merge readiness.** When the PR body — or a later comment from the author or a maintainer — says the change should not merge yet — "should not merge until…", "not ready", design questions the author calls unresolved — the verdict is withheld the same way the draft flag withholds it, and plenty of contributors state it in prose rather than toggling draft. Submit `COMMENT` instead, naming the stated blocker that holds the verdict; name it once, and on a later pass that finds nothing new stay silent rather than restating it — the surrounding dedup rules are keyed on threads, so they don't reach a body-only `COMMENT`. Your own findings being closed out does not clear it: "everything the reviewer raised is fixed" and "the author says this must not merge" are independent conditions, and only whoever stated the blocker retracts it. The asymmetry is why this is worth a condition: withholding a warranted approval costs a re-review on the next push, while an `APPROVE` standing on a PR its author gated is a wrong outward signal that persists until someone notices.
 
 ```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 # Read the sha first and bail if it isn't there: inlined as `$(cat ...)` a
 # missing file substitutes the empty string and the POST still runs, which is
 # the unpinned review this pins against.
 REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0
 /usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> -- \
-  gh api "repos/$REPO/pulls/<number>/reviews" --method POST \
+  gh api "repos/{owner}/{repo}/pulls/<number>/reviews" --method POST \
     -f event=APPROVE -f commit_id="$REVIEWED" -f body=""
 ```
 
@@ -184,8 +183,7 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
 **Not confident enough to approve** (unfamiliar module, subtle logic): Add a `+1` reaction instead — no review needed unless there are specific observations.
 
 ```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-gh api "repos/$REPO/issues/<number>/reactions" -f content="+1"
+gh api "repos/{owner}/{repo}/issues/<number>/reactions" -f content="+1"
 ```
 
 
@@ -224,7 +222,7 @@ Build the review payload — inline comments, `commit_id`, the preflight-wrapped
 
 If you **stayed silent** (no review posted, nothing to dismiss), finish — there's no follow-up gated on the CI result. Don't background-poll: per `/tend-ci-runner:run-tend` under "End the turn only when work is shipped", the completion notification isn't reliably delivered to a CI session.
 
-If you **approved**, the dismissal-on-failure is a gated follow-up. Poll in the foreground per `/tend-ci-runner:monitor-ci`, pinned to `$TMPDIR/reviewed-head`, then handle the outcome per **After the approval** in `references/approving.md`. If the PR head moves while polling, stop polling the stale commit; the queued review handles the new HEAD.
+If you **approved**, the dismissal-on-failure is a gated follow-up. Poll in the foreground per `/tend-ci-runner:monitor-ci`, pinned to `$TMPDIR/reviewed-head`, then handle the outcome per **After the approval** in `references/approving.md`. If the PR head moves while checks still pend, the poll ends on its own; the queued review handles the new HEAD.
 
 ### 8. Resolve handled suggestions
 

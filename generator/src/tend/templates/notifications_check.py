@@ -54,24 +54,11 @@ def _json(*args: str, quiet: bool = False) -> Any:
 
 
 def _paginated(path: str) -> list[Any]:
-    text = _gh("api", path, "--paginate", quiet=True)
-    decoder = json.JSONDecoder()
-    pages: list[Any] = []
-    position = 0
-    saw_page = False
-    while position < len(text):
-        while position < len(text) and text[position].isspace():
-            position += 1
-        if position == len(text):
-            break
-        page, position = decoder.raw_decode(text, position)
-        saw_page = True
-        if not isinstance(page, list):
-            raise TypeError("paginated GitHub response was not an array")
-        pages.extend(page)
-    if not saw_page:
-        raise ValueError("paginated GitHub response was empty")
-    return pages
+    # `--slurp` prints one array holding every page.
+    pages = _json("api", "--paginate", "--slurp", path, quiet=True)
+    if not all(isinstance(page, list) for page in pages):
+        raise TypeError("paginated GitHub response was not an array")
+    return [item for page in pages for item in page]
 
 
 def _output(name: str, value: str | int) -> None:
@@ -81,13 +68,8 @@ def _output(name: str, value: str | int) -> None:
 
 def _notifications(cutoff: str) -> int:
     try:
-        return len(_paginated(f"notifications?before={cutoff}&per_page=100"))
-    except (
-        json.JSONDecodeError,
-        subprocess.CalledProcessError,
-        TypeError,
-        ValueError,
-    ):
+        return len(_paginated(f"notifications?before={cutoff}"))
+    except (json.JSONDecodeError, subprocess.CalledProcessError, TypeError):
         print("::warning::notifications fetch failed; queue left for the next cycle")
         return 0
 
@@ -149,11 +131,15 @@ def _conflicts(repo: str) -> int:
         return 0
 
 
+#: How old a notification must be before this poll takes it. The event run a
+#: notification started usually finishes, and marks it read, within this, so a
+#: poll doesn't boot a session only to find that run still holds its subject.
+GRACE = timedelta(minutes=10)
+
+
 def main(*, now: datetime | None = None) -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
-    cutoff = ((now or datetime.now(UTC)) - timedelta(minutes=10)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    cutoff = ((now or datetime.now(UTC)) - GRACE).strftime("%Y-%m-%dT%H:%M:%SZ")
     _output("cutoff", cutoff)
 
     try:

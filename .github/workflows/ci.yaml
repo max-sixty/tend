@@ -24,8 +24,8 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       # Pinned to the interpreter production runs: the step bodies under
       # shared/steps/ execute on the runner's own /usr/bin/python3, which is
       # 3.12 on ubuntu-24.04, and an unpinned `uv run` would test them on
@@ -45,8 +45,8 @@ jobs:
       run:
         working-directory: proxy
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       # mitmdump starts the way setup_sandbox.py starts it, so a release that
       # drops a flag, moves the CA file, or breaks the addon's import fails
       # here rather than on every consumer's next run. It goes through the
@@ -55,32 +55,32 @@ jobs:
       # the allowlists in inject_credentials.py.
       #
       # It installs uv by running install-uv.sh rather than repeating it,
-      # which also gives that script its only CI coverage, then warms the uvx
-      # cache as setup_sandbox.py does. An empty replay lets mitmdump reach its
+      # which also gives that script its only CI coverage, then installs the
+      # locked proxy group as setup_sandbox.py does, so a uv.lock the pinned uv
+      # can't read fails here too. An empty replay lets mitmdump reach its
       # running lifecycle hook, then its own KeepServing addon shuts it down.
       # The foreground process exits non-zero on startup failure and is reaped
       # by the shell; port 0 gives the fixture a listener it owns.
       - name: Smoke the pinned uv and mitmdump
         run: |
-          uv_v=$(yq -e '.inputs.uv_version.default' ../claude/action.yaml)
-          mitm_v=$(yq -e '.inputs.mitmproxy_version.default' ../claude/action.yaml)
-          UV_VERSION="$uv_v" UV_INSTALL_DIR="$RUNNER_TEMP/tend-uv" \
-            bash ../shared/steps/install-uv.sh
+          UV_INSTALL_DIR="$RUNNER_TEMP/tend-uv" bash ../shared/steps/install-uv.sh
           confdir=$RUNNER_TEMP/tend-mitm-conf
           log=$RUNNER_TEMP/tend-mitm.log
           flows=$RUNNER_TEMP/tend-empty.flows
-          uvx=$RUNNER_TEMP/tend-uv/uvx
+          export UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/tend-proxy-venv
+          mitmdump=("$RUNNER_TEMP/tend-uv/uv" run --no-config --no-python-downloads \
+            --python /usr/bin/python3 --project .. --frozen --no-build --only-group proxy mitmdump)
           touch "$flows"
-          "$uvx" --from "mitmproxy==${mitm_v}" mitmdump --version >/dev/null
+          "${mitmdump[@]}" --version >/dev/null
           if ! TEND_GH_TOKEN=dummy TEND_ANTHROPIC_OAUTH_TOKEN=dummy \
-            "$uvx" --from "mitmproxy==${mitm_v}" mitmdump \
+            "${mitmdump[@]}" \
             -s inject_credentials.py \
             --listen-host 127.0.0.1 --listen-port 0 \
             --set confdir="$confdir" \
             --set rfile="$flows" \
             --allow-hosts '^example\.invalid$' >"$log" 2>&1; then
             cat "$log"
-            echo "::error::mitmdump failed to start under mitmproxy ${mitm_v}"
+            echo "::error::mitmdump failed to start from the locked proxy group"
             exit 1
           fi
           grep -qF 'HTTP(S) proxy listening at 127.0.0.1:' "$log"
@@ -97,7 +97,7 @@ jobs:
       # The lifecycle's `base` checkout sets the branch's upstream, so
       # `origin/<base>` has to exist — as it does under the generated
       # workflows, whose own checkout fetches everything.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Create the sandbox runtime container
@@ -130,8 +130,8 @@ jobs:
   test-codex-surface:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
       - name: Install the pinned Codex CLI
@@ -156,8 +156,8 @@ jobs:
       run:
         working-directory: worker
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: npm
@@ -166,9 +166,22 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+  test-eval-capture:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: evals/package-lock.json
+      - run: npm --prefix evals ci --ignore-scripts --omit=optional
+      # Artifact capture checks; model evaluations are run manually with local auth.
+      - run: npm --prefix evals test
+
   lint:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
-      - uses: pre-commit/action@v3.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1

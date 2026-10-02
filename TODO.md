@@ -5,18 +5,21 @@ of building it if revisited.
 
 ## Verify Tend's Codex rollout
 
-Leaf's Codex pilot is live. Its generated weekly refresher and a nightly agent
-run both succeeded after the switch.
+Before merging the prepared cutover, provision a repository-owned subscription
+login and refresh PAT using **Harness = codex** in `/install-tend:install-tend`.
+The login must have a refresh-token chain independent of other repositories
+and the local Codex login; secret names and timestamps cannot establish that.
+Keep access-only `CODEX_AUTH_JSON` in `tend`, and the full
+`CODEX_REFRESH_AUTH_JSON` plus `CODEX_REFRESH_PAT` in the default-branch-only
+`tend-codex-refresh` environment. Remove the misplaced refresh secrets from
+`tend`, then require `tend check` to pass.
 
-For Tend, create the `tend-codex-refresh` environment with `tend check --fix`,
-move `CODEX_REFRESH_AUTH_JSON` and `CODEX_REFRESH_PAT` from `tend` into it,
-and rerun `tend check`. Verify the full login is independent of Leaf's and
-the local Codex login; GitHub does not expose secret values for comparison.
-Pause Tend with
-`TEND_ENABLED=false` before merging the Codex config and workflows. Once they
-reach `main`, dispatch the refresher and verify it publishes the next
-access-only auth bundle. Restore the previous variable value, verify a review
-or triage run, and confirm token-usage parsing reports non-zero values.
+Pause Tend with `TEND_ENABLED=false` before merging. Once the workflows reach
+`main`, dispatch the serialized refresher and verify it publishes the next
+access-only auth bundle. Restore the previous variable value, verify an agent
+run, and confirm token reporting counts that run's Codex tokens. Local workflow
+generation and tests verify the wiring; they do not verify stored credentials,
+refresh-chain independence, or hosted authentication.
 
 ## Thread memory: deterministic prep of prior conversations
 
@@ -245,17 +248,3 @@ lives in KV and is what the site renders. If the summary wants a longer
 span than the last week (beyond GitHub's ~90-day events window or one
 Search page), a KV/D1 accumulator that appends activity as it arrives
 earns its keep — until then, demand-fetch is cheap enough.
-
-## Give `tend-mention` a skill of its own
-
-`workflows.py` builds every other agent-invoking workflow's prompt from
-`default_prompt(skill)`; mention's is written inline in `mention.yaml.j2` and
-names no skill — the one exception `test_repo_pins.py` allows to the invariant
-under "Which file" in `AGENTS.md`.
-
-The rules with mention's shape — reading the thread, a review's inline
-comments, the closed-target check, whether to respond — no longer need that
-skill for a home: `/tend-ci-runner:respond-on-thread` holds them,
-keyed on responding to a thread whatever woke the session, so triage,
-notifications, and review reach them too. A `mention` skill earns its cost only
-once rules that bind mention alone start accumulating in `run-tend` again.

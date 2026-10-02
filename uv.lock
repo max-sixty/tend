@@ -955,7 +955,7 @@ wheels = [
 
 [[package]]
 name = "tend"
-version = "0.3.4"
+version = "0.3.5"
 source = { editable = "generator" }
 dependencies = [
     { name = "click" },
@@ -984,6 +984,9 @@ dev = [
     { name = "ruamel-yaml" },
     { name = "tend" },
 ]
+proxy = [
+    { name = "mitmproxy" },
+]
 
 [package.metadata]
 
@@ -996,6 +999,7 @@ dev = [
     { name = "ruamel-yaml", specifier = ">=0.18" },
     { name = "tend", editable = "generator" },
 ]
+proxy = [{ name = "mitmproxy", specifier = "==12.2.3" }]
 
 [[package]]
 name = "tornado"

@@ -47,14 +47,12 @@ import os
 import pwd
 import re
 import resource
-import signal
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
 from pathlib import Path
-from types import FrameType
 
+import _common
 import _sandbox
 from _safe_files import read_regular_nofollow
 
@@ -85,28 +83,6 @@ MOUNT = "/usr/bin/mount"
 #: What systemd accepts as a name in an ``EnvironmentFile=``; it drops the rest
 #: without a word.
 ENVIRONMENT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-
-
-class Cancelled(BaseException):
-    def __init__(self, signum: int) -> None:
-        self.signum = signum
-
-
-@contextlib.contextmanager
-def raise_on_cancel() -> Iterator[None]:
-    """Turn runner cancellation into control flow that reaches the UID reap."""
-    previous: dict[signal.Signals, signal.Handlers] = {}
-
-    def cancel(signum: int, _frame: FrameType | None) -> None:
-        raise Cancelled(signum)
-
-    for watched in (signal.SIGINT, signal.SIGTERM):
-        previous[watched] = signal.signal(watched, cancel)
-    try:
-        yield
-    finally:
-        for watched, handler in previous.items():
-            signal.signal(watched, handler)
 
 
 def required(name: str) -> str:
@@ -421,13 +397,9 @@ def launch(
         "-s",
         str(lifecycle),
     ]
-    # Nothing the agent prints is a workflow command.
-    token = f"tend-{os.urandom(16).hex()}"
-    print(f"::stop-commands::{token}", flush=True)
-    try:
-        return subprocess.run(argv, stdin=subprocess.DEVNULL, check=False).returncode
-    finally:
-        print(f"::{token}::", flush=True)
+    # Workflow commands stay live: the unit's annotations (why the agent run
+    # failed) are its report to the maintainer.
+    return subprocess.run(argv, stdin=subprocess.DEVNULL, check=False).returncode
 
 
 def export_results(
@@ -509,7 +481,7 @@ def main() -> int:
     with contextlib.ExitStack() as teardown:
         teardown.callback(env_file.unlink)
         try:
-            with raise_on_cancel():
+            with _common.raise_on_cancel():
                 status = launch(
                     teardown,
                     sandbox=sandbox,
@@ -519,7 +491,7 @@ def main() -> int:
                     env_file=env_file,
                     lifecycle=lifecycle,
                 )
-        except Cancelled as cancelled:
+        except _common.Cancelled as cancelled:
             status = 128 + cancelled.signum
         except (OSError, subprocess.CalledProcessError) as problem:
             print(f"::error::sandbox launch: {problem}", flush=True)

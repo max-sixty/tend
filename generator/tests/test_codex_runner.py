@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
 
@@ -17,6 +18,18 @@ SPEC.loader.exec_module(codex_runner)
 
 def _result(args: list[str], *, stdout: str = "", returncode: int = 0):
     return subprocess.CompletedProcess(args, returncode, stdout, "")
+
+
+PLUGIN_ADD = ["plugin", "add", "--json", "tend-ci-runner@tend"]
+
+
+def _plugin_add_output(args: list[str], installed: Path) -> str:
+    """What `codex plugin add --json` prints for tend-ci-runner; nothing else."""
+    if args[-4:] != PLUGIN_ADD:
+        return ""
+    return (
+        json.dumps({"name": "tend-ci-runner", "installedPath": str(installed)}) + "\n"
+    )
 
 
 def _set_sandbox_env(
@@ -58,18 +71,14 @@ def test_install_plugin_exports_the_single_sandbox_root(
 
     def run(args: list[str], **kwargs: object):
         calls.append((args, kwargs))
-        stdout = (
-            f"Installed plugin root: {plugin}\n"
-            if args[-3:] == ["plugin", "add", "tend-ci-runner@tend"]
-            else ""
-        )
+        stdout = _plugin_add_output(args, plugin)
         return _result(args, stdout=stdout)
 
     monkeypatch.setattr(codex_runner, "_run", run)
 
     assert codex_runner.main(["install-plugin"]) == 0
     assert agent_env.read_text().endswith(f"CLAUDE_PLUGIN_ROOT={plugin}\n")
-    assert capsys.readouterr().out == f"Installed plugin root: {plugin}\n"
+    assert capsys.readouterr().out == _plugin_add_output(PLUGIN_ADD, plugin)
     marketplace = agent_home / "tend-marketplace"
     assert calls[0][0] == [
         "/usr/bin/sudo",
@@ -93,7 +102,7 @@ def test_install_plugin_exports_the_single_sandbox_root(
         str(marketplace),
     ]
     assert codex_calls[1][-3:] == ["plugin", "add", "install-tend@tend"]
-    assert codex_calls[2][-3:] == ["plugin", "add", "tend-ci-runner@tend"]
+    assert codex_calls[2][-4:] == PLUGIN_ADD
 
 
 def test_install_plugin_rejects_a_root_outside_the_sandbox_home(
@@ -104,21 +113,14 @@ def test_install_plugin_rejects_a_root_outside_the_sandbox_home(
     outside.mkdir(parents=True)
 
     def run(args: list[str], **kwargs: object):
-        return _result(
-            args,
-            stdout=(
-                f"Installed plugin root: {outside}\n"
-                if args[-3:] == ["plugin", "add", "tend-ci-runner@tend"]
-                else ""
-            ),
-        )
+        return _result(args, stdout=_plugin_add_output(args, outside))
 
     monkeypatch.setattr(codex_runner, "_run", run)
 
     assert codex_runner.main(["install-plugin"]) == 1
 
 
-def test_install_plugin_rejects_ambiguous_output(
+def test_install_plugin_rejects_output_that_is_not_the_json_report(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
@@ -126,13 +128,10 @@ def test_install_plugin_rejects_ambiguous_output(
     plugin.mkdir(parents=True)
 
     def run(args: list[str], **kwargs: object):
-        line = f"Installed plugin root: {plugin}\n"
         return _result(
             args,
             stdout=(
-                line * 2
-                if args[-3:] == ["plugin", "add", "tend-ci-runner@tend"]
-                else ""
+                f"Installed plugin root: {plugin}\n" if args[-4:] == PLUGIN_ADD else ""
             ),
         )
 
@@ -257,6 +256,8 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
         "--config",
         'cli_auth_credentials_store="file"',
         "--config",
+        "background_terminal_max_timeout=21600000",
+        "--config",
         'model_reasoning_effort="high"',
         "Review this",
     ]
@@ -303,6 +304,8 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
         str(run_dir / "codex-final-message.md"),
         "--config",
         'cli_auth_credentials_store="file"',
+        "--config",
+        "background_terminal_max_timeout=21600000",
         "Review this",
     ]
 

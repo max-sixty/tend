@@ -50,7 +50,7 @@ FAKE_GH = (
       prev="$a"
     done
     emit "$(jq -c --arg wf "$wf" --arg created "$created" \
-      '[.[] | select(.name == $wf) | select($created == "" or .createdAt >= $created)]' \
+      '[.[] | select(.workflowName == $wf) | select($created == "" or .createdAt >= $created)]' \
       "$RUNS_JSON")"
     ;;
   "run download")
@@ -75,16 +75,8 @@ esac
 )
 
 
-def _record(**over: Any) -> dict[str, Any]:
-    """One job's token-usage.json, as the "Token usage" step writes it."""
-    return {
-        "repo": "owner/repo",
-        "workflow": "tend-review",
-        "run_id": 1,
-        "run_attempt": 1,
-        "event": "pull_request_target",
-        "number": 851,
-        "head_sha": "head0000",
+COUNTS = {
+    "claude": {
         "input_tokens": 10,
         "output_tokens": 100,
         "cache_creation_input_tokens": 1000,
@@ -93,6 +85,31 @@ def _record(**over: Any) -> dict[str, Any]:
         "model": "opus",
         "cost_usd": 1.0,
         "partial": False,
+    },
+    # Codex's `input_tokens` includes `cached_input_tokens`, and its cost is
+    # always 0.
+    "codex": {
+        "input_tokens": 4000,
+        "output_tokens": 100,
+        "cached_input_tokens": 3000,
+        "turns": 3,
+        "model": "gpt-6-sol",
+        "cost_usd": 0,
+    },
+}
+
+
+def _record(harness: str, **over: Any) -> dict[str, Any]:
+    """One job's token-usage.json, as *harness*'s "Token usage" step writes it."""
+    return {
+        "repo": "owner/repo",
+        "workflow": "tend-review",
+        "run_id": 1,
+        "run_attempt": 1,
+        "event": "pull_request_target",
+        "number": 851,
+        "head_sha": "head0000",
+        **COUNTS[harness],
         **over,
     }
 
@@ -131,11 +148,11 @@ class Report:
                 "conclusion": "success",
                 "createdAt": created_at,
                 "updatedAt": updated_at or created_at,
-                "name": workflow,
+                "workflowName": workflow,
             }
         )
         (self._usage_dir / f"{run_id}.json").write_text(
-            json.dumps(_record(run_id=run_id, workflow=workflow, **over))
+            json.dumps(_record(harness, run_id=run_id, workflow=workflow, **over))
         )
         (self._usage_dir / f"{run_id}.harness").write_text(harness)
         return self
@@ -154,14 +171,14 @@ class Report:
                 "conclusion": "cancelled",
                 "createdAt": "2026-08-25T12:00:00Z",
                 "updatedAt": "2026-08-25T12:00:00Z",
-                "name": "tend-review",
+                "workflowName": "tend-review",
             }
         )
         return self
 
     def invoke(self, *args: str) -> subprocess.CompletedProcess[str]:
         """Run the script with *args* as its whole command line."""
-        workflows = sorted({run["name"] for run in self._runs})
+        workflows = sorted({run["workflowName"] for run in self._runs})
         Path(self._env["WF_JSON"]).write_text(
             json.dumps([{"name": name} for name in workflows])
         )
@@ -317,21 +334,11 @@ def test_a_run_with_no_artifact_is_skipped(report: Report) -> None:
 def test_codex_artifact_counts_tokens_without_claiming_zero_cost(
     report: Report,
 ) -> None:
-    report.add(
-        1,
-        harness="codex",
-        model="gpt-6-sol",
-        cost_usd=0,
-        input_tokens=4200,
-        cache_read_input_tokens=0,
-        cached_input_tokens=3000,
-    )
+    report.add(1, harness="codex")
     report.add(2, workflow="tend-nightly", cost_usd=2.5)
     output, rows = report.run()
 
     assert "--pattern *-session-logs*" in report.calls()
-    assert output["totals"]["input_tokens"] == 4210
-    assert output["totals"]["cache_read_input_tokens"] == 13000
     assert output["totals"]["unpriced_runs"] == 1
     assert output["runs"][1]["cost_usd"] is None
     assert _table(report, "WORKFLOW")[1][2] == "n/a"
@@ -340,8 +347,28 @@ def test_codex_artifact_counts_tokens_without_claiming_zero_cost(
     assert total[2] == "$2.50+"
 
 
+def test_codex_input_excludes_its_cached_input_as_claude_s_does(
+    report: Report,
+) -> None:
+    """INPUT and CACHE-READ mean the same for both harnesses.
+
+    Codex's `input_tokens` includes its cached input; Claude's excludes cache
+    reads. Summed as written, a mixed report would count Codex's cached tokens
+    once as input and again as cache-read.
+    """
+    report.add(1, harness="codex", input_tokens=4200, cached_input_tokens=3000)
+    report.add(2, workflow="tend-nightly")
+    output, _ = report.run()
+
+    codex_run = next(run for run in output["runs"] if run["run_id"] == 1)
+    assert codex_run["input_tokens"] == 1200
+    assert codex_run["cache_read_input_tokens"] == 3000
+    assert output["totals"]["input_tokens"] == 1210
+    assert output["totals"]["cache_read_input_tokens"] == 13000
+
+
 def test_codex_only_report_has_no_cost_value(report: Report) -> None:
-    report.add(1, harness="codex", model="gpt-6-sol", cost_usd=0)
+    report.add(1, harness="codex")
     output, rows = report.run()
 
     assert output["runs"][0]["cost_usd"] is None
@@ -355,8 +382,7 @@ def test_codex_only_tables_rank_by_cached_input(report: Report) -> None:
             harness="codex",
             workflow="tend-nightly" if run_id % 2 else "tend-review",
             number=1000 + run_id,
-            model="gpt-6-sol",
-            cost_usd=0,
+            input_tokens=run_id * 1000 + 500,
             cached_input_tokens=run_id * 1000,
         )
     _, rows = report.run()
@@ -449,7 +475,7 @@ def test_a_matrix_runs_row_agrees_with_its_rollup_to_the_cent(report: Report) ->
         (report._usage_dir / "1.json").write_text(
             (report._usage_dir / "1.json").read_text().rstrip()
             + "\n"
-            + json.dumps(_record(run_id=1, cost_usd=cost))
+            + json.dumps(_record("claude", run_id=1, cost_usd=cost))
         )
     output, _ = report.run()
 
@@ -504,6 +530,24 @@ def test_a_failed_workflow_listing_aborts_instead_of_reporting_zero(
 
     assert result.returncode != 0
     assert result.stdout == ""
+
+
+def test_the_workflow_listing_asks_past_gh_s_default_and_warns_at_the_limit(
+    report: Report,
+) -> None:
+    """`gh workflow list` fetches 50 without a limit and says nothing when it
+    truncates, so a Tend workflow past the edge would drop out of the spend
+    while `list_recent_runs.py`'s census still counts its runs."""
+    for i in range(200):
+        report.add(i + 1, workflow=f"tend-{i:03}")
+
+    report.run()
+
+    listings = [
+        line for line in report.calls().splitlines() if line.startswith("workflow list")
+    ]
+    assert listings and all("--limit 200" in line for line in listings), listings
+    assert "at least 200 workflows" in report.stderr
 
 
 def test_runs_with_no_artifact_are_counted_not_dropped(report: Report) -> None:

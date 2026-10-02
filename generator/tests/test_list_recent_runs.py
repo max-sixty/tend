@@ -4,7 +4,8 @@ The window logic is the behaviour under test: the completion window resumes
 at the previous successful run's start, clamps at the cap with a stderr
 WARNING, and falls back to a plain 1h window outside Actions. A re-run row
 draws its own WARNING, because its conclusion is the latest attempt's. The
-fake `gh` serves API fixtures, while an injected clock keeps the window edges
+anchor is the newest start across reads at several `--limit`s, since GitHub can
+serve one listing URL from a stale cached snapshot. The fake `gh` serves API fixtures, while an injected clock keeps the window edges
 deterministic.
 """
 
@@ -61,7 +62,13 @@ FAKE_GH = (
     case "$*" in
       *"--status success"*)
         if [ -n "${FAIL_ANCHOR:-}" ]; then exit 1; fi
-        emit "$(cat "$ANCHOR_JSON")"
+        # A staged `anchor-limit-<n>.json` is a durable cache entry: every
+        # read at that `--limit` gets it, whatever the other limits answer.
+        args="$*"
+        limit="${args##*--limit }"
+        limit="${limit%% *}"
+        cached="${ANCHOR_JSON%.json}-limit-$limit.json"
+        if [ -f "$cached" ]; then emit "$(cat "$cached")"; else emit "$(cat "$ANCHOR_JSON")"; fi
         ;;
       *)
         if [ -n "${FAIL_RUNS:-}" ]; then exit 1; fi
@@ -112,6 +119,16 @@ def env(tmp_path: Path) -> dict[str, str]:
 def _anchor(env: dict[str, str], *entries: tuple[int, int]) -> None:
     """Write anchor candidates as ``(databaseId, createdAt epoch)`` pairs."""
     Path(env["ANCHOR_JSON"]).write_text(
+        json.dumps(
+            [{"databaseId": i, "createdAt": _iso(start)} for i, start in entries]
+        )
+    )
+
+
+def _cached_anchor(env: dict[str, str], limit: int, *entries: tuple[int, int]) -> None:
+    """Stage the durable answer every anchor read at *limit* receives."""
+    path = Path(env["ANCHOR_JSON"].removesuffix(".json") + f"-limit-{limit}.json")
+    path.write_text(
         json.dumps(
             [{"databaseId": i, "createdAt": _iso(start)} for i, start in entries]
         )
@@ -220,6 +237,45 @@ def test_stale_anchor_clamps_to_the_cap_and_warns(env: dict[str, str]) -> None:
     assert result.returncode == 0, result.stderr
     assert _ids(result) == [1]
     assert "more than 49h back" in result.stderr
+
+
+def test_a_cached_anchor_page_cannot_widen_the_window(env: dict[str, str]) -> None:
+    """GitHub can answer one `gh run list` URL from a snapshot weeks old, so a
+    single anchor read lands past the cap and widens the window to 49h with a
+    false coverage-gap warning. Reads at another `--limit` miss that entry, and
+    the newest start across them anchors."""
+    _anchor(env, (555, NOW - 26 * 3600))
+    _cached_anchor(env, 5, (111, NOW - 21 * 24 * 3600))
+    _runs(
+        env,
+        _run_entry(1, updated=NOW - 20 * 3600),
+        _run_entry(2, updated=NOW - 40 * 3600),
+    )
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    assert _ids(result) == [1]
+    assert "WARNING" not in result.stderr
+
+
+def test_the_cap_warning_rereads_before_it_fires(env: dict[str, str]) -> None:
+    """The warning is the visible symptom of a stale read, so a past-cap anchor
+    is re-read at further limits before the window widens."""
+    _anchor(env, (555, NOW - 26 * 3600))
+    for limit in (4, 5):
+        _cached_anchor(env, limit, (111, NOW - 21 * 24 * 3600))
+    _runs(
+        env,
+        _run_entry(1, updated=NOW - 20 * 3600),
+        _run_entry(2, updated=NOW - 40 * 3600),
+    )
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    assert _ids(result) == [1]
+    assert "WARNING" not in result.stderr
 
 
 def test_outside_actions_uses_a_1h_window(env: dict[str, str]) -> None:

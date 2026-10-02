@@ -32,7 +32,7 @@ test suite exercises them.
 
 ## Non-standard workflows
 
-Tend has an agent workflow beyond the generated `tend-*` set:
+Tend has Claude-powered workflows beyond the generated `tend-*` set:
 
 | Workflow | File | Schedule | Purpose |
 |----------|------|----------|---------|
@@ -45,10 +45,10 @@ covers the day. `list_recent_runs.py` caps it at 49h, wide enough to absorb a
 missed tick; past that it warns on stderr and the run records a coverage gap
 rather than an all-clear.
 
-It uses the tend composite action and produces `codex-session-logs*` artifacts,
-but its name doesn't match the `tend-*` prefix that scripts filter on by
-default. `uvx tend@latest init` doesn't rewrite it either, so its
-`max-sixty/tend/<harness>@X.Y.Z` pin moves only when someone edits the file.
+These use the tend composite action and produce `claude-session-logs*` artifacts,
+but their names don't match the `tend-*` prefix that scripts filter on by
+default. `uvx tend@latest init` doesn't rewrite them either, so their
+`max-sixty/tend/<harness>@X.Y.Z` pins move only when someone edits the file.
 
 ### Usage analysis
 
@@ -73,7 +73,7 @@ Step 1 anchor instead, so its spend covers the same band that step censuses.
 
 ## Session Log Paths
 
-Artifact paths: `sessions/YYYY/MM/DD/rollout-*.jsonl`
+Artifact paths: `-var-tmp-tend-agent-workspace-*-checkout/<session-id>.jsonl`
 
 `review-reviewers` runs produce one session log per matrix repo in
 `.github/workflows/review-reviewers.yaml`.
@@ -199,8 +199,8 @@ Changes that have required Tend work include:
 
 - Claude Code ignored `defaultMode: bypassPermissions` in project settings, so
   Tend had to pass `--permission-mode` on argv.
-- Codex added non-interactive plugin installation. Tend's action consumes its
-  `Installed plugin root:` output to locate plugin scripts.
+- Codex added non-interactive plugin installation. Tend's action reads the
+  `installedPath` of `codex plugin add --json` to locate plugin scripts.
 
 For any similarly relevant note, search the code, issues, and PRs first. Open a
 PR when the change is small enough to make and verify in this run; reserve an
@@ -232,7 +232,8 @@ git grep -nE '(==|~=|<=?)[0-9]' -- '*pyproject.toml'
 uv lock --upgrade --dry-run
 
 # pre-commit hook revs — the updater rewrites them, `git diff` is the report.
-uv tool run pre-commit autoupdate
+# `--freeze` keeps them commit SHAs, each with a `# frozen: <tag>` comment.
+uv tool run pre-commit autoupdate --freeze
 
 # npm: `Wanted` ≠ `Current` is lockfile drift (`npm update`); `Latest` ≠
 # `Wanted` needs the range in package.json moved. Exits 1 when a row prints.
@@ -241,7 +242,8 @@ uv tool run pre-commit autoupdate
 npm --prefix worker ci && npm --prefix worker outdated
 npm --prefix site ci && npm --prefix site outdated
 
-# Versions pinned in a shell script: worktrunk in the Codex Cloud setup.
+# Versions pinned in a shell script: uv in install-uv.sh, worktrunk in the
+# Codex Cloud setup.
 git grep -nE '^[A-Za-z_]*VERSION=' -- '*.sh'
 ```
 
@@ -269,7 +271,11 @@ session rather than clearing a backlog at once — an unswept pin waits a week, 
 swamped run finishes nothing.
 
 - **Ships to consumers** — `claude/action.yaml`, `codex/action.yaml`, and
-  `codex/refresh/action.yaml` run in consumer jobs from the next release;
+  `codex/refresh/action.yaml` run in consumer jobs from the next release, as
+  does every package `uv.lock` holds for the root `pyproject.toml`'s `proxy`
+  group, which the actions install the credential proxy from — a closure that
+  shares click, jinja2, markupsafe and ruamel-yaml with the generator, so a
+  `uv lock --upgrade` nearly always lands here;
   `generator/src/tend/templates/` and `workflows.py` render into their workflow
   files. One PR each, titled `chore: bump <name> to <version>` (the
   uv-plus-mitmproxy PR names both), its body naming what changed.
@@ -285,8 +291,8 @@ swamped run finishes nothing.
 | Pin | File | Rule |
 |---|---|---|
 | `claude_version` | `claude/action.yaml` | npm's `latest` dist-tag, not `stable` |
-| `mitmproxy_version` | `claude/action.yaml` | move the root `pyproject.toml` `==` pin with it and `uv lock` |
-| `uv_version` | both harness `action.yaml` files | move both defaults together, with `mitmproxy_version` |
+| `mitmproxy` | root `pyproject.toml` `proxy` group | `uv lock --upgrade-package mitmproxy` after the `==` move; the rest of the group's closure moves with `uv lock --upgrade` |
+| `UV_VERSION` | `shared/steps/install-uv.sh`, `generator/src/tend/workflows.py` | move both with `mitmproxy`, and each arch's `sha256` with them (`UV_SHA256` in `workflows.py`), read from the release's `uv-<target>.tar.gz.sha256` assets; the pinned uv must read the `uv.lock` the dev uv writes |
 | `codex_version` | `codex/action.yaml`, `codex/refresh/action.yaml` | move both defaults together; `alpha` only for a fix not yet released |
 | `uv_build` | `generator/pyproject.toml` | its range must contain the uv doing the build; a stale one only warns during `uv build`, so only this sweep catches it |
 | `WORKTRUNK_VERSION` | `.config/codex-cloud/environment.sh` | nothing in CI runs the script, and it dies under `set -euo pipefail` — confirm the release still ships `worktrunk-installer.sh` and that `wt config approvals add --yes` still records approvals without a TTY |
@@ -296,10 +302,10 @@ target, so drift silently downgrades the model. In a bump PR, report the
 release notes between the old and new pins that affect the integration surfaces
 in the release-note pass above.
 
-`mitmproxy_version` pins the process that holds the real PAT and model
-credential, so a security fix there matters here. Check anything security- or
+The `proxy` group locks the process that holds the real PAT and model
+credential, so a security fix anywhere in its closure matters here. Check anything security- or
 addon-related in its CHANGELOG against the `mitmdump` flags in
-`proxy/setup_sandbox.py`, and report the comparison in the PR. `uv_version`
+`proxy/setup_sandbox.py`, and report the comparison in the PR. The pinned uv
 also supplies the agent fallback in both harnesses. CI smokes the installer and
 proxy together, so move uv and mitmproxy in one PR.
 
@@ -330,25 +336,34 @@ relevant release notes crossed by the bump in its PR.
 
 ### `uses:` refs
 
+Every third-party action is pinned as `owner/repo@<commit sha> # vX.Y.Z`, one
+pin per action across the repo; `test_third_party_actions_are_pinned_by_sha`
+rejects any other shape. A tag is a pointer its publisher can move, so the
+comment only names the release the SHA was taken from.
+
 ```bash
-git grep -hoE 'uses: [^ ./][^ @]*@[^ ]+' -- ':!generator/tests' ':!*.md' \
-  | sed 's/uses: //' | grep -v '^max-sixty/tend/' | sort -u \
-  | while IFS='@' read -r action pin; do
+git grep -hoE 'uses: [^ ./][^ @]*@[0-9a-f]{40} # v[^ ]+' \
+    -- ':!generator/tests' ':!.github/workflows/tend-*' \
+  | sed -E 's/uses: //; s/ # /@/' | grep -v '^max-sixty/tend/' | sort -u \
+  | while IFS='@' read -r action sha tag; do
+      [ "$(gh api "repos/$action/commits/$tag" --jq .sha)" = "$sha" ] \
+        || printf '%-30s %-9s -> tag moved off the pinned commit\n' "$action" "$tag"
       latest=$(gh api "repos/$action/releases/latest" --jq .tag_name 2>/dev/null) \
-        || { printf '%-30s %-9s -> no releases; read its tags\n' "$action" "$pin"; continue; }
-      case "$pin" in "$latest" | "${latest%%.*}") continue ;; esac
-      printf '%-30s %-9s -> %s\n' "$action" "$pin" "$latest"
+        || { printf '%-30s %-9s -> no releases; read its tags\n' "$action" "$tag"; continue; }
+      [ "$tag" = "$latest" ] && continue
+      printf '%-30s %-9s -> %s %s\n' "$action" "$tag" "$latest" \
+        "$(gh api "repos/$action/commits/$latest" --jq .sha)"
     done
 ```
 
-An action listed twice is pinned at two majors: refs move when someone needs a
-behavior from one of them, never in a sweep. `git grep` each drifted action for
-its call sites, then split the PRs by the buckets above — a ref that ships to
-consumers gets its own, its body naming what changed across the majors it
-crosses.
+A drifted action's new ref is the printed SHA with the new tag as its comment,
+replaced at every call site `git grep` finds. A tag that moved off its pinned
+commit is what the pin exists to catch: keep the pin and report the move in the
+sweep's PR rather than following it. Split the PRs by the buckets above; a new
+major gets its own, its body naming what changed across the majors it crosses.
 
-The generated `tend-*.yaml` show up in that grep too; their refs come from the
-templates and from `.config/tend.yaml`'s `setup:`, which is where they move.
+The generated `tend-*.yaml` take their refs from the templates and from
+`.config/tend.yaml`'s `setup:`, which is where they move.
 
 ## Weekly: integration test
 

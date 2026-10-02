@@ -101,6 +101,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 
 - an open issue with no bot response to the latest human activity;
 - an open PR whose live head has no bot review, or whose latest comment, review, or inline review comment directed at the bot has no response; this includes replies to the bot's review on a fork PR;
+- unfinished configured-bot PRs, regardless of notification or review state. List the bot's open PRs (`gh pr list --state open --author "$BOT_NAME" --limit 200 --json number`) and continue each per `/tend-ci-runner:continue-pr`. A green proposal awaiting a maintainer in restricted mode, an explicit maintainer hold, or an unchanged external blocker needs no repeated post;
 - failing default-branch CI with no bot fix in progress. A live-state check like the two above it: scoped neither to `ci-fix`'s watched workflows — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window.
 
   ```bash
@@ -117,8 +118,8 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 - a tend workflow whose queue is dead. A run parked in GitHub's pre-job `waiting` state holds its concurrency group without ever concluding, so under `cancel-in-progress: false` every later tick takes the single pending slot and is replaced by its successor — the workflow stops running and nothing fails. Step 1's census cannot see the parked run, which admits a row only on a non-null `conclusion`, and the replacements it causes read there as ordinary concurrency.
 
   ```bash
-  gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=waiting&per_page=50" \
-    --jq '.workflow_runs[] | {id, name, created_at, html_url}'
+  gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs?status=waiting&per_page=100" \
+    --jq '.workflow_runs[] | {id, path, created_at, html_url}'
   ```
 
   A tend run still `waiting` after several of its own scheduling intervals — or, on an event-driven workflow, long after the event that created it — is wedged. Every generated workflow but the secretless `tend-mention-relay` carries the `tend` environment, so any of the rest can park. `pending_deployments` on it confirms which kind: `wait_timer: 0` with an empty `reviewers` is an environment gate with nothing left to release it, so `gh run cancel <id>` is the remedy and the pending successor starts. `queued` is a different state and not this shape — `gh run cancel` there answers `Cannot cancel a workflow run that is completed` while the runs API still reports the run `queued`. That is GitHub bookkeeping holding nothing live; leave it rather than fighting it.
@@ -126,7 +127,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 - an open Dependabot security alert with no PR or tracker proposing its fix — same closure as the red rows above, so an alert whose fix needs a maintainer decision stops re-surfacing once it is tracked. Dependabot opens that PR itself for most alerts, so the ones that reach this sweep are the ones where it could not — and nothing else in tend looks: `weekly` reviews the dependency PRs that exist, and the defining property here is that none was created.
 
   ```bash
-  gh api "repos/$GITHUB_REPOSITORY/dependabot/alerts?state=open&per_page=50" \
+  gh api --paginate "repos/$GITHUB_REPOSITORY/dependabot/alerts?state=open&per_page=100" \
     --jq '.[] | {number, dep: .dependency.package.name, manifest: .dependency.manifest_path,
                  sev: .security_advisory.severity, created_at,
                  fix: .security_vulnerability.first_patched_version.identifier}'
@@ -214,20 +215,20 @@ Write "no maintainer corrections" into the tracking issue only after the script 
 
 ## Step 5: Deduplicate
 
-Before creating issues or PRs, check for existing ones:
+Before creating issues or PRs, search for existing ones. A recency listing drops an older match past any `--limit`, so search instead; one search per distinctive term — the skill, component, or symptom the finding names:
 
 ```bash
-gh issue list --state open --limit 200 --json number,title,body
-gh issue list --state closed --json number,title,closedAt --limit 200
-# --state all: a merged PR is the most common way a finding is already fixed
-gh pr list --state all --limit 200 --json number,title,state
+# Search matches titles and bodies. --state all: a merged PR is the most
+# common way a finding is already fixed.
+gh issue list --state all --search "<keywords>" --limit 100 --json number,title,state
+gh pr list --state all --search "<keywords>" --limit 100 --json number,title,state
 # Bundled-skill defects are filed upstream (Step 6), and the queries above only
 # see this repo — dedup against tend before filing there.
-gh pr list --repo max-sixty/tend --state all --limit 200 --json number,title,state
-gh issue list --repo max-sixty/tend --state all --limit 200 --json number,title
+gh issue list --repo max-sixty/tend --state all --search "<keywords>" --limit 100 --json number,title,state
+gh pr list --repo max-sixty/tend --state all --search "<keywords>" --limit 100 --json number,title,state
 ```
 
-Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`).
+Then read the bodies of the candidates (`gh pr view <n> --json body`).
 
 Your workflows call a pinned action ref, so a skill fix merged upstream stays dormant here until the next release tags. Observing the bug is therefore not evidence the fix is missing: read these results before filing, or the report is churn on something already landed.
 

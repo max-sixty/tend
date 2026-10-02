@@ -67,7 +67,7 @@ inputs:
     default: "false"
     description: Include the rendered Claude transcript in the workflow step summary.
   claude_version:
-    default: "2.1.282"
+    default: "2.1.283"
     description: >-
       Version of the `claude` binary to install via
       `https://claude.ai/install.sh`, pinned to a specific
@@ -84,17 +84,6 @@ inputs:
       budget still gets the supervisor's clean kill and failure report
       instead of GitHub's own silent one. Short tasks finish well before
       the cap regardless.
-  mitmproxy_version:
-    default: "12.2.3"
-    description: >-
-      Pinned `mitmproxy` version for the credential-injection proxy. Pinned
-      so the uv download cache key is stable; bump to upgrade.
-  uv_version:
-    default: "0.12.19"
-    description: >-
-      Pinned `uv` version. The credential-injection proxy always uses a private
-      copy off $PATH. The agent gets a separate fallback after the consumer PATH,
-      so a consumer-provided version stays selected.
   checkout_mode:
     default: "base"
     description: >-
@@ -179,7 +168,6 @@ runs:
       shell: bash
       run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
       env:
-        UV_VERSION: ${{ inputs.uv_version }}
         UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
 
     - name: Create the sandbox runtime container
@@ -217,12 +205,21 @@ runs:
     # ACTION_PATH points at the repo root so setup_sandbox.py's proxy addon
     # path resolves. See ../proxy/setup_sandbox.py and
     # ../proxy/inject_credentials.py.
-    - name: Cache mitmproxy
+    # Restricted mode trusts the default branch's cache writes. Keyed on the
+    # lock the proxy installs from and the script pinning the uv that reads
+    # it, which hashFiles can't reach outside the workspace.
+    - name: Hash the proxy pins
+      id: proxy_pins
       if: inputs.merge == 'restricted'
-      uses: actions/cache@v6
+      shell: bash
+      run: echo "sha256=$(cat "${{ github.action_path }}/../uv.lock" "${{ github.action_path }}/../shared/steps/install-uv.sh" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache the proxy's uv downloads
+      if: inputs.merge == 'restricted'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ runner.temp }}/tend-mitmproxy-uv
-        key: tend-mitmproxy-${{ runner.os }}-${{ inputs.mitmproxy_version }}
+        path: ${{ runner.temp }}/tend-proxy-uv
+        key: tend-proxy-uv-${{ runner.os }}-${{ steps.proxy_pins.outputs.sha256 }}
 
     - name: Set up credential-isolation sandbox
       # Resolve the interpreter outside consumer-controlled PATH: this step is
@@ -243,10 +240,9 @@ runs:
         # claude/ dir) so the script's `${ACTION_PATH}/proxy/inject_credentials.py`
         # resolves to the shared proxy addon at the top-level proxy/.
         ACTION_PATH: ${{ github.action_path }}/..
-        MITMPROXY_VERSION: ${{ inputs.mitmproxy_version }}
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
         # Yolo keeps this job-local: bot-merged main code can poison shared caches.
-        UV_CACHE_DIR: ${{ runner.temp }}/tend-mitmproxy-uv
+        UV_CACHE_DIR: ${{ runner.temp }}/tend-proxy-uv
       run: |
         set +x
         /usr/bin/env -i \
@@ -263,7 +259,6 @@ runs:
           TEND_ANTHROPIC_API_KEY="$TEND_ANTHROPIC_API_KEY" \
           ACTION_PATH="$ACTION_PATH" \
           TEND_RUNTIME_ROOT="$TEND_RUNTIME_ROOT" \
-          MITMPROXY_VERSION="$MITMPROXY_VERSION" \
           TEND_UV_DIR="$TEND_UV_DIR" \
           UV_CACHE_DIR="$UV_CACHE_DIR" \
           UV_NO_CONFIG=1 \
@@ -290,12 +285,9 @@ runs:
         sudo -u "$SANDBOX" env \
           HOME="$AGENT_HOME" \
           PATH=/usr/bin:/bin \
-          UV_VERSION="$UV_VERSION" \
           UV_INSTALL_DIR="$TEND_AGENT_UV_DIR" \
           /usr/bin/bash -s -- \
           < "${{ github.action_path }}/../shared/steps/install-uv.sh"
-      env:
-        UV_VERSION: ${{ inputs.uv_version }}
 
     # Install the tend plugins into the sandbox's own ~/.claude. MARKETPLACE_ROOT
     # is the dir holding .claude-plugin/ and plugins/; for this root action
@@ -511,7 +503,7 @@ runs:
     # first output: an empty name fails the upload.
     - name: Upload session logs
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ${{ steps.tokens.outputs.artifact_name || 'claude-session-logs' }}
         # The Token usage step consolidates the sandbox user's session JSONL,

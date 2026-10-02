@@ -39,7 +39,6 @@ import time
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from types import FrameType
 from typing import Any
 
 import _common
@@ -120,12 +119,20 @@ def launch_argv(
     bot_name: str,
     bot_id: str,
     ci: str,
+    timeout_sec: int,
     settings_file: str = "",
 ) -> list[str]:
     """The command that launches the agent inside the existing sandbox.
 
     The process inherits the lifecycle's environment; tend's own
     ``BOT_*``/``CI`` assignments carry the action's values.
+
+    ``BASH_MAX_TIMEOUT_MS`` lifts the Bash tool's ceiling on one command's
+    timeout from Claude Code's 10-minute default to the run's own bound. A
+    command past its timeout is moved to the background, and a headless run
+    doesn't reliably act on its completion, so a wait that must end in the
+    foreground — a CI poll ahead of a merge or a dismissal — runs as long as
+    the checks it waits on.
 
     The model, tools and prompts are argv rather than environment: nothing on
     the far side reads them, and ``--permission-mode`` is what actually sets
@@ -139,6 +146,7 @@ def launch_argv(
         f"BOT_NAME={bot_name}",
         f"BOT_ID={bot_id}",
         f"CI={ci}",
+        f"BASH_MAX_TIMEOUT_MS={timeout_sec * 1000}",
         "claude",
         "-p",
         *(arg for arg in extra_args.split("\n") if arg),
@@ -171,44 +179,6 @@ class Supervised:
     elapsed: int
 
 
-class Cancelled(BaseException):
-    """The runner asked this process to stop, mid-supervision.
-
-    A ``BaseException`` like ``KeyboardInterrupt``: it has to pass through an
-    ``except Exception`` on its way to the reap rather than be caught as a
-    failure of the run.
-    """
-
-
-@contextlib.contextmanager
-def raise_on_cancel() -> Iterator[None]:
-    """Turn SIGTERM and SIGINT into :class:`Cancelled` for the block's duration.
-
-    A cancelled workflow — ``cancel-in-progress``, a maintainer pressing cancel
-    — reaches this step as a signal. SIGTERM's default disposition ends the
-    process where it stands, which would skip the reap below and leave the
-    agent running as an orphan, still writing to the workspace, while the
-    runner tears the job down. Raising instead routes the cancellation through
-    the same ``finally`` every other exit takes.
-
-    Restored on the way out, so a second signal during the reap ends the
-    process outright, which is what an escalating runner means by it.
-    """
-
-    def cancel(number: int, frame: FrameType | None) -> None:
-        raise Cancelled(f"signal {number}")
-
-    previous = {
-        number: signal.signal(number, cancel)
-        for number in (signal.SIGINT, signal.SIGTERM)
-    }
-    try:
-        yield
-    finally:
-        for number, handler in previous.items():
-            signal.signal(number, handler)
-
-
 def supervise(
     argv: list[str],
     *,
@@ -234,7 +204,7 @@ def supervise(
 
     The KILL is this function's ``finally`` and the only unconditional step: it
     is what actually stops a run the TERM did not, so no path out of here,
-    exception included, may skip it. :func:`raise_on_cancel` is what makes
+    exception included, may skip it. :func:`_common.raise_on_cancel` is what makes
     "every path" include a cancelled job, which arrives as a signal rather than
     as anything Python would raise on its own.
 
@@ -246,7 +216,7 @@ def supervise(
     agent: subprocess.Popen[bytes] | None = None
     try:
         with (
-            raise_on_cancel(),
+            _common.raise_on_cancel(),
             stream_json.open("wb") as out,
             stderr_log.open("wb") as err,
         ):
@@ -396,14 +366,9 @@ def stderr_tail(stderr_log: Path) -> list[str]:
 
 
 def _quote_stderr(stderr_log: Path) -> None:
-    """Print the agent's last words where they cannot issue workflow commands.
-
-    The annotation above them needs no such bracket: the reason is flattened to
-    one line and embedded mid-line rather than starting one.
-    """
-    with _common.stop_commands():
-        for line in stderr_tail(stderr_log):
-            print(line, flush=True)
+    """Print the agent's last words below the annotation that explains them."""
+    for line in stderr_tail(stderr_log):
+        print(line, flush=True)
 
 
 def verdict(
@@ -503,6 +468,7 @@ def main() -> int:
         bot_name=env["BOT_NAME"],
         bot_id=env["BOT_ID"],
         ci=os.environ.get("CI") or "true",
+        timeout_sec=int(env["TEND_TIMEOUT_SEC"]),
         settings_file=os.environ.get("TEND_AUTO_MEMORY_SETTINGS", ""),
     )
     run = supervise(

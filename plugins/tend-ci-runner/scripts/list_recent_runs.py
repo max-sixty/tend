@@ -33,6 +33,13 @@ CREATION_CUSHION = timedelta(hours=24)
 # several hundred runs inside it. Any limit below the ceiling binds there
 # first, and truncation drops the window's *oldest* runs.
 RUN_LIMIT = 1000
+# GitHub can answer one run-listing URL from a snapshot weeks old, and a cached
+# entry answers every read of that URL alike. Each `--limit` is a different URL,
+# so the anchor is the newest start across reads at several: one fresh read is
+# enough to win, and a stale one can only lose. A past-cap anchor is re-read at
+# further limits before it widens the window.
+ANCHOR_LIMITS = (5, 4)
+RECHECK_LIMITS = (3, 6)
 # `gh workflow list` fetches 50 without one, and says nothing when it truncates.
 WORKFLOW_LIMIT = 200
 
@@ -43,6 +50,40 @@ def _parse_time(value: str) -> datetime:
 
 def _stamp(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _newest_success(
+    repo: str,
+    workflow: str,
+    current_run: int,
+    limits: tuple[int, ...],
+    best: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """The newest successful run of *workflow* other than *current_run*,
+    across one read per limit in *limits* and the prior *best*."""
+    for limit in limits:
+        rows = github_cli.json_call(
+            "run",
+            "list",
+            "--repo",
+            repo,
+            "--workflow",
+            workflow,
+            "--status",
+            "success",
+            "--limit",
+            str(limit),
+            "--json",
+            "databaseId,createdAt",
+        )
+        for row in rows:
+            if int(row["databaseId"]) == current_run:
+                continue
+            if best is None or _parse_time(row["createdAt"]) > _parse_time(
+                best["createdAt"]
+            ):
+                best = row
+    return best
 
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
@@ -80,24 +121,15 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     floor_cap = now - WINDOW_CAP
     current_workflow = os.environ.get("GITHUB_WORKFLOW")
     if current_workflow:
-        anchors = github_cli.json_call(
-            "run",
-            "list",
-            "--repo",
-            os.environ["GITHUB_REPOSITORY"],
-            "--workflow",
-            current_workflow,
-            "--status",
-            "success",
-            "--limit",
-            "5",
-            "--json",
-            "databaseId,createdAt",
-        )
+        repo = os.environ["GITHUB_REPOSITORY"]
         current_run = int(os.environ.get("GITHUB_RUN_ID", "0"))
-        previous = next(
-            (row for row in anchors if int(row["databaseId"]) != current_run), None
-        )
+        previous = _newest_success(repo, current_workflow, current_run, ANCHOR_LIMITS)
+        if previous is not None and _parse_time(previous["createdAt"]) < floor_cap:
+            # The warning is the visible symptom of a stale read, so confirm it
+            # at further URLs before widening the window.
+            previous = _newest_success(
+                repo, current_workflow, current_run, RECHECK_LIMITS, previous
+            )
         if previous is None:
             completed_after = now - DEFAULT_WINDOW
             print(
@@ -140,7 +172,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             "--created",
             f">={created_since}",
             "--json",
-            "attempt,databaseId,conclusion,createdAt,updatedAt,name",
+            "attempt,databaseId,conclusion,createdAt,updatedAt,workflowName",
             "--limit",
             str(RUN_LIMIT),
         )

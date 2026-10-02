@@ -15,6 +15,7 @@ import importlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -36,49 +37,58 @@ HEAD_SHA = "aaaa111122223333aaaa111122223333aaaa1111"
 
 # First-page GraphQL responses are served in sequence: poll N reads
 # $ROLLUP_DIR/N.json, falling back to final.json once the sequence runs out.
-# A call carrying a cursor is a *later page* of the poll in flight and is
-# served from $ROLLUP_DIR/page-<cursor>.json instead — so a page reachable
-# only through the cursor is genuinely unreachable without it. The run
-# endpoint serves `run_attempt` values consumed line-by-line from $ATTEMPTS
-# (the last line repeats), so a rerun's attempt bump is scriptable. `pr view`
-# and the jobs endpoints run the script's `--jq` through real jq.
+# Like `gh api graphql --paginate --slurp`, the fake then follows each page's
+# `pageInfo` — a page with `hasNextPage` and an `endCursor` is followed by
+# $ROLLUP_DIR/page-<cursor>.json — and prints the pages as one array, so a
+# page reachable only through the cursor is unreachable without the flag. The
+# run endpoint serves `run_attempt` values consumed line-by-line from
+# $ATTEMPTS (the last line repeats), so a rerun's attempt bump is scriptable.
+# A `--paginate` jobs listing also serves $JOBS_JSON.2, when present, as its
+# second page — so that page is unreachable without the flag.
 FAKE_GH = (
     GH_PREAMBLE
-    + r"""case "$1 $2" in
-  "api graphql")
-    cursor=""
-    for arg in "$@"; do
-      case "$arg" in cursor=*) cursor="${arg#cursor=}" ;; esac
+    + r"""case "$*" in
+  "api --paginate --slurp graphql "*)
+    n=$(( $(cat "$GRAPHQL_CALLS" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$GRAPHQL_CALLS"
+    f="$ROLLUP_DIR/$n.json"
+    [ -f "$f" ] || f="$ROLLUP_DIR/final.json"
+    files="$f"
+    while cursor=$(jq -r '[.. | objects | select(has("hasNextPage"))][0]
+        | select(.hasNextPage) | .endCursor // empty' "$f") && [ -n "$cursor" ]; do
+      f="$ROLLUP_DIR/page-$cursor.json"
+      files="$files $f"
     done
-    if [ -n "$cursor" ] && [ "$cursor" != "null" ]; then
-      cat "$ROLLUP_DIR/page-$cursor.json"
-    else
-      n=$(( $(cat "$GRAPHQL_CALLS" 2>/dev/null || echo 0) + 1 ))
-      echo "$n" > "$GRAPHQL_CALLS"
-      f="$ROLLUP_DIR/$n.json"
-      [ -f "$f" ] || f="$ROLLUP_DIR/final.json"
-      cat "$f"
-    fi
+    # shellcheck disable=SC2086
+    jq -cs . $files
     ;;
   "api repos/owner/repo/commits/"*)
     [ "${COMMIT_EXISTS:-true}" = "true" ]
     ;;
-  "pr view")
+  "pr view "*)
     emit "$(cat "$HEAD_JSON")"
     ;;
-  "run view")
+  "run view "*)
     [ -f "$RUN_DIR/$3.json" ] || exit 1
     emit "$(cat "$RUN_DIR/$3.json")"
     ;;
-  "run rerun")
+  "run rerun "*)
+    ;;
+  "api --paginate --slurp "*"/jobs"*)
+    if [ -f "$JOBS_JSON.2" ]; then
+      jq -cs . "$JOBS_JSON" "$JOBS_JSON.2"
+    else
+      jq -cs . "$JOBS_JSON"
+    fi
     ;;
   api*)
-    case "$2" in
+    path=$2
+    case "$path" in
       repos/*/actions/runs/*/jobs*)
         emit "$(cat "$JOBS_JSON")"
         ;;
       repos/*/actions/jobs/*)
-        emit "$(cat "$JOB_DIR/${2##*/}.json")"
+        emit "$(cat "$JOB_DIR/${path##*/}.json")"
         ;;
       repos/*/actions/runs/*)
         a=$(head -n 1 "$ATTEMPTS")
@@ -195,13 +205,34 @@ def _serve_page(env: dict[str, str], cursor: str, response: str) -> None:
     (Path(env["ROLLUP_DIR"]) / f"page-{cursor}.json").write_text(response)
 
 
+class WaitNeverEnded(Exception):
+    """The script under test was still waiting after :data:`SLEEP_LIMIT` sleeps."""
+
+
+#: The waits have no time bound, so a fake clock stops one that never ends.
+SLEEP_LIMIT = 200
+
+
+def _clock() -> Callable[[float], None]:
+    calls = 0
+
+    def sleep(_: float) -> None:
+        nonlocal calls
+        calls += 1
+        if calls > SLEEP_LIMIT:
+            raise WaitNeverEnded
+
+    return sleep
+
+
 def _invoke(
     module: object,
     env: dict[str, str],
     args: list[str],
     *,
-    sleep: Callable[[float], None] = lambda _: None,
+    sleep: Callable[[float], None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    sleep = sleep or _clock()
     stdout, stderr = io.StringIO(), io.StringIO()
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setattr(os, "environ", env.copy())
@@ -218,7 +249,7 @@ def _invoke(
 def _poll_args(
     env: dict[str, str],
     *args: str,
-    sleep: Callable[[float], None] = lambda _: None,
+    sleep: Callable[[float], None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return _invoke(poll_pr_checks, env, ["poll", *args], sleep=sleep)
 
@@ -245,10 +276,10 @@ MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
 
 
 @pytest.mark.parametrize(
-    ("responses", "runs", "verdict", "named", "polled"),
+    ("responses", "verdict", "named", "polled"),
     [
         # Nothing failing approves at once, even beside a running check.
-        ((_resp(_check_run("tests"), MATRIX_RUNNING),), {}, "approve:", "", False),
+        ((_resp(_check_run("tests"), MATRIX_RUNNING),), "approve:", "", False),
         # This run and tend-review are all there is: nothing else gates.
         (
             (
@@ -257,7 +288,6 @@ MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
                     _check_run("review", status="IN_PROGRESS", workflow="tend-review"),
                 ),
             ),
-            {},
             "approve:",
             "",
             False,
@@ -265,7 +295,6 @@ MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
         # A red with nothing pending is terminal.
         (
             (_resp(OMNIBUS_RED, _check_run("matrix")),),
-            {},
             "withhold: red",
             "check-ok-to-merge",
             False,
@@ -278,32 +307,26 @@ MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
                     _check_run("check-ok-to-merge", run_id=101), _check_run("matrix")
                 ),
             ),
-            {},
             "approve:",
             "",
             True,
         ),
-        # Still pending at the cap: a red from a cancelled run approves, naming
-        # what never finished ...
+        # A red that still stands once the rest settles withholds ...
         (
-            (_resp(OMNIBUS_RED, MATRIX_RUNNING),),
-            {100: "cancelled"},
-            "approve:",
-            "matrix",
-            True,
-        ),
-        # ... a real failure withholds ...
-        (
-            (_resp(OMNIBUS_RED, MATRIX_RUNNING),),
-            {100: "failure"},
+            (
+                _resp(OMNIBUS_RED, MATRIX_RUNNING),
+                _resp(OMNIBUS_RED, _check_run("matrix")),
+            ),
             "withhold: red",
             "check-ok-to-merge",
             True,
         ),
-        # ... and so does a status context, which names no run to inspect.
+        # ... and so does a status context.
         (
-            (_resp(_status_ctx("codecov/patch", "FAILURE"), MATRIX_RUNNING),),
-            {},
+            (
+                _resp(_status_ctx("codecov/patch", "FAILURE"), MATRIX_RUNNING),
+                _resp(_status_ctx("codecov/patch", "FAILURE"), _check_run("matrix")),
+            ),
             "withhold: red",
             "codecov/patch",
             True,
@@ -313,16 +336,11 @@ MATRIX_RUNNING = _check_run("matrix", status="IN_PROGRESS", run_id=200)
 def test_approval_verdict(
     env: dict[str, str],
     responses: tuple[str, ...],
-    runs: dict[int, str],
     verdict: str,
     named: str,
     polled: bool,
 ) -> None:
     _serve(env, *responses)
-    for run_id, conclusion in runs.items():
-        (Path(env["RUN_DIR"]) / f"{run_id}.json").write_text(
-            json.dumps({"conclusion": conclusion})
-        )
 
     result = _approval(env)
 
@@ -332,29 +350,18 @@ def test_approval_verdict(
     assert (Path(env["GRAPHQL_CALLS"]).read_text().strip() != "1") is polled
 
 
-@pytest.mark.parametrize(
-    ("also_failing", "returncode", "stdout"),
-    [
-        # The only failure's run can't be read: nothing is decided.
-        ((), 2, ""),
-        # Another failure is real, so the unreadable run can't change the verdict.
-        ((_check_run("lint", conclusion="FAILURE", run_id=300),), 1, "withhold: red"),
-    ],
-)
-def test_approval_with_a_run_it_cannot_read(
-    env: dict[str, str], also_failing: tuple[dict, ...], returncode: int, stdout: str
+def test_approval_is_undecided_when_the_head_moves_while_it_waits(
+    env: dict[str, str],
 ) -> None:
-    """`gh run view` exits 1 on a 5xx or a run id this repo can't resolve, which
-    is also `withhold:`'s code — so the failure has to be decided, not escape."""
-    _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING, *also_failing))
-    (Path(env["RUN_DIR"]) / "300.json").write_text(
-        json.dumps({"conclusion": "failure"})
-    )
+    """A red beside running checks waits for them, and a push during that wait
+    makes the reviewed commit's approval moot."""
+    Path(env["HEAD_JSON"]).write_text(json.dumps({"headRefOid": "b" * 40}))
+    _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING))
 
     result = _approval(env)
 
-    assert result.returncode == returncode, result.stdout + result.stderr
-    assert result.stdout.startswith(stdout)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "moved" in result.stderr
 
 
 def test_red_names_the_failing_check_with_its_url(env: dict[str, str]) -> None:
@@ -534,12 +541,20 @@ def test_queued_replacement_without_startedat_stays_pending(
             ),
             _check_run("tests", status="QUEUED", run_id=222, started=None),
         ),
+        _resp(
+            _check_run(
+                "tests",
+                conclusion="FAILURE",
+                run_id=111,
+                started="2026-01-01T00:00:00Z",
+            ),
+            _check_run("tests", run_id=222, started="2026-01-01T01:00:00Z"),
+        ),
     )
 
     result = _poll(env)
 
-    assert result.returncode == 3, "an unsettled FAILURE was reported as a verdict"
-    assert "UNVERIFIED" in result.stdout
+    assert result.returncode == 0, "an unsettled FAILURE was reported as a verdict"
 
 
 def test_own_run_and_same_workflow_are_filtered(env: dict[str, str]) -> None:
@@ -566,9 +581,10 @@ def test_own_run_and_same_workflow_are_filtered(env: dict[str, str]) -> None:
 
 def test_tend_review_does_not_gate(env: dict[str, str]) -> None:
     """`tend-review` fires on the very push this poll is verifying, so its
-    agent job is created seconds after the loop starts and routinely outlives
-    the 9-minute cap — every session that pushes to a PR would report
-    UNVERIFIED with every repo check already green.
+    agent job is created seconds after the loop starts and can outlive the
+    whole wait — a session that pushes to a PR would report UNVERIFIED with
+    every repo check already green, waiting on a job that is no verdict on
+    the code.
 
     Both checks are deliberately named `review`: the exemption keys on the
     workflow, so a repo's own same-named job must survive it."""
@@ -584,6 +600,40 @@ def test_tend_review_does_not_gate(env: dict[str, str]) -> None:
     result = _poll(env)
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_a_skipped_check_does_not_gate(env: dict[str, str]) -> None:
+    """A repo can leave a check out of the gate, so a slow advisory job that
+    is still running doesn't hold a green verdict."""
+    _serve(
+        env,
+        _resp(
+            _check_run("tests"),
+            _check_run("macos (advisory)", status="IN_PROGRESS"),
+        ),
+    )
+    result = _poll_args(env, "7", HEAD_SHA, "--skip", "macos (advisory)")
+
+    assert result.returncode == 0, result.stdout
+
+
+def test_a_skipped_red_does_not_withhold(env: dict[str, str]) -> None:
+    """The approval honors the same skips as the poll, so a check the repo
+    leaves out of the gate can't withhold an approval the poll calls green."""
+    _serve(
+        env,
+        _resp(
+            _check_run("tests"),
+            _check_run("macos (advisory)", conclusion="FAILURE"),
+        ),
+    )
+    result = _invoke(
+        poll_pr_checks,
+        env,
+        ["approval", "7", HEAD_SHA, "--skip", "macos (advisory)"],
+    )
+
+    assert result.returncode == 0, result.stdout
 
 
 def test_filtering_to_empty_never_reads_green(env: dict[str, str]) -> None:
@@ -604,11 +654,15 @@ def test_filtering_to_empty_never_reads_green(env: dict[str, str]) -> None:
 
 
 def test_pending_status_context_gates(env: dict[str, str]) -> None:
-    _serve(env, _resp(_check_run("tests"), _status_ctx("codecov/patch", "PENDING")))
+    _serve(
+        env,
+        _resp(_check_run("tests"), _status_ctx("codecov/patch", "PENDING")),
+        _resp(_check_run("tests"), _status_ctx("codecov/patch", "FAILURE")),
+    )
 
     result = _poll(env)
 
-    assert result.returncode == 3
+    assert result.returncode == 1
     assert "codecov/patch" in result.stdout
 
 
@@ -667,8 +721,8 @@ def test_paginates_past_the_first_page(env: dict[str, str]) -> None:
 
 def test_truncated_pagination_never_reads_green(env: dict[str, str]) -> None:
     """`hasNextPage` with no cursor to follow leaves the rollup incomplete —
-    refetching page one would loop forever, and trusting it could hide a
-    failure on a page never read."""
+    `gh` stops there, and trusting the pages it read could hide a failure on
+    one it never did."""
     _serve(env, _resp(_check_run("tests"), has_next=True, end_cursor=None))
 
     result = _poll(env)
@@ -677,16 +731,86 @@ def test_truncated_pagination_never_reads_green(env: dict[str, str]) -> None:
     assert "UNVERIFIED, not green" in result.stdout
 
 
-def test_cap_report_survives_a_late_api_blip(env: dict[str, str]) -> None:
-    """A transient failure on a later iteration must not discard what earlier
-    polls saw: the cap report still names the pending checks instead of
-    misdiagnosing 'no rollup'."""
-    _serve(env, _resp(_check_run("slow-matrix", status="IN_PROGRESS")), NULL_ROLLUP)
+def test_a_late_api_blip_does_not_end_the_wait(env: dict[str, str]) -> None:
+    """A read that fails after a complete one is a blip, not a commit with no
+    checks: the wait goes on to the checks' result."""
+    _serve(
+        env,
+        _resp(_check_run("slow-matrix", status="IN_PROGRESS")),
+        NULL_ROLLUP,
+        _resp(_check_run("slow-matrix")),
+    )
 
     result = _poll(env)
 
-    assert result.returncode == 3
-    assert "slow-matrix" in result.stdout
+    assert result.returncode == 0, result.stdout
+
+
+def test_a_check_that_never_finishes_holds_the_wait(env: dict[str, str]) -> None:
+    """The wait has no time bound — a slow suite is waited out however long it
+    runs, so a check that never finishes is ended by the session's timeout."""
+    _serve(env, _resp(_check_run("slow-matrix", status="IN_PROGRESS")))
+
+    with pytest.raises(WaitNeverEnded):
+        _poll(env)
+
+
+def test_a_job_awaiting_environment_approval_is_unverified(
+    env: dict[str, str],
+) -> None:
+    """A deployment job parked on an environment's required reviewers never
+    moves without a person, so the poll reports it rather than waiting."""
+    _serve(env, _resp(_check_run("tests"), _check_run("deploy", status="WAITING")))
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "UNVERIFIED, not green" in result.stdout
+    assert "deploy" in result.stdout
+
+
+def test_approval_names_a_job_awaiting_approval_beside_a_red(
+    env: dict[str, str],
+) -> None:
+    """A red beside a waiting job doesn't wait for it: the red stands."""
+    _serve(env, _resp(OMNIBUS_RED, _check_run("deploy", status="WAITING")))
+
+    result = _approval(env)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "check-ok-to-merge" in result.stdout
+
+
+def test_a_waiting_rerun_is_not_read_as_its_earlier_success(
+    env: dict[str, str],
+) -> None:
+    """GitHub may report no startedAt for the waiting attempt; the earlier
+    green attempt of the same check must not stand in for it."""
+    _serve(
+        env,
+        _resp(
+            _check_run("deploy", run_id=100),
+            _check_run("deploy", status="WAITING", run_id=101, started=None),
+        ),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "runs/101/" in result.stdout
+
+
+def test_a_commit_with_no_checks_is_unverified(env: dict[str, str]) -> None:
+    """No check registered and none ever coming look the same, so a commit
+    that shows none for the registration margin reads as having none."""
+    _serve(env, NULL_ROLLUP)
+    slept: list[float] = []
+
+    result = _poll_args(env, "7", HEAD_SHA, sleep=slept.append)
+
+    assert result.returncode == 2, result.stdout
+    assert "no check registered" in result.stdout
+    assert sum(slept) == poll_pr_checks.REGISTRATION_SEC
 
 
 def test_waits_out_pending_then_reports_green(env: dict[str, str]) -> None:
@@ -701,25 +825,6 @@ def test_waits_out_pending_then_reports_green(env: dict[str, str]) -> None:
     assert result.returncode == 0
     # One poll saw pending, the settle needed the 30s grace re-check: 3 calls.
     assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "3"
-
-
-def test_a_flapping_rollup_stays_inside_the_sleep_budget(
-    env: dict[str, str],
-) -> None:
-    """A check appearing during confirmation consumes the same sleep budget.
-
-    Charging each pass its own confirmation slept 810 seconds instead of
-    staying within the 570-second bound on settle sleeps.
-    """
-    clean = _resp(_check_run("tests"))
-    pending = _resp(_check_run("tests"), _check_run("late", status="QUEUED"))
-    _serve(env, *([clean, pending] * 12))
-    slept: list[float] = []
-
-    result = _poll_args(env, "7", HEAD_SHA, sleep=slept.append)
-
-    assert result.returncode == 3, result.stdout + result.stderr
-    assert sum(slept) <= poll_pr_checks.MAX_SLEEP_SEC
 
 
 def test_abbreviated_sha_is_rejected_at_entry(env: dict[str, str]) -> None:
@@ -788,6 +893,24 @@ def test_moved_head_is_reported_not_absorbed(env: dict[str, str]) -> None:
     )
 
 
+def test_a_head_moved_while_checks_pend_ends_the_wait(env: dict[str, str]) -> None:
+    """The wait holds the session's concurrency group, and a review of the
+    new head queues behind it — so once the pinned commit can no longer be
+    merged or approved, waiting out its checks only delays that review."""
+    Path(env["HEAD_JSON"]).write_text(json.dumps({"headRefOid": "b" * 40}))
+    _serve(env, _resp(_check_run("tests", status="IN_PROGRESS")))
+
+    result = _poll(env)
+
+    assert result.returncode == 3, result.stdout
+    assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "1"
+    assert "tests" in result.stdout
+    assert result.stdout.splitlines()[-1] == (
+        f"verdict: still pending when the PR head moved — UNVERIFIED, not green "
+        f"on {HEAD_SHA} (exit 3)"
+    )
+
+
 def test_verdict_survives_a_piped_tail(env: dict[str, str]) -> None:
     """Sessions pipe the poll through `tail -N`, which keeps only the end of a
     long check list — so the last line has to carry the verdict on its own."""
@@ -824,6 +947,15 @@ def _attempts(env: dict[str, str], *values: int) -> None:
 
 def _jobs_list(env: dict[str, str], *jobs: tuple[int, str, int]) -> None:
     Path(env["JOBS_JSON"]).write_text(
+        json.dumps(
+            {"jobs": [{"id": i, "status": s, "run_attempt": a} for i, s, a in jobs]}
+        )
+    )
+
+
+def _jobs_second_page(env: dict[str, str], *jobs: tuple[int, str, int]) -> None:
+    """Serve *jobs* as the page after `JOBS_JSON`, reachable only via `--paginate`."""
+    Path(env["JOBS_JSON"] + ".2").write_text(
         json.dumps(
             {"jobs": [{"id": i, "status": s, "run_attempt": a} for i, s, a in jobs]}
         )
@@ -875,6 +1007,26 @@ def test_rerun_includes_jobs_that_finished_during_the_wait(
     assert "success\tlint" in result.stdout
 
 
+def test_rerun_reads_jobs_past_the_first_page(env: dict[str, str]) -> None:
+    """`filter=latest` lists every job in the run, not just the re-run ones,
+    and the endpoint returns 30 per page by default. On a wide matrix a re-run
+    job past the first page would drop out of the report while the script
+    still exits 0 on the rest."""
+    _attempts(env, 1, 2)
+    _jobs_list(env, (11, "completed", 1), (12, "queued", 2))
+    _jobs_second_page(env, (13, "queued", 2))
+    _job(env, 12, "completed", "success", "lint")
+    _job(env, 13, "completed", "failure", "tests (ubuntu, 3.13)")
+
+    result = _rerun(env)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "success\tlint" in result.stdout
+    assert "failure\ttests (ubuntu, 3.13)" in result.stdout
+    calls = Path(env["GH_CALLS"]).read_text()
+    assert "per_page=100" in calls
+
+
 def test_rerun_fails_when_no_attempt_surfaces(env: dict[str, str]) -> None:
     """If `run_attempt` never advances, the rerun did not take; polling the
     old attempt's jobs would report stale conclusions as fresh."""
@@ -886,12 +1038,35 @@ def test_rerun_fails_when_no_attempt_surfaces(env: dict[str, str]) -> None:
     assert "did not take" in result.stdout
 
 
-def test_rerun_cap_reports_unverified(env: dict[str, str]) -> None:
+def test_rerun_waits_out_jobs_still_running(env: dict[str, str]) -> None:
+    """No time bound: a re-run job that outlasts any fixed wait still reports."""
     _attempts(env, 1, 2)
     _jobs_list(env, (11, "queued", 2))
     _job(env, 11, "in_progress", "", "tests")
+    polls: list[float] = []
 
-    result = _rerun(env)
+    def sleep(seconds: float) -> None:
+        if seconds == 60:
+            polls.append(seconds)
+            if len(polls) == 45:
+                _job(env, 11, "completed", "failure", "tests")
 
-    assert result.returncode == 3
-    assert "UNVERIFIED" in result.stdout
+    result = _invoke(rerun_failed_jobs, env, ["9000"], sleep=sleep)
+
+    assert result.returncode == 0, result.stdout
+    assert "failure\ttests" in result.stdout
+
+
+def test_skills_leave_the_wait_to_the_scripts() -> None:
+    """A command timeout a skill names cuts the wait short, and under Claude
+    the harness then moves the command to the background, where a headless run
+    doesn't reliably act on its result — the merge or dismissal it gated never
+    happens. The scripts end their own waits."""
+    skills = REPO_ROOT / "plugins" / "tend-ci-runner" / "skills"
+    named = [
+        f"{path.relative_to(skills)}: {match}"
+        for path in skills.rglob("*.md")
+        for match in re.findall(r"`timeout: \d+`", path.read_text())
+    ]
+
+    assert named == []

@@ -22,7 +22,7 @@ set_inputs() {
   export TEND_ANTHROPIC_OAUTH_TOKEN=dummy
   export ACTION_PATH="$TEND_TEST_ACTION_PATH"
   export TEND_UV_DIR="$RUNNER_TEMP/tend-uv"
-  export UV_CACHE_DIR="$RUNNER_TEMP/tend-mitmproxy-uv"
+  export UV_CACHE_DIR="$RUNNER_TEMP/tend-proxy-uv"
 }
 
 plant() {
@@ -50,6 +50,8 @@ plant() {
   cp -a "$GITHUB_WORKSPACE/claude" "$GITHUB_WORKSPACE/codex" \
     "$GITHUB_WORKSPACE/proxy" \
     "$GITHUB_WORKSPACE/shared" \
+    "$GITHUB_WORKSPACE/pyproject.toml" \
+    "$GITHUB_WORKSPACE/uv.lock" \
     "$TEND_TEST_ACTION_PATH/"
 
   mkdir -p "$bin" "$seeded"
@@ -93,10 +95,7 @@ host_checksum() {
 setup() {
   local action_run agent_path hostile_python hostile_site
   set_inputs
-  MITMPROXY_VERSION=$(yq -e '.inputs.mitmproxy_version.default' claude/action.yaml)
-  export MITMPROXY_VERSION
-  UV_VERSION=$(yq -e '.inputs.uv_version.default' claude/action.yaml) \
-    UV_INSTALL_DIR="$TEND_UV_DIR" bash shared/steps/install-uv.sh
+  UV_INSTALL_DIR="$TEND_UV_DIR" bash shared/steps/install-uv.sh
   # The setup step receives both real credentials. Repository-controlled
   # Python and uv environment variables must not execute code before the
   # runner-owned script has established the sandbox boundary.
@@ -143,8 +142,6 @@ install_agent_uv() {
     echo "::error::private action fixture is readable by the sandbox user"
     exit 1
   fi
-  UV_VERSION=$(yq -e '.inputs.uv_version.default' claude/action.yaml)
-  export UV_VERSION
   for harness in claude codex; do
     action_run=$(yq -er '.runs.steps[] | select(.name == "Install agent uv fallback (sandbox)") | .run' "$harness/action.yaml")
     action_run=${action_run//'${{ github.action_path }}'/"$private_action/$harness"}
@@ -171,7 +168,6 @@ verify() {
 verify_refusals() {
   local empty_rc
   set_inputs
-  export MITMPROXY_VERSION=0
   GITHUB_WORKSPACE='' "$TEND_UV_DIR/uv" run --script proxy/setup_sandbox.py \
     >"$RUNNER_TEMP/empty-workspace.log" 2>&1 && empty_rc=0 || empty_rc=$?
   test "${empty_rc:-0}" -ne 0

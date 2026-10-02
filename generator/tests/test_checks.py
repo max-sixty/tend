@@ -111,6 +111,36 @@ def _secret_names(*names: str) -> str:
     return "".join(f"{n}\n" for n in names)
 
 
+def _environment_listing(*environments: str | dict) -> str:
+    """An environment listing as `--jq '.environments[]'` prints it: one full
+    environment object per line. A bare string is an environment of that name
+    with nothing else set."""
+    return "".join(
+        json.dumps({"name": env} if isinstance(env, str) else env) + "\n"
+        for env in environments
+    )
+
+
+def _ruleset_listing(*rulesets: tuple) -> str:
+    """A ruleset listing as `--jq '.[]'` prints it: one summary per line, from
+    `(id, name)` or `(id, name, target)`, each an active repository ruleset
+    (target `branch` unless given)."""
+    return "".join(
+        json.dumps(
+            {
+                "id": ruleset[0],
+                "name": ruleset[1],
+                "target": ruleset[2] if len(ruleset) > 2 else "branch",
+                "enforcement": "active",
+                "source_type": "Repository",
+                "source": "owner/repo",
+            }
+        )
+        + "\n"
+        for ruleset in rulesets
+    )
+
+
 def _write_config(tmp_path: Path, content: str = "bot_name: test-bot") -> Path:
     cfg = tmp_path / ".config" / "tend.yaml"
     cfg.parent.mkdir(parents=True, exist_ok=True)
@@ -450,7 +480,7 @@ FAKE_GH_PROTECTION = (
     + r"""
 case "$*" in
   *"rules/branches/main"*)
-    emit '[[{"type":"creation","ruleset_id":1},{"type":"update","ruleset_id":1},{"type":"deletion","ruleset_id":1}]]'
+    emit '[{"type":"creation","ruleset_id":1},{"type":"update","ruleset_id":1},{"type":"deletion","ruleset_id":1}]'
     ;;
   *"rulesets/1"*)
     emit '{"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"exempt"}]}'
@@ -1734,7 +1764,7 @@ def test_fix_branch_protection_splits_rulesets_and_enables_yolo_last() -> None:
     def fake_gh(*args, input=None, **kwargs):
         url = _url(args)
         if url == "repos/owner/repo/rulesets" and "--paginate" in args:
-            return _make_completed("1\tMerge access\n")
+            return _make_completed(_ruleset_listing((1, "Merge access")))
         if url == "repos/owner/repo/rulesets/1" and input is None:
             return _make_completed(_restrict_updates_ruleset(["release"]))
         if url == "users/my-bot":
@@ -1795,7 +1825,7 @@ def test_fix_branch_protection_refuses_retiring_refs_before_any_write(
             writes.append(args)
             return _make_completed("{}")
         if "--paginate" in args:
-            return _make_completed(f"1\t{ruleset_name}\n")
+            return _make_completed(_ruleset_listing((1, ruleset_name)))
         if old_include is None:
             return _make_completed(returncode=1, stderr="HTTP 403")
         body = json.loads(_restrict_updates_ruleset([]))
@@ -1841,9 +1871,11 @@ def test_fix_branch_protection_reconciles_yolo_back_to_restricted() -> None:
             return _make_completed(json.dumps([rules]))
         if url == "repos/owner/repo/rulesets" and "--paginate" in args:
             return _make_completed(
-                "".join(
-                    f"{ruleset_id}\t{body['name']}\n"
-                    for ruleset_id, body in rulesets.items()
+                _ruleset_listing(
+                    *(
+                        (ruleset_id, body["name"], body["target"])
+                        for ruleset_id, body in rulesets.items()
+                    )
                 )
             )
         if url.startswith("repos/owner/repo/rulesets/"):
@@ -1879,8 +1911,12 @@ def test_fix_branch_protection_reconciles_yolo_back_to_restricted() -> None:
 @pytest.mark.parametrize(
     ("listed", "path", "method"),
     [
-        ("", "repos/owner/repo/rulesets", "POST"),
-        ("41\tMerge access\n", "repos/owner/repo/rulesets/41", "PUT"),
+        (_ruleset_listing(), "repos/owner/repo/rulesets", "POST"),
+        (
+            _ruleset_listing((41, "Merge access")),
+            "repos/owner/repo/rulesets/41",
+            "PUT",
+        ),
     ],
     ids=["absent", "present"],
 )
@@ -1937,7 +1973,7 @@ def test_fix_branch_protection_restricted_preserves_existing_targets() -> None:
 
     def fake(*args, **kwargs):
         if "--paginate" in args:
-            return _make_completed("41\tMerge access\n")
+            return _make_completed(_ruleset_listing((41, "Merge access")))
         if "--method" in args:
             writes.append(json.loads(kwargs["input"]))
             return _make_completed()
@@ -1976,7 +2012,7 @@ def test_fix_branch_protection_restricted_preserves_existing_targets() -> None:
 def test_fix_branch_protection_cannot_inspect_existing_targets(include) -> None:
     def fake(*args, **kwargs):
         if "--paginate" in args:
-            return _make_completed("41\tMerge access\n")
+            return _make_completed(_ruleset_listing((41, "Merge access")))
         assert "--method" not in args, "Must not change any ruleset"
         if include is None:
             return _make_completed("", returncode=1, stderr="HTTP 403")
@@ -2012,7 +2048,7 @@ def _gh_all_pass(
             environments = [TEND_ENVIRONMENT]
             if refresh_secrets is not None:
                 environments.append(CODEX_REFRESH_ENVIRONMENT)
-            return _make_completed("\n".join(environments) + "\n")
+            return _make_completed(_environment_listing(*environments))
         if url.endswith("/secrets") and "/environments/" in url:
             names = (
                 list(
@@ -2029,7 +2065,7 @@ def _gh_all_pass(
         if url.endswith("/immutable-releases"):
             return _make_completed('{"enabled": true, "enforced_by_owner": false}\n')
         if url.endswith("/rulesets"):
-            return _make_completed("7\n")
+            return _make_completed(_ruleset_listing((7, "Tag operations", "tag")))
         if url.endswith("/rulesets/7"):
             return _make_completed(
                 json.dumps(
@@ -2125,13 +2161,13 @@ def _yolo_main_deploy_gh(main_bypass: str):
     def fake_gh(*args, **kwargs):
         url = _url(args)
         if url.endswith("/environments"):
-            return _make_completed("tend\ndeploy\n")
+            return _make_completed(
+                _environment_listing("tend", {"name": "deploy", **_CUSTOM_POLICY})
+            )
         if url.endswith("/environments/deploy/secrets"):
             return _make_completed("DEPLOY_TOKEN\n")
         if url.endswith("/environments/deploy/deployment-branch-policies"):
             return _make_completed('{"type": "branch", "name": "main"}\n')
-        if url.endswith("/environments/deploy"):
-            return _make_completed(json.dumps(_CUSTOM_POLICY))
         if url == "graphql" and any("entries { name mode }" in arg for arg in args):
             return _make_completed(
                 json.dumps(
@@ -2420,7 +2456,7 @@ def test_codex_engine_passes_with_openai_key() -> None:
         if "collaborators" in url:
             return _make_completed("write\n")
         if url.endswith("/environments"):
-            return _make_completed("tend\n")
+            return _make_completed(_environment_listing("tend"))
         if "secrets" in url:
             return _make_completed(_secret_names(BOT_TOKEN_SECRET, OPENAI_KEY_SECRET))
         return _make_completed(returncode=1)
@@ -2556,7 +2592,7 @@ def test_codex_engine_fails_when_no_auth() -> None:
         if "collaborators" in url:
             return _make_completed("write\n")
         if url.endswith("/environments"):
-            return _make_completed("tend\n")
+            return _make_completed(_environment_listing("tend"))
         if "secrets" in url:
             return _make_completed(_secret_names(BOT_TOKEN_SECRET))
         return _make_completed(returncode=1)
@@ -3381,8 +3417,8 @@ def _credential_env_gh(
     login: str | None = None,
 ):
     """A `_gh` fake serving the calls `check_credential_environments` makes: the
-    environment list; per environment its secret names, detail, and
-    deployment-branch-policy lines (`"<type> <name>"` per line); the tag
+    environment list, carrying each environment's detail; per environment its
+    secret names and deployment-branch-policy lines (`"<type> <name>"` per line); the tag
     rulesets (id → detail) the tag gate reads when a policy admits tags; the
     workflow tree the OIDC and trigger reads parse; and `user`, answering
     `login` (or returncode=1 if None)."""
@@ -3397,13 +3433,24 @@ def _credential_env_gh(
         if url == "user":
             return _login_response(login)
         if url.endswith("/environments"):
-            return _make_completed("\n".join(environments) + "\n")
+            return _make_completed(
+                _environment_listing(
+                    *(
+                        {"name": env_name, **detail}
+                        for env_name, (_, detail, _) in environments.items()
+                    )
+                )
+            )
         if url.endswith("/rulesets"):
-            return _make_completed("\n".join(tag_rulesets) + "\n")
+            return _make_completed(
+                _ruleset_listing(
+                    *((ruleset_id, "Tags", "tag") for ruleset_id in tag_rulesets)
+                )
+            )
         for ruleset_id, detail in tag_rulesets.items():
             if url.endswith(f"/rulesets/{ruleset_id}"):
                 return _make_completed(json.dumps(detail))
-        for env_name, (secrets, detail, policies) in environments.items():
+        for env_name, (secrets, _, policies) in environments.items():
             # Matched percent-encoded, as GitHub answers: a name is one path
             # segment, so a caller that interpolates it raw addresses another
             # environment (or none) once the name holds a `/`.
@@ -3417,8 +3464,6 @@ def _credential_env_gh(
                 return _make_completed("\n".join(json.dumps(e) for e in entries) + "\n")
             if url.endswith(f"/environments/{seg}/secrets"):
                 return _make_completed("\n".join(secrets) + "\n")
-            if url.endswith(f"/environments/{seg}"):
-                return _make_completed(json.dumps(detail))
         return _make_completed(returncode=1)
 
     return fake
@@ -3819,7 +3864,7 @@ def test_credential_environments_unreadable_does_not_pass() -> None:
     def fake(*args, **kwargs) -> subprocess.CompletedProcess[str]:
         url = args[-3] if "--jq" in args else args[-1]
         if url.endswith("/environments"):
-            return _make_completed("tend-manual\n")
+            return _make_completed(_environment_listing("tend-manual"))
         return _make_completed(stderr="HTTP 403", returncode=1)
 
     with patch("tend.checks._gh", side_effect=fake):

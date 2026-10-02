@@ -16,7 +16,7 @@ rather than by saving compute. Prefer deleting a mechanism over refining it.
 ## Commands
 
 ```bash
-wt test                                # everything: uv run pytest, then worker/'s vitest
+wt test                                # Python, worker tests/typecheck, eval capture tests
 uv run pytest                          # the Python half alone, from the repo root
 uvx tend@latest init                   # regenerate workflows from .config/tend.yaml
 uvx tend@latest init --dry-run         # preview without writing
@@ -28,15 +28,16 @@ The repo root is a uv workspace, and pytest run from it collects every Python
 test — generator/, proxy/, shared/steps/, and the install-tend scripts — so
 one `pytest` is the whole Python run. `wt test` (defined in
 [`.config/wt.toml`](.config/wt.toml)) adds worker/'s vitest suite and
-typecheck. Its arguments narrow pytest and nothing else, so a filtered run
-still pays for worker/; `uv run pytest -k render`
+typecheck, plus the deterministic eval capture tests. It never runs
+models. Its arguments narrow pytest and nothing else, so a filtered run
+still pays for both Node suites; `uv run pytest -k render`
 is the Python half on its own.
 
 `pre-commit` is not on the CI sandbox's PATH, which is why the lint command
 above carries the `uv tool run` prefix; a narrower substitute (ruff alone,
-shellcheck alone) skips nine of the twelve hooks, including the two
-`repo: local` guards — the bang-backtick check and the install-tend mirror
-sync.
+shellcheck alone) skips most of the hooks, including the three
+`repo: local` guards — the bang-backtick check, the install-tend mirror sync,
+and the control-plane paths parity check.
 
 Inside a tend session the sandbox has no DNS, so the two tests in
 `generator/tests/test_refresh_consumers.py` fail: they drive the script
@@ -153,9 +154,11 @@ directly.
 The generator is a Python package under `generator/` — uses the uv_build
 backend, requires Python 3.11+. Runtime dependencies: click, jinja2,
 ruamel.yaml. It is the one member of the repo's uv workspace, so the lockfile
-and the dev dependencies (pytest, pytest-regtest, and the pinned mitmproxy the
-proxy addon imports) live in the root `pyproject.toml`, and the dev environment
-needs 3.12+ even though the package supports 3.11.
+and the dev dependencies (pytest, pytest-regtest) live in the root
+`pyproject.toml`, and the dev environment needs 3.12+ even though the package
+supports 3.11. The root's `proxy` group (mitmproxy) is not dev-only: the
+harness actions install the credential proxy from its locked closure in
+`uv.lock`, so a lock change there ships to consumers with the next release.
 
 Consumer repos regenerate their `tend-*.yaml` workflows nightly (tend itself
 included — it dogfoods its own workflows). Changes to the generator do not

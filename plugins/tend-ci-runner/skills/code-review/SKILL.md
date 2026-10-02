@@ -24,8 +24,8 @@ Work through the angles below. Each surfaces candidates with `file`, `line`, a o
 
 Scale the depth to the change, the same way the caller scales its own:
 
-- **Peripheral or mechanical** (docs, config, dependency bumps, test-only): angles A–C plus the cleanup and conventions angles, in one pass, in this context. Up to 4 candidates each.
-- **Core logic**: every angle, up to 6 candidates each. Cover every angle however this session works best — in sequence in this context, or one angle at a time in a context of its own — and don't skip one for lack of a way to run it separately.
+- **Peripheral or mechanical** (docs, config, dependency bumps, test-only): angles A–C plus the cleanup and conventions angles, in one pass, in this context.
+- **Core logic**: every angle. Cover every angle however this session works best — in sequence in this context, or one angle at a time in a context of its own — and don't skip one for lack of a way to run it separately.
 
 Don't let one angle's conclusions suppress another's: if two angles flag the same line for different reasons, record both. Pass every candidate with a nameable failure scenario through to Phase 2 — finders that silently drop half-believed candidates bypass the verify step and are the dominant cause of misses.
 
@@ -69,7 +69,7 @@ Check that each change is implemented at the right depth, not as a fragile banda
 
 Check the diff against the project instruction files read in Phase 0. Only flag a violation when you can quote the exact rule and the exact line that breaks it — no style preferences, no "spirit of the doc" inferences. Name the instruction file and quote the rule so the report can cite it. If no project instruction file applies, return nothing for this angle.
 
-Cleanup, altitude, and conventions candidates use the same `file`/`line`/`summary` shape; in `failure_scenario`, state the concrete cost (what is duplicated, wasted, harder to maintain, or which project rule is broken) instead of a crash. Correctness bugs always outrank cleanup, altitude, and conventions findings when the output cap forces a cut.
+Cleanup, altitude, and conventions candidates use the same `file`/`line`/`summary` shape; in `failure_scenario`, state the concrete cost (what is duplicated, wasted, harder to maintain, or which project rule is broken) instead of a crash. Correctness bugs always rank above cleanup, altitude, and conventions findings.
 
 ## Phase 2 — Dedup and verify
 
@@ -91,7 +91,7 @@ On a core-logic change, take one more pass as a fresh reviewer holding the verif
 
 ## Output
 
-Return the findings to the caller as a list of at most 10 (at most 4 for a peripheral change), ranked most-severe first, each with `file`, `line`, `summary`, `failure_scenario`, and its verdict. If nothing survives verification, say so in one line. Don't publish the findings through a separate reporting mechanism or artifact — the caller owns the output.
+Return every finding the author would change the code for, ranked most-severe first, each with `file`, `line`, `summary`, `failure_scenario`, and its verdict. The bar is severity, not a count: a long list is right when each item clears it, and a finding whose cost is only taste doesn't clear it however short the list. If nothing survives verification, say so in one line. Don't publish the findings through a separate reporting mechanism or artifact — the caller owns the output.
 
 Tell the caller how the pass ran — every angle covered and every candidate verified, or less than that — so it can weigh the findings. That is context for the caller, not content for the review it posts.
 

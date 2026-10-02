@@ -242,7 +242,8 @@ workflow, tend-mention-relay, whose one secretless job (only the
 workflow-scoped `GITHUB_TOKEN`, `contents: write`, which is what the
 dispatch POST requires — `read` is refused 403, probed) receives the
 review event and re-posts it as a `repository_dispatch` carrying
-identifiers only (`{kind, pr, id}`). The dispatch run, in tend-mention,
+identifiers (`{kind, pr, id}`), plus the PR title that only names the run.
+The dispatch run, in tend-mention,
 carries the default branch, passes the gate, and its verify job re-reads
 the review or comment from the API before applying the engagement
 checks. Any write-scoped actor can forge such a dispatch, which
@@ -463,6 +464,13 @@ session cannot change the action code every consumer already runs. Consumers
 extend trust to `max-sixty/tend`'s release-tag integrity the same way they
 trust any third-party action's publisher; pinning to `X.Y.Z` (or a commit
 SHA) bounds that trust to a reviewed, immutable point.
+
+Tend holds its own dependencies to the same standard. Every third-party action
+the composite actions and generated workflows call is pinned by commit SHA,
+and the uv that launches the credential proxy is checked against a sha256
+committed in `shared/steps/install-uv.sh`. A publisher that moves a tag or
+replaces a release asset changes nothing a consumer runs until a Tend release
+takes the new pin.
 
 **Config pinning.** Before the agent starts, both harnesses restore every
 `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md`, `.claude/`,

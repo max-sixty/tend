@@ -1,9 +1,8 @@
 """Repo-wide invariants that no single suite owns.
 
 Mostly pins: a version named in two places drifts silently unless something
-asserts the pair (`test_pinned_mitmproxy_matches_the_action` in proxy/ is the
-sibling of that idea). The rest are lints over a whole tree — a shape that
-holds for every file, not a phrase pinned in one.
+asserts the pair. The rest are lints over a whole tree — a shape that holds for
+every file, not a phrase pinned in one.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ from packaging.version import Version
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 from tend.config import KNOWN_HARNESSES, Config
-from tend.workflows import UV_VERSION
+from tend.workflows import UV_SHA256, UV_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -321,14 +320,7 @@ def test_uv_build_range_admits_the_pinned_uv() -> None:
     ]
     assert len(backends) == 1, f"expected one uv_build requirement, got: {requires}"
 
-    uv_versions = [
-        YAML(typ="safe", pure=True).load(
-            (REPO_ROOT / harness / "action.yaml").read_text()
-        )["inputs"]["uv_version"]["default"]
-        for harness in ("claude", "codex")
-    ]
-    assert uv_versions[0] == uv_versions[1], f"harness uv pins differ: {uv_versions}"
-    uv_version = uv_versions[0]
+    uv_version, _ = _install_uv_pins()
 
     assert Version(uv_version) in backends[0].specifier, (
         f"build-system.requires pins `{backends[0]}`, which does not contain the "
@@ -337,12 +329,87 @@ def test_uv_build_range_admits_the_pinned_uv() -> None:
     )
 
 
-def test_generated_workflow_uv_uses_the_action_pin() -> None:
-    action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / "claude" / "action.yaml").read_text()
-    )
+def _install_uv_pins() -> tuple[str, dict[str, str]]:
+    """The uv version and per-`runner.arch` archive sha256s install-uv.sh pins."""
+    script = (REPO_ROOT / "shared" / "steps" / "install-uv.sh").read_text()
+    (version,) = re.findall(r"^UV_VERSION=(\S+)$", script, re.MULTILINE)
+    arches = {"x86_64": "X64", "aarch64": "ARM64"}
+    sha256 = {
+        arches[machine]: digest
+        for machine, digest in re.findall(
+            r"^  (\w+)\)\n    target=\S+\n    sha256=([0-9a-f]{64})$",
+            script,
+            re.MULTILINE,
+        )
+    }
+    assert set(sha256) == set(arches.values()), f"install-uv.sh arms: {sha256}"
+    return version, sha256
 
-    assert UV_VERSION == action["inputs"]["uv_version"]["default"]
+
+def test_generated_workflow_uv_uses_the_action_pin() -> None:
+    assert (UV_VERSION, UV_SHA256) == _install_uv_pins()
+
+
+# A `uses:` line outside a comment. Tests carry arbitrary refs as fixture data,
+# and the generated tend-*.yaml come from the latest release rather than this
+# tree, so neither is scanned.
+USES_LINE = re.compile(r"^\s*(?:- )?uses: *(\S+)(.*)$", re.MULTILINE)
+PINNED_REF = re.compile(r"(?P<action>[^@]+)@(?P<sha>[0-9a-f]{40})")
+VERSION_COMMENT = re.compile(r" # (v\d+\.\d+\.\d+)")
+
+
+def test_third_party_actions_are_pinned_by_sha() -> None:
+    """A tag, even an exact one, is a pointer its publisher can move.
+
+    The `# vX.Y.Z` comment is what the weekly sweep compares against the latest
+    release, and one pin per action keeps each bump to a single value.
+    """
+    files = subprocess.run(
+        ["git", "ls-files", "*.yaml", "*.yml", "*.j2", "*.py"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    pins: dict[str, set[tuple[str, str]]] = {}
+    bad = []
+    for name in files:
+        path = Path(name)
+        if (
+            "tests" in path.parts
+            or path.name.startswith("test_")
+            or (
+                path.parent == Path(".github/workflows")
+                and path.name.startswith("tend-")
+            )
+        ):
+            continue
+        for ref, rest in USES_LINE.findall((REPO_ROOT / path).read_text()):
+            if ref.startswith(("./", "max-sixty/tend/", "docker://")):
+                continue
+            pinned = PINNED_REF.fullmatch(ref)
+            comment = VERSION_COMMENT.fullmatch(rest)
+            if not (pinned and comment):
+                bad.append(f"{name}: {ref}{rest}")
+                continue
+            pins.setdefault(pinned["action"], set()).add((pinned["sha"], comment[1]))
+    assert not bad, f"expected `owner/repo@<40-hex sha> # vX.Y.Z`: {bad}"
+    assert pins, "no third-party `uses:` refs found"
+    split = {action: refs for action, refs in pins.items() if len(refs) > 1}
+    assert not split, f"actions pinned at more than one ref: {split}"
+
+
+def test_pre_commit_hooks_are_pinned_by_sha() -> None:
+    """Hook repos are tags too; `pre-commit autoupdate --freeze` keeps them SHAs."""
+    config = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / ".pre-commit-config.yaml").read_text()
+    )
+    unpinned = [
+        f"{repo['repo']}@{repo['rev']}"
+        for repo in config["repos"]
+        if repo["repo"] != "local" and not re.fullmatch(r"[0-9a-f]{40}", repo["rev"])
+    ]
+    assert not unpinned, f"expected `rev: <sha>  # frozen: <tag>`: {unpinned}"
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
@@ -465,8 +532,7 @@ def test_action_path_references_resolve(action: str) -> None:
 # another skill's text does the citing (``/tend-ci-runner:review`'s
 # `references/approving.md``).
 SKILL_REFERENCE = re.compile(
-    r"(?:`/[a-z-]+:(?P<skill>[a-z-]+)`'s\s+)?`?"
-    r"references/(?P<file>[\w.-]+\.\w+)`?"
+    r"(?:`/[a-z-]+:(?P<skill>[a-z-]+)`'s\s+)?`?" r"references/(?P<file>[\w.-]+\.\w+)`?"
 )
 # A bare filename inside a `references/` directory. Its own neighbour is still
 # cited `references/<file>`, so that one citation form reads the same wherever
@@ -745,8 +811,16 @@ def test_plugin_skill_citations_resolve() -> None:
     }
     cited, broken = 0, []
 
-    for path in sorted(REPO_ROOT.rglob("*.md")):
-        if ".git" in path.parts or path.name == "CHANGELOG.md":
+    paths = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "*.md"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.split("\0")
+    for filename in sorted(set(paths) - {""}):
+        path = REPO_ROOT / filename
+        if path.name == "CHANGELOG.md" or not path.is_file():
             continue
         for match in PLUGIN_SKILL.finditer(path.read_text()):
             cited += 1
@@ -757,13 +831,11 @@ def test_plugin_skill_citations_resolve() -> None:
     assert not broken, "skills cited but absent:\n" + "\n".join(broken)
 
 
-# What Codex 0.155.0 leaves each description, measured against the installed
-# plugin at SKILLS_MEASURED_AT skills: the listing shares one budget across them,
-# so a longer description is cut mid-sentence and every session reads a trigger
-# that stops partway. The share falls as skills are added, and several
-# descriptions sit within a few characters of the ceiling, so the count is pinned
-# below — adding a skill means re-measuring, not raising it. The count spans both
-# plugins, because the install carries both and they share the one budget.
+# A conservative description cap for crowded Codex skill listings. Re-measured
+# with Codex 0.160.0 and both plugins at SKILLS_MEASURED_AT: every description
+# appeared intact, including an 839-character probe. Keep the shorter cap for
+# consumer installations that also carry other skills. The count spans both
+# plugins; adding a skill still calls for checking the installed listing.
 #
 # To re-measure, install both plugins from this checkout into a throwaway Codex
 # home and run any prompt:
@@ -788,7 +860,7 @@ def test_plugin_skill_citations_resolve() -> None:
 # left out of the listing entirely, which is the budget exhausted rather than
 # shared thin.
 DESCRIPTION_BUDGET = 130
-SKILLS_MEASURED_AT = 24
+SKILLS_MEASURED_AT = 26
 
 
 def test_skill_frontmatter_is_loadable() -> None:
@@ -806,7 +878,7 @@ def test_skill_frontmatter_is_loadable() -> None:
     assert len(installed) == SKILLS_MEASURED_AT, (
         f"{len(installed)} skills across both plugins, not the "
         f"{SKILLS_MEASURED_AT} the budget was measured at — re-measure the "
-        "share against the install, and move DESCRIPTION_BUDGET with the count"
+        "installed listing before updating the count and description cap"
     )
 
     for path in installed:
@@ -834,7 +906,7 @@ def test_skill_frontmatter_is_loadable() -> None:
         elif len(description) > DESCRIPTION_BUDGET:
             broken.append(
                 f"{name}: description is {len(description)} chars, over the "
-                f"{DESCRIPTION_BUDGET} the listing shows"
+                f"{DESCRIPTION_BUDGET} character cap"
             )
 
     assert not broken, "unloadable skill frontmatter:\n" + "\n".join(broken)
@@ -845,10 +917,11 @@ def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
 
     `/<plugin>:<name>` resolves in that bundled plugin and `/<name>` in this
     repo's own `.claude/skills/` — which is how the hand-maintained
-    `review-reviewers.yaml` reaches tend's overlay copy. Codex uses `$<name>`
-    for either a bundled or a repo-local skill.
-    `tend-mention` is the one agent-invoking workflow whose prompt opens with an
-    expression instead, because it names no skill at all (TODO.md).
+    `review-reviewers.yaml` reaches tend's overlay copy. Under `harness: codex`
+    the generator writes the same invocation as `$<name>` (`default_prompt`).
+    Committed workflows track the published release. Its mention prompt can
+    still open with an expression; generation's harness-parametrized mention
+    test checks that the new prompt names its workflow skill.
     """
     yaml = YAML(typ="safe", pure=True)
     checked = []
@@ -864,25 +937,22 @@ def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
                 if first.startswith("${{"):
                     continue
                 if first.startswith("$"):
-                    skill = first[1:]
-                    targets = [
-                        REPO_ROOT / ".claude" / "skills" / skill,
-                        REPO_ROOT / "plugins" / "tend-ci-runner" / "skills" / skill,
-                    ]
+                    # Codex mentions a bundled skill as `$NAME` (`default_prompt`).
+                    plugin, skill = "tend-ci-runner", first.lstrip("$")
                 else:
                     assert first.startswith("/"), (
                         f"{path.name}'s prompt opens with `{first}`, neither a "
                         "slash command nor a Codex skill mention"
                     )
                     plugin, _, skill = first.lstrip("/").rpartition(":")
-                    targets = [
-                        REPO_ROOT / "plugins" / plugin / "skills" / skill
-                        if plugin
-                        else REPO_ROOT / ".claude" / "skills" / skill
-                    ]
-                assert any((target / "SKILL.md").is_file() for target in targets), (
+                target = (
+                    REPO_ROOT / "plugins" / plugin / "skills" / skill
+                    if plugin
+                    else REPO_ROOT / ".claude" / "skills" / skill
+                )
+                assert (target / "SKILL.md").is_file(), (
                     f"{path.name} invokes `{first}`, which is not a skill at "
-                    f"{', '.join(str(target.relative_to(REPO_ROOT)) for target in targets)}"
+                    f"{target.relative_to(REPO_ROOT)}"
                 )
                 checked.append(skill)
 

@@ -882,7 +882,9 @@ def test_review_delegates_pr_topology_to_the_sandbox(tmp_path: Path) -> None:
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
     steps = data["jobs"]["review"]["steps"]
-    assert sum(s.get("uses") == "actions/checkout@v7" for s in steps) == 1
+    assert (
+        sum(str(s.get("uses", "")).startswith("actions/checkout@") for s in steps) == 1
+    )
     assert all(s.get("id") != "pr_ref" for s in steps)
     agent = next(
         s for s in steps if str(s.get("uses", "")).startswith("max-sixty/tend/")
@@ -899,7 +901,9 @@ def test_setup_runs_on_stable_base_tree_in_review(tmp_path: Path) -> None:
     steps = data["jobs"]["review"]["steps"]
 
     base_idx = next(
-        i for i, s in enumerate(steps) if s.get("uses") == "actions/checkout@v7"
+        i
+        for i, s in enumerate(steps)
+        if str(s.get("uses", "")).startswith("actions/checkout@")
     )
     setup_idx = next(
         i for i, s in enumerate(steps) if s.get("uses") == "./.github/actions/my-setup"
@@ -911,7 +915,9 @@ def test_setup_runs_on_stable_base_tree_in_review(tmp_path: Path) -> None:
     )
 
     assert base_idx < setup_idx < agent_idx
-    assert sum(s.get("uses") == "actions/checkout@v7" for s in steps) == 1
+    assert (
+        sum(str(s.get("uses", "")).startswith("actions/checkout@") for s in steps) == 1
+    )
     assert "ref" not in steps[base_idx].get("with", {}), (
         "the pre-setup checkout must take the event's base ref, not a fork ref"
     )
@@ -924,7 +930,9 @@ def test_review_without_setup_checks_out_once(tmp_path: Path) -> None:
     data = yaml.safe_load(workflows["tend-review.yaml"].content)
     steps = data["jobs"]["review"]["steps"]
 
-    checkouts = [s for s in steps if s.get("uses") == "actions/checkout@v7"]
+    checkouts = [
+        s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")
+    ]
     assert len(checkouts) == 1
     assert "ref" not in checkouts[0]["with"]
     assert "clean" not in checkouts[0]["with"]
@@ -1048,6 +1056,11 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     relay_wf = yaml.safe_load(workflows["tend-mention-relay.yaml"].content)
 
     assert set(relay_wf["on"]) == {"pull_request_review", "pull_request_review_comment"}
+    # A relayed run is named for its PR, as an issue or comment run is by
+    # default, so the notifications poll sees which subject it holds.
+    assert data["run-name"] == (
+        "${{ github.event.client_payload.title || github.event.issue.title }}"
+    )
     assert relay_wf["on"]["pull_request_review"] == {"types": ["submitted"]}
     assert set(relay_wf["jobs"]) == {"relay"}
     assert set(data["on"]) == {"issues", "issue_comment", "repository_dispatch"}
@@ -1065,14 +1078,19 @@ def test_mention_handles_pull_request_review(tmp_path: Path) -> None:
     # would leave every review mention unanswered. Pinned as the whole set,
     # so a scope added here has to be argued for.
     assert relay["permissions"] == {"contents": "write"}
-    # Identifiers only: verify re-reads the review from the API, so nothing
-    # judged downstream comes from the forgeable dispatch payload.
-    relay_run = relay["steps"][-1]["run"]
+    # Identifiers, and the PR title that only names the run: verify re-reads
+    # the review from the API, so nothing judged downstream comes from the
+    # forgeable dispatch payload.
+    relay_step = relay["steps"][-1]
+    relay_run = relay_step["run"]
     assert "client_payload[kind]" in relay_run
     assert "client_payload[pr]" in relay_run
     assert "client_payload[id]" in relay_run
     assert "client_payload[url]" not in relay_run
     assert "event_type=tend-mention-review" in relay_run
+    # The title reaches the shell through env, never interpolated into it.
+    assert relay_step["env"]["PR_TITLE"] == "${{ github.event.pull_request.title }}"
+    assert '"client_payload[title]=$PR_TITLE"' in relay_run
 
     # The harness selects the PR branch only inside its sandbox.
     handle_steps = data["jobs"]["handle"]["steps"]
@@ -1196,7 +1214,7 @@ def test_setup_before_pr_checkout_in_mention(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     mention = workflows["tend-mention.yaml"]
-    initial_checkout_idx = mention.content.index("actions/checkout@v7")
+    initial_checkout_idx = mention.content.index("actions/checkout@")
     setup_idx = mention.content.index("./.github/actions/my-setup")
     agent_idx = mention.content.index(f"max-sixty/tend/claude@{ACTION_VERSION}")
     assert initial_checkout_idx < setup_idx < agent_idx
@@ -1257,8 +1275,20 @@ def test_mention_prompt_omits_delay_when_empty(tmp_path: Path) -> None:
     prompt = tend_step["with"]["prompt"]
     # The delay text must be inside a format() conditional, not hardcoded
     assert "format(" in prompt, "delay preamble must use conditional format()"
-    # "Before acting" must always appear (it's the unconditional part)
-    assert "Before acting" in prompt
+    # Workflow behavior lives in the named skill, independent of delay metadata.
+    assert prompt.startswith("/tend-ci-runner:mention")
+
+
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_mention_invokes_its_workflow_skill(tmp_path: Path, harness: str) -> None:
+    """Event metadata must reach a named workflow, which owns task completion.
+
+    Inline instructions that treated a response as completion stranded partial
+    repairs. Both harnesses must load the workflow that interprets the event.
+    """
+    cfg = Config.load(_minimal_config(tmp_path, f"harness: {harness}\n"))
+    prompt = agent_prompt(generate_mention(cfg).content)
+    assert prompt.startswith(cfg.default_prompt("mention"))
 
 
 # ---------------------------------------------------------------------------
@@ -1441,14 +1471,14 @@ def test_fork_guard_rendered_shape_regtest(
 
 def test_tend_enabled_variable_guards_every_agent_job(tmp_path: Path) -> None:
     """Every job that can boot the agent checks the TEND_ENABLED variable
-    before a runner starts, itself or through a job it `needs`; the workflows
-    that run no agent carry none."""
+    before a runner starts, itself or through a job it `needs`, as does the
+    relay that only feeds one; the other workflows that run no agent carry
+    none."""
     cfg = Config.load(
         _minimal_config(tmp_path, _extra_for("ci-fix") + "harness: codex\n")
     )
     cfg.repo_owner = "test-owner"
     no_agent = {
-        "tend-mention-relay.yaml",
         "tend-codex-auth-refresh.yaml",
         "tend-install-test.yaml",
     }

@@ -48,7 +48,8 @@ uv run --script "$SCRIPTS/review_reviewers.py" prepare-evidence "$ARGUMENTS"
 ```
 
 The command finds or creates both index and gist, announces a new gist once,
-persists their ids, and prints both evidence windows.
+persists their ids, and prints both evidence windows and the gist's
+`gist_url`, which the PR bodies and summary below link.
 
 After applying the gates, write this run's findings in the format from
 `@review-gates.md` to `$TMPDIR/findings.md`. Append a `## Run
@@ -68,8 +69,8 @@ latest gist content, and appends without replacing prior evidence.
 Resolve the **target repo's** bot login and load its repo-specific instructions upfront — both are needed throughout. `gh api user` returns the *analysis* bot (e.g., `tend-agent` when review-reviewers runs on tend), which is typically **not** the target repo's bot — filtering reviews/comments by the wrong login produces false "no bot output" negatives. Read `bot_name` from the target repo's `.config/tend.yaml`:
 
 ```bash
-BOT_LOGIN=$(gh api "repos/$ARGUMENTS/contents/.config/tend.yaml" --jq '.content' 2>/dev/null \
-  | base64 -d 2>/dev/null \
+BOT_LOGIN=$(gh api "repos/$ARGUMENTS/contents/.config/tend.yaml" \
+  -H 'Accept: application/vnd.github.raw' 2>/dev/null \
   | yq '.bot_name // ""' 2>/dev/null)
 if [ -z "$BOT_LOGIN" ]; then
   echo "ERROR: could not resolve bot_name from $ARGUMENTS/.config/tend.yaml" >&2
@@ -82,7 +83,7 @@ Read the target repo's own instructions to understand what the bot was told to d
 
 ```bash
 gh api "repos/$ARGUMENTS/contents/.claude/skills/running-tend/SKILL.md" \
-  --jq '.content' | base64 -d
+  -H 'Accept: application/vnd.github.raw'
 ```
 
 If the file doesn't exist, try the legacy overlay paths and the repo's root project instructions (`.claude/skills/running-tend.md`, `.claude/CLAUDE.md`, `CLAUDE.md`, `AGENTS.md`). Understanding the repo's instructions is essential context for evaluating outcomes — without it, you'll misjudge authorized behavior as a violation.
@@ -112,7 +113,7 @@ TARGET_REPO=$ARGUMENTS uv run --script \
   "$SCRIPTS/list_recent_runs.py" review-reviewers
 ```
 
-The script discovers `tend-*` workflows by default. Pass additional prefixes as arguments to include other workflows (e.g., `review-reviewers` when analyzing tend itself).
+The script discovers `tend-*` workflows by default. Prefix arguments replace that default rather than adding to it, so a call that widens the set names `tend-` too.
 
 If empty, record the run as all-clear per **Evidence accumulation** above, then skip to Step 6 — all-clear only where the check above showed tend enabled.
 
@@ -173,16 +174,15 @@ Check outcomes across all runs from Step 1: map runs to PRs and issues, and chec
 > **How to map runs to outputs:**
 > - `tend-review`: `gh -R $ARGUMENTS run view <run-id> --json headBranch` → find PR via
 >   `gh -R $ARGUMENTS pr list --head <branch> --state all` → check bot reviews via
->   `gh api repos/$ARGUMENTS/pulls/<pr>/reviews`
+>   `gh -R $ARGUMENTS pr view <pr> --json reviews`
 > - `tend-notifications`: check for bot comments/issue-close events inside the window from Step 1
 > - `tend-mention`: map run to issue/PR from triggering comment, check for bot replies
 > - `tend-mention-relay`: no output of its own; the review event it re-posts is handled by the `tend-mention` `repository_dispatch` run below
 > - `tend-mention` on `repository_dispatch` (the relay path for review events): there is no triggering comment and `headBranch` is the default branch, so neither route above resolves it. Read the target off the `verify` job's log, where the step env block prints the relayed payload:
 >   ```bash
->   JOB=$(gh api "repos/$ARGUMENTS/actions/runs/<run-id>/jobs" --jq '.jobs[] | select(.name == "verify") | .id')
->   gh api "repos/$ARGUMENTS/actions/jobs/$JOB/logs" | grep -E 'PAYLOAD_(KIND|PR|ID):'
+>   gh -R $ARGUMENTS run view <run-id> --log | grep -E '^verify.*PAYLOAD_(KIND|PR|ID):'
 >   ```
->   `PAYLOAD_PR` is the issue/PR number and `PAYLOAD_KIND` is the relayed event (`pull_request_review`, `pull_request_review_comment`). Read the gate's verdict off the `handle` job, which is gated on `should_run`: `handle` with conclusion `skipped` means the engagement gate declined and no agent booted — expected silence, not missing output. Do not read it off `React to mention`, which is skipped on every relayed `pull_request_review` regardless of the verdict (a review submission has no single comment to react to) and on a comment relay admitted for participation rather than a mention.
+>   Each line carries a `verify<TAB><step><TAB><timestamp>` prefix; the value follows the key. `PAYLOAD_PR` is the issue/PR number and `PAYLOAD_KIND` is the relayed event (`pull_request_review`, `pull_request_review_comment`). Read the gate's verdict off the `handle` job, which is gated on `should_run`: `handle` with conclusion `skipped` means the engagement gate declined and no agent booted — expected silence, not missing output. Do not read it off `React to mention`, which is skipped on every relayed `pull_request_review` regardless of the verdict (a review submission has no single comment to react to) and on a comment relay admitted for participation rather than a mention.
 > - `tend-ci-fix`: map run → PR via `headBranch`, check for bot commits
 >
 > **Negative outcome signals** — report any sign the bot's output was rejected, corrected, or ignored. Common shapes (use judgment for signals not listed):
@@ -199,32 +199,24 @@ Check outcomes across all runs from Step 1: map runs to PRs and issues, and chec
 >
 > ```bash
 > mkdir -p "$TMPDIR/bot-output" && : > "$TMPDIR/bot-output/all.txt"
-> # Issue/PR comments (issue_comment endpoint)
-> for n in <pr-or-issue-numbers>; do
->   gh api "repos/$ARGUMENTS/issues/$n/comments?per_page=100" \
->     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== #$n issue-comment \(.id) ===\n\(.body)\n\"" \
+> MINE="select(.author.login == \"$BOT_LOGIN\" and (.createdAt // .submittedAt) > \"<window-start>\")"
+> # Issue bodies + conversation comments
+> for n in <issue-numbers>; do
+>   gh -R $ARGUMENTS issue view $n --json author,createdAt,body,comments --jq "
+>     ($MINE | \"=== ISSUE #$n body ===\n\(.body)\n\"),
+>     (.comments[] | $MINE | \"=== #$n comment \(.url) ===\n\(.body)\n\")" \
 >     >> "$TMPDIR/bot-output/all.txt"
 > done
-> # Issue bodies (when bot opened the issue this window)
-> for n in <bot-opened-issues>; do
->   gh api "repos/$ARGUMENTS/issues/$n" \
->     --jq "select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== ISSUE #$n body ===\n\(.body)\n\"" \
+> # PR bodies, conversation comments, reviews, inline review comments — every PR with bot
+> # output, not just bot-opened: tend-review's output ships on human-authored PRs, the most
+> # common surface.
+> for n in <pr-numbers>; do
+>   gh -R $ARGUMENTS pr view $n --json author,createdAt,body,comments,reviews --jq "
+>     ($MINE | \"=== PR #$n body ===\n\(.body)\n\"),
+>     (.comments[] | $MINE | \"=== #$n comment \(.url) ===\n\(.body)\n\"),
+>     (.reviews[] | $MINE | \"=== PR #$n review state=\(.state) ===\n\(.body)\n\")" \
 >     >> "$TMPDIR/bot-output/all.txt"
-> done
-> # PR bodies (only when bot opened the PR this window)
-> for n in <bot-opened-prs>; do
->   gh api "repos/$ARGUMENTS/pulls/$n" \
->     --jq "select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== PR #$n body ===\n\(.body)\n\"" \
->     >> "$TMPDIR/bot-output/all.txt"
-> done
-> # PR reviews + inline review comments — any PR the bot reviewed/commented on, not just
-> # bot-opened. tend-review's output ships on human-authored PRs (the most common surface)
-> # which would never appear in <bot-opened-prs>.
-> for n in <pr-numbers-bot-reviewed>; do
->   gh api "repos/$ARGUMENTS/pulls/$n/reviews" \
->     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .submitted_at > \"<window-start>\") | \"=== PR #$n review \(.id) state=\(.state) ===\n\(.body)\n\"" \
->     >> "$TMPDIR/bot-output/all.txt"
->   gh api "repos/$ARGUMENTS/pulls/$n/comments?per_page=100" \
+>   gh api --paginate "repos/$ARGUMENTS/pulls/$n/comments?per_page=100" \
 >     --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and .created_at > \"<window-start>\") | \"=== PR #$n inline-comment \(.id) ===\n\(.body)\n\"" \
 >     >> "$TMPDIR/bot-output/all.txt"
 > done
@@ -298,7 +290,7 @@ Brief the investigation with a prompt like:
 >
 > Focus narrowly: what decision did the bot make that led to this bad outcome? Trace the decision
 > chain in the JSONL for the specific problematic action. Don't parse the entire session.
-> CI polling (sleep loops checking `gh pr checks`) in session logs is expected bot behavior — do
+> CI polling (`poll_pr_checks.py`, or sleep loops over `gh pr checks`) in session logs is expected bot behavior — do
 > not flag it.
 >
 > Report: what the bot decided, what evidence it used, and what went wrong.
@@ -307,19 +299,18 @@ Evaluate the diagnosis against the repo-specific instructions from Step 1. Deter
 
 ## Step 4: Deduplicate
 
-Before creating issues or PRs, check exhaustively for existing ones:
+Before creating issues or PRs, search for existing ones. A recency listing drops an older match past any `--limit`, so search instead; one search per distinctive term — the skill, component, or symptom the finding names:
 
 ```bash
-gh issue list --state open --label claude-behavior --limit 200 --json number,title,body
-gh issue list --state open --limit 200 --json number,title,body  # also check unlabeled issues
-gh issue list --state closed --label claude-behavior --json number,title,closedAt --limit 200
-# --state all: a merged PR is the most common way a finding is already fixed
-gh pr list --state all --limit 200 --json number,title,state
+# Search matches titles and bodies, labeled or not. --state all: a merged PR
+# is the most common way a finding is already fixed.
+gh issue list --state all --search "<keywords>" --limit 100 --json number,title,state,labels
+gh pr list --state all --search "<keywords>" --limit 100 --json number,title,state
 ```
 
 A merged fix stays dormant in the target repo until the next release tags, so observing the bug there is not evidence the fix is missing — filing it again is churn on something already landed.
 
-Search the titles for related keywords, then read the bodies of the candidates (`gh pr view <n> --json body`). Only comment on existing issues if you have material new cases that would change the approach or increase prioritization. Do not comment with progress updates, fix-PR status, or re-statements of evidence already in the issue.
+Then read the bodies of the candidates (`gh pr view <n> --json body`). Only comment on existing issues if you have material new cases that would change the approach or increase prioritization. Do not comment with progress updates, fix-PR status, or re-statements of evidence already in the issue.
 
 ## Step 5: Act on findings
 
@@ -330,20 +321,20 @@ Search the titles for related keywords, then read the bodies of the candidates (
 
 Group multiple findings by broad theme. **Limit to a couple of PRs per run** — if you have more findings, pick the highest-confidence ones and record the rest in the evidence gist.
 
-PR/issue bodies should link to the evidence gist (`$GIST_URL`) so reviewers can see the accumulated history behind the finding.
+PR/issue bodies should link to the evidence gist (`gist_url`) so reviewers can see the accumulated history behind the finding.
 
 **Do not poll CI** after creating a PR. The `tend-review` and `tend-ci-fix` workflows handle PRs independently. Exit after pushing and creating the PR.
 
 ## Step 6: Summary
 
-Report results in the conversation log and save a markdown summary to `$GITHUB_STEP_SUMMARY` (a later workflow step copies this into the GitHub Actions step summary). Include `$GIST_URL` at the top so maintainers viewing the run page can click through to the full evidence log:
+Report results in the conversation log and save a markdown summary to `$GITHUB_STEP_SUMMARY` (a later workflow step copies this into the GitHub Actions step summary). Include the `gist_url` at the top so maintainers viewing the run page can click through to the full evidence log:
 
 ```bash
 # Author $GITHUB_STEP_SUMMARY, starting:
 #
 #   ## Review-reviewers summary
 #
-#   Evidence: <value of $GIST_URL>
+#   Evidence: <gist_url>
 #
 #   ...
 ```

@@ -25,16 +25,19 @@ Reproduce before fixing, find evidence before speculating, and test before commi
 
 ```bash
 gh issue view $ARGUMENTS --json title,body,labels,author
+# The reporter's relationship to the repository, read by steps 6 and 7
+gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
 ```
 
 An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on, not a self-conversation: the system prompt's self-loop guard covers the bot's own *comments*, and triage runs on these normally while no bot comment answers them yet.
 
 One exception: a tracker the bot maintains for its own evidence — its body says **Do not close manually**, and later runs append to it — carries no report. End the run without commenting.
 
-Classify into one of:
+Classify into:
 
-- **Bug report** — describes unexpected behavior, includes steps to reproduce or error output. Descriptions of changed behavior ("no longer works", "used to work") strongly signal a bug even with a terse body.
-- **Feature request** — asks for new functionality or behavior changes
+- **Bug report** — describes unexpected behavior, includes steps to reproduce or error output. Descriptions of changed behavior ("no longer works", "used to work") strongly signal a bug even with a terse body, and so does current behavior that gives a wrong or confusing result, even when the report asks for an enhancement.
+- **Feature request** — asks for new functionality or behavior changes with a concrete expected behavior
+- **Idea** — an open-ended proposal or direction to explore, without a settled behavior to build
 - **Question** — asks how to do something or how something works
 - **Other** — doesn't fit the above categories
 
@@ -43,8 +46,10 @@ Classify into one of:
 *Skip for questions and other.*
 
 ```bash
-# Search open issues for similar problems
-gh issue list --state open --json number,title,labels --limit 200
+# Search open issues for similar problems. <keywords>: the symptom, error
+# text, or component the issue names, and the words another reporter would
+# use for it; search matches titles and bodies, so run one per term
+gh issue list --state open --search "<keywords>" --json number,title,labels --limit 100
 
 # Check for existing fix branches and PRs
 git branch -r --list 'origin/fix/*'
@@ -55,7 +60,7 @@ If a duplicate or existing fix is found, note it for the comment in step 7. Don'
 
 ## Step 4: Investigate existing functionality
 
-*Feature requests only.*
+*Feature requests and ideas.*
 
 Search the codebase to check whether the requested feature already exists.
 
@@ -64,7 +69,7 @@ Search the codebase to check whether the requested feature already exists.
 3. **Read key files** — If searches find hits, read the relevant source to understand what already exists and how it works.
 4. **Check docs and help text** — Look for user-facing documentation of the feature.
 
-Record what you found (or didn't find) for use in step 7.
+Record what you found (or didn't find) for use in steps 6 and 7.
 
 ## Step 5: Reproduce the bug
 
@@ -76,7 +81,14 @@ If you cannot reproduce the bug (unclear steps, environment-specific, etc.), not
 
 ## Step 6: Fix (conservative)
 
-*Bug reports only.*
+*Any issue where a PR is reasonably likely to be merged.*
+
+Open a PR when a maintainer is reasonably likely to merge it; otherwise report the finding in Step 7. Weigh at least:
+
+- **What the issue is.** A reproduced bug usually clears the bar. A feature request can, when the repository's docs, tests, or neighbouring code settle how the behavior should work. An idea, or a request that leaves a product choice open, usually doesn't.
+- **Who is asking**, from the `author_association` read in Step 2 and the reporter's history in the repository. A maintainer's or regular contributor's request carries the project's direction; a feature request from a new user usually waits for a maintainer to endorse it. An issue the bot opened carries no maintainer direction: its `author_association` reflects the bot's write access.
+
+The change must also be verifiable. For a feature, a test of the new behavior that fails before the change, or a check the repository already runs over the edited files, stands in for the reproduction in `/tend-ci-runner:fix-a-bug`'s gates. Title a feature's commit and PR `feat:` rather than `fix:`.
 
 `/tend-ci-runner:fix-a-bug` carries the gates: the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
 
@@ -160,13 +172,7 @@ Re-fetch before posting, per **Recheck before posting** in `/tend-ci-runner:post
 
 Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`; do not restate the report or narrate the investigation. Never claim the issue is fully resolved by automation alone — an opened fix still needs maintainer review and landing. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
 
-Read the reporter's relationship to the repository before composing the reply:
-
-```bash
-gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
-```
-
-Omit a maintainer-deferral closer when `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR`; deferring to a maintainer reads as absurd when the reporter is one. For other reporters, a natural boundary can signal that the bot's action is not authoritative. This is a role distinction, not prescribed wording.
+Omit a maintainer-deferral closer when the `author_association` read in Step 2 is `OWNER`, `MEMBER`, or `COLLABORATOR`; deferring to a maintainer reads as absurd when the reporter is one. For other reporters, a natural boundary can signal that the bot's action is not authoritative. This is a role distinction, not prescribed wording.
 
 **Stay within what you verified.** State facts you found in the codebase — don't characterize something as "known" unless you find prior issues or documentation about it. Don't speculate beyond the code you read.
 

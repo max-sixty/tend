@@ -8,3 +8,9 @@ __pycache__/
 
 # uv's environment for the workspace root.
 .venv/
+
+# Disposable eval preparation, captures and other worktree scratch files.
+.tmp/
+
+# JavaScript dependencies, including the local evaluation toolchain.
+node_modules/

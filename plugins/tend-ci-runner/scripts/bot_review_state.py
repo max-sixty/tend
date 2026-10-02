@@ -17,11 +17,13 @@ import github_cli
 
 DRAFT_REVIEW_MARKER = "<!-- tend:draft-review -->"
 LEGACY_DRAFT_REVIEW_PREFIX = "Reviewing as a draft —"
+# `gh api graphql --paginate` follows `$endCursor` through every thread page.
 FEEDBACK_QUERY = """
-query($owner:String!,$repo:String!,$number:Int!) {
+query($owner:String!,$repo:String!,$number:Int!,$endCursor:String) {
   repository(owner:$owner,name:$repo) {
     pullRequest(number:$number) {
-      reviewThreads(first:100) {
+      reviewThreads(first:100,after:$endCursor) {
+        pageInfo { hasNextPage endCursor }
         nodes { comments(first:100) { nodes {
           author { login } path line body createdAt
         } } }
@@ -31,10 +33,11 @@ query($owner:String!,$repo:String!,$number:Int!) {
 }
 """
 THREADS_QUERY = """
-query($owner: String!, $repo: String!, $number: Int!) {
+query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
-      reviewThreads(first: 100) {
+      reviewThreads(first: 100, after: $endCursor) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           id
           isResolved
@@ -167,26 +170,20 @@ def fetch_review_state(pr: str, *, repo: str | None = None) -> dict[str, Any]:
     head = github_cli.json_call(
         "pr", "view", pr, "--repo", repo, "--json", "headRefOid"
     )["headRefOid"]
-    comments = github_cli.paginated(
-        "api", "--paginate", f"repos/{repo}/pulls/{pr}/comments"
-    )
+    comments = github_cli.paginated(f"repos/{repo}/pulls/{pr}/comments")
     substantive_ids = {
         int(comment["pull_request_review_id"])
         for comment in comments
         if comment.get("in_reply_to_id") is None
         and comment.get("pull_request_review_id") is not None
     }
-    timeline = github_cli.paginated(
-        "api", "--paginate", f"repos/{repo}/issues/{pr}/timeline"
-    )
+    timeline = github_cli.paginated(f"repos/{repo}/issues/{pr}/timeline")
     force_push_times = [
         event["created_at"]
         for event in timeline
         if event.get("event") == "head_ref_force_pushed"
     ]
-    reviews = github_cli.paginated(
-        "api", "--paginate", f"repos/{repo}/pulls/{pr}/reviews"
-    )
+    reviews = github_cli.paginated(f"repos/{repo}/pulls/{pr}/reviews")
     return review_state(
         head_sha=head,
         bot=bot,
@@ -247,8 +244,7 @@ def dismiss_stale_approval(pr: str, message: str) -> None:
 
 def _review_threads(pr: str, repo: str, query: str) -> list[dict[str, Any]]:
     owner, name = repo.split("/", 1)
-    response = github_cli.json_call(
-        "api",
+    pages = github_cli.pages(
         "graphql",
         "-f",
         f"query={query}",
@@ -259,7 +255,13 @@ def _review_threads(pr: str, repo: str, query: str) -> list[dict[str, Any]]:
         "-F",
         f"number={pr}",
     )
-    return response["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+    return [
+        thread
+        for page in pages
+        for thread in page["data"]["repository"]["pullRequest"]["reviewThreads"][
+            "nodes"
+        ]
+    ]
 
 
 def feedback(pr: str) -> dict[str, Any]:

@@ -82,30 +82,42 @@ Resolve conflicts for this bot and upstream dependency bots per
 
 ## Step 4: Review recent commits
 
+Review every commit since the last nightly that succeeded, so a night that was skipped, failed, or paused leaves its commits for this one rather than dropping them:
+
 ```bash
-git log --since='24 hours ago' --oneline main
+DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
+git fetch origin "$DEFAULT_BRANCH"
+# GitHub can answer one listing URL from a weeks-old cached snapshot. Each
+# `--limit` is a different URL, so take the newest success across several reads.
+LAST=$(for n in 1 2 3; do
+    gh run list --workflow tend-nightly --branch "$DEFAULT_BRANCH" --status success \
+      --limit "$n" --json headSha,createdAt
+  done | jq -rs 'add // [] | max_by(.createdAt) | .headSha // empty')
+# No earlier success, or its commit is gone from history: the last 24 hours.
+git merge-base --is-ancestor "$LAST" "origin/$DEFAULT_BRANCH" 2>/dev/null \
+  || LAST=$(git rev-list -1 --before='24 hours ago' "origin/$DEFAULT_BRANCH")
+git log --format='%h %s' "$LAST..origin/$DEFAULT_BRANCH"
 ```
 
-If no commits in the past 24 hours, skip this step.
-
-Get the aggregate diff:
+If that lists no commits, skip this step. Otherwise get the aggregate diff:
 
 ```bash
-OLDEST=$(git log --since='24 hours ago' --format='%H' main | tail -1)
-git diff ${OLDEST}^..HEAD
-git log --since='24 hours ago' --format='%h %s' main
+git diff "$LAST" "origin/$DEFAULT_BRANCH"
 ```
 
 Read the project's instruction files before reviewing. Apply the review checklist below to the diff, focusing on changes rather than unchanged code. Also check whether those instructions need updating to reflect the new code (e.g., new file paths, changed commands, removed patterns).
 
 ## Step 5: Check existing issues
 
+The bot's own open issues, which include the transient reports the close rule below targets, and this run's seventh of the rest, so every issue is checked at least every seventh run however many are open:
+
 ```bash
-gh issue list --state open --limit 200 --json number,title
-gh pr list --state open --limit 200 --json number,title,headRefName
+BUCKET=$(( GITHUB_RUN_NUMBER % 7 ))
+gh api --paginate "repos/{owner}/{repo}/issues?state=open&per_page=100" \
+  --jq ".[] | select(.pull_request == null and (.user.login == \"$BOT_NAME\" or .number % 7 == $BUCKET)) | {number, title}"
 ```
 
-For each open issue, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue) per `/tend-ci-runner:post-to-github`. Close the issue with `gh issue close` when:
+For each of these issues, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue) per `/tend-ci-runner:post-to-github`. Close the issue with `gh issue close` when:
 
 - The bot opened the issue itself to report a transient condition (e.g., a "Nightly tests failed" report from a prior run) and the condition has clearly resolved — the fix PR is merged and the relevant CI on `main` is passing. Skip this case where closing the issue is itself a signal rather than a record of resolution:
   - a body containing "Do not close manually" — recurring trackers with their own lifecycle.
@@ -134,6 +146,13 @@ uv run --script \
 ```
 
 Skip files that aren't meaningfully reviewable: lock files (`uv.lock`, `Cargo.lock`, `package-lock.json`), binary assets, vendored dependencies, and generated files (build output, compiled protobuf, auto-generated workflow YAML). When unsure, check the file — a quick glance is cheaper than missing something.
+
+Check which of today's files an open PR already changes, and don't re-derive a fix that PR carries:
+
+```bash
+gh pr list --state open --limit 200 --json number,title,files \
+  --jq '.[] | {number, title, files: [.files[].path]}'
+```
 
 Before reviewing files, read the project's instruction files and any project-specific skills or review criteria they reference. Apply the review checklist below to each file in full.
 
@@ -206,8 +225,8 @@ uv run --script \
 
 The command commits, pushes, creates or updates the PR, records the pushed OID,
 removes the temporary worktree, and prints the PR number and URL. Poll that
-exact commit per `/tend-ci-runner:monitor-ci` — foreground,
-`timeout: 600000`:
+exact commit per `/tend-ci-runner:monitor-ci` — foreground, with the
+longest command timeout the harness allows:
 
 ```bash
 uv run --script \

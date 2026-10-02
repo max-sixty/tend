@@ -10,8 +10,6 @@ import ast
 import base64
 import os
 import pwd
-import re
-import signal
 import subprocess
 import time
 from pathlib import Path
@@ -150,6 +148,7 @@ def fake_launch(
                 (run_dir / "codex-final-message.md").write_bytes(b"finished\n")
             if write_summary:
                 (run_dir.parent / "tmp/step-summary.md").write_bytes(b"skill result\n")
+            print("::error::claude -p exited non-zero (exit=1)", flush=True)
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(subprocess, "run", run)
@@ -208,11 +207,11 @@ def test_claude_exports_only_fixed_runner_owned_files(
     )
     assert f'XDG_CACHE_HOME="{runner_home / ".cache"}"' in entries
 
-    # Nothing the agent prints between these two lines is a workflow command.
+    # The lifecycle's failure annotation reaches the runner as a workflow
+    # command, not as text inside a stop-commands region (#1449).
     printed = capsys.readouterr().out
-    token = re.search(r"^::stop-commands::(tend-[0-9a-f]+)$", printed, re.MULTILINE)
-    assert token is not None
-    assert f"\n::{token[1]}::\n" in printed
+    assert "::error::claude -p exited non-zero (exit=1)\n" in printed
+    assert "::stop-commands::" not in printed
 
 
 def test_codex_base64_encodes_the_fixed_final_message(
@@ -470,16 +469,6 @@ def test_the_map_swaps_the_two_accounts_and_is_identity_elsewhere(
 def test_an_unmappable_account_is_refused_rather_than_truncated() -> None:
     with pytest.raises(ValueError, match="outside the mappable range"):
         launch.identity_map("u", 1001, launch.ID_CEILING)
-
-
-def test_runner_cancellation_is_raised_through_the_reap_path() -> None:
-    previous = signal.getsignal(signal.SIGTERM)
-
-    with pytest.raises(launch.Cancelled) as raised, launch.raise_on_cancel():
-        os.kill(os.getpid(), signal.SIGTERM)
-
-    assert raised.value.signum == signal.SIGTERM
-    assert signal.getsignal(signal.SIGTERM) is previous
 
 
 def test_runtime_bundle_carries_every_module_it_imports() -> None:

@@ -548,6 +548,21 @@ class Config:
                     f"Warning: unknown workflow '{name}' in config (known: {', '.join(sorted(KNOWN_WORKFLOWS))})",
                     err=True,
                 )
+            # YAML 1.2 reads `no`/`off` as strings, which are truthy, and a bare
+            # `review:` is null, which was falsy; unchecked, either one
+            # generates or omits a workflow against what the consumer wrote.
+            if isinstance(wf_raw, dict):
+                enabled = wf_raw.get("enabled", True)
+                if not isinstance(enabled, bool):
+                    raise click.ClickException(
+                        f"workflows.{name}.enabled must be true or false"
+                    )
+            elif isinstance(wf_raw, bool):
+                enabled = wf_raw
+            else:
+                raise click.ClickException(
+                    f"workflows.{name} must be true, false, or a mapping"
+                )
             if isinstance(wf_raw, dict):
                 watched = wf_raw.get("watched_workflows")
                 branches = wf_raw.get("branches")
@@ -674,7 +689,7 @@ class Config:
                         f"use the default prompt."
                     )
                 workflows[name] = WorkflowConfig(
-                    enabled=wf_raw.get("enabled", True),
+                    enabled=enabled,
                     prompt=wf_prompt,
                     cron=wf_raw.get("cron", ""),
                     watched_workflows=watched,
@@ -687,7 +702,7 @@ class Config:
                     args=wf_args,
                 )
             else:
-                workflows[name] = WorkflowConfig(enabled=bool(wf_raw))
+                workflows[name] = WorkflowConfig(enabled=enabled)
 
         # Both harnesses run behind the same credential-isolation sandbox;
         # these levers therefore apply to either one.

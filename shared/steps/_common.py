@@ -14,10 +14,10 @@ attribute (the ``fake_gh`` fixture in ``conftest.py``) instead of standing up a
 shim on ``PATH``.
 
 The runner reads ``::``-prefixed workflow commands from the start of any line a
-step prints. Text a step did not write itself — the agent's stderr, a comment
-body — is printed inside :func:`stop_commands`, which brackets it with a
-per-run token so it can neither post annotations nor switch command processing
-off for the steps that follow.
+step prints. Agent-written text — the unit's output, including Codex's own
+stdout and stderr, and the tail of Claude's stderr that ``run_claude`` quotes
+on failure — reaches the runner unbracketed, so the lifecycle's failure
+annotations register (see ``launch_agent.launch``).
 """
 
 from __future__ import annotations
@@ -27,10 +27,12 @@ import datetime
 import json
 import os
 import secrets
+import signal
 import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
 
@@ -275,15 +277,46 @@ def annotate(level: str, message: str) -> None:
     print(f"::{level}::{' '.join(message.splitlines())}", flush=True)
 
 
+class Cancelled(BaseException):
+    """The runner asked this process to stop with signal ``signum``.
+
+    A ``BaseException`` like ``KeyboardInterrupt``: it has to pass through an
+    ``except Exception`` on its way to the reap rather than be caught as a
+    failure of the run.
+    """
+
+    def __init__(self, signum: int) -> None:
+        super().__init__(f"signal {signum}")
+        self.signum = signum
+
+
 @contextlib.contextmanager
-def stop_commands() -> Iterator[None]:
-    """Print untrusted text inside this block so it cannot issue workflow commands."""
-    token = f"tend-{secrets.token_hex(8)}"
-    print(f"::stop-commands::{token}", flush=True)
+def raise_on_cancel() -> Iterator[None]:
+    """Turn SIGTERM and SIGINT into :class:`Cancelled` for the block's duration.
+
+    A cancelled workflow — ``cancel-in-progress``, a maintainer pressing cancel
+    — reaches a step as a signal. SIGTERM's default disposition ends the
+    process where it stands, which would skip the caller's reap and leave the
+    agent running as an orphan, still writing to the workspace, while the
+    runner tears the job down. Raising instead routes the cancellation through
+    the same ``finally`` every other exit takes.
+
+    Restored on the way out, so a second signal during the reap ends the
+    process outright, which is what an escalating runner means by it.
+    """
+
+    def cancel(signum: int, _frame: FrameType | None) -> None:
+        raise Cancelled(signum)
+
+    previous = {
+        signum: signal.signal(signum, cancel)
+        for signum in (signal.SIGINT, signal.SIGTERM)
+    }
     try:
         yield
     finally:
-        print(f"::{token}::", flush=True)
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 def _append(env_name: str, text: str) -> None:

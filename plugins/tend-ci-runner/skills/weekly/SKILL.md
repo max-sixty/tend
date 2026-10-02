@@ -18,8 +18,10 @@ metadata:
 
 ```bash
 gh pr list --state open --limit 200 --json number,title,author,labels \
-  --jq '.[] | select(.author.login == "dependabot[bot]" or .author.login == "renovate[bot]" or (.labels | any(.name == "dependencies")))'
+  --jq '.[] | select((.author.login | IN("app/dependabot", "app/renovate", "dependabot[bot]", "renovate[bot]")) or (.labels | any(.name == "dependencies")))'
 ```
+
+`gh` reports a bot PR's author as `app/dependabot`; `dependabot[bot]` is the commit author. Both spellings stay in the filter so it holds whichever form a `gh` version returns.
 
 If no dependency PRs are open, note "0 dependency PRs to process" and continue to Step 3 — do not exit; repo-specific weekly tasks may still be due.
 
@@ -51,8 +53,7 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
    # file substitutes the empty string and the POST still runs, which is the
    # unpinned approval this pins against.
    CHECKED=$(cat "$TMPDIR/checked-head-<number>") || exit 0
-   REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-   gh api "repos/$REPO/pulls/<number>/reviews" --method POST \
+   gh api "repos/{owner}/{repo}/pulls/<number>/reviews" --method POST \
      -f event=APPROVE -f commit_id="$CHECKED" -F body=@"$TMPDIR/review-body.md"
    ```
 4. If CI is failing, comment the failure summary per `/tend-ci-runner:post-to-github` and skip

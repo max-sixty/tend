@@ -353,13 +353,14 @@ sys.path.insert(0, str(NOTIFICATIONS_CHECK.parent))
 notifications_check = importlib.import_module("notifications_check")
 
 # `gh` stand-in for the notifications pre-check. The real notifications call
-# uses `--paginate`, so the fake puts each fixture item on its own page.
+# uses `--paginate --slurp`, so the fake puts each fixture item on its own page.
 # Counting more than one item therefore exercises the page flattening too.
 FAKE_GH_NOTIFICATIONS = (
     GH_PREAMBLE
     + r"""
 case "$1:$2" in
-  api:notifications\?*)
+  api:--paginate)
+    case "$4" in notifications\?*) ;; *) exit 1 ;; esac
     [ -z "${FAIL_NOTIFS:-}" ] || exit 1
     # A 200 carrying something other than JSON, verbatim.
     if [ -n "${RAW_BODY:-}" ]; then cat "$RAW_BODY"; exit 0; fi
@@ -367,13 +368,10 @@ case "$1:$2" in
     # the pre-check's fixed cutoff so boundary and fresh activity stay unread.
     pages=$(jq -c --arg cutoff "$NOTIF_CUTOFF" \
       '[.[] | select(.updated_at < $cutoff)]' "$NOTIFICATIONS_JSON")
-    # These pages bypass emit(), so they take colorize() directly: real `gh`
-    # paints every page, and a branch that served plain bodies would let the
-    # forced-colour test below pass with the fix reverted.
     if [ "$pages" = "[]" ]; then
-      echo '[]' | colorize
+      emit '[]'
     else
-      printf '%s\n' "$pages" | jq -c '.[] | [.]' | colorize
+      emit "$(printf '%s\n' "$pages" | jq -c '.[] | [.]')"
     fi
     ;;
   api:repos/*/subscription)
@@ -495,7 +493,7 @@ def test_notifications_check_counts_a_complete_cutoff_snapshot_without_acknowled
     assert result.returncode == 0, result.stderr
     assert _output(notifications_env, "count") == "2"
     calls = Path(notifications_env["GH_CALLS"]).read_text()
-    assert f"notifications?before={NOTIF_CUTOFF}&per_page=100" in calls
+    assert f"notifications?before={NOTIF_CUTOFF}" in calls
     assert "--paginate" in calls
     assert "notifications/threads/" not in calls
 

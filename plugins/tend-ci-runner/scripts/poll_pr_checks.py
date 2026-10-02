@@ -12,12 +12,11 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 import github_cli
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-RUN_ID_RE = re.compile(r"/actions/runs/(\d+)/")
 RED_CONCLUSIONS = {
     "FAILURE",
     "TIMED_OUT",
@@ -34,18 +33,17 @@ GREEN_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 #: confirms it.
 POLL_SEC = 60
 CONFIRM_SEC = 30
-#: Both polling and confirmation sleeps consume this budget.
-POLL_BUDGET_SEC = 9 * POLL_SEC
-#: The final poll may add one confirmation sleep. Request time and poll()'s
-#: commit-resolution retry are additional; the harness owns command timeouts.
-MAX_SLEEP_SEC = POLL_BUDGET_SEC + CONFIRM_SEC
+#: How long a commit may show no check before it counts as having none. A
+#: check registers when its run is queued, seconds after the push, so this is
+#: a margin for GitHub's lag and a slow external status, not for CI to run.
+REGISTRATION_SEC = 5 * 60
 GRAPHQL_QUERY = """
-query($owner: String!, $name: String!, $oid: GitObjectID!, $cursor: String) {
+query($owner: String!, $name: String!, $oid: GitObjectID!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
     object(oid: $oid) {
       ... on Commit {
         statusCheckRollup {
-          contexts(first: 100, after: $cursor) {
+          contexts(first: 100, after: $endCursor) {
             pageInfo { hasNextPage endCursor }
             nodes {
               __typename
@@ -77,9 +75,13 @@ def reduce_rollup(
     *,
     run_id: str,
     workflow: str,
+    skip: frozenset[str] = frozenset(),
     allow_filtered_empty: bool = False,
 ) -> dict[str, list[str]] | None:
-    """Filter and collapse raw contexts to pending, failed and unverified names."""
+    """Filter and collapse raw contexts to pending, failed and unverified names.
+
+    Drops this run's own checks, tend-review's, and any named in *skip*.
+    """
     contexts: list[dict[str, str]] = []
     own_run = f"/runs/{run_id}/" if run_id else ""
     for node in nodes:
@@ -110,7 +112,7 @@ def reduce_rollup(
             continue
         if workflow and context["workflow"] == workflow:
             continue
-        if context["workflow"] == "tend-review":
+        if context["workflow"] == "tend-review" or context["name"] in skip:
             continue
         contexts.append(context)
 
@@ -133,9 +135,13 @@ def reduce_rollup(
             if pending
             else max(group, key=lambda context: context["started_at"])
         )
+    # A job held by an environment's protection rules moves only when someone
+    # outside the run approves it, so it has settled without a result rather
+    # than still pending.
+    settled = {"COMPLETED", "WAITING"}
     return {
         "pending": [
-            context["name"] for context in current if context["status"] != "COMPLETED"
+            context["name"] for context in current if context["status"] not in settled
         ],
         "failed": [
             f"{context['name']} {context['url']}"
@@ -146,7 +152,8 @@ def reduce_rollup(
         "unverified": [
             f"{context['name']} {context['url']}"
             for context in current
-            if context["status"] == "COMPLETED"
+            if context["status"] == "WAITING"
+            or context["status"] == "COMPLETED"
             and context["conclusion"] not in (RED_CONCLUSIONS | GREEN_CONCLUSIONS)
         ],
     }
@@ -158,71 +165,64 @@ def fetch_rollup(
     sha: str,
     run_id: str,
     workflow: str,
+    skip: frozenset[str] = frozenset(),
     allow_filtered_empty: bool = False,
 ) -> dict[str, list[str]] | None:
     """Fetch every rollup page; return ``None`` when no complete view exists."""
     owner, name = repo.split("/", 1)
-    cursor: str | None = None
-    nodes: list[dict[str, Any]] = []
-    while True:
-        cursor_args = (
-            ["-F", "cursor=null"] if cursor is None else ["-f", f"cursor={cursor}"]
+    try:
+        pages = github_cli.pages(
+            "graphql",
+            "-f",
+            f"owner={owner}",
+            "-f",
+            f"name={name}",
+            "-f",
+            f"oid={sha}",
+            "-f",
+            f"query={GRAPHQL_QUERY}",
+            quiet=True,
         )
-        try:
-            response = github_cli.json_call(
-                "api",
-                "graphql",
-                "-f",
-                f"owner={owner}",
-                "-f",
-                f"name={name}",
-                "-f",
-                f"oid={sha}",
-                *cursor_args,
-                "-f",
-                f"query={GRAPHQL_QUERY}",
-                quiet=True,
-            )
-            contexts = _dig(
-                response,
-                "data",
-                "repository",
-                "object",
-                "statusCheckRollup",
-                "contexts",
-            )
-            if not isinstance(contexts, dict) or not isinstance(
-                contexts.get("nodes"), list
-            ):
-                return None
-            nodes.extend(contexts["nodes"])
-            page_info = contexts.get("pageInfo")
-            if not isinstance(page_info, dict):
-                return None
-            if not page_info.get("hasNextPage"):
-                break
-            cursor = page_info.get("endCursor")
-            if not isinstance(cursor, str) or not cursor:
-                return None
-        except (subprocess.CalledProcessError, ValueError, KeyError, TypeError):
+    except (subprocess.CalledProcessError, ValueError):
+        return None
+    if not isinstance(pages, list) or not pages:
+        return None
+    nodes: list[dict[str, Any]] = []
+    for page in pages:
+        contexts = _dig(
+            page, "data", "repository", "object", "statusCheckRollup", "contexts"
+        )
+        if not isinstance(contexts, dict) or not isinstance(
+            contexts.get("nodes"), list
+        ):
             return None
+        nodes.extend(contexts["nodes"])
+    # `gh` stops at a page that reports more but names no cursor to follow.
+    if _dig(contexts, "pageInfo", "hasNextPage"):
+        return None
     return reduce_rollup(
         nodes,
         run_id=run_id,
         workflow=workflow,
+        skip=skip,
         allow_filtered_empty=allow_filtered_empty,
     )
 
 
-def head_note(*, pr: str, repo: str, sha: str) -> None:
-    """Report a moved branch without retargeting the commit verdict."""
+def _head(*, pr: str, repo: str) -> str:
+    """The PR's current head, or "" when it can't be read."""
     try:
         response = github_cli.json_call(
             "pr", "view", pr, "--repo", repo, "--json", "headRefOid", quiet=True
         )
-        current = response.get("headRefOid") or ""
+        return response.get("headRefOid") or ""
     except (subprocess.CalledProcessError, ValueError, AttributeError):
-        current = ""
+        return ""
+
+
+def head_note(*, pr: str, repo: str, sha: str) -> None:
+    """Report a moved branch without retargeting the commit verdict."""
+    current = _head(pr=pr, repo=repo)
     if current and current != sha:
         print(
             f"note: branch advanced to {current} — the result above is still "
@@ -231,79 +231,83 @@ def head_note(*, pr: str, repo: str, sha: str) -> None:
 
 
 def _settle(
-    *, repo: str, sha: str, sleep: Callable[[float], None]
-) -> tuple[bool, dict[str, list[str]] | None]:
-    """Poll until nothing pends on two reads 30s apart, or the budget expires.
+    *,
+    repo: str,
+    pr: str,
+    sha: str,
+    skip: frozenset[str] = frozenset(),
+    sleep: Callable[[float], None],
+) -> tuple[Literal["settled", "moved", "none"], dict[str, list[str]] | None]:
+    """Poll until nothing pends on two reads 30s apart.
 
-    Returns whether the rollup settled, and the last complete rollup read.
-    Both sleeps draw on :data:`POLL_BUDGET_SEC`, so the total stays within
-    :data:`MAX_SLEEP_SEC` however often the rollup goes pending again.
+    Returns how the wait ended, and the last complete rollup read. The wait has
+    no time bound: a running check ends by its own job's timeout, so the wait
+    ends with the checks however long the consumer's CI takes. Two states have
+    no such end, and each is ended by the event that shows it:
+
+    * checks still pend and the PR's head has moved off *sha* ("moved"). A
+      merge requires *sha* to be the head, and the new head is its pusher's to
+      verify — a review of it is already queued behind this session.
+    * no complete rollup for :data:`REGISTRATION_SEC` ("none"): the commit
+      has no check coming, or GitHub isn't answering for it.
+
+    A check that registers and never finishes — a status its app never
+    reports — holds the wait until the session's own timeout ends the run,
+    which then reads as timed out. A job waiting on an environment approval
+    doesn't: :func:`reduce_rollup` counts it as settled without a result.
     """
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     workflow = os.environ.get("GITHUB_WORKFLOW", "")
     last: dict[str, list[str]] | None = None
-    budget = POLL_BUDGET_SEC
-    while budget >= POLL_SEC:
+    waited = 0
+    while True:
         sleep(POLL_SEC)
-        budget -= POLL_SEC
-        current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
+        waited += POLL_SEC
+        current = fetch_rollup(
+            repo=repo, sha=sha, run_id=run_id, workflow=workflow, skip=skip
+        )
         if current is None:
+            if last is None and waited >= REGISTRATION_SEC:
+                return "none", None
             continue
         last = current
         if current["pending"]:
+            if _head(pr=pr, repo=repo) not in {"", sha}:
+                return "moved", last
             continue
         sleep(CONFIRM_SEC)
-        budget -= CONFIRM_SEC
-        current = fetch_rollup(repo=repo, sha=sha, run_id=run_id, workflow=workflow)
+        current = fetch_rollup(
+            repo=repo, sha=sha, run_id=run_id, workflow=workflow, skip=skip
+        )
         if current is None:
             continue
         last = current
         if not current["pending"]:
-            return True, current
-    return False, last
+            return "settled", current
 
 
-def _run_conclusion(repo: str, failure: str) -> str | None:
-    """The conclusion of the Actions run behind a failed check.
-
-    "" for a status context, which names no run; None when the run can't be read.
-    """
-    match = RUN_ID_RE.search(failure)
-    if not match:
-        return ""
-    try:
-        view = github_cli.json_call(
-            "run",
-            "view",
-            match.group(1),
-            "--repo",
-            repo,
-            "--json",
-            "conclusion",
-            quiet=True,
-        )
-        return str(view["conclusion"])
-    except (subprocess.CalledProcessError, ValueError, KeyError, TypeError):
-        return None
-
-
-def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
+def approval(
+    pr: str,
+    sha: str,
+    *,
+    skip: frozenset[str] = frozenset(),
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
     """Decide whether one pinned PR commit's checks allow an approval.
 
     A failure beside checks still running is often a cancellation cascade: a
     concurrency group cancels a run, an `if: always()` merge-gate omnibus
     reports that as FAILURE rather than cancelled, and a replacement run is
     already under way. So a red with checks pending waits for them to settle,
-    and a red still standing at the cap approves only when every failing check
-    belongs to a cancelled Actions run. A run that can't be read decides nothing,
-    unless another failure is already real.
+    where the replacement's result supersedes the cancelled one's.
 
-    A check that settled without a result — cancelled, stale, or a conclusion
-    outside the passing set — never reached a verdict, so it cannot withhold on
-    its merits. It approves under the same policy, named as unverified so the
-    approval doesn't read as a check that passed.
+    A check that settled without a result — cancelled, stale, held for an
+    environment's approval, or a conclusion outside the passing set — never
+    reached a verdict, so it cannot withhold on its merits. It approves, named
+    as unverified so the approval doesn't read as a check that passed.
 
-    Whether *sha* is still the head is not judged here: the review skill posts
+    A head that moves during that wait leaves the approval undecided; otherwise
+    whether *sha* is still the head is not judged here: the review skill posts
     every review behind `review_preflight.py post`, which refuses a moved head.
     """
     repo = os.environ["GITHUB_REPOSITORY"]
@@ -312,34 +316,24 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
         sha=sha,
         run_id=os.environ.get("GITHUB_RUN_ID", ""),
         workflow=os.environ.get("GITHUB_WORKFLOW", ""),
+        skip=skip,
         allow_filtered_empty=True,
     )
     if rollup is None:
         print(f"could not read a complete check rollup for {sha}", file=sys.stderr)
         return 2
     if rollup["failed"] and rollup["pending"]:
-        _, rollup = _settle(repo=repo, sha=sha, sleep=sleep)
+        outcome, rollup = _settle(repo=repo, pr=pr, sha=sha, skip=skip, sleep=sleep)
+        if outcome == "moved":
+            print(f"PR head moved off {sha} while its checks pend", file=sys.stderr)
+            return 2
         if rollup is None:
             print(f"no complete rollup read for {sha} while waiting", file=sys.stderr)
             return 2
 
-    failures = rollup["failed"]
-    if failures and rollup["pending"]:
-        conclusions = [(f, _run_conclusion(repo, f)) for f in failures]
-        failures = [f for f, c in conclusions if c not in {"cancelled", None}]
-        unread = [f for f, c in conclusions if c is None]
-        if unread and not failures:
-            print(
-                f"could not read the run behind: {', '.join(unread)}", file=sys.stderr
-            )
-            return 2
-        if not failures:
-            print(f"approve: every failure on {sha} is a cancelled run; unverified:")
-            print(*rollup["pending"], *rollup["unverified"], sep="\n")
-            return 0
-    if failures:
+    if rollup["failed"]:
         print(f"withhold: red on {sha}:")
-        print(*failures, sep="\n")
+        print(*rollup["failed"], sep="\n")
         return 1
     if rollup["unverified"]:
         print(f"approve: no failing check on {sha}; unverified:")
@@ -352,12 +346,21 @@ def approval(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) 
 def _unverified_note(rollup: dict[str, list[str]]) -> None:
     """Name checks that settled without a result, beside another verdict."""
     if rollup["unverified"]:
-        print("settled without a result (cancelled, stale, or unrecognized):")
+        print(
+            "settled without a result "
+            "(cancelled, stale, awaiting approval, or unrecognized):"
+        )
         print(*rollup["unverified"], sep="\n")
 
 
-def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
-    """Poll one pinned PR commit until its checks settle or the cap expires."""
+def poll(
+    pr: str,
+    sha: str,
+    *,
+    skip: frozenset[str] = frozenset(),
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
+    """Poll one pinned PR commit until its checks, less those in *skip*, settle."""
     repo = os.environ["GITHUB_REPOSITORY"]
     try:
         github_cli.run("api", f"repos/{repo}/commits/{sha}", "--silent", quiet=True)
@@ -371,7 +374,15 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
             )
             return 2
 
-    settled, last = _settle(repo=repo, sha=sha, sleep=sleep)
+    outcome, last = _settle(repo=repo, pr=pr, sha=sha, skip=skip, sleep=sleep)
+    if outcome == "none" or last is None:
+        print(
+            f"no check registered on {sha} within {REGISTRATION_SEC // 60} minutes "
+            "— UNVERIFIED, not green"
+        )
+        head_note(pr=pr, repo=repo, sha=sha)
+        return 2
+    settled = outcome == "settled"
     if settled and last["failed"]:
         print(f"red on {sha}:")
         print(*last["failed"], sep="\n")
@@ -387,11 +398,7 @@ def poll(pr: str, sha: str, *, sleep: Callable[[float], None] = time.sleep) -> i
         print(f"green: every gating check on {sha} settled green")
         head_note(pr=pr, repo=repo, sha=sha)
         return 0
-    if last is None:
-        print(f"no gating check settled on {sha} — UNVERIFIED, not green")
-        head_note(pr=pr, repo=repo, sha=sha)
-        return 2
-    print(f"poll cap hit — still pending on {sha} (UNVERIFIED, not green):")
+    print(f"PR head moved off {sha} — still pending (UNVERIFIED, not green):")
     print(*last["pending"], sep="\n")
     if last["failed"]:
         print("failures observed so far (unconfirmed while checks pend):")
@@ -406,7 +413,7 @@ VERDICTS = {
         0: "GREEN",
         1: "RED",
         2: "UNVERIFIED, not green",
-        3: "still pending at the cap — UNVERIFIED, not green",
+        3: "still pending when the PR head moved — UNVERIFIED, not green",
     },
     "approval": {0: "approve", 1: "withhold", 2: "undecided — do not approve"},
 }
@@ -418,20 +425,33 @@ def main(
     args = sys.argv[1:] if argv is None else argv
     command = args[0] if args else ""
     args = args[1:]
+    skip: set[str] = set()
+    while len(args) > 3 and args[-2] == "--skip":
+        skip.add(args.pop())
+        args.pop()
     pr = args[0] if args else ""
     sha = args[1] if len(args) > 1 else ""
-    if len(args) != 2 or not SHA_RE.fullmatch(sha):
+    if len(args) != 2:
         print(
-            "poll_pr_checks.py: poll|approval <pr-number> <sha>; <sha> must be "
-            "a full 40-char lowercase commit "
-            f"OID, got '{sha}' — UNVERIFIED, not green",
+            "usage: poll_pr_checks.py poll|approval <pr-number> <sha> "
+            "[--skip <check>]... — UNVERIFIED, not green",
+            file=sys.stderr,
+        )
+        return 2
+    if not SHA_RE.fullmatch(sha):
+        print(
+            "poll_pr_checks.py: <sha> must be a full 40-char lowercase commit OID, "
+            f"got '{sha}' — UNVERIFIED, not green",
             file=sys.stderr,
         )
         return 2
     if command not in VERDICTS:
         print(f"unknown command: {command or '<none>'}", file=sys.stderr)
         return 2
-    code = (approval if command == "approval" else poll)(pr, sha, sleep=sleep)
+    if command == "approval":
+        code = approval(pr, sha, skip=frozenset(skip), sleep=sleep)
+    else:
+        code = poll(pr, sha, skip=frozenset(skip), sleep=sleep)
     # Sessions pipe this through `tail -N`, which drops the leading verdict
     # behind a long check list, so the last line restates it.
     print(f"verdict: {VERDICTS[command][code]} on {sha} (exit {code})")

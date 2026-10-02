@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -20,6 +22,16 @@ def test_require_env_names_the_unset_and_the_empty(
     assert _common.require_env("TEND_A") == {"TEND_A": "set"}
 
 
+def test_runner_cancellation_is_raised_through_the_reap_path() -> None:
+    previous = signal.getsignal(signal.SIGTERM)
+
+    with pytest.raises(_common.Cancelled) as raised, _common.raise_on_cancel():
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    assert raised.value.signum == signal.SIGTERM
+    assert signal.getsignal(signal.SIGTERM) is previous
+
+
 def test_read_ndjson_skips_a_torn_last_line(tmp_path: Path) -> None:
     path = tmp_path / "stream.json"
     path.write_text('{"type": "a"}\n\n{"type": "b"}\n{"type": "c", "trunc')
@@ -32,18 +44,6 @@ def test_set_output_uses_the_heredoc_form_for_multiline(
     _common.set_output("one", "x")
     _common.set_output("two", "a\nb")
     assert github_files.outputs() == {"one": "x", "two": "a\nb"}
-
-
-def test_stop_commands_brackets_untrusted_text(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    with _common.stop_commands():
-        print("::error::forged")
-    out = capsys.readouterr().out.splitlines()
-    assert out[0].startswith("::stop-commands::tend-")
-    token = out[0].removeprefix("::stop-commands::")
-    assert out[1] == "::error::forged"
-    assert out[2] == f"::{token}::"
 
 
 def test_annotate_keeps_the_message_on_one_line(

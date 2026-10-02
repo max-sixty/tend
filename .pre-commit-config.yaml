@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -9,23 +9,23 @@ repos:
   # only meant that each new Python directory arrived unlinted and stayed that
   # way until someone noticed.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.9
+    rev: a56c0b927e6465d37cae3e97d35d4d18ab2b96cd  # frozen: v0.16.9
     hooks:
       - id: ruff-check
         args: ["--fix"]
       - id: ruff-format
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.12.19
+    rev: 2aeb804518b4373dbf5adb8dddc5466d9a6e6b21  # frozen: 0.12.19
     hooks:
       # One lockfile at the workspace root covers the generator member too.
       - id: uv-lock
         files: ^(generator/)?(pyproject\.toml|uv\.lock)$
   - repo: https://github.com/adhtruong/mirrors-typos
-    rev: v1.50.2
+    rev: 3eb3b00ab99fd9a875b2ca1e580651d33cef2ace  # frozen: v1.50.3
     hooks:
       - id: typos
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.12
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca  # frozen: v1.7.12
     hooks:
       # The concurrency.queue false positive is suppressed in
       # .github/actionlint.yaml, which `tend init` writes and every actionlint
@@ -47,7 +47,7 @@ repos:
   # severity. The inline `run:` bodies that remain in claude/ and codex/ are
   # covered by test_inline_run_bodies_pass_shellcheck.
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.11.0.1-1
+    rev: a6564f5d57444e123433a5c9af733e3975c77229  # frozen: v0.11.0.1-1
     hooks:
       - id: shellcheck
         args: ["-S", "warning"]

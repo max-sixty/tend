@@ -1,0 +1,13 @@
+description: Resume Worktrunk's real PR composition before its hard-wrapped draft.
+vars:
+  task: |
+    Continue preparing the PR description for the first fix: rendering an unterminated code fence in md_help instead of silently dropping the remaining preview content. The branch has just been pushed. Use the investigation, diff and validation already recorded in this conversation to describe the current change and its verification, including relevant caveats.
+
+    This is an offline replay. The original repository, shell and GitHub are unavailable. Write the PR description to captured.md with the Write tool rather than posting it. Do not claim new verification or perform any outward action. Finish after saving the description.
+assert:
+  - type: llm-rubric
+    value: >-
+      Evaluate the literal Markdown source, not its rendering. Every narrative
+      prose paragraph must occupy exactly one source line, with no newline inside
+      the paragraph; require at least one such paragraph. Ignore headings, code
+      blocks, tables, and paragraphs inside Markdown lists.

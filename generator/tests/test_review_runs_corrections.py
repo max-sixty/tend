@@ -48,11 +48,12 @@ emit_json() {
 
 case "$*" in
   "api user"*)             emit '{"login":"'"$BOT_LOGIN"'"}' ;;
-  # The reviews candidate list is the only `pr list` carrying --search.
+  # The bot's own PRs are the `pr list` carrying --author; the reviews
+  # candidate list is the other one.
+  "pr list"*--author*)     emit_json "$(cat "$BOT_PRS_JSON")" ;;
   "pr list"*--search*)
     [ -n "${SEARCH_FAILS:-}" ] && { echo "API rate limit exceeded" >&2; exit 1; }
     emit "$(cat "$CANDIDATES_JSON")" ;;
-  "pr list"*)              emit_json "$(cat "$BOT_PRS_JSON")" ;;
   *"/issues/comments"*)
     [ -n "${ISSUE_COMMENTS_FAILS:-}" ] && { echo "issues unavailable" >&2; exit 17; }
     emit "$(cat "$ISSUE_COMMENTS_JSON")" ;;
@@ -255,6 +256,16 @@ def test_dispositions_are_windowed_and_open_prs_excluded(env: dict[str, str]) ->
     out = _collect(env)
 
     assert [d["number"] for d in out["dispositions"]] == [1]
+
+
+def test_dispositions_are_selected_by_closure_not_recency(env: dict[str, str]) -> None:
+    """A bot that opens a few PRs a day pushes an older PR past any recency
+    count within weeks, and a maintainer closing it inside the window is still
+    a disposition."""
+    _collect(env)
+
+    calls = Path(env["GH_CALLS"]).read_text()
+    assert f"--search closed:>={SINCE}" in calls
 
 
 # ---------------------------------------------------------------------------

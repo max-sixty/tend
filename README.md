@@ -246,7 +246,7 @@ bot_name: my-project-bot
 
 # Codex installs pin both values; omit both to use Claude.
 # harness: codex
-# model: gpt-5.6-sol
+# model: gpt-6-sol
 # effort: medium   # low | medium | high | xhigh; Claude also accepts max
 # args: [--max-turns, "40"]   # exact additional CLI arguments
 ```
@@ -348,7 +348,9 @@ Two auth modes:
   platform.openai.com.
 
 Agent jobs cannot invalidate the refresh state because they receive no refresh
-token.
+token. An external rotator can temporarily publish access-only auth to several
+repositories, but jobs lose authentication after that token expires if the
+rotator is offline.
 This is experimental because it uses Codex's internal `chatgptAuthTokens`
 mode. The weekly job runs Codex's built-in refresh and persists the updated
 full bundle.

@@ -29,12 +29,13 @@ jobs:
       actions: read
       issues: write
     steps:
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         id: tend_uv
         env:
           UV_NO_MODIFY_PATH: "1"
         with:
           version: "0.12.19"
+          checksum: ${{ runner.arch == 'ARM64' && '0804e9b164c64b6914182d5920c08551958a095986f10a3731056df701126436' || '23bf5552d220e0842b65c862097b2ebaeba0064b74eda5e565e77fd25969d8c8' }}
           enable-cache: false
           ignore-empty-workdir: true
       - name: Check for unread notifications and conflicted PRs
@@ -100,24 +101,11 @@ jobs:
 
 
           def _paginated(path: str) -> list[Any]:
-              text = _gh("api", path, "--paginate", quiet=True)
-              decoder = json.JSONDecoder()
-              pages: list[Any] = []
-              position = 0
-              saw_page = False
-              while position < len(text):
-                  while position < len(text) and text[position].isspace():
-                      position += 1
-                  if position == len(text):
-                      break
-                  page, position = decoder.raw_decode(text, position)
-                  saw_page = True
-                  if not isinstance(page, list):
-                      raise TypeError("paginated GitHub response was not an array")
-                  pages.extend(page)
-              if not saw_page:
-                  raise ValueError("paginated GitHub response was empty")
-              return pages
+              # `--slurp` prints one array holding every page.
+              pages = _json("api", "--paginate", "--slurp", path, quiet=True)
+              if not all(isinstance(page, list) for page in pages):
+                  raise TypeError("paginated GitHub response was not an array")
+              return [item for page in pages for item in page]
 
 
           def _output(name: str, value: str | int) -> None:
@@ -127,13 +115,8 @@ jobs:
 
           def _notifications(cutoff: str) -> int:
               try:
-                  return len(_paginated(f"notifications?before={cutoff}&per_page=100"))
-              except (
-                  json.JSONDecodeError,
-                  subprocess.CalledProcessError,
-                  TypeError,
-                  ValueError,
-              ):
+                  return len(_paginated(f"notifications?before={cutoff}"))
+              except (json.JSONDecodeError, subprocess.CalledProcessError, TypeError):
                   print("::warning::notifications fetch failed; queue left for the next cycle")
                   return 0
 
@@ -195,11 +178,15 @@ jobs:
                   return 0
 
 
+          #: How old a notification must be before this poll takes it. The event run a
+          #: notification started usually finishes, and marks it read, within this, so a
+          #: poll doesn't boot a session only to find that run still holds its subject.
+          GRACE = timedelta(minutes=10)
+
+
           def main(*, now: datetime | None = None) -> int:
               repo = os.environ["GITHUB_REPOSITORY"]
-              cutoff = ((now or datetime.now(UTC)) - timedelta(minutes=10)).strftime(
-                  "%Y-%m-%dT%H:%M:%SZ"
-              )
+              cutoff = ((now or datetime.now(UTC)) - GRACE).strftime("%Y-%m-%dT%H:%M:%SZ")
               _output("cutoff", cutoff)
 
               try:
@@ -237,7 +224,7 @@ jobs:
               raise SystemExit(main())
           TEND_PY
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
         with:
           ref: main

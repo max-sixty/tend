@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import subprocess
 
 import pytest
@@ -66,23 +65,30 @@ def _bypass(fake_gh: FakeGh, ruleset_id: int, answer: object) -> None:
     )
 
 
+def _codeowners_answer(**files: tuple[int, str | None]) -> dict[str, object]:
+    """The CODEOWNERS query's answer, given ``alias=(mode, text)`` per entry.
+
+    A directory without an entry lists only a neighbour, and its blob
+    expression resolves to nothing, as GitHub answers for a missing path.
+    """
+    repository: dict[str, object] = {}
+    for alias in security_preflight.CODEOWNERS_DIRECTORIES:
+        entries = [{"name": "README.md", "mode": 0o100644}]
+        blob = None
+        if alias in files:
+            mode, text = files[alias]
+            entries.append({"name": "CODEOWNERS", "mode": mode})
+            blob = {"text": text, "isTruncated": False}
+        repository[f"{alias}Tree"] = {"entries": entries}
+        repository[alias] = blob
+    return {"data": {"repository": repository}}
+
+
 def _codeowners(fake_gh: FakeGh, owner: str = "@octocat") -> None:
     fake_gh.respond(
         "api",
         "graphql",
-        with_={
-            "data": {
-                "repository": {
-                    "object": {"entries": [{"name": "CODEOWNERS", "mode": 0o100644}]}
-                }
-            }
-        },
-    )
-    content = _generated_codeowners(owner=owner)
-    fake_gh.respond(
-        "api",
-        f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main",
-        with_={"content": base64.b64encode(content.encode()).decode()},
+        with_=_codeowners_answer(github=(0o100644, _generated_codeowners(owner=owner))),
     )
     fake_gh.respond(
         "api", f"repos/{REPO}/codeowners/errors?ref=main", with_={"errors": []}
@@ -90,99 +96,102 @@ def _codeowners(fake_gh: FakeGh, owner: str = "@octocat") -> None:
     fake_gh.respond("api", "user", with_={"login": "tend-bot"})
 
 
-def test_control_plane_codeowners_does_not_skip_an_unreadable_higher_priority_file(
+def _accepted(fake_gh: FakeGh, answer: dict[str, object]) -> bool:
+    _codeowners(fake_gh)
+    fake_gh.respond("api", "graphql", with_=answer)
+    return security_preflight.has_valid_control_plane_codeowners(
+        REPO, "main", "tend-bot"
+    )
+
+
+def test_control_plane_codeowners_fails_closed_on_an_unreadable_query(
     monkeypatch: pytest.MonkeyPatch, fake_gh: FakeGh
 ) -> None:
     monkeypatch.setenv("TEND_MERGE", "yolo")
-    fake_gh.respond("api", f"repos/{REPO}", with_={"default_branch": "main"})
-    fake_gh.respond(
-        "api",
-        "--paginate",
-        "--slurp",
-        f"repos/{REPO}/rules/branches/main",
-        with_=[_lifecycle_rules(1)],
-    )
-    fake_gh.respond(
-        "api", f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main", with_=1
-    )
+    _repo(fake_gh, rules=_lifecycle_rules(1))
+    fake_gh.respond("api", "graphql", with_=1)
     _bypass(fake_gh, 1, "pull_requests_only")
     fake_gh.respond("api", "user", with_={"login": "tend-bot"})
 
     assert security_preflight.main() == 1
-    assert not fake_gh.called("api", f"repos/{REPO}/contents/CODEOWNERS?ref=main")
+    assert fake_gh.called("api", "graphql")
+
+
+def test_control_plane_codeowners_reads_githubs_three_locations(
+    fake_gh: FakeGh,
+) -> None:
+    assert _accepted(
+        fake_gh, _codeowners_answer(github=(0o100644, _generated_codeowners()))
+    )
+
+    (query,) = fake_gh.called("api", "graphql")
+    fields = set(query[query.index("graphql") + 1 :])
+    assert {
+        "githubTree=main:.github",
+        "github=main:.github/CODEOWNERS",
+        "rootTree=main:",
+        "root=main:CODEOWNERS",
+        "docsTree=main:docs",
+        "docs=main:docs/CODEOWNERS",
+    } <= fields
 
 
 def test_control_plane_codeowners_falls_through_an_absent_higher_priority_file(
     fake_gh: FakeGh,
 ) -> None:
-    fake_gh.respond(
-        "api",
-        "graphql",
-        with_={
-            "data": {
-                "repository": {
-                    "object": {"entries": [{"name": "CODEOWNERS", "mode": 0o100644}]}
-                }
-            }
-        },
-    )
-    content = _generated_codeowners()
-
-    def not_found(args: tuple[str, ...], stdin: str | None) -> str:
-        raise subprocess.CalledProcessError(
-            1, ["gh", *args], "", "gh: Not Found (HTTP 404)"
-        )
-
-    fake_gh.respond(
-        "api",
-        f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main",
-        with_=not_found,
-    )
-    fake_gh.respond(
-        "api",
-        f"repos/{REPO}/contents/CODEOWNERS?ref=main",
-        with_={"content": base64.b64encode(content.encode()).decode()},
-    )
-    fake_gh.respond(
-        "api", f"repos/{REPO}/codeowners/errors?ref=main", with_={"errors": []}
+    assert _accepted(
+        fake_gh, _codeowners_answer(root=(0o100644, _generated_codeowners()))
     )
 
-    assert security_preflight.has_valid_control_plane_codeowners(
-        REPO, "main", "tend-bot"
+
+def test_control_plane_codeowners_uses_the_first_file_github_would(
+    fake_gh: FakeGh,
+) -> None:
+    """A valid block lower in the search order is not the one GitHub reads."""
+    assert not _accepted(
+        fake_gh,
+        _codeowners_answer(
+            github=(0o100644, "* @someone-else\n"),
+            docs=(0o100644, _generated_codeowners()),
+        ),
+    )
+
+
+def test_control_plane_codeowners_does_not_skip_an_unreadable_higher_priority_file(
+    fake_gh: FakeGh,
+) -> None:
+    """A `CODEOWNERS` directory in `.github/` still stops the search there."""
+    assert not _accepted(
+        fake_gh,
+        _codeowners_answer(
+            github=(0o040000, None), root=(0o100644, _generated_codeowners())
+        ),
     )
 
 
 def test_control_plane_codeowners_accepts_the_generated_block_after_consumer_rules(
     fake_gh: FakeGh,
 ) -> None:
-    _codeowners(fake_gh)
     content = _generated_codeowners("* @someone-else\n/docs/ @docs-team\n")
-    fake_gh.respond(
-        "api",
-        f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main",
-        with_={"content": base64.b64encode(content.encode()).decode()},
-    )
-    assert security_preflight.has_valid_control_plane_codeowners(
-        REPO, "main", "tend-bot"
+    assert _accepted(fake_gh, _codeowners_answer(github=(0o100644, content)))
+
+
+def test_control_plane_codeowners_rejects_a_symlink(fake_gh: FakeGh) -> None:
+    """The blob of a symlink is its target path; the mode is what tells."""
+    assert not _accepted(
+        fake_gh, _codeowners_answer(github=(0o120000, _generated_codeowners()))
     )
 
 
-def test_control_plane_codeowners_rejects_dereferenced_symlink(fake_gh: FakeGh) -> None:
-    _codeowners(fake_gh)
-    fake_gh.respond(
-        "api",
-        "graphql",
-        with_={
-            "data": {
-                "repository": {
-                    "object": {"entries": [{"name": "CODEOWNERS", "mode": 0o120000}]}
-                }
-            }
-        },
-    )
-    assert not security_preflight.has_valid_control_plane_codeowners(
-        REPO, "main", "tend-bot"
-    )
+def test_control_plane_codeowners_rejects_text_github_would_not_serve(
+    fake_gh: FakeGh,
+) -> None:
+    """Binary content reads as null text; oversized content is truncated."""
+    assert not _accepted(fake_gh, _codeowners_answer(github=(0o100644, None)))
+
+    truncated = _codeowners_answer(github=(0o100644, _generated_codeowners()))
+    truncated["data"]["repository"]["github"]["isTruncated"] = True  # type: ignore[index]
+    assert not _accepted(fake_gh, truncated)
 
 
 def test_ruleset_ids_keeps_update_rules_once() -> None:

@@ -50,23 +50,28 @@ def main(
         )
         return 1
 
-    response = github_cli.json_call("api", f"{run_api}/jobs?filter=latest")
+    # `filter=latest` lists every job in the run, the ones the rerun left alone
+    # too, so on a wide matrix a re-run job can sit past the first page.
+    pages = github_cli.pages(f"{run_api}/jobs?filter=latest&per_page=100")
     job_ids = [
-        int(job["id"]) for job in response["jobs"] if int(job["run_attempt"]) == attempt
+        int(job["id"])
+        for page in pages
+        for job in page["jobs"]
+        if int(job["run_attempt"]) == attempt
     ]
     if not job_ids:
         print(f"attempt {attempt} exists but lists no jobs yet — UNVERIFIED")
         return 1
 
-    for _ in range(9):
+    # No time bound: the jobs end by their own timeouts, or the session's ends
+    # the wait.
+    while True:
         jobs = [_job(run_api, job_id) for job_id in job_ids]
         if all(job["status"] == "completed" for job in jobs):
             for job in jobs:
                 print(f"{job.get('conclusion') or ''}\t{job['name']}")
             return 0
         sleep(60)
-    print("Rerun jobs still running after 9 minutes — UNVERIFIED")
-    return 3
 
 
 if __name__ == "__main__":
