@@ -33,7 +33,7 @@ An issue the bot itself opened — a nightly failure, a CI report, a code-qualit
 
 One exception: a tracker the bot maintains for its own evidence — its body says **Do not close manually**, and later runs append to it — carries no report. End the run without commenting.
 
-Classify into one of:
+Classify into:
 
 - **Bug report** — describes unexpected behavior, includes steps to reproduce or error output. Descriptions of changed behavior ("no longer works", "used to work") strongly signal a bug even with a terse body, and so does current behavior that gives a wrong or confusing result, even when the report asks for an enhancement.
 - **Feature request** — asks for new functionality or behavior changes with a concrete expected behavior
