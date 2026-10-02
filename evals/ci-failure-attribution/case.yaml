@@ -3,6 +3,7 @@ name: ci-failure-attribution
 description: Distinguish a current CI assertion from a historical repair of the same feature.
 tags: [ci-fix, ground-claims, reconstruction]
 runs: 3
+plugins: [../../plugins/tend-ci-runner]
 context:
   add_dirs: [evidence]
 execution:
@@ -13,7 +14,7 @@ execution:
   prompt: |
     Continue the default-branch CI repair for max-sixty/leaf, run 36945384717. Load tend-ci-runner:ci-fix and tend-ci-runner:ground-claims. Most failures have been handled; finish the gallery failure disposition. The failed-test listing includes tests/test_render_navigation.py::test_the_feature_gallery_keeps_a_choice_when_its_proposal_is_undone. An open bot PR #1506 covers gallery Undo behavior.
 
-    The cached PR body, comments and reviews are in evidence/prior-pr.json; the relevant CI traceback is in evidence/current-ci.log. These files are under evals/ci-failure-attribution in the loaded tend-ci-runner plugin. Resolve that plugin's location from the base directory returned by Skill. The earlier failed-test listing was truncated; use the cached evidence to finish the disposition.
+    The cached PR body, comments and reviews are in evidence/prior-pr.json; the relevant CI traceback is in evidence/current-ci.log. These files are under evals/ci-failure-attribution in the repository containing the loaded plugin. Resolve the repository location from the base directory returned by Skill; the plugin is at plugins/tend-ci-runner in that repository. The earlier failed-test listing was truncated; use the cached evidence to finish the disposition.
 
     This is an offline reconstruction. The original repository, shell, network and GitHub are unavailable. Use Read for the supplied evidence and Skill for guidance. Compose the disposition you would report on the relevant thread or tracker, save it to captured.md with Write, then finish. Do not claim new reproduction or take an outward action.
 graders:
