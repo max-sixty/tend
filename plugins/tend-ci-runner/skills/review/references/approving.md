@@ -16,7 +16,7 @@ Add the same `--skip` arguments `/tend-ci-runner:monitor-ci` passes the poll, so
 
 It judges the latest run of each check outside this run and this workflow, and prints one verdict:
 
-- **`approve:`** — post the `APPROVE`. When it lists checks as unverified, those checks settled with no result — cancelled, stale, or a conclusion the script doesn't recognize — so nothing red stands but they did not pass either; name them in the review body.
+- **`approve:`** — post the `APPROVE`. When it lists checks as unverified, those checks settled with no result — cancelled, stale, held for an environment's approval, or a conclusion the script doesn't recognize — so nothing red stands but they did not pass either; name them in the review body.
 - **`withhold:`** — a check failed on its own merits. Skip the close-out and finish. If **no prior substantive bot review** stands on this PR, post a brief `COMMENT` stating the diff assessment and the failing check that withholds approval, so a clean dependency bump isn't left with no review signal; an earlier substantive review already stands as the verdict. On a bot PR where you intend to push the fix yourself (**Push fixes**), post that `COMMENT` before pushing, while the checks it names are still the current ones.
 
 Any other exit or command timeout decided nothing: don't approve, and report the approval as unverified.
