@@ -42,7 +42,7 @@ anything — a deliberately maintained hard fork keeps its own name.
 
 A config from a finished install makes this a change: take the harness from
 the config, lay out only the steps the task touches, and start. Finished
-means `uvx tend@latest check` passes — secrets, bot access, protection —
+means `uvx tend@latest check --repo "$REPO"` passes — secrets, bot access, protection —
 *and* the workflows are live on the default branch, which that check does
 not look at under `restricted` (step 11 commits without pushing, so an
 install can stop with everything else in place):
@@ -1076,7 +1076,9 @@ A failure here is a real one — fix it before committing. Under `yolo`,
 the checks that need the install on the default branch —
 `branch-protection:<default>`, `control-plane-codeowners`,
 `control-plane-ruleset`, and `yolo-workflows` — fail until the install PR
-merges and §3 is rerun; any other failure is real.
+merges and §3 is rerun. Until then no branch verifies for the `environment`
+check either, so the run ends with "Yolo security checks are incomplete"
+rather than a plain non-zero exit. Any other failure is real.
 
 Stage all changes:
 
