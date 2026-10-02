@@ -1,0 +1,21 @@
+{
+  "repository": "max-sixty/tend",
+  "run": "36986954640",
+  "artifact": "claude-session-logs-n1478",
+  "transcript": "-home-runner-work-tend-tend/a737af0a-3582-472e-933f-ebed1a9f03d9.jsonl",
+  "sha256": "ab83c1ebb0f91db032862142f6450f7a1a1eb707731dbfd6dacadd75115f4ba5",
+  "historical_ref": "cb80c7167c03eb46ddd49fadf71c7290d3ef6729",
+  "bot": "tend-agent",
+  "model": "claude-opus-5-5",
+  "loaded_skills": [
+    "review",
+    "run-tend",
+    "code-review",
+    "post-to-github"
+  ],
+  "append_sha256": "1fa0c4cc6a3958f06b0e000e8d57b4f56c55362121e3fef4d8fd080e3b37d862",
+  "pr": "https://github.com/max-sixty/tend/pull/1478",
+  "before": "2026-10-02T08:59:09.183Z",
+  "review": "https://github.com/max-sixty/tend/pull/1478#pullrequestreview-5389974850",
+  "replay_note": "The original reference was read through Bash, which the preparer retains as evidence. Both arms re-read their staged draft-mode reference before composing, so the current arm acts on the edited guidance."
+}
