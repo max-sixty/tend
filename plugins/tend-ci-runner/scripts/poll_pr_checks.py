@@ -303,8 +303,8 @@ def approval(
 
     A check that settled without a result — cancelled, stale, held for an
     environment's approval, or a conclusion outside the passing set — never
-    reached a verdict, so it cannot withhold on its merits. It approves, named as unverified so the approval doesn't read
-    as a check that passed.
+    reached a verdict, so it cannot withhold on its merits. It approves, named
+    as unverified so the approval doesn't read as a check that passed.
 
     A head that moves during that wait leaves the approval undecided; otherwise
     whether *sha* is still the head is not judged here: the review skill posts
