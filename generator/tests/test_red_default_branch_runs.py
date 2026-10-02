@@ -4,7 +4,8 @@ The Actions listings answer one URL from more than one snapshot, and reading
 the stale one costs an outward action: the omitted rows are the newest, so the
 sweep publishes "the default branch is green" while a failure stands on it.
 Convergence is the behaviour under test — the fake `gh` serves a different page
-per read of the same URL, which is what the real endpoint does.
+per read of the same listing, or one durably cached page per URL, which is what
+the real endpoint does.
 """
 
 from __future__ import annotations
@@ -35,21 +36,33 @@ DEPENDABOT_ID = 348683058
 # shorter one returned everything there is.
 PER_PAGE = 50
 
-# Reads of the same URL are answered from `$RUNS_DIR/<prefix>-<n>.json`, one
-# file per read, falling back to the newest staged file once the reads outrun
-# them — so a single staged page is a consistent endpoint and several are a
-# moving one. Both listings the script reads work this way: the red rows under
-# the conclusion's name, the closure read under `green-<workflow>`.
+# Reads of the same listing are answered from `$RUNS_DIR/<prefix>-<n>.json`,
+# one file per read, falling back to the newest staged file once the reads
+# outrun them — so a single staged page is a consistent endpoint and several are
+# a moving one. Both listings the script reads work this way: the red rows under
+# the conclusion's name, the closure read under `green-<workflow>`. A staged
+# `<prefix>-per_page-<k>.json` is a durable cache entry instead: every read at
+# that `per_page` gets it, whatever the other URLs answer. Each answer is cut to
+# the `per_page` the URL asked for, as the endpoint does.
 FAKE_GH = (
     GH_PREAMBLE
     + r"""
+page() {
+  emit "$(jq -c --argjson n "$per_page" '.workflow_runs |= .[:$n]' "$1")"
+}
+
 serve() {
+  per_page="${args#*per_page=}"
+  per_page="${per_page%%&*}"
+  if [ -f "$RUNS_DIR/$1-per_page-$per_page.json" ]; then
+    page "$RUNS_DIR/$1-per_page-$per_page.json"; return 0
+  fi
   counter="$RUNS_DIR/count-$1"
   n=$(( $(cat "$counter" 2>/dev/null || echo 0) + 1 ))
   printf '%s' "$n" > "$counter"
   i="$n"
   while [ "$i" -ge 1 ]; do
-    if [ -f "$RUNS_DIR/$1-$i.json" ]; then emit "$(cat "$RUNS_DIR/$1-$i.json")"; return 0; fi
+    if [ -f "$RUNS_DIR/$1-$i.json" ]; then page "$RUNS_DIR/$1-$i.json"; return 0; fi
     i=$(( i - 1 ))
   done
   return 1
@@ -122,9 +135,12 @@ def _green(
     *,
     read: int = 1,
     rid: int = 1,
+    per_page: int | None = None,
 ) -> None:
-    """Stage the answer the *read*-th closure read of *workflow* receives."""
-    path = Path(env["RUNS_DIR"]) / f"green-{workflow}-{read}.json"
+    """Stage the answer the *read*-th closure read of *workflow* receives, or
+    with *per_page* the durable answer every read at that page size gets."""
+    key = read if per_page is None else f"per_page-{per_page}"
+    path = Path(env["RUNS_DIR"]) / f"green-{workflow}-{key}.json"
     path.write_text(
         json.dumps(
             {
@@ -335,7 +351,8 @@ def test_the_coverage_floor_comes_from_the_settled_page(
         ),
     )
     # Reads 2 and 3 settle on a full page from a September window, so nothing
-    # between July and September was ever read.
+    # between July and September was ever read. They ask for one and two rows
+    # fewer than the stale read, so the oldest September row seen is the 49th.
     _page(
         env,
         "failure",
@@ -349,10 +366,51 @@ def test_the_coverage_floor_comes_from_the_settled_page(
 
     sweep = _sweep(env)
 
-    assert sweep["reached_back_to"] == "2026-09-01T00:00:00Z"
+    assert sweep["reached_back_to"] == "2026-09-01T00:01:00Z"
     # The stale page's rows are still reported: the union is what keeps a row a
     # later read stopped returning, and only the coverage claim is bounded.
-    assert len(sweep["live"]) == 2 * PER_PAGE
+    # The September row past the 49th was never returned, so it is not.
+    assert len(sweep["live"]) == 2 * PER_PAGE - 1
+
+
+def test_a_cached_closure_page_cannot_settle_the_read_alone(
+    env: dict[str, str],
+) -> None:
+    """A durable cache entry answers every read of its URL from one snapshot,
+    so re-reading that URL agrees with itself however stale it is. The reads
+    have to address different URLs for agreement to mean anything: the fresh
+    green reached through another page size closes the fixed path."""
+    _page(env, "failure", 1, _red(100, "2026-09-15T00:00:00Z"))
+    _green(env, "ci.yaml", "2026-09-23T07:49:08Z", rid=2)
+    _green(env, "ci.yaml", "2026-09-08T22:05:56Z", per_page=1)
+
+    sweep = _sweep(env)
+
+    assert sweep["live"] == []
+    assert sweep["latest_green_by_path"] == {CI: "2026-09-23T07:49:08Z"}
+
+
+def test_a_cached_red_page_cannot_hide_the_newest_failure(
+    env: dict[str, str],
+) -> None:
+    """The red listing's durable entry drops the newest rows, the direction
+    that publishes a live failure as an all-clear. Reads at other page sizes
+    miss the entry and return the row it omits."""
+    _page(
+        env,
+        "failure",
+        1,
+        _red(200, "2026-09-14T00:00:00Z"),
+        _red(100, "2026-09-01T00:00:00Z"),
+    )
+    path = Path(env["RUNS_DIR"]) / f"failure-per_page-{PER_PAGE}.json"
+    path.write_text(json.dumps({"workflow_runs": [_red(100, "2026-09-01T00:00:00Z")]}))
+    _green(env, "ci.yaml", "2026-08-01T00:00:00Z")
+
+    sweep = _sweep(env)
+
+    assert [row["id"] for row in sweep["live"]] == [200, 100]
+    assert sweep["unconverged_listings"] == []
 
 
 def test_a_later_green_closes_the_path(env: dict[str, str]) -> None:
