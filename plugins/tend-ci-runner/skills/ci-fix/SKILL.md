@@ -28,7 +28,7 @@ durable cause, and create a PR when code or configuration needs to change.
 
 1. Read the run's conclusion and jobs: `gh run view <run-id> --json conclusion,jobs,url`
 2. For a failure, read its logs: `gh run view <run-id> --log-failed`. If the output is truncated or only lists failed tests, save it and read the deciding diagnostic before matching prior work.
-3. For a cancellation, use the job and step conclusions from step 1. Its log
+3. For a cancellation, use the job and step conclusions from the first command. Its log
    archive may not exist; a failed job inside the cancelled run is the signal
    to diagnose, not a log fetch.
 
@@ -57,7 +57,7 @@ Match the current diagnostic evidence against the candidate PR's diagnosis and d
 - If an existing **open** PR addresses the same failure, comment on it per `/tend-ci-runner:post-to-github` with what this run adds to that thread, and stop.
 - If a **closed** PR with a maintainer rejection covers the same failure, exit silently; check the closure comment for the rationale before referencing it. Re-deriving the same fix forces a maintainer to close it twice.
 
-Also check for open tracking issues left by a prior unfixable diagnosis (see 4b) — if one matches the current failure shape, the fix PR you eventually open should reference it via `Fixes #<n>` so the issue closes when the PR merges:
+Also check for open tracking issues left by a prior unfixable diagnosis (see 4b) — compare candidate diagnoses per **Claims of recurrence** in `/tend-ci-runner:ground-claims`. If one covers the current failure, the fix PR you eventually open should reference it via `Fixes #<n>` so the issue closes when the PR merges:
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
@@ -106,7 +106,7 @@ gh issue list --state all --label tend-outage --author "$BOT_LOGIN" \
 
 Both filters are load-bearing: the label keeps 4b's durable trackers out, and the title keeps out the `report_failure.py` **"Bot temporarily unavailable"** issues, which carry the same label and author and vastly outnumber these — without it the first page is all outage rows and the count reads zero.
 
-Match by failure-shape keyword against the issue body (e.g. `rustup-init`, `composer connect timeout`, `docker pull rate limit`) — not by job name. The same root cause can surface on multiple jobs.
+Use failure-shape keywords (e.g. `rustup-init`, `composer connect timeout`, `docker pull rate limit`) to find candidates. Read their diagnoses and compare the evidence per **Claims of recurrence** in `/tend-ci-runner:ground-claims` before counting occurrences. A keyword match finds evidence to inspect, not an occurrence to count; the same proven cause can surface on multiple jobs.
 
 If the current failure shape has 2+ prior occurrences on separate days within the past 7, escalate to durable: a fault that keeps coming back within a week is not transient even when individual reruns pass. Count occurrences, not trackers — the same root cause taking down several jobs in one afternoon files several trackers and is still one occurrence.
 
@@ -130,7 +130,7 @@ If the diagnosis identifies a durable root cause but a safe fix can't be produce
 
 Leave the issue **open**, so maintainers have a durable "still broken" signal until a fix ships. A subsequent fix PR closes it via `Fixes #<n>` in the PR body (see step 2 — search for a matching open tracking issue before opening the fix PR).
 
-**Dedup first.** Search for an open tracking issue covering the same failure shape; if one exists, post an update on it rather than opening a duplicate. Match by failure shape (workflow name + diagnostic snippet), not run ID — each run ID is unique and won't dedup:
+**Dedup first.** Search for an open tracking issue covering the same failure shape; if one exists, post an update on it rather than opening a duplicate. Use failure-shape keywords to find candidates, then match their diagnostic evidence per **Claims of recurrence** in `/tend-ci-runner:ground-claims`, not run ID — each run ID is unique and won't dedup:
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
@@ -138,14 +138,17 @@ gh issue list --state open --author "$BOT_LOGIN" --search "ci-fix: in:title" \
   --json number,title,body --limit 100
 ```
 
-If an open tracking issue matches, read its whole thread first — the listing above returns only the body:
+Read each candidate tracker's whole thread before matching or composing a recurrence update — the listing above returns only the body:
 
 ```bash
 gh issue view <issue-number> --json body,comments
-gh issue comment <issue-number> --body-file "$TMPDIR/recurrence.md"
 ```
 
-The comment is an update for people following the tracker, not a log entry for this run. They already know CI is failing and have read the earlier reports, so tell them what they don't know yet: what changed since the thread's last update — failures that are new or now pass, a fix that merged or is still in flight, a revised diagnosis — or, when nothing did, that the same failures continue and this run is the latest case. Write it from that delta rather than from the shape of the earlier comments; the run link and supporting diagnosis back it up rather than open it.
+When the diagnostic comparison establishes a match, update that tracker. The comment is an update for people following the tracker, not a log entry for this run. They already know CI is failing and have read the earlier reports, so tell them what they don't know yet: what changed since the thread's last update — failures that are new or now pass, a fix that merged or is still in flight, a revised diagnosis — or, when nothing did, that the same failures continue and this run is the latest case. Write it from that delta rather than from the shape of the earlier comments; the run link and supporting diagnosis back it up rather than open it. Compose `$TMPDIR/recurrence.md` and post per `/tend-ci-runner:post-to-github`:
+
+```bash
+gh issue comment <issue-number> --body-file "$TMPDIR/recurrence.md"
+```
 
 Otherwise, open a new tracking issue per `/tend-ci-runner:open-pr`. Use a title prefix that future runs can search on (`ci-fix: <workflow-name> failing`) with a short root-cause suffix for human readability:
 
