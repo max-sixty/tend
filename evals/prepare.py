@@ -1,9 +1,10 @@
-"""Prepare historical decision replays for native Claude plugin evals.
+"""Prepare historical decision replays for Promptfoo’s Claude Agent SDK provider.
 
 Preparation owns evidence download, transcript cutoffs and guidance replacement;
-Claude Code executes and scores. Inputs are hash-verified and original bad answers
-stay outside every executor's retained history. Prepared plugins are disposable;
-rebuild them before a comparison, never while an eval is using them.
+Promptfoo executes Claude Code and grades its written PR body. Inputs are
+hash-verified; original bad answers stay outside every retained history.
+Prepared plugins are disposable; rebuild before a comparison, never while an
+eval is using them.
 Sources are cached outside the worktree, keyed by transcript hash.
 
 Prototype: future case authors may need to refine prompt extraction and skill
@@ -218,17 +219,39 @@ def prepare_history(
 
 
 def main() -> None:
+    config = {
+        "description": "Tend production regressions: historical versus current guidance",
+        "evaluateOptions": {"timeoutMs": 600_000},
+        "prompts": ["{{task}}"],
+        "defaultTest": {
+            "assert": [{"type": "regex", "value": r"\S"}],
+            "options": {
+                "transform": "file://../../../evals/capture.cjs",
+                "provider": {
+                    "id": "anthropic:claude-agent-sdk",
+                    "config": {
+                        "model": "claude-sonnet-5",
+                        "apiKeyRequired": False,
+                        "setting_sources": [],
+                        "persist_session": False,
+                        "settings": {"autoMemoryEnabled": False},
+                        "max_turns": 1,
+                    },
+                },
+            },
+        },
+        "providers": [],
+        "tests": [],
+    }
     for case in sorted(CASES.iterdir()):
         source = json.loads((case / "source.json").read_text())
         transcript = fetch(source)
         entries = [json.loads(line) for line in transcript.read_text().splitlines()]
         prefix = cut_history(entries, source["before"])
         prompt = append_prompt(source)
+        test = YAML_IO.load((case / "case.yaml").read_text())
         for arm in ("historical", "current"):
-            plugin = PREPARED / arm / "tend-ci-runner"
-            # Cases have different historical versions, so each case's plugin is
-            # independently staged under that case and referenced by native YAML.
-            destination = plugin / "evals" / case.name
+            destination = PREPARED / arm / case.name
             staged_plugin = destination / "plugin"
             if destination.exists():
                 shutil.rmtree(destination)
@@ -247,43 +270,70 @@ def main() -> None:
                     check=True,
                     capture_output=True,
                 ).stdout
+                staged_plugin.mkdir()
                 subprocess.run(
-                    ["tar", "-x", "--strip-components=2", "-C", str(destination)],
+                    ["tar", "-x", "--strip-components=2", "-C", str(staged_plugin)],
                     input=archive,
                     check=True,
                 )
-                # archive paths start plugins/tend-ci-runner/; extraction places
-                # the plugin's files in destination before moving them below plugin.
-                staged_plugin.mkdir()
-                for path in list(destination.iterdir()):
-                    if path != staged_plugin:
-                        path.rename(staged_plugin / path.name)
             payload, replaced = prepare_history(
                 prefix,
                 staged_plugin,
                 current=arm == "current",
                 expected=source["loaded_skills"],
             )
-            (destination / "history.jsonl").write_text(payload)
-            config = YAML_IO.load((case / "case.yaml").read_text())
-            config["plugins"] = ["plugin"]
-            config["execution"]["append_system_prompt"] = (
+            history = destination / "history.jsonl"
+            history.write_text(payload)
+            guidance = (
                 prompt.replace(
                     "/tend-ci-runner:running-in-ci", "/tend-ci-runner:run-tend"
                 )
                 if arm == "current"
                 else prompt
             )
-            YAML_IO.dump(config, destination / "case.yaml")
+            label = f"{case.name}/{arm}"
+            config["providers"].append(
+                {
+                    "id": "anthropic:claude-agent-sdk",
+                    "label": label,
+                    "config": {
+                        "model": source["model"],
+                        "apiKeyRequired": False,
+                        "resume": str(history),
+                        "fork_session": True,
+                        "persist_session": False,
+                        "setting_sources": [],
+                        "plugins": [{"type": "local", "path": str(staged_plugin)}],
+                        "additional_directories": [str(staged_plugin)],
+                        "settings": {
+                            "autoMemoryEnabled": False,
+                            "permissions": {
+                                "blockReadsOutsideWorkingDirectories": True
+                            },
+                        },
+                        "strict_mcp_config": True,
+                        "append_system_prompt": guidance,
+                        "custom_allowed_tools": [
+                            "Read",
+                            "Skill",
+                            "Edit(./captured.md)",
+                        ],
+                        "tools": ["Read", "Skill", "Write"],
+                        "permission_mode": "dontAsk",
+                        "max_turns": 12,
+                        "env": {
+                            "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+                        },
+                    },
+                }
+            )
             provenance = source | {
                 "arm": arm,
                 "retained_rows": len(prefix),
                 "excluded_rows": len(entries) - len(prefix),
                 "history_sha256": hashlib.sha256(payload.encode()).hexdigest(),
                 "replaced_skills": replaced,
-                "append_sha256": hashlib.sha256(
-                    config["execution"]["append_system_prompt"].encode()
-                ).hexdigest(),
+                "append_sha256": hashlib.sha256(guidance.encode()).hexdigest(),
             }
             (destination / "provenance.json").write_text(
                 json.dumps(provenance, indent=2) + "\n"
@@ -291,14 +341,8 @@ def main() -> None:
             print(
                 f"Prepared {arm}/{case.name}: {len(prefix)}/{len(entries)} retained rows, {len(replaced)} skill replacements"
             )
-        # A manifest lets the native command load the common case directory;
-        # each case resolves its actual version through its own plugins field.
-        for arm in ("historical", "current"):
-            manifest = PREPARED / arm / "tend-ci-runner/.claude-plugin/plugin.json"
-            manifest.parent.mkdir(parents=True, exist_ok=True)
-            manifest.write_text(
-                json.dumps({"name": "tend-evals", "version": "0.0.0"}) + "\n"
-            )
+        config["tests"].append(test | {"providers": [f"{case.name}/*"]})
+    YAML_IO.dump(config, PREPARED / "promptfooconfig.yaml")
 
 
 if __name__ == "__main__":
