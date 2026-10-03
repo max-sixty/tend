@@ -6,10 +6,9 @@ of building it if revisited.
 ## Check revocation of Tend's previous Codex subscription login
 
 The replacement login is installed, and hosted refresh and agent token reporting
-are verified. Replacing GitHub secrets cannot revoke the previous login, which
-may remain valid. A maintainer must check that ChatGPT account's security
-settings for an individual session-revocation control; avoid invalidating the
-new login with an account-wide logout.
+are verified. The previous login's issuer-side revocation remains unverified.
+Complete the maintainer's account-side check under **Harness = codex** in
+`/install-tend:install-tend`.
 
 ## Thread memory: deterministic prep of prior conversations
 
