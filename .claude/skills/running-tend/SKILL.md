@@ -159,6 +159,16 @@ separate question the listing cannot answer; compare it against the harness
 `.config/tend.yaml` configures, and on a mismatch check what else that config
 change was supposed to carry.
 
+## Nightly: update the Codex model
+
+Read the current Codex model catalog once and compare it with
+`DEFAULT_MODEL_BY_HARNESS["codex"]` and Codex model pins in
+`.config/tend.yaml`. If there is no newer candidate in the same capability
+tier, finish this check. For a candidate, verify its capability and price tier
+from OpenAI's model and pricing docs rather than name similarity. Move each
+default or pin only within the same tier (for example, Sol tier to Sol tier).
+A cross-tier change is a product decision, not routine maintenance.
+
 ## Weekly: refresh `data/consumers.json`
 
 Public repos that have installed tend. Read by the website's data Worker
@@ -206,13 +216,6 @@ For any similarly relevant note, search the code, issues, and PRs first. Open a
 PR when the change is small enough to make and verify in this run; reserve an
 issue for what needs a maintainer decision or verification CI can't reach,
 linking the release and proposing the change.
-
-Compare the current Codex model catalog with
-`DEFAULT_MODEL_BY_HARNESS["codex"]` and Codex model pins in
-`.config/tend.yaml`. Move each to a newer model only within the same capability
-and price tier (for example, Sol tier to Sol tier), verified from OpenAI's model
-and pricing docs rather than name similarity. A cross-tier change is a product
-decision, not routine maintenance.
 
 ## Weekly: bump pinned versions
 
