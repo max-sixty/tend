@@ -864,11 +864,10 @@ def generate_all(
     relay_cfg = cfg.workflows.get("mention-relay", WorkflowConfig())
     if cfg.workflows.get("mention", WorkflowConfig()).enabled and relay_cfg.enabled:
         results.append(_apply_extras(generate_mention_relay(cfg), relay_cfg))
-    if "codex" in cfg.enabled_harnesses():
+    if "codex" in cfg.enabled_harnesses() and cfg.codex.auth_refresh:
         wf_cfg = cfg.workflows.get("codex-auth-refresh", WorkflowConfig())
-        if wf_cfg.enabled:
-            wf = generate_codex_auth_refresh(cfg)
-            results.append(_apply_extras(wf, wf_cfg))
+        wf = generate_codex_auth_refresh(cfg)
+        results.append(_apply_extras(wf, wf_cfg))
     if with_install_test:
         wf = generate_install_test(cfg)
         wf_cfg = cfg.workflows.get("install-test", WorkflowConfig())

@@ -1970,11 +1970,11 @@ def test_codex_auth_refresher_honors_workflow_config(tmp_path: Path) -> None:
     assert refresh["jobs"]["refresh"]["runs-on"] == "ubuntu-22.04"
 
 
-def test_codex_auth_refresher_can_be_disabled(tmp_path: Path) -> None:
+def test_codex_external_auth_omits_the_refresher(tmp_path: Path) -> None:
     cfg = Config.load(
         _minimal_config(
             tmp_path,
-            "harness: codex\nworkflows:\n  codex-auth-refresh:\n    enabled: false\n",
+            "harness: codex\ncodex:\n  auth_refresh: false\n",
         )
     )
 

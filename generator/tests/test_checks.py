@@ -55,6 +55,7 @@ from tend.config import (
     MEMORY_GIST_SECRET,
     OPENAI_KEY_SECRET,
     STANDARD_WORKFLOWS,
+    CodexConfig,
     Config,
     WorkflowConfig,
 )
@@ -73,6 +74,7 @@ def _config(
     memory_gist: bool = False,
     merge: str = "restricted",
     workflows: dict[str, WorkflowConfig] | None = None,
+    codex: CodexConfig | None = None,
 ) -> Config:
     """Build a Config for tests without hand-listing every positional arg."""
     return Config(
@@ -84,6 +86,7 @@ def _config(
         effort="",
         setup=[],
         workflows=workflows or {},
+        codex=codex or CodexConfig(),
         memory_gist=memory_gist,
         merge=merge,
     )
@@ -2477,7 +2480,39 @@ def test_codex_engine_rejects_partial_subscription_auth_even_with_api_key() -> N
     assert CODEX_REFRESH_PAT_SECRET in codex.message
 
 
-def test_codex_rejects_refresh_secrets_in_consumer_environment() -> None:
+@pytest.mark.parametrize(
+    "refresh_secrets", [(), (CODEX_REFRESH_AUTH_SECRET, CODEX_REFRESH_PAT_SECRET)]
+)
+def test_codex_external_refresh_requires_only_consumer_auth(refresh_secrets) -> None:
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch(
+            "tend.checks._gh",
+            side_effect=_gh_all_pass(
+                environment_secrets=(BOT_TOKEN_SECRET, CODEX_AUTH_SECRET),
+                refresh_secrets=refresh_secrets,
+            ),
+        ),
+    ):
+        results = run_all_checks(
+            _config(
+                harness="codex",
+                codex=CodexConfig(auth_refresh=False),
+            ),
+            repo="owner/repo",
+        )
+    codex = next(result for result in results if result.name == "codex-auth")
+    assert codex.passed is (not refresh_secrets)
+    if refresh_secrets:
+        assert "remove unused secrets" in codex.message
+        assert next(r for r in results if r.name == "codex-refresh-environment").passed
+    else:
+        assert "external refresher" in codex.message
+        assert not any(r.name == "codex-refresh-environment" for r in results)
+
+
+@pytest.mark.parametrize("refresh_enabled", [True, False])
+def test_codex_rejects_refresh_secrets_in_consumer_environment(refresh_enabled) -> None:
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch(
@@ -2493,10 +2528,19 @@ def test_codex_rejects_refresh_secrets_in_consumer_environment() -> None:
             ),
         ),
     ):
-        results = run_all_checks(_config(harness="codex"), repo="owner/repo")
+        results = run_all_checks(
+            _config(
+                harness="codex",
+                codex=CodexConfig(auth_refresh=refresh_enabled),
+            ),
+            repo="owner/repo",
+        )
     codex = next(result for result in results if result.name == "codex-auth")
     assert codex.passed is False
     assert "agent jobs can read secrets" in codex.message
+    if not refresh_enabled:
+        assert "Remove" in codex.message
+        assert CODEX_REFRESH_ENVIRONMENT not in codex.message
 
 
 def test_codex_refresh_environment_requires_main_only() -> None:

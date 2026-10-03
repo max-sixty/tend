@@ -777,15 +777,27 @@ that mode. If neither secret exists, use the mode selected at Kickoff or
 ask the user to choose between the two Codex options there.
 
 For **Plus/Pro subscription**, explain that the path is experimental because it
-depends on Codex's internal auth mode. Give this repository's generated
+depends on Codex's internal auth mode. Follow the external or hosted path
+according to `codex.auth_refresh`.
+
+#### External subscription refresh (`auth_refresh: false`)
+
+Regenerate to remove the weekly workflow, wait for any existing
+refresh runs to finish, and have the external refresher publish access-only
+`CODEX_AUTH_JSON` in `tend` before it expires. Remove unused secrets from
+`tend-codex-refresh`. Do not run the hosted provisioner or mint its PAT in
+this mode. After verifying `CODEX_AUTH_JSON` in `tend`, continue to step 8.
+See **Experimental Codex subscription auth** in `references/security-model.md`.
+
+#### Hosted subscription refresh (default)
+
+Give this repository's generated
 `tend-codex-auth-refresh` workflow a full login with its own refresh-token
 chain. Do not copy another repository's full `auth.json` or the user's
 `~/.codex/auth.json`: rotating a shared token would break the other
 refresher. Separate device logins on one ChatGPT account have not been
 verified to remain independent; use a dedicated account for this repository
-unless that independence has been verified. If
-`workflows.codex-auth-refresh.enabled: false` is set,
-remove the override and regenerate the workflow for unattended CI.
+unless that independence has been verified.
 
 Run the bundled provisioner yourself. The user approves the device login in
 their browser; they do not run commands or handle the resulting Codex
@@ -842,7 +854,9 @@ into chat. Finish only after the consumer secret appears in `tend` and both
 refresh secrets appear in `tend-codex-refresh`. Remove any old copies from
 `tend`; `tend check` rejects them because agent jobs can read them.
 
-For **API key**, the user takes a key from
+#### API key
+
+The user takes a key from
 `https://platform.openai.com/api-keys` and runs this themselves, pasting it at
 the prompt:
 
@@ -1109,7 +1123,7 @@ line picks the row that matches the chosen harness):
 - [ ] Badge: added to README (unless skipped, or no README)
 - [ ] Bot account: `<bot-name>` exists on GitHub
 - [ ] Harness auth (claude): `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` secret set
-- [ ] Harness auth (codex): `OPENAI_API_KEY`, or `CODEX_AUTH_JSON` in `tend` plus `CODEX_REFRESH_AUTH_JSON` and `CODEX_REFRESH_PAT` in `tend-codex-refresh`
+- [ ] Harness auth (codex): `OPENAI_API_KEY`, or subscription auth per step 7b (hosted or external refresh)
 - [ ] Bot token: `TEND_BOT_TOKEN` set with `repo`+`workflow`+`notifications`+`write:discussion`+`gist`+`user` scopes
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot notifications: watching the repository
