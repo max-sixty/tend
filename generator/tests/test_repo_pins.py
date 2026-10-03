@@ -460,7 +460,8 @@ def test_privileged_sandbox_launch_scrubs_consumer_runtime_configuration(
     assert step["env"]["PS4"] == ""
     assert run.startswith("set +x\n")
     assert "/usr/bin/env -i" in run
-    assert "/usr/bin/python3 -E -s" in run
+    assert "PATH=/usr/sbin:/usr/bin:/sbin:/bin" in run
+    assert "python3 -E -s" in run
 
 
 # Set to neutralize this step's own shell, not to reach the script: `env -i`

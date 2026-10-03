@@ -270,7 +270,7 @@ runs:
           TEND_RUNTIME_ROOT="$TEND_RUNTIME_ROOT" \
           TEND_UV_DIR="$TEND_UV_DIR" \
           UV_CACHE_DIR="$UV_CACHE_DIR" \
-          /usr/bin/python3 -E -s \
+          python3 -E -s \
             "${{ github.action_path }}/../proxy/setup_sandbox.py"
 
     # OpenAI's proxy forwards only POST /v1/responses upstream, reads the key
