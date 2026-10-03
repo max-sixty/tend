@@ -3,26 +3,23 @@
 Deferred work and unimplemented options. Each entry should justify the cost
 of building it if revisited.
 
-## Cut tend over to harness = "codex" (post-release)
+## Verify Tend's Codex rollout
 
-The Codex harness landed but tend itself still runs on Claude. The cutover
-needs the release sequence:
+Before merging the prepared cutover, provision a repository-owned subscription
+login and refresh PAT using **Harness = codex** in `/install-tend:install-tend`.
+The login must have a refresh-token chain independent of other repositories
+and the local Codex login; secret names and timestamps cannot establish that.
+Keep access-only `CODEX_AUTH_JSON` in `tend`, and the full
+`CODEX_REFRESH_AUTH_JSON` plus `CODEX_REFRESH_PAT` in the default-branch-only
+`tend-codex-refresh` environment. Remove the misplaced refresh secrets from
+`tend`, then require `tend check` to pass.
 
-1. Land the harness support PR on `main`.
-2. Cut a release so the new tag (with `codex/action.yaml`) is what the
-   version-pinned action ref resolves to.
-3. Edit `.config/tend.yaml`: add `harness: codex` (and optionally
-   `effort: medium`) and `model: gpt-5.6-sol`.
-4. Set `OPENAI_API_KEY` secret on `max-sixty/tend`.
-   Drop `CLAUDE_CODE_OAUTH_TOKEN` from `secrets.allowed` once unused.
-5. `uvx tend@latest init` to regenerate workflows. Commit both the config
-   and the regenerated `tend-*.yaml` files in one commit.
-6. The first nightly run after merge dogfoods the new path; watch
-   `/activity` for the first review/triage and confirm token-usage parsing
-   reports non-zero values.
-
-Doing this in the same PR that ships the action would temporarily break
-tend's own CI between merge and the release tag bump.
+Pause Tend with `TEND_ENABLED=false` before merging. Once the workflows reach
+`main`, dispatch the serialized refresher and verify it publishes the next
+access-only auth bundle. Restore the previous variable value, verify an agent
+run, and confirm token reporting counts that run's Codex tokens. Local workflow
+generation and tests verify the wiring; they do not verify stored credentials,
+refresh-chain independence, or hosted authentication.
 
 ## Thread memory: deterministic prep of prior conversations
 
