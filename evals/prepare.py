@@ -75,7 +75,7 @@ def git(*args: str, cwd: Path | None = None) -> str:
 
 
 def stage_checkout(checkout: dict, destination: Path) -> None:
-    """Fetch pinned local commits into an independent checkout, without alternates."""
+    """Fetch pinned ancestry into an independent checkout, without alternates."""
     for name in ("head", "base"):
         checkout[name]
     if set(checkout) - {"head", "base", "previous_review_head"}:
@@ -88,7 +88,6 @@ def stage_checkout(checkout: dict, destination: Path) -> None:
     git(
         "fetch",
         "--quiet",
-        "--depth=3",
         str(ROOT),
         *dict.fromkeys(checkout.values()),
         cwd=destination,

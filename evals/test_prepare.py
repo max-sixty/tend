@@ -164,6 +164,9 @@ def test_trajectory_checkout_is_pinned_and_independent(
     repository, tmp_path, monkeypatch
 ):
     base = git(repository, "rev-parse", "HEAD")
+    for number in range(5):
+        (repository / "README.md").write_text(f"Earlier PR push {number}\n")
+        commit(repository, f"Earlier PR push {number}")
     (repository / "README.md").write_text("Previously reviewed tree\n")
     previous = commit(repository, "Previous review")
     (repository / "README.md").write_text("Requested review tree\n")
@@ -192,7 +195,11 @@ def test_trajectory_checkout_is_pinned_and_independent(
     assert (destination / "README.md").read_text() == "Requested review tree\n"
     assert git(destination, "cat-file", "-t", previous) == "commit"
     assert git(destination, "cat-file", "-t", base) == "commit"
+    assert git(destination, "merge-base", "base", "HEAD") == base
+    assert git(destination, "diff", "base...HEAD", "--", "README.md")
     assert git(destination, "diff", previous, head, "--", "README.md")
+    with pytest.raises(subprocess.CalledProcessError):
+        git(destination, "cat-file", "-t", future)
     assert not (destination / ".git/objects/info/alternates").exists()
     assert not (destination / ".git/personal-template-marker").exists()
     assert not any(
