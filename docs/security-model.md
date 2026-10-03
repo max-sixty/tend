@@ -529,9 +529,9 @@ launch; and the PAT and API credentials are never
 written to the agent's env or disk. The injection
 allowlist is exact-match on the connection's real destination, so a request to
 a lookalike host gets no token. The GitHub proxy is launched by a pinned `uv`
-that Tend installs into its own directory, off `$PATH`, so the process holding the PAT
-starts from a known binary rather than whatever a consumer's
-`setup:` happened to leave on the runner. (`claude` is Node and ignores the
+that Tend installs into its own directory, using the dependencies locked in
+Tend's release. Consumer `setup:` runs with runner authority before isolation
+and selects the job's tools through PATH. (`claude` is Node and ignores the
 system trust store, so it trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) The
 job's PATH crosses entry for entry, with the sandbox home's `bin` prepended and
 a pinned `uv` fallback appended.

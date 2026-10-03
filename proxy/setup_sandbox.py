@@ -20,7 +20,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-SYSTEM_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
 SANDBOX = "tend-sandbox"
 AGENT_HOME = Path(f"/home/{SANDBOX}")
 PROXY_PORT = 8899
@@ -381,10 +380,6 @@ def require_checkout_in_view(paths: Paths) -> None:
 
 
 def main() -> int:
-    runner_tool_path = os.environ.pop(
-        "TEND_RUNNER_TOOL_PATH", os.environ.get("PATH", "")
-    )
-    os.environ["PATH"] = SYSTEM_PATH
     if not os.environ.get("TEND_GH_TOKEN"):
         return error("TEND_GH_TOKEN is unset; cannot start the credential proxy")
     workspace_value = os.environ.get("GITHUB_WORKSPACE", "")
@@ -421,7 +416,7 @@ def main() -> int:
 
     sandbox_path = write_agent_environment(
         paths=paths,
-        path_entries=agent_path(runner_tool_path),
+        path_entries=agent_path(os.environ["PATH"]),
         anthropic_dummy=anthropic_dummy,
     )
     log(f"sandbox PATH: {sandbox_path}")
