@@ -341,54 +341,86 @@ def _agent_step_inputs(content: str) -> list[set[str]]:
     ]
 
 
-def test_memory_gist_is_an_explicit_experimental_claude_only_input(
+@pytest.mark.parametrize("harness, model", [("claude", "opus"), ("codex", "gpt-5.5")])
+def test_memory_gist_is_an_explicit_agent_input(
     tmp_path: Path,
+    harness: str,
+    model: str,
 ) -> None:
-    disabled = Config.load(_minimal_config(tmp_path))
+    harness_config = (
+        f"harness: {harness}\nmodel: {model}\n"
+        "workflows:\n  ci-fix:\n    watched_workflows: [ci]\n"
+    )
+    disabled = Config.load(_minimal_config(tmp_path, harness_config))
     for wf in generate_all(disabled):
         for inputs in _agent_step_inputs(wf.content):
             assert "memory_gist" not in inputs
             assert "memory_gist_id" not in inputs
 
-    enabled = Config.load(_minimal_config(tmp_path, "memory_gist: true\n"))
-    for wf in without_relay(generate_all(enabled)):
+    enabled = Config.load(
+        _minimal_config(tmp_path, harness_config + "memory_gist: true\n")
+    )
+    agent_workflows = set()
+    for wf in generate_all(enabled):
         data = yaml.safe_load(wf.content)
         agent_steps = [
             step
             for job in data["jobs"].values()
             for step in job.get("steps", [])
-            if step.get("uses", "").startswith("max-sixty/tend/claude@")
+            if step.get("uses", "").startswith(f"max-sixty/tend/{harness}@")
         ]
-        assert agent_steps, (
-            f"{wf.filename}: no agent step matched — the action ref or its path moved"
-        )
+        if agent_steps:
+            agent_workflows.add(wf.filename)
+        else:
+            for job in data["jobs"].values():
+                for step in job.get("steps", []):
+                    assert "memory_gist" not in step.get("with", {})
+                    assert "memory_gist_id" not in step.get("with", {})
         for step in agent_steps:
             assert step["with"]["memory_gist"] == "true"
             assert step["with"]["memory_gist_id"] == (
                 f"${{{{ secrets.{MEMORY_GIST_SECRET} }}}}"
             )
+    assert agent_workflows == {
+        "tend-review.yaml",
+        "tend-mention.yaml",
+        "tend-triage.yaml",
+        "tend-ci-fix.yaml",
+        "tend-nightly.yaml",
+        "tend-weekly.yaml",
+        "tend-notifications.yaml",
+        "tend-review-runs.yaml",
+    }
 
 
-def test_memory_gist_follows_a_per_workflow_claude_override(
+@pytest.mark.parametrize(
+    "harness, model, override_harness, override_model",
+    [("codex", "gpt-5.5", "claude", "opus"), ("claude", "opus", "codex", "gpt-5.5")],
+)
+def test_memory_gist_applies_to_mixed_workflow_harnesses(
     tmp_path: Path,
+    harness: str,
+    model: str,
+    override_harness: str,
+    override_model: str,
 ) -> None:
     cfg = Config.load(
         _minimal_config(
             tmp_path,
-            dedent("""\
-            harness: codex
-            model: gpt-5.5
+            dedent(f"""\
+            harness: {harness}
+            model: {model}
             memory_gist: true
             workflows:
               nightly:
-                harness: claude
-                model: opus
+                harness: {override_harness}
+                model: {override_model}
         """),
         )
     )
     workflows = {wf.filename: wf.content for wf in generate_all(cfg)}
     assert "memory_gist:" in workflows["tend-nightly.yaml"]
-    assert "memory_gist:" not in workflows["tend-review.yaml"]
+    assert "memory_gist:" in workflows["tend-review.yaml"]
 
 
 def test_setup_uses_with_parameters_gets_if_guard(tmp_path: Path) -> None:

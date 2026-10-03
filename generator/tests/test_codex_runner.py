@@ -58,6 +58,7 @@ def _set_sandbox_env(
     # session would otherwise inherit the live lifecycle's own values.
     monkeypatch.delenv("TEND_INSIDE_SANDBOX", raising=False)
     monkeypatch.delenv("AUTH_MODE", raising=False)
+    monkeypatch.delenv("TEND_AUTO_MEMORY_DIRECTORY", raising=False)
     return action, agent_home, agent_env
 
 
@@ -140,8 +141,9 @@ def test_install_plugin_rejects_output_that_is_not_the_json_report(
     assert codex_runner.main(["install-plugin"]) == 1
 
 
+@pytest.mark.parametrize("memory_enabled", [False, True])
 def test_stage_agents_writes_as_the_sandbox_user(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, memory_enabled: bool
 ) -> None:
     action, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
     shared = action.parent / "shared"
@@ -151,6 +153,13 @@ def test_stage_agents_writes_as_the_sandbox_user(
         "Read ${SKILL:run-tend}.\n"
     )
     (action / "agents-tail.md").write_text("Look up $BOT_NAME.\n")
+    if memory_enabled:
+        (action / "memory.md").write_text(
+            (RUNNER_PATH.parent / "memory.md").read_text()
+        )
+        monkeypatch.setenv(
+            "TEND_AUTO_MEMORY_DIRECTORY", "/var/tmp/tend-auto-memory.test"
+        )
     monkeypatch.setenv("BOT_NAME", "tend-bot")
     monkeypatch.setenv("TEND_MERGE", "restricted")
     calls: list[tuple[list[str], dict[str, object]]] = []
@@ -173,15 +182,21 @@ def test_stage_agents_writes_as_the_sandbox_user(
         str(agents.parent),
     ]
     assert calls[1][0][-2:] == ["/usr/bin/tee", str(agents)]
-    assert calls[1][1]["input"] == (
+    expected = (
         "# Tend CI instructions (Codex harness)\n\n"
         "Act as tend-bot under restricted; keep $GH_TOKEN. Read $run-tend.\n\n"
         "Look up tend-bot.\n"
     )
+    if memory_enabled:
+        expected += "\n" + (action / "memory.md").read_text().replace(
+            "${TEND_AUTO_MEMORY_DIRECTORY}", "/var/tmp/tend-auto-memory.test"
+        )
+    assert calls[1][1]["input"] == expected
 
 
+@pytest.mark.parametrize("memory_enabled", [False, True])
 def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, memory_enabled: bool
 ) -> None:
     _, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
     run_dir = agent_home / "run"
@@ -204,6 +219,10 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
     monkeypatch.setenv("TEND_INSIDE_SANDBOX", "1")
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
     monkeypatch.setenv("no_proxy", "localhost,127.0.0.1")
+    if memory_enabled:
+        monkeypatch.setenv(
+            "TEND_AUTO_MEMORY_DIRECTORY", "/var/tmp/tend-auto-memory.test"
+        )
     calls: list[tuple[list[str], dict[str, object]]] = []
 
     def run(args: list[str], **kwargs: object):
@@ -257,14 +276,16 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
         'cli_auth_credentials_store="file"',
         "--config",
         "background_terminal_max_timeout=21600000",
+        *(["--config", "features.memories=false"] if memory_enabled else []),
         "--config",
         'model_reasoning_effort="high"',
         "Review this",
     ]
 
 
+@pytest.mark.parametrize("memory_enabled", [False, True])
 def test_run_uses_staged_subscription_auth_without_responses_proxy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, memory_enabled: bool
 ) -> None:
     _, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
     run_dir = agent_home / "run"
@@ -277,6 +298,10 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
     monkeypatch.setenv("OPENAI_API_KEY", "also-configured")
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
     monkeypatch.setenv("no_proxy", "localhost,127.0.0.1")
+    if memory_enabled:
+        monkeypatch.setenv(
+            "TEND_AUTO_MEMORY_DIRECTORY", "/var/tmp/tend-auto-memory.test"
+        )
     calls: list[tuple[list[str], dict[str, object]]] = []
 
     def run(args: list[str], **kwargs: object):
@@ -306,6 +331,7 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
         'cli_auth_credentials_store="file"',
         "--config",
         "background_terminal_max_timeout=21600000",
+        *(["--config", "features.memories=false"] if memory_enabled else []),
         "Review this",
     ]
 

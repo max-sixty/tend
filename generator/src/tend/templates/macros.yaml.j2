@@ -30,13 +30,13 @@
 {% if cfg.harness == 'claude' %}
           claude_code_oauth_token: ${{ secrets.<<claude_token_secret>> }}
           anthropic_api_key: ${{ secrets.<<anthropic_api_key_secret>> }}
-{% if cfg.memory_gist %}
-          memory_gist: "true"
-          memory_gist_id: ${{ secrets.<<memory_gist_secret>> }}
-{% endif %}
 {% else %}
           openai_api_key: ${{ secrets.<<openai_key_secret>> }}
           codex_auth_json: ${{ secrets.<<codex_auth_secret>> }}
+{% endif %}
+{% if cfg.memory_gist %}
+          memory_gist: "true"
+          memory_gist_id: ${{ secrets.<<memory_gist_secret>> }}
 {% endif %}
           bot_name: <<cfg.bot_name>>
           model: <<cfg.model>>

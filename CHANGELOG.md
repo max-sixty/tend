@@ -6,6 +6,12 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## Unreleased
+
+### Added
+
+- **Codex runs can opt into Gist-backed memory.** `memory_gist: true` restores repository notes before the task and saves the agent's updates afterward, using the same secret, repository binding, signed baseline, and conflict checks as Claude. Codex reads and writes the notes during its CI run; synchronization failures remain warnings.
+
 ## 0.3.5
 
 ### Improved

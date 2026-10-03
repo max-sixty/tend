@@ -358,7 +358,7 @@ class Config:
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
-    # Opt-in experiment that persists Claude Code's model-authored auto memory
+    # Opt-in experiment that persists agent-authored Markdown memory
     # in a bot-owned secret Gist. The Gist ID stays in a fixed environment
     # secret so a public repository does not publish the unlisted URL.
     memory_gist: bool = False
@@ -738,10 +738,10 @@ class Config:
         # Both harnesses run behind the same credential-isolation sandbox;
         # these levers therefore apply to either one.
         enabled_harnesses = _enabled_harnesses(harness, workflows)
-        if memory_gist and "claude" not in enabled_harnesses:
+        if memory_gist and not enabled_harnesses:
             raise click.ClickException(
                 "memory_gist is experimental and requires at least one enabled "
-                "workflow using the Claude harness"
+                "agent workflow"
             )
 
         allowed = secrets.get("allowed", [])
