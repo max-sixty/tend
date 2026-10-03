@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import stat
+import subprocess
 from pathlib import Path
 
 import gist_memory
 import pytest
-from _fakes import FakeGh
+from _fakes import FakeGh, GithubFiles
 
 REPOSITORY = "owner/repo"
 GIST_ID = "abc123"
@@ -41,7 +44,7 @@ def _serve(
     fake_gh.respond("api", f"/gists/{GIST_ID}", with_=_gist(files, **gist_overrides))
 
 
-def test_restore_builds_claudes_real_auto_memory_directory(
+def test_restore_builds_the_shared_markdown_directory(
     tmp_path: Path, fake_gh: FakeGh
 ) -> None:
     memory = tmp_path / "memory"
@@ -62,29 +65,118 @@ def test_restore_builds_claudes_real_auto_memory_directory(
     assert baseline["files"] == files
     assert baseline["signature"]
     assert GIST_ID not in (memory / gist_memory.BASELINE_FILE).read_text()
-    assert json.loads((memory / gist_memory.SETTINGS_FILE).read_text()) == {
-        "autoMemoryDirectory": str(memory),
-        "autoMemoryEnabled": True,
-    }
+    assert not (memory / gist_memory.SETTINGS_FILE).exists()
 
 
-def test_cli_reads_gist_locator_and_baseline_key_from_the_environment(
-    tmp_path: Path, fake_gh: FakeGh, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_cli_restores_and_saves_same_run_notes_without_exporting_the_signing_key(
+    tmp_path: Path,
+    fake_gh: FakeGh,
+    monkeypatch: pytest.MonkeyPatch,
+    github_files: GithubFiles,
+    harness: str,
 ) -> None:
-    memory = tmp_path / "memory"
+    # GitHub and privileged ownership/deletion are external boundaries. The
+    # memory files, signed baseline, key permissions and exports are real.
+    monkeypatch.setattr(gist_memory, "MEMORY_PARENT", tmp_path)
+    calls: list[list[str]] = []
+
+    def run(args: list[str], **kwargs: object):
+        calls.append(args)
+        if args[1] == "/usr/bin/rm":
+            shutil.rmtree(args[-2])
+            Path(args[-1]).unlink()
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(gist_memory.subprocess, "run", run)
     _serve(fake_gh, {"MEMORY.md": "# Memory\n"})
     for name, value in {
         "GITHUB_TOKEN": "not-a-real-token",
         "GITHUB_REPOSITORY": REPOSITORY,
         "TEND_MEMORY_GIST_ID": GIST_ID,
         "TEND_AUTO_MEMORY_GIST_OWNER": GIST_OWNER,
-        "TEND_AUTO_MEMORY_DIRECTORY": str(memory),
-        "TEND_AUTO_MEMORY_BASELINE_KEY": BASELINE_KEY,
+        "SANDBOX": "tend-sandbox",
+        "TEND_HARNESS": harness,
     }.items():
         monkeypatch.setenv(name, value)
 
     assert gist_memory.main(["restore"]) == 0
+    exports = dict(
+        line.split("=", 1) for line in github_files.env.read_text().splitlines()
+    )
+    memory = Path(exports["TEND_AUTO_MEMORY_DIRECTORY"])
+    key_file = Path(exports["TEND_AUTO_MEMORY_KEY_FILE"])
     assert (memory / "MEMORY.md").read_text() == "# Memory\n"
+    assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
+    assert key_file.read_text() not in github_files.env.read_text()
+    assert "TEND_AUTO_MEMORY_BASELINE_KEY" not in exports
+    assert calls[0][-2:] == ["tend-sandbox:tend-sandbox", str(memory)]
+    if harness == "claude":
+        assert json.loads(Path(exports["TEND_AUTO_MEMORY_SETTINGS"]).read_text()) == {
+            "autoMemoryDirectory": str(memory),
+            "autoMemoryEnabled": True,
+        }
+    else:
+        assert "TEND_AUTO_MEMORY_SETTINGS" not in exports
+        assert not (memory / gist_memory.SETTINGS_FILE).exists()
+
+    for name, value in exports.items():
+        monkeypatch.setenv(name, value)
+    (memory / "testing.md").write_text("Run the integration fixture.\n")
+    fake_gh.respond("api", f"/gists/{GIST_ID}", "-X", "PATCH", with_="")
+
+    assert gist_memory.main(["save"]) == 0
+    patch_call = fake_gh.calls.index(
+        ("api", f"/gists/{GIST_ID}", "-X", "PATCH", "--input", "-")
+    )
+    assert json.loads(fake_gh.stdins[patch_call] or "") == {
+        "files": {"testing.md": {"content": "Run the integration fixture.\n"}}
+    }
+    monkeypatch.delenv("GITHUB_TOKEN")
+    monkeypatch.delenv("TEND_MEMORY_GIST_ID")
+    assert gist_memory.main(["cleanup"]) == 0
+    assert not memory.exists()
+    assert not key_file.exists()
+
+
+def test_failed_restore_cleans_working_files_and_exports_no_memory(
+    tmp_path: Path,
+    fake_gh: FakeGh,
+    monkeypatch: pytest.MonkeyPatch,
+    github_files: GithubFiles,
+) -> None:
+    monkeypatch.setattr(gist_memory, "MEMORY_PARENT", tmp_path)
+    calls: list[list[str]] = []
+
+    def run(args: list[str], **kwargs: object):
+        calls.append(args)
+        shutil.rmtree(args[-2])
+        Path(args[-1]).unlink()
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(gist_memory.subprocess, "run", run)
+    monkeypatch.setenv("SANDBOX", "tend-sandbox")
+    monkeypatch.setenv("TEND_HARNESS", "codex")
+    _serve(fake_gh, {"MEMORY.md": "# Memory\n"}, visibility="private")
+
+    with pytest.raises(gist_memory.GistMemoryError, match="public repositories"):
+        gist_memory.prepare(GIST_ID, REPOSITORY, GIST_OWNER)
+
+    assert github_files.env.read_text() == ""
+    assert list(tmp_path.glob("tend-auto-memory*")) == []
+    assert len(calls) == 1
+    assert calls[0][:2] == ["/usr/bin/sudo", "/usr/bin/rm"]
+
+
+def test_cleanup_refuses_paths_outside_the_memory_lifecycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TEND_AUTO_MEMORY_DIRECTORY", str(tmp_path))
+    monkeypatch.setenv(
+        "TEND_AUTO_MEMORY_KEY_FILE", "/var/tmp/tend-auto-memory-key.test"
+    )
+    assert gist_memory.main(["cleanup"]) == 1
+    assert tmp_path.exists()
 
 
 @pytest.mark.parametrize(

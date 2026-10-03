@@ -260,45 +260,74 @@ def test_codex_hardened_shells_pin_command_resolution() -> None:
         ]
 
 
-def test_experimental_memory_gist_sync_cannot_replace_the_agent_verdict() -> None:
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_experimental_memory_gist_sync_cannot_replace_the_agent_verdict(
+    harness: str,
+) -> None:
     action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / "claude" / "action.yaml").read_text()
+        (REPO_ROOT / harness / "action.yaml").read_text()
     )
     steps = {step["name"]: step for step in action["runs"]["steps"]}
+    restore = steps["Restore experimental memory Gist"]
+    save = steps["Save experimental memory Gist"]
+    cleanup = steps["Remove experimental memory Gist working copy"]
 
     assert action["inputs"]["memory_gist"]["default"] == "false"
-    assert steps["Restore experimental memory Gist"]["continue-on-error"] is True
-    assert steps["Save experimental memory Gist"]["continue-on-error"] is True
-    assert (
-        steps["Remove experimental memory Gist working copy"]["continue-on-error"]
-        is True
+    assert restore["if"] == "inputs.memory_gist == 'true'"
+    for step in (restore, save, cleanup):
+        assert step["continue-on-error"] is True
+    assert save["if"] == (
+        "always() && steps.auto_memory.outcome == 'success' && "
+        f"steps.{harness}.outputs.sandbox_reaped == 'true'"
     )
-    assert (
-        steps["Save experimental memory Gist"]["if"]
-        == "always() && steps.auto_memory.outcome == 'success' && "
-        "steps.claude.outputs.sandbox_reaped == 'true'"
-    )
-    restore = steps["Restore experimental memory Gist"]["run"]
-    save = steps["Save experimental memory Gist"]["run"]
-    assert 'gist_memory.py" \\\n  restore;' in restore
-    assert 'gist_memory.py" \\\n  save;' in save
+    assert cleanup["if"] == "always() && steps.auto_memory.outcome == 'success'"
 
 
-def test_memory_gist_save_reads_nothing_the_dispose_step_deleted() -> None:
-    """The save's inputs are made outside the home and the runtime container.
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_memory_gist_actions_share_the_trusted_lifecycle(harness: str) -> None:
+    """Only restore/save receive Gist credentials; save follows sandbox disposal.
 
-    The dispose step deletes the runtime container, private directory and all,
-    right after the agent is reaped and before the save runs. The view shows the
-    agent the runner's home as its own, so `RUNNER_TEMP` would hand it the key.
+    The shared Python helper owns working copies outside disposable resources,
+    so actions only invoke the lifecycle rather than constructing it in shell.
     """
     action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / "claude" / "action.yaml").read_text()
+        (REPO_ROOT / harness / "action.yaml").read_text()
     )
-    steps = {step["name"]: step for step in action["runs"]["steps"]}
-    restore = steps["Restore experimental memory Gist"]["run"]
+    steps = action["runs"]["steps"]
+    names = [step["name"] for step in steps]
+    restore_name = "Restore experimental memory Gist"
+    save_name = "Save experimental memory Gist"
+    cleanup_name = "Remove experimental memory Gist working copy"
+    lifecycle = {step["name"]: step for step in steps}
 
-    assert "memory_dir=$(/usr/bin/mktemp -d /var/tmp/tend-auto-memory." in restore
-    assert "key_file=$(/usr/bin/mktemp /var/tmp/tend-auto-memory-key." in restore
+    for name, command in (
+        (restore_name, "restore"),
+        (save_name, "save"),
+        (cleanup_name, "cleanup"),
+    ):
+        invocation = lifecycle[name]["run"]
+        assert len(invocation.splitlines()) == 1
+        assert invocation.endswith(f'/shared/steps/gist_memory.py" {command}')
+    assert lifecycle[restore_name]["env"]["TEND_HARNESS"] == harness
+
+    assert (
+        names.index(restore_name)
+        < names.index(f"Run {harness.capitalize()}")
+        < names.index("Dispose sandbox resources")
+        < names.index(save_name)
+        < names.index(cleanup_name)
+    )
+    if harness == "codex":
+        assert names.index(restore_name) < names.index("Stage AGENTS.md (sandbox)")
+
+    for step in steps:
+        if step["name"] in {restore_name, save_name}:
+            assert step["env"]["GITHUB_TOKEN"] == "${{ inputs.github_token }}"
+            assert step["env"]["TEND_MEMORY_GIST_ID"] == "${{ inputs.memory_gist_id }}"
+        else:
+            assert "${{ inputs.memory_gist_id }}" not in json.dumps(step)
+    assert "GITHUB_TOKEN" not in lifecycle[cleanup_name].get("env", {})
+    assert "${{ inputs.github_token }}" not in json.dumps(lifecycle[cleanup_name])
 
 
 def test_uv_build_range_admits_the_pinned_uv() -> None:

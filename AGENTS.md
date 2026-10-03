@@ -259,7 +259,7 @@ default branch, while a CODEOWNERS-backed ruleset reserves Tend's workflows
 and config, CODEOWNERS, and agent instructions for a maintainer owner. Two things use the `gist` scope, both
 through bot-owned secret gists: `review-reviewers` keeps a per-month
 structured evidence store (avoids the 65 KB comment-body limit), and the
-experimental `memory_gist` setting persists Claude Code's auto memory
+experimental `memory_gist` setting persists agent-authored Markdown memory
 across runs. The `user` scope lets `install-tend` set the bot's profile
 bio (`PATCH /user`) so the account's authorization stance is discoverable
 on the bot's user page.

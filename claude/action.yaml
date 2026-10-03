@@ -298,55 +298,19 @@ runs:
       env:
         MARKETPLACE_ROOT: ${{ github.action_path }}/..
 
-    # Auto memory is an explicit experiment. The Gist ID stays in the gated
-    # environment secret rather than the committed workflow, preserving the
-    # only privacy a secret Gist provides to the public: an unlisted URL. The
-    # model can still list the bot's Gists through its proxied GitHub access.
-    # This trusted step restores before Claude starts, signs the baseline with a
-    # per-run key that never crosses into the sandbox env, then hands only the
-    # memory directory to the sandbox uid. Failure leaves Claude running without
-    # shared memory. The directory goes in /var/tmp because the sandbox's /tmp
-    # is a tmpfs of its own, and the key beside it as a 0600 runner file: outside
-    # the home, which the view shows the agent as its own, and outside the
-    # runtime container, which the dispose step deletes before the save reads it.
+    # Shared memory stays outside the disposable sandbox resources.
     - name: Restore experimental memory Gist
       id: auto_memory
       if: inputs.memory_gist == 'true'
       continue-on-error: true
       shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: |
-        memory_dir=$(/usr/bin/mktemp -d /var/tmp/tend-auto-memory.XXXXXXXXXX)
-        key_file=""
-        cleanup_restore() {
-          /usr/bin/sudo /usr/bin/rm -rf -- "$memory_dir"
-          if [ -n "$key_file" ]; then
-            /usr/bin/sudo /usr/bin/rm -f -- "$key_file"
-          fi
-        }
-        trap cleanup_restore EXIT
-        key_file=$(/usr/bin/mktemp /var/tmp/tend-auto-memory-key.XXXXXXXXXX)
-        /usr/bin/openssl rand -hex 32 > "$key_file"
-        TEND_AUTO_MEMORY_DIRECTORY="$memory_dir"
-        TEND_AUTO_MEMORY_BASELINE_KEY=$(/usr/bin/cat "$key_file")
-        export TEND_AUTO_MEMORY_DIRECTORY TEND_AUTO_MEMORY_BASELINE_KEY
-        if ! PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s \
-          "${{ github.action_path }}/../shared/steps/gist_memory.py" \
-          restore; then
-          echo "::warning::Experimental auto memory restore failed; Claude will run without shared memory"
-          exit 1
-        fi
-        /usr/bin/sudo /usr/bin/chown -R "${SANDBOX}:${SANDBOX}" "$memory_dir"
-        {
-          printf 'TEND_AUTO_MEMORY_DIRECTORY=%s\n' "$memory_dir"
-          printf 'TEND_AUTO_MEMORY_SETTINGS=%s/.tend-settings.json\n' "$memory_dir"
-          printf 'TEND_AUTO_MEMORY_KEY_FILE=%s\n' "$key_file"
-        } >> "$GITHUB_ENV"
-        trap - EXIT
+      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" restore
       env:
         BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
         TEND_AUTO_MEMORY_GIST_OWNER: ${{ steps.bot.outputs.login }}
+        TEND_HARNESS: claude
 
     # Run the agent headless. `claude -p` (print mode) runs one turn to
     # completion and exits — no Ink UI, no TTY, no first-run onboarding — so
@@ -405,25 +369,12 @@ runs:
       env:
         BASH_ENV: ""
 
-    # The trusted outer supervisor reaps every sandbox process before returning,
-    # so this runner-owned save cannot race a surviving agent. Save is best-effort and
-    # must not replace Claude's verdict when Gist sync itself fails.
+    # The supervisor reaps every sandbox process before the trusted save.
     - name: Save experimental memory Gist
       if: always() && steps.auto_memory.outcome == 'success' && steps.claude.outputs.sandbox_reaped == 'true'
       continue-on-error: true
       shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: |
-        runner_owner="$(/usr/bin/id -u):$(/usr/bin/id -g)"
-        /usr/bin/sudo /usr/bin/chown --recursive --no-dereference \
-          "$runner_owner" "$TEND_AUTO_MEMORY_DIRECTORY"
-        TEND_AUTO_MEMORY_BASELINE_KEY=$(/usr/bin/cat "$TEND_AUTO_MEMORY_KEY_FILE")
-        export TEND_AUTO_MEMORY_BASELINE_KEY
-        if ! PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s \
-          "${{ github.action_path }}/../shared/steps/gist_memory.py" \
-          save; then
-          echo "::warning::Experimental auto memory save failed; Claude's result is unchanged"
-          exit 1
-        fi
+      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" save
       env:
         BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
@@ -434,7 +385,7 @@ runs:
       if: always() && steps.auto_memory.outcome == 'success'
       continue-on-error: true
       shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: /usr/bin/sudo /usr/bin/rm -rf -- "$TEND_AUTO_MEMORY_DIRECTORY" "$TEND_AUTO_MEMORY_KEY_FILE"
+      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" cleanup
       env:
         BASH_ENV: ""
 

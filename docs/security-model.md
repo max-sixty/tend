@@ -660,8 +660,10 @@ bad PR, post misleading comments, or dismiss legitimate review concerns. Fixed
 prompts and skill instructions reduce this risk but can't eliminate it —
 Claude ultimately reasons about attacker-controlled text.
 
-**Persistent auto memory.** The experimental `memory_gist: true` setting lets
-Claude carry model-authored notes into unrelated later runs. Those notes are
+**Persistent memory.** The experimental `memory_gist: true` setting lets
+either harness carry model-authored notes into unrelated later runs. Claude
+uses native auto memory; Codex reads and updates Tend's Markdown notes during
+the task, with native background memory disabled. Those notes are
 context, not policy, and may preserve stale facts or the effect of an earlier
 prompt injection. The adapter accepts only a bot-owned secret Gist bound to the
 exact repository, signs its per-run baseline, rejects symlinks and nested paths,
