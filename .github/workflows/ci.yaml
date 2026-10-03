@@ -101,6 +101,9 @@ jobs:
       - name: Plant PATH-boundary fixtures
         run: bash proxy/test-setup-sandbox.sh plant
       - name: Set up the sandbox
+        # A consumer's uv controls must not skip the proxy's locked install.
+        env:
+          UV_NO_SYNC: "1"
         run: bash proxy/test-setup-sandbox.sh setup
       - name: Install agent uv fallback
         run: bash proxy/test-setup-sandbox.sh install-agent-uv

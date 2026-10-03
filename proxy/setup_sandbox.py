@@ -295,10 +295,24 @@ def mitmdump_command(paths: Paths, args: list[str]) -> list[str]:
     ]
 
 
+def proxy_environment() -> dict[str, str]:
+    """Install the locked proxy independently of the consumer's uv settings.
+
+    The action supplies UV_CACHE_DIR; all other uv controls belong to the
+    consumer's own commands. The private venv is set by mitmdump_command.
+    """
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith("UV_") or name == "UV_CACHE_DIR"
+    }
+
+
 def start_proxy(paths: Paths) -> bool:
     paths.confdir.mkdir(parents=True, exist_ok=True)
     paths.confdir.chmod(0o700)
-    command(mitmdump_command(paths, ["--version"]))
+    environment = proxy_environment()
+    command(mitmdump_command(paths, ["--version"]), env=environment)
     log("starting proxy")
     proxy_log = paths.proxy_log.open("wb")
     process = subprocess.Popen(
@@ -321,6 +335,7 @@ def start_proxy(paths: Paths) -> bool:
         stdout=proxy_log,
         stderr=subprocess.STDOUT,
         start_new_session=True,
+        env=environment,
     )
     proxy_log.close()
 

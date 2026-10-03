@@ -124,6 +124,24 @@ def test_proxy_runs_the_locked_closure_isolated_from_consumer_configuration(
     )
 
 
+def test_proxy_uses_its_cache_without_consumer_uv_controls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("UV_NO_SYNC", "1")
+    monkeypatch.setenv("UV_PYTHON", "consumer-python")
+    monkeypatch.setenv("UV_CACHE_DIR", "/runner/tend-proxy-uv")
+    monkeypatch.setenv("PATH", "/consumer/bin:/usr/bin")
+    monkeypatch.setenv("TEND_GH_TOKEN", "test-token")
+
+    environment = setup_sandbox.proxy_environment()
+
+    assert {k: v for k, v in environment.items() if k.startswith("UV_")} == {
+        "UV_CACHE_DIR": "/runner/tend-proxy-uv"
+    }
+    assert environment["PATH"] == "/consumer/bin:/usr/bin"
+    assert environment["TEND_GH_TOKEN"] == "test-token"
+
+
 def test_a_checkout_outside_the_runner_home_is_refused_by_name(
     tmp_path: Path,
 ) -> None:
