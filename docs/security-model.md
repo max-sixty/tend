@@ -543,8 +543,8 @@ descriptors, copies regular files only, and enforces per-file, total-byte, and
 file-count bounds. Symlinks, devices, and FIFOs never enter the runner-owned
 artifact tree.
 
-Each repository's weekly subscription refresh job needs its own full refresh
-bundle and repository-scoped environment-write PAT in `tend-codex-refresh`.
+When hosted refresh is enabled, each repository's weekly subscription refresh
+job needs its own full refresh bundle and repository-scoped environment-write PAT in `tend-codex-refresh`.
 The agent receives only access-only auth from `tend`. A first job in `tend`
 exports only whether access-only auth is configured; that presence flag makes
 the refresh job fail if its full auth or PAT is missing. The refresh job checks
@@ -552,7 +552,11 @@ out no consumer code and gives Codex only Tend's fixed refresh prompt. Codex rec
 refresh bundle there; the PAT appears only in the separate publish step after
 Codex exits. Sharing a full bundle across repositories lets one refresh job
 invalidate the others. Sharing only access tokens depends on the external
-refresher remaining available before those tokens expire.
+refresher remaining available before those tokens expire. With
+`codex.auth_refresh: false`, regeneration removes the weekly
+job and `tend check` accepts access-only auth without refresh credentials.
+The external owner must wait for existing refresh runs to finish and retain
+the full login in its own credential store; unused refresh secrets must be removed.
 
 **Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort
