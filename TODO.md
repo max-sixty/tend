@@ -3,23 +3,13 @@
 Deferred work and unimplemented options. Each entry should justify the cost
 of building it if revisited.
 
-## Verify Tend's Codex rollout
+## Check revocation of Tend's previous Codex subscription login
 
-Before merging the prepared cutover, provision a repository-owned subscription
-login and refresh PAT using **Harness = codex** in `/install-tend:install-tend`.
-The login must have a refresh-token chain independent of other repositories
-and the local Codex login; secret names and timestamps cannot establish that.
-Keep access-only `CODEX_AUTH_JSON` in `tend`, and the full
-`CODEX_REFRESH_AUTH_JSON` plus `CODEX_REFRESH_PAT` in the default-branch-only
-`tend-codex-refresh` environment. Remove the misplaced refresh secrets from
-`tend`, then require `tend check` to pass.
-
-Pause Tend with `TEND_ENABLED=false` before merging. Once the workflows reach
-`main`, dispatch the serialized refresher and verify it publishes the next
-access-only auth bundle. Restore the previous variable value, verify an agent
-run, and confirm token reporting counts that run's Codex tokens. Local workflow
-generation and tests verify the wiring; they do not verify stored credentials,
-refresh-chain independence, or hosted authentication.
+The replacement login is installed, and hosted refresh and agent token reporting
+are verified. Replacing GitHub secrets cannot revoke the previous login, which
+may remain valid. A maintainer must check that ChatGPT account's security
+settings for an individual session-revocation control; avoid invalidating the
+new login with an account-wide logout.
 
 ## Thread memory: deterministic prep of prior conversations
 
