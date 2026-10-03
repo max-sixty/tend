@@ -1,93 +1,65 @@
-"""Protect replay boundaries and literal context, without retaining full sessions."""
+"""Exercise fresh case preparation and pinned repository snapshots without models."""
 
 import hashlib
 import json
+import os
+import stat
+import subprocess
+from pathlib import Path
 
 import prepare
 import pytest
-from prepare import (
-    ORIGINAL_PLUGIN,
-    cut_history,
-    parse_append_prompt,
-    prepare_history,
-    stage_fixtures,
-)
 
 
-def test_cutoff_requires_complete_tool_exchange():
-    rows = [
-        {
-            "type": "assistant",
-            "timestamp": "2026-10-01T00:00:01Z",
-            "message": {"content": [{"type": "tool_use", "id": "read-1"}]},
-        },
-        {
-            "type": "user",
-            "timestamp": "2026-10-01T00:00:02Z",
-            "message": {"content": [{"type": "tool_result", "tool_use_id": "read-1"}]},
-        },
-        {
-            "type": "assistant",
-            "timestamp": "2026-10-01T00:00:03Z",
-            "message": {"content": "The original decision"},
-        },
-    ]
-    assert cut_history(rows, "2026-10-01T00:00:03Z") == rows[:2]
-    for before, reason in [
-        ("2026-10-01T00:00:02Z", "splits a tool exchange"),
-        ("2026-10-01T00:00:00Z", "inside the recorded session"),
-        ("2026-10-01T00:00:04Z", "inside the recorded session"),
-        ("2026-10-01T00:00:03", "include a time zone"),
-    ]:
-        with pytest.raises(ValueError, match=reason):
-            cut_history(rows, before)
+def git(repository: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", "-c", "core.fsmonitor=false", "-C", str(repository), *arguments],
+        env=os.environ | {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
 
 
-def test_actions_prompt_preserves_body_indentation():
-    log = (
-        "job\tstep\t2026-10-01T00:00:00Z   TEND_SYSTEM_PROMPT: First line\n"
-        "job\tstep\t2026-10-01T00:00:00Z \n"
-        "job\tstep\t2026-10-01T00:00:00Z     indented code\n"
-        "job\tstep\t2026-10-01T00:00:00Z   TEND_PROMPT: next\n"
+def commit(repository: Path, message: str) -> str:
+    git(repository, "add", ".")
+    git(
+        repository,
+        "-c",
+        "user.name=Eval Test",
+        "-c",
+        "user.email=eval@example.invalid",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "-m",
+        message,
     )
-    assert parse_append_prompt(log) == "First line\n\n    indented code"
+    return git(repository, "rev-parse", "HEAD")
 
 
-def test_current_skill_expands_variables_but_preserves_source_evidence(tmp_path):
-    skill = tmp_path / "skills/example/SKILL.md"
+@pytest.fixture
+def repository(tmp_path):
+    root = tmp_path / "repository"
+    root.mkdir()
+    git(root, "init", "--initial-branch=main")
+    skill = root / "plugins/tend-ci-runner/skills/run-tend/SKILL.md"
     skill.parent.mkdir(parents=True)
-    skill.write_text("---\nname: example\n---\n${CLAUDE_PLUGIN_ROOT}\n$ARGUMENTS\n")
-    rows = [
-        {"type": "user", "message": {"content": "<command-args>a\nb</command-args>"}},
-        {
-            "type": "user",
-            "message": {
-                "content": f"Base directory for this skill: {ORIGINAL_PLUGIN}/skills/example\n\nOld guidance"
-            },
-        },
-        {
-            "type": "user",
-            "message": {
-                "content": [{"type": "tool_result", "content": "Inspected old source"}]
-            },
-        },
-    ]
-    payload, replacements = prepare_history(
-        rows, tmp_path, current=True, expected=["example"]
-    )
-    prepared = [json.loads(line) for line in payload.splitlines()]
-    assert prepared[1]["message"]["content"] == (
-        f"Base directory for this skill: {tmp_path}/skills/example\n\n{tmp_path}\na\nb\n"
-    )
-    assert prepared[2] == rows[2]
-    assert replacements[0]["new"] == "example"
+    skill.write_text("---\nname: run-tend\n---\nRead the task and report evidence.\n")
+    prompt = root / "shared/system-prompt.md"
+    prompt.parent.mkdir()
+    prompt.write_text("Shared current policy for ${BOT_NAME}.\n")
+    (root / "README.md").write_text("Base tree\n")
+    commit(root, "Initial fixture")
+    return root
 
 
 def test_fixture_evidence_is_verified_including_cached_logs(tmp_path, monkeypatch):
     case = tmp_path / "case"
     case.mkdir()
-    (case / "discussion.json").write_text('{"state":"open"}\n')
-    local_hash = hashlib.sha256((case / "discussion.json").read_bytes()).hexdigest()
+    discussion = case / "discussion.json"
+    discussion.write_text('{"state":"open"}\n')
+    local_hash = hashlib.sha256(discussion.read_bytes()).hexdigest()
     log_bytes = b"Actual CI diagnostic\n"
     log_hash = hashlib.sha256(log_bytes).hexdigest()
     sources = tmp_path / "sources"
@@ -100,53 +72,148 @@ def test_fixture_evidence_is_verified_including_cached_logs(tmp_path, monkeypatc
         "logs": {"evidence/ci.log": {"repository": "owner/repo", "run": "1"}},
     }
     destination = tmp_path / "prepared"
-    stage_fixtures(source, case, destination)
-    assert (destination / "discussion.json").read_bytes() == (
-        case / "discussion.json"
-    ).read_bytes()
+    prepare.stage_fixtures(source, case, destination)
+    assert (destination / "discussion.json").read_bytes() == discussion.read_bytes()
     assert (destination / "evidence/ci.log").read_bytes() == log_bytes
     cached.write_bytes(b"Different evidence")
     with pytest.raises(ValueError, match="Evidence hash mismatch"):
-        stage_fixtures(source, case, destination)
+        prepare.stage_fixtures(source, case, destination)
 
 
-def test_fixture_case_uses_fresh_executors_with_identical_evidence(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("harness", ["codex", "claude"])
+def test_focused_case_starts_fresh_with_equal_evidence(
+    repository, tmp_path, monkeypatch, harness
 ):
     cases = tmp_path / "cases"
-    case = cases / "fixture"
+    case = cases / "focused"
     case.mkdir(parents=True)
-    fixture = case / "current.log"
-    fixture.write_text("Current diagnostic\n")
+    diagnostic = case / "diagnostic.txt"
+    diagnostic.write_text("Current diagnostic\n")
     source = {
-        "kind": "fixture",
+        "kind": "focused",
         "historical_ref": "HEAD",
         "bot": "tend-agent",
-        "model": "claude-opus-5",
-        "fixtures": {"current.log": hashlib.sha256(fixture.read_bytes()).hexdigest()},
+        "fixtures": {
+            "diagnostic.txt": hashlib.sha256(diagnostic.read_bytes()).hexdigest()
+        },
+        "origin": {
+            "repository": "unavailable/source",
+            "run": "never-download-this-run",
+            "transcript": "unavailable-history.jsonl",
+            "sha256": "unavailable-transcript-hash",
+            "reasoning": "Prior agent reasoning must not become actor input",
+            "model": "not-an-executor-model",
+        },
     }
     (case / "source.json").write_text(json.dumps(source))
+    task = "Read diagnostic.txt and write the next report to captured.md."
     (case / "case.yaml").write_text(
-        "description: Fixture disposition\nvars:\n  task: Read the evidence and write captured.md.\nassert: []\n"
+        f"description: Focused disposition\nvars:\n  task: {task}\nassert: []\n"
     )
     prepared = tmp_path / "prepared"
+    monkeypatch.setattr(prepare, "ROOT", repository)
     monkeypatch.setattr(prepare, "CASES", cases)
     monkeypatch.setattr(prepare, "PREPARED", prepared)
-    prepare.main()
+    prepare.prepare(harness)
     config = prepare.YAML_IO.load((prepared / "promptfooconfig.yaml").read_text())
-    evidence = str(prepared / "fixtures/fixture")
-    assert config["tests"][0]["vars"]["evidence_root"] == evidence
-    assert config["tests"][0]["providers"] == ["fixture/*"]
-    for provider in config["providers"]:
+    assert config["prompts"] == ["{{task}}"]
+    assert config["tests"][0]["vars"]["task"] == task
+    assert config["tests"][0]["providers"] == ["focused/*"]
+    assert config["tests"][0]["vars"]["evidence_root"] == "."
+    assert len(config["providers"]) == 2
+    for arm, provider in zip(
+        ("historical", "current"), config["providers"], strict=True
+    ):
+        destination = prepared / arm / "focused"
+        workspace = destination / "workspace"
+        assert (workspace / "diagnostic.txt").read_bytes() == diagnostic.read_bytes()
+        assert not list(destination.rglob("history.jsonl"))
+        assert not list(destination.rglob("context.md"))
+        assert (
+            "Shared current policy for tend-agent."
+            in (workspace / "AGENTS.md").read_text()
+        )
+        for path in workspace.rglob("*"):
+            if path.is_file():
+                assert "Prior agent reasoning" not in path.read_text()
         settings = provider["config"]
         assert "resume" not in settings
-        assert settings["additional_directories"][-1] == evidence
-        assert "Grep" in settings["tools"]
-        assert "Bash" not in settings["tools"]
-        assert settings["permission_mode"] == "dontAsk"
-        assert settings["settings"]["permissions"][
-            "blockReadsOutsideWorkingDirectories"
-        ]
-    assert (
-        prepared / "fixtures/fixture/current.log"
-    ).read_text() == fixture.read_text()
+        assert "history" not in settings
+        if harness == "codex":
+            assert settings["model"] == "gpt-6-sol"
+            assert settings["mode"] == "focused"
+        else:
+            # The built-in SDK allocates a fresh temp working directory when
+            # working_dir is absent; prepared observations stay read-only inputs.
+            assert "working_dir" not in settings
+            assert settings["additional_directories"] == [str(workspace)]
+            assert settings["custom_allowed_tools"] == [
+                "Read",
+                "Grep",
+                "Skill",
+                "Write(./captured.md)",
+            ]
+            assert str(workspace) in settings["append_system_prompt"]
+            assert (
+                "Shared current policy for tend-agent."
+                in settings["append_system_prompt"]
+            )
+
+
+def test_trajectory_checkout_is_pinned_and_independent(
+    repository, tmp_path, monkeypatch
+):
+    base = git(repository, "rev-parse", "HEAD")
+    (repository / "README.md").write_text("Previously reviewed tree\n")
+    previous = commit(repository, "Previous review")
+    (repository / "README.md").write_text("Requested review tree\n")
+    head = commit(repository, "New push")
+    (repository / "README.md").write_text("A later push that must be excluded\n")
+    future = commit(repository, "Later push")
+    template = tmp_path / "personal-git-template"
+    template.mkdir()
+    (template / "personal-template-marker").write_text("Ambient configuration\n")
+    global_config = tmp_path / "personal.gitconfig"
+    global_config.write_text(
+        f'[init]\n\ttemplateDir = "{template}"\n[core]\n\tfsmonitor = true\n'
+    )
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    monkeypatch.setattr(prepare, "ROOT", repository)
+    destination = tmp_path / "checkout"
+    prepare.stage_checkout(
+        {"head": head, "previous_review_head": previous, "base": base}, destination
+    )
+    assert git(destination, "rev-parse", "HEAD") == head
+    assert git(destination, "for-each-ref", "refs/heads/head") == ""
+    with pytest.raises(subprocess.CalledProcessError):
+        git(destination, "symbolic-ref", "--quiet", "HEAD")
+    assert git(destination, "rev-parse", "previous_review_head") == previous
+    assert git(destination, "rev-parse", "base") == base
+    assert (destination / "README.md").read_text() == "Requested review tree\n"
+    assert git(destination, "cat-file", "-t", previous) == "commit"
+    assert git(destination, "cat-file", "-t", base) == "commit"
+    assert git(destination, "diff", previous, head, "--", "README.md")
+    assert not (destination / ".git/objects/info/alternates").exists()
+    assert not (destination / ".git/personal-template-marker").exists()
+    assert not any(
+        stat.S_ISSOCK(path.lstat().st_mode)
+        for path in (destination / ".git").rglob("*")
+    )
+    assert git(repository, "rev-parse", "HEAD") == future
+    assert (repository / "README.md").read_text().startswith("A later push")
+    assert git(repository, "status", "--porcelain") == ""
+    (repository / "README.md").write_text("Source changed after staging\n")
+    assert git(destination, "show", "HEAD:README.md") == "Requested review tree"
+
+
+@pytest.mark.parametrize("kind", ["history", "fixture"])
+def test_legacy_case_kind_is_rejected(repository, tmp_path, monkeypatch, kind):
+    cases = tmp_path / "cases"
+    case = cases / "legacy"
+    case.mkdir(parents=True)
+    (case / "source.json").write_text(json.dumps({"kind": kind}))
+    monkeypatch.setattr(prepare, "ROOT", repository)
+    monkeypatch.setattr(prepare, "CASES", cases)
+    monkeypatch.setattr(prepare, "PREPARED", tmp_path / "prepared")
+    with pytest.raises(ValueError, match="Unknown case kind"):
+        prepare.prepare()

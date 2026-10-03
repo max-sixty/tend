@@ -1,6 +1,8 @@
 # Promptfoo evals
 
-Run from the repo root with Node 22.22+, authenticated Claude Code and `gh`:
+Codex is the default executor and judge. Every attempt starts fresh; no original
+actor history is resumed or added to the prompt. Run from the repo root with
+Node 22.22+ and a local Codex subscription login:
 
 ```bash
 npm --prefix evals ci --ignore-scripts
@@ -8,104 +10,104 @@ uv run python evals/prepare.py
 npm --prefix evals run eval -- --output ../.tmp/evals/results.json
 ```
 
-The command compares historical and current guidance, three attempts each.
-Historical failures are expected; they make Promptfoo exit nonzero. Inspect the
-JSON's per-provider results: execution errors are not behavioral failures.
-To narrow a run, append `--filter-pattern Worktrunk` or `Leaf`.
-Use `--filter-providers current` to check only current guidance.
+The suite compares historical and current plugin guidance, three attempts per
+arm, with caching disabled. Both arms use the same current shared system prompt
+and model. Preparation replaces staged inputs; do not run it during an eval.
+Append `--filter-pattern "[Gg]allery"` to narrow the suite or
+`--filter-providers current` to run only current guidance. Failed assertions
+make Promptfoo exit nonzero; inspect individual results to distinguish them
+from execution errors.
 
-Promptfoo's built-in Claude Agent SDK provider forks the prepared history for
-each history attempt; fixture cases start without a history. It runs in an empty
-temporary directory with Read, Skill and Write (and Grep for fixture evidence),
-no discovered settings or MCP servers, and reads confined to that directory and
-its staged plugin and any staged fixture evidence. Existing Claude authentication
-is used without copying credentials. Write is permitted only for `captured.md`.
-A shared transform
-extracts its last completed Write from the SDK trace; a missing or failed write
-is an execution error. Inline `llm-rubric` assertions grade the literal body
-against prose criteria, using Claude Sonnet 5 through the same SDK provider and
-local login. Grading adds model calls and can vary between runs.
+Each Codex attempt gets an isolated workspace and HOME/CODEX_HOME with
+subscription authentication and a controlled permission profile. Personal
+settings, plugins and MCP servers are absent. Commands can inspect staged files
+and minimal runtime paths; network access is disabled. The provider reads the
+actual `captured.md` bytes, and a missing artifact is an execution error. The
+judge runs separately without the executor's skills or workspace.
 
-Preparation replaces staged plugins; never run it during an eval. These cases
-exercise drafting decisions, not repository edits or live GitHub actions.
-A no-plugin comparison would still contain previously loaded skills in history.
-Deterministic checks run with:
+## Case types
+
+- **Focused:** a concise state brief and hash-pinned evidence files let a fresh
+  agent make the next decision. The grader evaluates its saved artifact.
+- **Trajectory:** a real Git snapshot under `repository/` and frozen event
+  observations let the agent investigate the change. The grader receives the
+  saved artifact, actual SDK tool events and the resulting repository diff.
+  It evaluates the investigation and actions as well as the final prose.
+
+Trajectory cases require their pinned Git commits to be available locally.
+They retain repository evidence, not the original runner's installed
+dependencies, processes or live GitHub state. Neither case type simulates
+GitHub or recreates the original production session.
+
+## Collector and case authoring
+
+An agent chooses the historical event, starting brief, evidence and grading
+criteria. Preparation deterministically verifies file hashes, stages the
+pinned inputs and repository refs, and installs each arm's plugin:
+
+```text
+past event → fresh brief + pinned files/refs → isolated attempt
+           → artifact + current trajectory → grading
+```
+
+Keep `cases/<name>/case.yaml`, `source.json` and the frozen evidence in Git.
+`case.yaml` supplies `vars.task` and `assert`; ask for the next artifact in
+`captured.md`. Keep expected behavior in assertions rather than the task or
+evidence-selection hints.
+
+`source.json` records `kind: focused | trajectory`, `historical_ref`, `bot`,
+`merge`, and a `fixtures` mapping from case-relative paths to SHA-256 hashes.
+For a trajectory, `checkout` pins `base` and `head`, and may pin
+`previous_review_head` for an incremental review. The base and optional previous
+review head become local Git refs; the pinned head is checked out as detached HEAD.
+
+Keep original run, artifact, transcript, model and timestamps under `origin`
+for audit. Preparation does not read or download that origin history. See
+`cases/draft-review-trajectory/` for a real draft-review investigation and
+`cases/partial-close/` for a focused decision.
+
+A hash proves identity, not representativeness. A brief can omit the original
+search, conflicting observations or opaque context, and can make decisive
+evidence easier to find. Check chronology, omissions and answer leakage before
+trusting a case. A trajectory preserves more investigation opportunity while
+still lacking live GitHub and the original runner environment.
+
+## Validation
+
+Require a failing historical control on the selected executor before claiming
+an instruction improvement. Both arms passing provides coverage, not evidence
+of improvement. Calibrate changed rubrics on known good and bad artifacts or
+trajectories, and inspect saved drafts and tool events alongside verdicts.
+Small samples establish observed behavior rather than reliability rates.
+
+On 2026-10-02, validation with `gpt-6-sol` selected one completed fresh attempt
+per arm after staging repairs and reruns, with zero execution errors:
+
+| Cases | Historical | Current |
+| --- | --- | --- |
+| Six focused decisions | 5/6 | 6/6 |
+| One repository trajectory | 0/1 | 0/1 |
+| Total | 5/7 | 6/7 |
+
+Both longer investigations missed the plugin shipment path, so the focused
+added-fixture contrast did not transfer to repository review. The relocation
+pair uses its actual saved artifacts regraded under the clarified public-review
+versus internal-decision rubric. Calibration matched all five expected verdicts,
+including rejection of public boilerplate and a correct artifact with no
+investigation trace. These expected negative controls are grading failures,
+not execution errors. The selected sample is in `.tmp/evals/fresh-validation.json`.
+
+Deterministic preparation and provider checks run with:
 
 ```bash
 uv run pytest evals/test_prepare.py
 npm --prefix evals test
 ```
 
-## Add a case from history
+The optional Claude comparison supports focused cases only; preparation
+explicitly excludes trajectory cases:
 
-Start with an issue/PR URL, a time with its time zone, and the behavior to check.
-Use `/install-tend:debug-tend-run` to inspect the original Claude session.
-Thread artifacts are named `claude-session-logs-n<NUMBER>`; scheduled runs use
-invocation IDs, so also inspect runs around the supplied time.
-
-Keep only `cases/<name>/source.json` and `case.yaml` in Git:
-
-- `source.json` pins the repository, run, artifact, transcript path and SHA-256,
-  historical Tend ref, original model, bot, injected skills, and an exclusive
-  `before` timestamp. Choose a cutoff immediately before the decision, with
-  completed tool calls and no original bad answer. Recover the actual appended
-  system prompt; pin its hash if it differs from the historical shared prompt.
-- `case.yaml` is a Promptfoo test: `description`, `vars.task` and `assert`.
-  Ask for the next artifact using retained evidence and a Write to `captured.md`;
-  keep expected behavior in prose assertions, out of the task, for example:
-
-  ```yaml
-  assert:
-    - type: llm-rubric
-      value: The description references the partially addressed issue without closing it.
-  ```
-
-  File references
-  resolve relative to `.tmp/evals/prepared/promptfooconfig.yaml`.
-  Prepared configuration pairs the test only with its own historical/current
-  providers.
-
-Preparation downloads and verifies the source, cuts history, and stages both
-plugins. It replaces injected Tend skill bodies in the current arm, retaining
-investigation and consumer guidance. Confirm historical runs reproduce the
-failure before claiming an improvement. Small samples establish reproduction,
-not rates. Calibrate new graders against known bad and good artifacts.
-
-Sources are cached by transcript hash under `~/.local/share/tend/evals/sources/`,
-outside the repo and across worktrees. GitHub artifacts expire: a fresh machine
-needs a surviving artifact or a copy of that cache. A URL and time cannot
-recover expired logs or reconstruct edited GitHub state. This is an agent
-case-authoring recipe; the downloader itself is deterministic.
-
-## Add a fixture reconstruction
-
-Use `cases/<name>/source.json` with `kind: fixture`, `historical_ref`, `model`,
-`bot` and `fixtures`: a mapping of case-relative evidence paths to SHA-256
-hashes. Commit local evidence beside `case.yaml`. A `logs` entry for a fixture
-path may instead name `repository` and `run`; preparation fetches that run's
-failed log into the same hash-verified evidence cache. See
-`cases/ci-failure-attribution/source.json`.
-
-The test keeps the same `vars.task` and `assert` format. Its prompt receives the
-staged evidence directory, and both arms read identical inputs through Read or
-Grep. Do not put the expected answer in the task or evidence-selection hints.
-Calibrate the rubric on known bad and good artifacts. A reconstruction that
-both arms pass provides coverage, without demonstrating improvement.
-
-## Prototype status
-
-The Promptfoo cutover reproduced both historical failures in 3/3 attempts each.
-Current guidance passed partial-close 3/3 and wrapping 2/3: one current draft
-still hard-wrapped prose. These counts establish reproduction, not error rates.
-The prose criteria matched all 19 known verdicts in a calibration: the 12 saved
-drafts, the original bad wrapping, two valid formatting controls, and four
-issue-reference edge cases. This is a single judge pass, not a reliability rate.
-The file-writing step matters; returning a final answer instead failed to
-reproduce wrapping in the first comparison.
-
-Future sessions may need to refine cutoff selection, prompt recovery and skill
-replacement for new session formats. Only injected guidance is replaced;
-instruction source and diffs read through tools remain evidence. Inspect those
-for answer leakage or conflicting historical guidance before trusting a case.
-Promptfoo also has a Codex SDK provider, but Codex cannot natively resume these
-Claude histories. A Codex case needs its own evidence and failing control.
+```bash
+uv run python evals/prepare.py --harness claude
+npm --prefix evals run eval -- --output ../.tmp/evals/claude-results.json
+```

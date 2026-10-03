@@ -1,0 +1,26 @@
+{
+  "kind": "trajectory",
+  "repository": "max-sixty/tend",
+  "historical_ref": "cb80c7167c03eb46ddd49fadf71c7290d3ef6729",
+  "bot": "tend-agent",
+  "merge": "restricted",
+  "checkout": {
+    "base": "95427f945b047d655920f844bf15af0849acf574",
+    "head": "3aa8ca0e79d994e1f3f23c6f62117634794e682c",
+    "previous_review_head": "9e7530cb834b2d9625af462603faf0ef8f963117"
+  },
+  "fixtures": {
+    "event.json": "dbf7b507d6e83bd44ca7d8e496c2412479358abf3c91af35f7aeb2d77105bb29"
+  },
+  "origin": {
+    "run": "36983988310",
+    "artifact": "claude-session-logs-n1478",
+    "transcript": "-home-runner-work-tend-tend/1aaa4bbe-7c97-4542-8e1c-b462b6e41da9.jsonl",
+    "sha256": "5cda7cfbca53a3d7febe63680708bdbb3057c2524713cc2d8156301a15405ab6",
+    "snapshot_at": "2026-10-02T08:29:11.498Z",
+    "pr": "https://github.com/max-sixty/tend/pull/1478",
+    "harness": "claude",
+    "model": "claude-opus-5-5"
+  },
+  "limits": "Fresh investigation of a real local Git snapshot and frozen public PR observations. No original actor history, reasoning or target review is supplied. GitHub, original runner state and installed dependencies are absent; the executor must use local evidence and may not claim live checks."
+}
