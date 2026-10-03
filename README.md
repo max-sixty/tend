@@ -365,8 +365,8 @@ only the consumer credential. The external owner must publish replacements
 before expiry. It can share access-only auth across repositories, but jobs
 lose authentication if it stays offline past expiry.
 This is experimental because it uses Codex's internal `chatgptAuthTokens`
-mode. The weekly job runs Codex's built-in refresh and persists the updated
-full bundle.
+mode. When enabled, the weekly job runs Codex's built-in refresh and persists
+the updated full bundle.
 Tend pins and tests the Codex version, but an OpenAI change can still break the
 weekly refresh until Tend updates.
 

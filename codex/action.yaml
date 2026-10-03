@@ -22,8 +22,8 @@ inputs:
     required: false
     default: ""
     description: >-
-      Access-only auth.json derived by Tend's weekly refresh workflow from a
-      Plus or Pro login. It must use auth_mode chatgptAuthTokens and contain
+      Access-only auth.json published by the configured Plus or Pro
+      subscription refresher. It must use auth_mode chatgptAuthTokens and contain
       no refresh token, so concurrent jobs cannot rotate shared auth state.
   bot_name:
     required: true
