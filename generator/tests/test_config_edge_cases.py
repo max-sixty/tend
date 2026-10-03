@@ -51,6 +51,52 @@ def test_bot_name_only(tmp_path: Path) -> None:
     assert cfg.workflows == {}
     assert cfg.allowed_repo_secrets == []
     assert cfg.memory_gist is False
+    assert cfg.codex.auth_refresh is True
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_codex_auth_refresh_selects_its_owner(tmp_path: Path, enabled: bool) -> None:
+    path = _write_config(
+        tmp_path, f"bot_name: my-bot\ncodex:\n  auth_refresh: {str(enabled).lower()}\n"
+    )
+    assert Config.load(path).codex.auth_refresh is enabled
+
+
+@pytest.mark.parametrize(
+    "codex_yaml",
+    [
+        "false",
+        "null",
+        "[]",
+        '{auth_refresh: "false"}',
+        "{auth_refresh: 0}",
+        "{auth_refresh: hosted}",
+        "{auth_refresh: external}",
+        "{auth_refresh: null}",
+        "{auth_refresh: weekly}",
+        "{refresh_auth: external}",
+    ],
+)
+def test_invalid_codex_refresh_config_is_refused(
+    tmp_path: Path, codex_yaml: str
+) -> None:
+    path = _write_config(tmp_path, f"bot_name: my-bot\ncodex: {codex_yaml}\n")
+    with pytest.raises(ClickException, match="codex"):
+        Config.load(path)
+
+
+@pytest.mark.parametrize(
+    "workflow_yaml", ["false", "true", "{enabled: false}", "{enabled: true}"]
+)
+def test_codex_workflow_exclusion_is_replaced_by_auth_config(
+    tmp_path: Path, workflow_yaml: str
+) -> None:
+    path = _write_config(
+        tmp_path,
+        f"bot_name: my-bot\nworkflows:\n  codex-auth-refresh: {workflow_yaml}\n",
+    )
+    with pytest.raises(ClickException, match="use codex.auth_refresh"):
+        Config.load(path)
 
 
 @pytest.mark.parametrize("value", ["true", "false"])

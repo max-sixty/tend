@@ -916,15 +916,22 @@ def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
     """A prompt's first line invokes a skill; a rename leaves it pointing nowhere.
 
     `/<plugin>:<name>` resolves in that bundled plugin and `/<name>` in this
-    repo's own `.claude/skills/` — which is how the hand-maintained
-    `review-reviewers.yaml` reaches tend's overlay copy. Under `harness: codex`
-    the generator writes the same invocation as `$<name>` (`default_prompt`).
+    repo's own `.claude/skills/`. Codex's `$<name>` resolves against installed
+    plugins or `.agents/skills/`, including the repo-local `review-reviewers`.
+    The invocation syntax must match the workflow's harness action.
     Committed workflows track the published release. Its mention prompt can
     still open with an expression; generation's harness-parametrized mention
     test checks that the new prompt names its workflow skill.
     """
     yaml = YAML(typ="safe", pure=True)
     checked = []
+    marketplace = json.loads(
+        (REPO_ROOT / ".agents/plugins/marketplace.json").read_text()
+    )
+    codex_skill_roots = [REPO_ROOT / ".agents/skills"] + [
+        REPO_ROOT / plugin["source"]["path"] / "skills"
+        for plugin in marketplace["plugins"]
+    ]
 
     for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml")):
         workflow = yaml.load(path.read_text())
@@ -936,23 +943,25 @@ def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
                 first = prompt.strip().split()[0]
                 if first.startswith("${{"):
                     continue
-                if first.startswith("$"):
-                    # Codex mentions a bundled skill as `$NAME` (`default_prompt`).
-                    plugin, skill = "tend-ci-runner", first.lstrip("$")
-                else:
-                    assert first.startswith("/"), (
-                        f"{path.name}'s prompt opens with `{first}`, neither a "
-                        "slash command nor a Codex skill mention"
-                    )
-                    plugin, _, skill = first.lstrip("/").rpartition(":")
-                target = (
-                    REPO_ROOT / "plugins" / plugin / "skills" / skill
-                    if plugin
-                    else REPO_ROOT / ".claude" / "skills" / skill
+                codex = step["uses"].startswith("max-sixty/tend/codex@")
+                prefix = "$" if codex else "/"
+                assert first.startswith(prefix), (
+                    f"{path.name}'s {step['uses']} prompt opens with `{first}`, "
+                    f"expected a `{prefix}` skill invocation"
                 )
-                assert (target / "SKILL.md").is_file(), (
-                    f"{path.name} invokes `{first}`, which is not a skill at "
-                    f"{target.relative_to(REPO_ROOT)}"
+                if codex:
+                    skill = first.removeprefix("$")
+                    targets = [root / skill for root in codex_skill_roots]
+                else:
+                    plugin, _, skill = first.lstrip("/").rpartition(":")
+                    targets = [
+                        REPO_ROOT / "plugins" / plugin / "skills" / skill
+                        if plugin
+                        else REPO_ROOT / ".claude" / "skills" / skill
+                    ]
+                assert any((target / "SKILL.md").is_file() for target in targets), (
+                    f"{path.name} invokes `{first}`, which is not a skill in "
+                    f"{[str(target.relative_to(REPO_ROOT)) for target in targets]}"
                 )
                 checked.append(skill)
 

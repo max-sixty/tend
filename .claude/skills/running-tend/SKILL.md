@@ -32,7 +32,7 @@ test suite exercises them.
 
 ## Non-standard workflows
 
-Tend has Claude-powered workflows beyond the generated `tend-*` set:
+Tend has agent workflows beyond the generated `tend-*` set:
 
 | Workflow | File | Schedule | Purpose |
 |----------|------|----------|---------|
@@ -45,7 +45,7 @@ covers the day. `list_recent_runs.py` caps it at 49h, wide enough to absorb a
 missed tick; past that it warns on stderr and the run records a coverage gap
 rather than an all-clear.
 
-These use the tend composite action and produce `claude-session-logs*` artifacts,
+These use the Codex composite action and produce `codex-session-logs*` artifacts,
 but their names don't match the `tend-*` prefix that scripts filter on by
 default. `uvx tend@latest init` doesn't rewrite them either, so their
 `max-sixty/tend/<harness>@X.Y.Z` pins move only when someone edits the file.
@@ -73,7 +73,9 @@ Step 1 anchor instead, so its spend covers the same band that step censuses.
 
 ## Session Log Paths
 
-Artifact paths: `-var-tmp-tend-agent-workspace-*-checkout/<session-id>.jsonl`
+Codex artifact paths: `sessions/**/rollout-*.jsonl`.
+Historical Claude artifact paths:
+`-var-tmp-tend-agent-workspace-*-checkout/<session-id>.jsonl`.
 
 `review-reviewers` runs produce one session log per matrix repo in
 `.github/workflows/review-reviewers.yaml`.
@@ -152,12 +154,20 @@ regen PR — same worktree, same commit.
 
 How many lines the listing prints follows from the harnesses
 `.config/tend.yaml` selects, so read it against the current config rather than
-a remembered count. With every workflow on the default harness there is one
-`claude` path; overriding a workflow to `codex` adds `codex` and
-`codex/refresh`. Whether a hand-maintained file names the right *harness* is a
+a remembered count. Whether a hand-maintained file names the right *harness* is a
 separate question the listing cannot answer; compare it against the harness
 `.config/tend.yaml` configures, and on a mismatch check what else that config
 change was supposed to carry.
+
+## Nightly: update the Codex model
+
+Read the current Codex model catalog once and compare it with
+`DEFAULT_MODEL_BY_HARNESS["codex"]` and Codex model pins in
+`.config/tend.yaml`. If there is no newer candidate in the same capability
+tier, finish this check. For a candidate, verify its capability and price tier
+from OpenAI's model and pricing docs rather than name similarity. Move each
+default or pin only within the same tier (for example, Sol tier to Sol tier).
+A cross-tier change is a product decision, not routine maintenance.
 
 ## Weekly: refresh `data/consumers.json`
 
@@ -206,13 +216,6 @@ For any similarly relevant note, search the code, issues, and PRs first. Open a
 PR when the change is small enough to make and verify in this run; reserve an
 issue for what needs a maintainer decision or verification CI can't reach,
 linking the release and proposing the change.
-
-Compare the current Codex model catalog with
-`DEFAULT_MODEL_BY_HARNESS["codex"]` and Codex model pins in
-`.config/tend.yaml`. Move each to a newer model only within the same capability
-and price tier (for example, Sol tier to Sol tier), verified from OpenAI's model
-and pricing docs rather than name similarity. A cross-tier change is a product
-decision, not routine maintenance.
 
 ## Weekly: bump pinned versions
 

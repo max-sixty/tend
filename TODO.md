@@ -3,26 +3,12 @@
 Deferred work and unimplemented options. Each entry should justify the cost
 of building it if revisited.
 
-## Cut tend over to harness = "codex" (post-release)
+## Check revocation of Tend's previous Codex subscription login
 
-The Codex harness landed but tend itself still runs on Claude. The cutover
-needs the release sequence:
-
-1. Land the harness support PR on `main`.
-2. Cut a release so the new tag (with `codex/action.yaml`) is what the
-   version-pinned action ref resolves to.
-3. Edit `.config/tend.yaml`: add `harness: codex` (and optionally
-   `effort: medium`) and `model: gpt-5.6-sol`.
-4. Set `OPENAI_API_KEY` secret on `max-sixty/tend`.
-   Drop `CLAUDE_CODE_OAUTH_TOKEN` from `secrets.allowed` once unused.
-5. `uvx tend@latest init` to regenerate workflows. Commit both the config
-   and the regenerated `tend-*.yaml` files in one commit.
-6. The first nightly run after merge dogfoods the new path; watch
-   `/activity` for the first review/triage and confirm token-usage parsing
-   reports non-zero values.
-
-Doing this in the same PR that ships the action would temporarily break
-tend's own CI between merge and the release tag bump.
+The replacement login is installed, and hosted refresh and agent token reporting
+are verified. The previous login's issuer-side revocation remains unverified.
+Complete the maintainer's account-side check under **Harness = codex** in
+`/install-tend:install-tend`.
 
 ## Thread memory: deterministic prep of prior conversations
 

@@ -151,8 +151,8 @@ invalid state. Agent jobs receive only an access-only projection:
   it. Once OpenAI rotates the token, that workflow writes the full
   replacement first and the derived access-only bundle second.
 
-`CODEX_REFRESH_PAT` lives in `tend-codex-refresh`. It is a fine-grained
-maintainer token scoped to this repository with `Environments: write`; the
+For hosted refresh, `CODEX_REFRESH_PAT` lives in `tend-codex-refresh`. It is
+a fine-grained maintainer token scoped to this repository with `Environments: write`; the
 workflow needs it because `GITHUB_TOKEN` cannot
 rewrite Actions environment secrets. It is never passed to an agent session.
 
@@ -161,10 +161,16 @@ because it depends on an internal auth mode. The serialized weekly job runs
 Codex's built-in refresh and persists its updated `auth.json`. Its login
 must have a refresh chain independent of other repositories and the
 maintainer's local Codex login. Separate device logins on one ChatGPT account
-have not been verified to remain independent. An external rotator can
-temporarily distribute access-only `CODEX_AUTH_JSON` to multiple
-repositories, but they lose authentication after token expiry if that
-rotator is offline.
+have not been verified to remain independent.
+
+An external refresher can own the chain instead. Set
+`codex.auth_refresh: false` and regenerate to remove the
+weekly workflow. Wait for existing refresh runs to finish before publishing
+from the external owner. Only access-only `CODEX_AUTH_JSON` is required in
+`tend`; remove unused secrets from `tend-codex-refresh`. The external owner
+keeps the full login and must publish replacements before expiry. It may
+share access-only tokens across repositories; those repositories lose
+authentication if it stays offline past expiry.
 
 ## Token assignment
 
@@ -180,7 +186,7 @@ harness-auth credential whose form depends on `harness` in
 | Bot token (PAT or App) | GitHub API and git operations. Consistent bot identity. |
 | Harness auth (one of, per harness) | Authenticates the agent runtime. |
 | ↳ Claude OAuth token | `harness: claude`: authenticates Claude Code to the Anthropic API. |
-| ↳ Codex subscription trio | `harness: codex`: access-only consumer auth plus one weekly rotating writer (experimental; see above). |
+| ↳ Codex subscription auth | `harness: codex`: access-only consumer auth with hosted or external refresh (experimental; see above). |
 | ↳ `OPENAI_API_KEY` | `harness: codex`: standard OpenAI API key, per-token billing. |
 
 A single bot token is used across workflows because the same merge rules

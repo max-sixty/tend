@@ -2571,11 +2571,14 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
     if "claude" in enabled_harnesses:
         results.append(check_claude_auth(repo))
     if "codex" in enabled_harnesses:
-        results.append(check_codex_auth(repo))
+        refresh_enabled = cfg.codex.auth_refresh
+        results.append(check_codex_auth(repo, refresh_enabled=refresh_enabled))
         consumer_names, _ = _env_secret_names(repo)
         refresh_names, _ = _refresh_secret_names(repo)
         if (
-            consumer_names is not None and CODEX_AUTH_SECRET in consumer_names
+            refresh_enabled
+            and consumer_names is not None
+            and CODEX_AUTH_SECRET in consumer_names
         ) or refresh_names:
             results.append(
                 check_environment(repo, [default_branch], CODEX_REFRESH_ENVIRONMENT)
@@ -2605,25 +2608,45 @@ def check_claude_auth(repo: str) -> CheckResult:
     )
 
 
-def check_codex_auth(repo: str) -> CheckResult:
-    """Codex needs an API key or a split subscription credential set."""
+def check_codex_auth(repo: str, *, refresh_enabled: bool) -> CheckResult:
+    """Codex needs an API key or subscription auth with one refresh owner."""
     names, err = _env_secret_names(repo)
     if names is None:
         return CheckResult("codex-auth", None, err)
     refresh_only = {CODEX_REFRESH_AUTH_SECRET, CODEX_REFRESH_PAT_SECRET}
     leaked = refresh_only & names
     if leaked:
+        action = (
+            f"Move {', '.join(sorted(leaked))} out of the '{TEND_ENVIRONMENT}' "
+            f"environment into '{CODEX_REFRESH_ENVIRONMENT}'"
+            if refresh_enabled
+            else f"Remove {', '.join(sorted(leaked))} from the "
+            f"'{TEND_ENVIRONMENT}' environment"
+        )
         return CheckResult(
             "codex-auth",
             False,
-            f"Move {', '.join(sorted(leaked))} out of the '{TEND_ENVIRONMENT}' "
-            f"environment into '{CODEX_REFRESH_ENVIRONMENT}'; agent jobs can "
-            "read secrets in their environment.",
+            f"{action}; agent jobs can read secrets in their environment.",
         )
     refresh_names, err = _refresh_secret_names(repo)
     if refresh_names is None:
         return CheckResult("codex-auth", None, err)
+    if not refresh_enabled and refresh_names:
+        return CheckResult(
+            "codex-auth",
+            False,
+            f"Codex refresh is externally managed; remove unused secrets from "
+            f"'{CODEX_REFRESH_ENVIRONMENT}': {', '.join(sorted(refresh_names))}.",
+        )
     if CODEX_AUTH_SECRET in names:
+        if not refresh_enabled:
+            return CheckResult(
+                "codex-auth",
+                True,
+                f"Codex access-only {CODEX_AUTH_SECRET} present in "
+                f"'{TEND_ENVIRONMENT}'; the external refresher must publish "
+                "replacements before expiry.",
+            )
         missing = refresh_only - refresh_names
         misplaced = refresh_names - refresh_only
         if missing or misplaced:

@@ -13,7 +13,8 @@
    active credential through its credential proxy (OAuth wins when both are
    present), treating empty as absent. Codex likewise emits both paths; the
    action prefers the access-only subscription bundle when present. Its weekly
-   refresh workflow is the only process that receives the rotating token. #}
+   refresh owner (the weekly workflow or an external refresher) is the only
+   process that receives the rotating token. #}
 {% macro agent_step(cfg, prompt_body, if_condition='', checkout_mode='base', base_branch='${{ github.event.repository.default_branch }}') %}
 {% if cfg.harness == 'claude' %}
       - uses: max-sixty/tend/claude@<<tend_version>>

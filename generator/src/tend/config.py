@@ -29,8 +29,8 @@ KNOWN_WORKFLOWS = {
     # Generated with mention to carry its review events; runs no agent. Honors
     # the common workflow enabled/override contract.
     "mention-relay",
-    # Generated whenever at least one workflow uses Codex. It still honors
-    # the common workflow enabled/override contract.
+    # Generated for Codex with hosted auth refresh. This entry configures its
+    # schedule and job overrides; codex.auth_refresh owns whether it exists.
     "codex-auth-refresh",
     # install-test is opt-in via `tend init --with-install-test` but still
     # honors workflow_extra / jobs overrides from .config/tend.yaml.
@@ -41,6 +41,7 @@ KNOWN_TOP_LEVEL = {
     "merge",
     "memory_gist",
     "harness",
+    "codex",
     "model",
     "effort",
     "args",
@@ -305,7 +306,7 @@ class WorkflowConfig:
 # message naming it.
 DEFAULT_MODEL_BY_HARNESS = {
     "claude": "opus",
-    "codex": "gpt-6-sol",
+    "codex": "gpt-6.1-sol",
 }
 
 
@@ -330,6 +331,13 @@ KNOWN_EFFORTS_BY_HARNESS = {
 }
 
 
+@dataclass(frozen=True)
+class CodexConfig:
+    """Codex subscription credentials have one hosted or external refresh owner."""
+
+    auth_refresh: bool = True
+
+
 @dataclass
 class Config:
     bot_name: str
@@ -340,6 +348,7 @@ class Config:
     effort: str
     setup: list[SetupStep]
     workflows: dict[str, WorkflowConfig]
+    codex: CodexConfig = field(default_factory=CodexConfig)
     # Exact additional argv elements passed to the selected harness CLI.
     args: list[str] = field(default_factory=list)
     # Owner of the repo where workflows will run. Used to gate jobs that fail
@@ -459,6 +468,19 @@ class Config:
         for key in sorted(unknown):
             click.echo(f"Warning: unknown config key '{key}'", err=True)
 
+        codex_raw = raw.get("codex", {})
+        if not isinstance(codex_raw, dict):
+            raise click.ClickException("codex must be a mapping")
+        unknown_codex = set(codex_raw) - {"auth_refresh"}
+        if unknown_codex:
+            raise click.ClickException(
+                f"Unknown codex option(s): {', '.join(sorted(unknown_codex))}"
+            )
+        auth_refresh = codex_raw.get("auth_refresh", True)
+        if not isinstance(auth_refresh, bool):
+            raise click.ClickException("codex.auth_refresh must be true or false")
+        codex = CodexConfig(auth_refresh=auth_refresh)
+
         protected_branches = raw.get("protected_branches", [])
         if not isinstance(protected_branches, list) or not all(
             isinstance(b, str) and b for b in protected_branches
@@ -539,6 +561,15 @@ class Config:
 
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in (raw.get("workflows") or {}).items():
+            if name == "codex-auth-refresh" and (
+                isinstance(wf_raw, bool)
+                or isinstance(wf_raw, dict)
+                and "enabled" in wf_raw
+            ):
+                raise click.ClickException(
+                    "workflows.codex-auth-refresh.enabled was removed; "
+                    "use codex.auth_refresh: true or false instead"
+                )
             if name == "renovate":
                 raise click.ClickException(
                     "workflows.renovate has been renamed to workflows.weekly"
@@ -748,6 +779,7 @@ class Config:
             memory_gist=memory_gist,
             merge=merge,
             workflows=workflows,
+            codex=codex,
             allowed_repo_secrets=allowed,
         )
 

@@ -1970,11 +1970,11 @@ def test_codex_auth_refresher_honors_workflow_config(tmp_path: Path) -> None:
     assert refresh["jobs"]["refresh"]["runs-on"] == "ubuntu-22.04"
 
 
-def test_codex_auth_refresher_can_be_disabled(tmp_path: Path) -> None:
+def test_codex_external_auth_omits_the_refresher(tmp_path: Path) -> None:
     cfg = Config.load(
         _minimal_config(
             tmp_path,
-            "harness: codex\nworkflows:\n  codex-auth-refresh:\n    enabled: false\n",
+            "harness: codex\ncodex:\n  auth_refresh: false\n",
         )
     )
 
@@ -2071,9 +2071,9 @@ def test_args_render_as_exact_action_arguments(tmp_path: Path, harness: str) -> 
 def test_codex_default_model(tmp_path: Path) -> None:
     """Generated Codex workflows pin Tend's current Sol-tier default."""
     cfg = Config.load(_minimal_config(tmp_path, "harness: codex"))
-    assert cfg.model == "gpt-6-sol"
+    assert cfg.model == "gpt-6.1-sol"
     wf = next(w for w in generate_all(cfg) if w.filename == "tend-triage.yaml")
-    assert "model: gpt-6-sol" in wf.content
+    assert "model: gpt-6.1-sol" in wf.content
 
 
 def test_unknown_engine_rejected(tmp_path: Path) -> None:
@@ -2107,7 +2107,7 @@ def test_per_workflow_harness_override_targets_only_named_workflow(
     # The override carries the harness's own secret shape, not the top level's.
     assert "openai_api_key" in nightly.content
     assert "claude_code_oauth_token" not in nightly.content
-    assert "model: gpt-6-sol" in nightly.content
+    assert "model: gpt-6.1-sol" in nightly.content
 
     # Sibling workflows still use the top-level claude harness.
     review = workflows["tend-review.yaml"]
@@ -2141,7 +2141,7 @@ def test_per_workflow_harness_change_uses_target_default_model(
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     nightly = workflows["tend-nightly.yaml"]
     assert f"max-sixty/tend/codex@{ACTION_VERSION}" in nightly.content
-    assert "model: gpt-6-sol" in nightly.content
+    assert "model: gpt-6.1-sol" in nightly.content
 
 
 def test_per_workflow_harness_change_uses_claude_default_model(
