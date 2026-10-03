@@ -182,7 +182,7 @@ bot_name: <bot-name>
 # merge: yolo
 # For Codex:
 # harness: codex
-# model: gpt-6-sol
+# model: gpt-6.1-sol
 # Both harnesses optionally accept:
 # effort: medium   # low | medium | high | xhigh; Claude also accepts max
 ```

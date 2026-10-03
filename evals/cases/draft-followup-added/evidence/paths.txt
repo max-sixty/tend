@@ -1,0 +1,13 @@
+New files in commit 3aa8ca0:
+plugins/tend-ci-runner/evals/ci-failure-attribution/README.md
+plugins/tend-ci-runner/evals/ci-failure-attribution/_typos.toml
+plugins/tend-ci-runner/evals/ci-failure-attribution/case.yaml
+plugins/tend-ci-runner/evals/ci-failure-attribution/evidence/current-ci.log
+plugins/tend-ci-runner/evals/ci-failure-attribution/evidence/prior-pr.json
+plugins/tend-ci-runner/evals/ci-failure-attribution/source.json
+
+Existing repository paths:
+evals/AGENTS.md
+evals/cases/partial-close/
+evals/cases/wrapping/
+evals/prepare.py

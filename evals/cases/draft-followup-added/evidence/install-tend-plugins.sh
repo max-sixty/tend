@@ -1,0 +1,6 @@
+MARKETPLACE_SRC="$(realpath "$MARKETPLACE_ROOT")"
+SANDBOX_MKT="$AGENT_HOME/tend-marketplace"
+sudo rm -rf "$SANDBOX_MKT"
+sudo mkdir -p "$SANDBOX_MKT"
+sudo cp -a "$MARKETPLACE_SRC/.claude-plugin" "$MARKETPLACE_SRC/plugins" "$SANDBOX_MKT/"
+sudo chown -R "${SANDBOX}:${SANDBOX}" "$SANDBOX_MKT"

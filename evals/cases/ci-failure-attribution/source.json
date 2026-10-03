@@ -1,31 +1,33 @@
 {
-  "kind": "fixture",
-  "repository": "max-sixty/leaf",
-  "session_run": "36957035750",
-  "artifact": "codex-session-logs-a761d30d",
-  "transcript": "sessions/2026/10/02/rollout-2026-10-02T02-46-51-01a0fa81-e405-7790-a917-e293e30d6866.jsonl",
-  "transcript_sha256": "de9d46549c090647fff1cf938626ef8ed1d7399d39d4921bd88825d4c60dc95c",
-  "before": "2026-10-02T03:29:53.774Z",
-  "original_model": "gpt-6-sol",
-  "pr": "https://github.com/max-sixty/leaf/pull/1506",
-  "ci_run": "https://github.com/max-sixty/leaf/actions/runs/36945384717",
-  "ci_log_lines": [
-    15212,
-    15237
-  ],
+  "historical_ref": "0.3.5",
+  "bot": "leaf-agent",
+  "merge": "yolo",
   "fixtures": {
-    "evidence/current-ci.log": "b364b3ad8617b80f7fef9bd0622530f12c9c17bfb77b11c197e5b509021b9f9d",
+    "evidence/current-ci.log": "69acbdcd3128dfbeac20980b40eebe92a5020226c07712860ab33c7668894c0e",
     "evidence/prior-pr.json": "2f65d045a3386ac486e8d3f59128fb2167c33229add12d0134e83abb929a218d",
     "evidence/failed-tests.txt": "c5be3eb4aac22b5f234dfcddb4447967e3e32ae223cd271478bebd2c096e57a9"
   },
-  "limits": "Full current run log and failed-test listing with prior PR discussion; original long conversation and Codex execution are not resumed. Original false report excluded.",
-  "historical_ref": "0.3.5",
-  "model": "claude-opus-5",
-  "bot": "leaf-agent",
-  "logs": {
-    "evidence/current-ci.log": {
-      "repository": "max-sixty/leaf",
-      "run": "36945384717"
+  "kind": "focused",
+  "origin": {
+    "repository": "max-sixty/leaf",
+    "session_run": "36957035750",
+    "artifact": "codex-session-logs-a761d30d",
+    "transcript": "sessions/2026/10/02/rollout-2026-10-02T02-46-51-01a0fa81-e405-7790-a917-e293e30d6866.jsonl",
+    "transcript_sha256": "de9d46549c090647fff1cf938626ef8ed1d7399d39d4921bd88825d4c60dc95c",
+    "before": "2026-10-02T03:29:53.774Z",
+    "original_model": "gpt-6-sol",
+    "pr": "https://github.com/max-sixty/leaf/pull/1506",
+    "ci_run": "https://github.com/max-sixty/leaf/actions/runs/36945384717",
+    "ci_log_lines": [
+      15212,
+      15237
+    ],
+    "full_ci_log_sha256": "b364b3ad8617b80f7fef9bd0622530f12c9c17bfb77b11c197e5b509021b9f9d",
+    "evidence_normalization": {
+      "trailing_whitespace_stripped": [
+        "evidence/current-ci.log"
+      ]
     }
-  }
+  },
+  "limits": "Selected current failure excerpt and failed-test listing with prior public PR discussion. Repository code, omitted log output and original agent reasoning are absent."
 }

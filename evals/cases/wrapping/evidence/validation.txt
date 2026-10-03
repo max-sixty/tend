@@ -1,0 +1,24 @@
+reverted production flush
+test md_help::tests::test_unterminated_fence_keeps_the_gutter_form_too ... FAILED
+test md_help::tests::test_unterminated_fence_still_renders_its_content ... FAILED
+thread 'md_help::tests::test_unterminated_fence_keeps_the_gutter_form_too' (10744) panicked at /home/tend-sandbox/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/insta-1.48.0/src/runtime.rs:719:13:
+thread 'md_help::tests::test_unterminated_fence_still_renders_its_content' (10745) panicked at /home/tend-sandbox/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/insta-1.48.0/src/runtime.rs:719:13:
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 1005 filtered out; finished in 0.04s
+
+failures:
+
+---- commands::step::promote::tests::test_copy_and_remove_drops_a_non_regular_file stdout ----
+
+thread 'commands::step::promote::tests::test_copy_and_remove_drops_a_non_regular_file' (14148) panicked at src/commands/step/promote.rs:560:81:
+called `Result::unwrap()` on an `Err` value: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
+
+
+failures:
+    commands::step::promote::tests::test_copy_and_remove_drops_a_non_regular_file
+
+test result: FAILED. 1006 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.37s
+
+error: test failed, to rerun pass `-p worktrunk --bin wt`
+
+
+Help and README integration tests: 57 passed; 0 failed.

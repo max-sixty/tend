@@ -1,0 +1,80 @@
+diff --git a/plugins/tend-ci-runner/evals/ci-failure-attribution/README.md b/evals/ci-failure-attribution/README.md
+similarity index 60%
+rename from plugins/tend-ci-runner/evals/ci-failure-attribution/README.md
+rename to evals/ci-failure-attribution/README.md
+index 33b5016..ca81768 100644
+--- a/plugins/tend-ci-runner/evals/ci-failure-attribution/README.md
++++ b/evals/ci-failure-attribution/README.md
+@@ -10,7 +10,11 @@ their provenance and hashes.
+ Run from the repository root:
+
+ ```bash
+-claude plugin eval plugins/tend-ci-runner --case ci-failure-attribution \
++attribution_stage=$(mktemp -d)
++mkdir -p "$attribution_stage/plugins" "$attribution_stage/evals"
++cp -R plugins/tend-ci-runner "$attribution_stage/plugins/"
++cp -R evals/ci-failure-attribution "$attribution_stage/evals/"
++claude plugin eval "$attribution_stage" --case ci-failure-attribution \
+   --ablation none --allow-tools Write --judge-model sonnet \
+   --keep-temp --no-publish --trust-plugin \
+   --output-dir .tmp/evals/ci-failure-attribution
+@@ -18,11 +22,17 @@ claude plugin eval plugins/tend-ci-runner --case ci-failure-attribution \
+
+ Inspect `aggregate-result.json`, the captured draft and the executor trace.
+ Confirm it loaded the tested skills and read both evidence files; execution
+-errors do not count as behavioral passes. Use a separately staged historical
+-plugin for comparisons; a no-plugin arm does not measure the instruction edit.
++errors do not count as behavioral passes. Staging keeps the plugin and fixtures
++inside the native runner's containment root and excludes unrelated scratch
++cases. For comparisons, stage a historical plugin in the same layout. A
++no-plugin arm does not measure the instruction edit.
+
+ This is a compressed reconstruction executed by Claude, not a replay of the
+ original Codex session. Earlier baseline and candidate runs both reported the
+ correct assertion. The case is retained at the maintainer's request to check
+ future regressions; passing it does not demonstrate that the instruction change
+ corrects the original production failure.
++
++The transcript-based preparation in `../prepare.py` does not consume this
++fixture-only native case. The command above stages it separately; no evidence
++is copied into the installed plugin.
+diff --git a/plugins/tend-ci-runner/evals/ci-failure-attribution/_typos.toml b/evals/ci-failure-attribution/_typos.toml
+similarity index 100%
+rename from plugins/tend-ci-runner/evals/ci-failure-attribution/_typos.toml
+rename to evals/ci-failure-attribution/_typos.toml
+diff --git a/plugins/tend-ci-runner/evals/ci-failure-attribution/case.yaml b/evals/ci-failure-attribution/case.yaml
+similarity index 85%
+rename from plugins/tend-ci-runner/evals/ci-failure-attribution/case.yaml
+rename to evals/ci-failure-attribution/case.yaml
+index 135a471..28cfaff 100644
+--- a/plugins/tend-ci-runner/evals/ci-failure-attribution/case.yaml
++++ b/evals/ci-failure-attribution/case.yaml
+@@ -3,6 +3,7 @@ name: ci-failure-attribution
+ description: Distinguish a current CI assertion from a historical repair of the same feature.
+ tags: [ci-fix, ground-claims, reconstruction]
+ runs: 3
++plugins: [../../plugins/tend-ci-runner]
+ context:
+   add_dirs: [evidence]
+ execution:
+@@ -13,7 +14,7 @@ execution:
+   prompt: |
+     Continue the default-branch CI repair for max-sixty/leaf, run 36945384717. Load tend-ci-runner:ci-fix and tend-ci-runner:ground-claims. Most failures have been handled; finish the gallery failure disposition. The failed-test listing includes tests/test_render_navigation.py::test_the_feature_gallery_keeps_a_choice_when_its_proposal_is_undone. An open bot PR #1506 covers gallery Undo behavior.
+
+-    The cached PR body, comments and reviews are in evidence/prior-pr.json; the relevant CI traceback is in evidence/current-ci.log. These files are under evals/ci-failure-attribution in the loaded tend-ci-runner plugin. Resolve that plugin's location from the base directory returned by Skill. The earlier failed-test listing was truncated; use the cached evidence to finish the disposition.
++    The cached PR body, comments and reviews are in evidence/prior-pr.json; the relevant CI traceback is in evidence/current-ci.log. These files are under evals/ci-failure-attribution in the repository containing the loaded plugin. Resolve the repository location from the base directory returned by Skill; the plugin is at plugins/tend-ci-runner in that repository. The earlier failed-test listing was truncated; use the cached evidence to finish the disposition.
+
+     This is an offline reconstruction. The original repository, shell, network and GitHub are unavailable. Use Read for the supplied evidence and Skill for guidance. Compose the disposition you would report on the relevant thread or tracker, save it to captured.md with Write, then finish. Do not claim new reproduction or take an outward action.
+ graders:
+diff --git a/plugins/tend-ci-runner/evals/ci-failure-attribution/evidence/current-ci.log b/evals/ci-failure-attribution/evidence/current-ci.log
+similarity index 100%
+rename from plugins/tend-ci-runner/evals/ci-failure-attribution/evidence/current-ci.log
+rename to evals/ci-failure-attribution/evidence/current-ci.log
+diff --git a/plugins/tend-ci-runner/evals/ci-failure-attribution/evidence/prior-pr.json b/evals/ci-failure-attribution/evidence/prior-pr.json
+similarity index 100%
+rename from plugins/tend-ci-runner/evals/ci-failure-attribution/evidence/prior-pr.json
+rename to evals/ci-failure-attribution/evidence/prior-pr.json
+diff --git a/plugins/tend-ci-runner/evals/ci-failure-attribution/source.json b/evals/ci-failure-attribution/source.json
+similarity index 100%
+rename from plugins/tend-ci-runner/evals/ci-failure-attribution/source.json
+rename to evals/ci-failure-attribution/source.json

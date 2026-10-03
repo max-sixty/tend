@@ -1,0 +1,22 @@
+diff --git a/scripts/mcp-app/run-direct-probe.sh b/scripts/mcp-app/run-direct-probe.sh
+index 3adaa8dd..c0dcc5b0 100644
+--- a/scripts/mcp-app/run-direct-probe.sh
++++ b/scripts/mcp-app/run-direct-probe.sh
+@@ -14,11 +14,12 @@ fi
+
+ repo="$(cd "$(dirname "$0")/../.." && pwd)"
+ cd "$repo"
+-results="$repo/notes/mcp-apps/experiments/$1/results"
+-if [[ -e "$results" ]]; then
+-  printf 'Results already exist: %s\nUse a new experiment number.\n' "$results" >&2
+-  exit 1
+-fi
++# Probe evidence is generated output with no consumer in an install, and the
++# install payload is the tracked tree, so it lands in .tmp/ like every other
++# script's output here. A written-up result cites what the maintainer copies
++# into notes/mcp-apps/experiments/$1/ by hand.
++results="$repo/.tmp/mcp-app/experiments/$1/results"
++rm -rf "$results"
+ mkdir -p "$repo/.tmp" "$results"
+ run_dir="$(mktemp -d "$repo/.tmp/mcp-direct-$1.XXXXXX")"
+ dependencies="$repo/.tmp/mcp-direct-deps-1.7.5-0.28.2"

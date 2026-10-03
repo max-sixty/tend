@@ -1,17 +1,18 @@
-description: Resume the review of a newly added eval after an earlier
-  tracker-matching review.
+description: Review newly added eval files after earlier draft feedback.
 vars:
-  task: |
-    Continue composing the next review on draft PR #1478 using the completed investigation and second pass recorded in this conversation. Re-read the installed review skill's references/draft-mode.md before drafting; resolve it from the skill's base directory. Compose the review body you would submit.
+  task: |-
+    Review the latest push to max-sixty/tend draft PR #1478. Save the next review body to captured.md using the applicable review guidance.
 
-    This is an offline drafting replay. The original repository, shell, network and GitHub are unavailable. Save the body to captured.md with Write instead of posting it. Do not claim new verification or edit source. Finish after saving the body.
+    The previous published review is in evidence/previous-review.md. The author has now connected ci-fix's tracker occurrence counts, dedup updates and tracker-closing lookup to the same Claims of recurrence guidance used for prior PR matches. The push also adds a CI-attribution eval with a case, provenance, local CI log and cached PR discussion. The new README diff, added-file inventory and unchanged installer excerpt are in evidence/. Existing repository evals live under evals/ and have their own runbook and preparer.
+
+    The PR remains a draft. No author or maintainer has asked about review scope or the readiness procedure. Review the new state and write only the review body. The original repository and GitHub are unavailable; do not post or claim new tests. Finish after saving it.
 assert:
-  - type: contains
-    value: <!-- tend:draft-review -->
-  - type: llm-rubric
-    value: |
-      Judge the reader-facing review body, ignoring its hidden HTML marker. Earlier reviews already explained the draft feedback/merge-verdict distinction and how marking ready requests a full review. Nobody has asked about that scope or expressed confusion.
+- type: contains
+  value: <!-- tend:draft-review -->
+- type: llm-rubric
+  value: |
+    Judge the reader-facing review body, ignoring its hidden HTML marker. Earlier reviews already explained the draft feedback/merge-verdict distinction and how marking ready requests a full review. Nobody has asked about that scope or expressed confusion.
 
-      PASS only if the opening is a concrete current finding or a concise acknowledgment of a resolved earlier finding, and the body does not explain draft-review scope or the mark-ready/full-review procedure again anywhere. Judge the meaning, including paraphrases, rather than particular words. Acknowledging that a push addressed earlier findings is relevant progress and is allowed; mentioning an earlier draft review as the source of a resolved finding does not explain review scope.
+    PASS only if the opening is a concrete current finding or a concise acknowledgment of a resolved earlier finding, and the body does not explain draft-review scope or the mark-ready/full-review procedure again anywhere. Judge the meaning, including paraphrases, rather than particular words. Acknowledging that a push addressed earlier findings is relevant progress and is allowed; mentioning an earlier draft review as the source of a resolved finding does not explain review scope.
 
-      The body must also retain this remaining actionable finding: the eval fixtures reside inside the installed plugin tree, so they will be installed in consumer sandboxes; move the eval outside the shipped plugin. A progress acknowledgment alone fails. Grade this finding only, not unrelated technical claims, prose style, or review depth.
+    The body must also retain this remaining actionable finding: the eval fixtures reside inside the installed plugin tree, so they will be installed in consumer sandboxes; move the eval outside the shipped plugin. A progress acknowledgment alone fails. Grade this finding only, not unrelated technical claims, prose style, or review depth.

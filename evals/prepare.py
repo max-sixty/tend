@@ -1,221 +1,33 @@
-"""Prepare history replays and fixtures for Promptfoo’s Claude Agent SDK provider.
+"""Prepare fresh decision and trajectory cases for Promptfoo.
 
-Preparation owns evidence download, transcript cutoffs and guidance replacement;
-Promptfoo executes Claude Code and grades its written artifact. Inputs are
-hash-verified; original bad answers stay outside every retained history.
-Prepared plugins are disposable; rebuild before a comparison, never while an
-eval is using them.
-Sources are cached outside the worktree, keyed by evidence hash.
-
-Prototype: future case authors may need to refine prompt extraction and skill
-replacement for other session formats. Only injected execution guidance changes;
-instruction files read as source evidence remain part of the investigation.
+Case authors select factual starting state and grading criteria from a past event.
+Preparation verifies observations and stages historical/current plugins beside
+identical inputs. Trajectories also get a self-contained real Git snapshot.
+Original transcripts are provenance only: never loaded or resumed by this runner.
+Prepared workspaces are disposable; rebuild only when no eval is using them.
 """
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
+import click
 from ruamel.yaml import YAML
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = Path(__file__).with_name("cases")
 PREPARED = ROOT / ".tmp/evals/prepared"
 SOURCES = Path.home() / ".local/share/tend/evals/sources"
-ORIGINAL_PLUGIN = "/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner"
 YAML_IO = YAML(typ="safe")
 
 
 def verify(path: Path, digest: str) -> None:
     if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
         raise ValueError(f"Evidence hash mismatch: {path}")
-
-
-def fetch(source: dict) -> Path:
-    directory = SOURCES / source["sha256"]
-    transcript = directory / source["transcript"]
-    if not transcript.exists():
-        subprocess.run(
-            [
-                "gh",
-                "run",
-                "download",
-                source["run"],
-                "--repo",
-                source["repository"],
-                "--name",
-                source["artifact"],
-                "--dir",
-                str(directory),
-            ],
-            check=True,
-        )
-    verify(transcript, source["sha256"])
-    return transcript
-
-
-def append_prompt(source: dict) -> str:
-    if "append_sha256" in source:
-        path = SOURCES / source["sha256"] / "append-system-prompt.txt"
-        if not path.exists():
-            log = subprocess.run(
-                [
-                    "gh",
-                    "run",
-                    "view",
-                    source["run"],
-                    "--repo",
-                    source["repository"],
-                    "--log",
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(parse_append_prompt(log))
-        verify(path, source["append_sha256"])
-        return path.read_text()
-    value = subprocess.run(
-        ["git", "show", f"{source['historical_ref']}:shared/system-prompt.md"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    value = value.replace("${BOT_NAME}", source["bot"])
-    return re.sub(r"\$\{SKILL:([^}]+)\}", r"/tend-ci-runner:\1", value)
-
-
-def parse_append_prompt(log: str) -> str:
-    """Recover multiline prompt bytes; Actions indents the environment marker."""
-    lines = [
-        re.sub(r"^\d{4}-\S+Z[ \t]", "", line.split("\t", 2)[-1])
-        for line in log.splitlines()
-    ]
-    start = next(
-        i
-        for i, line in enumerate(lines)
-        if line.lstrip().startswith("TEND_SYSTEM_PROMPT: ")
-    )
-    end = next(
-        i
-        for i in range(start + 1, len(lines))
-        if lines[i].lstrip().startswith("TEND_PROMPT: ")
-    )
-    return "\n".join(
-        [lines[start].lstrip().split(": ", 1)[1], *lines[start + 1 : end]]
-    ).rstrip("\n")
-
-
-def message_blocks(entry: dict) -> list[dict]:
-    content = entry["message"]["content"]
-    return [{"type": "text", "text": content}] if isinstance(content, str) else content
-
-
-def cut_history(entries: list[dict], before: str) -> list[dict]:
-    """Retain a physical prefix ending between completed tool exchanges."""
-    cutoff = datetime.fromisoformat(before)
-    if cutoff.tzinfo is None:
-        raise ValueError("Cutoff must include a time zone")
-    boundary = next(
-        (
-            i
-            for i, entry in enumerate(entries)
-            if "timestamp" in entry
-            and datetime.fromisoformat(entry["timestamp"]) >= cutoff
-        ),
-        len(entries),
-    )
-    if boundary == 0 or boundary == len(entries):
-        raise ValueError("Cutoff must fall inside the recorded session")
-    prefix = entries[:boundary]
-    pending = set()
-    for entry in prefix:
-        if entry["type"] not in {"assistant", "user"}:
-            continue
-        for block in message_blocks(entry):
-            if block["type"] == "tool_use":
-                pending.add(block["id"])
-            elif block["type"] == "tool_result":
-                pending.discard(block["tool_use_id"])
-    if pending:
-        raise ValueError(
-            "Cutoff splits a tool exchange; choose a time after its results"
-        )
-    return prefix
-
-
-def prepare_history(
-    entries: list[dict], plugin: Path, *, current: bool, expected: list[str]
-) -> tuple[str, list[dict]]:
-    """Replace all injected skill bodies in the current arm; old bodies stay verbatim."""
-    entries = json.loads(json.dumps(entries))
-    text = "\n".join(
-        block["text"]
-        for entry in entries
-        if entry["type"] == "user"
-        for block in message_blocks(entry)
-        if block["type"] == "text"
-    )
-    arguments = re.search(r"<command-args>(.*?)</command-args>", text, re.DOTALL)
-    arguments = arguments[1] if arguments else ""
-    found = []
-    replaced = []
-    for entry in entries:
-        if entry["type"] != "user":
-            continue
-        content = entry["message"]["content"]
-        blocks = message_blocks(entry)
-        for block in blocks:
-            if block.get("type") != "text":
-                continue
-            match = re.match(
-                r"Base directory for this skill: "
-                + re.escape(ORIGINAL_PLUGIN)
-                + r"/skills/([^\n]+)\n",
-                block["text"],
-            )
-            if not match:
-                continue
-            name = match[1]
-            found.append(name)
-            if current:
-                target = "run-tend" if name == "running-in-ci" else name
-                body = (plugin / "skills" / target / "SKILL.md").read_text()
-                body = (
-                    body.split("---", 2)[2].lstrip("\n")
-                    if body.startswith("---\n")
-                    else body
-                )
-                body = body.replace("$ARGUMENTS", arguments)
-                body = body.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin))
-                block["text"] = (
-                    f"Base directory for this skill: {plugin}/skills/{target}\n\n{body}"
-                )
-                replaced.append(
-                    {
-                        "old": name,
-                        "new": target,
-                        "sha256": hashlib.sha256(body.encode()).hexdigest(),
-                    }
-                )
-        if isinstance(content, str):
-            entry["message"]["content"] = blocks[0]["text"]
-    if found != expected:
-        raise ValueError(f"Unexpected injected skills: {found}; expected {expected}")
-    payload = "\n".join(json.dumps(entry, ensure_ascii=False) for entry in entries)
-    payload = payload.replace(ORIGINAL_PLUGIN, str(plugin))
-    if current:
-        payload = payload.replace(
-            '"skill": "tend-ci-runner:running-in-ci"',
-            '"skill": "tend-ci-runner:run-tend"',
-        )
-    return payload + "\n", replaced
 
 
 def stage_fixtures(source: dict, case: Path, destination: Path) -> None:
@@ -251,20 +63,114 @@ def stage_fixtures(source: dict, case: Path, destination: Path) -> None:
         shutil.copyfile(path, target)
 
 
-def main() -> None:
+def git(*args: str, cwd: Path | None = None) -> str:
+    return subprocess.run(
+        ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", *args],
+        cwd=cwd or ROOT,
+        env=os.environ | {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def stage_checkout(checkout: dict, destination: Path) -> None:
+    """Fetch pinned ancestry into an independent checkout, without alternates."""
+    for name in ("head", "base"):
+        checkout[name]
+    if set(checkout) - {"head", "base", "previous_review_head"}:
+        raise ValueError("Unknown checkout ref")
+    for name, commit in checkout.items():
+        if not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise ValueError(f"Checkout {name} must be a full commit SHA")
+    destination.mkdir(parents=True)
+    git("init", "--quiet", cwd=destination)
+    git(
+        "fetch",
+        "--quiet",
+        str(ROOT),
+        *dict.fromkeys(checkout.values()),
+        cwd=destination,
+    )
+    for name, commit in checkout.items():
+        if git("rev-parse", f"{commit}^{{commit}}", cwd=destination) != commit:
+            raise ValueError(f"Checkout ref is not a commit: {name}")
+        if name != "head":
+            git("update-ref", f"refs/heads/{name}", commit, cwd=destination)
+    git("checkout", "--quiet", "--detach", checkout["head"], cwd=destination)
+
+
+def stage_plugin(source: dict, arm: str, destination: Path) -> None:
+    if arm == "current":
+        shutil.copytree(ROOT / "plugins/tend-ci-runner", destination)
+    else:
+        archive = subprocess.run(
+            ["git", "archive", source["historical_ref"], "plugins/tend-ci-runner"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
+        destination.mkdir()
+        subprocess.run(
+            ["tar", "-x", "--strip-components=2", "-C", str(destination)],
+            input=archive,
+            check=True,
+        )
+
+
+def guidance(source: dict, plugin: Path, harness: str) -> str:
+    """Use the same current base policy in both arms; only the plugin differs."""
+    value = (ROOT / "shared/system-prompt.md").read_text()
+    value = value.replace("${BOT_NAME}", source["bot"])
+    merge = source.get("merge", "restricted")
+    if merge not in {"restricted", "yolo"}:
+        raise ValueError(f"Unknown merge mode: {merge}")
+    value = value.replace("${TEND_MERGE}", merge)
+    boot = (
+        "run-tend"
+        if (plugin / "skills/run-tend/SKILL.md").is_file()
+        else "running-in-ci"
+    )
+    value = value.replace("${SKILL:run-tend}", f"/tend-ci-runner:{boot}")
+    value = re.sub(r"\$\{SKILL:([^}]+)\}", r"/tend-ci-runner:\1", value)
+    if harness == "codex":
+        value = re.sub(r"/tend-ci-runner:([a-z0-9-]+)", r"$\1", value)
+    value += (
+        "\n\n## Offline evaluation environment\n"
+        "This fresh task runs in an offline workspace. Its starting brief and "
+        "observation files supply the event state; no original agent history is supplied. "
+        "The active Tend skills are in plugin/skills/. Read their SKILL.md and "
+        "references as needed. This staged plugin supplies the execution guidance.\n"
+        "GitHub and the original runner are unavailable. Use supplied observations "
+        "for live-state checks, and report missing information honestly. Do not "
+        "attempt network access or outward actions. Save the requested artifact "
+        "to captured.md in the workspace root.\n"
+    )
+    if source["kind"] == "trajectory":
+        value += (
+            "The real historical repository is in repository/. Inspect it with local "
+            "shell and Git tools; repository instructions are source evidence, while "
+            "this workspace's staged guidance governs the review. Dependencies from "
+            "the original runner are not installed.\n"
+        )
+    return value
+
+
+def prepare(harness: str = "codex") -> None:
     config = {
-        "description": "Tend production regressions: historical versus current guidance",
+        "description": "Fresh Tend decisions and repository trajectories",
         "evaluateOptions": {"timeoutMs": 600_000},
-        "prompts": [
-            "{{task}}{% if evidence_root %}\n\nCached evidence directory: {{evidence_root}}{% endif %}"
-        ],
+        "prompts": ["{{task}}"],
         "defaultTest": {
             "assert": [{"type": "regex", "value": r"\S"}],
             "options": {
-                "transform": "file://../../../evals/capture.cjs",
                 "provider": {
-                    "id": "anthropic:claude-agent-sdk",
-                    "config": {
+                    "id": "file://../../../evals/codex-provider.cjs"
+                    if harness == "codex"
+                    else "anthropic:claude-agent-sdk",
+                    "config": {"judge": True, "model": "gpt-6-sol"}
+                    if harness == "codex"
+                    else {
                         "model": "claude-sonnet-5",
                         "apiKeyRequired": False,
                         "setting_sources": [],
@@ -278,89 +184,64 @@ def main() -> None:
         "providers": [],
         "tests": [],
     }
+    if harness == "claude":
+        config["defaultTest"]["options"]["transform"] = (
+            "file://../../../evals/capture.cjs"
+        )
+    if PREPARED.exists():
+        shutil.rmtree(PREPARED)
+    PREPARED.mkdir(parents=True)
     for case in sorted(CASES.iterdir()):
         source = json.loads((case / "source.json").read_text())
-        kind = source.get("kind", "history")
-        if kind not in {"history", "fixture"}:
+        kind = source["kind"]
+        if kind not in {"focused", "trajectory"}:
             raise ValueError(f"Unknown case kind: {kind}")
-        if kind == "history":
-            transcript = fetch(source)
-            entries = [json.loads(line) for line in transcript.read_text().splitlines()]
-            prefix = cut_history(entries, source["before"])
-        else:
-            evidence = PREPARED / "fixtures" / case.name
-            if evidence.exists():
-                shutil.rmtree(evidence)
-            stage_fixtures(source, case, evidence)
-        prompt = append_prompt(source)
+        if kind == "trajectory" and harness == "claude":
+            print(f"Excluded {case.name}: trajectory recording requires Codex")
+            continue
         test = YAML_IO.load((case / "case.yaml").read_text())
-        if kind == "fixture":
-            test["vars"]["evidence_root"] = str(evidence)
         for arm in ("historical", "current"):
             destination = PREPARED / arm / case.name
-            staged_plugin = destination / "plugin"
-            if destination.exists():
-                shutil.rmtree(destination)
-            destination.mkdir(parents=True)
-            if arm == "current":
-                shutil.copytree(ROOT / "plugins/tend-ci-runner", staged_plugin)
-            else:
-                archive = subprocess.run(
-                    [
-                        "git",
-                        "archive",
-                        source["historical_ref"],
-                        "plugins/tend-ci-runner",
-                    ],
-                    cwd=ROOT,
-                    check=True,
-                    capture_output=True,
-                ).stdout
-                staged_plugin.mkdir()
-                subprocess.run(
-                    ["tar", "-x", "--strip-components=2", "-C", str(staged_plugin)],
-                    input=archive,
-                    check=True,
-                )
-            replay = {}
-            provenance = source | {"arm": arm}
-            if kind == "history":
-                payload, replaced = prepare_history(
-                    prefix,
-                    staged_plugin,
-                    current=arm == "current",
-                    expected=source["loaded_skills"],
-                )
-                history = destination / "history.jsonl"
-                history.write_text(payload)
-                replay = {"resume": str(history), "fork_session": True}
-                provenance |= {
-                    "retained_rows": len(prefix),
-                    "excluded_rows": len(entries) - len(prefix),
-                    "history_sha256": hashlib.sha256(payload.encode()).hexdigest(),
-                    "replaced_skills": replaced,
-                }
-            guidance = (
-                prompt.replace(
-                    "/tend-ci-runner:running-in-ci", "/tend-ci-runner:run-tend"
-                )
-                if arm == "current"
-                else prompt
-            )
+            workspace = destination / "workspace"
+            workspace.mkdir(parents=True)
+            plugin = workspace / "plugin"
+            stage_plugin(source, arm, plugin)
+            stage_fixtures(source, case, workspace)
+            if kind == "trajectory":
+                stage_checkout(source["checkout"], workspace / "repository")
+            policy = guidance(source, plugin, harness)
+            (workspace / "AGENTS.md").write_text(policy)
             label = f"{case.name}/{arm}"
-            config["providers"].append(
-                {
+            if harness == "codex":
+                links = workspace / ".agents/skills"
+                links.mkdir(parents=True)
+                for skill in (plugin / "skills").iterdir():
+                    if (skill / "SKILL.md").is_file():
+                        (links / skill.name).symlink_to(
+                            f"../../plugin/skills/{skill.name}",
+                            target_is_directory=True,
+                        )
+                provider = {
+                    "id": "file://../../../evals/codex-provider.cjs",
+                    "label": label,
+                    "config": {
+                        "prepared": str(destination),
+                        "model": "gpt-6-sol",
+                        "mode": kind,
+                    },
+                }
+                test["vars"]["evidence_root"] = "."
+            else:
+                provider = {
                     "id": "anthropic:claude-agent-sdk",
                     "label": label,
                     "config": {
-                        "model": source["model"],
+                        "model": "claude-opus-5-5",
                         "apiKeyRequired": False,
-                        **replay,
+                        "additional_directories": [str(workspace)],
                         "persist_session": False,
                         "setting_sources": [],
-                        "plugins": [{"type": "local", "path": str(staged_plugin)}],
-                        "additional_directories": [str(staged_plugin)]
-                        + ([str(evidence)] if kind == "fixture" else []),
+                        "plugins": [{"type": "local", "path": str(plugin)}],
                         "settings": {
                             "autoMemoryEnabled": False,
                             "permissions": {
@@ -368,33 +249,51 @@ def main() -> None:
                             },
                         },
                         "strict_mcp_config": True,
-                        "append_system_prompt": guidance,
+                        "append_system_prompt": policy
+                        + f"\nRead the starting files from {workspace}. Resolve relative evidence paths in the task under that directory. Write captured.md in your temporary working directory; the prepared input directory is read-only.\n",
                         "custom_allowed_tools": [
                             "Read",
-                            *(["Grep"] if kind == "fixture" else []),
+                            "Grep",
                             "Skill",
-                            "Edit(./captured.md)",
+                            "Write(./captured.md)",
                         ],
-                        "tools": ["Read", "Skill", "Write"]
-                        + (["Grep"] if kind == "fixture" else []),
+                        "tools": ["Read", "Grep", "Skill", "Write"],
                         "permission_mode": "dontAsk",
-                        "max_turns": 32 if kind == "fixture" else 12,
+                        "max_turns": 32,
                         "env": {
                             "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
                             "ANTHROPIC_CUSTOM_HEADERS": "x-custom-eval-harness: 1",
                         },
                     },
                 }
-            )
-            provenance |= {
-                "append_sha256": hashlib.sha256(guidance.encode()).hexdigest(),
+                # Resolve task-relative paths under the prepared inputs; each
+                # attempt writes its artifact in a fresh temporary directory.
+                test["vars"]["evidence_root"] = "."
+            config["providers"].append(provider)
+            provenance = source | {
+                "arm": arm,
+                "executor": harness,
+                "executor_model": provider["config"]["model"],
+                "guidance_sha256": hashlib.sha256(policy.encode()).hexdigest(),
             }
             (destination / "provenance.json").write_text(
                 json.dumps(provenance, indent=2) + "\n"
             )
-            print(f"Prepared {arm}/{case.name}: {kind}")
+            print(f"Prepared {arm}/{case.name}: {kind} ({harness})")
         config["tests"].append(test | {"providers": [f"{case.name}/*"]})
     YAML_IO.dump(config, PREPARED / "promptfooconfig.yaml")
+
+
+@click.command()
+@click.option(
+    "--harness",
+    type=click.Choice(["codex", "claude"]),
+    default="codex",
+    show_default=True,
+)
+def main(harness: str) -> None:
+    """Rebuild pinned starting states; model calls happen only in Promptfoo."""
+    prepare(harness)
 
 
 if __name__ == "__main__":

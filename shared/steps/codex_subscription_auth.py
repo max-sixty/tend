@@ -1,12 +1,11 @@
 """Prepare and rotate Codex's experimental ChatGPT subscription auth.
 
-Consumer jobs receive an access-only ``auth.json``. The sole refresh workflow
-holds the rotating refresh token, updates that full bundle first, then derives
-and publishes the next access-only bundle. This keeps concurrent consumers
-from racing the refresh-token chain.
+Consumer jobs receive an access-only ``auth.json``. The configured refresher
+owns the rotating refresh token and publishes replacement access-only bundles.
+This keeps concurrent consumers from racing the refresh-token chain.
 
-The consumer mode is a pinned Codex implementation detail. The refresher uses
-Codex's built-in rotation path, then persists the file Codex wrote.
+The consumer mode is a pinned Codex implementation detail. Tend's hosted
+refresher uses Codex's built-in rotation path, then persists the file Codex wrote.
 """
 
 from __future__ import annotations

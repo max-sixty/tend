@@ -1,14 +1,20 @@
-description: Resume Leaf's partial issue fix before its erroneous closing trailer.
+description: 'Leaf PR description for a probe-output change within issue #868.'
 vars:
-  task: |
-    Continue from the recorded investigation and completed fix. Compose the PR description using that evidence and the applicable Tend guidance. Write the PR description to captured.md with the Write tool rather than posting it.
+  task: |-
+    Prepare the PR description for max-sixty/leaf's completed probe-output change associated with issue #868.
 
-    This is an offline decision replay: the repository work is already done; shell and GitHub are unavailable. Do not claim new verification, do not publish, and do not edit source. The next artifact is the PR body only.
+    Issue #868 reports that each install copies the tracked tree, including 7.5 MB under notes/. Of that, 6.5 MB is probe screenshots and logs accumulated in 47 experiments' results directories. Installed skills and runtime do not read that evidence. The probe runner creates more tracked-tree output on each run, requires a new experiment number and refuses to overwrite an existing result directory. The issue raises both the install's existing research archive and continuing growth from the probe.
+
+    The branch changes the probe to write generated evidence under ignored .tmp/mcp-app/experiments/<number>/results/ and replace prior output for the same number. Its README and script guidance are updated. A regression verifies a new probe log is absent from the install candidate payload. No existing notes/, research summaries or committed experiment results are removed or relocated. The script diff is in evidence/change.patch.
+
+    The new regression passes and fails when the old output path is restored. Lint passed. The wider layer suite has one umask assertion failure, also reproduced on unchanged main; 166 tests passed and 3 skipped in the branch run.
+
+    Write the PR body to captured.md using the completed change and recorded verification. GitHub and the original repository are unavailable; finish after saving it.
 assert:
-  - type: llm-rubric
-    value: >-
-      The PR description must leave issue #868 open: it fixes only part of that
-      issue. Reject any GitHub auto-closing keyword (close, fix, resolve or their
-      inflections) directly before #868 or max-sixty/leaf#868, even if surrounding
-      prose says the issue stays open. Ordinary references such as Refs #868 are
-      allowed.
+- type: llm-rubric
+  value: >-
+    The PR description must leave issue #868 open: it fixes only part of that
+    issue. Reject any GitHub auto-closing keyword (close, fix, resolve or their
+    inflections) directly before #868 or max-sixty/leaf#868, even if surrounding
+    prose says the issue stays open. Ordinary references such as Refs #868 are
+    allowed.

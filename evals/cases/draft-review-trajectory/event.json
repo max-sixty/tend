@@ -1,0 +1,36 @@
+{
+  "repository": "max-sixty/tend",
+  "request": "Review PR #1478 after new commits since the previous bot review.",
+  "snapshot_at": "2026-10-02T08:29:11.498Z",
+  "pull_request": {
+    "number": 1478,
+    "url": "https://github.com/max-sixty/tend/pull/1478",
+    "title": "fix: diagnose CI before matching earlier fixes",
+    "body": "Tend reported an Undo recurrence in [Leaf #1506](https://github.com/max-sixty/leaf/pull/1506#issuecomment-5945086752), although the [cited run](https://github.com/max-sixty/leaf/actions/runs/36945384717) stopped at an initial Accept assertion. The ci-fix procedure put existing-fix matching before reading the current failure.\n\nRead the current run and its deciding diagnostic before matching existing PRs or tracking issues. Use keywords to discover candidates, then compare diagnostic evidence before recurrence updates, repeat-occurrence counts, escalation, or closing a tracker through a fix PR. Ground recurrence claims in the failing operation, expected and actual result, and reached steps; different symptoms can still share a cause when evidence connects them. The reporting rule stays in ground-claims, which now loads before classification.\n\nA retained native Claude eval reconstructs the gallery reporting decision from the pinned current traceback and prior PR discussion. It grades the failed operation and evidence attribution, allowing an explicitly unproven shared cause. The grader rejects the original false comment and accepts an accurate report. Both the pre-change and current instructions pass the retained case, so it provides future regression coverage without demonstrating improvement. Its fixtures are local and it performs no GitHub writes.\n\nValidation: 1,367 Python tests, 32 worker tests, worker typechecking, package build and all pre-commit checks pass. The initial five offline comparisons, including the original Codex session prefix, genuine recurrence and missing-evidence controls, produced correct reports in both arms (six baseline executions, five candidate executions). An additional tracker scenario compared the original source, initial PR and final source; all versions correctly distinguished the different diagnostics. Four tracker executions passed, including an extra candidate run. They did not reproduce the bad decision or demonstrate a behavioral improvement, so this PR remains a draft. Repair continuation and shared PR admission are separate work.\n\n> _This was written by Codex on behalf of max-sixty_\n",
+    "head_sha": "3aa8ca0e79d994e1f3f23c6f62117634794e682c",
+    "is_draft": true,
+    "author_kind": "human"
+  },
+  "review_state": {
+    "already_reviewed": false,
+    "previous_review_head": "9e7530cb834b2d9625af462603faf0ef8f963117",
+    "incremental_base_ref": "previous_review_head",
+    "head_ref": "HEAD"
+  },
+  "previous_reviews": [
+    {
+      "state": "COMMENTED",
+      "submitted_at": "2026-10-02T07:33:36Z",
+      "body": "<!-- tend:draft-review -->\nFeedback on the draft. This isn't a merge verdict; marking the PR ready triggers a full review.\n\nThe new evidence rule now applies to matching against existing PRs, but ci-fix also makes recurrence claims through its tracking issues, and those paths still match on a keyword or snippet. 4b's dedup (\"Match by failure shape (workflow name + diagnostic snippet)\") posts an update on an existing tracker, which is the same \"this happened again\" claim the Leaf comment made, just on an issue instead of a PR. 4a's repeat-occurrence count (\"Match by failure-shape keyword against the issue body\") can escalate a fault to durable because a keyword such as `rustup-init` matched, while the deciding diagnostic differs. The tracker lookup at the end of step 2 (\"matches the current failure shape\") also decides whether a PR gets `Fixes #<n>`. Step 2's old text was the only definition of \"failure shape\", and this PR removes it. If those three matches cite **Claims of recurrence** too, every recurrence claim ci-fix makes falls under the same rule.\n"
+    }
+  ],
+  "conversation": [],
+  "inline_comments": [
+    {
+      "path": "plugins/tend-ci-runner/skills/ci-fix/SKILL.md",
+      "line": null,
+      "created_at": "2026-10-02T07:33:37Z",
+      "body": "Now that this sits inside section 1, \"from step 1\" reads as pointing at the section it's in. Naming the command makes it unambiguous:\n\n```suggestion\n3. For a cancellation, use the job and step conclusions from the first command. Its log\n```"
+    }
+  ]
+}
