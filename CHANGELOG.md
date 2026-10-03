@@ -6,6 +6,37 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.6
+
+### Improved
+
+- Codex defaults to `gpt-6-sol`. ([#1454](https://github.com/max-sixty/tend/pull/1454))
+- Triage can implement concrete feature requests when repository evidence settles the behavior and a maintainer is reasonably likely to merge the result. ([#1471](https://github.com/max-sixty/tend/pull/1471))
+- Bot PR repairs resume from the live PR's remaining findings and checks. Nightly checks open PRs before surveying files. ([#1479](https://github.com/max-sixty/tend/pull/1479), [#1462](https://github.com/max-sixty/tend/pull/1462))
+- `codex.auth_refresh: false` selects externally managed subscription refresh and omits Tend's refresh workflow. `tend check` expects externally published `CODEX_AUTH_JSON` and rejects retained hosted refresh secrets. Hosted refresh remains the default; `workflows.codex-auth-refresh.enabled` and its boolean shorthand are replaced by `codex.auth_refresh`. ([#1485](https://github.com/max-sixty/tend/pull/1485))
+
+### Fixed
+
+- Organization-secret checks use the repository-scoped API instead of requiring organization-wide secret administration permissions. ([#1482](https://github.com/max-sixty/tend/pull/1482))
+- Run listings identify candidates for investigation, and CI-fix reads the current diagnostic before attributing a recurrence. Nightly selects the newest successful run observed across several listing URLs. ([#1402](https://github.com/max-sixty/tend/pull/1402), [#1478](https://github.com/max-sixty/tend/pull/1478), [#1468](https://github.com/max-sixty/tend/pull/1468))
+- CI polling stops for jobs awaiting environment approval and reports their checks as unverified. ([#1473](https://github.com/max-sixty/tend/pull/1473), [#1475](https://github.com/max-sixty/tend/pull/1475))
+- Sandbox lifecycle failures and Claude's quoted errors can emit GitHub Actions annotations. ([#1453](https://github.com/max-sixty/tend/pull/1453), [#1467](https://github.com/max-sixty/tend/pull/1467))
+- Token reports include Codex runs, separating cached input from other input consistently across both harnesses and marking unavailable Codex cost explicitly. ([#1455](https://github.com/max-sixty/tend/pull/1455))
+- Workflow `enabled` values and boolean shorthand must be `true` or `false`; strings such as `no` and null values fail validation. ([#1465](https://github.com/max-sixty/tend/pull/1465))
+- Third-party actions use immutable commit refs, and uv installation verifies pinned archive checksums. The harness actions no longer accept `uv_version`. ([#1463](https://github.com/max-sixty/tend/pull/1463))
+
+### Documentation
+
+- Installation checks consistently target the selected repository and distinguish staged yolo setup from restricted-mode checks. Codex refresh-token setup names the full owner/repository to select on GitHub. ([#1476](https://github.com/max-sixty/tend/pull/1476), [#1484](https://github.com/max-sixty/tend/pull/1484))
+- Draft follow-up reviews avoid repeating their review scope. ([#1481](https://github.com/max-sixty/tend/pull/1481))
+
+### Internal
+
+- Historical drafting regression evaluations run through Promptfoo. ([#1474](https://github.com/max-sixty/tend/pull/1474), [#1480](https://github.com/max-sixty/tend/pull/1480))
+- Tend's own workflows use Codex, with nightly maintenance checking its model selection. ([#1397](https://github.com/max-sixty/tend/pull/1397), [#1483](https://github.com/max-sixty/tend/pull/1483))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.5
 
 ### Improved
