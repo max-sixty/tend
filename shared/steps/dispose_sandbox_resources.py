@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Delete the per-run runtime container, and with it the view's upper layer."""
 
 from __future__ import annotations

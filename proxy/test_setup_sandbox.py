@@ -36,16 +36,21 @@ def _paths(tmp_path: Path) -> setup_sandbox.Paths:
     )
 
 
-def test_agent_path_carries_the_job_path_entry_for_entry() -> None:
-    job_path = "/home/runner/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
-
-    entries = setup_sandbox.agent_path(job_path)
-
-    # Where the Claude binary installs.
-    assert entries[0] == str(setup_sandbox.AGENT_HOME / ".local/bin")
-    assert "/home/runner/.cargo/bin" in entries
-    # Last, so a version the consumer installed stays selected.
-    assert entries[-1] == str(setup_sandbox.TEND_AGENT_UV_DIR)
+@pytest.mark.parametrize(
+    "job_path",
+    [
+        "/home/runner/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
+        "/consumer/tools",
+    ],
+)
+def test_agent_path_carries_the_job_path_entry_for_entry(job_path: str) -> None:
+    assert setup_sandbox.agent_path(job_path) == [
+        # Where the Claude binary installs.
+        str(setup_sandbox.AGENT_HOME / ".local/bin"),
+        *job_path.split(os.pathsep),
+        # Last, so a version the consumer installed stays selected.
+        str(setup_sandbox.TEND_AGENT_UV_DIR),
+    ]
 
 
 def test_agent_path_never_repeats_an_entry() -> None:
@@ -115,8 +120,26 @@ def test_proxy_runs_the_locked_closure_isolated_from_consumer_configuration(
     ]
     # The installed closure stays where the agent can't reach it.
     assert (
-        command[3] == f"UV_PROJECT_ENVIRONMENT={paths.private_dir / 'tend-proxy-venv'}"
+        command[1] == f"UV_PROJECT_ENVIRONMENT={paths.private_dir / 'tend-proxy-venv'}"
     )
+
+
+def test_proxy_uses_its_cache_without_consumer_uv_controls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("UV_NO_SYNC", "1")
+    monkeypatch.setenv("UV_PYTHON", "consumer-python")
+    monkeypatch.setenv("UV_CACHE_DIR", "/runner/tend-proxy-uv")
+    monkeypatch.setenv("PATH", "/consumer/bin:/usr/bin")
+    monkeypatch.setenv("TEND_GH_TOKEN", "test-token")
+
+    environment = setup_sandbox.proxy_environment()
+
+    assert {k: v for k, v in environment.items() if k.startswith("UV_")} == {
+        "UV_CACHE_DIR": "/runner/tend-proxy-uv"
+    }
+    assert environment["PATH"] == "/consumer/bin:/usr/bin"
+    assert environment["TEND_GH_TOKEN"] == "test-token"
 
 
 def test_a_checkout_outside_the_runner_home_is_refused_by_name(

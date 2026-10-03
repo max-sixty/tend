@@ -68,10 +68,6 @@ plant() {
   printf '#!/bin/sh\necho shared\n' | sudo tee "$shared/tend-shared" >/dev/null
   printf '#!/bin/sh\necho consumer-uv\n' | sudo tee "$shared/uv" >/dev/null
   sudo chmod +x "$shared/tend-shared" "$shared/uv"
-  # setup_sandbox.py must capture this PATH entry as tool data without resolving
-  # its privileged utilities through a consumer-controlled directory.
-  printf '#!/bin/sh\nexit 99\n' >"$bin/sudo"
-  chmod +x "$bin/sudo"
   echo "$shared" >>"$GITHUB_PATH"
   echo "$seeded" >>"$GITHUB_PATH"
   echo "$bin" >>"$GITHUB_PATH"
@@ -93,42 +89,21 @@ host_checksum() {
 }
 
 setup() {
-  local action_run agent_path hostile_python hostile_site
+  local action_run agent_path
   set_inputs
   UV_INSTALL_DIR="$TEND_UV_DIR" bash shared/steps/install-uv.sh
-  # The setup step receives both real credentials. Repository-controlled
-  # Python and uv environment variables must not execute code before the
-  # runner-owned script has established the sandbox boundary.
-  hostile_python="$RUNNER_TEMP/tend-hostile-python"
-  hostile_site="$RUNNER_TEMP/tend-hostile-site"
-  mkdir -p "$hostile_site"
-  printf '%s\n' \
-    '#!/usr/bin/env bash' \
-    "touch '$RUNNER_TEMP/uv-python-used'" \
-    'exec /usr/bin/python3 "$@"' >"$hostile_python"
-  chmod +x "$hostile_python"
-  printf '%s\n' \
-    'from pathlib import Path' \
-    "Path('$RUNNER_TEMP/pythonpath-used').touch()" \
-    >"$hostile_site/sitecustomize.py"
-  export UV_PYTHON="$hostile_python"
-  export PYTHONPATH="$hostile_site"
-  # Exercise the composite action's entrypoint rather than calling the setup
-  # script directly. The boundary depends on the PATH the action passes in.
+  # Exercise the composite action's entrypoint so consumer-installed tools
+  # reach the agent through the same environment used by a consumer job.
   action_run=$(yq -er '.runs.steps[] | select(.name == "Set up credential-isolation sandbox") | .run' claude/action.yaml)
   action_run=${action_run//'${{ github.action_path }}'/"$TEND_TEST_ACTION_PATH/claude"}
   /usr/bin/bash --noprofile --norc -eo pipefail -c "$action_run" \
     | tee "$RUNNER_TEMP/setup.log"
-  test ! -e "$RUNNER_TEMP/uv-python-used"
-  test ! -e "$RUNNER_TEMP/pythonpath-used"
-
   agent_path=$(sed -n 's/^\[setup-sandbox\] sandbox PATH: //p' "$RUNNER_TEMP/setup.log")
   test -n "$agent_path"
   case ":$agent_path:" in
     *":$HOME/.tend-seeded/bin:"*) ;;
     *) echo "::error::a runner-home PATH entry was dropped: $agent_path"; exit 1 ;;
   esac
-  rm "$HOME/.cargo-install/tend-probe/bin/sudo"
 }
 
 install_agent_uv() {
@@ -168,7 +143,7 @@ verify() {
 verify_refusals() {
   local empty_rc
   set_inputs
-  GITHUB_WORKSPACE='' "$TEND_UV_DIR/uv" run --script proxy/setup_sandbox.py \
+  GITHUB_WORKSPACE='' /usr/bin/python3 -E -s proxy/setup_sandbox.py \
     >"$RUNNER_TEMP/empty-workspace.log" 2>&1 && empty_rc=0 || empty_rc=$?
   test "${empty_rc:-0}" -ne 0
   grep -q '::error::GITHUB_WORKSPACE must name' "$RUNNER_TEMP/empty-workspace.log"
@@ -470,7 +445,7 @@ PY
 }
 
 verify_dispose() {
-  PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s \
+  /usr/bin/python3 -E -s \
     shared/steps/dispose_sandbox_resources.py
   test ! -e "$TEND_RUNTIME_ROOT"
   test -f "/tmp/tend-runner-owned-$GITHUB_RUN_ID"

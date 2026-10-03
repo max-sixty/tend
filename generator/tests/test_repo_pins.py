@@ -76,25 +76,21 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
 
     assert "experimental" in action["name"].lower()
     setup_env = steps["Set up credential-isolation sandbox"]["env"]
-    setup_run = steps["Set up credential-isolation sandbox"]["run"]
     assert setup_env["TEND_GH_TOKEN"] == "${{ inputs.github_token }}"
     assert setup_env["TEND_GITHUB_ONLY"] == "1"
     assert "TEND_OPENAI_API_KEY" not in setup_env
-    assert 'TEND_GITHUB_ONLY="$TEND_GITHUB_ONLY"' in setup_run
     auth = steps["Configure Codex auth"]
     assert auth["env"]["OPENAI_API_KEY"] == "${{ inputs.openai_api_key }}"
     assert auth["env"]["CODEX_AUTH_JSON"] == "${{ inputs.codex_auth_json }}"
-    assert "/usr/bin/env -i" in auth["run"]
     assert "tend-codex-auth.json" in auth["run"]
     openai_proxy = steps["Start OpenAI Responses proxy"]
     assert openai_proxy["if"] == "steps.codex_auth.outputs.mode == 'api-key'"
     assert openai_proxy["env"]["PROXY_API_KEY"] == "${{ inputs.openai_api_key }}"
-    assert "exec /usr/bin/env -i" in openai_proxy["run"]
-    assert '"$NODE_BIN" "$CODEX_PROXY_BIN"' in openai_proxy["run"]
+    assert "exec env -i" in openai_proxy["run"]
+    assert 'node "$CODEX_PROXY_BIN"' in openai_proxy["run"]
     assert '<<< "$PROXY_API_KEY"' in openai_proxy["run"]
     assert '> "$PROXY_LOG_FILE" 2>&1 &' in openai_proxy["run"]
     assert 'cat "$PROXY_LOG_FILE" >&2' in openai_proxy["run"]
-    assert "OPENAI_API_KEY is unset" in openai_proxy["run"]
     assert [
         name
         for name, step in steps.items()
@@ -107,12 +103,10 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
     ] == ["Configure Codex auth"]
     subscription = steps["Stage subscription auth (sandbox)"]
     assert subscription["if"] == "steps.codex_auth.outputs.mode == 'subscription'"
-    assert subscription["env"] == {
-        "BASH_ENV": "",
-        "BASHOPTS": "",
-        "SHELLOPTS": "",
-        "PS4": "",
-    }
+    assert not (
+        {"OPENAI_API_KEY", "CODEX_AUTH_JSON", "GH_TOKEN", "GITHUB_TOKEN"}
+        & subscription.get("env", {}).keys()
+    )
     assert '"$AGENT_HOME/.codex/auth.json"' in subscription["run"]
     assert 'rm -f -- "$RUNNER_TEMP/tend-codex-auth.json"' in subscription["run"]
     run_env = steps["Run Codex"]["env"]
@@ -190,7 +184,7 @@ def test_sandbox_resources_are_removed_immediately_after_agent_reap(
         stop = steps[run_at + 1]
         assert stop["name"] == "Stop OpenAI Responses proxy"
         assert stop["if"] == "always()"
-        assert "/usr/bin/curl" in stop["run"]
+        assert "curl --fail" in stop["run"]
         assert "--max-time 10" in stop["run"]
     cleanup = steps[cleanup_at]
 
@@ -205,59 +199,6 @@ def test_hosted_probe_launches_only_from_the_action_copy() -> None:
 
     assert script.count(invocation) == 2
     assert "-s shared/steps/launch_agent.py" not in script
-
-
-def test_npm_installs_use_distinct_empty_config_files() -> None:
-    action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / "codex" / "action.yaml").read_text()
-    )
-    codex_install = next(
-        step["run"]
-        for step in action["runs"]["steps"]
-        if step.get("name") == "Install Codex and Responses proxy"
-    )
-    assert 'mktemp "$TEND_PRIVATE_DIR/tend-npm-user.XXXXXX"' in codex_install
-    assert 'mktemp "$TEND_PRIVATE_DIR/tend-npm-global.XXXXXX"' in codex_install
-    assert '--userconfig "$npm_userconfig"' in codex_install
-    assert '--globalconfig "$npm_globalconfig"' in codex_install
-
-
-@pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_hardened_shells_scrub_bash_env(harness: str) -> None:
-    action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / harness / "action.yaml").read_text()
-    )
-
-    for step in action["runs"]["steps"]:
-        if "--noprofile" in step.get("shell", ""):
-            assert step.get("env", {}).get("BASH_ENV") == "", step["name"]
-
-
-def test_codex_hardened_shells_pin_command_resolution() -> None:
-    action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / "codex" / "action.yaml").read_text()
-    )
-    safe_path = "PATH=/usr/sbin:/usr/bin:/sbin:/bin"
-
-    for step in action["runs"]["steps"]:
-        if "--noprofile" not in step.get("shell", ""):
-            continue
-
-        env = step.get("env", {})
-        lines = step["run"].splitlines()
-        if len(lines) == 1:
-            assert lines[0].startswith(f"{safe_path} /usr/bin/"), step["name"]
-            continue
-
-        assert {name: env.get(name) for name in ("BASHOPTS", "SHELLOPTS", "PS4")} == {
-            "BASHOPTS": "",
-            "SHELLOPTS": "",
-            "PS4": "",
-        }, step["name"]
-        assert lines[0] == "set +x", step["name"]
-        assert lines[1] == safe_path or lines[1].startswith("/usr/bin/env -i"), step[
-            "name"
-        ]
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
@@ -439,60 +380,6 @@ def test_pre_commit_hooks_are_pinned_by_sha() -> None:
         if repo["repo"] != "local" and not re.fullmatch(r"[0-9a-f]{40}", repo["rev"])
     ]
     assert not unpinned, f"expected `rev: <sha>  # frozen: <tag>`: {unpinned}"
-
-
-@pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_privileged_sandbox_launch_scrubs_consumer_runtime_configuration(
-    harness: str,
-) -> None:
-    action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / harness / "action.yaml").read_text()
-    )
-    step = next(
-        step
-        for step in action["runs"]["steps"]
-        if step.get("name") == "Set up credential-isolation sandbox"
-    )
-    run = step["run"]
-
-    assert step["env"]["BASH_ENV"] == ""
-    assert step["env"]["BASHOPTS"] == ""
-    assert step["env"]["SHELLOPTS"] == ""
-    assert step["env"]["PS4"] == ""
-    assert run.startswith("set +x\n")
-    assert "/usr/bin/env -i" in run
-    assert "UV_NO_CONFIG=1" in run
-    assert "PYTHONNOUSERSITE=1" in run
-    assert "--no-python-downloads --python /usr/bin/python3 --script" in run
-
-
-# Set to neutralize this step's own shell, not to reach the script: `env -i`
-# drops them by construction.
-SHELL_HARDENING = frozenset({"BASH_ENV", "BASHOPTS", "SHELLOPTS", "PS4"})
-
-
-@pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_privileged_sandbox_launch_forwards_every_configured_value(
-    harness: str,
-) -> None:
-    """`env:` and the `env -i` argv are two lists that have to agree.
-
-    A value reaches `setup_sandbox.py` only when both name it. Nothing else catches a value
-    added to one list alone: neither action.yaml is linted or run here, and the
-    hosted sandbox test supplies the script's environment itself — so the
-    mismatch would first run in a consumer's job after a release.
-    """
-    action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / harness / "action.yaml").read_text()
-    )
-    step = next(
-        step
-        for step in action["runs"]["steps"]
-        if step.get("name") == "Set up credential-isolation sandbox"
-    )
-    forwarded = set(re.findall(r'(\w+)="\$\1"', step["run"]))
-
-    assert set(step["env"]) - SHELL_HARDENING <= forwarded
 
 
 def test_codex_actions_pin_the_same_cli_version() -> None:

@@ -123,23 +123,11 @@ runs:
     # and codex actions can't drift; each wrapper below passes inputs via env
     # and runs the script (reached via ../shared/steps, since this action is
     # one level deep).
-    # A step receiving a real credential pins both its shell and child PATH;
-    # consumer setup may have prepended arbitrary commands to the job PATH.
-    # Ordinary Python bodies are pinned to `/usr/bin/python3` and started
-    # isolated: `-E` ignores every `PYTHON*` variable (a `PYTHONPATH` shadowing
-    # `json`, a `PYTHONSAFEPATH`) and `-s` drops the user site dir. The sandbox
-    # setup's PEP 723 body instead launches through pinned uv under `env -i`,
-    # with config and interpreter discovery disabled. Not `-I`, which implies
-    # `-P`: that removes the script's own directory from `sys.path` and breaks
-    # `import _common` in the shared step bodies.
     - name: Security preflight
       id: security
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/security_preflight.py"
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/security_preflight.py"
       env:
-        # `bash --noprofile --norc` still sources $BASH_ENV, and that wrapper
-        # shell runs before the pinned interpreter does.
-        BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MERGE: ${{ inputs.merge }}
 
@@ -148,19 +136,17 @@ runs:
     # configured name, which a rename would leave stale.
     - name: Rate limit preflight
       id: bot
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/rate_limit_preflight.py"
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/rate_limit_preflight.py"
       env:
-        BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
     # Secrets via env:, not ${{ }} interpolation — interpolating them into the
     # run: body would write their values into the rendered step script on disk.
     - name: Validate auth configured
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/bash "${{ github.action_path }}/../shared/steps/validate-claude-auth.sh"
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/validate-claude-auth.sh"
       env:
-        BASH_ENV: ""
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
 
@@ -171,10 +157,8 @@ runs:
         UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
 
     - name: Create the sandbox runtime container
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
-      env:
-        BASH_ENV: ""
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
 
     # Compose the system prompt (shared/system-prompt.md, rendered in Claude's
     # skill syntax, plus the consumer's system_prompt_append).
@@ -183,7 +167,7 @@ runs:
     - name: Compose system prompt
       id: prompt
       shell: bash
-      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/compose_system_prompt.py"
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/compose_system_prompt.py"
       env:
         SYSTEM_PROMPT_FILE: ${{ github.action_path }}/../shared/system-prompt.md
         BOT_NAME: ${{ steps.bot.outputs.login }}
@@ -222,14 +206,8 @@ runs:
         key: tend-proxy-uv-${{ runner.os }}-${{ steps.proxy_pins.outputs.sha256 }}
 
     - name: Set up credential-isolation sandbox
-      # Resolve the interpreter outside consumer-controlled PATH: this step is
-      # the only one that receives both real credentials.
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       env:
-        BASH_ENV: ""
-        BASHOPTS: ""
-        SHELLOPTS: ""
-        PS4: ""
         TEND_GH_TOKEN: ${{ inputs.github_token }}
         # The real Anthropic credential goes ONLY to the proxy (this runner-
         # owned step), never to the sandbox. The proxy injects it for
@@ -243,29 +221,7 @@ runs:
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
         # Yolo keeps this job-local: bot-merged main code can poison shared caches.
         UV_CACHE_DIR: ${{ runner.temp }}/tend-proxy-uv
-      run: |
-        set +x
-        /usr/bin/env -i \
-          TEND_RUNNER_TOOL_PATH="$PATH" \
-          PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-          HOME="$RUNNER_TEMP" \
-          LANG=C.UTF-8 \
-          GITHUB_ENV="$GITHUB_ENV" \
-          GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
-          RUNNER_TEMP="$RUNNER_TEMP" \
-          TEND_PRIVATE_DIR="$TEND_PRIVATE_DIR" \
-          TEND_GH_TOKEN="$TEND_GH_TOKEN" \
-          TEND_ANTHROPIC_OAUTH_TOKEN="$TEND_ANTHROPIC_OAUTH_TOKEN" \
-          TEND_ANTHROPIC_API_KEY="$TEND_ANTHROPIC_API_KEY" \
-          ACTION_PATH="$ACTION_PATH" \
-          TEND_RUNTIME_ROOT="$TEND_RUNTIME_ROOT" \
-          TEND_UV_DIR="$TEND_UV_DIR" \
-          UV_CACHE_DIR="$UV_CACHE_DIR" \
-          UV_NO_CONFIG=1 \
-          PYTHONNOUSERSITE=1 \
-          "${TEND_UV_DIR}/uv" run --no-cache --no-config \
-            --no-python-downloads --python /usr/bin/python3 --script \
-            "${{ github.action_path }}/../proxy/setup_sandbox.py"
+      run: python3 -E -s "${{ github.action_path }}/../proxy/setup_sandbox.py"
 
     # Install the claude binary into the sandbox user's home. Nothing else —
     # a language toolchain here would shadow the consumer's on the sandbox PATH.
@@ -284,9 +240,8 @@ runs:
       run: |
         sudo -u "$SANDBOX" env \
           HOME="$AGENT_HOME" \
-          PATH=/usr/bin:/bin \
           UV_INSTALL_DIR="$TEND_AGENT_UV_DIR" \
-          /usr/bin/bash -s -- \
+          bash -s -- \
           < "${{ github.action_path }}/../shared/steps/install-uv.sh"
 
     # Install the tend plugins into the sandbox's own ~/.claude. MARKETPLACE_ROOT
@@ -303,10 +258,9 @@ runs:
       id: auto_memory
       if: inputs.memory_gist == 'true'
       continue-on-error: true
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" restore
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" restore
       env:
-        BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
         TEND_AUTO_MEMORY_GIST_OWNER: ${{ steps.bot.outputs.login }}
@@ -360,23 +314,20 @@ runs:
         # Read by shared/steps/event_checkout.py, inside the sandbox.
         TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
         TEND_BASE_BRANCH: ${{ inputs.base_branch }}
-      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/launch_agent.py"
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/launch_agent.py"
 
     - name: Dispose sandbox resources
       if: always()
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/dispose_sandbox_resources.py"
-      env:
-        BASH_ENV: ""
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/dispose_sandbox_resources.py"
 
     # The supervisor reaps every sandbox process before the trusted save.
     - name: Save experimental memory Gist
       if: always() && steps.auto_memory.outcome == 'success' && steps.claude.outputs.sandbox_reaped == 'true'
       continue-on-error: true
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" save
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" save
       env:
-        BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
         TEND_AUTO_MEMORY_GIST_OWNER: ${{ steps.bot.outputs.login }}
@@ -384,17 +335,14 @@ runs:
     - name: Remove experimental memory Gist working copy
       if: always() && steps.auto_memory.outcome == 'success'
       continue-on-error: true
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" cleanup
-      env:
-        BASH_ENV: ""
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" cleanup
 
     - name: Mark event notification read
       if: success()
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/mark_notification_read.py"
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/mark_notification_read.py"
       env:
-        BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
     # Account the run's token usage from the stream-json the headless run wrote
@@ -413,7 +361,7 @@ runs:
         # The session-log copy reads an agent-owned tree as root, so it runs
         # only once the supervisor has reaped the sandbox uid.
         SANDBOX_REAPED: ${{ steps.claude.outputs.sandbox_reaped }}
-      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness claude
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness claude
 
     # Gate on the job being red, not on the agent step specifically. A dozen
     # steps run before the agent — the rate-limit preflight, auth validation,
@@ -436,10 +384,9 @@ runs:
     # stale as steps move.
     - name: Report failure
       if: failure() && steps.security.outcome != 'failure'
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/report_failure.py"
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/report_failure.py"
       env:
-        BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
         # Which version is running, so the reporter can name a stale pin as
         # the remedy. These two resolve in a composite step's `env:` and not

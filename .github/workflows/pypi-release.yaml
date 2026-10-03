@@ -16,9 +16,6 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python
-        run: uv python install 3.13
-
       # Built from the repo root: `uv build` in a workspace member still writes
       # to the workspace root's dist/, so `working-directory: generator` would
       # leave every later step globbing a directory that was never created.

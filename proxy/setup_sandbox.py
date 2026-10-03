@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Prepare the non-sudo agent user and its credential-injecting proxy.
 
 This program runs as the privileged Actions runner. It creates the
@@ -24,7 +20,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-SYSTEM_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
 SANDBOX = "tend-sandbox"
 AGENT_HOME = Path(f"/home/{SANDBOX}")
 PROXY_PORT = 8899
@@ -95,11 +90,6 @@ def resolved(path: str | Path) -> Path:
     return Path(path).expanduser().resolve(strict=False)
 
 
-def append_unique(values: list[str], value: str) -> None:
-    if value not in values:
-        values.append(value)
-
-
 @dataclass(frozen=True)
 class Paths:
     workspace: Path
@@ -126,15 +116,16 @@ class Paths:
 
 def agent_path(runner_tool_path: str) -> list[str]:
     """The sandbox PATH: the job's own, plus the two directories Tend installs."""
-    entries = [str(AGENT_HOME / ".local/bin")]
-    for entry in runner_tool_path.split(os.pathsep):
-        if entry:
-            append_unique(entries, entry)
-    for base in ("/usr/local/bin", "/usr/bin", "/bin"):
-        append_unique(entries, base)
     # Last, so a version the consumer installed stays selected.
-    append_unique(entries, str(TEND_AGENT_UV_DIR))
-    return entries
+    return list(
+        dict.fromkeys(
+            [
+                str(AGENT_HOME / ".local/bin"),
+                *filter(None, runner_tool_path.split(os.pathsep)),
+                str(TEND_AGENT_UV_DIR),
+            ]
+        )
+    )
 
 
 def base_agent_env(path: str, anthropic_dummy: tuple[str, str] | None) -> list[str]:
@@ -283,13 +274,9 @@ def mitmdump_command(paths: Paths, args: list[str]) -> list[str]:
     credentials imports is resolved at job time. The venv lives in the private
     dir, out of the agent's reach and gone with the runtime root.
     ``--no-build`` refuses an sdist, whose build backend the lock doesn't pin.
-    The ``uv run --script`` running this file exports ``VIRTUAL_ENV``, which the
-    inner uv would only warn about.
     """
     return [
         "/usr/bin/env",
-        "-u",
-        "VIRTUAL_ENV",
         f"UV_PROJECT_ENVIRONMENT={paths.private_dir / 'tend-proxy-venv'}",
         str(paths.tend_uv_dir / "uv"),
         "run",
@@ -308,10 +295,24 @@ def mitmdump_command(paths: Paths, args: list[str]) -> list[str]:
     ]
 
 
+def proxy_environment() -> dict[str, str]:
+    """Install the locked proxy independently of the consumer's uv settings.
+
+    The action supplies UV_CACHE_DIR; all other uv controls belong to the
+    consumer's own commands. The private venv is set by mitmdump_command.
+    """
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith("UV_") or name == "UV_CACHE_DIR"
+    }
+
+
 def start_proxy(paths: Paths) -> bool:
     paths.confdir.mkdir(parents=True, exist_ok=True)
     paths.confdir.chmod(0o700)
-    command(mitmdump_command(paths, ["--version"]))
+    environment = proxy_environment()
+    command(mitmdump_command(paths, ["--version"]), env=environment)
     log("starting proxy")
     proxy_log = paths.proxy_log.open("wb")
     process = subprocess.Popen(
@@ -334,7 +335,7 @@ def start_proxy(paths: Paths) -> bool:
         stdout=proxy_log,
         stderr=subprocess.STDOUT,
         start_new_session=True,
-        env=os.environ.copy(),
+        env=environment,
     )
     proxy_log.close()
 
@@ -394,10 +395,6 @@ def require_checkout_in_view(paths: Paths) -> None:
 
 
 def main() -> int:
-    runner_tool_path = os.environ.pop(
-        "TEND_RUNNER_TOOL_PATH", os.environ.get("PATH", "")
-    )
-    os.environ["PATH"] = SYSTEM_PATH
     if not os.environ.get("TEND_GH_TOKEN"):
         return error("TEND_GH_TOKEN is unset; cannot start the credential proxy")
     workspace_value = os.environ.get("GITHUB_WORKSPACE", "")
@@ -434,7 +431,7 @@ def main() -> int:
 
     sandbox_path = write_agent_environment(
         paths=paths,
-        path_entries=agent_path(runner_tool_path),
+        path_entries=agent_path(os.environ["PATH"]),
         anthropic_dummy=anthropic_dummy,
     )
     log(f"sandbox PATH: {sandbox_path}")
