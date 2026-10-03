@@ -186,11 +186,7 @@ runs:
         PATH=/usr/sbin:/usr/bin:/sbin:/bin
         # The runner image's own Node rather than one `setup:` put on PATH: it
         # also runs the Responses proxy, which holds the OpenAI key.
-        case "$(uname -m)" in
-          x86_64) node_arch=x64 ;;
-          aarch64) node_arch=arm64 ;;
-        esac
-        NODE_BIN=$(find "$RUNNER_TOOL_CACHE/node" -path "*/$node_arch/bin/node" -type f -print \
+        NODE_BIN=$(find "$RUNNER_TOOL_CACHE/node" -path "*/${RUNNER_ARCH,,}/bin/node" -type f -print \
           | sort -V | tail -n1)
         if [ ! -x "$NODE_BIN" ]; then
           echo "::error::No trusted Node runtime found in RUNNER_TOOL_CACHE"
