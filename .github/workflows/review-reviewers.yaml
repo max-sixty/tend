@@ -107,4 +107,4 @@ jobs:
           bot_name: tend-agent
           model: gpt-6-sol
           prompt: |
-            /review-reviewers ${{ matrix.repo }}
+            $review-reviewers ${{ matrix.repo }}
