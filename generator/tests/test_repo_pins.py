@@ -94,7 +94,6 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
     assert '<<< "$PROXY_API_KEY"' in openai_proxy["run"]
     assert '> "$PROXY_LOG_FILE" 2>&1 &' in openai_proxy["run"]
     assert 'cat "$PROXY_LOG_FILE" >&2' in openai_proxy["run"]
-    assert "OPENAI_API_KEY is unset" in openai_proxy["run"]
     assert [
         name
         for name, step in steps.items()
@@ -461,9 +460,7 @@ def test_privileged_sandbox_launch_scrubs_consumer_runtime_configuration(
     assert step["env"]["PS4"] == ""
     assert run.startswith("set +x\n")
     assert "/usr/bin/env -i" in run
-    assert "UV_NO_CONFIG=1" in run
-    assert "PYTHONNOUSERSITE=1" in run
-    assert "--no-python-downloads --python /usr/bin/python3 --script" in run
+    assert "/usr/bin/python3 -E -s" in run
 
 
 # Set to neutralize this step's own shell, not to reach the script: `env -i`

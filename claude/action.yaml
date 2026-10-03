@@ -128,8 +128,7 @@ runs:
     # Ordinary Python bodies are pinned to `/usr/bin/python3` and started
     # isolated: `-E` ignores every `PYTHON*` variable (a `PYTHONPATH` shadowing
     # `json`, a `PYTHONSAFEPATH`) and `-s` drops the user site dir. The sandbox
-    # setup's PEP 723 body instead launches through pinned uv under `env -i`,
-    # with config and interpreter discovery disabled. Not `-I`, which implies
+    # setup also uses this interpreter under `env -i`. Not `-I`, which implies
     # `-P`: that removes the script's own directory from `sys.path` and breaks
     # `import _common` in the shared step bodies.
     - name: Security preflight
@@ -261,10 +260,7 @@ runs:
           TEND_RUNTIME_ROOT="$TEND_RUNTIME_ROOT" \
           TEND_UV_DIR="$TEND_UV_DIR" \
           UV_CACHE_DIR="$UV_CACHE_DIR" \
-          UV_NO_CONFIG=1 \
-          PYTHONNOUSERSITE=1 \
-          "${TEND_UV_DIR}/uv" run --no-cache --no-config \
-            --no-python-downloads --python /usr/bin/python3 --script \
+          /usr/bin/python3 -E -s \
             "${{ github.action_path }}/../proxy/setup_sandbox.py"
 
     # Install the claude binary into the sandbox user's home. Nothing else —

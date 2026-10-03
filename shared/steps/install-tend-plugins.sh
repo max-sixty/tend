@@ -29,5 +29,4 @@ sudo -u "$SANDBOX" env "${AGENT_ENV[@]}" \
     claude plugin marketplace add "$1"
     claude plugin install install-tend@tend
     claude plugin install tend-ci-runner@tend
-    claude plugin list 2>/dev/null || true
   ' _ "$SANDBOX_MKT"

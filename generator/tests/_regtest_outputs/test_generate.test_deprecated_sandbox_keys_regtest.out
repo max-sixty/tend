@@ -229,7 +229,6 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          fetch-tags: true
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: astral-sh/setup-uv@v10.1.0

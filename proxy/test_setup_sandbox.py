@@ -36,16 +36,21 @@ def _paths(tmp_path: Path) -> setup_sandbox.Paths:
     )
 
 
-def test_agent_path_carries_the_job_path_entry_for_entry() -> None:
-    job_path = "/home/runner/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
-
-    entries = setup_sandbox.agent_path(job_path)
-
-    # Where the Claude binary installs.
-    assert entries[0] == str(setup_sandbox.AGENT_HOME / ".local/bin")
-    assert "/home/runner/.cargo/bin" in entries
-    # Last, so a version the consumer installed stays selected.
-    assert entries[-1] == str(setup_sandbox.TEND_AGENT_UV_DIR)
+@pytest.mark.parametrize(
+    "job_path",
+    [
+        "/home/runner/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
+        "/consumer/tools",
+    ],
+)
+def test_agent_path_carries_the_job_path_entry_for_entry(job_path: str) -> None:
+    assert setup_sandbox.agent_path(job_path) == [
+        # Where the Claude binary installs.
+        str(setup_sandbox.AGENT_HOME / ".local/bin"),
+        *job_path.split(os.pathsep),
+        # Last, so a version the consumer installed stays selected.
+        str(setup_sandbox.TEND_AGENT_UV_DIR),
+    ]
 
 
 def test_agent_path_never_repeats_an_entry() -> None:
@@ -115,7 +120,7 @@ def test_proxy_runs_the_locked_closure_isolated_from_consumer_configuration(
     ]
     # The installed closure stays where the agent can't reach it.
     assert (
-        command[3] == f"UV_PROJECT_ENVIRONMENT={paths.private_dir / 'tend-proxy-venv'}"
+        command[1] == f"UV_PROJECT_ENVIRONMENT={paths.private_dir / 'tend-proxy-venv'}"
     )
 
 

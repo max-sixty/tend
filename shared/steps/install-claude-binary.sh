@@ -22,25 +22,6 @@ sudo -u "$SANDBOX" env HOME="$AGENT_HOME" CLAUDE_VERSION="$CLAUDE_VERSION" \
   XDG_STATE_HOME="$AGENT_HOME/.local/state" \
   bash <<'EOF'
 set -euo pipefail
-# Retry transient 403s/5xxs from the installer CDN. The inner
-# `set -o pipefail` is required: without it a curl failure passes empty
-# stdin to the downstream `bash -s --`, which exits 0, masking the
-# failure so the loop breaks after one attempt without retrying.
-for i in 1 2 3; do
-  if timeout 60 bash -c "set -o pipefail; \
-    curl -fsSL https://claude.ai/install.sh | bash -s -- '$CLAUDE_VERSION'"; then
-    break
-  fi
-  if [ "$i" = 3 ]; then
-    echo "::error::failed to install claude $CLAUDE_VERSION after 3 attempts"
-    exit 1
-  fi
-  echo "Install attempt $i failed; retrying"
-  sleep $((i * 5))
-done
+curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_VERSION"
 EOF
-if ! sudo -u "$SANDBOX" test -x "$AGENT_HOME/.local/bin/claude"; then
-  echo "::error::claude binary not found at $AGENT_HOME/.local/bin/claude after install"
-  exit 1
-fi
 sudo -u "$SANDBOX" "$AGENT_HOME/.local/bin/claude" --version

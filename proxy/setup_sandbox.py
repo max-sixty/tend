@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Prepare the non-sudo agent user and its credential-injecting proxy.
 
 This program runs as the privileged Actions runner. It creates the
@@ -95,11 +91,6 @@ def resolved(path: str | Path) -> Path:
     return Path(path).expanduser().resolve(strict=False)
 
 
-def append_unique(values: list[str], value: str) -> None:
-    if value not in values:
-        values.append(value)
-
-
 @dataclass(frozen=True)
 class Paths:
     workspace: Path
@@ -126,15 +117,16 @@ class Paths:
 
 def agent_path(runner_tool_path: str) -> list[str]:
     """The sandbox PATH: the job's own, plus the two directories Tend installs."""
-    entries = [str(AGENT_HOME / ".local/bin")]
-    for entry in runner_tool_path.split(os.pathsep):
-        if entry:
-            append_unique(entries, entry)
-    for base in ("/usr/local/bin", "/usr/bin", "/bin"):
-        append_unique(entries, base)
     # Last, so a version the consumer installed stays selected.
-    append_unique(entries, str(TEND_AGENT_UV_DIR))
-    return entries
+    return list(
+        dict.fromkeys(
+            [
+                str(AGENT_HOME / ".local/bin"),
+                *filter(None, runner_tool_path.split(os.pathsep)),
+                str(TEND_AGENT_UV_DIR),
+            ]
+        )
+    )
 
 
 def base_agent_env(path: str, anthropic_dummy: tuple[str, str] | None) -> list[str]:
@@ -283,13 +275,9 @@ def mitmdump_command(paths: Paths, args: list[str]) -> list[str]:
     credentials imports is resolved at job time. The venv lives in the private
     dir, out of the agent's reach and gone with the runtime root.
     ``--no-build`` refuses an sdist, whose build backend the lock doesn't pin.
-    The ``uv run --script`` running this file exports ``VIRTUAL_ENV``, which the
-    inner uv would only warn about.
     """
     return [
         "/usr/bin/env",
-        "-u",
-        "VIRTUAL_ENV",
         f"UV_PROJECT_ENVIRONMENT={paths.private_dir / 'tend-proxy-venv'}",
         str(paths.tend_uv_dir / "uv"),
         "run",
@@ -334,7 +322,6 @@ def start_proxy(paths: Paths) -> bool:
         stdout=proxy_log,
         stderr=subprocess.STDOUT,
         start_new_session=True,
-        env=os.environ.copy(),
     )
     proxy_log.close()
 

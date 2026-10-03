@@ -42,7 +42,6 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          fetch-tags: true
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: max-sixty/tend/claude@X.Y.Z

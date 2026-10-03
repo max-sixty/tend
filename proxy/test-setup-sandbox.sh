@@ -168,7 +168,7 @@ verify() {
 verify_refusals() {
   local empty_rc
   set_inputs
-  GITHUB_WORKSPACE='' "$TEND_UV_DIR/uv" run --script proxy/setup_sandbox.py \
+  GITHUB_WORKSPACE='' /usr/bin/python3 -E -s proxy/setup_sandbox.py \
     >"$RUNNER_TEMP/empty-workspace.log" 2>&1 && empty_rc=0 || empty_rc=$?
   test "${empty_rc:-0}" -ne 0
   grep -q '::error::GITHUB_WORKSPACE must name' "$RUNNER_TEMP/empty-workspace.log"

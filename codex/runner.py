@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
 """Run the three stateful phases of Tend's Codex harness.
 
 The shared sandbox supervisor owns the execution lifetime; Tend's proxies own
@@ -125,7 +121,6 @@ def install_plugin() -> int:
         )
         return 1
     _append_agent_environment("CLAUDE_PLUGIN_ROOT", str(root))
-    _run(_sandbox_command(codex, "plugin", "list"), check=False)
     return 0
 
 
@@ -162,7 +157,6 @@ def stage_agents() -> int:
     if not sandbox:
         raise ValueError("SANDBOX is unset")
     agents = _required_path("AGENT_HOME") / ".codex/AGENTS.md"
-    _run(["/usr/bin/sudo", "-u", sandbox, "/usr/bin/mkdir", "-p", str(agents.parent)])
     _run(
         ["/usr/bin/sudo", "-u", sandbox, "/usr/bin/tee", str(agents)],
         capture=True,

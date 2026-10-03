@@ -89,7 +89,7 @@ def test_install_plugin_exports_the_single_sandbox_root(
         str(marketplace),
     ]
     codex_calls = [args for args, _ in calls if "/opt/codex/bin/codex" in args]
-    assert len(codex_calls) == 4
+    assert len(codex_calls) == 3
     assert all(
         args[:5]
         == ["/usr/bin/sudo", "-u", "tend-sandbox", "/usr/bin/env", f"HOME={agent_home}"]
@@ -177,11 +177,9 @@ def test_stage_agents_writes_as_the_sandbox_user(
         "/usr/bin/sudo",
         "-u",
         "tend-sandbox",
-        "/usr/bin/mkdir",
-        "-p",
-        str(agents.parent),
+        "/usr/bin/tee",
+        str(agents),
     ]
-    assert calls[1][0][-2:] == ["/usr/bin/tee", str(agents)]
     expected = (
         "# Tend CI instructions (Codex harness)\n\n"
         "Act as tend-bot under restricted; keep $GH_TOKEN. Read $run-tend.\n\n"
@@ -191,7 +189,7 @@ def test_stage_agents_writes_as_the_sandbox_user(
         expected += "\n" + (action / "memory.md").read_text().replace(
             "${TEND_AUTO_MEMORY_DIRECTORY}", "/var/tmp/tend-auto-memory.test"
         )
-    assert calls[1][1]["input"] == expected
+    assert calls[0][1]["input"] == expected
 
 
 @pytest.mark.parametrize("memory_enabled", [False, True])

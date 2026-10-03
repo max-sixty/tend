@@ -219,7 +219,6 @@
           ref: <<ref>>
 {% endif %}
           fetch-depth: 0
-          fetch-tags: true
           token: ${{ secrets.<<bot_token_secret>> }}<<'\n          persist-credentials: false' if cfg.merge == 'yolo' else ''>>
 {%- endmacro %}
 

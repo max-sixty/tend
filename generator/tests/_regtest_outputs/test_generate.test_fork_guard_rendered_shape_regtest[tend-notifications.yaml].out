@@ -229,7 +229,6 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          fetch-tags: true
           token: ${{ secrets.TEND_BOT_TOKEN }}
       - uses: max-sixty/tend/claude@X.Y.Z
         if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'

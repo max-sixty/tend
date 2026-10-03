@@ -200,8 +200,6 @@ runs:
         # Empty, so neither the runner's npmrc nor the consumer's applies.
         npm_userconfig=$(mktemp "$TEND_PRIVATE_DIR/tend-npm-user.XXXXXX")
         npm_globalconfig=$(mktemp "$TEND_PRIVATE_DIR/tend-npm-global.XXXXXX")
-        PATH="${NODE_BIN%/node}:$PATH"
-        export PATH
         codex_root="$TEND_RUNTIME_ROOT/codex"
         /usr/bin/env -i \
           PATH="$PATH" HOME="$RUNNER_TEMP" \
@@ -213,7 +211,7 @@ runs:
             "@openai/codex-responses-api-proxy@$CODEX_VERSION"
         CODEX_BIN="$codex_root/node_modules/.bin/codex"
         CODEX_PROXY_BIN="$codex_root/node_modules/.bin/codex-responses-api-proxy"
-        "$CODEX_BIN" --version
+        "$NODE_BIN" "$CODEX_BIN" --version
         {
           echo "NODE_BIN=$NODE_BIN"
           echo "CODEX_BIN=$CODEX_BIN"
@@ -272,10 +270,7 @@ runs:
           TEND_RUNTIME_ROOT="$TEND_RUNTIME_ROOT" \
           TEND_UV_DIR="$TEND_UV_DIR" \
           UV_CACHE_DIR="$UV_CACHE_DIR" \
-          UV_NO_CONFIG=1 \
-          PYTHONNOUSERSITE=1 \
-          "${TEND_UV_DIR}/uv" run --no-cache --no-config \
-            --no-python-downloads --python /usr/bin/python3 --script \
+          /usr/bin/python3 -E -s \
             "${{ github.action_path }}/../proxy/setup_sandbox.py"
 
     # OpenAI's proxy forwards only POST /v1/responses upstream, reads the key
@@ -295,11 +290,6 @@ runs:
         PATH=/usr/sbin:/usr/bin:/sbin:/bin
         SERVER_INFO_FILE="$TEND_PRIVATE_DIR/tend-codex-proxy.json"
         PROXY_LOG_FILE="$TEND_PRIVATE_DIR/tend-codex-proxy.log"
-        rm -f -- "$SERVER_INFO_FILE" "$PROXY_LOG_FILE"
-        if [ -z "$PROXY_API_KEY" ]; then
-          echo "::error::OPENAI_API_KEY is unset. Set the OPENAI_API_KEY repo secret."
-          exit 1
-        fi
         (
           exec /usr/bin/env -i \
             PATH=/usr/sbin:/usr/bin:/sbin:/bin \
@@ -337,16 +327,9 @@ runs:
       run: |
         set +x
         PATH=/usr/sbin:/usr/bin:/sbin:/bin
-        sudo -u "$SANDBOX" mkdir -p "$AGENT_HOME/.codex"
         sudo install -o "$SANDBOX" -g "$SANDBOX" -m 600 \
           "$RUNNER_TEMP/tend-codex-auth.json" "$AGENT_HOME/.codex/auth.json"
         rm -f -- "$RUNNER_TEMP/tend-codex-auth.json"
-
-    - name: Verify codex is reachable from the sandbox
-      shell: bash
-      run: |
-        mapfile -t AGENT_ENV < "$AGENT_ENV_FILE"
-        sudo -u "$SANDBOX" env "${AGENT_ENV[@]}" "$CODEX_BIN" --version
 
     - name: Install agent uv fallback (sandbox)
       shell: bash
