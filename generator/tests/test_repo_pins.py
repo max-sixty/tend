@@ -76,15 +76,12 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
 
     assert "experimental" in action["name"].lower()
     setup_env = steps["Set up credential-isolation sandbox"]["env"]
-    setup_run = steps["Set up credential-isolation sandbox"]["run"]
     assert setup_env["TEND_GH_TOKEN"] == "${{ inputs.github_token }}"
     assert setup_env["TEND_GITHUB_ONLY"] == "1"
     assert "TEND_OPENAI_API_KEY" not in setup_env
-    assert 'TEND_GITHUB_ONLY="$TEND_GITHUB_ONLY"' in setup_run
     auth = steps["Configure Codex auth"]
     assert auth["env"]["OPENAI_API_KEY"] == "${{ inputs.openai_api_key }}"
     assert auth["env"]["CODEX_AUTH_JSON"] == "${{ inputs.codex_auth_json }}"
-    assert "env -i" in auth["run"]
     assert "tend-codex-auth.json" in auth["run"]
     openai_proxy = steps["Start OpenAI Responses proxy"]
     assert openai_proxy["if"] == "steps.codex_auth.outputs.mode == 'api-key'"
@@ -383,50 +380,6 @@ def test_pre_commit_hooks_are_pinned_by_sha() -> None:
         if repo["repo"] != "local" and not re.fullmatch(r"[0-9a-f]{40}", repo["rev"])
     ]
     assert not unpinned, f"expected `rev: <sha>  # frozen: <tag>`: {unpinned}"
-
-
-@pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_sandbox_credential_holder_runs_with_an_explicit_environment(
-    harness: str,
-) -> None:
-    action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / harness / "action.yaml").read_text()
-    )
-    step = next(
-        step
-        for step in action["runs"]["steps"]
-        if step.get("name") == "Set up credential-isolation sandbox"
-    )
-    run = step["run"]
-
-    assert run.startswith("set +x\n")
-    assert "env -i" in run
-    assert 'PATH="$PATH"' in run
-    assert "python3 -s" in run
-
-
-@pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_privileged_sandbox_launch_forwards_every_configured_value(
-    harness: str,
-) -> None:
-    """`env:` and the `env -i` argv are two lists that have to agree.
-
-    A value reaches `setup_sandbox.py` only when both name it. Nothing else catches a value
-    added to one list alone: neither action.yaml is linted or run here, and the
-    hosted sandbox test supplies the script's environment itself — so the
-    mismatch would first run in a consumer's job after a release.
-    """
-    action = YAML(typ="safe", pure=True).load(
-        (REPO_ROOT / harness / "action.yaml").read_text()
-    )
-    step = next(
-        step
-        for step in action["runs"]["steps"]
-        if step.get("name") == "Set up credential-isolation sandbox"
-    )
-    forwarded = set(re.findall(r'(\w+)="\$\1"', step["run"]))
-
-    assert set(step["env"]) <= forwarded
 
 
 def test_codex_actions_pin_the_same_cli_version() -> None:

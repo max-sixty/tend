@@ -221,25 +221,7 @@ runs:
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
         # Yolo keeps this job-local: bot-merged main code can poison shared caches.
         UV_CACHE_DIR: ${{ runner.temp }}/tend-proxy-uv
-      run: |
-        set +x
-        env -i \
-          PATH="$PATH" \
-          HOME="$RUNNER_TEMP" \
-          LANG=C.UTF-8 \
-          GITHUB_ENV="$GITHUB_ENV" \
-          GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
-          RUNNER_TEMP="$RUNNER_TEMP" \
-          TEND_PRIVATE_DIR="$TEND_PRIVATE_DIR" \
-          TEND_GH_TOKEN="$TEND_GH_TOKEN" \
-          TEND_ANTHROPIC_OAUTH_TOKEN="$TEND_ANTHROPIC_OAUTH_TOKEN" \
-          TEND_ANTHROPIC_API_KEY="$TEND_ANTHROPIC_API_KEY" \
-          ACTION_PATH="$ACTION_PATH" \
-          TEND_RUNTIME_ROOT="$TEND_RUNTIME_ROOT" \
-          TEND_UV_DIR="$TEND_UV_DIR" \
-          UV_CACHE_DIR="$UV_CACHE_DIR" \
-          python3 -s \
-            "${{ github.action_path }}/../proxy/setup_sandbox.py"
+      run: python3 -E -s "${{ github.action_path }}/../proxy/setup_sandbox.py"
 
     # Install the claude binary into the sandbox user's home. Nothing else —
     # a language toolchain here would shadow the consumer's on the sandbox PATH.
