@@ -1,21 +1,35 @@
 {
-  "repository": "max-sixty/leaf",
-  "run": "35495234888",
-  "artifact": "claude-session-logs-n868",
-  "transcript": "-tmp-tend-agent-workspace-5s0-lbax-checkout/d043f28c-5db3-458f-8d6e-49ab06477fd7.jsonl",
-  "sha256": "746b7fcc3267fd9befb3bfa92f14ec43b692634138397fd2b6967be775b61948",
+  "kind": "focused",
   "historical_ref": "59deb7669c10b3319d8570b5a3d796e0408612d3",
   "bot": "leaf-agent",
-  "loaded_skills": [
-    "triage",
-    "run-tend",
-    "fix-a-bug",
-    "open-pr",
-    "push-commits",
-    "post-to-github"
-  ],
-  "pr": "https://github.com/max-sixty/leaf/pull/869",
-  "issue": "https://github.com/max-sixty/leaf/issues/868",
-  "before": "2026-09-20T06:59:36.979Z",
-  "model": "claude-opus-5"
+  "fixtures": {
+    "evidence/change.patch": "bc854642c8de79dba8a0ee061c464f0bbe53d9de64937001e862c755482cd185"
+  },
+  "origin": {
+    "repository": "max-sixty/leaf",
+    "run": "35495234888",
+    "artifact": "claude-session-logs-n868",
+    "transcript": "-tmp-tend-agent-workspace-5s0-lbax-checkout/d043f28c-5db3-458f-8d6e-49ab06477fd7.jsonl",
+    "sha256": "746b7fcc3267fd9befb3bfa92f14ec43b692634138397fd2b6967be775b61948",
+    "historical_ref": "59deb7669c10b3319d8570b5a3d796e0408612d3",
+    "bot": "leaf-agent",
+    "loaded_skills": [
+      "triage",
+      "run-tend",
+      "fix-a-bug",
+      "open-pr",
+      "push-commits",
+      "post-to-github"
+    ],
+    "pr": "https://github.com/max-sixty/leaf/pull/869",
+    "issue": "https://github.com/max-sixty/leaf/issues/868",
+    "before": "2026-09-20T06:59:36.979Z",
+    "model": "claude-opus-5",
+    "harness": "claude",
+    "evidence_normalization": {
+      "trailing_whitespace_stripped": [
+        "evidence/change.patch"
+      ]
+    }
+  }
 }

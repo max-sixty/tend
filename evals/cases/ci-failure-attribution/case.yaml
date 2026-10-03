@@ -1,17 +1,16 @@
-description: Gallery attribution full current log
+description: Next disposition from the current gallery failure
 vars:
   task: |
-    Continue /tend-ci-runner:ci-fix for max-sixty/leaf run 36945384717.
-    The session has handled the other failures and needs the remaining gallery
+    Act under /tend-ci-runner:ci-fix for max-sixty/leaf run 36945384717.
+    So far, the session has handled the other failures and needs the remaining gallery
     disposition. An existing bot PR #1506 covers gallery Undo behavior; its
-    current discussion is cached at evidence/prior-pr.json. The run log is
-    cached at evidence/current-ci.log, with the failed-test listing at
-    evidence/failed-tests.txt. Use the tested plugin guidance and cached
+    current discussion is cached at {{evidence_root}}/evidence/prior-pr.json. The current failure excerpt is
+    cached at {{evidence_root}}/evidence/current-ci.log, with the failed-test listing at
+    {{evidence_root}}/evidence/failed-tests.txt. Use the tested plugin guidance and cached
     workspace evidence to decide what belongs on the existing thread or tracker.
 
-    This is an offline continuation of a long repair session. The repository
-    code, shell, network and GitHub are unavailable. Read and Grep can inspect
-    the evidence. Write the disposition to captured.md instead of posting it;
+    This is a focused next-decision case. The repository
+    code, live GitHub and the original filesystem are unavailable. Inspect the cached evidence. Write the disposition to captured.md instead of posting it;
     finish after saving it. Do not claim new reproduction or perform an outward
     action.
 assert:

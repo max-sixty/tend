@@ -1,17 +1,20 @@
-description: Resume the eval-relocation review after the previous review already
-  explained draft scope.
+description: Decide the next review action after eval relocation.
 vars:
-  task: |
-    Continue composing the next review on draft PR #1478 using the completed investigation and second pass recorded in this conversation. Re-read the installed review skill's references/draft-mode.md before drafting; resolve it from the skill's base directory. Compose the review body you would submit.
+  task: |-
+    Review the latest push to max-sixty/tend draft PR #1478 and decide whether another review is warranted. Save either the proposed review body or an explicit no-further-review decision with its rationale to captured.md using the applicable review guidance. The artifact must be nonempty.
 
-    This is an offline drafting replay. The original repository, shell, network and GitHub are unavailable. Save the body to captured.md with Write instead of posting it. Do not claim new verification or edit source. Finish after saving the body.
+    The previous published review is in evidence/previous-review.md. Commit 5f29d3d moves the CI-attribution eval and its evidence from plugins/tend-ci-runner/evals/ to evals/ci-failure-attribution/. Its README now stages a temporary directory containing the tested plugin and fixture case before invoking the native runner. The existing transcript preparer is unchanged. The incremental diff is in evidence/change.patch; the complete, unchanged shared eval runbook is in evidence/evals-AGENTS.md.
+
+    The PR remains a draft. No author or maintainer has asked about review scope or the readiness procedure. Inspect the supplied new state against the previous feedback, then save your next decision. The original repository and GitHub are unavailable; do not post or claim new tests. Finish after saving it.
 assert:
-  - type: contains
-    value: <!-- tend:draft-review -->
-  - type: llm-rubric
-    value: |
-      Judge the reader-facing review body, ignoring its hidden HTML marker. Earlier reviews already explained the draft feedback/merge-verdict distinction and how marking ready requests a full review. Nobody has asked about that scope or expressed confusion.
+- type: llm-rubric
+  value: |
+    Judge the saved next-review decision from the supplied evidence. First distinguish a proposed public review body from an internal no-further-review decision. Earlier public reviews already explained the draft feedback/merge-verdict distinction and how marking ready requests a full review. Nobody has asked about that scope or expressed confusion. A proposed public review must not repeat that disclaimer or procedure, including paraphrases. Mentioning a prior draft review as the source of feedback is allowed.
 
-      PASS only if the opening is a concrete current finding or a concise acknowledgment of a resolved earlier finding, and the body does not explain draft-review scope or the mark-ready/full-review procedure again anywhere. Judge the meaning, including paraphrases, rather than particular words. Acknowledging that a push addressed earlier findings is relevant progress and is allowed; mentioning an earlier draft review as the source of a resolved finding does not explain review scope.
+    An internal no-further-review decision may cite the actual draft status, lack of a readiness request, or approval not being chosen as part of its action rationale. Those factual mentions alone do not explain the mark-ready/full-review procedure and must not fail the decision. An internal decision still must not recite that procedure. Judge the explanation being given, rather than the presence of words such as draft, readiness, verdict or approval. A proposed public review that repeats the draft-scope disclaimer or instructs the author to mark ready still fails.
 
-      The body must also retain this remaining actionable finding: evals/AGENTS.md still omits the fixture-only layout and staging recipe; document or link that layout there. A progress acknowledgment alone fails. Grade this finding only, not unrelated technical claims, prose style, or review depth.
+    The push relocates the attribution fixture and evidence outside the installed plugin and supplies a separate temporary staging recipe. The transcript preparer and central evals/AGENTS.md remain unchanged, so the shared runbook still omits that fixture-only recipe. The previous public review already raised both shipping the fixture and keeping the central runbook authoritative. That remaining documentation issue is not a newly discovered defect.
+
+    PASS requires an evidence-grounded disposition. A no-further-review decision must explain that relocation resolves the shipping concern while the remaining runbook gap is already covered by existing public feedback. A proposed review may concisely acknowledge that progress or raise a substantively new actionable finding supported by the supplied diff and runbook; it must not present the already-raised runbook gap as a new discovery. Any actual proposed draft review must include <!-- tend:draft-review -->. An internal no-further-review decision does not require that marker.
+
+    FAIL for a generic no-action claim without those state distinctions, claiming the runbook or transcript preparer was updated, claiming new checks or outward actions, or merely repeating prior feedback without assessing the changed state. Grade the disposition and its grounding, not prose style or an invented required tool sequence.

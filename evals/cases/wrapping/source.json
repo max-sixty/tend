@@ -1,18 +1,27 @@
 {
-  "repository": "max-sixty/worktrunk",
-  "run": "35315762380",
-  "artifact": "claude-session-logs-a8134733",
-  "transcript": "-tmp-tend-agent-workspace-gd842l67-checkout/6f572b74-8f12-4819-bb12-3aa49319bb0a.jsonl",
-  "sha256": "41f27138a5b12677c05d6d2ba6f808dc630afb56ce6eb444d594f1517ac64286",
+  "kind": "focused",
   "historical_ref": "b8ce81dbe8724f46490285fb577e4d8558238fc8",
   "bot": "worktrunk-bot",
-  "loaded_skills": [
-    "nightly",
-    "running-in-ci",
-    "resolve-conflicts"
-  ],
-  "append_sha256": "f5198b1429c51d5689e3ad429d18e4141d9c4ea0cb4d88c255470c1dc2aa0218",
-  "pr": "https://github.com/max-sixty/worktrunk/pull/4183",
-  "before": "2026-09-18T06:50:48.283Z",
-  "model": "claude-opus-5"
+  "fixtures": {
+    "evidence/validation.txt": "ecc1e324e17c53eacfea1d715feae0dfa515089880a0b992c85e3a969f20f058"
+  },
+  "origin": {
+    "repository": "max-sixty/worktrunk",
+    "run": "35315762380",
+    "artifact": "claude-session-logs-a8134733",
+    "transcript": "-tmp-tend-agent-workspace-gd842l67-checkout/6f572b74-8f12-4819-bb12-3aa49319bb0a.jsonl",
+    "sha256": "41f27138a5b12677c05d6d2ba6f808dc630afb56ce6eb444d594f1517ac64286",
+    "historical_ref": "b8ce81dbe8724f46490285fb577e4d8558238fc8",
+    "bot": "worktrunk-bot",
+    "loaded_skills": [
+      "nightly",
+      "running-in-ci",
+      "resolve-conflicts"
+    ],
+    "append_sha256": "f5198b1429c51d5689e3ad429d18e4141d9c4ea0cb4d88c255470c1dc2aa0218",
+    "pr": "https://github.com/max-sixty/worktrunk/pull/4183",
+    "before": "2026-09-18T06:50:48.283Z",
+    "model": "claude-opus-5",
+    "harness": "claude"
+  }
 }

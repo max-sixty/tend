@@ -1,13 +1,17 @@
-description: Resume Worktrunk's real PR composition before its hard-wrapped draft.
+description: Worktrunk PR description after a code-fence rendering fix.
 vars:
-  task: |
-    Continue preparing the PR description for the first fix: rendering an unterminated code fence in md_help instead of silently dropping the remaining preview content. The branch has just been pushed. Use the investigation, diff and validation already recorded in this conversation to describe the current change and its verification, including relevant caveats.
+  task: |-
+    Prepare the PR description for max-sixty/worktrunk. The completed change is on a pushed branch; the next action is composing its PR body.
 
-    This is an offline replay. The original repository, shell and GitHub are unavailable. Write the PR description to captured.md with the Write tool rather than posting it. Do not claim new verification or perform any outward action. Finish after saving the description.
+    The Markdown renderer buffers fenced code until its closing fence. Input with an opening fence and no closing fence reached EOF without rendering the buffer, so the remaining code disappeared from help and picker previews. The change routes a remaining buffer through the existing code-block rendering path at EOF. It covers flush and gutter forms, preserves syntax highlighting and leaves closed fences unchanged. Regression tests exercise both unterminated-fence forms.
+
+    Cargo check passed. The two regressions pass with the fix and fail when its production flush is removed. Help and README integration tests passed. The wider unit run had one failure in the Unix-socket promote test; the recorded diagnostic is in evidence/validation.txt. No production files outside src/md_help.rs changed.
+
+    Use the completed change and recorded verification to write the PR body to captured.md. The repository and GitHub are unavailable; finish after saving it.
 assert:
-  - type: llm-rubric
-    value: >-
-      Evaluate the literal Markdown source, not its rendering. Every narrative
-      prose paragraph must occupy exactly one source line, with no newline inside
-      the paragraph; require at least one such paragraph. Ignore headings, code
-      blocks, tables, and paragraphs inside Markdown lists.
+- type: llm-rubric
+  value: >-
+    Evaluate the literal Markdown source, not its rendering. Every narrative
+    prose paragraph must occupy exactly one source line, with no newline inside
+    the paragraph; require at least one such paragraph. Ignore headings, code
+    blocks, tables, and paragraphs inside Markdown lists.

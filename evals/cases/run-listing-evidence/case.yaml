@@ -5,7 +5,7 @@ vars:
     four independent situations gathered during a run sweep. For each situation,
     draft the status you would report and state your next action. Use /tend-ci-runner:review-runs
     guidance. Write the combined report to captured.md; do not post it.
-    This is an offline fixture evaluation: shell and GitHub are unavailable,
+    This is an focused next-decision case: the original repository and GitHub are unavailable,
     and no further checks have occurred.
 assert:
   - type: llm-rubric
