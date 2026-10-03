@@ -819,8 +819,9 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/install_codex_subscription_auth.py" pat-url
 ```
 
 The URL requests a repo-specific token name, resource owner, non-expiring
-term, and Environments permission. Have the user select **Only select
-repositories** and `$REPO`, then confirm **Environments: Read and write** is
+term, and Environments permission. Tell the user to select **Only select
+repositories** and spell out the full **owner/repo** from `$REPO` in that
+instruction. Then confirm **Environments: Read and write** is
 still selected before clicking **Generate token** and **Copy**. If GitHub
 shows **Read-only**, change it to **Read and write** before generating the
 token. The user handles any password or 2FA prompt.
