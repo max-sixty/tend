@@ -8,7 +8,21 @@ jobs:
   build:
     runs-on: ubuntu-latest
     if: github.repository == 'max-sixty/tend'
+    permissions:
+      contents: read
+      actions: read
     steps:
+      - name: Require successful Codex smoke on the release commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list --repo "$GITHUB_REPOSITORY" \
+            --workflow codex-model-smoke.yaml --branch main --commit "$GITHUB_SHA" \
+            --event workflow_dispatch --json headSha,status,conclusion \
+            | jq -e --arg sha "$GITHUB_SHA" \
+                'any(.[]; .headSha == $sha and .status == "completed" and .conclusion == "success")'
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv

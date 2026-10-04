@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -391,6 +392,100 @@ def test_codex_actions_pin_the_same_cli_version() -> None:
     }
 
     assert len(set(versions.values())) == 1, f"Codex CLI pins differ: {versions}"
+
+
+def test_codex_smoke_uses_only_access_auth_on_canonical_main() -> None:
+    path = REPO_ROOT / ".github/workflows/codex-model-smoke.yaml"
+    workflow = YAML(typ="safe", pure=True).load(path.read_text())
+    assert set(workflow["on"]) == {"workflow_dispatch"}
+    job = workflow["jobs"]["smoke"]
+    assert job["if"] == (
+        "github.repository == 'max-sixty/tend' && github.ref == 'refs/heads/main'"
+    )
+    assert job["environment"] == {"name": "tend", "deployment": False}
+    assert job["permissions"] == {"contents": "read"}
+    checkout = job["steps"][0]
+    assert checkout["with"] == {
+        "ref": "${{ github.sha }}",
+        "persist-credentials": False,
+    }
+    assert re.findall(r"secrets\.([A-Z_]+)", path.read_text()) == ["CODEX_AUTH_JSON"]
+    smoke = job["steps"][-1]
+    assert smoke["env"] == {"CODEX_AUTH_JSON": "${{ secrets.CODEX_AUTH_JSON }}"}
+    assert smoke["run"] == (
+        "uv run --package tend --no-dev python shared/steps/codex_model_smoke.py"
+    )
+    assert (REPO_ROOT / "shared/steps/codex_model_smoke.py").is_file()
+
+
+def test_release_requires_successful_smoke_on_exact_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Execute the publication gate with GitHub run-list responses.
+
+    The GitHub CLI boundary is replaced; Bash and jq run the actual workflow
+    command, including rejecting API failure and a successful different SHA.
+    """
+    workflow = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / ".github/workflows/pypi-release.yaml").read_text()
+    )
+    build = workflow["jobs"]["build"]
+    assert build["permissions"] == {"contents": "read", "actions": "read"}
+    gate = build["steps"][0]
+    assert gate["shell"] == "bash"
+    assert gate["env"] == {"GH_TOKEN": "${{ github.token }}"}
+    assert "if" not in gate and "continue-on-error" not in gate
+    assert workflow["jobs"]["pypi"]["needs"] == "build"
+    assert workflow["jobs"]["github-release"]["needs"] == "pypi"
+
+    gh = tmp_path / "gh"
+    gh.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$@" > "$SMOKE_ARGS"\n'
+        'printf "%s\\n" "$SMOKE_RUNS"\n'
+        'exit "$SMOKE_GH_EXIT"\n'
+    )
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("GITHUB_SHA", "a" * 40)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "max-sixty/tend")
+    monkeypatch.setenv("SMOKE_ARGS", str(tmp_path / "args"))
+    success = {"headSha": "a" * 40, "status": "completed", "conclusion": "success"}
+    cases = [
+        ([success], 0, True),
+        ([], 0, False),
+        ([success | {"headSha": "b" * 40}], 0, False),
+        ([success | {"status": "in_progress"}], 0, False),
+        ([success | {"conclusion": "failure"}], 0, False),
+        ([success], 1, False),
+    ]
+    for runs, gh_exit, accepted in cases:
+        monkeypatch.setenv("SMOKE_RUNS", json.dumps(runs))
+        monkeypatch.setenv("SMOKE_GH_EXIT", str(gh_exit))
+        result = subprocess.run(
+            ["bash", "-eo", "pipefail", "-c", gate["run"]],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert (result.returncode == 0) is accepted, (runs, gh_exit, result.stderr)
+    args = (tmp_path / "args").read_text().splitlines()
+    assert args == [
+        "run",
+        "list",
+        "--repo",
+        "max-sixty/tend",
+        "--workflow",
+        "codex-model-smoke.yaml",
+        "--branch",
+        "main",
+        "--commit",
+        "a" * 40,
+        "--event",
+        "workflow_dispatch",
+        "--json",
+        "headSha,status,conclusion",
+    ]
 
 
 # Every `${{ github.action_path }}/…` reference in the composite actions.
