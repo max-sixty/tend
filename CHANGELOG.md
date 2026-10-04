@@ -6,11 +6,26 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
-## Unreleased
+## 0.3.7
 
-### Added
+### Improved
 
-- **Codex runs can opt into Gist-backed memory.** `memory_gist: true` restores repository notes before the task and saves the agent's updates afterward, using the same secret, repository binding, signed baseline, and conflict checks as Claude. Codex reads and writes the notes during its CI run; synchronization failures remain warnings.
+- Codex defaults to `gpt-6.1-sol`; explicit model settings continue to override the default. ([#1487](https://github.com/max-sixty/tend/pull/1487))
+- Public repositories can opt into experimental Codex Gist-backed memory with `memory_gist: true`. Repository notes are restored before the task and the agent's updates are saved afterward, sharing Claude's repository binding, signed baseline, and conflict checks. Synchronization failures remain warnings. ([#1494](https://github.com/max-sixty/tend/pull/1494))
+- The Claude harness pins Claude Code 2.1.288, and uv installation pins 0.12.22 with verified archive checksums. ([#1491](https://github.com/max-sixty/tend/pull/1491), [#1492](https://github.com/max-sixty/tend/pull/1492))
+
+- Consumer setup tools retain their PATH precedence in both harnesses. The credential proxy installs its locked dependencies independently of consumer uv controls. ([#1495](https://github.com/max-sixty/tend/pull/1495))
+
+### Documentation
+
+- Subscription authentication guidance describes the configured hosted or external refresh owner. ([#1489](https://github.com/max-sixty/tend/pull/1489))
+
+### Internal
+
+- Historical regression evaluations run fresh Codex decisions and repository trajectories from pinned evidence. ([#1493](https://github.com/max-sixty/tend/pull/1493))
+- Refresh development tooling and Worker dependency pins. ([#1490](https://github.com/max-sixty/tend/pull/1490))
+
+> _This was written by Codex on behalf of max-sixty_
 
 ## 0.3.6
 
