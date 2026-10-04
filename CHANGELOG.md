@@ -6,6 +6,23 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.8
+
+### Improved
+
+- The Claude harness pins Claude Code 2.1.289, and uv installation pins 0.12.23 with verified archive checksums. ([#1499](https://github.com/max-sixty/tend/pull/1499), [#1500](https://github.com/max-sixty/tend/pull/1500))
+
+### Fixed
+
+- Codex pins CLI 0.160.0, enabling the default `gpt-6.1-sol` model with ChatGPT subscription authentication. ([#1504](https://github.com/max-sixty/tend/pull/1504))
+
+### Internal
+
+- Model and CLI changes require a live smoke test with the shipped CLI and the consumer's authentication mode.
+- Refresh site, Worker, and pre-commit dependency pins. ([#1498](https://github.com/max-sixty/tend/pull/1498))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.7
 
 ### Improved
