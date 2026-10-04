@@ -120,7 +120,7 @@ bot_name: my-project-bot
 # `gist`, `user`. `workflow` is required to push commits that modify
 # `.github/workflows/` files. `gist` covers two uses of secret gists owned by
 # the bot: internal skills store structured evidence in them, and the
-# experimental `memory_gist` setting persists Claude Code's auto memory across
+# experimental `memory_gist` setting persists agent-authored memory across
 # runs. `user` lets `install-tend` set the bot's profile bio so contributors
 # can see the authorization stance.
 #
@@ -294,12 +294,14 @@ bot_name: my-project-bot
 # more than one line sets variables of its own. A multi-line secret needs
 # GitHub's `NAME<<DELIMITER` form, with a delimiter the value cannot contain.
 #
-# ## Memory Gist (experimental, Claude harness)
+# ## Memory Gist (experimental)
 #
-# `memory_gist: true` restores Claude Code's model-authored auto memory from a
-# Gist before each Claude run and saves its changes afterwards. This setting is
-# experimental. The default is false, and the field is rejected when no enabled
-# workflow uses the Claude harness.
+# `memory_gist: true` restores model-authored Markdown notes from a Gist before
+# each agent run and saves its changes afterwards. Claude uses its native auto
+# memory; Codex receives instructions to read and update the notes during the
+# task. Codex's background memory generator is disabled for these runs because
+# it does not learn from `codex exec` sessions. This setting is experimental,
+# defaults to false, and requires an enabled agent workflow.
 #
 # The bot account must own a secret Gist containing `MEMORY.md`. Its description
 # must be exactly `tend auto memory: OWNER/REPO`. Store the Gist ID in the
@@ -310,7 +312,7 @@ bot_name: my-project-bot
 # Secret Gists are unlisted, not private, so this experiment supports public
 # repositories only and memory must not contain credentials or private facts.
 # Recalled notes are untrusted context: they may be stale or influenced by text
-# Claude read in an earlier run. Gists are flat, so a nested memory directory
+# an agent read in an earlier run. Gists are flat, so a nested memory directory
 # makes that run's save fail with a warning. If a file this run changed also
 # changed remotely, the run skips its entire save. GitHub's Gist API still
 # cannot make the final update atomic.

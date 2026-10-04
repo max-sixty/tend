@@ -129,7 +129,7 @@ def test_memory_gist_requires_a_boolean(tmp_path: Path, value: str) -> None:
         Config.load(path)
 
 
-def test_memory_gist_requires_a_claude_workflow(tmp_path: Path) -> None:
+def test_memory_gist_accepts_the_codex_harness(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,
         dedent("""\
@@ -139,8 +139,7 @@ def test_memory_gist_requires_a_claude_workflow(tmp_path: Path) -> None:
         memory_gist: true
     """),
     )
-    with pytest.raises(ClickException, match="requires at least one enabled workflow"):
-        Config.load(path)
+    assert Config.load(path).memory_gist is True
 
 
 def test_memory_gist_ignores_a_disabled_top_level_harness(
@@ -164,7 +163,9 @@ def test_memory_gist_ignores_a_disabled_top_level_harness(
         f"bot_name: my-bot\nmemory_gist: true\nworkflows:\n{disabled}\n",
     )
 
-    with pytest.raises(ClickException, match="requires at least one enabled workflow"):
+    with pytest.raises(
+        ClickException, match="requires at least one enabled agent workflow"
+    ):
         Config.load(path)
 
 

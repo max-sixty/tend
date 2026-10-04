@@ -53,6 +53,16 @@ inputs:
     description: >-
       Additional Codex CLI arguments, one exact argument per line. They are
       passed before Tend's managed arguments; Codex validates conflicts.
+  memory_gist:
+    default: "false"
+    description: >-
+      Experimental public-repository memory restored from a bot-owned secret
+      Gist. Codex reads and updates Markdown notes during each agent run.
+  memory_gist_id:
+    default: ""
+    description: >-
+      Bot-owned secret Gist ID supplied through the tend environment's
+      TEND_MEMORY_GIST_ID secret. Never commit the ID or its unlisted URL.
   codex_version:
     default: "0.157.1"
     description: >-
@@ -99,10 +109,9 @@ runs:
     # ../shared/steps; codex's auth, prompt staging, and run path are its own.
     - name: Security preflight
       id: security
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/security_preflight.py"
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/security_preflight.py"
       env:
-        BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MERGE: ${{ inputs.merge }}
 
@@ -111,10 +120,9 @@ runs:
     # configured name, which a rename would leave stale.
     - name: Rate limit preflight
       id: bot
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/rate_limit_preflight.py"
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/rate_limit_preflight.py"
       env:
-        BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
     # Credentials arrive through `env:`, not `${{ }}` in the body. GitHub
@@ -123,25 +131,11 @@ runs:
     # realistic path — is executed as script rather than data.
     - name: Configure Codex auth
       id: codex_auth
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       env:
-        BASH_ENV: ""
-        BASHOPTS: ""
-        SHELLOPTS: ""
-        PS4: ""
         OPENAI_API_KEY: ${{ inputs.openai_api_key }}
         CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
-      run: |
-        set +x
-        /usr/bin/env -i \
-          PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-          HOME="$RUNNER_TEMP" \
-          GITHUB_OUTPUT="$GITHUB_OUTPUT" \
-          OPENAI_API_KEY="$OPENAI_API_KEY" \
-          CODEX_AUTH_JSON="$CODEX_AUTH_JSON" \
-          /usr/bin/python3 -E -s \
-            "${{ github.action_path }}/../shared/steps/codex_subscription_auth.py" \
-            prepare "$RUNNER_TEMP/tend-codex-auth.json"
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/codex_subscription_auth.py" prepare "$RUNNER_TEMP/tend-codex-auth.json"
 
     - name: Install proxy uv
       shell: bash
@@ -150,62 +144,23 @@ runs:
         UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
 
     - name: Create the sandbox runtime container
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
-      env:
-        BASH_ENV: ""
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
 
-    # Install the Codex CLI from npm. `@openai/codex` ships a prebuilt
-    # per-platform binary, so this is ~3 s with no Rust toolchain. We pin
-    # an explicit version (`codex_version`) rather than floating on
-    # `latest` so a consumer's run can't change engine mid-release. The
-    # pin sat on an `alpha` for a while because only prereleases carried
-    # `codex plugin add` (PR #21396, first in `rust-v0.131.0-alpha.17`);
-    # stable ships it now, so the pin tracks `latest` and drops back to a
-    # prerelease only for a fix that hasn't been released yet.
+    # Install the pinned CLI and proxy into this run's runtime container.
     - name: Install Codex and Responses proxy
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       env:
-        BASH_ENV: ""
-        BASHOPTS: ""
-        SHELLOPTS: ""
-        PS4: ""
         CODEX_VERSION: ${{ inputs.codex_version }}
       run: |
-        set +x
-        PATH=/usr/sbin:/usr/bin:/sbin:/bin
-        # The runner image's own Node rather than one `setup:` put on PATH: it
-        # also runs the Responses proxy, which holds the OpenAI key.
-        case "$(uname -m)" in
-          x86_64) node_arch=x64 ;;
-          aarch64) node_arch=arm64 ;;
-        esac
-        NODE_BIN=$(find "$RUNNER_TOOL_CACHE/node" -path "*/$node_arch/bin/node" -type f -print \
-          | sort -V | tail -n1)
-        if [ ! -x "$NODE_BIN" ]; then
-          echo "::error::No trusted Node runtime found in RUNNER_TOOL_CACHE"
-          exit 1
-        fi
-        npm_cli="${NODE_BIN%/bin/node}/lib/node_modules/npm/bin/npm-cli.js"
-        # Empty, so neither the runner's npmrc nor the consumer's applies.
-        npm_userconfig=$(mktemp "$TEND_PRIVATE_DIR/tend-npm-user.XXXXXX")
-        npm_globalconfig=$(mktemp "$TEND_PRIVATE_DIR/tend-npm-global.XXXXXX")
-        PATH="${NODE_BIN%/node}:$PATH"
-        export PATH
         codex_root="$TEND_RUNTIME_ROOT/codex"
-        /usr/bin/env -i \
-          PATH="$PATH" HOME="$RUNNER_TEMP" \
-          "$NODE_BIN" "$npm_cli" install --prefix "$codex_root" \
-            --userconfig "$npm_userconfig" \
-            --globalconfig "$npm_globalconfig" \
-            --ignore-scripts --no-audit --no-fund \
-            "@openai/codex@$CODEX_VERSION" \
-            "@openai/codex-responses-api-proxy@$CODEX_VERSION"
+        npm install --prefix "$codex_root" --ignore-scripts --no-audit --no-fund \
+          "@openai/codex@$CODEX_VERSION" \
+          "@openai/codex-responses-api-proxy@$CODEX_VERSION"
         CODEX_BIN="$codex_root/node_modules/.bin/codex"
         CODEX_PROXY_BIN="$codex_root/node_modules/.bin/codex-responses-api-proxy"
         "$CODEX_BIN" --version
         {
-          echo "NODE_BIN=$NODE_BIN"
           echo "CODEX_BIN=$CODEX_BIN"
           echo "CODEX_PROXY_BIN=$CODEX_PROXY_BIN"
         } >> "$GITHUB_ENV"
@@ -231,70 +186,33 @@ runs:
     # only for exact GitHub hosts. OpenAI authentication gets its own narrower
     # upstream proxy in the next step.
     - name: Set up credential-isolation sandbox
-      # Resolve the interpreter and credential holder outside the consumer's
-      # environment: this step is the only one that receives the real PAT.
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       env:
-        BASH_ENV: ""
-        BASHOPTS: ""
-        SHELLOPTS: ""
-        PS4: ""
         TEND_GH_TOKEN: ${{ inputs.github_token }}
         TEND_GITHUB_ONLY: "1"
         ACTION_PATH: ${{ github.action_path }}/..
         TEND_UV_DIR: ${{ runner.temp }}/tend-uv
         # Yolo keeps this job-local: bot-merged main code can poison shared caches.
         UV_CACHE_DIR: ${{ runner.temp }}/tend-proxy-uv
-      run: |
-        set +x
-        /usr/bin/env -i \
-          TEND_RUNNER_TOOL_PATH="$PATH" \
-          PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-          HOME="$RUNNER_TEMP" \
-          LANG=C.UTF-8 \
-          GITHUB_ENV="$GITHUB_ENV" \
-          GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
-          RUNNER_TEMP="$RUNNER_TEMP" \
-          TEND_PRIVATE_DIR="$TEND_PRIVATE_DIR" \
-          TEND_GH_TOKEN="$TEND_GH_TOKEN" \
-          TEND_GITHUB_ONLY="$TEND_GITHUB_ONLY" \
-          ACTION_PATH="$ACTION_PATH" \
-          TEND_RUNTIME_ROOT="$TEND_RUNTIME_ROOT" \
-          TEND_UV_DIR="$TEND_UV_DIR" \
-          UV_CACHE_DIR="$UV_CACHE_DIR" \
-          UV_NO_CONFIG=1 \
-          PYTHONNOUSERSITE=1 \
-          "${TEND_UV_DIR}/uv" run --no-cache --no-config \
-            --no-python-downloads --python /usr/bin/python3 --script \
-            "${{ github.action_path }}/../proxy/setup_sandbox.py"
+      run: python3 -E -s "${{ github.action_path }}/../proxy/setup_sandbox.py"
 
     # OpenAI's proxy forwards only POST /v1/responses upstream, reads the key
     # from stdin, removes it from its process environment, and hardens the
     # memory that retains it. Its loopback GET /shutdown exists for teardown.
     - name: Start OpenAI Responses proxy
       if: steps.codex_auth.outputs.mode == 'api-key'
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       env:
-        BASH_ENV: ""
-        BASHOPTS: ""
-        SHELLOPTS: ""
-        PS4: ""
         PROXY_API_KEY: ${{ inputs.openai_api_key }}
       run: |
         set +x
-        PATH=/usr/sbin:/usr/bin:/sbin:/bin
         SERVER_INFO_FILE="$TEND_PRIVATE_DIR/tend-codex-proxy.json"
         PROXY_LOG_FILE="$TEND_PRIVATE_DIR/tend-codex-proxy.log"
-        rm -f -- "$SERVER_INFO_FILE" "$PROXY_LOG_FILE"
-        if [ -z "$PROXY_API_KEY" ]; then
-          echo "::error::OPENAI_API_KEY is unset. Set the OPENAI_API_KEY repo secret."
-          exit 1
-        fi
         (
-          exec /usr/bin/env -i \
-            PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+          exec env -i \
+            PATH="$PATH" \
             NODE_OPTIONS=--disable-sigusr1 \
-            "$NODE_BIN" "$CODEX_PROXY_BIN" \
+            node "$CODEX_PROXY_BIN" \
             --http-shutdown \
             --server-info "$SERVER_INFO_FILE" <<< "$PROXY_API_KEY"
         ) > "$PROXY_LOG_FILE" 2>&1 &
@@ -307,7 +225,7 @@ runs:
           echo "::error::OpenAI Responses proxy did not start"
           exit 1
         fi
-        PROXY_PORT=$(/usr/bin/python3 -E -s -c \
+        PROXY_PORT=$(python3 -E -s -c \
           'import json,sys; print(json.load(open(sys.argv[1]))["port"])' \
           "$SERVER_INFO_FILE")
         sudo chmod 444 "$SERVER_INFO_FILE"
@@ -318,25 +236,11 @@ runs:
     # never the rotating refresh token. Stage it only after the sandbox exists.
     - name: Stage subscription auth (sandbox)
       if: steps.codex_auth.outputs.mode == 'subscription'
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      env:
-        BASH_ENV: ""
-        BASHOPTS: ""
-        SHELLOPTS: ""
-        PS4: ""
+      shell: bash
       run: |
-        set +x
-        PATH=/usr/sbin:/usr/bin:/sbin:/bin
-        sudo -u "$SANDBOX" mkdir -p "$AGENT_HOME/.codex"
         sudo install -o "$SANDBOX" -g "$SANDBOX" -m 600 \
           "$RUNNER_TEMP/tend-codex-auth.json" "$AGENT_HOME/.codex/auth.json"
         rm -f -- "$RUNNER_TEMP/tend-codex-auth.json"
-
-    - name: Verify codex is reachable from the sandbox
-      shell: bash
-      run: |
-        mapfile -t AGENT_ENV < "$AGENT_ENV_FILE"
-        sudo -u "$SANDBOX" env "${AGENT_ENV[@]}" "$CODEX_BIN" --version
 
     - name: Install agent uv fallback (sandbox)
       shell: bash
@@ -344,9 +248,9 @@ runs:
         # The runner opens the script because its action cache is outside the
         # sandbox user's traversable paths.
         sudo -u "$SANDBOX" env \
-          HOME="$AGENT_HOME" PATH=/usr/bin:/bin \
+          HOME="$AGENT_HOME" \
           UV_INSTALL_DIR="$TEND_AGENT_UV_DIR" \
-          /usr/bin/bash -s -- \
+          bash -s -- \
           < "${{ github.action_path }}/../shared/steps/install-uv.sh"
 
     # Install Tend's runner and diagnostic plugins from the action's checkout.
@@ -367,7 +271,20 @@ runs:
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
-      run: /usr/bin/python3 -E -s "${{ github.action_path }}/runner.py" install-plugin
+      run: python3 -E -s "${{ github.action_path }}/runner.py" install-plugin
+
+    # Shared memory stays outside the disposable sandbox resources.
+    - name: Restore experimental memory Gist
+      id: auto_memory
+      if: inputs.memory_gist == 'true'
+      continue-on-error: true
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" restore
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
+        TEND_AUTO_MEMORY_GIST_OWNER: ${{ steps.bot.outputs.login }}
+        TEND_HARNESS: codex
 
     - name: Stage AGENTS.md (sandbox)
       shell: bash
@@ -375,7 +292,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         BOT_NAME: ${{ steps.bot.outputs.login }}
         TEND_MERGE: ${{ inputs.merge }}
-      run: /usr/bin/python3 -E -s "${{ github.action_path }}/runner.py" stage-agents
+      run: python3 -E -s "${{ github.action_path }}/runner.py" stage-agents
 
     - name: Run Codex
       id: codex
@@ -397,29 +314,37 @@ runs:
       # runner.py preserves the final message even when codex exits non-zero.
       # Base64 keeps arbitrary agent output in one GITHUB_OUTPUT line; consumers
       # decode it with `base64 -d`.
-      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/launch_agent.py"
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/launch_agent.py"
 
     - name: Stop OpenAI Responses proxy
       if: always()
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       run: |
-        set +x
-        PATH=/usr/sbin:/usr/bin:/sbin:/bin
         if [ -n "${CODEX_PROXY_URL:-}" ]; then
-          /usr/bin/curl --fail --silent --show-error --max-time 10 "$CODEX_PROXY_URL/shutdown" || true
+          curl --fail --silent --show-error --max-time 10 "$CODEX_PROXY_URL/shutdown" || true
         fi
-      env:
-        BASH_ENV: ""
-        BASHOPTS: ""
-        SHELLOPTS: ""
-        PS4: ""
 
     - name: Dispose sandbox resources
       if: always()
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/dispose_sandbox_resources.py"
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/dispose_sandbox_resources.py"
+
+    # The supervisor reaps every sandbox process before the trusted save.
+    - name: Save experimental memory Gist
+      if: always() && steps.auto_memory.outcome == 'success' && steps.codex.outputs.sandbox_reaped == 'true'
+      continue-on-error: true
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" save
       env:
-        BASH_ENV: ""
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
+        TEND_AUTO_MEMORY_GIST_OWNER: ${{ steps.bot.outputs.login }}
+
+    - name: Remove experimental memory Gist working copy
+      if: always() && steps.auto_memory.outcome == 'success'
+      continue-on-error: true
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" cleanup
 
     # Codex writes rollouts under the sandbox user's ~/.codex/sessions. The
     # step consolidates them into a runner-owned directory only after reaping
@@ -438,14 +363,13 @@ runs:
       env:
         MODEL: ${{ inputs.model }}
         SANDBOX_REAPED: ${{ steps.codex.outputs.sandbox_reaped }}
-      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness codex
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness codex
 
     - name: Mark event notification read
       if: success()
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/mark_notification_read.py"
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/mark_notification_read.py"
       env:
-        BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
     # Gate on the job being red, not on the agent step specifically — see the
@@ -457,10 +381,9 @@ runs:
     # tracker.
     - name: Report failure
       if: failure() && steps.security.outcome != 'failure'
-      shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-      run: PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -E -s "${{ github.action_path }}/../shared/steps/report_failure.py"
+      shell: bash
+      run: python3 -E -s "${{ github.action_path }}/../shared/steps/report_failure.py"
       env:
-        BASH_ENV: ""
         GITHUB_TOKEN: ${{ inputs.github_token }}
         # Passed through `env:` because they resolve nowhere else — see the
         # matching note in claude/action.yaml.

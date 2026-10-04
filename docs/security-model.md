@@ -529,9 +529,9 @@ launch; and the PAT and API credentials are never
 written to the agent's env or disk. The injection
 allowlist is exact-match on the connection's real destination, so a request to
 a lookalike host gets no token. The GitHub proxy is launched by a pinned `uv`
-that Tend installs into its own directory, off `$PATH`, so the process holding the PAT
-starts from a known binary rather than whatever a consumer's
-`setup:` happened to leave on the runner. (`claude` is Node and ignores the
+that Tend installs into its own directory, using the dependencies locked in
+Tend's release. Consumer `setup:` runs with runner authority before isolation
+and selects the job's tools through PATH. (`claude` is Node and ignores the
 system trust store, so it trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) The
 job's PATH crosses entry for entry, with the sandbox home's `bin` prepended and
 a pinned `uv` fallback appended.
@@ -660,8 +660,10 @@ bad PR, post misleading comments, or dismiss legitimate review concerns. Fixed
 prompts and skill instructions reduce this risk but can't eliminate it —
 Claude ultimately reasons about attacker-controlled text.
 
-**Persistent auto memory.** The experimental `memory_gist: true` setting lets
-Claude carry model-authored notes into unrelated later runs. Those notes are
+**Persistent memory.** The experimental `memory_gist: true` setting lets
+either harness carry model-authored notes into unrelated later runs. Claude
+uses native auto memory; Codex reads and updates Tend's Markdown notes during
+the task, with native background memory disabled. Those notes are
 context, not policy, and may preserve stale facts or the effect of an earlier
 prompt injection. The adapter accepts only a bot-owned secret Gist bound to the
 exact repository, signs its per-run baseline, rejects symlinks and nested paths,

@@ -1,10 +1,10 @@
 """Helpers shared by the Python step bodies in this directory.
 
 A step body is a flat module beside this one, run by the composite action as
-``/usr/bin/python3 -E -s <action_path>/../shared/steps/<name>.py`` with its
+``python3 -E -s <action_path>/../shared/steps/<name>.py`` with its
 inputs in the environment, exactly as the shell bodies were. Only the standard
-library is available: the steps run on the runner's ``/usr/bin/python3``, before
-and without tend's own ``uv``. That is 3.12 on the pinned ubuntu-24.04 image,
+library is required: the steps use the job's Python, before and without tend's
+own ``uv``. The ubuntu-24.04 image supplies Python 3.12,
 but a consumer can select an older image through the documented ``runs-on``
 override, so these modules stay 3.10-compatible.
 

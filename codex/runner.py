@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
 """Run the three stateful phases of Tend's Codex harness.
 
 The shared sandbox supervisor owns the execution lifetime; Tend's proxies own
@@ -125,7 +121,6 @@ def install_plugin() -> int:
         )
         return 1
     _append_agent_environment("CLAUDE_PLUGIN_ROOT", str(root))
-    _run(_sandbox_command(codex, "plugin", "list"), check=False)
     return 0
 
 
@@ -150,11 +145,18 @@ def stage_agents() -> int:
         + render(tail).rstrip("\n")
         + "\n"
     )
+    memory = os.environ.get("TEND_AUTO_MEMORY_DIRECTORY", "")
+    if memory:
+        instructions = (
+            (action_path / "memory.md")
+            .read_text()
+            .replace("${TEND_AUTO_MEMORY_DIRECTORY}", memory)
+        )
+        body += "\n" + instructions
     sandbox = os.environ.get("SANDBOX", "")
     if not sandbox:
         raise ValueError("SANDBOX is unset")
     agents = _required_path("AGENT_HOME") / ".codex/AGENTS.md"
-    _run(["/usr/bin/sudo", "-u", sandbox, "/usr/bin/mkdir", "-p", str(agents.parent)])
     _run(
         ["/usr/bin/sudo", "-u", sandbox, "/usr/bin/tee", str(agents)],
         capture=True,
@@ -222,6 +224,10 @@ def run_codex() -> int:
         "--config",
         "background_terminal_max_timeout=21600000",
     ]
+    if os.environ.get("TEND_AUTO_MEMORY_DIRECTORY"):
+        # Native memories exclude exec sessions from generation and forbid
+        # same-run edits. Tend's notes have their own read/write instructions.
+        args.extend(["--config", "features.memories=false"])
     effort = os.environ.get("EFFORT", "")
     if effort:
         args.extend(["--config", f'model_reasoning_effort="{effort}"'])
