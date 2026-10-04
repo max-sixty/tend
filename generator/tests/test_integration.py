@@ -588,6 +588,7 @@ def test_yolo_init_output_passes_exact_workflow_check_with_same_context(
         "check_branch_protection": "branch-protection:trunk",
         "check_control_plane_codeowners": "control-plane-codeowners",
         "check_control_plane_ruleset": "control-plane-ruleset",
+        "check_actions_event_policy": "actions-event-policy",
         "check_bot_permission": "bot-permission",
         "check_tag_protection": "tag-protection",
         "check_immutable_releases": "immutable-releases",
