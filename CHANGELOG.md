@@ -14,7 +14,7 @@ https://github.com/max-sixty/tend/compare for their history.
 
 ### Fixed
 
-- Codex pins CLI 0.160.0, enabling the default `gpt-6.1-sol` model with ChatGPT subscription authentication.
+- Codex pins CLI 0.160.0, enabling the default `gpt-6.1-sol` model with ChatGPT subscription authentication. ([#1504](https://github.com/max-sixty/tend/pull/1504))
 
 ### Internal
 
