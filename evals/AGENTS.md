@@ -1,8 +1,9 @@
 # Promptfoo evals
 
-Codex is the default executor and judge. Every attempt starts fresh; no original
-actor history is resumed or added to the prompt. Run from the repo root with
-Node 22.22+ and a local Codex subscription login:
+Codex is the default executor and judge. Model settings live in `prepare.py`;
+`codex-provider.cjs` sets the reasoning effort. Every attempt starts fresh,
+without original actor history. Run from the repo root with Node 22.22+ and a
+local Codex subscription login:
 
 ```bash
 npm --prefix evals ci --ignore-scripts
@@ -31,15 +32,26 @@ judge runs separately without the executor's skills or workspace.
   agent make the next decision. The grader evaluates its saved artifact.
 - **Trajectory:** a real Git snapshot under `repository/` and frozen event
   observations let the agent investigate the change. The grader receives the
-  saved artifact, actual SDK tool events and the resulting repository diff.
-  It evaluates the investigation and actions as well as the final prose.
+  saved artifact, actual SDK tool events and the independently observed repository
+  diff, status and initial/final commit identities.
+  It evaluates the investigation and actions as well as the final prose. Read-only
+  review cases require a nonblank artifact, an actual recorded command and
+  unchanged independently observed repository state. These deterministic checks
+  establish evidence presence and state integrity; the model judge assesses
+  relevant investigation, supported claims and other tool actions.
 
 Trajectory cases require their pinned Git commits to be available locally.
+Preparation fetches their ancestry so merge-base and normal three-dot PR diffs
+work even on longer branches.
 They retain repository evidence, not the original runner's installed
 dependencies, processes or live GitHub state. Neither case type simulates
 GitHub or recreates the original production session.
 
 ## Collector and case authoring
+
+Keep this runbook to current execution, authoring and validation guidance.
+Case-specific expectations belong in `case.yaml`, provenance in `source.json`,
+and results and experiment history in run artifacts.
 
 An agent chooses the historical event, starting brief, evidence and grading
 criteria. Preparation deterministically verifies file hashes, stages the
@@ -80,22 +92,10 @@ of improvement. Calibrate changed rubrics on known good and bad artifacts or
 trajectories, and inspect saved drafts and tool events alongside verdicts.
 Small samples establish observed behavior rather than reliability rates.
 
-On 2026-10-02, validation with `gpt-6-sol` selected one completed fresh attempt
-per arm after staging repairs and reruns, with zero execution errors:
-
-| Cases | Historical | Current |
-| --- | --- | --- |
-| Six focused decisions | 5/6 | 6/6 |
-| One repository trajectory | 0/1 | 0/1 |
-| Total | 5/7 | 6/7 |
-
-Both longer investigations missed the plugin shipment path, so the focused
-added-fixture contrast did not transfer to repository review. The relocation
-pair uses its actual saved artifacts regraded under the clarified public-review
-versus internal-decision rubric. Calibration matched all five expected verdicts,
-including rejection of public boilerplate and a correct artifact with no
-investigation trace. These expected negative controls are grading failures,
-not execution errors. The selected sample is in `.tmp/evals/fresh-validation.json`.
+Compare arms with identical starting evidence, model and execution settings.
+Confirm from the execution trace that each arm loaded its own edited guidance.
+When grading criteria change, regrade both arms with the same criteria before
+comparing results. A grading correction alone is not an instruction improvement.
 
 Deterministic preparation and provider checks run with:
 

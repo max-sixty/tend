@@ -91,7 +91,7 @@ On a core-logic change, take one more pass as a fresh reviewer holding the verif
 
 ## Output
 
-Return every finding the author would change the code for, ranked most-severe first, each with `file`, `line`, `summary`, `failure_scenario`, and its verdict. The bar is severity, not a count: a long list is right when each item clears it, and a finding whose cost is only taste doesn't clear it however short the list. If nothing survives verification, say so in one line. Don't publish the findings through a separate reporting mechanism or artifact — the caller owns the output.
+Return every finding the author would change the code for, ranked most-severe first, each with `file`, `line`, `summary`, `failure_scenario`, and its verdict. The bar is severity, not a count: a long list is right when each item clears it. A structure or organization finding needs a concrete operational or maintenance consequence, or an actual applicable project rule. An example elsewhere does not establish a rule. Mere presence or a different arrangement does not establish harm; weigh the proposed repair against the demonstrated cost. Drop preferences that do not clear this bar. If nothing survives verification, say so in one line. Don't publish the findings through a separate reporting mechanism or artifact — the caller owns the output.
 
 Tell the caller how the pass ran — every angle covered and every candidate verified, or less than that — so it can weigh the findings. That is context for the caller, not content for the review it posts.
 

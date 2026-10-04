@@ -1,0 +1,27 @@
+{
+  "kind": "trajectory",
+  "repository": "max-sixty/tend",
+  "historical_ref": "00a28b5a8ec4aefef92d286561b928c9aa9259f6",
+  "bot": "tend-agent",
+  "merge": "restricted",
+  "checkout": {
+    "base": "00a28b5a8ec4aefef92d286561b928c9aa9259f6",
+    "head": "87f841d4f5000e377e1870e27456630db5d4c7d4"
+  },
+  "fixtures": {
+    "event.json": "c3030698827b408edc9fd76a1a911ec3adfcae91cc49b2dfc88957858631f88b"
+  },
+  "origin": {
+    "run": "35813186006",
+    "run_url": "https://github.com/max-sixty/tend/actions/runs/35813186006",
+    "artifact": "claude-session-logs-n1390",
+    "artifact_id": "10730603331",
+    "transcript": "-home-runner-work-tend-tend/2bb2bc7e-4b58-4553-9167-f53a63ae3939.jsonl",
+    "sha256": "60fdc164bc03343b2761ee8e34a8243e3a97b3031543c9b11d71d600346faebd",
+    "snapshot_at": "2026-09-23T03:10:30.941Z",
+    "pr": "https://github.com/max-sixty/tend/pull/1390",
+    "harness": "claude",
+    "model": "claude-opus-5"
+  },
+  "limits": "Fresh investigation of a real local Git snapshot and frozen pre-review PR observations. Original actor history, reasoning and target reviews are audit-only and are not supplied. GitHub, original runner state and installed dependencies are absent. The event preserves the original initial-review PR body and empty feedback before the first finding."
+}

@@ -79,11 +79,6 @@ Four pieces:
    so a missing refresh credential fails the subscription run. It holds no bot token and does not
    inspect consumer code. Inputs in `codex/refresh/action.yaml`.
 
-   Removed: `claude-interactive`, a PTY-supervised variant of the same binary
-   that existed only to dodge the 2026-06-15 Agent SDK metering (which covered
-   `claude -p` but not interactive sessions). Anthropic paused that change and
-   the default harness now runs the binary rather than the SDK, so nothing
-   selected it. Restore from `036f9c4` if the metering resumes.
 3. **Generator** (`uvx tend@latest init`) — stamps workflow files into
    the consumer's `.github/workflows/` from `.config/tend.yaml`. Picks the
    right action ref and secret names per `harness`. Generation is

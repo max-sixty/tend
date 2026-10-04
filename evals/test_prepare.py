@@ -140,7 +140,7 @@ def test_focused_case_starts_fresh_with_equal_evidence(
         assert "resume" not in settings
         assert "history" not in settings
         if harness == "codex":
-            assert settings["model"] == "gpt-6-sol"
+            assert settings["model"] == "gpt-6.1-sol"
             assert settings["mode"] == "focused"
         else:
             # The built-in SDK allocates a fresh temp working directory when

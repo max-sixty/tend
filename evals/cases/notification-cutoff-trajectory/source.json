@@ -1,0 +1,26 @@
+{
+  "kind": "trajectory",
+  "repository": "max-sixty/tend",
+  "historical_ref": "b796e0c9ec5fe6086b1fb0fce9c794571edcf49b",
+  "bot": "tend-agent",
+  "merge": "restricted",
+  "checkout": {
+    "base": "357b1af6f52ec2e28f3ff4e3ee9afad3d8e03be9",
+    "head": "b796e0c9ec5fe6086b1fb0fce9c794571edcf49b"
+  },
+  "fixtures": {
+    "event.json": "0e80c8078b631634bfb1c533766eb71c180b43f11764eaec255781f2d566a29a"
+  },
+  "origin": {
+    "run": "36634109445",
+    "artifact": "claude-session-logs-n1457",
+    "transcript": "-home-runner-work-tend-tend/46aa677f-6611-4bc4-929a-9a60b7fa9398.jsonl",
+    "sha256": "143fff6423dcefe02aba6de433434448508d44ccd8cfaac6d95e5a7a6868705f",
+    "snapshot_at": "2026-09-29T21:36:06.099Z",
+    "pr": "https://github.com/max-sixty/tend/pull/1457",
+    "source_review": "https://github.com/max-sixty/tend/pull/1457#discussion_r4138617062",
+    "accepted_correction": "https://github.com/max-sixty/tend/pull/1457#discussion_r4138666461",
+    "event_fidelity": "Original author description and empty pre-review conversation, recovered from the actual review artifact."
+  },
+  "limits": "Fresh investigation of authentic local Git revisions. Actor inputs contain no original agent history, reasoning or target review. Original runner dependencies, live GitHub and live checks are unavailable; repository instructions are source evidence, not the active evaluation policy."
+}
