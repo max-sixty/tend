@@ -15,12 +15,10 @@ https://github.com/max-sixty/tend/compare for their history.
 
 ### Fixed
 
-- Codex pins CLI 0.160.0, enabling the default `gpt-6.1-sol` model with ChatGPT subscription authentication. ([#1504](https://github.com/max-sixty/tend/pull/1504))
-- Nightly upgrades retain a Codex model pin unless a live request succeeds with the candidate action's CLI and the consumer's authentication mode.
+- Codex pins CLI 0.160.0, enabling the default `gpt-6.1-sol` model with ChatGPT subscription authentication. Nightly upgrades retain a Codex model pin unless a live request succeeds with the candidate action's CLI and the consumer's authentication mode. ([#1504](https://github.com/max-sixty/tend/pull/1504), [#1506](https://github.com/max-sixty/tend/pull/1506))
 
 ### Internal
 
-- Model and CLI changes require a live smoke test with the shipped CLI and the consumer's authentication mode.
 - Refresh site, Worker, and pre-commit dependency pins. ([#1498](https://github.com/max-sixty/tend/pull/1498))
 - Historical evaluations include notification-cutoff and credential-policy investigations, paired corrected controls, and checks that read-only trajectories leave the repository unchanged. ([#1501](https://github.com/max-sixty/tend/pull/1501))
 
