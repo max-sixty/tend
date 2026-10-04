@@ -161,9 +161,8 @@ change was supposed to carry.
 
 ## Nightly: update the Codex model
 
-For a model or CLI pin change, verify a minimal read-only request with the
-candidate model using the CLI version the release will ship and the consumer's
-auth mode. Provider API availability does not establish subscription support.
+Apply **Model compatibility** in `/tend-ci-runner:nightly` before a model or CLI
+pin change.
 
 Read the current Codex model catalog once and compare it with
 `DEFAULT_MODEL_BY_HARNESS["codex"]` and Codex model pins in
