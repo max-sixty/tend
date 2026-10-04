@@ -6,12 +6,14 @@ protected branches and future releases' assets and tags are immutable, and a
 run the bot can cause reaches no unintended credential (the `tend`
 environment's deployment branch policy, every other credential-holding
 environment's gate, the operational secrets living in the environment, and no
-repo-level secret outside the allowlist).
+repo-level secret outside the allowlist). Also verifies that public repositories
+explicitly admit generated `pull_request_target` workflows through Actions
+event policies before GitHub enforces its default block on November 2, 2026.
 
 Uses the `gh` CLI for GitHub API access. Checks degrade gracefully when
 gh is unavailable or the token lacks permission. Almost everything read
 here is readable with the bot's own write-scoped token, so the nightly run
-sees the same answers a maintainer does. Two reads are admin-only, and each
+sees the same answers a maintainer does. Two security reads are admin-only, and each
 has a bot-readable stand-in, so the nightly reaches a verdict on them rather
 than skipping:
 
@@ -24,6 +26,9 @@ than skipping:
   on write alike. Each published release carries its own `immutable` flag,
   which a write-scoped token can read, so the bot verifies the newest
   release instead of the setting that produced it.
+
+Actions event policy reads require repository Administration permission. A bot
+that cannot read them reports unknown; installation verifies them as an admin.
 """
 
 from __future__ import annotations
@@ -1236,6 +1241,7 @@ class _WorkflowFacts:
     """What one workflow file says about the repo's credential surface."""
 
     path: str
+    triggers: frozenset[str] = frozenset()
     steerable: frozenset[str] = frozenset()  # bot-steerable triggers it carries
     call_only: bool = False  # `workflow_call` is the only thing that starts it
     calls: frozenset[str] = frozenset()  # local reusable workflows it invokes
@@ -1373,6 +1379,7 @@ def _parse_workflow(path: str, text: str) -> _WorkflowFacts:
 
     return _WorkflowFacts(
         path=path,
+        triggers=frozenset(triggers),
         steerable=frozenset(steerable),
         call_only=triggers == {"workflow_call"},
         calls=frozenset(calls),
@@ -1908,6 +1915,323 @@ def _repo_is_public(repo: str) -> bool | None:
     if result is None or result.returncode != 0:
         return None
     return {"true": False, "false": True}.get(result.stdout.strip())
+
+
+ACTIONS_POLICY_API_VERSION = "2026-03-10"
+ACTIONS_POLICY_ACCESS_HINT = (
+    "Run as a repository admin; the Actions policies API requires "
+    "Administration write permission."
+)
+ACTIONS_POLICY_CHECK = "actions-event-policy"
+
+
+@dataclass
+class _ActionsPolicyState:
+    result: CheckResult
+    missing: dict[str, frozenset[str]]
+    policies: list[dict]
+
+
+def _policy_json(endpoint: str, *, paginate: bool = False) -> object | None:
+    args = ("--paginate", "--slurp") if paginate else ()
+    response = _gh(
+        "api",
+        *args,
+        "-H",
+        f"X-GitHub-Api-Version: {ACTIONS_POLICY_API_VERSION}",
+        endpoint,
+    )
+    if response is None or response.returncode:
+        return None
+    try:
+        return json.loads(response.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def _policy_matches_workflow(policy: dict, path: str) -> bool | None:
+    """Match exact workflow paths and ~ALL; leave GitHub glob semantics to GitHub.
+
+    The repository listing already resolves inherited repository targeting.
+    Unknown workflow patterns cannot prove either applicability or exclusion.
+    """
+    conditions = policy.get("conditions", {})
+    if not isinstance(conditions, dict):
+        return None
+    if set(conditions) - {
+        "workflow_path",
+        "repository_name",
+        "repository_id",
+        "repository_property",
+        "organization_name",
+    }:
+        return None
+    if "workflow_path" not in conditions:
+        return True
+    scope = conditions["workflow_path"]
+    if not isinstance(scope, dict) or set(scope) != {"include", "exclude"}:
+        return None
+
+    def matches(patterns: object) -> bool | None:
+        if not isinstance(patterns, list) or not all(
+            isinstance(pattern, str) for pattern in patterns
+        ):
+            return None
+        if path in patterns or "~ALL" in patterns:
+            return True
+        if any(any(char in pattern for char in "*?[]{}()\\") for pattern in patterns):
+            return None
+        return False
+
+    excluded = matches(scope["exclude"])
+    included = matches(scope["include"])
+    if scope["include"] == []:
+        included = True
+    if excluded is True or included is False:
+        return False
+    if excluded is None or included is None:
+        return None
+    return True
+
+
+def _actions_policy_state(repo: str, cfg: Config) -> _ActionsPolicyState:
+    """Verify every generated target workflow against all active event policies.
+
+    Active policies intersect. Only an active applicable event rule replaces
+    the public-repository default block; actor rules alone cannot do so. A
+    configured event policy must preserve all declared events, including
+    consumer overrides. Never infer a pass from an unread policy or glob.
+    """
+
+    def result(passed: bool | None, message: str, missing=None, policies=None):
+        return _ActionsPolicyState(
+            CheckResult(ACTIONS_POLICY_CHECK, passed, message),
+            missing or {},
+            policies or [],
+        )
+
+    generated = [
+        _parse_workflow(f".github/workflows/{wf.filename}", wf.content)
+        for wf in generate_all(cfg)
+    ]
+    targets = {
+        wf.path: wf.triggers for wf in generated if "pull_request_target" in wf.triggers
+    }
+    if not targets:
+        return result(True, "No generated workflow uses pull_request_target")
+    public = _repo_is_public(repo)
+    if public is None:
+        return result(None, f"Could not determine whether {repo} is public")
+    if not public:
+        return result(
+            True,
+            "Private repository: GitHub's default pull_request_target block does not apply",
+        )
+
+    pages = _policy_json(
+        f"repos/{repo}/actions/policies?has_parents=true&per_page=100", paginate=True
+    )
+    if (
+        not isinstance(pages, list)
+        or not pages
+        or not all(
+            isinstance(page, dict) and isinstance(page.get("policies"), list)
+            for page in pages
+        )
+    ):
+        return result(
+            None, f"Could not read Actions policies. {ACTIONS_POLICY_ACCESS_HINT}"
+        )
+    summaries = [policy for page in pages for policy in page["policies"]]
+    if not all(
+        type(page.get("total_count")) is int and page["total_count"] == len(summaries)
+        for page in pages
+    ):
+        return result(
+            None, "Actions policy pagination returned an incomplete or changing listing"
+        )
+    policies = []
+    for summary in summaries:
+        if (
+            not isinstance(summary, dict)
+            or not isinstance(summary.get("enforcement"), str)
+            or summary["enforcement"] not in {"active", "evaluate", "disabled"}
+        ):
+            return result(None, "Actions policy listing has an unknown shape")
+        if summary["enforcement"] != "active":
+            policies.append(summary)
+            continue
+        links = summary.get("_links")
+        self_link = links.get("self") if isinstance(links, dict) else None
+        href = self_link.get("href") if isinstance(self_link, dict) else None
+        if not isinstance(href, str) or not href.startswith("https://api.github.com/"):
+            return result(None, "Active Actions policy has no readable detail URL")
+        policy = _policy_json(href.removeprefix("https://api.github.com/"))
+        if not isinstance(policy, dict) or policy.get("enforcement") != "active":
+            return result(
+                None,
+                f"Could not read active Actions policy details. {ACTIONS_POLICY_ACCESS_HINT}",
+            )
+        policies.append(policy)
+
+    missing = {}
+    unknown = []
+    actor_restrictions = []
+    blocked = []
+    for path, events in targets.items():
+        event_policy = False
+        for policy in policies:
+            if policy["enforcement"] != "active":
+                continue
+            applies = _policy_matches_workflow(policy, path)
+            if applies is False:
+                continue
+            if applies is None:
+                unknown.append(
+                    f"{path}: policy '{policy.get('name', policy.get('id'))}' uses unresolved workflow patterns"
+                )
+                continue
+            rules = policy.get("rules")
+            if not isinstance(rules, list):
+                unknown.append(f"{path}: Actions policy rules could not be read")
+                continue
+            for rule in rules:
+                if not isinstance(rule, dict):
+                    unknown.append(f"{path}: unknown Actions policy rule")
+                    continue
+                if rule.get("type") == "restrict_action_events":
+                    parameters = rule.get("parameters")
+                    allowed = (
+                        parameters.get("allowed_events")
+                        if isinstance(parameters, dict)
+                        else None
+                    )
+                    if not isinstance(allowed, list) or not all(
+                        isinstance(e, str) for e in allowed
+                    ):
+                        unknown.append(
+                            f"{path}: Actions event allowlist could not be read"
+                        )
+                        continue
+                    event_policy = True
+                    denied = events - set(allowed)
+                    if denied:
+                        blocked.append(
+                            f"{path}: policy '{policy.get('name', policy.get('id'))}' blocks {', '.join(sorted(denied))}"
+                        )
+                elif rule.get("type") == "restrict_actions_actors":
+                    actor_restrictions.append(
+                        f"{path}: actor restrictions require administrator review"
+                    )
+                else:
+                    unknown.append(
+                        f"{path}: unknown Actions policy rule '{rule.get('type')}'"
+                    )
+        if not event_policy:
+            missing[path] = events
+    if blocked:
+        return result(
+            False,
+            "; ".join(blocked)
+            + ". Existing policies must be reviewed by their owner; Tend will not weaken them.",
+            policies=policies,
+        )
+    if unknown:
+        return result(
+            None,
+            "; ".join(unknown)
+            + ". Review Actions policy settings as an administrator.",
+            policies=policies,
+        )
+    if actor_restrictions:
+        return result(
+            False if missing else None,
+            (
+                "No active Actions event policy permits pull_request_target. "
+                if missing
+                else ""
+            )
+            + "; ".join(actor_restrictions)
+            + ". Tend will not change these restrictions.",
+            policies=policies,
+        )
+    if missing:
+        return result(
+            False,
+            "No active Actions event policy permits pull_request_target for "
+            + ", ".join(missing)
+            + ". GitHub will block it on November 2, 2026. Run tend check --fix as a repository admin.",
+            missing=missing,
+            policies=policies,
+        )
+    return result(
+        True,
+        "Active Actions event policies permit all declared events for "
+        + ", ".join(targets),
+        policies=policies,
+    )
+
+
+def check_actions_event_policy(repo: str, cfg: Config) -> CheckResult:
+    """Check setup readiness before a blocked workflow can reach runtime checks."""
+    return _actions_policy_state(repo, cfg).result
+
+
+def fix_actions_event_policy(repo: str, cfg: Config) -> CheckResult:
+    """Create narrow missing event policies; never edit existing restrictions.
+
+    Reads again immediately before writing. Every new policy owns one exact
+    generated workflow path and admits its full declared event set. A policy
+    that already blocks Tend, unknown applicability, or unread settings requires
+    owner review rather than adding an exception that cannot override it.
+    """
+    state = _actions_policy_state(repo, cfg)
+    if not state.missing:
+        return state.result
+    for path in state.missing:
+        policy_name = f"Tend events: {path}"
+        if any(policy.get("name") == policy_name for policy in state.policies):
+            return CheckResult(
+                ACTIONS_POLICY_CHECK,
+                False,
+                f"Existing '{policy_name}' policy must be reviewed by its owner; Tend will not change it.",
+            )
+    for path, events in state.missing.items():
+        policy_name = f"Tend events: {path}"
+        body = {
+            "name": policy_name,
+            "enforcement": "active",
+            "conditions": {"workflow_path": {"include": [path], "exclude": []}},
+            "rules": [
+                {
+                    "type": "restrict_action_events",
+                    "parameters": {"allowed_events": sorted(events)},
+                }
+            ],
+        }
+        response = _gh(
+            "api",
+            "-H",
+            f"X-GitHub-Api-Version: {ACTIONS_POLICY_API_VERSION}",
+            f"repos/{repo}/actions/policies",
+            "--method",
+            "POST",
+            "--input",
+            "-",
+            input=json.dumps(body),
+        )
+        if response is None or response.returncode:
+            error = (
+                response.stderr.strip()
+                if response is not None
+                else "gh unavailable or timed out"
+            )
+            return CheckResult(
+                ACTIONS_POLICY_CHECK,
+                False,
+                f"Could not create Actions event policy for {path}: {error}. {ACTIONS_POLICY_ACCESS_HINT}",
+            )
+    return check_actions_event_policy(repo, cfg)
 
 
 def _list_org_secrets(repo: str) -> tuple[set[str] | None, bool]:
@@ -2547,6 +2871,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
                 cfg, default_branch=default_branch, repo_owner=owner
             )
             results.append(check_yolo_workflows(repo, generation_cfg))
+    results.append(check_actions_event_policy(repo, cfg))
     results.append(check_bot_permission(repo, cfg.bot_name))
     results.append(check_tag_protection(repo, cfg.bot_name))
     results.append(check_immutable_releases(repo))

@@ -2,8 +2,8 @@
 
 The security decisions made during install and their rationale. This file
 ships with the plugin so it resolves in any repo the skill runs in. The
-canonical, full threat model is maintained in the tend source repo at
-https://github.com/max-sixty/tend/blob/main/docs/security-model.md; this is
+canonical, full threat model is maintained in the tend source repo's
+[security model](https://github.com/max-sixty/tend/blob/main/docs/security-model.md); this is
 the subset an installing agent needs.
 
 ## The chain: merge authority is explicit
@@ -233,19 +233,20 @@ maintainer's profile bio.
 
 ## How tokens flow through workflows
 
-Two independent authentication paths exist in every workflow:
+Generated workflows pass the bot token from the `tend` environment to the
+harness action's `github_token` input. Runner-side steps use the real token
+for setup and reporting. Before launching the sandbox, Tend strips persisted
+checkout credentials and starts a runner-owned credential proxy holding the
+real token.
 
-1. **Git CLI** (`git push`): authenticates with the token from
-   `actions/checkout`. When no explicit token is passed it defaults to
-   `GITHUB_TOKEN` scoped by the `permissions:` block; passing an explicit
-   token swaps in that token's scopes.
-2. **GitHub API** (`gh pr create`, `gh api`): `claude-code-action`
-   overwrites the `GITHUB_TOKEN` env var with its `github_token` input.
+Both harnesses put dummy values in the sandbox's `GH_TOKEN` and
+`GITHUB_TOKEN`. The proxy authenticates GitHub API and git requests to exact
+GitHub destinations as the bot, while keeping the PAT outside the sandbox.
+Every process in the sandbox shares this access, including attacker-controlled
+code the agent executes. Credential isolation protects the token bytes;
+the bot's permissions and repository rules bound its authenticated operations.
+Access to other repositories the bot can reach is intentional.
 
-All workflows should pass the bot token to both paths.
-
-Bind the bot token to `GITHUB_TOKEN`, not `GH_TOKEN`. `GITHUB_TOKEN` is
-auto-injected by GitHub Actions and read by most third-party tools;
-overriding it gives one bot identity everywhere in the job. `GH_TOKEN`
-only overrides the `gh` CLI; anything else still sees the auto-injected
-`github-actions[bot]` token.
+Keep this token flow in the generated workflows and Tend's harness actions;
+do not pass the real bot token into agent commands or project setup inside the
+sandbox.
