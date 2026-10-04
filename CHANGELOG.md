@@ -11,6 +11,7 @@ https://github.com/max-sixty/tend/compare for their history.
 ### Improved
 
 - The Claude harness pins Claude Code 2.1.289, and uv installation pins 0.12.23 with verified archive checksums. ([#1499](https://github.com/max-sixty/tend/pull/1499), [#1500](https://github.com/max-sixty/tend/pull/1500))
+- Code review requires a concrete operational or maintenance consequence, or an applicable project rule, for structure and organization findings. ([#1501](https://github.com/max-sixty/tend/pull/1501))
 
 ### Fixed
 
@@ -20,6 +21,7 @@ https://github.com/max-sixty/tend/compare for their history.
 
 - Model and CLI changes require a live smoke test with the shipped CLI and the consumer's authentication mode.
 - Refresh site, Worker, and pre-commit dependency pins. ([#1498](https://github.com/max-sixty/tend/pull/1498))
+- Historical evaluations include notification-cutoff and credential-policy investigations, paired corrected controls, and checks that read-only trajectories leave the repository unchanged. ([#1501](https://github.com/max-sixty/tend/pull/1501))
 
 > _This was written by Codex on behalf of max-sixty_
 
