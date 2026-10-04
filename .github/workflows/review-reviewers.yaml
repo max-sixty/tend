@@ -104,6 +104,6 @@ jobs:
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           bot_name: tend-agent
-          model: gpt-6-sol
+          model: gpt-6.1-sol
           prompt: |
             $review-reviewers ${{ matrix.repo }}
