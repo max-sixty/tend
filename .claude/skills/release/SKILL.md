@@ -10,6 +10,7 @@ metadata:
 ## Steps
 
 1. **Record the release target, then sync and validate**: Name the PR or merge commit(s) this release must ship. A bootstrap release made only to restore CI or review does not complete a separate pending change; that change needs its own release after it merges. Fetch and bring the long-lived `release` branch to `origin/main` (`git merge origin/main`, or `git reset --hard origin/main` when it has no commits to preserve), then verify every target with `git merge-base --is-ancestor <commit> HEAD`. Run `wt test` and `uv tool run pre-commit run --all-files`. Record `HEAD` as the cut-from commit for step 9.
+   For a Codex model or CLI change, apply **Nightly: update the Codex model** in `.claude/skills/running-tend/SKILL.md` before publication.
 2. **Check current version**: Read `version` in `generator/pyproject.toml`
 3. **Review commits**: `git log <last-version>..origin/main --oneline` to understand scope — against `origin/main` (not `HEAD`), so the range is the full set of commits this release ships even if step 1 was skipped
 4. **Confirm version with user**: Present changes summary and proposed version

@@ -64,7 +64,7 @@ inputs:
       Bot-owned secret Gist ID supplied through the tend environment's
       TEND_MEMORY_GIST_ID secret. Never commit the ID or its unlisted URL.
   codex_version:
-    default: "0.157.1"
+    default: "0.160.0"
     description: >-
       `@openai/codex` npm version to install. Must ship
       the `codex plugin add` subcommand (PR #21396, first released in
