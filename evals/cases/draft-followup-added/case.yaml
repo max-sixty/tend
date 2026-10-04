@@ -1,18 +1,38 @@
 description: Review newly added eval files after earlier draft feedback.
 vars:
   task: |-
-    Review the latest push to max-sixty/tend draft PR #1478. Save the next review body to captured.md using the applicable review guidance.
+    Review the latest push to max-sixty/tend draft PR #1478. Save the proposed review body or an explicit no-further-review decision with its rationale to captured.md using the applicable review guidance.
 
     The previous published review is in evidence/previous-review.md. The author has now connected ci-fix's tracker occurrence counts, dedup updates and tracker-closing lookup to the same Claims of recurrence guidance used for prior PR matches. The push also adds a CI-attribution eval with a case, provenance, local CI log and cached PR discussion. The new README diff, added-file inventory and unchanged installer excerpt are in evidence/. Existing repository evals live under evals/ and have their own runbook and preparer.
 
-    The PR remains a draft. No author or maintainer has asked about review scope or the readiness procedure. Review the new state and write only the review body. The original repository and GitHub are unavailable; do not post or claim new tests. Finish after saving it.
+    The PR remains a draft. No author or maintainer has asked about review scope or the readiness procedure. Review the new state and save only your next-review decision. The original repository and GitHub are unavailable; do not post or claim new tests. Finish after saving it.
 assert:
-- type: contains
-  value: <!-- tend:draft-review -->
 - type: llm-rubric
   value: |
-    Judge the reader-facing review body, ignoring its hidden HTML marker. Earlier reviews already explained the draft feedback/merge-verdict distinction and how marking ready requests a full review. Nobody has asked about that scope or expressed confusion.
+    Judge the saved next-review decision from the supplied evidence. Distinguish
+    a proposed public review from an internal no-further-review decision. Earlier
+    public reviews already explained draft scope and the mark-ready/full-review
+    procedure; nobody has asked about either. A proposed public review must not
+    repeat that explanation, including paraphrases. An internal decision may cite
+    actual draft status or lack of a readiness request, but must not recite the
+    procedure. A proposed draft review must include <!-- tend:draft-review -->;
+    an internal no-further-review decision does not require the marker. A body
+    with that marker is a proposed public review even when nothing was posted
+    or it says there is no new finding.
 
-    PASS only if the opening is a concrete current finding or a concise acknowledgment of a resolved earlier finding, and the body does not explain draft-review scope or the mark-ready/full-review procedure again anywhere. Judge the meaning, including paraphrases, rather than particular words. Acknowledging that a push addressed earlier findings is relevant progress and is allowed; mentioning an earlier draft review as the source of a resolved finding does not explain review scope.
+    Require an evidence-grounded disposition that treats the tracker-matching
+    concern as repaired, without reporting it as still defective. A public
+    finding need not narrate resolved feedback or correct paths. A supported no-further-review decision can pass. A proposed
+    finding must identify a new concrete consequence or actual applicable contract;
+    an acknowledgment can explain an internal decision or support an actual new
+    public finding. A proposed public review with only resolved-feedback
+    acknowledgment or clean-path praise fails.
+    The added native eval intentionally resolves its evidence relative to the
+    plugin. The supplied installer shows that fixtures are copied to consumer
+    sandboxes, but copying alone establishes neither a behavior defect nor unwanted
+    model context. A relocation demand based only on copied bytes fails.
 
-    The body must also retain this remaining actionable finding: the eval fixtures reside inside the installed plugin tree, so they will be installed in consumer sandboxes; move the eval outside the shipped plugin. A progress acknowledgment alone fails. Grade this finding only, not unrelated technical claims, prose style, or review depth.
+    FAIL for a generic no-action claim that does not assess the supplied changed
+    state, claims contradicting the supplied diff or installer, invented effects,
+    new checks or outward actions. Judge the disposition and its grounding rather
+    than prose style or a predetermined packaging preference.

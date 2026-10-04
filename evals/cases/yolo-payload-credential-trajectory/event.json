@@ -1,0 +1,23 @@
+{
+  "repository": "max-sixty/tend",
+  "request": "Review PR #1390.",
+  "snapshot_at": "2026-09-23T03:10:30.941Z",
+  "pull_request": {
+    "number": 1390,
+    "url": "https://github.com/max-sixty/tend/pull/1390",
+    "title": "Accept default-branch credential exposure in yolo mode",
+    "body": "Yolo permits Tend to merge ordinary code into the default branch, so a generic deployment credential available to that branch is already exposed to bot-merged code. Accept that exposure without requiring a reviewer for every deploy. Keep Tend's own operational credential checks, admin-gated tags, and reviewer gates for credentials restricted to bot-inaccessible refs.\n\nThe credential sweep also accepts steerable triggers when the environment admits yolo's default branch, since they add no further access in that case. Tests cover default-branch deploys, tag-only release credentials, and both trigger cases; the full generator suite passes.\n\n> _This was written by Codex on behalf of max-sixty_\n",
+    "head_sha": "87f841d4f5000e377e1870e27456630db5d4c7d4",
+    "is_draft": false,
+    "author_kind": "human"
+  },
+  "review_state": {
+    "already_reviewed": false,
+    "previous_review_head": null,
+    "head_ref": "HEAD",
+    "base_ref": "base"
+  },
+  "previous_reviews": [],
+  "conversation": [],
+  "inline_comments": []
+}

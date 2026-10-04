@@ -5,6 +5,44 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { test } = require("node:test");
 const CodexProvider = require("./codex-provider.cjs");
+const repositoryUnchanged = require("./repository-unchanged.cjs");
+const reviewEvidence = require("./review-evidence.cjs");
+
+test("review evidence rejects blank artifacts and claims without recorded commands", () => {
+  const command = { type: "command_execution", command: "cat source.txt" };
+  const inspected = { artifact: "Review decision", items: [command] };
+  for (const output of [
+    "not JSON", "null", "[]", "{}",
+    JSON.stringify({ ...inspected, artifact: "" }),
+    JSON.stringify({ ...inspected, artifact: " \n\t" }),
+    JSON.stringify({ ...inspected, artifact: 1 }),
+    JSON.stringify({ ...inspected, artifact: undefined }),
+    JSON.stringify({ ...inspected, items: [] }),
+    JSON.stringify({ ...inspected, items: null }),
+    JSON.stringify({ ...inspected, items: command }),
+    JSON.stringify({ ...inspected, items: [{ type: "agent_message", text: "I inspected the code" }] }),
+    JSON.stringify({ ...inspected, items: [null, 1, { type: "command_execution" }] }),
+    JSON.stringify({ ...inspected, items: [{ ...command, command: " \n" }] }),
+  ]) assert.equal(reviewEvidence(output).pass, false, output);
+  // A failed command is still real evidence; its relevance and limits belong
+  // to the model judge, so this minimum-presence check must accept it.
+  assert.equal(reviewEvidence(JSON.stringify({ ...inspected, items: [{ ...command, exit_code: 1 }] })).pass, true);
+});
+
+test("repository observations reject malformed or independently changed state", () => {
+  const clean = { gitDiff: "", gitStatus: "", initialHead: "a".repeat(40), finalHead: "a".repeat(40) };
+  for (const output of [
+    "not JSON", "null", "[]", "{}",
+    JSON.stringify({ ...clean, gitDiff: null }),
+    JSON.stringify({ ...clean, gitStatus: undefined }),
+    JSON.stringify({ ...clean, initialHead: "", finalHead: "" }),
+    JSON.stringify({ ...clean, initialHead: " ", finalHead: " " }),
+    JSON.stringify({ ...clean, initialHead: 1, finalHead: 1 }),
+    JSON.stringify({ ...clean, gitDiff: "tracked modification" }),
+    JSON.stringify({ ...clean, gitStatus: "?? untracked.txt\n" }),
+    JSON.stringify({ ...clean, finalHead: "b".repeat(40) }),
+  ]) assert.equal(repositoryUnchanged(output).pass, false, output);
+});
 
 test("fresh Codex tasks isolate evidence and expose artifacts or actual trajectories", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "tend-provider-test-"));
@@ -64,8 +102,12 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
       assert.equal(config.cli_config.developer_instructions, "Staged guidance");
       return {
         callApi: async (prompt) => {
-          assert.ok(["A", "B", "Trajectory brief"].includes(prompt));
+          assert.ok(["A", "B", "Trajectory brief", "Read-only brief"].includes(prompt));
           assert.equal(await fs.readFile(path.join(config.working_dir, "evidence.txt"), "utf8"), "Verified evidence");
+          if (prompt === "Read-only brief") {
+            await fs.writeFile(path.join(config.working_dir, "captured.md"), "Read-only review\n");
+            return { output: "Final response differs from file", tokenUsage: usage, raw };
+          }
           await fs.writeFile(path.join(config.working_dir, "evidence.txt"), "changed by this attempt");
           await fs.writeFile(path.join(config.working_dir, "repository", "source.txt"), "new\n");
           await fs.writeFile(path.join(config.working_dir, "repository", "untracked.txt"), "new file\n");
@@ -107,9 +149,15 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
   assert.match(trajectory.gitStatus, /\?\? untracked\.txt/);
   assert.equal(trajectory.initialHead, git(["rev-parse", "HEAD"]).trim());
   assert.notEqual(trajectory.finalHead, trajectory.initialHead);
+  assert.equal(repositoryUnchanged(longer.output).pass, false);
+  assert.equal(reviewEvidence(longer.output).pass, true);
+  const unchanged = await new DeterministicProvider({ config: { prepared: arm, model: "gpt-6.1-sol", mode: "trajectory" } }).callApi("Read-only brief");
+  assert.equal(unchanged.error, undefined);
+  assert.equal(repositoryUnchanged(unchanged.output).pass, true);
+  assert.equal(reviewEvidence(unchanged.output).pass, true);
   await assert.rejects(fs.access(helperMarker), { code: "ENOENT" });
   assert.equal(longer.raw, raw);
-  assert.equal(new Set(workspaces).size, 3);
+  assert.equal(new Set(workspaces).size, 4);
   for (const workspace of workspaces) await assert.rejects(fs.access(workspace), { code: "ENOENT" });
   assert.equal(await fs.readFile(path.join(arm, "history.jsonl"), "utf8"), transcript);
   assert.equal(await fs.readFile(path.join(template, "evidence.txt"), "utf8"), "Verified evidence");

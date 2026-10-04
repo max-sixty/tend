@@ -1,0 +1,22 @@
+{
+  "repository": "max-sixty/tend",
+  "request": "Review PR #1457 at the supplied repository revision.",
+  "snapshot_at": null,
+  "pull_request": {
+    "number": 1457,
+    "url": "https://github.com/max-sixty/tend/pull/1457",
+    "title": "Use native gh, GraphQL, and git features instead of hand-rolled ones; read every page of the repo's notifications",
+    "body": "Replaces hand-rolled mechanisms with native features of the tools and APIs Tend already uses. The change spans the Codex harness, shared action steps, generator checks, pagination helpers and agent guidance. This frozen review concerns the supplied repository revision.",
+    "head_sha": "8d84555527527cd064927315f90f09be89a369e7",
+    "is_draft": false,
+    "author_kind": "human"
+  },
+  "review_state": {
+    "already_reviewed": false,
+    "incremental_base_ref": "base",
+    "head_ref": "HEAD"
+  },
+  "previous_reviews": [],
+  "conversation": [],
+  "inline_comments": []
+}

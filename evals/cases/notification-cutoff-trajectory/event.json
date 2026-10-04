@@ -1,0 +1,22 @@
+{
+  "repository": "max-sixty/tend",
+  "request": "Review PR #1457 at the supplied repository revision.",
+  "snapshot_at": "2026-09-29T21:36:06.099Z",
+  "pull_request": {
+    "number": 1457,
+    "url": "https://github.com/max-sixty/tend/pull/1457",
+    "title": "Use native gh, GraphQL, and git features instead of hand-rolled ones; read every page of the repo's notifications",
+    "body": "Replaces hand-rolled mechanisms with features the tools and APIs tend already uses provide natively, and fixes two bugs the sweep found. Net \u2212204 lines across 55 files.\n\n### Bugs\n\n- **`mark_notification_read` only saw the first 50 threads of the bot's whole inbox.** It read `gh api notifications` unpaginated \u2014 every repo's threads, first page only \u2014 so a bot with more than 50 unread threads never marked this repo's thread. It now reads `repos/{repo}/notifications?before=<run start>` across every page, with GitHub applying the cutoff (`before` is strict, so it marks fewer threads than the old `<=`, never more).\n- **review-reviewers couldn't read the verify job log or all of a PR's reviews.** `gh api .../jobs/<id>/logs` exits 1 on gh 2.101 when the log carries terminal escapes, and `pulls/<n>/reviews` unpaginated drops the newest past 30. Now `gh run view --log` and `gh pr view` / `gh issue view --json`.\n\n### Simplifications\n\n- **Pagination:** `gh api --paginate --slurp` replaces four hand-written decoders of concatenated pages (`github_cli`, the inlined mention and notifications checks); gh's GraphQL `--paginate` with `$endCursor` replaces `poll_pr_checks.fetch_rollup`'s cursor loop.\n- **CODEOWNERS preflight:** one GraphQL query reads each candidate directory's entry mode and blob text, replacing up to three Contents probes (404s detected by matching `HTTP 404` in stderr), a base64 decode, and a separate mode query. Precedence (`.github/`, root, `docs/`) and the refusals \u2014 symlink, submodule, binary, truncated \u2014 are kept.\n- **Codex:** `codex plugin add --json`'s `installedPath` replaces scraping `Installed plugin root:` from its text output.\n- **Nightly:** `git diff --cached --quiet -I '<stamp line>'` decides whether only the version stamp changed, instead of regexing a diff.\n- **`checks.py`:** environments are read from the listing already fetched (it carries `protection_rules` and `deployment_branch_policy`); one rulesets listing and one login lookup instead of three and two.\n- **Duplicates:** `Cancelled` / `raise_on_cancel` live once in `_common`; `gist_memory` uses `require_env`; `mark_notification_read` uses `subject_number`. The proxy pid file nothing read is gone.\n- **Skills:** `gh api`'s `{owner}/{repo}` placeholders replace seven `REPO=$(gh repo view \u2026)` round trips. The yolo merge gate is the `PUT` with `sha` alone \u2014 GitHub refuses a moved head (409) and a closed or unmergeable PR (405) itself. run-tend states the real hazard of `gh run watch` / `gh pr checks --watch`.\n\n### Left as is\n\nA search-based count in `rate_limit_preflight` (the search index lags creation by seconds, weakening the burst guard); `gh run watch` anywhere (it treats one failed read as a finished run); `token_report` / `list_recent_runs` (#1397 edits them).\n\n#1171 will conflict in `mark_notification_read.py` on rebase: its early return sat after the event-parsing line this removes. Read the event name from `env` and the action from `_common.event_payload()` instead.\n\n> _This was written by Claude Code on behalf of max-sixty_\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)\n",
+    "head_sha": "b796e0c9ec5fe6086b1fb0fce9c794571edcf49b",
+    "is_draft": false,
+    "author_kind": "human"
+  },
+  "review_state": {
+    "already_reviewed": false,
+    "incremental_base_ref": "base",
+    "head_ref": "HEAD"
+  },
+  "previous_reviews": [],
+  "conversation": [],
+  "inline_comments": []
+}

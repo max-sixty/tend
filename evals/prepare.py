@@ -23,6 +23,7 @@ CASES = Path(__file__).with_name("cases")
 PREPARED = ROOT / ".tmp/evals/prepared"
 SOURCES = Path.home() / ".local/share/tend/evals/sources"
 YAML_IO = YAML(typ="safe")
+CODEX_EXECUTOR_MODEL = "gpt-6.1-sol"
 
 
 def verify(path: Path, digest: str) -> None:
@@ -226,7 +227,7 @@ def prepare(harness: str = "codex") -> None:
                     "label": label,
                     "config": {
                         "prepared": str(destination),
-                        "model": "gpt-6-sol",
+                        "model": CODEX_EXECUTOR_MODEL,
                         "mode": kind,
                     },
                 }
