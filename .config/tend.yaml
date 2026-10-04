@@ -1,6 +1,6 @@
 bot_name: tend-agent
 harness: codex
-model: gpt-6-sol
+model: gpt-6.1-sol
 codex:
   auth_refresh: false # Mackup renews saved logins and publishes access-only auth.
 setup:

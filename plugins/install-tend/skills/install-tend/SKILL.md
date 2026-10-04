@@ -95,8 +95,8 @@ itself the go-ahead.
    - **Codex — Plus/Pro subscription** — experimental. It needs two browser
      handoffs: a Codex login for this repo and a repo-scoped GitHub token.
      Concurrent jobs receive access-only auth; this repo's serialized weekly
-     workflow owns its refresh token. This depends on Codex's internal auth
-     mode; detail in ${CLAUDE_SKILL_DIR}/references/security-model.md.
+     workflow owns its refresh token by default. This depends on Codex's internal
+     auth mode; detail in ${CLAUDE_SKILL_DIR}/references/security-model.md.
    - **Codex — OpenAI API key** — standard pay-per-token path.
 2. **Merge mode** — who may merge into the default branch:
    - **Maintainer** (recommended) — the bot opens and updates PRs; only admins can
