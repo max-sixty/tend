@@ -6,6 +6,22 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.9
+
+### Improved
+
+- `tend check` verifies that public repositories have an active Actions event policy allowing generated `pull_request_target` workflows before GitHub enforces its default restriction on November 2, 2026. An administrator running `tend check --fix` can create policies scoped to exact workflow paths and their declared events; existing restrictions remain subject to their owner's review. ([#1509](https://github.com/max-sixty/tend/pull/1509))
+
+### Documentation
+
+- The security model and installer clarify that every process in Tend's sandbox shares brokered GitHub access as the bot without receiving its PAT. Installation guidance describes the current credential flow and identifies hosted subscription refresh as the default; pinned startup configuration is distinguished from resistance to prompt injection. ([#1507](https://github.com/max-sixty/tend/pull/1507), [#1509](https://github.com/max-sixty/tend/pull/1509))
+
+### Internal
+
+- Package publication requires a successful authenticated Codex smoke on the exact release commit, verifying the candidate CLI and default model with subscription authentication before tagging. ([#1508](https://github.com/max-sixty/tend/pull/1508))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.8
 
 ### Improved
