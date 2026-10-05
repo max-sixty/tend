@@ -166,10 +166,9 @@ verify_lifecycle() {
   chmod +x "$tool_root/probe"
 
   private_action=$(mktemp -d "$RUNNER_TEMP/tend-private-runtime.XXXXXX")
-  mkdir -p "$private_action/shared" "$private_action/codex"
+  mkdir -p "$private_action/shared" "$private_action/claude" "$private_action/codex"
   cp -R "$TEND_TEST_ACTION_PATH/shared/steps" "$private_action/shared/"
-  cp "$TEND_TEST_ACTION_PATH/codex/runner.py" "$private_action/codex/"
-  if sudo -u "$SANDBOX" test -r "$private_action/shared/steps/agent_lifecycle.py"; then
+  if sudo -u "$SANDBOX" test -r "$private_action/shared/steps/restore-sensitive-config.sh"; then
     echo "::error::private runtime fixture is readable by the sandbox user"
     exit 1
   fi
@@ -326,8 +325,7 @@ PY
     TEND_JOB_ONLY=tend-job-env-marker \
     GITHUB_OUTPUT="$github_output" \
     GITHUB_STEP_SUMMARY="$runner_summary" \
-    /usr/bin/python3 -E -s \
-      "$TEND_TEST_ACTION_PATH/shared/steps/launch_agent.py" || rc=$?
+    "$TEND_RUNTIME_PYTHON" -I -m tend runtime launch-agent || rc=$?
   mv "$RUNNER_TEMP/tend-claude-aside" "$GITHUB_WORKSPACE/.claude"
   test "$rc" -eq 0
   grep -qx 'sandbox_reaped=true' "$github_output"
@@ -404,7 +402,6 @@ PY
   rc=0
   ACTION_PATH="$private_action" \
     TEND_HARNESS=codex \
-    TEND_CODEX_RUNNER="$private_action/codex/runner.py" \
     TEND_CHECKOUT_MODE=base \
     TEND_BASE_BRANCH="$BASE_BRANCH" \
     TEND_BOUNDARY_PROBE_URL="http://127.0.0.1:$probe_port/" \
@@ -415,8 +412,7 @@ PY
     GITHUB_TOKEN=runner-token-must-not-cross \
     GITHUB_OUTPUT="$github_output" \
     GITHUB_STEP_SUMMARY="$runner_summary" \
-    /usr/bin/python3 -E -s \
-      "$TEND_TEST_ACTION_PATH/shared/steps/launch_agent.py" || rc=$?
+    "$TEND_RUNTIME_PYTHON" -I -m tend runtime launch-agent || rc=$?
   rm -rf "$private_action"
   kill "$probe_pid" 2>/dev/null || true
   wait "$probe_pid" 2>/dev/null || true
@@ -445,8 +441,7 @@ PY
 }
 
 verify_dispose() {
-  /usr/bin/python3 -E -s \
-    shared/steps/dispose_sandbox_resources.py
+  "$TEND_RUNTIME_PYTHON" -I -m tend runtime dispose-sandbox-resources
   test ! -e "$TEND_RUNTIME_ROOT"
   test -f "/tmp/tend-runner-owned-$GITHUB_RUN_ID"
   echo "[test-setup-sandbox] runtime container disposed, runner entries kept"

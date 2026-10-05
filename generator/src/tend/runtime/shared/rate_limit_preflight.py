@@ -43,8 +43,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any
 
-import _common
-import _issue
+from tend.runtime.shared import _common, _issue
 
 PAUSE_LABEL = "tend-rate-limit"
 PAUSE_TITLE = "Bot rate limit reached"
@@ -419,7 +418,3 @@ def _approvals(repo: str, issue: int, bot_id: int, today: str) -> int:
     except _common.GH_READ_FAILED:
         return 0
     return count_approvals(events, label=PAUSE_LABEL, bot_id=bot_id, today=today)
-
-
-if __name__ == "__main__":
-    _common.run(main)

@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
 from pathlib import Path
 
 import pytest
-
-RUNNER_PATH = Path(__file__).resolve().parents[2] / "codex" / "runner.py"
-SPEC = importlib.util.spec_from_file_location("tend_codex_runner", RUNNER_PATH)
-assert SPEC and SPEC.loader
-codex_runner = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(codex_runner)
+from tend.runtime.codex import runner as codex_runner
 
 
 def _result(args: list[str], *, stdout: str = "", returncode: int = 0):
@@ -77,7 +71,7 @@ def test_install_plugin_exports_the_single_sandbox_root(
 
     monkeypatch.setattr(codex_runner, "_run", run)
 
-    assert codex_runner.main(["install-plugin"]) == 0
+    assert codex_runner.install_plugin() == 0
     assert agent_env.read_text().endswith(f"CLAUDE_PLUGIN_ROOT={plugin}\n")
     assert capsys.readouterr().out == _plugin_add_output(PLUGIN_ADD, plugin)
     marketplace = agent_home / "tend-marketplace"
@@ -118,7 +112,7 @@ def test_install_plugin_rejects_a_root_outside_the_sandbox_home(
 
     monkeypatch.setattr(codex_runner, "_run", run)
 
-    assert codex_runner.main(["install-plugin"]) == 1
+    assert codex_runner.install_plugin() == 1
 
 
 def test_install_plugin_rejects_output_that_is_not_the_json_report(
@@ -138,7 +132,7 @@ def test_install_plugin_rejects_output_that_is_not_the_json_report(
 
     monkeypatch.setattr(codex_runner, "_run", run)
 
-    assert codex_runner.main(["install-plugin"]) == 1
+    assert codex_runner.install_plugin() == 1
 
 
 @pytest.mark.parametrize("memory_enabled", [False, True])
@@ -155,7 +149,7 @@ def test_stage_agents_writes_as_the_sandbox_user(
     (action / "agents-tail.md").write_text("Look up $BOT_NAME.\n")
     if memory_enabled:
         (action / "memory.md").write_text(
-            (RUNNER_PATH.parent / "memory.md").read_text()
+            (Path(__file__).parent / "memory.md").read_text()
         )
         monkeypatch.setenv(
             "TEND_AUTO_MEMORY_DIRECTORY", "/var/tmp/tend-auto-memory.test"
@@ -170,7 +164,7 @@ def test_stage_agents_writes_as_the_sandbox_user(
 
     monkeypatch.setattr(codex_runner, "_run", run)
 
-    assert codex_runner.main(["stage-agents"]) == 0
+    assert codex_runner.stage_agents() == 0
 
     agents = agent_home / ".codex/AGENTS.md"
     assert calls[0][0] == [
@@ -231,7 +225,7 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
 
     monkeypatch.setattr(codex_runner, "_run", run)
 
-    assert codex_runner.main(["run"]) == 7
+    assert codex_runner.run_codex() == 7
     codex = next(args for args, _kwargs in calls if "/opt/codex/bin/codex" in args)
     assert codex[codex.index("--output-last-message") + 1] == str(
         run_dir / "codex-final-message.md"
@@ -310,7 +304,7 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
 
     monkeypatch.setattr(codex_runner, "_run", run)
 
-    assert codex_runner.main(["run"]) == 0
+    assert codex_runner.run_codex() == 0
     launch, kwargs = next(
         (args, options) for args, options in calls if "/opt/codex/bin/codex" in args
     )
@@ -345,4 +339,4 @@ def test_run_refuses_to_create_a_second_execution_boundary(
     _set_sandbox_env(tmp_path, monkeypatch)
 
     with pytest.raises(RuntimeError, match="only inside the sandbox lifecycle"):
-        codex_runner.main(["run"])
+        codex_runner.run_codex()

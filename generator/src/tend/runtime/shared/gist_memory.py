@@ -30,11 +30,12 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import _common
-from _safe_files import read_regular_nofollow
+from tend.runtime.shared import _common
+from tend.runtime.shared._safe_files import read_regular_nofollow
 
 BASELINE_FILE = ".tend-gist-baseline.json"
 SETTINGS_FILE = ".tend-settings.json"
@@ -400,31 +401,9 @@ def finish(gist_id: str, repository: str, gist_owner: str) -> int:
     return save(gist_id, repository, gist_owner, directory, baseline_key)
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) != 1 or args[0] not in {"restore", "save", "cleanup"}:
-        print(
-            "usage: gist_memory.py restore|save|cleanup (configuration is read from the environment)",
-            file=sys.stderr,
-        )
-        return 2
-    command = args[0]
+def _command(command: str, operation: Callable[[], int]) -> int:
     try:
-        if command == "cleanup":
-            _remove_working_copy(*_working_paths())
-            return 0
-        values = _common.require_env(
-            "GITHUB_TOKEN",
-            "GITHUB_REPOSITORY",
-            "TEND_MEMORY_GIST_ID",
-            "TEND_AUTO_MEMORY_GIST_OWNER",
-        )
-        operation = prepare if command == "restore" else finish
-        return operation(
-            values["TEND_MEMORY_GIST_ID"],
-            values["GITHUB_REPOSITORY"],
-            values["TEND_AUTO_MEMORY_GIST_OWNER"],
-        )
+        return operation()
     except (
         GistMemoryError,
         OSError,
@@ -437,5 +416,35 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def _configured_operation(operation: Callable[[str, str, str], int]) -> int:
+    values = _common.require_env(
+        "GITHUB_TOKEN",
+        "GITHUB_REPOSITORY",
+        "TEND_MEMORY_GIST_ID",
+        "TEND_AUTO_MEMORY_GIST_OWNER",
+    )
+    return operation(
+        values["TEND_MEMORY_GIST_ID"],
+        values["GITHUB_REPOSITORY"],
+        values["TEND_AUTO_MEMORY_GIST_OWNER"],
+    )
+
+
+def restore_command() -> int:
+    """Restore memory, reporting failure as a best-effort warning."""
+    return _command("restore", lambda: _configured_operation(prepare))
+
+
+def save_command() -> int:
+    """Save memory, reporting failure as a best-effort warning."""
+    return _command("save", lambda: _configured_operation(finish))
+
+
+def cleanup_command() -> int:
+    """Remove the disposable working copy, reporting cleanup failures."""
+
+    def cleanup() -> int:
+        _remove_working_copy(*_working_paths())
+        return 0
+
+    return _command("cleanup", cleanup)

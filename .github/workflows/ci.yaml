@@ -17,10 +17,9 @@ on:
     - cron: "0 */6 * * *"
 
 jobs:
-  # Every Python test in the repo — pytest collects generator/, proxy/,
-  # shared/steps/, and the install-tend scripts from the root — in the root
-  # workspace's environment, whose dev group holds the pinned mitmproxy the
-  # proxy addon imports.
+  # Every Python test in the repo, including harnesses and install-tend scripts,
+  # runs in the root workspace's environment. Its dev group holds the pinned
+  # mitmproxy the proxy addon imports.
   test:
     runs-on: ubuntu-24.04
     steps:
@@ -98,6 +97,15 @@ jobs:
           fetch-depth: 0
       - name: Create the sandbox runtime container
         run: bash shared/steps/create-runtime-root.sh
+      - name: Install runtime uv
+        run: bash shared/steps/install-uv.sh
+        env:
+          UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
+      - name: Install Tend runtime package
+        run: bash shared/steps/install-runtime.sh
+        env:
+          ACTION_PATH: ${{ github.workspace }}
+          UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
       - name: Plant PATH-boundary fixtures
         run: bash proxy/test-setup-sandbox.sh plant
       - name: Set up the sandbox
@@ -138,8 +146,12 @@ jobs:
             "@openai/codex-responses-api-proxy@$v"
           codex --version
           codex-responses-api-proxy --help >/dev/null
-      - name: Verify the pinned Codex CLI surface
-        run: /usr/bin/python3 -E -s shared/steps/codex_surface.py
+      - name: Install uv
+        run: bash shared/steps/install-uv.sh
+        env:
+          UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
+      - name: Check the pinned Codex CLI compatibility
+        run: ${{ runner.temp }}/tend-uv/uv run --package tend --no-dev tend runtime codex check-cli
 
   # Node 22 to match worker-deploy.yaml, which had to move off 20 because
   # Wrangler refuses to run there ("Wrangler requires at least Node.js

@@ -375,7 +375,7 @@ Each transition is a bottleneck with one job:
 
 - **The view** puts the agent in the job's own checkout and home, at their real
   paths, with the job's PATH and environment. The supervisor
-  (`shared/steps/launch_agent.py`) mounts an overlay of the runner's home at a
+  (`generator/src/tend/runtime/shared/launch_agent.py`) mounts an overlay of the runner's home at a
   staging path in the per-run `/var/tmp` runtime container, and the agent's
   unit binds it over the home. The lower layer is a read-only bind of that
   home, *idmapped* so the runner's and the sandbox's ids swap; the upper layer
@@ -514,8 +514,9 @@ shape.
 After the unit exits, the trusted supervisor kills and verifies the complete
 sandbox UID process tree, then copies only size-bounded fixed outputs. The next fixed
 action step deletes the per-run `/var/tmp/tend-runtime.*` directory, which
-holds the staged lifecycle bundle, Tend's runner-side secrets and the view's
-upper layer. On a self-hosted runner nothing deletes the `tend-sandbox` user,
+holds the installed runtime package, staged shell assets, Tend's runner-side
+secrets and the view's upper layer. The separate runner-side package installation
+survives this disposal for reporting. On a self-hosted runner nothing deletes the `tend-sandbox` user,
 so `/home/tend-sandbox` persists between jobs under one shared uid, and what
 one run leaves there the next run's agent can read. A run whose reap failed
 deletes nothing: the live writer is the reason not to delete underneath it.
@@ -574,7 +575,7 @@ spike detection (today's volume vs 6-day baseline, scaled per repo) abort
 the run before the agent starts, catching runaway loops between workflows.
 The check runs as its own step in the composite action, so a
 prompt-injection attack inside the agent session cannot skip it. Concrete limits live in
-`shared/steps/rate_limit_preflight.py`.
+`generator/src/tend/runtime/shared/rate_limit_preflight.py`.
 
 The spike limit is resumable by a maintainer, the burst limit is not. On a
 spike trip the run files or reopens a `tend-rate-limit` issue listing the
@@ -603,7 +604,7 @@ account's MCP cloud connectors, headless runs included — so anything enabled o
 the bot's account would become an instruction and tool source for every
 consumer's CI session, in a process that pushes commits and posts as the bot,
 reviewed by nobody in either repository. The session settings
-`shared/steps/run_claude.py` writes refuse all three: `syncClaudeAiSkills` and
+`generator/src/tend/runtime/claude/run_claude.py` writes refuse all three: `syncClaudeAiSkills` and
 `syncClaudeAiPlugins` false, `disableClaudeAiConnectors` true. Its test asserts
 that settings file exactly, so a key that silently stops being written fails
 the suite rather than quietly reopening the surface. The sync pair is honored

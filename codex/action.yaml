@@ -105,12 +105,29 @@ outputs:
 runs:
   using: composite
   steps:
-    # Preflight/teardown step bodies are shared with the Claude actions via
-    # ../shared/steps; codex's auth, prompt staging, and run path are its own.
+    # Harness-specific modules and shared plumbing use the installed Tend package.
+    - name: Install runtime uv
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
+      env:
+        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
+
+    - name: Create the sandbox runtime container
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
+
+    - name: Install Tend runtime package
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/install-runtime.sh"
+      env:
+        ACTION_PATH: ${{ github.action_path }}/..
+        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
+
     - name: Security preflight
       id: security
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/security_preflight.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime security-preflight
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MERGE: ${{ inputs.merge }}
@@ -121,7 +138,8 @@ runs:
     - name: Rate limit preflight
       id: bot
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/rate_limit_preflight.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime rate-limit-preflight
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
@@ -135,17 +153,8 @@ runs:
       env:
         OPENAI_API_KEY: ${{ inputs.openai_api_key }}
         CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/codex_subscription_auth.py" prepare "$RUNNER_TEMP/tend-codex-auth.json"
-
-    - name: Install proxy uv
-      shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
-      env:
-        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
-
-    - name: Create the sandbox runtime container
-      shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime codex auth prepare "$RUNNER_TEMP/tend-codex-auth.json"
 
     # Install the pinned CLI and proxy into this run's runtime container.
     - name: Install Codex and Responses proxy
@@ -271,7 +280,8 @@ runs:
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
-      run: python3 -E -s "${{ github.action_path }}/runner.py" install-plugin
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime codex install-plugin
 
     # Shared memory stays outside the disposable sandbox resources.
     - name: Restore experimental memory Gist
@@ -279,7 +289,8 @@ runs:
       if: inputs.memory_gist == 'true'
       continue-on-error: true
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" restore
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory restore
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
@@ -292,7 +303,8 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         BOT_NAME: ${{ steps.bot.outputs.login }}
         TEND_MERGE: ${{ inputs.merge }}
-      run: python3 -E -s "${{ github.action_path }}/runner.py" stage-agents
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime codex stage-agents
 
     - name: Run Codex
       id: codex
@@ -306,15 +318,15 @@ runs:
         EXTRA_ARGS: ${{ inputs.args }}
         AUTH_MODE: ${{ steps.codex_auth.outputs.mode }}
         TEND_HARNESS: codex
-        TEND_CODEX_RUNNER: ${{ github.action_path }}/runner.py
         ACTION_PATH: ${{ github.action_path }}/..
-        # Read by shared/steps/event_checkout.py, inside the sandbox.
+        # Read by tend.runtime.shared.event_checkout, inside the sandbox.
         TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
         TEND_BASE_BRANCH: ${{ inputs.base_branch }}
       # runner.py preserves the final message even when codex exits non-zero.
       # Base64 keeps arbitrary agent output in one GITHUB_OUTPUT line; consumers
       # decode it with `base64 -d`.
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/launch_agent.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime launch-agent
 
     - name: Stop OpenAI Responses proxy
       if: always()
@@ -327,14 +339,16 @@ runs:
     - name: Dispose sandbox resources
       if: always()
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/dispose_sandbox_resources.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime dispose-sandbox-resources
 
     # The supervisor reaps every sandbox process before the trusted save.
     - name: Save experimental memory Gist
       if: always() && steps.auto_memory.outcome == 'success' && steps.codex.outputs.sandbox_reaped == 'true'
       continue-on-error: true
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" save
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory save
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
@@ -344,7 +358,8 @@ runs:
       if: always() && steps.auto_memory.outcome == 'success'
       continue-on-error: true
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" cleanup
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory cleanup
 
     # Codex writes rollouts under the sandbox user's ~/.codex/sessions. The
     # step consolidates them into a runner-owned directory only after reaping
@@ -353,7 +368,7 @@ runs:
     # complete total from every rollout, then sum the independent rollouts.
     # Cost is left at 0 — Codex CLI doesn't surface API list prices and
     # computing it ourselves would require maintaining a price table.
-    # Shares shared/steps/token_usage.py with the Claude harness, which is
+    # Shares tend.runtime.shared.token_usage with the Claude harness, which is
     # what keeps the record's shape and the summary table's shell the same
     # across harnesses; the rows and the parsers differ per `--harness`.
     - name: Token usage
@@ -363,12 +378,14 @@ runs:
       env:
         MODEL: ${{ inputs.model }}
         SANDBOX_REAPED: ${{ steps.codex.outputs.sandbox_reaped }}
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness codex
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime token-usage --harness codex
 
     - name: Mark event notification read
       if: success()
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/mark_notification_read.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime mark-notification-read
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
@@ -382,7 +399,8 @@ runs:
     - name: Report failure
       if: failure() && steps.security.outcome != 'failure'
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/report_failure.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime report-failure
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         # Passed through `env:` because they resolve nowhere else — see the

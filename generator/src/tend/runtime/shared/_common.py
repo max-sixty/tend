@@ -1,12 +1,8 @@
 """Helpers shared by the Python step bodies in this directory.
 
-A step body is a flat module beside this one, run by the composite action as
-``python3 -E -s <action_path>/../shared/steps/<name>.py`` with its
-inputs in the environment, exactly as the shell bodies were. Only the standard
-library is required: the steps use the job's Python, before and without tend's
-own ``uv``. The ubuntu-24.04 image supplies Python 3.12,
-but a consumer can select an older image through the documented ``runs-on``
-override, so these modules stay 3.10-compatible.
+The composite actions install the candidate Tend package and invoke step bodies
+through the isolated CLI, ``python -I -m tend runtime <command>``, with their
+inputs in the environment. These helpers require only the standard library.
 
 Every GitHub call goes through :func:`gh`, and every step module calls it as
 ``_common.gh(...)`` rather than importing the name, so a test replaces one
@@ -241,9 +237,7 @@ def utcnow() -> datetime.datetime:
     baseline range — is UTC, and a local-time reading would silently shift a
     day boundary the limits are scoped to.
     """
-    # These modules stay 3.10-compatible (see this module's docstring);
-    # `datetime.UTC` is 3.11+.
-    return datetime.datetime.now(datetime.timezone.utc)  # noqa: UP017
+    return datetime.datetime.now(datetime.UTC)
 
 
 def read_ndjson(path: Path) -> Iterator[dict[str, Any]]:
@@ -367,7 +361,7 @@ def fail(message: str, code: int = 1) -> int:
 
 
 def run(main: Any) -> None:
-    """``if __name__ == "__main__"`` boilerplate: exit with ``main()``'s code.
+    """Run a runtime operation and exit with its code.
 
     A ``gh`` call the step could not proceed without surfaces as one
     ``::error::`` naming the command, with ``gh``'s own explanation already on

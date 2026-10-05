@@ -21,6 +21,19 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install runtime uv
+      shell: bash
+      run: bash "${{ github.action_path }}/../../shared/steps/install-uv.sh"
+      env:
+        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
+
+    - name: Install Tend runtime package
+      shell: bash
+      run: bash "${{ github.action_path }}/../../shared/steps/install-runtime.sh"
+      env:
+        ACTION_PATH: ${{ github.action_path }}/../..
+        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
+
     - name: Stage refreshable auth
       id: auth
       shell: bash
@@ -28,7 +41,8 @@ runs:
         CODEX_REFRESH_AUTH_JSON: ${{ inputs.codex_refresh_auth_json }}
         CODEX_REFRESH_PAT: ${{ inputs.refresh_pat }}
         CODEX_CONSUMER_AUTH_CONFIGURED: ${{ inputs.consumer_auth_configured }}
-      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../../shared/steps/codex_subscription_auth.py" stage-refresh "$RUNNER_TEMP/tend-codex-refresh/auth.json"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime codex auth stage-refresh "$RUNNER_TEMP/tend-codex-refresh/auth.json"
 
     - name: Install Codex CLI
       if: steps.auth.outputs.configured == 'true'
@@ -54,4 +68,5 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.refresh_pat }}
         CODEX_OUTCOME: ${{ steps.codex.outcome }}
-      run: /usr/bin/python3 -E -s "${{ github.action_path }}/../../shared/steps/codex_subscription_auth.py" publish-refresh "$RUNNER_TEMP/tend-codex-refresh/auth.json"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime codex auth publish-refresh "$RUNNER_TEMP/tend-codex-refresh/auth.json"

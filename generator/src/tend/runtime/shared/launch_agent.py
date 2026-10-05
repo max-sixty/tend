@@ -4,7 +4,7 @@ The launch is two transient units, started with ``sudo systemd-run``::
 
     tend-proxy.socket     127.0.0.1:<proxy port>, in the agent's network namespace
       tend-proxy.service  systemd-socket-proxyd, outside it, to the credential proxy
-    tend-agent.service    python3 agent_lifecycle.py, as the sandbox uid
+    tend-agent.service    tend runtime agent-lifecycle, as the sandbox uid
 
 The boundary is the agent unit's settings, :func:`unit_properties`, and systemd
 enforces each of them. Tend adds the view and the reap.
@@ -48,13 +48,11 @@ import pwd
 import re
 import resource
 import subprocess
-import sys
 import time
 from pathlib import Path
 
-import _common
-import _sandbox
-from _safe_files import read_regular_nofollow
+from tend.runtime.shared import _common, _sandbox
+from tend.runtime.shared._safe_files import read_regular_nofollow
 
 MAX_FIXED_EXPORT = 64 * 1024 * 1024
 MAX_FINAL_MESSAGE = 256 * 1024
@@ -63,15 +61,7 @@ MAX_RUNTIME_FILE = 2 * 1024 * 1024
 #: How long the reap waits for the killed UID to leave the process table.
 REAP_DEADLINE_SEC = 10.0
 REAP_POLL_SEC = 0.1
-RUNTIME_STEP_FILES = (
-    "_common.py",
-    "_prompt.py",
-    "_sandbox.py",
-    "agent_lifecycle.py",
-    "event_checkout.py",
-    "run_claude.py",
-)
-#: Staged with the step bodies because `event_checkout` runs them in the sandbox.
+#: Shell assets used by event checkout; Python is installed as the Tend package.
 RUNTIME_SHELL_FILES = (
     "restore-sensitive-config.sh",
     "lib/pin-instruction-paths.sh",
@@ -178,37 +168,34 @@ def view_masks(home: Path) -> list[Path]:
     return [path for path in masks if path.is_relative_to(home)]
 
 
-def stage_runtime_bundle(runtime_root: Path) -> tuple[Path, Path, Path | None]:
-    """Copy the trusted lifecycle behind a sandbox-traversable path."""
+def stage_runtime_bundle(runtime_root: Path) -> tuple[Path, Path]:
+    """Stage shell assets; run Python from the installed sandbox environment.
+
+    install-runtime.sh installs the exact action source non-editably with its
+    frozen lock. No Python file manifest or checkout import path crosses into
+    the sandbox, whose working directory remains the event workspace.
+    """
     source_root = Path(required("ACTION_PATH")).resolve(strict=True)
     bundle_root = runtime_root / "action"
-    shared_root = bundle_root / "shared"
-    step_root = shared_root / "steps"
-    for directory in (bundle_root, shared_root, step_root):
+    for directory in (
+        bundle_root,
+        bundle_root / "shared",
+        bundle_root / "shared/steps",
+    ):
         mkdir_traversable(directory)
-    for name in RUNTIME_STEP_FILES + RUNTIME_SHELL_FILES:
-        body = read_regular_nofollow(
-            source_root / "shared/steps" / name, max_bytes=MAX_RUNTIME_FILE
-        )
+    for name in RUNTIME_SHELL_FILES:
+        relative = f"shared/steps/{name}"
+        body = read_regular_nofollow(source_root / relative, max_bytes=MAX_RUNTIME_FILE)
         if body is None:
-            raise ValueError(f"runtime bundle source is missing: shared/steps/{name}")
-        destination = step_root / name
-        if destination.parent != step_root:
+            raise ValueError(f"runtime bundle source is missing: {relative}")
+        destination = bundle_root / relative
+        if not destination.parent.exists():
             mkdir_traversable(destination.parent)
         write_trusted(destination, body, mode=0o644)
-
-    codex_runner: Path | None = None
-    if os.environ.get("TEND_CODEX_RUNNER"):
-        body = read_regular_nofollow(
-            source_root / "codex/runner.py", max_bytes=MAX_RUNTIME_FILE
-        )
-        if body is None:
-            raise ValueError("runtime bundle source is missing: codex/runner.py")
-        codex_runner = bundle_root / "codex/runner.py"
-        mkdir_traversable(codex_runner.parent)
-        write_trusted(codex_runner, body, mode=0o644)
-
-    return bundle_root, step_root / "agent_lifecycle.py", codex_runner
+    python = runtime_root / "venv/bin/python"
+    if not python.is_file():
+        raise ValueError(f"Tend runtime package is not installed: {python}")
+    return bundle_root, python
 
 
 def identity_map(kind: str, low: int, high: int) -> list[str]:
@@ -360,7 +347,7 @@ def launch(
     runtime_root: Path,
     masks: list[Path],
     env_file: Path,
-    lifecycle: Path,
+    python: Path,
 ) -> int:
     """Mount the view, start the bridge, and run the lifecycle to its exit.
 
@@ -392,10 +379,12 @@ def launch(
         "--quiet",
         "--service-type=exec",
         *(f"--property={setting}" for setting in properties),
-        "/usr/bin/python3",
-        "-E",
-        "-s",
-        str(lifecycle),
+        str(python),
+        "-I",
+        "-m",
+        "tend",
+        "runtime",
+        "agent-lifecycle",
     ]
     # Workflow commands stay live: the unit's annotations (why the agent run
     # failed) are its report to the maintainer.
@@ -450,7 +439,7 @@ def main() -> int:
     run_dir = Path(required("TEND_RUN_DIR"))
     step_summary = Path(required("TEND_AGENT_TMP_DIR")) / "step-summary.md"
     runtime_root = Path(required("TEND_RUNTIME_ROOT")).resolve(strict=True)
-    bundle_root, lifecycle, codex_runner = stage_runtime_bundle(runtime_root)
+    bundle_root, python = stage_runtime_bundle(runtime_root)
 
     masks = view_masks(runner_home)
     environment = _sandbox.launch_env(required("AGENT_ENV_FILE"))
@@ -469,8 +458,6 @@ def main() -> int:
         "XDG_DATA_HOME": str(runner_home / ".local/share"),
         "XDG_STATE_HOME": str(runner_home / ".local/state"),
     }
-    if codex_runner is not None:
-        overrides["TEND_CODEX_RUNNER"] = str(codex_runner)
     environment.extend(f"{name}={value}" for name, value in overrides.items())
     env_file = Path(required("TEND_PRIVATE_DIR")) / "tend-launch-env"
     write_trusted(env_file, environment_file(environment))
@@ -489,7 +476,7 @@ def main() -> int:
                     runtime_root=runtime_root,
                     masks=masks,
                     env_file=env_file,
-                    lifecycle=lifecycle,
+                    python=python,
                 )
         except _common.Cancelled as cancelled:
             status = 128 + cancelled.signum
@@ -514,16 +501,3 @@ def main() -> int:
             step_summary=step_summary,
         )
         return status
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (
-        OSError,
-        UnicodeError,
-        ValueError,
-        subprocess.CalledProcessError,
-    ) as problem:
-        print(f"sandbox supervisor: {problem}", file=sys.stderr)
-        raise SystemExit(1) from None

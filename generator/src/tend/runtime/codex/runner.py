@@ -16,10 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "shared/steps"))
-
-import _prompt
-import _sandbox
+from tend.runtime.shared import _prompt, _sandbox
 
 
 def _run(
@@ -247,25 +244,3 @@ def run_codex() -> int:
     ]
     result = _run(launch, check=False)
     return result.returncode
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if args == ["install-plugin"]:
-        return install_plugin()
-    if args == ["stage-agents"]:
-        return stage_agents()
-    if args == ["run"]:
-        return run_codex()
-    print(f"usage: {sys.argv[0]} install-plugin|stage-agents|run", file=sys.stderr)
-    return 2
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (OSError, RuntimeError, ValueError) as error:
-        print(f"codex runner: {error}", file=sys.stderr)
-        raise SystemExit(1) from None
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(error.returncode or 1) from None

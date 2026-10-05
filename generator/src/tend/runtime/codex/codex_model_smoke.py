@@ -15,9 +15,10 @@ import tempfile
 from pathlib import Path
 
 import click
-import codex_subscription_auth
 from ruamel.yaml import YAML
+
 from tend.config import DEFAULT_MODEL_BY_HARNESS
+from tend.runtime.codex import codex_subscription_auth
 
 
 def verify(repository: Path, auth_json: str) -> None:
@@ -103,7 +104,13 @@ def verify(repository: Path, auth_json: str) -> None:
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Read a local login; derive an access-only copy without modifying it.",
 )
-def main(auth_file: Path | None) -> None:
+@click.option(
+    "--repository",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=Path.cwd,
+    help="Candidate checkout containing codex/action.yaml (default: current directory).",
+)
+def main(auth_file: Path | None, repository: Path) -> None:
     """Test the candidate release using CODEX_AUTH_JSON or a local login file."""
     try:
         auth_json = os.environ.get("CODEX_AUTH_JSON", "")
@@ -116,7 +123,7 @@ def main(auth_file: Path | None) -> None:
             raise click.ClickException(
                 "Supply access-only CODEX_AUTH_JSON or --auth-file"
             )
-        verify(Path(__file__).resolve().parents[2], auth_json)
+        verify(repository, auth_json)
     except (
         json.JSONDecodeError,
         codex_subscription_auth.SubscriptionAuthError,
@@ -124,7 +131,3 @@ def main(auth_file: Path | None) -> None:
         subprocess.TimeoutExpired,
     ) as error:
         raise click.ClickException(str(error)) from error
-
-
-if __name__ == "__main__":
-    main()

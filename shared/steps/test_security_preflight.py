@@ -3,9 +3,10 @@ from __future__ import annotations
 import subprocess
 
 import pytest
-import security_preflight
-from _fakes import FakeGh
+from tend.runtime.shared import security_preflight
 from tend.workflows import codeowners_config
+
+from _fakes import FakeGh
 
 REPO = "owner/repo"
 
