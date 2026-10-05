@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-import token_usage
+from tend.runtime.shared import token_usage
+
 from _fakes import GithubFiles
 
 # Final per-message usage, as the session JSONL records it.
@@ -150,8 +150,8 @@ def reaped(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _run_without_sudo(run_command: Callable[..., None], *argv: str) -> None:
-    if argv[:2] == ("/usr/bin/sudo", "-n") and "--copy-tree" in argv:
-        start = argv.index("--copy-tree") + 1
+    if argv[:2] == ("/usr/bin/sudo", "-n") and "copy-session-tree" in argv:
+        start = argv.index("copy-session-tree") + 1
         source, destination, uid, gid = argv[start:]
         try:
             token_usage.privileged_copy(
@@ -464,9 +464,8 @@ def test_claude_main_publishes_the_record_three_ways(
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path / "runner-temp"))
     monkeypatch.setenv("MODEL", "opus")
     monkeypatch.setenv("STREAM_JSON", str(_cancelled_stream(tmp_path)))
-    monkeypatch.setattr(sys, "argv", ["token_usage.py", "--harness", "claude"])
 
-    assert token_usage.main() == 0
+    assert token_usage.main("claude") == 0
 
     assert github_files.outputs()["artifact_name"] == "claude-session-logs"
     record = json.loads(github_files.outputs()["usage"])
@@ -527,7 +526,6 @@ def test_codex_main_publishes_the_record_three_ways(
     monkeypatch.setenv("SANDBOX_REAPED", "true")
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path / "runner-temp"))
     monkeypatch.setenv("MODEL", "gpt-5-codex")
-    monkeypatch.setattr(sys, "argv", ["token_usage.py", "--harness", "codex"])
 
     run_command = token_usage.best_effort
 
@@ -536,7 +534,7 @@ def test_codex_main_publishes_the_record_three_ways(
 
     monkeypatch.setattr(token_usage, "best_effort", run_without_sudo)
 
-    assert token_usage.main() == 0
+    assert token_usage.main("codex") == 0
 
     record = json.loads(github_files.outputs()["usage"])
     assert record == {

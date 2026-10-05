@@ -10,9 +10,9 @@ import json
 import os
 from pathlib import Path
 
-import codex_model_smoke
 import pytest
 from click.testing import CliRunner
+from tend.runtime.codex import codex_model_smoke
 
 
 @pytest.mark.parametrize("behavior", ["success", "empty", "failure"])
@@ -68,13 +68,21 @@ shutil.copy2(os.environ["SMOKE_CLI"], target)
     monkeypatch.setenv("SMOKE_PACKAGE", str(tmp_path / "package"))
     monkeypatch.setenv("OPENAI_API_KEY", "wrong-auth-mode")
     monkeypatch.setenv("CODEX_API_KEY", "wrong-auth-mode")
-    result = CliRunner().invoke(codex_model_smoke.main, ["--auth-file", str(login)])
+    result = CliRunner().invoke(
+        codex_model_smoke.main,
+        [
+            "--auth-file",
+            str(login),
+            "--repository",
+            str(Path(__file__).resolve().parents[1]),
+        ],
+    )
     assert (result.exit_code == 0) is (behavior == "success"), result.output
     assert login.read_bytes() == before
     assert (
         tmp_path / "model"
     ).read_text() == codex_model_smoke.DEFAULT_MODEL_BY_HARNESS["codex"]
-    repository = Path(codex_model_smoke.__file__).resolve().parents[2]
+    repository = Path(__file__).resolve().parents[1]
     action = codex_model_smoke.YAML(typ="safe").load(
         (repository / "codex/action.yaml").read_text()
     )

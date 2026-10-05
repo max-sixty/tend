@@ -207,7 +207,7 @@
    which under `pull_request_target` is the PR's base branch — what mention and
    review want. The other callers pass the configured default branch.
    `if_condition` gates the step for notifications' empty-inbox path. No caller
-   passes a pull request's own ref: `shared/steps/event_checkout.py` moves the
+   passes a pull request's own ref: `tend.runtime.shared.event_checkout` moves the
    tree to the event's topology inside the sandbox. #}
 {% macro checkout(cfg, ref=None, if_condition='') %}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

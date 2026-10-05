@@ -21,7 +21,7 @@ import os
 import subprocess
 from typing import Any
 
-import _common
+from tend.runtime.shared import _common
 
 # How far below its own number a leg probes for a racing sibling. Issue numbers
 # are monotonic, so any sibling sits just below ours.

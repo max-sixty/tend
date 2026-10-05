@@ -3,8 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import dispose_sandbox_resources as dispose
 import pytest
+from tend.runtime.shared import dispose_sandbox_resources as dispose
 
 
 def result(args: list[str], returncode: int = 0) -> subprocess.CompletedProcess[str]:

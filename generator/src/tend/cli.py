@@ -1,4 +1,4 @@
-"""CLI for generating tend workflow files."""
+"""CLI for configuring Tend workflows and running action operations."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from tend.checks import (
 )
 from tend.config import CODEX_REFRESH_ENVIRONMENT, Config
 from tend.migrate import migrate_toml_to_yaml, render_toml_as_yaml
+from tend.runtime.cli import runtime
 from tend.workflows import (
     actionlint_config,
     codeowners_config,
@@ -148,6 +149,9 @@ def _yolo_activation_blockers(results: list[CheckResult]) -> list[CheckResult]:
 @click.group()
 def main() -> None:
     """An autonomous junior maintainer for GitHub repos, powered by Claude or OpenAI Codex. Generates and manages workflows from .config/tend.yaml."""
+
+
+main.add_command(runtime)
 
 
 @main.command()

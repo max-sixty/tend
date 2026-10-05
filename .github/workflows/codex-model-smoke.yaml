@@ -28,4 +28,4 @@ jobs:
       - name: Verify candidate Codex model with subscription auth
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-        run: uv run --package tend --no-dev python shared/steps/codex_model_smoke.py
+        run: uv run --package tend --no-dev tend runtime codex model-smoke

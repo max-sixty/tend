@@ -12,11 +12,10 @@ import base64
 import json
 import os
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
-import codex_subscription_auth
+from tend.runtime.codex import codex_subscription_auth
 
 REQUIRED_EXEC_FLAGS = (
     "--model",
@@ -181,7 +180,3 @@ def main() -> int:
         print(f"::error::{exc}")
         return 1
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

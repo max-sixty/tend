@@ -8,8 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import _common
-import event_checkout
+from tend.runtime.shared import _common, event_checkout
 
 
 def probe_view(workspace: Path) -> None:
@@ -106,29 +105,12 @@ def main() -> int:
 
     harness = os.environ.get("TEND_HARNESS", "")
     if harness == "claude":
-        import run_claude
+        from tend.runtime.claude import run_claude
 
         return run_claude.main()
     if harness == "codex":
-        runner = Path(_common.require_env("TEND_CODEX_RUNNER")["TEND_CODEX_RUNNER"])
         return subprocess.run(
-            ["/usr/bin/python3", "-E", "-s", str(runner), "run"], check=False
+            [sys.executable, "-I", "-m", "tend", "runtime", "codex", "run"],
+            check=False,
         ).returncode
     raise ValueError(f"unknown TEND_HARNESS: {harness or '<unset>'}")
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    # `CalledProcessError` for the git this module and `event_checkout` run,
-    # `TypeError` for `event_checkout`'s topology diagnostics: a traceback here
-    # is the job's only account of why the turn never started.
-    except (
-        OSError,
-        RuntimeError,
-        TypeError,
-        ValueError,
-        subprocess.CalledProcessError,
-    ) as problem:
-        print(f"agent lifecycle: {problem}", file=sys.stderr)
-        raise SystemExit(1) from None

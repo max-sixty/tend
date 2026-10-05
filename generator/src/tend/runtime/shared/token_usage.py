@@ -1,6 +1,6 @@
 """Accounts a run's token usage and publishes it three ways.
 
-Run as ``token_usage.py --harness {claude,codex}`` from the "Token usage" step
+Run as ``tend runtime token-usage --harness {claude,codex}`` from the "Token usage" step
 of either composite action. That step is ``if: always()`` — a cancelled or
 failed run still has to report what it spent — so nothing here may fail the
 job: every copy is best-effort and every parse tolerates a torn line.
@@ -79,7 +79,6 @@ API list prices and computing them here would mean maintaining a price table.
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import stat
@@ -89,8 +88,8 @@ from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
-import _common
-from _safe_files import open_directory_nofollow
+from tend.runtime.shared import _common
+from tend.runtime.shared._safe_files import open_directory_nofollow
 
 # Row order is the rendered table's; the two harnesses report different metrics
 # under the same heading, so neither list is a subset of the other.
@@ -131,20 +130,7 @@ EXPORT_MAX_FILE_BYTES = 64 * 1024 * 1024
 EXPORT_MAX_TOTAL_BYTES = 512 * 1024 * 1024
 
 
-def main() -> int:
-    if len(sys.argv) == 6 and sys.argv[1] == "--copy-tree":
-        if os.geteuid() != 0:
-            raise SystemExit("--copy-tree requires root")
-        return privileged_copy(
-            Path(sys.argv[2]),
-            Path(sys.argv[3]),
-            uid=int(sys.argv[4]),
-            gid=int(sys.argv[5]),
-        )
-    parser = argparse.ArgumentParser(description="Account a run's token usage.")
-    parser.add_argument("--harness", choices=("claude", "codex"), required=True)
-    harness = parser.parse_args().harness
-
+def main(harness: str) -> int:
     # First, so a later failure still leaves the upload step a name to use.
     _common.set_output("artifact_name", artifact_name(harness))
 
@@ -351,11 +337,12 @@ def copy_agent_tree(source: Path, destination: Path) -> None:
     best_effort(
         "/usr/bin/sudo",
         "-n",
-        "/usr/bin/python3",
-        "-E",
-        "-s",
-        str(Path(__file__).resolve()),
-        "--copy-tree",
+        sys.executable,
+        "-I",
+        "-m",
+        "tend",
+        "runtime",
+        "copy-session-tree",
         str(source),
         str(destination),
         str(os.getuid()),
@@ -580,7 +567,3 @@ def cell(value: Any, key: str) -> str:
     if key != "cost_usd":
         return str(value)
     return "unknown" if value is None else f"${value:.2f}"
-
-
-if __name__ == "__main__":
-    _common.run(main)

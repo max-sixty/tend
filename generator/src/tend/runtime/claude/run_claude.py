@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import _common
+from tend.runtime.shared import _common
 
 #: Transcript lines rendered to the job summary, so a long session cannot flood it.
 TRANSCRIPT_MAX_LINES = 400
@@ -492,7 +492,3 @@ def main() -> int:
         timeout_sec=env["TEND_TIMEOUT_SEC"],
         show_full_output=env["SHOW_FULL_OUTPUT"],
     )
-
-
-if __name__ == "__main__":
-    _common.run(main)

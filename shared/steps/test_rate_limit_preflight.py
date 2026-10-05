@@ -7,9 +7,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import _common
 import pytest
-import rate_limit_preflight as preflight
+from tend.runtime.shared import _common
+from tend.runtime.shared import rate_limit_preflight as preflight
+
 from _fakes import FakeGh, GithubFiles
 
 BOT = "tend-agent"

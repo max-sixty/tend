@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
-import agent_lifecycle
-import event_checkout
 import pytest
+from tend.runtime.shared import agent_lifecycle, event_checkout
 
 
 @pytest.fixture(autouse=True)
 def contained_sandbox_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     """`main` exports TEND_INSIDE_SANDBOX on the real environment.
 
-    That is the point in production — `run_claude` reads it in-process and the
+    That is the point in production — the harness reads it and the
     runner's children inherit it — but every module guarding on it would then
     take the inside-sandbox branch for the rest of the pytest process, and this
     file sorts first in the directory. Registering the name here is what makes
@@ -37,26 +37,54 @@ def before_the_harness(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(event_checkout, "main", lambda: 0)
 
 
-def test_codex_runs_the_turn_through_the_runner(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_lifecycle_reaches_the_installed_runner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    harness: str,
+    installed_runtime: tuple[Path, Path],
 ) -> None:
-    """`runner.py` dispatches on an exact argv and nothing else passes it `run`.
-
-    The command reaches the runner from here rather than from the action's own
-    steps, so a rename on either side would first fail in a consumer's job.
-    """
-    recorded = tmp_path / "argv"
-    runner = tmp_path / "runner.py"
-    runner.write_text(
-        "import sys, pathlib\n"
-        f"pathlib.Path({str(recorded)!r}).write_text(repr(sys.argv[1:]))\n"
-        "raise SystemExit(7)\n"
+    """Dispatch through a fresh interpreter; replace only the model body."""
+    python, package = installed_runtime
+    runner = (
+        package
+        / "runtime"
+        / harness
+        / ("run_claude.py" if harness == "claude" else "runner.py")
     )
-    monkeypatch.setenv("TEND_HARNESS", "codex")
-    monkeypatch.setenv("TEND_CODEX_RUNNER", str(runner))
-
-    assert agent_lifecycle.main() == 7
-    assert recorded.read_text() == repr(["run"])
+    recorded = tmp_path / "argv"
+    runner.write_text(
+        "import os, sys, pathlib\n"
+        "def main():\n"
+        f"    pathlib.Path({str(recorded)!r}).write_text(repr("
+        "[os.environ['TEND_INSIDE_SANDBOX'], sys.argv[1:], str(pathlib.Path.cwd())]))\n"
+        "    return 7\n"
+        "run_codex = main\n"
+        "if __name__ == '__main__': raise SystemExit(main())\n"
+    )
+    monkeypatch.setenv("TEND_HARNESS", harness)
+    child = subprocess.run(
+        [
+            str(python),
+            "-I",
+            "-c",
+            (
+                "from tend.runtime.shared import agent_lifecycle as lifecycle; "
+                "lifecycle.probe_boundary = lambda workspace: None; "
+                "lifecycle.configure_git = lambda login, bot_id: None; "
+                "lifecycle.event_checkout.main = lambda: 0; "
+                "raise SystemExit(lifecycle.main())"
+            ),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert child.returncode == 7, child.stderr
+    assert recorded.read_text() == repr(
+        ["1", ["runtime", "codex", "run"] if harness == "codex" else [], str(tmp_path)]
+    )
 
 
 def test_a_missing_input_fails_by_name_before_anything_runs(

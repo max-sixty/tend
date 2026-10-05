@@ -34,10 +34,6 @@ FULL_AUTH = {
     },
 }
 
-ACTION_AUTH_SCRIPT = (
-    Path(__file__).parents[5] / "shared" / "steps" / "codex_subscription_auth.py"
-)
-
 
 def _executable(path: Path, source: str) -> None:
     path.write_text(f"#!{sys.executable}\n{source}")
@@ -58,7 +54,17 @@ def test_consumer_auth_is_accepted_by_action(tmp_path: Path) -> None:
     destination = tmp_path / "auth.json"
     consumer = consumer_auth(FULL_AUTH)
     result = subprocess.run(
-        [sys.executable, ACTION_AUTH_SCRIPT, "prepare", destination],
+        [
+            sys.executable,
+            "-I",
+            "-m",
+            "tend",
+            "runtime",
+            "codex",
+            "auth",
+            "prepare",
+            str(destination),
+        ],
         env={
             **os.environ,
             "CODEX_AUTH_JSON": json.dumps(consumer),
