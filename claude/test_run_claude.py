@@ -20,9 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import _common
 import pytest
-import run_claude
+from tend.runtime.claude import run_claude
+from tend.runtime.shared import _common
+
 from _fakes import GithubFiles
 
 

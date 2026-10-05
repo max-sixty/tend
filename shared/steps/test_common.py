@@ -6,8 +6,9 @@ import signal
 import subprocess
 from pathlib import Path
 
-import _common
 import pytest
+from tend.runtime.shared import _common
+
 from _fakes import FakeGh, GithubFiles
 
 

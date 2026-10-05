@@ -6,7 +6,6 @@ uid, so `proxy/test-setup-sandbox.sh` covers it on a hosted runner.
 
 from __future__ import annotations
 
-import ast
 import base64
 import os
 import pwd
@@ -15,19 +14,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-import launch_agent as launch
 import pytest
-
-RUNTIME_STEP_FILES = (
-    "_common.py",
-    "_prompt.py",
-    "_sandbox.py",
-    "agent_lifecycle.py",
-    "event_checkout.py",
-    "run_claude.py",
-    "restore-sensitive-config.sh",
-    "lib/pin-instruction-paths.sh",
-)
+from tend.runtime.shared import launch_agent as launch
 
 
 def configure(
@@ -54,12 +42,12 @@ def configure(
     action = tmp_path / "private/action"
     steps = action / "shared/steps"
     steps.mkdir(parents=True)
-    for name in RUNTIME_STEP_FILES:
+    for name in launch.RUNTIME_SHELL_FILES:
         (steps / name).parent.mkdir(parents=True, exist_ok=True)
         (steps / name).write_text(f"{name}\n")
-    codex = action / "codex/runner.py"
-    codex.parent.mkdir()
-    codex.write_text("runner\n")
+    python = runtime_root / "venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.touch()
     runner_home = tmp_path / "home/runner"
     # The default self-hosted layout: the installation holds `_work` too.
     installed_runner = runner_home / "actions-runner"
@@ -92,8 +80,6 @@ def configure(
         "TEND_PRIVATE_DIR": str(private),
         "ACTION_PATH": str(action),
     }
-    if harness == "codex":
-        environment["TEND_CODEX_RUNNER"] = str(codex)
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
     # A tend session running this suite sets it, and `launch` reads it.
@@ -228,22 +214,26 @@ def test_codex_base64_encodes_the_fixed_final_message(
     assert summary.read_bytes() == b"skill result\n\n"
 
 
+@pytest.mark.parametrize("harness", ["claude", "codex"])
 def test_runtime_bundle_is_staged_outside_the_private_action(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, harness: str
 ) -> None:
-    run_dir, _output, _summary = configure(tmp_path, monkeypatch, harness="codex")
-    launched = fake_launch(monkeypatch, run_dir, harness="codex")
+    run_dir, _output, _summary = configure(tmp_path, monkeypatch, harness=harness)
+    launched = fake_launch(monkeypatch, run_dir, harness=harness)
 
     assert launch.main() == 0
 
     bundle = tmp_path / "runtime/action"
-    assert launched.unit[-1] == str(bundle / "shared/steps/agent_lifecycle.py")
+    assert launched.unit[-6:] == [
+        str(tmp_path / "runtime/venv/bin/python"),
+        "-I",
+        "-m",
+        "tend",
+        "runtime",
+        "agent-lifecycle",
+    ]
     entries = launched.environment.decode().splitlines()
     assert f'ACTION_PATH="{bundle}"' in entries
-    assert f'TEND_CODEX_RUNNER="{bundle / "codex/runner.py"}"' in entries
-    assert (bundle / "shared/steps/event_checkout.py").read_text() == (
-        "event_checkout.py\n"
-    )
     assert (bundle / "shared/steps/lib/pin-instruction-paths.sh").read_text() == (
         "lib/pin-instruction-paths.sh\n"
     )
@@ -471,32 +461,41 @@ def test_an_unmappable_account_is_refused_rather_than_truncated() -> None:
         launch.identity_map("u", 1001, launch.ID_CEILING)
 
 
-def test_runtime_bundle_carries_every_module_it_imports() -> None:
-    """The bundle is what the sandbox executes from; a missing import is a crash.
-
-    Nothing in the sandbox can reach back to the action checkout, so a bundled
-    module that imports a sibling left out of `RUNTIME_STEP_FILES` fails at
-    `import` inside the unit — a green unit suite and a red agent turn.
-    """
-    steps = Path(__file__).resolve().parent
-    bundled = {name for name in launch.RUNTIME_STEP_FILES if name.endswith(".py")}
-    sources = {steps / name for name in bundled}
-    sources.add(steps.parents[1] / "codex/runner.py")
-
-    for source in sorted(sources):
-        tree = ast.parse(source.read_text())
-        imported = {
-            alias.name
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Import)
-            for alias in node.names
-        } | {
-            node.module
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom) and node.module
-        }
-        local = {f"{name}.py" for name in imported if (steps / f"{name}.py").is_file()}
-        assert local <= bundled, (
-            f"{source.name} imports {sorted(local - bundled)}, which "
-            "RUNTIME_STEP_FILES does not stage into the sandbox bundle"
-        )
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_installed_harness_imports_without_checkout_or_cwd_modules(
+    tmp_path: Path,
+    installed_runtime: tuple[Path, Path],
+    harness: str,
+) -> None:
+    """A real non-editable install works with a hostile consumer import path."""
+    python, package = installed_runtime
+    hostile = tmp_path / "tend"
+    hostile.mkdir()
+    (hostile / "__init__.py").write_text(
+        "raise RuntimeError('consumer package imported')"
+    )
+    module = (
+        "tend.runtime.claude.run_claude"
+        if harness == "claude"
+        else "tend.runtime.codex.runner"
+    )
+    result = subprocess.run(
+        [
+            str(python),
+            "-I",
+            "-c",
+            (
+                "import importlib, pathlib, sys; "
+                "module = importlib.import_module(sys.argv[1]); "
+                "print(pathlib.Path(module.__file__).resolve()); print(pathlib.Path.cwd())"
+            ),
+            module,
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    imported, cwd = result.stdout.splitlines()
+    assert Path(imported).is_relative_to(package)
+    assert Path(cwd) == tmp_path

@@ -9,8 +9,13 @@ import subprocess
 import urllib.error
 from pathlib import Path
 
-import event_checkout
 import pytest
+from tend.runtime.shared import event_checkout
+
+
+@pytest.fixture(autouse=True)
+def action_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACTION_PATH", str(Path(__file__).resolve().parents[2]))
 
 
 def command(*args: str, cwd: Path) -> str:

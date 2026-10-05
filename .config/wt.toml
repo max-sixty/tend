@@ -35,7 +35,7 @@ server = "wt step tether -C site -- env ASTRO_DEV_BACKGROUND=0 npm run dev -- --
 url = "http://localhost:{{ branch | hash_port }}"
 
 # `wt test` is the whole suite: one pytest from the repo root covers every
-# Python test (generator/, proxy/, shared/steps/, the install-tend scripts),
+# Python test (generator/, proxy/, claude/, codex/, shared/steps/, the install-tend scripts),
 # worker/ runs its vitest suite and typecheck, and evals/ checks artifact capture.
 # Arguments narrow pytest (`wt test -k render`) and nothing else — every step
 # still runs, so reach for

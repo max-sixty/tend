@@ -14,6 +14,8 @@ from ruamel.yaml import YAML, YAMLError
 _YAML = YAML(typ="safe", pure=True)
 
 
+SKILL_PREFIX = {"claude": "/tend-ci-runner:", "codex": "$"}
+
 STANDARD_WORKFLOWS = {
     "review",
     "mention",
@@ -382,7 +384,7 @@ class Config:
         callers can splice their own placeholders (`{pr_number}` etc.) and run
         the existing replace step.
         """
-        prefix = f"/tend-ci-runner:{skill}" if self.harness == "claude" else f"${skill}"
+        prefix = SKILL_PREFIX[self.harness] + skill
         return f"{prefix} {args}".rstrip()
 
     @classmethod

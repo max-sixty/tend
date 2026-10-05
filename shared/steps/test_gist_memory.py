@@ -7,8 +7,9 @@ import stat
 import subprocess
 from pathlib import Path
 
-import gist_memory
 import pytest
+from tend.runtime.shared import gist_memory
+
 from _fakes import FakeGh, GithubFiles
 
 REPOSITORY = "owner/repo"
@@ -100,7 +101,7 @@ def test_cli_restores_and_saves_same_run_notes_without_exporting_the_signing_key
     }.items():
         monkeypatch.setenv(name, value)
 
-    assert gist_memory.main(["restore"]) == 0
+    assert gist_memory.restore_command() == 0
     exports = dict(
         line.split("=", 1) for line in github_files.env.read_text().splitlines()
     )
@@ -125,7 +126,7 @@ def test_cli_restores_and_saves_same_run_notes_without_exporting_the_signing_key
     (memory / "testing.md").write_text("Run the integration fixture.\n")
     fake_gh.respond("api", f"/gists/{GIST_ID}", "-X", "PATCH", with_="")
 
-    assert gist_memory.main(["save"]) == 0
+    assert gist_memory.save_command() == 0
     patch_call = fake_gh.calls.index(
         ("api", f"/gists/{GIST_ID}", "-X", "PATCH", "--input", "-")
     )
@@ -134,7 +135,7 @@ def test_cli_restores_and_saves_same_run_notes_without_exporting_the_signing_key
     }
     monkeypatch.delenv("GITHUB_TOKEN")
     monkeypatch.delenv("TEND_MEMORY_GIST_ID")
-    assert gist_memory.main(["cleanup"]) == 0
+    assert gist_memory.cleanup_command() == 0
     assert not memory.exists()
     assert not key_file.exists()
 
@@ -175,7 +176,7 @@ def test_cleanup_refuses_paths_outside_the_memory_lifecycle(
     monkeypatch.setenv(
         "TEND_AUTO_MEMORY_KEY_FILE", "/var/tmp/tend-auto-memory-key.test"
     )
-    assert gist_memory.main(["cleanup"]) == 1
+    assert gist_memory.cleanup_command() == 1
     assert tmp_path.exists()
 
 

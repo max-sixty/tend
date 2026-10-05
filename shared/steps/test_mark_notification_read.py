@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import mark_notification_read
 import pytest
+from tend.runtime.shared import mark_notification_read
+
 from _fakes import FakeGh
 
 REPO = "owner/repo"

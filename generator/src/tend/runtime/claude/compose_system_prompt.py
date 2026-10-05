@@ -5,8 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import _common
-import _prompt
+from tend.runtime.shared import _common, _prompt
 
 
 def main() -> int:
@@ -23,7 +22,3 @@ def main() -> int:
         parts.append(extra)
     _common.set_output("value", "\n\n".join(parts))
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

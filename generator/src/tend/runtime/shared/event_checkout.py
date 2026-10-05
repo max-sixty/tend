@@ -21,7 +21,6 @@ from typing import Any
 
 STEP = "event-checkout"
 OBJECT_ID = re.compile(r"[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?\Z")
-RESTORE_SENSITIVE_CONFIG = Path(__file__).with_name("restore-sensitive-config.sh")
 BASH = "/usr/bin/bash"
 MODES = frozenset({"base", "review", "mention"})
 
@@ -189,7 +188,15 @@ def restore_sensitive_config(workspace: Path, base_sha: str) -> None:
     if not base_sha:
         return
     subprocess.run(
-        [BASH, "--noprofile", "--norc", str(RESTORE_SENSITIVE_CONFIG)],
+        [
+            BASH,
+            "--noprofile",
+            "--norc",
+            str(
+                Path(required("ACTION_PATH"))
+                / "shared/steps/restore-sensitive-config.sh"
+            ),
+        ],
         cwd=workspace,
         env={**os.environ, "BASH_ENV": "", "TEND_CONFIG_BASE_SHA": base_sha},
         check=True,
