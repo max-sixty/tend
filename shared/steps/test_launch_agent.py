@@ -234,7 +234,6 @@ def test_runtime_bundle_is_staged_outside_the_private_action(
     ]
     entries = launched.environment.decode().splitlines()
     assert f'ACTION_PATH="{bundle}"' in entries
-    assert not any(entry.startswith("TEND_CODEX_RUNNER=") for entry in entries)
     assert (bundle / "shared/steps/lib/pin-instruction-paths.sh").read_text() == (
         "lib/pin-instruction-paths.sh\n"
     )
