@@ -150,8 +150,8 @@ can write: pull requests, issues, comments. The design assumes a session can be
 hijacked, and bounds what a hijacked session can do. Restricted mode keeps it
 from landing code; yolo intentionally permits ordinary code changes while
 keeping the repository control plane behind a maintainer. Credential
-isolation, the sandbox, and the environment gate keep the bot and model
-credentials out of the agent process.
+isolation, the sandbox, and the environment gate keep long-lived bot and model
+credentials out of the sandboxed process tree.
 
 **Merge mode** determines who can land code on the default branch:
 
@@ -171,6 +171,13 @@ sandbox starts. That code could reach Tend's job credentials. We may revise
 this policy as we learn from use. Bot-merged default-branch code can also use
 generic credentials exposed by other jobs on that branch.
 
+**Workflow execution policy** — public repositories with Tend's review workflow
+need an active Actions event policy allowing its `pull_request_target` trigger before
+GitHub's default restriction is enforced on November 2, 2026. `tend check`
+verifies this; a repository administrator running `tend check --fix` creates
+a policy scoped to the generated workflows and their declared events. Existing
+repository and inherited restrictions remain in force.
+
 **Credential isolation** — the bot's GitHub token and the long-lived model
 credential never enter the agent's process. Tend's proxy on the runner holds
 the bot token and Claude's model credential, and adds each only to requests
@@ -179,10 +186,11 @@ forwards only Responses API calls upstream. The agent holds placeholders,
 except that subscription-mode Codex receives an expiring access-only token,
 never the rotating refresh token. GitHub authentication applies to any
 repository the bot account can access, including repositories other than the
-one that started the run.
+one that started the run. Every process in Tend's sandbox shares that brokered
+access as the bot, without receiving its token.
 
-**Sandbox** — both harnesses run the event checkout and the whole agent turn,
-including any build or test it runs from the event's code, as one process tree
+**Sandbox** — both harnesses run the event checkout, the whole agent turn,
+and every subprocess it launches as one process tree
 inside a hardened systemd unit, under a separate non-sudo user. The system is
 read-only, all network traffic goes through the credential proxy, and the
 agent cannot gain privileges, create namespaces, or see other users' processes.
