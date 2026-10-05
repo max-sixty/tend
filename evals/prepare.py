@@ -157,9 +157,50 @@ def guidance(source: dict, plugin: Path, harness: str) -> str:
     return value
 
 
+def provider(harness: str, arm: str) -> dict:
+    """One results column: every prepared case under one arm and harness.
+
+    The provider finds a test's inputs under `prepared` by its metadata.
+    """
+    prepared = str(PREPARED / arm)
+    if harness == "codex":
+        return {
+            "id": "file://../../../evals/codex-provider.cjs",
+            "label": f"codex/{arm}",
+            "config": {"prepared": prepared, "model": CODEX_EXECUTOR_MODEL},
+        }
+    return {
+        "id": "file://../../../evals/claude-provider.cjs",
+        "label": f"claude/{arm}",
+        "config": {
+            "prepared": prepared,
+            "model": "claude-opus-5-5",
+            "apiKeyRequired": False,
+            "persist_session": False,
+            "setting_sources": [],
+            "settings": {
+                "autoMemoryEnabled": False,
+                "permissions": {"blockReadsOutsideWorkingDirectories": True},
+            },
+            "strict_mcp_config": True,
+            # Claude Code checks the Write tool against Edit(path) rules.
+            "custom_allowed_tools": ["Read", "Grep", "Skill", "Edit(./captured.md)"],
+            "tools": ["Read", "Grep", "Skill", "Write"],
+            "permission_mode": "dontAsk",
+            "max_turns": 32,
+            "env": {
+                "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+                "ANTHROPIC_CUSTOM_HEADERS": "x-custom-eval-harness: 1",
+            },
+        },
+    }
+
+
 def prepare(harness: str = "codex") -> None:
+    arms = ("historical", "current")
+    providers = [provider(harness, arm) for arm in arms]
     config = {
-        "description": "Fresh Tend decisions and repository trajectories",
+        "description": f"Tend {harness} evals at {git('describe', '--always', '--dirty')}",
         "evaluateOptions": {"timeoutMs": 600_000},
         "prompts": ["{{task}}"],
         "defaultTest": {
@@ -182,7 +223,7 @@ def prepare(harness: str = "codex") -> None:
                 },
             },
         },
-        "providers": [],
+        "providers": providers,
         "tests": [],
     }
     if harness == "claude":
@@ -201,7 +242,7 @@ def prepare(harness: str = "codex") -> None:
             print(f"Excluded {case.name}: trajectory recording requires Codex")
             continue
         test = YAML_IO.load((case / "case.yaml").read_text())
-        for arm in ("historical", "current"):
+        for arm, settings in zip(arms, providers, strict=True):
             destination = PREPARED / arm / case.name
             workspace = destination / "workspace"
             workspace.mkdir(parents=True)
@@ -212,7 +253,6 @@ def prepare(harness: str = "codex") -> None:
                 stage_checkout(source["checkout"], workspace / "repository")
             policy = guidance(source, plugin, harness)
             (workspace / "AGENTS.md").write_text(policy)
-            label = f"{case.name}/{arm}"
             if harness == "codex":
                 links = workspace / ".agents/skills"
                 links.mkdir(parents=True)
@@ -222,66 +262,18 @@ def prepare(harness: str = "codex") -> None:
                             f"../../plugin/skills/{skill.name}",
                             target_is_directory=True,
                         )
-                provider = {
-                    "id": "file://../../../evals/codex-provider.cjs",
-                    "label": label,
-                    "config": {
-                        "prepared": str(destination),
-                        "model": CODEX_EXECUTOR_MODEL,
-                        "mode": kind,
-                    },
-                }
-                test["vars"]["evidence_root"] = "."
-            else:
-                provider = {
-                    "id": "anthropic:claude-agent-sdk",
-                    "label": label,
-                    "config": {
-                        "model": "claude-opus-5-5",
-                        "apiKeyRequired": False,
-                        "additional_directories": [str(workspace)],
-                        "persist_session": False,
-                        "setting_sources": [],
-                        "plugins": [{"type": "local", "path": str(plugin)}],
-                        "settings": {
-                            "autoMemoryEnabled": False,
-                            "permissions": {
-                                "blockReadsOutsideWorkingDirectories": True
-                            },
-                        },
-                        "strict_mcp_config": True,
-                        "append_system_prompt": policy
-                        + f"\nRead the starting files from {workspace}. Resolve relative evidence paths in the task under that directory. Write captured.md in your temporary working directory; the prepared input directory is read-only.\n",
-                        "custom_allowed_tools": [
-                            "Read",
-                            "Grep",
-                            "Skill",
-                            "Write(./captured.md)",
-                        ],
-                        "tools": ["Read", "Grep", "Skill", "Write"],
-                        "permission_mode": "dontAsk",
-                        "max_turns": 32,
-                        "env": {
-                            "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
-                            "ANTHROPIC_CUSTOM_HEADERS": "x-custom-eval-harness: 1",
-                        },
-                    },
-                }
-                # Resolve task-relative paths under the prepared inputs; each
-                # attempt writes its artifact in a fresh temporary directory.
-                test["vars"]["evidence_root"] = "."
-            config["providers"].append(provider)
             provenance = source | {
                 "arm": arm,
                 "executor": harness,
-                "executor_model": provider["config"]["model"],
+                "executor_model": settings["config"]["model"],
                 "guidance_sha256": hashlib.sha256(policy.encode()).hexdigest(),
             }
             (destination / "provenance.json").write_text(
                 json.dumps(provenance, indent=2) + "\n"
             )
             print(f"Prepared {arm}/{case.name}: {kind} ({harness})")
-        config["tests"].append(test | {"providers": [f"{case.name}/*"]})
+        metadata = test.get("metadata", {}) | {"case": case.name, "kind": kind}
+        config["tests"].append(test | {"metadata": metadata})
     YAML_IO.dump(config, PREPARED / "promptfooconfig.yaml")
 
 
