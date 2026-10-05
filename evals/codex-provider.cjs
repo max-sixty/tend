@@ -7,6 +7,13 @@
  * An explicit permission profile confines commands to staged evidence and
  * minimal runtime paths, with network access disabled. Historical evidence
  * is retained data, not a GitHub API.
+ *
+ * TODO(2026-10-04): once a Promptfoo release after 0.123.1 ships `copy_working_dir`
+ * (promptfoo#11063), replace this adapter with the native openai:codex-sdk
+ * provider: `working_dir: <arm>/{{case}}/workspace` with `copy_working_dir: copy`,
+ * a static isolated HOME/CODEX_HOME through `cli_env`, and a transform that reads
+ * captured.md and the observed Git state from `metadata.workingDir`. Check first
+ * that copy mode keeps the relative `.agents/skills` links and nested repository/.git.
  */
 const fs = require("node:fs/promises");
 const os = require("node:os");
