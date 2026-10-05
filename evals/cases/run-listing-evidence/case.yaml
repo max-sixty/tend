@@ -1,7 +1,7 @@
 description: Assess default-branch failure evidence before reporting or opening a fix.
 vars:
   task: |
-    Act as Tend's review-runs session. Read {{evidence_root}}/observations.json, which contains
+    Act as Tend's review-runs session. Read ./observations.json, which contains
     four independent situations gathered during a run sweep. For each situation,
     draft the status you would report and state your next action. Use /tend-ci-runner:review-runs
     guidance. Write the combined report to captured.md; do not post it.

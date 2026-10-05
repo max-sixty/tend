@@ -1,10 +1,19 @@
 /** Run each eval as a fresh Codex task in its own profile and workspace.
  * Promptfoo owns execution; this adapter isolates attempts and reads the actual
- * artifact before retiring the workspace. Trajectory cases also expose the
- * current attempt's SDK events and repository changes to the separate judge.
+ * artifact before retiring the workspace. Each provider is one arm, a column
+ * of results: `config.prepared` holds that arm's staged cases, and the test's
+ * metadata names the case to copy and its kind. Trajectory cases also expose
+ * the current attempt's SDK events and repository changes to the separate judge.
  * An explicit permission profile confines commands to staged evidence and
  * minimal runtime paths, with network access disabled. Historical evidence
  * is retained data, not a GitHub API.
+ *
+ * TODO(2026-10-04): once a Promptfoo release after 0.123.1 ships `copy_working_dir`
+ * (promptfoo#11063), replace this adapter with the native openai:codex-sdk
+ * provider: `working_dir: <arm>/{{case}}/workspace` with `copy_working_dir: copy`,
+ * a static isolated HOME/CODEX_HOME through `cli_env`, and a transform that reads
+ * captured.md and the observed Git state from `metadata.workingDir`. Check first
+ * that copy mode keeps the relative `.agents/skills` links and nested repository/.git.
  */
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -15,8 +24,6 @@ module.exports = class CodexProvider {
   constructor(options) {
     this.config = options.config;
     this.providerId = options.id ?? "tend:codex";
-    this.mode = options.config.mode ?? "focused";
-    if (!["focused", "trajectory"].includes(this.mode)) throw new Error(`Unknown eval mode: ${this.mode}`);
   }
 
   id() {
@@ -74,6 +81,7 @@ module.exports = class CodexProvider {
     });
     let provider;
     let initialCommit;
+    let trajectory = false;
     try {
       await fs.mkdir(codexHome, { recursive: true });
       await fs.writeFile(path.join(codexHome, "auth.json"), auth, { mode: 0o600 });
@@ -111,17 +119,19 @@ enabled = false
       if (this.config.judge) {
         await fs.mkdir(workspace);
       } else {
-        const arm = path.resolve(this.config.prepared);
-        await fs.cp(path.join(arm, "workspace"), workspace, {
+        const { case: name, kind } = context.test.metadata;
+        if (!["focused", "trajectory"].includes(kind)) throw new Error(`Unknown eval kind: ${kind}`);
+        trajectory = kind === "trajectory";
+        const originalWorkspace = path.join(path.resolve(this.config.prepared), name, "workspace");
+        await fs.cp(originalWorkspace, workspace, {
           recursive: true,
           verbatimSymlinks: true,
         });
-        const originalWorkspace = path.join(arm, "workspace");
         const rebase = (text) => text.replaceAll(originalWorkspace, workspace);
         const instructions = rebase(await fs.readFile(path.join(workspace, "AGENTS.md"), "utf8"));
         await fs.writeFile(path.join(workspace, "AGENTS.md"), instructions);
         config.cli_config = { developer_instructions: instructions };
-        if (this.mode === "trajectory") {
+        if (trajectory) {
           if (!await exists(path.join(repository, ".git"))) throw new Error("Trajectory eval requires a Git checkout at repository/");
           // Observe object/ref data through a separate Git directory. Actor
           // config, hooks and index never enter the unsandboxed observer.
@@ -143,7 +153,7 @@ enabled = false
         if (error.code !== "ENOENT") throw error;
         return { ...response, output: undefined, error: "No captured.md draft was written by Codex" };
       }
-      if (this.mode === "trajectory") {
+      if (trajectory) {
         await copyHead(repository, observer);
         const finalHead = git(["rev-parse", "HEAD"]).trim();
         git(["read-tree", finalHead]);

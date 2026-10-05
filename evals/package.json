@@ -2,7 +2,8 @@
   "name": "tend-evals",
   "private": true,
   "scripts": {
-    "eval": "promptfoo eval -c ../.tmp/evals/prepared/promptfooconfig.yaml --no-cache --no-share --no-write --repeat 3 --max-concurrency 2",
+    "eval": "PROMPTFOO_DISABLE_TELEMETRY=1 PROMPTFOO_DISABLE_UPDATE_CHECK=1 promptfoo eval -c ../.tmp/evals/prepared/promptfooconfig.yaml --no-cache --no-share --repeat 3 --max-concurrency 2",
+    "view": "PROMPTFOO_DISABLE_TELEMETRY=1 PROMPTFOO_DISABLE_UPDATE_CHECK=1 promptfoo view -y",
     "test": "node --test test_*.cjs"
   },
   "dependencies": {
