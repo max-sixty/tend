@@ -6,6 +6,19 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.10
+
+### Improved
+
+- When a review finds a check failing for reasons unrelated to the pull request, it reruns the failed jobs, waits for the result, and routes the failure. An infrastructure failure is named in the review summary. A failure the default branch also shows is left to `ci-fix`. A project test that fails on the pull request while the default branch passes it gets a tracking issue, opened or updated, which triage reproduces and fixes. ([#1518](https://github.com/max-sixty/tend/pull/1518))
+
+### Internal
+
+- The action runtime ships in the published `tend` package and runs through `tend runtime` commands. Actions install the candidate package from the frozen lock into separate runner and sandbox environments, replacing loose scripts and the runtime staging manifest. ([#1512](https://github.com/max-sixty/tend/pull/1512))
+- Evals run as one Promptfoo provider per arm and are recorded for `promptfoo view`; the optional Claude harness's file permission now matches the Write tool. ([#1513](https://github.com/max-sixty/tend/pull/1513), [#1514](https://github.com/max-sixty/tend/pull/1514), [#1515](https://github.com/max-sixty/tend/pull/1515))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
 ## 0.3.9
 
 ### Improved
