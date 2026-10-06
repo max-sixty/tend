@@ -119,7 +119,7 @@ def stage_plugin(source: dict, arm: str, destination: Path) -> None:
         )
 
 
-def guidance(source: dict, plugin: Path) -> str:
+def guidance(source: dict, plugin: Path, harness: str) -> str:
     """Use the same current base policy in both arms; only the plugin differs."""
     value = (ROOT / "shared/system-prompt.md").read_text()
     value = value.replace("${BOT_NAME}", source["bot"])
@@ -134,7 +134,8 @@ def guidance(source: dict, plugin: Path) -> str:
     )
     value = value.replace("${SKILL:run-tend}", f"/tend-ci-runner:{boot}")
     value = re.sub(r"\$\{SKILL:([^}]+)\}", r"/tend-ci-runner:\1", value)
-    value = re.sub(r"/tend-ci-runner:([a-z0-9-]+)", r"$\1", value)
+    if harness == "codex":
+        value = re.sub(r"/tend-ci-runner:([a-z0-9-]+)", r"$\1", value)
     value += (
         "\n\n## Offline evaluation environment\n"
         "This fresh task runs in an offline workspace. Its starting brief and "
@@ -156,37 +157,79 @@ def guidance(source: dict, plugin: Path) -> str:
     return value
 
 
-def provider(arm: str) -> dict:
-    """One results column: every prepared case under one arm.
+def provider(harness: str, arm: str) -> dict:
+    """One results column: every prepared case under one arm and harness.
 
     The provider finds a test's inputs under `prepared` by its metadata.
     """
+    prepared = str(PREPARED / arm)
+    if harness == "codex":
+        return {
+            "id": "file://../../../evals/codex-provider.cjs",
+            "label": f"codex/{arm}",
+            "config": {"prepared": prepared, "model": CODEX_EXECUTOR_MODEL},
+        }
     return {
-        "id": "file://../../../evals/codex-provider.cjs",
-        "label": f"codex/{arm}",
-        "config": {"prepared": str(PREPARED / arm), "model": CODEX_EXECUTOR_MODEL},
+        "id": "file://../../../evals/claude-provider.cjs",
+        "label": f"claude/{arm}",
+        "config": {
+            "prepared": prepared,
+            "model": "claude-opus-5-5",
+            "apiKeyRequired": False,
+            "persist_session": False,
+            "setting_sources": [],
+            "settings": {
+                "autoMemoryEnabled": False,
+                "permissions": {"blockReadsOutsideWorkingDirectories": True},
+            },
+            "strict_mcp_config": True,
+            # Claude Code checks the Write tool against Edit(path) rules.
+            "custom_allowed_tools": ["Read", "Grep", "Skill", "Edit(./captured.md)"],
+            "tools": ["Read", "Grep", "Skill", "Write"],
+            "permission_mode": "dontAsk",
+            "max_turns": 32,
+            "env": {
+                "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+                "ANTHROPIC_CUSTOM_HEADERS": "x-custom-eval-harness: 1",
+            },
+        },
     }
 
 
-def prepare() -> None:
+def prepare(harness: str = "codex") -> None:
     arms = ("historical", "current")
-    providers = [provider(arm) for arm in arms]
+    providers = [provider(harness, arm) for arm in arms]
     config = {
-        "description": f"Tend evals at {git('describe', '--always', '--dirty')}",
+        "description": f"Tend {harness} evals at {git('describe', '--always', '--dirty')}",
         "evaluateOptions": {"timeoutMs": 600_000},
         "prompts": ["{{task}}"],
         "defaultTest": {
             "assert": [{"type": "regex", "value": r"\S"}],
             "options": {
                 "provider": {
-                    "id": "file://../../../evals/codex-provider.cjs",
-                    "config": {"judge": True, "model": "gpt-6-sol"},
+                    "id": "file://../../../evals/codex-provider.cjs"
+                    if harness == "codex"
+                    else "anthropic:claude-agent-sdk",
+                    "config": {"judge": True, "model": "gpt-6-sol"}
+                    if harness == "codex"
+                    else {
+                        "model": "claude-sonnet-5",
+                        "apiKeyRequired": False,
+                        "setting_sources": [],
+                        "persist_session": False,
+                        "settings": {"autoMemoryEnabled": False},
+                        "max_turns": 1,
+                    },
                 },
             },
         },
         "providers": providers,
         "tests": [],
     }
+    if harness == "claude":
+        config["defaultTest"]["options"]["transform"] = (
+            "file://../../../evals/capture.cjs"
+        )
     if PREPARED.exists():
         shutil.rmtree(PREPARED)
     PREPARED.mkdir(parents=True)
@@ -195,6 +238,9 @@ def prepare() -> None:
         kind = source["kind"]
         if kind not in {"focused", "trajectory"}:
             raise ValueError(f"Unknown case kind: {kind}")
+        if kind == "trajectory" and harness == "claude":
+            print(f"Excluded {case.name}: trajectory recording requires Codex")
+            continue
         test = YAML_IO.load((case / "case.yaml").read_text())
         for arm, settings in zip(arms, providers, strict=True):
             destination = PREPARED / arm / case.name
@@ -205,35 +251,42 @@ def prepare() -> None:
             stage_fixtures(source, case, workspace)
             if kind == "trajectory":
                 stage_checkout(source["checkout"], workspace / "repository")
-            policy = guidance(source, plugin)
+            policy = guidance(source, plugin, harness)
             (workspace / "AGENTS.md").write_text(policy)
-            links = workspace / ".agents/skills"
-            links.mkdir(parents=True)
-            for skill in (plugin / "skills").iterdir():
-                if (skill / "SKILL.md").is_file():
-                    (links / skill.name).symlink_to(
-                        f"../../plugin/skills/{skill.name}",
-                        target_is_directory=True,
-                    )
+            if harness == "codex":
+                links = workspace / ".agents/skills"
+                links.mkdir(parents=True)
+                for skill in (plugin / "skills").iterdir():
+                    if (skill / "SKILL.md").is_file():
+                        (links / skill.name).symlink_to(
+                            f"../../plugin/skills/{skill.name}",
+                            target_is_directory=True,
+                        )
             provenance = source | {
                 "arm": arm,
-                "executor": "codex",
+                "executor": harness,
                 "executor_model": settings["config"]["model"],
                 "guidance_sha256": hashlib.sha256(policy.encode()).hexdigest(),
             }
             (destination / "provenance.json").write_text(
                 json.dumps(provenance, indent=2) + "\n"
             )
-            print(f"Prepared {arm}/{case.name}: {kind}")
+            print(f"Prepared {arm}/{case.name}: {kind} ({harness})")
         metadata = test.get("metadata", {}) | {"case": case.name, "kind": kind}
         config["tests"].append(test | {"metadata": metadata})
     YAML_IO.dump(config, PREPARED / "promptfooconfig.yaml")
 
 
 @click.command()
-def main() -> None:
+@click.option(
+    "--harness",
+    type=click.Choice(["codex", "claude"]),
+    default="codex",
+    show_default=True,
+)
+def main(harness: str) -> None:
     """Rebuild pinned starting states; model calls happen only in Promptfoo."""
-    prepare()
+    prepare(harness)
 
 
 if __name__ == "__main__":

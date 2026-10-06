@@ -80,8 +80,9 @@ def test_fixture_evidence_is_verified_including_cached_logs(tmp_path, monkeypatc
         prepare.stage_fixtures(source, case, destination)
 
 
+@pytest.mark.parametrize("harness", ["codex", "claude"])
 def test_focused_case_starts_fresh_with_equal_evidence(
-    repository, tmp_path, monkeypatch
+    repository, tmp_path, monkeypatch, harness
 ):
     cases = tmp_path / "cases"
     case = cases / "focused"
@@ -113,7 +114,7 @@ def test_focused_case_starts_fresh_with_equal_evidence(
     monkeypatch.setattr(prepare, "ROOT", repository)
     monkeypatch.setattr(prepare, "CASES", cases)
     monkeypatch.setattr(prepare, "PREPARED", prepared)
-    prepare.prepare()
+    prepare.prepare(harness)
     config = prepare.YAML_IO.load((prepared / "promptfooconfig.yaml").read_text())
     assert config["prompts"] == ["{{task}}"]
     assert config["tests"][0]["vars"]["task"] == task
@@ -122,8 +123,8 @@ def test_focused_case_starts_fresh_with_equal_evidence(
     assert "providers" not in config["tests"][0]
     assert config["tests"][0]["metadata"] == {"case": "focused", "kind": "focused"}
     assert [provider["label"] for provider in config["providers"]] == [
-        "codex/historical",
-        "codex/current",
+        f"{harness}/historical",
+        f"{harness}/current",
     ]
     for arm, provider in zip(
         ("historical", "current"), config["providers"], strict=True
@@ -144,7 +145,18 @@ def test_focused_case_starts_fresh_with_equal_evidence(
         assert settings["prepared"] == str(prepared / arm)
         assert "resume" not in settings
         assert "history" not in settings
-        assert settings["model"] == "gpt-6.1-sol"
+        if harness == "codex":
+            assert settings["model"] == "gpt-6.1-sol"
+        else:
+            # The built-in SDK allocates a fresh temp working directory when
+            # working_dir is absent; prepared observations stay read-only inputs.
+            assert "working_dir" not in settings
+            assert settings["custom_allowed_tools"] == [
+                "Read",
+                "Grep",
+                "Skill",
+                "Edit(./captured.md)",
+            ]
 
 
 def test_trajectory_checkout_is_pinned_and_independent(
