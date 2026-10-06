@@ -140,7 +140,7 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
   }
   const provider = new DeterministicProvider({ config: { prepared: arm, model: "gpt-6.1-sol" } });
   const results = await Promise.all([provider.callApi("A", run("focused")), provider.callApi("B", run("focused"))]);
-  assert.deepEqual(results.map((result) => result.output), ["Literal A\n\n", "Literal B\n\n"]);
+  assert.deepEqual(results.map((result) => result.output ?? result.error), ["Literal A\n\n", "Literal B\n\n"]);
   assert.deepEqual(results.map((result) => [result.tokenUsage, result.raw]), [[usage, raw], [usage, raw]]);
   const longer = await provider.callApi("Trajectory brief", run("trajectory"));
   const trajectory = JSON.parse(longer.output);
