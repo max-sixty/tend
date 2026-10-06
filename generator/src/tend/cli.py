@@ -11,6 +11,7 @@ import click
 
 from tend.checks import (
     CheckResult,
+    OwnerLookupError,
     detect_authenticated_user,
     detect_canonical_owner,
     detect_default_branch,
@@ -211,7 +212,13 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
             preview_path.write_text(preview_yaml, encoding="utf-8")
             cfg = Config.load(preview_path)
     cfg.default_branch = _detect_default_branch_local()
-    cfg.repo_owner = detect_canonical_owner() or ""
+    try:
+        cfg.repo_owner = detect_canonical_owner() or ""
+    except OwnerLookupError as e:
+        raise click.ClickException(
+            f"{e}. The fork guard needs the canonical owner; rerun once "
+            "`gh` can reach the API."
+        ) from e
     if not cfg.repo_owner:
         click.echo(
             "Warning: could not detect the canonical repo owner via `gh` "

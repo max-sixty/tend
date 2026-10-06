@@ -17,6 +17,7 @@ from tend.checks import (
     ROLE_ID_MAINTAIN,
     ROLE_ID_WRITE,
     CheckResult,
+    OwnerLookupError,
     _control_plane_ruleset,
     _list_org_secrets,
     _restrict_updates_ruleset,
@@ -348,13 +349,16 @@ def test_detect_canonical_owner_no_gh() -> None:
         assert detect_canonical_owner() is None
 
 
-def test_detect_canonical_owner_api_failure_returns_none() -> None:
+def test_detect_canonical_owner_api_failure_raises() -> None:
     """If `gh repo view` works but the API call fails (rate limit, auth,
-    network), return None rather than the view's possibly-fork answer.
-    Shipping the fork owner in the guard would silently no-op on canonical —
-    worse than no guard at all."""
-    with patch("tend.checks._gh", side_effect=_gh_for("max-sixty/prql", None)):
-        assert detect_canonical_owner() is None
+    network), raise rather than answer. The view's possibly-fork owner would
+    make the guard a silent no-op on canonical, and None would make `init`
+    drop a guard the committed workflows carry."""
+    with (
+        patch("tend.checks._gh", side_effect=_gh_for("max-sixty/prql", None)),
+        pytest.raises(OwnerLookupError, match="repos/max-sixty/prql"),
+    ):
+        detect_canonical_owner()
 
 
 # ---------------------------------------------------------------------------
@@ -3288,7 +3292,10 @@ def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks._gh", side_effect=_gh_all_pass()),
-        patch("tend.checks.detect_canonical_owner", return_value=None),
+        patch(
+            "tend.checks.detect_canonical_owner",
+            side_effect=OwnerLookupError("Could not read repos/owner/repo"),
+        ),
         patch("tend.checks._fetch_workflow_files", return_value=files),
     ):
         results = run_all_checks(cfg, repo="owner/repo")
