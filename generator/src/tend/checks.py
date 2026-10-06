@@ -170,6 +170,10 @@ def detect_authenticated_user() -> str | None:
     return None
 
 
+class OwnerLookupError(Exception):
+    """`gh` resolved the repo but could not read its owner from the API."""
+
+
 def detect_canonical_owner(repo: str | None = None) -> str | None:
     """Detect the *canonical* owner of the repo this directory is associated with.
 
@@ -183,16 +187,19 @@ def detect_canonical_owner(repo: str | None = None) -> str | None:
     and `.source.owner.login` — `source` is the *root* canonical, so chained
     forks (alice → bob → canonical) resolve correctly in one call.
 
-    Returns None when `gh` is unavailable or either call fails. Callers
-    treat that as "skip the guard"; we never silently ship a fork owner
-    in the guard string.
+    Returns None when `gh` is unavailable or resolves no repo, which callers
+    treat as "skip the guard". Raises `OwnerLookupError` when the repo
+    resolved but the API read failed (rate limit, auth, network): the guard
+    belongs in the output, and neither dropping it nor shipping the view's
+    possibly-fork owner is a correct answer.
     """
     repo = repo or detect_repo()
     if repo is None:
         return None
     result = _gh("api", f"repos/{repo}")
-    if not result or result.returncode != 0:
-        return None
+    if result is None or result.returncode != 0:
+        reason = result.stderr.strip() if result else "no response from gh"
+        raise OwnerLookupError(f"Could not read repos/{repo}: {reason}")
     data = json.loads(result.stdout)
     if data["fork"]:
         return data["source"]["owner"]["login"]
@@ -2850,20 +2857,20 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
         if branch != default_branch:
             results.append(check_branch_protection(repo, branch, cfg.bot_name))
     if cfg.merge_policy.requires_control_plane_review:
-        owner = detect_canonical_owner(repo)
         results.append(
             check_control_plane_codeowners(repo, default_branch, cfg.bot_name)
         )
         results.append(check_control_plane_ruleset(repo, default_branch, cfg.bot_name))
         # Without the owner the expected output drops the fork guard every
         # committed file carries, so the comparison would report false drift.
-        if owner is None:
+        try:
+            owner = detect_canonical_owner(repo)
+        except OwnerLookupError as e:
             results.append(
                 CheckResult(
                     "yolo-workflows",
                     None,
-                    "Could not resolve the canonical owner to generate the "
-                    "expected workflows",
+                    f"{e}, so the expected workflows cannot be generated",
                 )
             )
         else:

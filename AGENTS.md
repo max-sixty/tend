@@ -333,7 +333,9 @@ Actions (`schedule`, `workflow_dispatch`, `workflow_run`, `issues`) carry
 Actions but doesn't have the bot/Claude secrets no-ops cleanly. The
 canonical owner is detected at `init` time (via `gh repo view`, walking
 `source.owner.login` if the local repo is itself a fork) and pinned in
-the generated workflow. `tend-review` uses `pull_request_target` (base
+the generated workflow. `init` leaves the guard out, with a warning, only
+when `gh` is missing or resolves no repo; when it resolves the repo but the
+API read fails, `init` stops before writing. `tend-review` uses `pull_request_target` (base
 repo only) and `tend-mention-relay`, which carries tend-mention's review
 events, already filters forks via `head.repo.full_name ==
 github.repository`, so neither needs the guard.
