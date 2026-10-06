@@ -98,7 +98,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
-      - uses: max-sixty/tend/codex@0.3.9
+      - uses: max-sixty/tend/codex@0.3.10
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
