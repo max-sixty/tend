@@ -49,7 +49,7 @@ query($owner: String!, $name: String!, $oid: GitObjectID!, $endCursor: String) {
               __typename
               ... on CheckRun {
                 name status conclusion startedAt detailsUrl
-                checkSuite { workflowRun { workflow { name } } }
+                checkSuite { workflowRun { databaseId createdAt workflow { name } } }
               }
               ... on StatusContext { context state targetUrl }
             }
@@ -95,6 +95,12 @@ def reduce_rollup(
                 ),
                 "url": str(node.get("detailsUrl") or ""),
                 "started_at": str(node.get("startedAt") or ""),
+                "run_id": str(
+                    _dig(node, "checkSuite", "workflowRun", "databaseId") or ""
+                ),
+                "run_created": str(
+                    _dig(node, "checkSuite", "workflowRun", "createdAt") or ""
+                ),
             }
         else:
             state = str(node.get("state") or "")
@@ -107,6 +113,8 @@ def reduce_rollup(
                 "workflow": "",
                 "url": str(node.get("targetUrl") or ""),
                 "started_at": "",
+                "run_id": "",
+                "run_created": "",
             }
         if own_run and own_run in context["url"]:
             continue
@@ -122,6 +130,34 @@ def reduce_rollup(
             if allow_filtered_empty
             else None
         )
+
+    # A cancelled matrix may never expand, so its job name cannot match the
+    # replacement. Order workflow runs, not individual job start times (a
+    # later job in the cancelled run can start after the replacement). IDs
+    # break ties when GitHub creates both runs within the same second.
+    latest_runs: dict[str, tuple[str, int]] = {}
+    for context in contexts:
+        if (
+            context["workflow"]
+            and context["run_created"]
+            and context["run_id"].isdecimal()
+        ):
+            order = (context["run_created"], int(context["run_id"]))
+            latest_runs[context["workflow"]] = max(
+                latest_runs.get(context["workflow"], order), order
+            )
+    contexts = [
+        context
+        for context in contexts
+        if not (
+            context["conclusion"] == "CANCELLED"
+            and context["workflow"] in latest_runs
+            and context["run_created"]
+            and context["run_id"].isdecimal()
+            and (context["run_created"], int(context["run_id"]))
+            < latest_runs[context["workflow"]]
+        )
+    ]
 
     groups: dict[tuple[str, str], list[dict[str, str]]] = {}
     for context in contexts:
