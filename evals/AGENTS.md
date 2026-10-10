@@ -47,6 +47,33 @@ They retain repository evidence, not the original runner's installed
 dependencies, processes or live GitHub state. Neither case type simulates
 GitHub or recreates the original production session.
 
+## Behavior improvements
+
+Changes intended to improve agent behavior need relevant eval coverage. Before
+editing guidance, name the general behavior being improved and select existing
+cases that exercise it. Add, adjust or replace cases where coverage is missing;
+an existing case that already measures the claim needs no edit. Use ordinary
+tests for deterministic mechanics.
+
+Choose the smallest set that distinguishes useful general behavior: a
+representative failure, a materially different situation where the same rule
+applies, and a near miss where the right action changes are useful contrasts.
+These can come from existing cases. Vary decision-relevant context rather than
+just names. Prefer focused decisions; use trajectories when investigation or
+accumulated actions matter. Grade outcomes and supported reasoning, allowing
+valid alternative approaches.
+
+Keep exploratory probes in scratch. Retain a case when it adds distinct
+behavioral coverage or protects a consequential regression; consolidate
+redundant cases as the suite evolves. Both-arm passes can protect useful
+behavior. Neither a fixed case quota nor a greener score justifies removing
+coverage of a still-relevant failure.
+
+Follow **Validation** below for before/after comparisons. Report which behavior
+the cases cover, observed results and limits. If model runs are unavailable,
+prepare runnable coverage and report the improvement as unvalidated, with the
+blocker; authoring a case alone does not establish improvement.
+
 ## Collector and case authoring
 
 Keep this runbook to current execution, authoring and validation guidance.

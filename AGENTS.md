@@ -44,6 +44,9 @@ Inside a tend session the sandbox has no DNS, so the two tests in
 through `uv run --script`, which resolves its dependencies from PyPI. Nothing
 else in the suite reaches the network, so a third failure is a real one.
 
+For changes to Tend's agent behavior, follow **Behavior improvements** in
+[evals/AGENTS.md](evals/AGENTS.md).
+
 ## Architecture
 
 Four pieces:
