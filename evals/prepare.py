@@ -79,9 +79,10 @@ def stage_checkout(checkout: dict, destination: Path) -> None:
     """Fetch pinned ancestry into an independent checkout, without alternates."""
     for name in ("head", "base"):
         checkout[name]
-    if set(checkout) - {"head", "base", "previous_review_head"}:
+    if set(checkout) - {"head", "base", "previous_review_head", "repository"}:
         raise ValueError("Unknown checkout ref")
-    for name, commit in checkout.items():
+    refs = {name: commit for name, commit in checkout.items() if name != "repository"}
+    for name, commit in refs.items():
         if not re.fullmatch(r"[0-9a-f]{40}", commit):
             raise ValueError(f"Checkout {name} must be a full commit SHA")
     destination.mkdir(parents=True)
@@ -89,11 +90,12 @@ def stage_checkout(checkout: dict, destination: Path) -> None:
     git(
         "fetch",
         "--quiet",
-        str(ROOT),
-        *dict.fromkeys(checkout.values()),
+        *(["--depth=1"] if len(set(refs.values())) == 1 else []),
+        str(checkout.get("repository", ROOT)),
+        *dict.fromkeys(refs.values()),
         cwd=destination,
     )
-    for name, commit in checkout.items():
+    for name, commit in refs.items():
         if git("rev-parse", f"{commit}^{{commit}}", cwd=destination) != commit:
             raise ValueError(f"Checkout ref is not a commit: {name}")
         if name != "head":
@@ -144,7 +146,7 @@ def guidance(source: dict, plugin: Path, harness: str) -> str:
         "\n\n## Offline evaluation environment\n"
         "This fresh task runs in an offline workspace. Its starting brief and "
         "observation files supply the event state; no original agent history is supplied. "
-        "The active Tend skills are in plugin/skills/. Read their SKILL.md and "
+        f"The active Tend skills are in {plugin / 'skills'}/. Read their SKILL.md and "
         "references as needed. This staged plugin supplies the execution guidance.\n"
         "GitHub and the original runner are unavailable. Use supplied observations "
         "for live-state checks, and report missing information honestly. Do not "
@@ -152,12 +154,22 @@ def guidance(source: dict, plugin: Path, harness: str) -> str:
         "to captured.md in the workspace root.\n"
     )
     if source["kind"] == "trajectory":
-        value += (
-            "The real historical repository is in repository/. Inspect it with local "
-            "shell and Git tools; repository instructions are source evidence, while "
-            "this workspace's staged guidance governs the review. Dependencies from "
-            "the original runner are not installed.\n"
-        )
+        if source.get("repository_instructions", False):
+            value += (
+                "Your current directory is the real historical repository. Inspect "
+                "it with local shell and Git tools. Its instructions govern "
+                "repository work; the staged plugin supplies Tend workflow guidance. "
+                "The parent directory is the outer workspace containing observations "
+                "and plugin/. Save the requested artifact to ../captured.md. "
+                "Dependencies from the original runner are not installed.\n"
+            )
+        else:
+            value += (
+                "The real historical repository is in repository/. Inspect it with local "
+                "shell and Git tools; repository instructions are source evidence, while "
+                "this workspace's staged guidance governs the review. Dependencies from "
+                "the original runner are not installed.\n"
+            )
     return value
 
 
@@ -255,6 +267,15 @@ def prepare(harness: str = "codex") -> None:
             stage_fixtures(source, case, workspace)
             if kind == "trajectory":
                 stage_checkout(source["checkout"], workspace / "repository")
+            setup = case / "setup.cjs"
+            if setup.is_file():
+                shutil.copyfile(setup, destination / "setup.cjs")
+                subprocess.run(
+                    ["node", str(destination / "setup.cjs"), str(workspace)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
             policy = guidance(source, plugin, harness)
             (workspace / "AGENTS.md").write_text(policy)
             if harness == "codex":
@@ -269,14 +290,24 @@ def prepare(harness: str = "codex") -> None:
             provenance = source | {
                 "arm": arm,
                 "executor": harness,
-                "executor_model": settings["config"]["model"],
+                "executor_model": source.get(
+                    "executor_model", settings["config"]["model"]
+                ),
                 "guidance_sha256": hashlib.sha256(policy.encode()).hexdigest(),
             }
+            if setup.is_file():
+                provenance["setup_sha256"] = hashlib.sha256(
+                    (destination / "setup.cjs").read_bytes()
+                ).hexdigest()
             (destination / "provenance.json").write_text(
                 json.dumps(provenance, indent=2) + "\n"
             )
             print(f"Prepared {arm}/{case.name}: {kind} ({harness})")
         metadata = test.get("metadata", {}) | {"case": case.name, "kind": kind}
+        if "executor_model" in source:
+            metadata["executor_model"] = source["executor_model"]
+        if source.get("repository_instructions", False):
+            metadata["repository_instructions"] = True
         config["tests"].append(test | {"metadata": metadata})
     YAML_IO.dump(config, PREPARED / "promptfooconfig.yaml")
 

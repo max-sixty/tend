@@ -1,10 +1,13 @@
 """Exercise fresh case preparation and pinned repository snapshots without models."""
 
+import base64
 import hashlib
 import json
 import os
+import shutil
 import stat
 import subprocess
+import tarfile
 from pathlib import Path
 
 import prepare
@@ -242,6 +245,155 @@ def test_trajectory_checkout_is_pinned_and_independent(
     assert git(repository, "status", "--porcelain") == ""
     (repository / "README.md").write_text("Source changed after staging\n")
     assert git(destination, "show", "HEAD:README.md") == "Requested review tree"
+    policy = prepare.guidance(
+        {"kind": "trajectory", "bot": "tend-agent"},
+        repository / "plugins/tend-ci-runner",
+        "codex",
+    )
+    assert policy.endswith(
+        "The real historical repository is in repository/. Inspect it with local "
+        "shell and Git tools; repository instructions are source evidence, while "
+        "this workspace's staged guidance governs the review. Dependencies from "
+        "the original runner are not installed.\n"
+    )
+
+
+def test_external_trajectory_preserves_instructions_and_runs_case_setup(
+    repository, tmp_path, monkeypatch
+):
+    """Use real Git and npm with a local dependency, without network or models."""
+    external = tmp_path / "consumer"
+    external.mkdir()
+    git(external, "init", "--initial-branch=main")
+    overlay = external / ".claude/skills/running-tend/SKILL.md"
+    overlay.parent.mkdir(parents=True)
+    overlay.write_text("Consumer-specific work instructions\n")
+    dependency = external / "vendor/fixture"
+    dependency.mkdir(parents=True)
+    (dependency / "package.json").write_text(
+        json.dumps({"name": "fixture", "version": "1.0.0"})
+    )
+    package = external / "vendor/fixture.tgz"
+    with tarfile.open(package, "w:gz") as archive:
+        archive.add(dependency, arcname="package")
+    integrity = (
+        "sha512-"
+        + base64.b64encode(hashlib.sha512(package.read_bytes()).digest()).decode()
+    )
+    (external / "package.json").write_text(
+        json.dumps(
+            {"name": "consumer", "dependencies": {"fixture": "file:vendor/fixture.tgz"}}
+        )
+    )
+    (external / "package-lock.json").write_text(
+        json.dumps(
+            {
+                "name": "consumer",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {
+                        "name": "consumer",
+                        "dependencies": {"fixture": "file:vendor/fixture.tgz"},
+                    },
+                    "node_modules/fixture": {
+                        "version": "1.0.0",
+                        "resolved": "file:vendor/fixture.tgz",
+                        "integrity": integrity,
+                    },
+                },
+            }
+        )
+    )
+    head = commit(external, "Pinned consumer tree")
+    (external / "future.txt").write_text("Exclude this later commit\n")
+    commit(external, "Later consumer tree")
+    cases = tmp_path / "cases"
+    case = cases / "external"
+    case.mkdir(parents=True)
+    source = {
+        "kind": "trajectory",
+        "historical_ref": "HEAD",
+        "bot": "tend-agent",
+        "fixtures": {},
+        "checkout": {"repository": str(external), "head": head, "base": head},
+        "executor_model": "gpt-6-sol",
+        "repository_instructions": True,
+    }
+    (case / "source.json").write_text(json.dumps(source))
+    (case / "case.yaml").write_text(
+        "vars:\n  task: Investigate the consumer\nassert: []\n"
+    )
+    setup = Path(__file__).parent / "cases/missing-project-dependencies/setup.cjs"
+    shutil.copyfile(setup, case / "setup.cjs")
+    prepared = tmp_path / "prepared"
+    monkeypatch.setattr(prepare, "ROOT", repository)
+    monkeypatch.setattr(prepare, "CASES", cases)
+    monkeypatch.setattr(prepare, "PREPARED", prepared)
+    prepare.prepare()
+    config = prepare.YAML_IO.load((prepared / "promptfooconfig.yaml").read_text())
+    assert config["tests"][0]["metadata"] == {
+        "case": "external",
+        "kind": "trajectory",
+        "executor_model": "gpt-6-sol",
+        "repository_instructions": True,
+    }
+    for arm in ("historical", "current"):
+        workspace = prepared / arm / "external/workspace"
+        checkout = workspace / "repository"
+        assert git(checkout, "rev-parse", "HEAD") == head
+        assert (
+            checkout / ".claude/skills/running-tend/SKILL.md"
+        ).read_bytes() == overlay.read_bytes()
+        assert not (checkout / "future.txt").exists()
+        assert not (checkout / "node_modules").exists()
+        assert (workspace / ".npm/_cacache").is_dir()
+        assert not (workspace / ".npm/_logs").exists()
+        assert not list(workspace.rglob("*.log"))
+        assert not (workspace / "setup.cjs").exists()
+        assert (
+            "Its instructions govern repository work"
+            in (workspace / "AGENTS.md").read_text()
+        )
+        provenance = json.loads((workspace.parent / "provenance.json").read_text())
+        assert provenance["executor_model"] == "gpt-6-sol"
+        assert (
+            provenance["setup_sha256"] == hashlib.sha256(setup.read_bytes()).hexdigest()
+        )
+        attempt = tmp_path / arm / "attempt"
+        shutil.copytree(workspace, attempt, symlinks=True)
+        settings = json.loads(
+            subprocess.run(
+                [
+                    "node",
+                    "-e",
+                    "require(process.argv[1])(process.argv[2]).then(x => console.log(JSON.stringify(x)))",
+                    str(workspace.parent / "setup.cjs"),
+                    str(attempt),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+        )
+        for name in ("node", "npm", "git"):
+            subprocess.run(
+                [name, "--version"],
+                env=settings["env"],
+                check=True,
+                capture_output=True,
+            )
+        subprocess.run(
+            ["npm", "ci", "--ignore-scripts"],
+            cwd=attempt / "repository",
+            env=settings["env"],
+            check=True,
+            capture_output=True,
+        )
+        assert (
+            attempt / "repository/node_modules/fixture/package.json"
+        ).read_bytes() == (dependency / "package.json").read_bytes()
+        assert not (checkout / "node_modules").exists()
+    assert not (external / "node_modules").exists()
 
 
 @pytest.mark.parametrize("kind", ["history", "fixture"])

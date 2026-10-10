@@ -1,6 +1,6 @@
 # Promptfoo evals
 
-Codex is the default executor and judge. Model settings live in `prepare.py`;
+Codex is the default executor and judge. Default model settings live in `prepare.py`;
 `codex-provider.cjs` sets the reasoning effort. Every attempt starts fresh,
 without original actor history. Run from the repo root with Node 22.22+ and a
 local Codex subscription login:
@@ -47,9 +47,10 @@ judge runs separately without the executor's skills or workspace.
   establish evidence presence and state integrity; the model judge assesses
   relevant investigation, supported claims and other tool actions.
 
-Trajectory cases require their pinned Git commits to be available locally.
-Preparation fetches their ancestry so merge-base and normal three-dot PR diffs
-work even on longer branches.
+Trajectory cases fetch pinned Git commits from this repo unless
+`checkout.repository` names another repository URL or local path. Preparation
+fetches ancestry for comparisons, so merge-base and normal three-dot PR diffs
+work even on longer branches; a single pinned tree needs no ancestry.
 They retain repository evidence, not the original runner's installed
 dependencies, processes or live GitHub state. Neither case type simulates
 GitHub or recreates the original production session.
@@ -101,8 +102,23 @@ Keep `cases/<name>/case.yaml`, `source.json` and the frozen evidence in Git.
 `captured.md`. Keep expected behavior in assertions rather than the task or
 evidence-selection hints.
 
+Case-specific environment setup belongs in an optional `setup.cjs`. Preparation
+runs it with the staged workspace path as its CLI argument. It also exports
+`configure(workspace)`, returning `{env, readPaths}` for each fresh Codex attempt.
+The runner applies those environment variables and read-only path grants;
+network access stays disabled. The setup file stays outside the actor workspace,
+and its hash is recorded in provenance. See
+`cases/missing-project-dependencies/setup.cjs` for an executable recovery case;
+keep its environment requirements and limits with the case.
+
 `source.json` records `kind: focused | trajectory`, `historical_ref`, `bot`,
 `merge`, and a `fixtures` mapping from case-relative paths to SHA-256 hashes.
+An optional `executor_model` selects the same model for both arms of that case;
+preparation records the selection in test metadata and provenance.
+Repository instructions are evidence by default. Set
+`repository_instructions: true` when they should govern repository work in the
+attempt; the staged plugin still supplies Tend workflow guidance. Preserve the
+same policy in both arms.
 For a trajectory, `checkout` pins `base` and `head`, and may pin
 `previous_review_head` for an incremental review. The base and optional previous
 review head become local Git refs; the pinned head is checked out as detached HEAD.
