@@ -65,7 +65,7 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
   const arm = path.join(root, "arm");
   const staged = path.join(arm, "case");
   const template = path.join(staged, "workspace");
-  const run = (kind, name = "case") => ({ test: { metadata: { case: name, kind } } });
+  const run = (kind, name = "case", extra = {}) => ({ test: { metadata: { case: name, kind, ...extra } } });
   await fs.mkdir(path.join(template, "plugin", "skills", "draft"), { recursive: true });
   await fs.writeFile(path.join(template, "plugin", "skills", "draft", "SKILL.md"), "Draft skill");
   await fs.mkdir(path.join(template, ".agents", "skills"), { recursive: true });
@@ -96,26 +96,38 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
   class DeterministicProvider extends CodexProvider {
     async codexPath() { return "/usr/bin/true"; }
     async loadProvider(config) {
-      workspaces.push(config.working_dir);
+      const workspaceRoot = path.dirname(config.cli_env.CLAUDE_PLUGIN_ROOT);
+      workspaces.push(workspaceRoot);
       assert.equal(config.thread_id, undefined);
       await assert.rejects(fs.access(path.join(config.cli_env.CODEX_HOME, "sessions")), { code: "ENOENT" });
-      await assert.rejects(fs.access(path.join(config.working_dir, "history.jsonl")), { code: "ENOENT" });
-      assert.equal(await fs.readFile(path.join(config.working_dir, ".agents", "skills", "draft", "SKILL.md"), "utf8"), "Draft skill");
-      assert.equal(await fs.readlink(path.join(config.working_dir, ".agents", "skills", "draft")), "../../plugin/skills/draft");
+      await assert.rejects(fs.access(path.join(workspaceRoot, "history.jsonl")), { code: "ENOENT" });
+      assert.equal(await fs.readFile(path.join(workspaceRoot, ".agents", "skills", "draft", "SKILL.md"), "utf8"), "Draft skill");
+      assert.equal(await fs.readlink(path.join(workspaceRoot, ".agents", "skills", "draft")), "../../plugin/skills/draft");
       assert.equal(config.cli_config.developer_instructions, "Staged guidance");
       return {
         callApi: async (prompt) => {
-          assert.ok(["A", "B", "Trajectory brief", "Read-only brief"].includes(prompt));
-          assert.equal(await fs.readFile(path.join(config.working_dir, "evidence.txt"), "utf8"), "Verified evidence");
-          if (prompt === "Read-only brief") {
-            await fs.writeFile(path.join(config.working_dir, "captured.md"), "Read-only review\n");
+          assert.ok(["A", "B", "Trajectory brief", "Read-only brief", "Setup brief"].includes(prompt));
+          assert.equal(await fs.readFile(path.join(workspaceRoot, "evidence.txt"), "utf8"), "Verified evidence");
+          if (prompt === "Setup brief") {
+            assert.equal(config.working_dir, path.join(workspaceRoot, "repository"));
+            assert.equal(config.model, "gpt-6-sol");
+            assert.equal(config.cli_env.CASE_ROOT, workspaceRoot);
+            assert.equal(await fs.readFile(path.join(workspaceRoot, ".case-ready"), "utf8"), "ready");
+            await assert.rejects(fs.access(path.join(workspaceRoot, "setup.cjs")), { code: "ENOENT" });
+            const policy = await fs.readFile(path.join(config.cli_env.CODEX_HOME, "config.toml"), "utf8");
+            assert.ok(policy.includes('"/usr/bin/false" = "read"'));
+            await fs.writeFile(path.join(workspaceRoot, "captured.md"), "Configured case\n");
             return { output: "Final response differs from file", tokenUsage: usage, raw };
           }
-          await fs.writeFile(path.join(config.working_dir, "evidence.txt"), "changed by this attempt");
-          await fs.writeFile(path.join(config.working_dir, "repository", "source.txt"), "new\n");
-          await fs.writeFile(path.join(config.working_dir, "repository", "untracked.txt"), "new file\n");
+          if (prompt === "Read-only brief") {
+            await fs.writeFile(path.join(workspaceRoot, "captured.md"), "Read-only review\n");
+            return { output: "Final response differs from file", tokenUsage: usage, raw };
+          }
+          await fs.writeFile(path.join(workspaceRoot, "evidence.txt"), "changed by this attempt");
+          await fs.writeFile(path.join(workspaceRoot, "repository", "source.txt"), "new\n");
+          await fs.writeFile(path.join(workspaceRoot, "repository", "untracked.txt"), "new file\n");
           const actorGit = (args) => execFileSync("git", args, {
-            cwd: path.join(config.working_dir, "repository"), encoding: "utf8",
+            cwd: path.join(workspaceRoot, "repository"), encoding: "utf8",
             env: { PATH: process.env.PATH, HOME: config.cli_env.HOME, GIT_CONFIG_NOSYSTEM: "1" },
           });
           actorGit(["add", "source.txt"]);
@@ -125,13 +137,13 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
           actorGit(["config", "core.hooksPath", path.dirname(helper)]);
           actorGit(["config", "diff.hidden.textconv", helper]);
           actorGit(["config", "filter.hide.clean", helper]);
-          await fs.writeFile(path.join(config.working_dir, "repository", "dirty.txt"), "dirty\n");
-          await fs.writeFile(path.join(config.working_dir, "repository", ".gitattributes"), "source.txt diff=hidden\ndirty.txt filter=hide\n");
-          const fakeTree = path.join(config.working_dir, "fake-tree");
+          await fs.writeFile(path.join(workspaceRoot, "repository", "dirty.txt"), "dirty\n");
+          await fs.writeFile(path.join(workspaceRoot, "repository", ".gitattributes"), "source.txt diff=hidden\ndirty.txt filter=hide\n");
+          const fakeTree = path.join(workspaceRoot, "fake-tree");
           await fs.mkdir(fakeTree);
           await fs.writeFile(path.join(fakeTree, "source.txt"), "old\n");
           actorGit(["config", "core.worktree", fakeTree]);
-          await fs.writeFile(path.join(config.working_dir, "captured.md"), `Literal ${prompt}\n\n`);
+          await fs.writeFile(path.join(workspaceRoot, "captured.md"), `Literal ${prompt}\n\n`);
           return { output: "Final response differs from file", tokenUsage: usage, raw };
         },
         shutdown: async () => {},
@@ -158,9 +170,16 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
   assert.equal(unchanged.error, undefined);
   assert.equal(repositoryUnchanged(unchanged.output).pass, true);
   assert.equal(reviewEvidence(unchanged.output).pass, true);
+  await fs.writeFile(path.join(staged, "setup.cjs"), `module.exports = async (workspace) => {
+    await require("node:fs/promises").writeFile(require("node:path").join(workspace, ".case-ready"), "ready");
+    return { env: { CASE_ROOT: workspace }, readPaths: ["/usr/bin/false"] };
+  };`);
+  const configured = await provider.callApi("Setup brief", run("trajectory", "case", { executor_model: "gpt-6-sol", repository_instructions: true }));
+  assert.equal(configured.error, undefined);
+  assert.equal(JSON.parse(configured.output).artifact, "Configured case\n");
   await assert.rejects(fs.access(helperMarker), { code: "ENOENT" });
   assert.equal(longer.raw, raw);
-  assert.equal(new Set(workspaces).size, 4);
+  assert.equal(new Set(workspaces).size, 5);
   for (const workspace of workspaces) await assert.rejects(fs.access(workspace), { code: "ENOENT" });
   assert.equal(await fs.readFile(path.join(staged, "history.jsonl"), "utf8"), transcript);
   assert.equal(await fs.readFile(path.join(template, "evidence.txt"), "utf8"), "Verified evidence");
