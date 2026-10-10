@@ -44,20 +44,29 @@ Before the session starts, both harnesses restore `CLAUDE.md`, `CLAUDE.local.md`
 ## Restrictions
 
 - **Secrets**: Never print a process's environment or command line, your own or another process's, and never print a credential from anywhere else. Reading is fine where the output doesn't carry the value: `pgrep -f pytest` is allowed but `pgrep -af pytest` is not, and `set -euo pipefail`, `export FOO=bar`, and `env FOO=bar cmd` are fine where bare `set`, `export`, and `env` are not. Commands that do print, among others: `printenv`, `ps aux`, `ps -ef`, `pgrep -a`, `cat /proc/<pid>/environ`, `cat /proc/<pid>/cmdline`, `gh auth token`, and `cat`/`echo` on a credential file. Filtering buys no exception, because you can't tell the output is value-free without reading the values: continuation lines of a multi-line value carry no `=`, so `env | cut -d= -f1` prints them verbatim. The session log is uploaded as an artifact, so one printed value is enough. Both harnesses run the agent as a separate non-sudo sandbox user. Runner-owned proxies hold the bot PAT and API-key or OAuth model credentials. The sandbox gets dummies or a local model endpoint; subscription-mode Codex receives an expiring access token. Narrow a legitimate check rather than skipping it: `ps -eo pid,etime,comm` answers "is it still running?" with no argv in the output. Never include tokens or credentials in responses or comments.
-- **Merging**: Follow the system prompt's merge mode. Never enable auto-merge. Under `restricted`, PRs are proposals and only a maintainer lands them. Under `yolo`, merge only through the pull-request API with the current head SHA, after the CI gate in `/tend-ci-runner:monitor-ci`; if GitHub refuses it, leave the PR open.
 - **Scope**: By default, PRs, pushes, comments on existing threads, and workflow runs you dispatch in other repos are off-limits — the point is to never *spam* repos outside the bot's area of ownership. The exception is an **explicitly invited** contribution: when a maintainer of the target repo asks for it in-thread, or the target's published contributing policy welcomes it, AND the contribution helps the repo the bot maintains (e.g. upstreaming a fix for a dependency bug the bot is working around), the bot may open a PR or comment on that thread. Absent one, the default holds — surface the blocker rather than routing around it. `/tend-ci-runner:act-in-other-repos` carries all three cases.
 - **Watch commands**: Never use `gh run watch` or `gh pr checks --watch` — both exit on their first failed API read, reporting a transient error as a finished result, and without `--exit-status` `gh run watch` exits 0 on a failed run. Poll CI per `/tend-ci-runner:monitor-ci`.
 - **Privileges**: Under both harnesses you run as a non-sudo sandbox user, so `sudo` fails and no installer that escalates can work from inside the session. A tool that needs root belongs in the repo's `setup:` steps in `.config/tend.yaml`, which run as `runner` — with sudo — before the agent starts. In yolo, setup is a trial: ordinary bot-merged code can run there before the sandbox starts, so keep this risk visible when proposing a step. You work in the job's own checkout and home through a copy-on-write view: what `setup:` installed is on PATH, and nothing you write reaches the runner or a later step. A missing gate tool is reported, not worked around: propose the appropriate config change and say the gate went unrun rather than substituting a weaker command that turns it into a silently green run.
 
-## End the turn only when work is shipped
+## Complete the task before ending the turn
+
+The calling workflow owns the task through its remaining work and the
+follow-ups its actions create. Posting, approving, or pushing is progress;
+deduplicating one of those actions does not finish the task. End with the
+completed outcome, an identified owner of the remaining work, or a specific
+current blocker.
+
+After pushing a fix, own its CI follow-up: diagnose failures, repair what this
+task authorizes, and verify the new commit. `tend-ci-fix` watches the default
+branch, so it does not take over a PR branch's red CI. Once the review and
+verification work is complete, finish the landing decision per
+`/tend-ci-runner:merge-pr`.
 
 Returning the final response ends the CI session — the runner is discarded, and the harness does not reliably resume it when a background task completes. If you return while a background command whose result was going to gate the deliverable is still running, the task either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `$TMPDIR/comment-body.md` — dies with it.
 
-The session is live until the deliverable is **maintainer-visible**: pushed, posted, or opened. Local-only state — a commit nobody else can see, a comment body never sent — does not count and is not recoverable on a follow-up.
+Make the deliverable **maintainer-visible**: pushed, posted, or opened. Local-only state — a commit nobody else can see, a comment body never sent — is not recoverable on a follow-up.
 
 Corollary: don't background anything whose output gates the deliverable. If a full test suite or comprehensive lint needs to run before push, run it synchronously and accept the time cost; if it's too slow for the session budget, push first and let CI re-run it. A session that shipped a partial result is recoverable; a session that ended mid-wait with the deliverable on a local branch is not. A targeted compile plus the tests directly exercising the change is enough local confidence to ship — leave the comprehensive matrix to CI.
-
-A pushed fix isn't done until its required checks are terminal — see `/tend-ci-runner:monitor-ci`.
 
 Before ending, re-fetch the thread you are handling: a comment that landed meanwhile may be a directive that changes the work, and a sibling run may already have done it (`/tend-ci-runner:post-to-github`).
 

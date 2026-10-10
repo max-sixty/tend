@@ -62,6 +62,19 @@ read -r NOW_OID NOW_STATE < <(gh pr view <N> --json headRefOid,state --jq '"\(.h
 
 If it moved, `git fetch` and read the new commits before verifying: drop whatever the sibling already landed, rebase what's left, and verify once against the new head. Expect the overlap rather than treating it as a surprise — a reviewer and a coverage gate reading the same new code ask for the same missing test. The runs API can't substitute for this check: a `schedule` or `repository_dispatch` run reports `head_branch: main`, not the branch it is editing, so a live sibling is invisible there.
 
+## Reviews arriving during verification
+
+`tend-review` fires on a PR you open. A review arriving while you poll belongs
+to its reviewer: on bot-authored PRs that session applies its own findings.
+Finish your verification without racing its edits, and identify that review
+as the owner of the remaining work. A session dispatched to answer a specific
+review owns it normally.
+
+On a human-authored fork PR, the reviewer posts findings and does not apply
+them. If you pushed under a maintainer directive, act on findings against your
+commits before ending. Otherwise name them as unaddressed and unowned. Findings
+on the contributor's own commits already reached them.
+
 ## Merging upstream into PR branches
 
 When merging the default branch into a PR branch, **never use `--allow-unrelated-histories`**: if `git merge` fails because no merge base exists, the checkout is broken (usually shallow — re-checkout with `fetch-depth: 0`), and forcing the merge creates add/add conflicts in every file. If the merge fails because untracked files would be overwritten, stash them (`git stash --include-untracked`, merge, `git stash pop`) rather than deleting them.

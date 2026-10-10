@@ -101,7 +101,7 @@ gh pr view <number> --json comments,reviews \
   --jq '{comments: (.comments | length), reviews: (.reviews | length)}'
 ```
 
-Keep `reviews` in the PR projection rather than narrowing to `comments` — it is the entry a dedup-shaped check is most likely to drop, and on a fork PR it is the one nothing else will pick up (see **A review that lands while you poll is not yours to action** in `/tend-ci-runner:monitor-ci`).
+Keep `reviews` in the PR projection rather than narrowing to `comments` — it is the entry a dedup-shaped check is most likely to drop, and on a fork PR it is the one nothing else will pick up (see **Reviews arriving during verification** in `/tend-ci-runner:push-commits`).
 
 A reply to an inline review comment needs its own check for the sibling path: a single PR review can fire both `pull_request_review` and `pull_request_review_comment` events, triggering separate workflow runs (serialized by the concurrency group, not truly concurrent). Before replying, check whether the bot already replied to that comment:
 

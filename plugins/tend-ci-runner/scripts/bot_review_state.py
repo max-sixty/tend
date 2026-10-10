@@ -2,7 +2,11 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""Resolve which bot review, if any, anchors a pull request's current head."""
+"""Expose a PR's canonical bot review state and discussion context.
+
+Feedback retains authors and discussion context for threads the bot participates in.
+Consumers derive unresolved bot-started findings from that same thread snapshot.
+"""
 
 from __future__ import annotations
 
@@ -18,20 +22,6 @@ import github_cli
 DRAFT_REVIEW_MARKER = "<!-- tend:draft-review -->"
 LEGACY_DRAFT_REVIEW_PREFIX = "Reviewing as a draft —"
 # `gh api graphql --paginate` follows `$endCursor` through every thread page.
-FEEDBACK_QUERY = """
-query($owner:String!,$repo:String!,$number:Int!,$endCursor:String) {
-  repository(owner:$owner,name:$repo) {
-    pullRequest(number:$number) {
-      reviewThreads(first:100,after:$endCursor) {
-        pageInfo { hasNextPage endCursor }
-        nodes { comments(first:100) { nodes {
-          author { login } path line body createdAt
-        } } }
-      }
-    }
-  }
-}
-"""
 THREADS_QUERY = """
 query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
   repository(owner: $owner, name: $repo) {
@@ -41,8 +31,9 @@ query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
         nodes {
           id
           isResolved
-          comments(first: 1) {
-            nodes { author { login } path line body }
+          isOutdated
+          comments(first: 100) {
+            nodes { author { login } path line body createdAt commit { oid } }
           }
         }
       }
@@ -79,11 +70,9 @@ def review_state(
         for review in mine
         if review.get("body")
         or review.get("id") in substantive_ids
-        or review.get("state") == "APPROVED"
+        or review.get("state") in {"APPROVED", "CHANGES_REQUESTED"}
     ]
     last_substantive = substantive[-1] if substantive else None
-    approvals = [review for review in mine if review.get("state") == "APPROVED"]
-    last_approval = approvals[-1] if approvals else None
     last_force_push_at = max(force_push_times, default="")
 
     def after_rewrite(review: dict[str, Any]) -> bool:
@@ -98,7 +87,6 @@ def review_state(
         if review.get("commit_id") == head_sha and after_rewrite(review)
     ]
     body_at_head = [review for review in at_head if review.get("body")]
-    fresh_approvals = [review for review in approvals if after_rewrite(review)]
     decisions = [
         review
         for review in mine
@@ -119,6 +107,17 @@ def review_state(
         )
 
     return {
+        "reviews": [
+            {
+                "id": review["id"],
+                "sha": review["commit_id"],
+                "state": review["state"],
+                "at": review["submitted_at"],
+                "body": review["body"],
+                "draft_mode": is_draft_review(review),
+            }
+            for review in mine
+        ],
         "head_sha": head_sha,
         "bot_login": bot,
         "last_force_push_at": last_force_push_at,
@@ -150,13 +149,15 @@ def review_state(
         ),
         "orphan_id": body_at_head[-1]["id"] if body_at_head else None,
         "fresh_approval_sha": (
-            (fresh_approvals[-1].get("commit_id") or "") if fresh_approvals else ""
+            (standing_approval.get("commit_id") or "")
+            if standing_approval and after_rewrite(standing_approval)
+            else ""
         ),
         "stale_approval_id": (
-            last_approval["id"]
-            if last_approval
+            standing_approval["id"]
+            if standing_approval
             and last_force_push_at
-            and (last_approval.get("submitted_at") or "") < last_force_push_at
+            and (standing_approval.get("submitted_at") or "") < last_force_push_at
             else ""
         ),
         "standing_approval_id": (standing_approval["id"] if standing_approval else ""),
@@ -242,12 +243,12 @@ def dismiss_stale_approval(pr: str, message: str) -> None:
         )
 
 
-def _review_threads(pr: str, repo: str, query: str) -> list[dict[str, Any]]:
+def _review_threads(pr: str, repo: str) -> list[dict[str, Any]]:
     owner, name = repo.split("/", 1)
     pages = github_cli.pages(
         "graphql",
         "-f",
-        f"query={query}",
+        f"query={THREADS_QUERY}",
         "-f",
         f"owner={owner}",
         "-f",
@@ -265,29 +266,15 @@ def _review_threads(pr: str, repo: str, query: str) -> list[dict[str, Any]]:
 
 
 def feedback(pr: str) -> dict[str, Any]:
-    """Return prior conversation plus every inline comment written by the bot."""
+    """Return canonical review state with conversation and contextual bot findings."""
     repo = github_cli.repository()
-    bot = str(github_cli.json_call("api", "user")["login"])
+    state = fetch_review_state(pr, repo=repo)
+    bot = state["bot_login"]
     pr_view = github_cli.json_call(
-        "pr", "view", pr, "--repo", repo, "--json", "comments,reviews"
+        "pr", "view", pr, "--repo", repo, "--json", "comments"
     )
-    inline = [
-        comment
-        for thread in _review_threads(pr, repo, FEEDBACK_QUERY)
-        for comment in thread["comments"]["nodes"]
-        if github_cli.actor_login(comment.get("author")) == bot
-    ]
     return {
-        "previous_reviews": [
-            {
-                "state": review.get("state"),
-                "submitted_at": review.get("submittedAt"),
-                "body": review.get("body"),
-            }
-            for review in pr_view["reviews"]
-            if github_cli.actor_login(review.get("author")) == bot
-            and review.get("body")
-        ],
+        "review_state": state,
         "conversation": [
             {
                 "author": github_cli.actor_login(comment.get("author")),
@@ -296,40 +283,30 @@ def feedback(pr: str) -> dict[str, Any]:
             }
             for comment in pr_view["comments"]
         ],
-        "inline_comments": [
+        "review_threads": [
             {
-                "path": comment.get("path"),
-                "line": comment.get("line"),
-                "created_at": comment.get("createdAt"),
-                "body": comment.get("body"),
+                "id": thread["id"],
+                "is_resolved": thread["isResolved"],
+                "is_outdated": thread["isOutdated"],
+                "comments": [
+                    {
+                        "author": github_cli.actor_login(comment.get("author")),
+                        "sha": comment["commit"]["oid"] if comment["commit"] else None,
+                        "path": comment["path"],
+                        "line": comment["line"],
+                        "created_at": comment["createdAt"],
+                        "body": comment["body"],
+                    }
+                    for comment in thread["comments"]["nodes"]
+                ],
             }
-            for comment in inline
+            for thread in _review_threads(pr, repo)
+            if any(
+                github_cli.actor_login(comment.get("author")) == bot
+                for comment in thread["comments"]["nodes"]
+            )
         ],
     }
-
-
-def unresolved_threads(pr: str) -> list[dict[str, Any]]:
-    """Return unresolved review threads whose first comment belongs to the bot."""
-    repo = github_cli.repository()
-    bot = str(github_cli.json_call("api", "user")["login"])
-    result = []
-    for thread in _review_threads(pr, repo, THREADS_QUERY):
-        comments = thread["comments"]["nodes"]
-        first = comments[0] if comments else None
-        if (
-            thread.get("isResolved") is False
-            and first
-            and github_cli.actor_login(first.get("author")) == bot
-        ):
-            result.append(
-                {
-                    "id": thread["id"],
-                    "path": first.get("path"),
-                    "line": first.get("line"),
-                    "body": first.get("body"),
-                }
-            )
-    return result
 
 
 def resolve_thread(thread_id: str) -> None:
@@ -361,14 +338,11 @@ def main(argv: list[str] | None = None) -> int:
     if len(args) == 2 and args[0] == "feedback" and args[1].isdigit():
         github_cli.dump(feedback(args[1]))
         return 0
-    if len(args) == 2 and args[0] == "threads" and args[1].isdigit():
-        github_cli.dump(unresolved_threads(args[1]))
-        return 0
     if len(args) == 2 and args[0] == "resolve-thread" and args[1]:
         resolve_thread(args[1])
         return 0
     print(
-        f"usage: {sys.argv[0]} state|feedback|threads|prepare-approval <pr-number> | "
+        f"usage: {sys.argv[0]} state|feedback|prepare-approval <pr-number> | "
         "dismiss|dismiss-stale <pr-number> <message> | resolve-thread <thread-id>",
         file=sys.stderr,
     )

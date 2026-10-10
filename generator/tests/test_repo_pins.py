@@ -870,9 +870,9 @@ def test_plugin_skill_citations_resolve() -> None:
 
 
 # A conservative description cap for crowded Codex skill listings. Re-measured
-# with Codex 0.160.0 and both plugins at SKILLS_MEASURED_AT: every description
-# appeared intact, including an 839-character probe. Keep the shorter cap for
-# consumer installations that also carry other skills. The count spans both
+# with Codex 0.160.0 and both plugins at SKILLS_MEASURED_AT: every shipped
+# description appeared intact. Keep this cap for consumer installations that
+# also carry other skills. The count spans both
 # plugins; adding a skill still calls for checking the installed listing.
 #
 # To re-measure, install both plugins from this checkout into a throwaway Codex
@@ -885,9 +885,10 @@ def test_plugin_skill_citations_resolve() -> None:
 #     codex exec --skip-git-repo-check -s read-only "Quote your skills listing."
 #     rm -rf "$CODEX_HOME"
 #
-# Log in afresh rather than copying `~/.codex/auth.json` in: a token refresh
-# inside the throwaway home would rotate the refresh-token chain your own login
-# depends on.
+# Log in afresh or derive access-only auth with
+# `tend.runtime.codex.codex_subscription_auth.consumer_auth`. Copying the full
+# `~/.codex/auth.json` lets a refresh inside the throwaway home rotate the
+# refresh-token chain your own login depends on.
 #
 # Codex does not say when it shortens a description: 0.156.0 removed the
 # "Skill descriptions were shortened to fit the skills context budget" warning,
@@ -898,7 +899,7 @@ def test_plugin_skill_citations_resolve() -> None:
 # left out of the listing entirely, which is the budget exhausted rather than
 # shared thin.
 DESCRIPTION_BUDGET = 130
-SKILLS_MEASURED_AT = 26
+SKILLS_MEASURED_AT = 27
 
 
 def test_skill_frontmatter_is_loadable() -> None:

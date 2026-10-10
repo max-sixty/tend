@@ -2,15 +2,13 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""Report the dedicated Tend runs still working a notification subject.
+"""Report active dedicated Tend run candidates for a notification subject.
 
-The notifications poll defers a thread a dedicated ``tend-*`` workflow already
-owns.  Ownership has to cover runs GitHub has created but not started: a
-``tend-mention`` run can sit ``queued`` for hours, and a poll that reads its
-subject as unowned answers the maintainer a second time as the same bot
-account.  It also has to end: a run GitHub abandons stays non-terminal
-forever, and an owner that never finishes defers its subject on every later
-poll, so the thread is never handled at all.
+The report preserves each workflow's path and run status without classifying
+independent ownership. Include runs GitHub has created but not started:
+``tend-mention`` can sit ``queued`` for hours, and overlooking it can make a
+notifications poll answer the same maintainer twice. Exclude abandoned runs
+whose unchanged non-terminal state would otherwise defer the subject forever.
 """
 
 from __future__ import annotations
@@ -69,15 +67,15 @@ def abandoned(run: dict[str, Any], *, now: datetime) -> bool:
     return now - moved > ABANDONED_AFTER
 
 
-def owning_runs(
+def subject_runs(
     runs: list[dict[str, Any]], *, subject_title: str, own_run_id: int, now: datetime
 ) -> list[dict[str, Any]]:
-    """Reduce workflow runs to the dedicated ones handling *subject_title*.
+    """Reduce workflow runs to active dedicated candidates for *subject_title*.
 
     Matches on `display_title` because `workflow_run` does not expose the issue
     number for comment and review events.
     """
-    owners: dict[int, dict[str, Any]] = {}
+    candidates: dict[int, dict[str, Any]] = {}
     for run in runs:
         run_id = int(run["id"])
         if run_id == own_run_id:
@@ -89,16 +87,17 @@ def owning_runs(
             continue
         if abandoned(run, now=now):
             continue
-        owners.setdefault(
+        candidates.setdefault(
             run_id,
             {
                 "id": run_id,
                 "name": PurePosixPath(path).stem,
+                "path": path,
                 "status": run.get("status"),
                 "url": run.get("html_url"),
             },
         )
-    return sorted(owners.values(), key=lambda run: run["id"])
+    return sorted(candidates.values(), key=lambda run: run["id"])
 
 
 def fetch_active_runs(repo: str) -> list[dict[str, Any]]:
@@ -125,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     repo = github_cli.repository()
     subject_title = github_cli.json_call("api", args[0])["title"]
     github_cli.dump(
-        owning_runs(
+        subject_runs(
             fetch_active_runs(repo),
             subject_title=subject_title,
             own_run_id=int(os.environ.get("GITHUB_RUN_ID") or 0),

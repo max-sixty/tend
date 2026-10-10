@@ -178,13 +178,14 @@ def test_prepare_approval_pins_only_an_unapproved_head(env: dict[str, str]) -> N
     assert not pin.exists()
 
 
-def test_feedback_combines_conversation_reviews_and_inline_comments(
+def test_feedback_retains_discussion_context_for_bot_participated_threads(
     env: dict[str, str],
 ) -> None:
     _write(
         env,
         "PR_HEAD_JSON",
         {
+            "headRefOid": HEAD,
             "comments": [
                 {
                     "author": {"login": "human"},
@@ -197,17 +198,27 @@ def test_feedback_combines_conversation_reviews_and_inline_comments(
                     "body": "deleted account",
                 },
             ],
-            "reviews": [
-                {
-                    "author": {"login": BOT},
-                    "state": "COMMENTED",
-                    "submittedAt": "2026-01-01T00:00:00Z",
-                    "body": "finding",
-                },
-                {"author": {"login": "human"}, "state": "APPROVED", "body": "ok"},
-            ],
         },
     )
+
+    def comment(author: str | None, body: str) -> dict:
+        return {
+            "author": {"login": author} if author else None,
+            "path": "a.py",
+            "line": 3,
+            "createdAt": "2026-01-01T01:00:00Z",
+            "body": body,
+            "commit": {"oid": HEAD},
+        }
+
+    def thread(thread_id: str, *comments: dict) -> dict:
+        return {
+            "id": thread_id,
+            "isResolved": False,
+            "isOutdated": False,
+            "comments": {"nodes": list(comments)},
+        }
+
     _write(
         env,
         "GRAPHQL_JSON",
@@ -217,25 +228,18 @@ def test_feedback_combines_conversation_reviews_and_inline_comments(
                     "pullRequest": {
                         "reviewThreads": {
                             "nodes": [
-                                {
-                                    "comments": {
-                                        "nodes": [
-                                            {
-                                                "author": {"login": BOT},
-                                                "path": "a.py",
-                                                "line": 3,
-                                                "createdAt": "2026-01-01T01:00:00Z",
-                                                "body": "inline",
-                                            },
-                                            {
-                                                "author": {"login": "human"},
-                                                "path": "a.py",
-                                                "line": 3,
-                                                "body": "reply",
-                                            },
-                                        ]
-                                    }
-                                }
+                                thread(
+                                    "bot-started",
+                                    comment(BOT, "inline"),
+                                    comment("human", "reply"),
+                                    comment(None, "deleted account reply"),
+                                ),
+                                thread(
+                                    "bot-participated",
+                                    comment("human", "question"),
+                                    comment(BOT, "answer"),
+                                ),
+                                thread("unrelated", comment("human", "other")),
                             ]
                         }
                     }
@@ -248,13 +252,7 @@ def test_feedback_combines_conversation_reviews_and_inline_comments(
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
-        "previous_reviews": [
-            {
-                "state": "COMMENTED",
-                "submitted_at": "2026-01-01T00:00:00Z",
-                "body": "finding",
-            }
-        ],
+        "review_state": _state(env),
         "conversation": [
             {
                 "author": "human",
@@ -267,24 +265,46 @@ def test_feedback_combines_conversation_reviews_and_inline_comments(
                 "body": "deleted account",
             },
         ],
-        "inline_comments": [
+        "review_threads": [
             {
-                "path": "a.py",
-                "line": 3,
-                "created_at": "2026-01-01T01:00:00Z",
-                "body": "inline",
+                "id": thread_id,
+                "is_resolved": False,
+                "is_outdated": False,
+                "comments": [
+                    {
+                        "author": author,
+                        "sha": HEAD,
+                        "path": "a.py",
+                        "line": 3,
+                        "created_at": "2026-01-01T01:00:00Z",
+                        "body": body,
+                    }
+                    for author, body in comments
+                ],
             }
+            for thread_id, comments in [
+                (
+                    "bot-started",
+                    [
+                        (BOT, "inline"),
+                        ("human", "reply"),
+                        ("", "deleted account reply"),
+                    ],
+                ),
+                ("bot-participated", [("human", "question"), (BOT, "answer")]),
+            ]
         ],
     }
 
 
-def test_threads_filters_to_unresolved_threads_started_by_the_bot(
+def test_feedback_paginates_threads(
     env: dict[str, str],
 ) -> None:
     def thread(thread_id: str, *, bot: str = BOT, resolved: bool = False) -> dict:
         return {
             "id": thread_id,
             "isResolved": resolved,
+            "isOutdated": False,
             "comments": {
                 "nodes": [
                     {
@@ -292,6 +312,8 @@ def test_threads_filters_to_unresolved_threads_started_by_the_bot(
                         "path": "a.py",
                         "line": 3,
                         "body": "finding",
+                        "createdAt": "t",
+                        "commit": {"oid": HEAD},
                     }
                 ]
             },
@@ -308,19 +330,22 @@ def test_threads_filters_to_unresolved_threads_started_by_the_bot(
             }
         )
 
-    # The fixture is the page stream `gh api graphql --paginate` walks. A PR
-    # past 100 threads keeps its newest ones on the later pages.
+    _write(env, "PR_HEAD_JSON", {"headRefOid": HEAD, "comments": []})
+    # A PR past 100 threads keeps its newest ones on the later pages.
+    participated = thread("participated", bot="human")
+    participated["comments"]["nodes"].extend(thread("bot")["comments"]["nodes"])
     Path(env["GRAPHQL_JSON"]).write_text(
         page(thread("keep"), thread("resolved", resolved=True))
-        + page(thread("human", bot="human"), thread("newest"))
+        + page(thread("human", bot="human"), participated, thread("newest"))
     )
-
-    result = _run_cli(env, "threads", "7")
-
+    result = _run_cli(env, "feedback", "7")
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == [
-        {"id": "keep", "path": "a.py", "line": 3, "body": "finding"},
-        {"id": "newest", "path": "a.py", "line": 3, "body": "finding"},
+    state = json.loads(result.stdout)
+    assert [thread["id"] for thread in state["review_threads"]] == [
+        "keep",
+        "resolved",
+        "participated",
+        "newest",
     ]
     assert "--paginate" in Path(env["GH_CALLS"]).read_text()
 
@@ -748,3 +773,122 @@ def test_the_repo_is_named_explicitly_on_every_call(env: dict[str, str]) -> None
     assert lookups
     for call in lookups:
         assert "owner/repo" in call, call
+
+
+@pytest.mark.parametrize("later_state", ["APPROVED", "CHANGES_REQUESTED"])
+def test_feedback_keeps_empty_verdict_and_inline_resolution(
+    env: dict[str, str],
+    later_state: str,
+) -> None:
+    """GitHub's latest empty verdict must survive beside an old resolved finding."""
+    reviews = [
+        _review(1, "2026-01-01T00:00:00Z", body="old finding", sha=OLD),
+        _review(2, "2026-01-02T00:00:00Z", state=later_state),
+    ]
+    _write(env, "REVIEWS_JSON", reviews)
+    _write(env, "PR_HEAD_JSON", {"headRefOid": HEAD, "comments": []})
+    _write(
+        env,
+        "GRAPHQL_JSON",
+        {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "nodes": [
+                                {
+                                    "id": name,
+                                    "isResolved": resolved,
+                                    "isOutdated": resolved,
+                                    "comments": {
+                                        "nodes": [
+                                            {
+                                                "author": {"login": BOT},
+                                                "path": "a.py",
+                                                "line": None if resolved else 3,
+                                                "body": "inline",
+                                                "createdAt": "t",
+                                                "commit": {"oid": OLD},
+                                            }
+                                        ]
+                                    },
+                                }
+                                for name, resolved in [
+                                    ("resolved", True),
+                                    ("unresolved", False),
+                                ]
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+    )
+    result = _run_cli(env, "feedback", "7")
+    assert result.returncode == 0, result.stderr
+    feedback = json.loads(result.stdout)
+    assert feedback["review_state"] == _state(env)
+    assert [
+        (r["id"], r["sha"], r["state"], r["body"])
+        for r in feedback["review_state"]["reviews"]
+    ] == [
+        (1, OLD, "COMMENTED", "old finding"),
+        (2, HEAD, later_state, ""),
+    ]
+    assert feedback["review_state"]["at_head"]["state"] == later_state
+    assert feedback["review_threads"] == [
+        {
+            "id": name,
+            "is_resolved": resolved,
+            "is_outdated": resolved,
+            "comments": [
+                {
+                    "author": BOT,
+                    "sha": OLD,
+                    "path": "a.py",
+                    "line": None if resolved else 3,
+                    "created_at": "t",
+                    "body": "inline",
+                }
+            ],
+        }
+        for name, resolved in [("resolved", True), ("unresolved", False)]
+    ]
+
+
+def test_empty_changes_requested_replaces_approval_at_the_same_head(
+    env: dict[str, str],
+) -> None:
+    _write(
+        env,
+        "REVIEWS_JSON",
+        [
+            _review(1, "2026-01-01T00:00:00Z", state="APPROVED"),
+            _review(2, "2026-01-02T00:00:00Z", state="CHANGES_REQUESTED"),
+        ],
+    )
+    state = _state(env)
+    assert state["at_head"]["state"] == "CHANGES_REQUESTED"
+    assert state["fresh_approval_sha"] == ""
+    result = _run_cli(env, "prepare-approval", "7")
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["already_approved"] is False
+
+
+def test_withholding_comment_after_dismissal_is_the_current_review(
+    env: dict[str, str],
+) -> None:
+    _write(
+        env,
+        "REVIEWS_JSON",
+        [
+            _review(1, "2026-01-01T00:00:00Z", state="DISMISSED"),
+            _review(2, "2026-01-02T00:00:00Z", body="Author withheld merge readiness."),
+        ],
+    )
+    state = _state(env)
+    assert [r["state"] for r in state["reviews"]] == ["DISMISSED", "COMMENTED"]
+    assert state["at_head"]["state"] == "COMMENTED"
+    assert state["last_substantive"]["id"] == 2
+    assert state["standing_approval_id"] == ""
+    assert state["fresh_approval_sha"] == ""

@@ -1,0 +1,38 @@
+{
+  "source": "synthetic scope contrast",
+  "repository": "owner/repo",
+  "request": "Check CI for dddddddddddddddddddddddddddddddddddddddd and report what the check results establish.",
+  "session_work": {
+    "assigned_role": "Inspect this pinned commit\u2019s CI results for a maintainer status report.",
+    "changes_authored": [],
+    "reviews_performed": [],
+    "approvals_submitted": [],
+    "pushes": [],
+    "other_assigned_work": []
+  },
+  "pr": {
+    "number": 9301,
+    "state": "OPEN",
+    "draft": false,
+    "head_sha": "dddddddddddddddddddddddddddddddddddddddd",
+    "author": "app/dependabot",
+    "reviews": [
+      {
+        "author": "leaf-agent",
+        "state": "APPROVED",
+        "body": "",
+        "commit_id": "dddddddddddddddddddddddddddddddddddddddd"
+      }
+    ],
+    "human_hold": null,
+    "unresolved_actionable_findings": [],
+    "active_subject_runs": []
+  },
+  "observed_commands": [
+    {
+      "command": "uv run --script plugin/scripts/poll_pr_checks.py poll 9301 dddddddddddddddddddddddddddddddddddddddd",
+      "exit_code": 0,
+      "output": "green: every gating check on dddddddddddddddddddddddddddddddddddddddd settled green\nverdict: GREEN on dddddddddddddddddddddddddddddddddddddddd (exit 0)\n"
+    }
+  ]
+}

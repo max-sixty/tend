@@ -185,4 +185,5 @@ These steps are for the overlay path. Filing upstream follows
    request; a maintainer lands it (or doesn't) in their own time. Don't post
    a separate comment pinging for review, and don't block the session
    waiting. This open-and-exit is for skill proposals only; a code fix
-   follows `/tend-ci-runner:monitor-ci`.
+   follows **Complete the task before ending the turn** in
+   `/tend-ci-runner:run-tend`.
