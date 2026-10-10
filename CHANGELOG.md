@@ -6,6 +6,20 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.11
+
+### Fixed
+
+- YOLO landing follows the repository's CI policy, including verified repairs with unrelated terminal failures where the repository permits them. The bot attempts an ordinary SHA-pinned merge and uses GitHub's API response as the merge verdict. Requester-access and triage guidance use the same merge authority. ([#1528](https://github.com/max-sixty/tend/pull/1528))
+- `tend init` stops before writing workflows when the canonical repository owner lookup fails, preserving the fork guard. ([#1522](https://github.com/max-sixty/tend/pull/1522))
+
+### Internal
+
+- Add frozen YOLO landing evaluations and refresh eval dependencies. ([#1528](https://github.com/max-sixty/tend/pull/1528), [#1516](https://github.com/max-sixty/tend/pull/1516))
+- Require general behavioral eval coverage for agent improvements. ([#1529](https://github.com/max-sixty/tend/pull/1529))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.10
 
 ### Improved
