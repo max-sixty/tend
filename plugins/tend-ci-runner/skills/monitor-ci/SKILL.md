@@ -40,9 +40,17 @@ Run this command in the foreground with the longest command timeout the harness 
 
 The poll waits for every check, advisory ones included. Where the repo's overlay names checks the poll leaves out, pass each as `--skip '<check name>'`, the name `gh pr checks` shows: the poll neither waits for nor reads any check of that name, so a red one doesn't stop the verdict either.
 
-Exit 0 is green, judged on the latest run of each check — where one workflow ran twice *independently* on the same SHA, read the earlier run's own conclusion before relying on it. Exit 1 is red, with the failing checks and their run URLs: diagnose with `gh run view <run-id> --log-failed`, fix, commit, push, and poll the new commit. Any other exit or command timeout is **unverified, not green**. Exit 3 means the head moved: report the checks it lists as unverified, marking each required or advisory (`gh pr checks <number> --required` lists the required contexts already registered on the commit; an omnibus that hasn't registered yet is required too).
+Exit 0 is green, judged on the latest run of each check — where one workflow ran twice *independently* on the same SHA, read the earlier run's own conclusion before relying on it. Exit 1 is red, with the failing checks and their run URLs: diagnose each failure with `gh run view <run-id> --log-failed`. Any other exit or command timeout is **unverified, not green**. Exit 3 means the head moved: report the checks it lists as unverified, marking each required or advisory (`gh pr checks <number> --required` lists the required contexts already registered on the commit; an omnibus that hasn't registered yet is required too).
 
-When the system prompt says the merge mode is `yolo`, exit 0 clears the CI gate.
+Apply the repository overlay's CI landing policy to the pinned commit. The
+default requires exit 0. Where the overlay permits landing with terminal
+failures, verify and record the evidence its conditions require; the poll's red
+verdict alone does not override that policy. Fix failures the policy does not
+cover, commit, push, and poll the new commit. Pending checks and unverified
+results do not establish that a terminal-failure exception applies.
+
+When the system prompt says the merge mode is `yolo`, satisfying that CI policy
+clears the CI gate.
 Before merging, re-read the PR and its inline review comments and check for
 another dedicated owner:
 
@@ -56,9 +64,11 @@ A draft, an unretracted human merge hold, an unresolved actionable finding, or
 another owning run leaves the verified PR open. The CI poll omits Tend's review
 check, so its green result does not settle a review that started after the push.
 Otherwise merge through the pull-request REST endpoint with `PINNED_SHA`.
-GitHub enforces the preconditions itself — 409 when the head no longer matches
-`sha`, 405 when the PR is closed or not mergeable. On either refusal, leave the
-PR open. Never use auto-merge or omit `sha`:
+Use that request's response as GitHub's merge verdict for the authenticated bot;
+an aggregate `mergeStateStatus: BLOCKED` or `mergeable_state: blocked` is not
+an API refusal. GitHub enforces the preconditions itself — 409 when the head no
+longer matches `sha`, 405 when the PR is closed or not mergeable. On a refusal,
+leave the PR open and report the response. Never use auto-merge or omit `sha`:
 
 ```bash
 gh api "repos/{owner}/{repo}/pulls/<number>/merge" -X PUT \

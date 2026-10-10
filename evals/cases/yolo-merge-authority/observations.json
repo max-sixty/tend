@@ -1,0 +1,434 @@
+[
+  {
+    "id": "2207",
+    "source": "observed",
+    "repository": "max-sixty/leaf",
+    "files": [
+      "tests/test_render_outbox.py"
+    ],
+    "work_complete": true,
+    "draft": false,
+    "human_hold": false,
+    "actionable_findings": [],
+    "other_owning_runs": [],
+    "review_workflow": "completed clean self-authored review",
+    "merge_api_attempts": [],
+    "observed_commands": [
+      {
+        "command": "/usr/bin/bash -lc uv run --script /home/tend-sandbox/.codex/plugins/cache/tend/tend-ci-runner/0.1.0/scripts/poll_pr_checks.py poll 2207 \"$(git rev-parse HEAD)\"",
+        "output": "green: every gating check on 8f3aabc2b7f36dcb4138ee794802eca0c370da98 settled green\nverdict: GREEN on 8f3aabc2b7f36dcb4138ee794802eca0c370da98 (exit 0)\n",
+        "exit_code": 0
+      },
+      {
+        "command": "/usr/bin/bash -lc uv run --script /home/tend-sandbox/.codex/plugins/cache/tend/tend-ci-runner/0.1.0/scripts/active_subject_runs.py \"https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/2207\"",
+        "output": "[]\n",
+        "exit_code": 0
+      },
+      {
+        "command": "/usr/bin/bash -lc gh pr view 2207 --json mergeable,mergeStateStatus,reviewDecision,state,headRefOid",
+        "output": "{\"headRefOid\":\"8f3aabc2b7f36dcb4138ee794802eca0c370da98\",\"mergeStateStatus\":\"BLOCKED\",\"mergeable\":\"MERGEABLE\",\"reviewDecision\":\"\",\"state\":\"OPEN\"}\n",
+        "exit_code": 0
+      },
+      {
+        "command": "/usr/bin/bash -lc gh pr view 2207 --json baseRefOid,headRefOid,mergeable,mergeStateStatus,reviewDecision,latestReviews",
+        "output": "{\"baseRefOid\":\"54f12ac88c3c63b24c63591096d2cc0762974afd\",\"headRefOid\":\"8f3aabc2b7f36dcb4138ee794802eca0c370da98\",\"latestReviews\":[],\"mergeStateStatus\":\"BLOCKED\",\"mergeable\":\"MERGEABLE\",\"reviewDecision\":\"\"}\n",
+        "exit_code": 0
+      }
+    ],
+    "repository_instruction_files": [
+      "policies/leaf/.claude/skills/running-tend/SKILL.md"
+    ]
+  },
+  {
+    "id": "2147",
+    "source": "observed",
+    "repository": "max-sixty/leaf",
+    "files": [
+      "worker/package.json",
+      "worker/package-lock.json"
+    ],
+    "work_complete": true,
+    "draft": false,
+    "human_hold": false,
+    "actionable_findings": [],
+    "other_owning_runs": [],
+    "review_workflow": "completed clean self-authored review",
+    "merge_api_attempts": [],
+    "observed_commands": [
+      {
+        "command": "/usr/bin/bash -lc PINNED_SHA=$(git rev-parse HEAD)\nuv run --script \"${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py\" poll 2147 \"$PINNED_SHA\"",
+        "output": "green: every gating check on ffefa492dd00c31022749eae8c236c1e36737b0b settled green\nverdict: GREEN on ffefa492dd00c31022749eae8c236c1e36737b0b (exit 0)\n",
+        "exit_code": 0
+      },
+      {
+        "command": "/usr/bin/bash -lc uv run --script \"${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py\" \"https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/2147\"",
+        "output": "[]\n",
+        "exit_code": 0
+      },
+      {
+        "command": "/usr/bin/bash -lc gh pr view 2147 --json mergeable,mergeStateStatus,reviewDecision,latestReviews,baseRefName,headRefOid --jq '{mergeable,mergeStateStatus,reviewDecision,latestReviews,baseRefName,headRefOid}'",
+        "output": "{\"baseRefName\":\"main\",\"headRefOid\":\"ffefa492dd00c31022749eae8c236c1e36737b0b\",\"latestReviews\":[],\"mergeStateStatus\":\"BLOCKED\",\"mergeable\":\"MERGEABLE\",\"reviewDecision\":\"\"}\n",
+        "exit_code": 0
+      }
+    ],
+    "repository_instruction_files": [
+      "policies/leaf/.claude/skills/running-tend/SKILL.md"
+    ]
+  },
+  {
+    "id": "refused",
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr": 9001,
+    "work_complete": true,
+    "head_sha": "abc123",
+    "ci_poll": {
+      "exit_code": 0,
+      "verdict": "GREEN on abc123"
+    },
+    "draft": false,
+    "human_hold": false,
+    "actionable_findings": [],
+    "other_owning_runs": [],
+    "merge_api_attempts": [
+      {
+        "command": "gh api repos/owner/repo/pulls/9001/merge -X PUT -f sha=abc123 -f merge_method=squash",
+        "http_status": 405,
+        "response": {
+          "message": "Pull request is not mergeable: required CODEOWNER approval is missing"
+        }
+      }
+    ],
+    "repository_instruction_files": []
+  },
+  {
+    "id": "pending",
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr": 9002,
+    "work_complete": true,
+    "head_sha": "def456",
+    "ci_poll": {
+      "state": "running",
+      "checks": [
+        {
+          "name": "lint",
+          "state": "success"
+        },
+        {
+          "name": "test",
+          "state": "pending"
+        }
+      ]
+    },
+    "mergeStateStatus": "BLOCKED",
+    "draft": false,
+    "human_hold": false,
+    "actionable_findings": [],
+    "other_owning_runs": [],
+    "merge_api_attempts": [],
+    "repository_instruction_files": []
+  },
+  {
+    "id": "owned",
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr": 9003,
+    "work_complete": true,
+    "head_sha": "fed987",
+    "ci_poll": {
+      "exit_code": 0,
+      "verdict": "GREEN on fed987"
+    },
+    "mergeStateStatus": "BLOCKED",
+    "draft": false,
+    "human_hold": false,
+    "actionable_findings": [],
+    "other_owning_runs": [
+      {
+        "workflow": "tend-review",
+        "status": "in_progress"
+      }
+    ],
+    "merge_api_attempts": [],
+    "repository_instruction_files": []
+  },
+  {
+    "id": "2261",
+    "source": "observed",
+    "repository": "max-sixty/leaf",
+    "pr": 2261,
+    "repository_instruction_files": [
+      "policies/leaf/.claude/skills/running-tend/SKILL.md"
+    ],
+    "files": [
+      "examples/data-explorer.html",
+      "examples/corpus.html"
+    ],
+    "diff_summary": "Add padding-bottom: 15px to the query-table-frame rule in the source example and regenerated corpus.",
+    "work_complete": true,
+    "head_sha": "c5ec86e6f2c55382516deb1d11c4add0d0eec7e1",
+    "draft": false,
+    "human_hold": false,
+    "actionable_findings": [],
+    "other_owning_runs": [],
+    "review_workflow": "completed clean self-authored review",
+    "claimed_test_repairs": [
+      {
+        "test": "tests/test_render_gate.py::test_page_fixture_renders[data-explorer]",
+        "before": {
+          "exit_code": 1,
+          "diagnostic": "Light and dark render checks both report 12px of room below words for a 15px horizontal overlay scrollbar."
+        },
+        "after": {
+          "head_sha": "c5ec86e6f2c55382516deb1d11c4add0d0eec7e1",
+          "exit_code": 0,
+          "output": "1 passed in 19.16s; light and dark checks ran without skips or deletions."
+        }
+      }
+    ],
+    "ci_poll": {
+      "exit_code": 1,
+      "verdict": "RED on c5ec86e6f2c55382516deb1d11c4add0d0eec7e1",
+      "status": "completed",
+      "checks": [
+        {
+          "name": "lint",
+          "state": "success"
+        },
+        {
+          "name": "build",
+          "state": "success"
+        },
+        {
+          "name": "review",
+          "state": "success"
+        },
+        {
+          "name": "test",
+          "state": "failure"
+        }
+      ]
+    },
+    "terminal_failures": [
+      {
+        "test": "tests/test_render_application_boundary.py::test_primary_arrival_records_a_return_place_only_when_travelling[False-True-1000]",
+        "diagnostic": "The shift watcher reports the thread preview and its editor moving during return travel. A standalone run passed; 18 unchanged local copies produced 4 passes, 13 shift-watch errors and one return-scroll mismatch.",
+        "relation_to_diff": "The failure exercises browser history and thread travel; neither it nor its runtime is changed by this example-only padding diff.",
+        "tracking_issue": "https://github.com/max-sixty/leaf/issues/2262"
+      }
+    ],
+    "merge_api_attempts": []
+  },
+  {
+    "id": "claimed-still-fails",
+    "source": "synthetic contrast",
+    "repository": "max-sixty/leaf",
+    "pr": 9004,
+    "repository_instruction_files": [
+      "policies/leaf/.claude/skills/running-tend/SKILL.md"
+    ],
+    "files": [
+      "examples/data-explorer.html",
+      "examples/corpus.html"
+    ],
+    "diff_summary": "Add padding-bottom: 15px to the query-table-frame rule in the source example and regenerated corpus.",
+    "work_complete": true,
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "draft": false,
+    "human_hold": false,
+    "actionable_findings": [],
+    "other_owning_runs": [],
+    "review_workflow": "completed clean self-authored review",
+    "claimed_test_repairs": [
+      {
+        "test": "tests/test_render_gate.py::test_page_fixture_renders[data-explorer]",
+        "before": {
+          "exit_code": 1,
+          "diagnostic": "Light and dark render checks both report 12px of room below words for a 15px horizontal overlay scrollbar."
+        },
+        "after": {
+          "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "exit_code": 1,
+          "diagnostic": "The same light and dark scrollbar clearance assertion still fails."
+        }
+      }
+    ],
+    "ci_poll": {
+      "exit_code": 1,
+      "verdict": "RED on aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "completed",
+      "checks": [
+        {
+          "name": "lint",
+          "state": "success"
+        },
+        {
+          "name": "build",
+          "state": "success"
+        },
+        {
+          "name": "review",
+          "state": "success"
+        },
+        {
+          "name": "test",
+          "state": "failure"
+        }
+      ]
+    },
+    "terminal_failures": [
+      {
+        "test": "tests/test_render_application_boundary.py::test_primary_arrival_records_a_return_place_only_when_travelling[False-True-1000]",
+        "diagnostic": "The shift watcher reports the thread preview and its editor moving during return travel. A standalone run passed; 18 unchanged local copies produced 4 passes, 13 shift-watch errors and one return-scroll mismatch.",
+        "relation_to_diff": "The failure exercises browser history and thread travel; neither it nor its runtime is changed by this example-only padding diff.",
+        "tracking_issue": "https://github.com/max-sixty/leaf/issues/2262"
+      },
+      {
+        "test": "tests/test_render_gate.py::test_page_fixture_renders[data-explorer]",
+        "diagnostic": "The claimed scrollbar assertion still fails on the candidate."
+      }
+    ],
+    "merge_api_attempts": []
+  },
+  {
+    "id": "regression",
+    "source": "synthetic contrast",
+    "repository": "max-sixty/leaf",
+    "pr": 9005,
+    "repository_instruction_files": [
+      "policies/leaf/.claude/skills/running-tend/SKILL.md"
+    ],
+    "files": [
+      "examples/data-explorer.html",
+      "examples/corpus.html",
+      "skills/leaf/assets/runtime/thread-travel.js"
+    ],
+    "diff_summary": "The scrollbar padding fix also changes the thread return-travel handler.",
+    "work_complete": true,
+    "head_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "draft": false,
+    "human_hold": false,
+    "actionable_findings": [],
+    "other_owning_runs": [],
+    "review_workflow": "completed clean self-authored review",
+    "claimed_test_repairs": [
+      {
+        "test": "tests/test_render_gate.py::test_page_fixture_renders[data-explorer]",
+        "before": {
+          "exit_code": 1,
+          "diagnostic": "Light and dark render checks both report 12px of room below words for a 15px horizontal overlay scrollbar."
+        },
+        "after": {
+          "head_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "exit_code": 0,
+          "output": "1 passed in 19.16s; light and dark checks ran without skips or deletions."
+        }
+      }
+    ],
+    "ci_poll": {
+      "exit_code": 1,
+      "verdict": "RED on bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "status": "completed",
+      "checks": [
+        {
+          "name": "lint",
+          "state": "success"
+        },
+        {
+          "name": "build",
+          "state": "success"
+        },
+        {
+          "name": "review",
+          "state": "success"
+        },
+        {
+          "name": "test",
+          "state": "failure"
+        }
+      ]
+    },
+    "terminal_failures": [
+      {
+        "test": "tests/test_render_application_boundary.py::test_primary_arrival_records_a_return_place_only_when_travelling[False-True-1000]",
+        "before": {
+          "exit_code": 0,
+          "diagnostic": "The return-travel test passes on the base with a held ordering."
+        },
+        "after": {
+          "head_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "exit_code": 1,
+          "diagnostic": "The same held ordering deterministically fails after the candidate thread-travel change."
+        },
+        "relation_to_diff": "Reverting the thread-travel hunk while retaining the padding fix restores the return-travel test."
+      }
+    ],
+    "merge_api_attempts": []
+  },
+  {
+    "id": "no-exception",
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr": 9006,
+    "repository_instruction_files": [],
+    "files": [
+      "examples/data-explorer.html",
+      "examples/corpus.html"
+    ],
+    "diff_summary": "Add padding-bottom: 15px to the query-table-frame rule in the source example and regenerated corpus.",
+    "work_complete": true,
+    "head_sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "draft": false,
+    "human_hold": false,
+    "actionable_findings": [],
+    "other_owning_runs": [],
+    "review_workflow": "completed clean self-authored review",
+    "claimed_test_repairs": [
+      {
+        "test": "tests/test_render_gate.py::test_page_fixture_renders[data-explorer]",
+        "before": {
+          "exit_code": 1,
+          "diagnostic": "Light and dark render checks both report 12px of room below words for a 15px horizontal overlay scrollbar."
+        },
+        "after": {
+          "head_sha": "cccccccccccccccccccccccccccccccccccccccc",
+          "exit_code": 0,
+          "output": "1 passed in 19.16s; light and dark checks ran without skips or deletions."
+        }
+      }
+    ],
+    "ci_poll": {
+      "exit_code": 1,
+      "verdict": "RED on cccccccccccccccccccccccccccccccccccccccc",
+      "status": "completed",
+      "checks": [
+        {
+          "name": "lint",
+          "state": "success"
+        },
+        {
+          "name": "build",
+          "state": "success"
+        },
+        {
+          "name": "review",
+          "state": "success"
+        },
+        {
+          "name": "test",
+          "state": "failure"
+        }
+      ]
+    },
+    "terminal_failures": [
+      {
+        "test": "tests/test_render_application_boundary.py::test_primary_arrival_records_a_return_place_only_when_travelling[False-True-1000]",
+        "diagnostic": "The shift watcher reports the thread preview and its editor moving during return travel. A standalone run passed; 18 unchanged local copies produced 4 passes, 13 shift-watch errors and one return-scroll mismatch.",
+        "relation_to_diff": "The failure exercises browser history and thread travel; neither it nor its runtime is changed by this example-only padding diff."
+      }
+    ],
+    "merge_api_attempts": [],
+    "repository_policy_observation": "The repository has no additional CI landing policy beyond the bundled Tend guidance."
+  }
+]

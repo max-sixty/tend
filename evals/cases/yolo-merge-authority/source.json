@@ -1,0 +1,49 @@
+{
+  "kind": "focused",
+  "historical_ref": "0.3.10",
+  "bot": "leaf-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "3fb25f44057e349be8a68f79dd13f5735013ead2320dfcbb07fa4f0f5e41ae4d",
+    "policies/leaf/.claude/skills/running-tend/SKILL.md": "b0dd909c75c131b15d9e1df082e0b71c13d196b1e57ac7ac038e09a55bd1b4c7"
+  },
+  "origin": [
+    {
+      "run": "38014312907",
+      "run_url": "https://github.com/max-sixty/leaf/actions/runs/38014312907",
+      "transcript": "codex-session-logs-n2205/sessions/2026/10/10/rollout-2026-10-10T01-46-02-01a1237d-1245-7ca2-9b41-4f81f1348be6.jsonl",
+      "transcript_sha256": "247cc1d07e12c8753fc2e6de1e0a07e796a4ccbe1afdaaaf27fecd5136ae7c88",
+      "original_model": "gpt-6-sol",
+      "pr": "https://github.com/max-sixty/leaf/pull/2207"
+    },
+    {
+      "run": "37902878900",
+      "run_url": "https://github.com/max-sixty/leaf/actions/runs/37902878900",
+      "transcript": "codex-session-logs-n2146/sessions/2026/10/09/rollout-2026-10-09T08-08-16-01a11fb4-a9c9-7a92-b57a-070947528ef8.jsonl",
+      "transcript_sha256": "2d141dc52731b3f5cdcc5fbc54017707aa4085529e3a75146a76528366eba24b",
+      "original_model": "gpt-6-sol",
+      "pr": "https://github.com/max-sixty/leaf/pull/2147"
+    },
+    {
+      "run": "38053124718",
+      "run_url": "https://github.com/max-sixty/leaf/actions/runs/38053124718",
+      "transcript": "codex-session-logs-b3ce2d93/sessions/2026/10/10/rollout-2026-10-10T12-47-30-01a125da-aac6-7a51-8c17-5d60f728e82c.jsonl",
+      "transcript_sha256": "54cda2fa4b095fa7d3d617eff55c058d36e7422279e5e9c0a52b17ee76aa7fe6",
+      "original_model": "gpt-6-sol",
+      "pr": "https://github.com/max-sixty/leaf/pull/2261",
+      "head_sha": "c5ec86e6f2c55382516deb1d11c4add0d0eec7e1"
+    }
+  ],
+  "limits": "Three frozen post-CI/pre-merge observations extracted from production tool output, with synthetic API-refusal, pending-CI, competing-owner, still-failing claimed test, introduced regression and absent repository-exception contrasts. The relevant Leaf policy excerpt is identical in both arms. Original session reasoning and later conclusions are absent. Offline plans cannot establish actual GitHub merge acceptance.",
+  "policy_origin": {
+    "repository": "max-sixty/leaf",
+    "commit": "4d0e31810bb3ec2e1f308bb6f5c49934bf2f12a5",
+    "path": ".claude/skills/running-tend/SKILL.md",
+    "sha256": "f0ab337e7b3d9782787b0f6fbbf5092bd8bace700460b6c966786d272f594e64",
+    "excerpt_lines": [
+      "1-17",
+      "85-106"
+    ],
+    "url": "https://github.com/max-sixty/leaf/blob/4d0e31810bb3ec2e1f308bb6f5c49934bf2f12a5/.claude/skills/running-tend/SKILL.md"
+  }
+}
