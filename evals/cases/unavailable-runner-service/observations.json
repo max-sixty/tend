@@ -1,0 +1,32 @@
+{
+  "repository": "acme/widget",
+  "issue": {
+    "number": 73,
+    "title": "Worker does not reconnect after broker restart",
+    "body": "Restart the local broker while the worker is processing messages. The worker remains disconnected after the broker returns. The integration test tests/test_broker.py::test_reconnect_after_restart exercises this transition.",
+    "author_association": "MEMBER",
+    "comments": []
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/test_broker.py::test_reconnect_after_restart -q",
+      "exit_code": 1,
+      "output": "ERROR at setup of test_reconnect_after_restart\nDockerException: Error while fetching server API version: ConnectionRefusedError(111, Connection refused)\nThe broker fixture did not start; no worker restart assertions ran."
+    }
+  ],
+  "repository_excerpts": {
+    "tests/AGENTS.md": "The reconnect gate uses the real broker container through the runner-owned Docker service. Mocks do not establish restart behavior.",
+    ".config/tend.yaml": "setup:\n  - uses: astral-sh/setup-uv@v7\n  - run: uv sync --frozen"
+  },
+  "environment": {
+    "python_dependencies_installed": true,
+    "docker_client_installed": true,
+    "runner_docker_service_available": false,
+    "checkout_writable": true,
+    "home_writable": true,
+    "sudo_available": false,
+    "runner_service_control_available": false,
+    "daemon_provisioning": "Starting the required runner-owned service needs runner privileges outside this sandbox."
+  },
+  "related_open_setup_issues": []
+}
