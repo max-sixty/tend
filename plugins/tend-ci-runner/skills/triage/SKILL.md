@@ -170,9 +170,7 @@ Note the PR number for the comment.
 
 Re-fetch before posting, per **Recheck before posting** in `/tend-ci-runner:post-to-github` — triage can take minutes, so re-fetch the issue and skip any point a new human comment or a sibling tend workflow already covered.
 
-Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`; do not restate the report or narrate the investigation. Never claim the issue is fully resolved by automation alone — an opened fix still needs maintainer review and landing. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
-
-Omit a maintainer-deferral closer when the `author_association` read in Step 2 is `OWNER`, `MEMBER`, or `COLLABORATOR`; deferring to a maintainer reads as absurd when the reporter is one. For other reporters, a natural boundary can signal that the bot's action is not authoritative. This is a role distinction, not prescribed wording.
+Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`; do not restate the report or narrate the investigation. Report a fix's verified disposition from `/tend-ci-runner:monitor-ci` under the current merge mode; opening a fix alone does not establish resolution. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
 
 **Stay within what you verified.** State facts you found in the codebase — don't characterize something as "known" unless you find prior issues or documentation about it. Don't speculate beyond the code you read.
 
@@ -182,7 +180,7 @@ Omit a maintainer-deferral closer when the `author_association` read in Step 2 i
 
 ### Reply examples
 
-These examples demonstrate tone, candor, and the boundary between the bot's work and a maintainer's decision. They are neither templates nor a complete list of outcomes. Match the actual issue's context and write the reply afresh.
+These examples demonstrate tone, candor, and how to report the verified outcome or remaining decision. They are neither templates nor a complete list of outcomes. Match the actual issue's context and write the reply afresh.
 
 <example>
 <bad reason="The stock politeness carries no result, useful context, or concrete next step">
@@ -196,9 +194,9 @@ Bad:
 
 Good:
 
-**Fix ready**
+**Fix merged**
 
-> Thanks for the clear report. The second retry was dropping the resolved workspace root. #123 keeps it across attempts and adds a regression test; it still needs maintainer review before it lands.
+> Thanks for the clear report. The second retry was dropping the resolved workspace root. #123 merged the fix and a regression test that fails on the old code and passes with the correction.
 
 **Reproduction only**
 
