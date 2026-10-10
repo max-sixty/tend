@@ -13,6 +13,7 @@ metadata:
 - Load `/tend-ci-runner:post-to-github` before composing comments or reviews.
 - Read `/tend-ci-runner:review`'s `references/approving.md` before approving.
 - Load `/tend-ci-runner:dismiss-approval` if an earlier bot approval must be withdrawn.
+- Load `/tend-ci-runner:merge-pr` for each safe dependency PR's landing decision.
 
 ## Step 1: Find dependency PRs
 
@@ -35,8 +36,8 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
      prepare-approval <number>
    ```
 
-   **If `already_approved` is true, this PR is done — move to the next one.**
-   Otherwise compose `$TMPDIR/review-body.md` per
+   If `already_approved` is true, skip posting another approval. Otherwise
+   compose `$TMPDIR/review-body.md` per
    `/tend-ci-runner:post-to-github`. Give the
    reviewer the context for the approval: the upgrade's scope and the evidence
    relevant to its safety. Keep it concise and omit the inspection chronology.
@@ -56,6 +57,11 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
    gh api "repos/{owner}/{repo}/pulls/<number>/reviews" --method POST \
      -f event=APPROVE -f commit_id="$CHECKED" -F body=@"$TMPDIR/review-body.md"
    ```
+
+   For either path, follow **After the approval** in
+   `/tend-ci-runner:review`'s `references/approving.md` before the next PR.
+   Pin it to `head_sha` returned by `prepare-approval`; an already-approved
+   head has no `checked-head-<number>` file.
 4. If CI is failing, comment the failure summary per `/tend-ci-runner:post-to-github` and skip
 5. If a major version bump, comment noting it needs manual review and skip
 6. On either skip path (4 or 5), dismiss an approval that predates the newest rewrite before you leave, per `/tend-ci-runner:dismiss-approval`. Both paths are reachable *because* a rebase changed something, and neither passes through item 3's guard — so the pre-rewrite approval stays the bot's latest review, re-anchored onto the current head, and the PR still reads as bot-approved while you comment that it isn't mergeable:

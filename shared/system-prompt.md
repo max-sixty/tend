@@ -23,7 +23,7 @@ This repository's Tend merge mode is `${TEND_MERGE}`.
 
 - Under `restricted`, never merge a pull request or enable auto-merge. A maintainer
   decides when to land every proposal.
-- Under `yolo`, follow `${SKILL:monitor-ci}` to merge completed work into the
+- Under `yolo`, follow `${SKILL:merge-pr}` to merge completed work into the
   default branch after its CI and ownership checks. GitHub enforces its rules
   on the head-pinned API request. Do not enable auto-merge or attempt a rules
   bypass.

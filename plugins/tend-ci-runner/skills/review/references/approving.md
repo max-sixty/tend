@@ -23,13 +23,11 @@ Any other exit or command timeout decided nothing: don't approve, and report the
 
 Re-check the author-readiness gate on the same pass — a comment withholding merge readiness can land after the review began, and the conversation you read under **Pre-flight checks** is by now stale.
 
-An approval you post at a re-targeted head is yours to stand behind: the queued run reads that head as reviewed and finishes, so no successor session dismisses the approval if a check goes red. **Monitor CI**'s poll is the whole net — run it to terminal before ending the session.
-
 ## After the approval
 
 Poll the pinned commit to terminal per `/tend-ci-runner:monitor-ci`, then handle the outcome:
 
-- **All required checks passed** -> done.
+- **Green** -> the CI verification is complete.
 - **A check failed** and it's related to the PR -> post a follow-up `COMMENT` review with analysis and inline suggestions, then dismiss the bot's approval:
   ```bash
   uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
@@ -40,3 +38,6 @@ Poll the pinned commit to terminal per `/tend-ci-runner:monitor-ci`, then handle
 - **A check failed** (conclusion `failure`, not `cancelled`) and it's unrelated to the PR changes ->
   1. **Re-run the failed jobs** and wait for them, per **Rerunning failed jobs** in `/tend-ci-runner:monitor-ci`. A repeat doesn't settle the cause, since a timing-sensitive test can fail twice running; if the repeat shows the PR causes it after all, handle it as the related case above.
   2. **Route the failure to its fixer.** Where it came from infrastructure — runner disk, network, an upstream incident — there is nothing to fix; name it in the closing summary. Where an unsuccessful default-branch run shows the same failure, `/tend-ci-runner:ci-fix` answers it there; name that run in the closing summary. Otherwise one of the project's own tests fails on this PR while the default branch passes it: a race in the code or in the test, which a rerun hides and `ci-fix` never sees. Search for an open issue about that test. If one exists, append this PR's runs to the bot's comment there, or post one where the bot has none; otherwise open one per `/tend-ci-runner:open-pr`, naming the test, its failure message and the runs, which `tend-triage` takes up to reproduce and fix.
+
+Once the review's remaining work is addressed, complete the landing decision
+per `/tend-ci-runner:merge-pr`, using the same reviewed head and its CI evidence.

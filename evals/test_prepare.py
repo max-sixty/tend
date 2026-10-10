@@ -81,6 +81,38 @@ def test_fixture_evidence_is_verified_including_cached_logs(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize("harness", ["codex", "claude"])
+def test_merge_policy_points_to_each_plugins_available_action(
+    repository, tmp_path, monkeypatch, harness
+):
+    prompt = repository / "shared/system-prompt.md"
+    prompt.write_text(
+        "Current policy for ${BOT_NAME}: under ${TEND_MERGE}, "
+        "follow ${SKILL:merge-pr}. Start with ${SKILL:run-tend}.\n"
+    )
+    monitor = repository / "plugins/tend-ci-runner/skills/monitor-ci/SKILL.md"
+    monitor.parent.mkdir(parents=True)
+    monitor.write_text("Legacy CI and landing action.\n")
+    historical_ref = commit(repository, "Legacy plugin with CI and landing action")
+    merge = repository / "plugins/tend-ci-runner/skills/merge-pr/SKILL.md"
+    merge.parent.mkdir(parents=True)
+    merge.write_text("Dedicated landing action.\n")
+    monkeypatch.setattr(prepare, "ROOT", repository)
+    source = {"kind": "focused", "bot": "tend-agent", "merge": "yolo"}
+    source["historical_ref"] = historical_ref
+    prefix = "$" if harness == "codex" else "/tend-ci-runner:"
+    for arm, target in (("historical", "monitor-ci"), ("current", "merge-pr")):
+        plugin = tmp_path / arm
+        prepare.stage_plugin(source, arm, plugin)
+        policy = prepare.guidance(source, plugin, harness)
+        assert (
+            f"Current policy for tend-agent: under yolo, follow {prefix}{target}. "
+            f"Start with {prefix}run-tend.\n"
+        ) in policy
+        assert (plugin / "skills" / target / "SKILL.md").is_file()
+        assert "${SKILL:" not in policy
+
+
+@pytest.mark.parametrize("harness", ["codex", "claude"])
 def test_focused_case_starts_fresh_with_equal_evidence(
     repository, tmp_path, monkeypatch, harness
 ):

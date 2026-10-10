@@ -53,4 +53,4 @@ A duplicate search catches identical fixes. It misses the *same root cause class
 
 ## The local bar
 
-Fix the root cause, not the symptom. Confirm the reproduction test now passes, then review the change per **Review the change before the push** in `/tend-ci-runner:push-commits`. That targeted pass, a clean compile, and the review are the local bar. Leave the comprehensive suite to PR CI per `/tend-ci-runner:run-tend`'s "End the turn only when work is shipped"; backgrounding a long suite before push risks ending the session while the result is still local.
+Fix the root cause, not the symptom. Confirm the reproduction test now passes, then review the change per **Review the change before the push** in `/tend-ci-runner:push-commits`. That targeted pass, a clean compile, and the review are the local bar. Leave the comprehensive suite to PR CI per **Complete the task before ending the turn** in `/tend-ci-runner:run-tend`; backgrounding a long suite before push risks ending the session while the result is still local.

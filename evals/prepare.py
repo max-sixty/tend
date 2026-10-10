@@ -133,6 +133,10 @@ def guidance(source: dict, plugin: Path, harness: str) -> str:
         else "running-in-ci"
     )
     value = value.replace("${SKILL:run-tend}", f"/tend-ci-runner:{boot}")
+    landing = (
+        "merge-pr" if (plugin / "skills/merge-pr/SKILL.md").is_file() else "monitor-ci"
+    )
+    value = value.replace("${SKILL:merge-pr}", f"/tend-ci-runner:{landing}")
     value = re.sub(r"\$\{SKILL:([^}]+)\}", r"/tend-ci-runner:\1", value)
     if harness == "codex":
         value = re.sub(r"/tend-ci-runner:([a-z0-9-]+)", r"$\1", value)

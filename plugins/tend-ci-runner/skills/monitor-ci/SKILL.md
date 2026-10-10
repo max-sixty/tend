@@ -5,19 +5,10 @@ metadata:
   internal: true
 ---
 
-# Monitoring CI after a push
+# Monitor CI
 
-After pushing, what to do depends on whether a red result creates a follow-up.
-
-**A pushed fix is always gated** (triage fix, CI fix, requested change): you own its CI, so don't pre-judge a fresh push as ungated — no other tend run fixes a PR branch's CI (`tend-ci-fix` watches only the default branch). Approving a PR is also gated: dismiss it on red.
-
-**Nothing gated** (review-only, a reply, a no-op): end, stating anything still in flight. Don't background-poll — the completion notification isn't reliably delivered to a CI session.
-
-## Required skills
-
-- Load `/tend-ci-runner:dismiss-approval` if an approved PR turns red.
-- Load `/tend-ci-runner:fix-a-bug` and `/tend-ci-runner:push-commits` before fixing and pushing a red check.
-- Load `/tend-ci-runner:post-to-github` before composing a comment about unaddressed findings.
+Obtain CI evidence for the caller's pinned commit. Return the result to the
+calling workflow; that workflow decides what to repair or do next.
 
 ## Poll the pinned commit
 
@@ -28,7 +19,7 @@ Poll with the bundled script, pinned to the commit this session is accountable f
 PINNED_SHA=$(git rev-parse HEAD)
 # In a review session, HEAD is the ephemeral refs/pull/N/merge commit, which
 # carries no rollup at all; pin the PR head instead:
-#   PINNED_SHA=$(gh pr view <number> --json headRefOid --jq '.headRefOid')
+#   PINNED_SHA=$(cat "$TMPDIR/reviewed-head")
 # When the push happened in a $TMPDIR worktree the recipe then removes, capture
 # the OID there — `git rev-parse HEAD > "$TMPDIR/<name>-sha"` — before the removal.
 # Back in the main checkout HEAD is the default branch, not what you pushed.
@@ -42,39 +33,6 @@ The poll waits for every check, advisory ones included. Where the repo's overlay
 
 Exit 0 is green, judged on the latest run of each check — where one workflow ran twice *independently* on the same SHA, read the earlier run's own conclusion before relying on it. Exit 1 is red, with the failing checks and their run URLs: diagnose each failure with `gh run view <run-id> --log-failed`. Any other exit or command timeout is **unverified, not green**. Exit 3 means the head moved: report the checks it lists as unverified, marking each required or advisory (`gh pr checks <number> --required` lists the required contexts already registered on the commit; an omnibus that hasn't registered yet is required too).
 
-Apply the repository overlay's CI landing policy to the pinned commit. The
-default requires exit 0. Where the overlay permits landing with terminal
-failures, verify and record the evidence its conditions require; the poll's red
-verdict alone does not override that policy. Fix failures the policy does not
-cover, commit, push, and poll the new commit. Pending checks and unverified
-results do not establish that a terminal-failure exception applies.
-
-When the system prompt says the merge mode is `yolo`, satisfying that CI policy
-clears the CI gate.
-Before merging, re-read the PR and its inline review comments and check for
-another dedicated owner:
-
-```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py" \
-  "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/<number>"
-```
-
-A draft, an unretracted human merge hold, an unresolved actionable finding, or
-another owning run leaves the verified PR open. The CI poll omits Tend's review
-check, so its green result does not settle a review that started after the push.
-Otherwise merge through the pull-request REST endpoint with `PINNED_SHA`.
-Use that request's response as GitHub's merge verdict for the authenticated bot;
-an aggregate `mergeStateStatus: BLOCKED` or `mergeable_state: blocked` is not
-an API refusal. GitHub enforces the preconditions itself — 409 when the head no
-longer matches `sha`, 405 when the PR is closed or not mergeable. On a refusal,
-leave the PR open and report the response. Never use auto-merge or omit `sha`:
-
-```bash
-gh api "repos/{owner}/{repo}/pulls/<number>/merge" -X PUT \
-  -f sha="$PINNED_SHA" -f merge_method=squash
-```
-
 Before calling a failure pre-existing (**Grounded Analysis** in `/tend-ci-runner:run-tend`), check the recent default-branch runs of the workflow it belongs to. Filter by that workflow — on a bot-active repo an unfiltered listing fills with other workflows' runs.
 
 ```bash
@@ -85,14 +43,6 @@ gh run list --branch "$DEFAULT_BRANCH" --workflow "<workflow>" --status complete
 ```
 
 If you cannot verify, say "I haven't confirmed whether these failures are pre-existing."
-
-### A review that lands while you poll is not yours to action
-
-`tend-review` fires on any PR you open, so its review often arrives while you are still polling that PR's checks. Don't act on it. That review session applies the findings it raised itself, so a session that starts editing is racing a run already making the same edits and running the same suite. The loser only finds out at `git push`, discards its commit, and the whole fix-and-verify cycle is paid twice for one review.
-
-Poll your checks to terminal, do the follow-up you were gated on, and exit; name the outstanding review in your summary. This covers a review that arrives *while* you work — a session dispatched to answer a specific review owns that review and actions it normally.
-
-**On a fork PR the premise fails — nothing succeeds you.** The review session applies its own findings only where the PR has no human author, and a fork PR is the contributor's — so the review posts them and stops. The notifications poll can't pick them up either: GitHub doesn't notify an actor of their own activity, so the bot's own review is invisible there by construction. Findings left for a successor session strand until a human happens to comment. So if you pushed the commits under a maintainer directive you are the de-facto author — action your own review's findings before ending. If you pushed them without one, name them in your closing comment as unaddressed and unowned, so the thread shows someone has to pick them up. A review on commits the contributor pushed already reached them — leave it.
 
 ### Rerunning failed jobs
 

@@ -259,7 +259,7 @@ Group findings by theme and keep a run to a couple of PRs, picking the highest-c
 
 For each finding:
 
-1. **Create a PR** — branch, fix per `/tend-ci-runner:fix-a-bug`, run full test suite, commit, push per `/tend-ci-runner:push-commits`, create the PR per `/tend-ci-runner:open-pr`, then poll CI per `/tend-ci-runner:monitor-ci`. Your job ends when those checks are terminal: a review posted on the PR while you poll belongs to `tend-mention`. **Every bug fix must include a regression test that would have failed before the fix.** If a test is not feasible (e.g., pure documentation changes), note why in the PR description. When uncertain about the approach, explain the trade-offs in the description.
+1. **Create a PR** — branch, fix per `/tend-ci-runner:fix-a-bug`, run full test suite, commit, push per `/tend-ci-runner:push-commits`, create the PR per `/tend-ci-runner:open-pr`, then poll CI per `/tend-ci-runner:monitor-ci`. Complete the remaining work per **Complete the task before ending the turn** in `/tend-ci-runner:run-tend`; reviews arriving during verification follow `/tend-ci-runner:push-commits`. **Every bug fix must include a regression test that would have failed before the fix.** If a test is not feasible (e.g., pure documentation changes), note why in the PR description. When uncertain about the approach, explain the trade-offs in the description.
 2. **Create an issue only when there's no obvious fix** (per `/tend-ci-runner:open-pr`) — design questions, problems needing maintainer input, or findings requiring investigation beyond what the survey can provide.
 
 ## Optional steps

@@ -1,0 +1,401 @@
+[
+  {
+    "repository": "max-sixty/leaf",
+    "pr": 2257,
+    "pr_state": "OPEN",
+    "draft": false,
+    "human_hold": null,
+    "unresolved_actionable_findings": [],
+    "head_sha": "379abf9337bea119613136ee597cd5d7f5ad58a8",
+    "reviews": [
+      {
+        "id": 5478908373,
+        "state": "APPROVED",
+        "body": "",
+        "submitted_at": "2026-10-10T12:19:31Z",
+        "commit_id": "379abf9337bea119613136ee597cd5d7f5ad58a8",
+        "author": "leaf-agent"
+      }
+    ],
+    "concurrency": {
+      "group": "tend-review-2257",
+      "queue": "max",
+      "cancel_in_progress": false
+    },
+    "id": "approving-run",
+    "source": "observed snapshot with current PR readiness supplied for offline decision",
+    "current_run": {
+      "id": 38047904551,
+      "name": "tend-review",
+      "status": "in_progress",
+      "reviewed_head": "379abf9337bea119613136ee597cd5d7f5ad58a8",
+      "submitted_review_id": 5478908373
+    },
+    "ci_poll": {
+      "at": "2026-10-10T12:21:05.784Z",
+      "command": "/usr/bin/bash -lc uv run --script /home/tend-sandbox/.codex/plugins/cache/tend/tend-ci-runner/0.1.0/scripts/poll_pr_checks.py poll 2257 \"$(cat \"$TMPDIR/reviewed-head\")\"",
+      "output": "green: every gating check on 379abf9337bea119613136ee597cd5d7f5ad58a8 settled green\nverdict: GREEN on 379abf9337bea119613136ee597cd5d7f5ad58a8 (exit 0)\n",
+      "exit_code": 0
+    },
+    "active_subject_runs": [
+      {
+        "id": 38048156816,
+        "name": "tend-review",
+        "status": "pending",
+        "url": "https://github.com/max-sixty/leaf/actions/runs/38048156816"
+      },
+      {
+        "id": 38048434679,
+        "name": "tend-review",
+        "status": "pending",
+        "url": "https://github.com/max-sixty/leaf/actions/runs/38048434679"
+      }
+    ]
+  },
+  {
+    "repository": "max-sixty/leaf",
+    "pr": 2257,
+    "pr_state": "OPEN",
+    "draft": false,
+    "human_hold": null,
+    "unresolved_actionable_findings": [],
+    "head_sha": "379abf9337bea119613136ee597cd5d7f5ad58a8",
+    "reviews": [
+      {
+        "id": 5478908373,
+        "state": "APPROVED",
+        "body": "",
+        "submitted_at": "2026-10-10T12:19:31Z",
+        "commit_id": "379abf9337bea119613136ee597cd5d7f5ad58a8",
+        "author": "leaf-agent"
+      }
+    ],
+    "concurrency": {
+      "group": "tend-review-2257",
+      "queue": "max",
+      "cancel_in_progress": false
+    },
+    "id": "dedup-arrival",
+    "source": "reconstructed snapshot combining the queued start preflight with the preceding approval POST and exact-head green poll",
+    "current_run": {
+      "id": 38048434679,
+      "name": "tend-review",
+      "status": "in_progress"
+    },
+    "preflight": {
+      "at": "2026-10-10T12:28:23.066Z",
+      "command": "/usr/bin/bash -lc /usr/bin/python3 -E -s /home/tend-sandbox/.codex/plugins/cache/tend/tend-ci-runner/0.1.0/scripts/review_preflight.py start 2257",
+      "output": "{\n  \"head_sha\": \"379abf9337bea119613136ee597cd5d7f5ad58a8\",\n  \"author\": \"bot\",\n  \"is_draft\": false,\n  \"already_reviewed\": true,\n  \"incremental_path\": null\n}\n",
+      "exit_code": 0
+    },
+    "ci_poll": {
+      "at": "2026-10-10T12:21:05.784Z",
+      "command": "/usr/bin/bash -lc uv run --script /home/tend-sandbox/.codex/plugins/cache/tend/tend-ci-runner/0.1.0/scripts/poll_pr_checks.py poll 2257 \"$(cat \"$TMPDIR/reviewed-head\")\"",
+      "output": "green: every gating check on 379abf9337bea119613136ee597cd5d7f5ad58a8 settled green\nverdict: GREEN on 379abf9337bea119613136ee597cd5d7f5ad58a8 (exit 0)\n",
+      "exit_code": 0
+    },
+    "active_subject_runs": []
+  },
+  {
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr_state": "OPEN",
+    "draft": false,
+    "human_hold": null,
+    "unresolved_actionable_findings": [],
+    "concurrency": {
+      "group": "tend-review-PR",
+      "queue": "max",
+      "cancel_in_progress": false
+    },
+    "active_subject_runs": [],
+    "id": "trivial-increment",
+    "pr": 9101,
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "current_run": {
+      "id": 7101,
+      "name": "tend-review",
+      "status": "in_progress"
+    },
+    "reviews": [
+      {
+        "id": 8101,
+        "author": "leaf-agent",
+        "state": "APPROVED",
+        "body": "",
+        "commit_id": "9999999999999999999999999999999999999999",
+        "submitted_at": "2026-10-09T17:00:00Z"
+      }
+    ],
+    "ci_poll": {
+      "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "exit_code": 0,
+      "verdict": "GREEN"
+    },
+    "phase": "The prior review approved the older head below. This session has read the one-line documentation correction at the current head, with the previous review and whole PR in view. It found no new concern, and the author-readiness gate passes. No review has been posted at the current head.",
+    "change_summary": "README corrected the documented CLI flag from --attempt to --attempts; implementation, default values and other docs are unchanged.",
+    "author": "human"
+  },
+  {
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr_state": "OPEN",
+    "draft": false,
+    "human_hold": null,
+    "unresolved_actionable_findings": [],
+    "concurrency": {
+      "group": "tend-review-PR",
+      "queue": "max",
+      "cancel_in_progress": false
+    },
+    "active_subject_runs": [
+      {
+        "id": 7103,
+        "name": "tend-review",
+        "status": "pending"
+      }
+    ],
+    "id": "new-unreviewed-head",
+    "pr": 9102,
+    "head_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "current_run": {
+      "id": 7102,
+      "name": "tend-review",
+      "status": "in_progress",
+      "reviewed_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "preflight": {
+      "head_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "author": "human",
+      "is_draft": false,
+      "already_reviewed": false,
+      "incremental_path": "evidence/new-head.patch"
+    },
+    "reviews": [
+      {
+        "id": 8101,
+        "author": "leaf-agent",
+        "state": "APPROVED",
+        "body": "",
+        "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "submitted_at": "2026-10-09T17:00:00Z"
+      }
+    ],
+    "ci_poll": {
+      "pinned_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "exit_code": 0,
+      "verdict": "GREEN"
+    }
+  },
+  {
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr_state": "OPEN",
+    "draft": false,
+    "human_hold": null,
+    "unresolved_actionable_findings": [],
+    "concurrency": {
+      "group": "tend-review-PR",
+      "queue": "max",
+      "cancel_in_progress": false
+    },
+    "active_subject_runs": [
+      {
+        "id": 7105,
+        "name": "tend-review",
+        "status": "in_progress"
+      }
+    ],
+    "id": "concurrent-owner",
+    "pr": 9103,
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "current_run": {
+      "id": 7104,
+      "name": "tend-notifications",
+      "status": "in_progress",
+      "reviewed_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "reviews": [
+      {
+        "id": 8101,
+        "author": "leaf-agent",
+        "state": "APPROVED",
+        "body": "",
+        "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "submitted_at": "2026-10-09T17:00:00Z"
+      }
+    ],
+    "ci_poll": {
+      "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "exit_code": 0,
+      "verdict": "GREEN"
+    }
+  },
+  {
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr_state": "OPEN",
+    "draft": false,
+    "human_hold": {
+      "author": "maintainer",
+      "author_association": "OWNER",
+      "created_at": "2026-10-09T17:03:00Z",
+      "body": "Please leave this open until I settle the public API naming with the author. I will say when it is ready.",
+      "retracted": false
+    },
+    "unresolved_actionable_findings": [],
+    "concurrency": {
+      "group": "tend-review-PR",
+      "queue": "max",
+      "cancel_in_progress": false
+    },
+    "active_subject_runs": [],
+    "id": "human-hold",
+    "pr": 9104,
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "current_run": {
+      "id": 7106,
+      "name": "tend-review",
+      "status": "in_progress"
+    },
+    "preflight": {
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "author": "human",
+      "is_draft": false,
+      "already_reviewed": true,
+      "incremental_path": null
+    },
+    "reviews": [
+      {
+        "id": 8101,
+        "author": "leaf-agent",
+        "state": "APPROVED",
+        "body": "",
+        "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "submitted_at": "2026-10-09T17:00:00Z"
+      }
+    ],
+    "ci_poll": {
+      "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "exit_code": 0,
+      "verdict": "GREEN"
+    }
+  },
+  {
+    "id": "low-confidence-no-approval",
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr": 9105,
+    "pr_state": "OPEN",
+    "draft": false,
+    "author": "human",
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "human_hold": null,
+    "unresolved_actionable_findings": [],
+    "active_subject_runs": [],
+    "reviews": [],
+    "current_run": {
+      "name": "tend-review",
+      "reviewed_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "phase": "The implementation is unfamiliar and its subtle behavior exceeds the reviewer's confidence. No actionable finding was identified. The reviewer added a +1 reaction and submitted no review.",
+    "ci_poll": {
+      "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "exit_code": 0,
+      "verdict": "GREEN"
+    }
+  },
+  {
+    "id": "clean-self-review",
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr": 9106,
+    "pr_state": "OPEN",
+    "draft": false,
+    "author": "leaf-agent",
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "human_hold": null,
+    "unresolved_actionable_findings": [],
+    "active_subject_runs": [],
+    "reviews": [],
+    "current_run": {
+      "name": "tend-review",
+      "reviewed_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "phase": "The configured bot authored this PR. This session completed a substantive clean review of the current head and has no fix to push. GitHub rejects an APPROVE from the PR author.",
+    "ci_poll": {
+      "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "exit_code": 0,
+      "verdict": "GREEN"
+    }
+  },
+  {
+    "id": "approved-with-merge-hold-and-red-ci",
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr": 9107,
+    "pr_state": "OPEN",
+    "draft": false,
+    "author": "human",
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "human_hold": {
+      "author": "maintainer",
+      "body": "Leave this open until I confirm release timing.",
+      "retracted": false
+    },
+    "unresolved_actionable_findings": [],
+    "active_subject_runs": [],
+    "reviews": [
+      {
+        "id": 8107,
+        "author": "leaf-agent",
+        "state": "APPROVED",
+        "body": "",
+        "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "current_run": {
+      "name": "tend-review",
+      "reviewed_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "phase": "This session just approved the current head. CI has now reached the terminal result below. The failing integration test demonstrates a regression caused by this PR; its failure is confirmed related. The author has not authorized bot pushes.",
+    "ci_poll": {
+      "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "exit_code": 1,
+      "verdict": "FAILED",
+      "failed_check": "integration"
+    }
+  },
+  {
+    "id": "self-authored-trivial-increment",
+    "source": "synthetic contrast",
+    "repository": "owner/repo",
+    "pr": 9108,
+    "pr_state": "OPEN",
+    "draft": false,
+    "author": "leaf-agent",
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "human_hold": null,
+    "unresolved_actionable_findings": [],
+    "active_subject_runs": [],
+    "reviews": [
+      {
+        "id": 8108,
+        "author": "leaf-agent",
+        "state": "COMMENTED",
+        "body": "README uses --attempt; the CLI exposes --attempts.",
+        "commit_id": "9999999999999999999999999999999999999999"
+      }
+    ],
+    "current_run": {
+      "name": "tend-review",
+      "reviewed_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "phase": "The bot posted its self-review finding and pushed the one-line documentation fix. This successor session read the trivial incremental in the context of the whole PR and previous review, verified the finding is addressed and resolved its thread. It is confident no concern remains. It has no fix to push.",
+    "ci_poll": {
+      "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "exit_code": 0,
+      "verdict": "GREEN"
+    }
+  }
+]
