@@ -4,11 +4,12 @@ Tend gives an AI agent write access to a repository and runs it on
 attacker-controlled input (PR diffs, issue bodies, comments, CI logs). The
 agent uses authenticated GitHub and model connections to push commits, post
 reviews, and create PRs. The security model keeps the PAT and long-lived model
-credentials outside the agent process. Merge authority is explicit: the
+credentials outside the sandboxed process tree. Merge authority is explicit: the
 default mode requires a maintainer, while yolo lets the bot merge ordinary
-code but keeps the repository control plane maintainer-owned. The agent is expected to use the GitHub
-API for any repository the bot account can access, including repositories
-other than the one that started the run.
+code but keeps the repository control plane maintainer-owned. Every process
+in the sandbox can use authenticated GitHub API and git connections for any
+repository the bot account can access, including repositories other than the
+one that started the run.
 
 Each consumer repo should document its specific configuration (admin accounts,
 token names, protected environments) in its own
@@ -37,7 +38,7 @@ Three things an attacker wants, roughly in order of severity:
    spam PRs.
 
 The attack surface varies by workflow. `tend-review` is the most exposed —
-the attacker controls the entire PR diff, which Claude reads and reasons
+the attacker controls the entire PR diff, which the agent reads and reasons
 about. `tend-weekly` is the least exposed — triggered on a cron with no
 user-controlled input.
 
@@ -92,6 +93,20 @@ the setting was enabled when that release was published, not that it is enabled
 now. Turning the setting off is therefore invisible to the nightly run until
 the repository publishes again — at which point the check fails. Closing that
 window takes an admin-run `tend check`.
+
+**Workflow execution policy.** GitHub's default event policy will block
+`pull_request_target` in affected public repositories on November 2, 2026.
+Tend needs that event to review fork PRs with authenticated bot access.
+`tend check` verifies an active Actions event policy for each generated
+workflow using it. `tend check --fix`, run as a repository administrator,
+creates a policy scoped to those workflow paths and preserving their declared
+events. It does not weaken existing repository or inherited policies; a
+conflicting policy needs its owner's decision. The API requires Administration
+permission, so the bot's nightly check may report this setting as unreadable.
+Private repositories are outside GitHub's default restriction. This is an
+execution prerequisite, separate from the sandbox and merge boundaries: an
+allowed trigger still gives every sandboxed process the bot authority described
+below. See [GitHub's default policy](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target#default-policy-for-pull_request_target).
 
 **Merge rulesets.** In `restricted`, `Merge access` protects the default branch
 and configured `protected_branches` with an admin-only bypass. Reconciliation
@@ -346,12 +361,9 @@ Both environment chains assume the bot remains at write permission; an admin
 bot voids their ruleset and reviewer boundaries. Configuration recipe:
 `plugins/install-tend/skills/install-tend/references/security-model.md`.
 
-Everything else in this section is defense in depth: useful, but not
-load-bearing.
-
 ### Agent execution boundary
 
-The harness has three states and three transitions:
+The harness separates runner setup, agent execution, and result export:
 
 | State | The job's tree on disk | The agent's view of it | Sandbox processes | Allowed next step |
 |---|---|---|---|---|
@@ -363,7 +375,7 @@ Each transition is a bottleneck with one job:
 
 - **The view** puts the agent in the job's own checkout and home, at their real
   paths, with the job's PATH and environment. The supervisor
-  (`shared/steps/launch_agent.py`) mounts an overlay of the runner's home at a
+  (`generator/src/tend/runtime/shared/launch_agent.py`) mounts an overlay of the runner's home at a
   staging path in the per-run `/var/tmp` runtime container, and the agent's
   unit binds it over the home. The lower layer is a read-only bind of that
   home, *idmapped* so the runner's and the sandbox's ids swap; the upper layer
@@ -485,11 +497,10 @@ and ordering mirror claude-code-action's `restore-config.ts`. The PR's own
 versions stay readable at `git show HEAD:<path>` for a review that wants to see
 what it changed.
 
-**Setup runs on the base tree.** Consumer `setup:` steps execute as the runner
-user against the stable Actions checkout: the default branch, or in
-`tend-review` the PR's base. The PR's own tree reaches that checkout only inside
-the sandbox, so a contributor's build backend and dependencies execute there
-when the agent builds or tests that tree.
+**Setup runs on the runner checkout.** Consumer `setup:` steps execute as the
+runner user against the stable Actions checkout prepared by the workflow.
+Tend checks out the PR's own tree only inside the sandbox's view, so PR code
+and any subprocesses the agent launches execute there.
 
 Yolo permits runner-side `setup:` as a trial. Its fixed steps may execute
 ordinary code the bot already merged to the default branch. That code runs as
@@ -503,8 +514,9 @@ shape.
 After the unit exits, the trusted supervisor kills and verifies the complete
 sandbox UID process tree, then copies only size-bounded fixed outputs. The next fixed
 action step deletes the per-run `/var/tmp/tend-runtime.*` directory, which
-holds the staged lifecycle bundle, Tend's runner-side secrets and the view's
-upper layer. On a self-hosted runner nothing deletes the `tend-sandbox` user,
+holds the installed runtime package, staged shell assets, Tend's runner-side
+secrets and the view's upper layer. The separate runner-side package installation
+survives this disposal for reporting. On a self-hosted runner nothing deletes the `tend-sandbox` user,
 so `/home/tend-sandbox` persists between jobs under one shared uid, and what
 one run leaves there the next run's agent can read. A run whose reap failed
 deletes nothing: the live writer is the reason not to delete underneath it.
@@ -563,7 +575,7 @@ spike detection (today's volume vs 6-day baseline, scaled per repo) abort
 the run before the agent starts, catching runaway loops between workflows.
 The check runs as its own step in the composite action, so a
 prompt-injection attack inside the agent session cannot skip it. Concrete limits live in
-`shared/steps/rate_limit_preflight.py`.
+`generator/src/tend/runtime/shared/rate_limit_preflight.py`.
 
 The spike limit is resumable by a maintainer, the burst limit is not. On a
 spike trip the run files or reopens a `tend-rate-limit` issue listing the
@@ -580,9 +592,10 @@ Refused runs do not retry on their own; the issue's table carries their
 links. Automating that is deferred (see `TODO.md`).
 
 **Fixed prompts and marketplace skills.** The prompt and skill set come from
-the composite action and the tend marketplace, not from the PR. An attacker
-can influence what the agent *reads* (the diff, the issue body) but not the
-*instructions* it follows or the *tools* it has access to.
+the composite action and the tend marketplace, not from the PR. PR changes
+cannot replace that startup configuration. Attacker-controlled content can
+still influence the agent's behavior and the commands it launches; fixed
+instructions do not eliminate prompt injection.
 
 The account the session signs in as is the other source that could add to that
 set without review. Claude Code syncs the skills and plugins enabled on the
@@ -591,7 +604,7 @@ account's MCP cloud connectors, headless runs included — so anything enabled o
 the bot's account would become an instruction and tool source for every
 consumer's CI session, in a process that pushes commits and posts as the bot,
 reviewed by nobody in either repository. The session settings
-`shared/steps/run_claude.py` writes refuse all three: `syncClaudeAiSkills` and
+`generator/src/tend/runtime/claude/run_claude.py` writes refuse all three: `syncClaudeAiSkills` and
 `syncClaudeAiPlugins` false, `disableClaudeAiConnectors` true. Its test asserts
 that settings file exactly, so a key that silently stops being written fails
 the suite rather than quietly reopening the surface. The sync pair is honored
@@ -606,16 +619,16 @@ base64-encoded or embedded in JSON, the redaction misses it.
 
 ## Remaining risks
 
-**The agent executes attacker-controlled code.** This remains expected behavior.
-When an agent runs tests or build commands on a fork PR, it executes code the
-attacker wrote. A `Makefile`, `package.json` postinstall hook, or
-`conftest.py` can do anything the sandbox user can and send data over the
-network. It cannot read the PAT or API credentials; subscription mode's
-expiring access token is the deliberate exception described below. Config
-pinning prevents
-*Claude Code's own* startup hooks from being hijacked, but it can't prevent
-an agent from voluntarily running `make test` on a repo where `make test` has
-been weaponized. The agent's systemd unit contains that process tree to the
+**Every process in Tend's sandbox shares bot authority.** The agent and every
+process it launches can use brokered GitHub API and git access as the bot,
+subject to the token's permissions and repository rules. They cannot read the
+PAT itself. This includes attacker-controlled code the agent chooses to
+execute: it can perform authenticated operations during the run and send
+readable data over the network. Long-lived model credentials are also kept
+outside the sandbox; subscription mode's expiring access token is the deliberate
+exception described below. Config pinning protects the harness's startup
+configuration, but cannot prevent the agent from executing attacker-controlled
+commands. The agent's systemd unit contains that process tree to the
 view of the job's home, the sandbox home, scratch paths, and brokered network.
 This protects the runner's own filesystem and host authority; it does not make
 the checked out repository content confidential or prevent the agent from
@@ -654,11 +667,11 @@ repository takeover and release rewriting unless one of those runner-owned
 boundaries is separately compromised.
 
 **Prompt injection without code execution.** Even without hijacking the
-tools, an attacker who controls what Claude reads can influence its behavior.
-A carefully crafted PR description or issue body could get Claude to approve a
+tools, an attacker who controls what the agent reads can influence its behavior.
+A carefully crafted PR description or issue body could get the agent to approve a
 bad PR, post misleading comments, or dismiss legitimate review concerns. Fixed
 prompts and skill instructions reduce this risk but can't eliminate it —
-Claude ultimately reasons about attacker-controlled text.
+the agent ultimately reasons about attacker-controlled text.
 
 **Persistent memory.** The experimental `memory_gist: true` setting lets
 either harness carry model-authored notes into unrelated later runs. Claude

@@ -175,6 +175,13 @@ A bug finding earns a PR only where a caller can reach it. For a defect found by
 - Skills that have drifted from actual project behavior (instructions that no longer match how the code works)
 - An overlay rule that restates a bundled default — search a distinctive phrase from it in the bundled skills. The copy drifts as the bundled text changes.
 
+## Model compatibility
+
+For a Codex model or CLI pin change, verify a minimal read-only request with the
+candidate model using the CLI version the candidate action will ship and the
+consumer's auth mode. Provider API availability does not establish subscription
+support. If verification fails or is unavailable, keep the existing pin.
+
 ## Step 7: Update tend workflows
 
 Regenerate the Tend workflow files in a script-owned temporary worktree:
@@ -194,7 +201,8 @@ model default. Update each explicit model pin in the prepared `.config/tend.yaml
 only when the replacement is a newer model in the same capability and price
 tier, confirmed from the provider's model and pricing docs. Leave the pin
 unchanged when those docs are unreachable or the tier is unclear, and preserve
-cross-tier pins as product choices. After an edit, rerun generation without
+cross-tier pins as product choices. Apply **Model compatibility** before changing
+a Codex model pin. After an edit, rerun generation without
 moving this session's cwd:
 
 ```bash

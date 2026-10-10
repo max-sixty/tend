@@ -118,9 +118,14 @@ def test_focused_case_starts_fresh_with_equal_evidence(
     config = prepare.YAML_IO.load((prepared / "promptfooconfig.yaml").read_text())
     assert config["prompts"] == ["{{task}}"]
     assert config["tests"][0]["vars"]["task"] == task
-    assert config["tests"][0]["providers"] == ["focused/*"]
-    assert config["tests"][0]["vars"]["evidence_root"] == "."
-    assert len(config["providers"]) == 2
+    # Arms are columns and cases rows: every case runs on every provider, which
+    # finds the case's inputs from test metadata.
+    assert "providers" not in config["tests"][0]
+    assert config["tests"][0]["metadata"] == {"case": "focused", "kind": "focused"}
+    assert [provider["label"] for provider in config["providers"]] == [
+        f"{harness}/historical",
+        f"{harness}/current",
+    ]
     for arm, provider in zip(
         ("historical", "current"), config["providers"], strict=True
     ):
@@ -137,27 +142,21 @@ def test_focused_case_starts_fresh_with_equal_evidence(
             if path.is_file():
                 assert "Prior agent reasoning" not in path.read_text()
         settings = provider["config"]
+        assert settings["prepared"] == str(prepared / arm)
         assert "resume" not in settings
         assert "history" not in settings
         if harness == "codex":
             assert settings["model"] == "gpt-6.1-sol"
-            assert settings["mode"] == "focused"
         else:
             # The built-in SDK allocates a fresh temp working directory when
             # working_dir is absent; prepared observations stay read-only inputs.
             assert "working_dir" not in settings
-            assert settings["additional_directories"] == [str(workspace)]
             assert settings["custom_allowed_tools"] == [
                 "Read",
                 "Grep",
                 "Skill",
-                "Write(./captured.md)",
+                "Edit(./captured.md)",
             ]
-            assert str(workspace) in settings["append_system_prompt"]
-            assert (
-                "Shared current policy for tend-agent."
-                in settings["append_system_prompt"]
-            )
 
 
 def test_trajectory_checkout_is_pinned_and_independent(

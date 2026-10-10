@@ -6,7 +6,7 @@ description: >-
   behind a local credential-injecting proxy: the bot PAT and the Anthropic
   credential live only in the proxy, never in the agent's environment. The
   proxy machinery lives under the top-level `proxy/` and the cross-harness
-  step bodies under `shared/steps/`.
+  Python step bodies in the installed `tend.runtime` package.
 
 inputs:
   github_token:
@@ -119,14 +119,30 @@ outputs:
 runs:
   using: composite
   steps:
-    # Shared step bodies live in the top-level shared/steps/ so the claude
-    # and codex actions can't drift; each wrapper below passes inputs via env
-    # and runs the script (reached via ../shared/steps, since this action is
-    # one level deep).
+    # Shared Python steps run from this action's installed Tend package.
+    # Inputs cross through environment variables; imports ignore consumer files.
+    - name: Install runtime uv
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
+      env:
+        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
+
+    - name: Create the sandbox runtime container
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
+
+    - name: Install Tend runtime package
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/install-runtime.sh"
+      env:
+        ACTION_PATH: ${{ github.action_path }}/..
+        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
+
     - name: Security preflight
       id: security
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/security_preflight.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime security-preflight
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MERGE: ${{ inputs.merge }}
@@ -137,7 +153,8 @@ runs:
     - name: Rate limit preflight
       id: bot
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/rate_limit_preflight.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime rate-limit-preflight
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
@@ -145,20 +162,10 @@ runs:
     # run: body would write their values into the rendered step script on disk.
     - name: Validate auth configured
       shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/validate-claude-auth.sh"
+      run: bash "${{ github.action_path }}/validate-claude-auth.sh"
       env:
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-
-    - name: Install proxy uv
-      shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
-      env:
-        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
-
-    - name: Create the sandbox runtime container
-      shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
 
     # Compose the system prompt (shared/system-prompt.md, rendered in Claude's
     # skill syntax, plus the consumer's system_prompt_append).
@@ -167,7 +174,8 @@ runs:
     - name: Compose system prompt
       id: prompt
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/compose_system_prompt.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime claude compose-system-prompt
       env:
         SYSTEM_PROMPT_FILE: ${{ github.action_path }}/../shared/system-prompt.md
         BOT_NAME: ${{ steps.bot.outputs.login }}
@@ -185,7 +193,7 @@ runs:
     #     headers, and the proxy swaps in the real secret. So even the model
     #     auth never reaches the agent's env or disk.
     # The proxy machinery lives at the top-level proxy/, shared with the
-    # codex harness's step scripts under shared/steps/.
+    # Codex harness's runtime modules under tend.runtime.codex.
     # ACTION_PATH points at the repo root so setup_sandbox.py's proxy addon
     # path resolves. See ../proxy/setup_sandbox.py and
     # ../proxy/inject_credentials.py.
@@ -228,7 +236,7 @@ runs:
     # SANDBOX/AGENT_HOME come from setup_sandbox.py via $GITHUB_ENV.
     - name: Install claude binary (sandbox)
       shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-claude-binary.sh"
+      run: bash "${{ github.action_path }}/install-claude-binary.sh"
       env:
         CLAUDE_VERSION: ${{ inputs.claude_version }}
 
@@ -249,7 +257,7 @@ runs:
     # that's the action checkout itself.
     - name: Install tend plugins (sandbox)
       shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-tend-plugins.sh"
+      run: bash "${{ github.action_path }}/install-tend-plugins.sh"
       env:
         MARKETPLACE_ROOT: ${{ github.action_path }}/..
 
@@ -259,7 +267,8 @@ runs:
       if: inputs.memory_gist == 'true'
       continue-on-error: true
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" restore
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory restore
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
@@ -270,7 +279,7 @@ runs:
     # completion and exits — no Ink UI, no TTY, no first-run onboarding — so
     # completion is detected from the process exit code plus the final
     # `result` event (an error result fails the step), not a Stop-hook
-    # sentinel. The step body is shared/steps/run_claude.py; keeping it out of
+    # sentinel. The step body is tend.runtime.claude.run_claude; keeping it out of
     # this file is what lets the suite drive it (nothing lints or runs an inline
     # `run:` block in a composite action).
     #   - `--permission-mode bypassPermissions` on argv sets the mode.
@@ -311,22 +320,25 @@ runs:
         SHOW_FULL_OUTPUT: ${{ inputs.show_full_output }}
         TEND_HARNESS: claude
         ACTION_PATH: ${{ github.action_path }}/..
-        # Read by shared/steps/event_checkout.py, inside the sandbox.
+        # Read by tend.runtime.shared.event_checkout, inside the sandbox.
         TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
         TEND_BASE_BRANCH: ${{ inputs.base_branch }}
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/launch_agent.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime launch-agent
 
     - name: Dispose sandbox resources
       if: always()
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/dispose_sandbox_resources.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime dispose-sandbox-resources
 
     # The supervisor reaps every sandbox process before the trusted save.
     - name: Save experimental memory Gist
       if: always() && steps.auto_memory.outcome == 'success' && steps.claude.outputs.sandbox_reaped == 'true'
       continue-on-error: true
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" save
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory save
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
@@ -336,19 +348,21 @@ runs:
       if: always() && steps.auto_memory.outcome == 'success'
       continue-on-error: true
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/gist_memory.py" cleanup
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory cleanup
 
     - name: Mark event notification read
       if: success()
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/mark_notification_read.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime mark-notification-read
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
     # Account the run's token usage from the stream-json the headless run wrote
     # to stdout, falling back to the session JSONL when the run was cancelled
     # before it emitted a `type: "result"` event. The step body lives in
-    # shared/steps/token_usage.py so pytest can cover both parsers; it also
+    # tend.runtime.shared.token_usage so pytest can cover both parsers; it also
     # consolidates the sandbox user's session JSONL and stderr log into
     # $RUNNER_TEMP/tend-logs for the uploaded artifact.
     - name: Token usage
@@ -361,7 +375,8 @@ runs:
         # The session-log copy reads an agent-owned tree as root, so it runs
         # only once the supervisor has reaped the sandbox uid.
         SANDBOX_REAPED: ${{ steps.claude.outputs.sandbox_reaped }}
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/token_usage.py" --harness claude
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime token-usage --harness claude
 
     # Gate on the job being red, not on the agent step specifically. A dozen
     # steps run before the agent — the rate-limit preflight, auth validation,
@@ -385,7 +400,8 @@ runs:
     - name: Report failure
       if: failure() && steps.security.outcome != 'failure'
       shell: bash
-      run: python3 -E -s "${{ github.action_path }}/../shared/steps/report_failure.py"
+      run: |
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime report-failure
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         # Which version is running, so the reporter can name a stale pin as

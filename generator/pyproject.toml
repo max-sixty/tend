@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "tend"
-version = "0.3.7"
+version = "0.3.10"
 description = "An autonomous junior maintainer for GitHub repos, powered by Claude or OpenAI Codex — reviews PRs, triages issues, fixes CI"
 license = "MIT"
 requires-python = ">=3.11"
@@ -24,6 +24,14 @@ tend = "tend.cli:main"
 
 [project.urls]
 homepage = "https://github.com/max-sixty/tend"
+
+[tool.uv]
+# Non-editable candidate installs must rebuild when code or templates change.
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "src/**/*.py" },
+  { file = "src/**/*.j2" },
+]
 
 # Test dependencies live in the workspace root's dev group, not here: one
 # environment covers every Python suite in the repo, so `uv run pytest` from the

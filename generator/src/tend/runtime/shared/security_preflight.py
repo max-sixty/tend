@@ -34,7 +34,8 @@ import re
 from typing import Any
 from urllib.parse import quote
 
-import _common
+from tend.runtime.shared import _common
+from tend.workflows import CODEOWNERS_BEGIN, CODEOWNERS_END, CONTROL_PLANE_PATHS
 
 BYPASS_ERROR = (
     "The bot can bypass every restrict-updates ruleset on '{branch}' "
@@ -72,24 +73,6 @@ CONTROL_PLANE_ERROR = (
     "Yolo merge mode requires a pull-request rule on '{branch}' with fresh "
     "CODEOWNER approval that this bot cannot bypass. Run `tend check --fix` "
     "after the control-plane CODEOWNERS block is merged."
-)
-# The block `tend check --fix` writes (tend.workflows.codeowners_config). The action
-# cannot import the generator, so the tests feed its output through this copy.
-CODEOWNERS_BEGIN = "# BEGIN tend control plane"
-CODEOWNERS_END = "# END tend control plane"
-CONTROL_PLANE_PATHS = (
-    "/.github/**",
-    "/.config/tend.yaml",
-    "/CODEOWNERS",
-    "/docs/CODEOWNERS",
-    "**/CLAUDE.md",
-    "**/CLAUDE.local.md",
-    "**/AGENTS.md",
-    "**/AGENTS.override.md",
-    "**/.claude",
-    "**/.claude/**",
-    "**/.agents",
-    "**/.agents/**",
 )
 # GitHub's CODEOWNERS search order, by the query alias each directory reads as.
 CODEOWNERS_DIRECTORIES = {"github": ".github", "root": "", "docs": "docs"}
@@ -358,7 +341,3 @@ def main() -> int:
         flush=True,
     )
     return 0
-
-
-if __name__ == "__main__":
-    _common.run(main)

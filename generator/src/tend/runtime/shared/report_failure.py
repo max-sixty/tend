@@ -41,8 +41,7 @@ import subprocess
 import time
 from typing import Any
 
-import _common
-import _issue
+from tend.runtime.shared import _common, _issue
 
 LABEL = "tend-outage"
 TITLE = "Bot temporarily unavailable"
@@ -288,7 +287,3 @@ def _reconcile(repo: str, issue: int, anchor: str) -> None:
             f"Could not reconcile duplicate rows on #{issue}; this run's row is "
             "recorded.",
         )
-
-
-if __name__ == "__main__":
-    _common.run(main)

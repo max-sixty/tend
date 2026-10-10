@@ -37,9 +37,6 @@ Poll the pinned commit to terminal per `/tend-ci-runner:monitor-ci`, then handle
   ```
   On **human-authored PRs**, do not push fixes — post the analysis and offer to fix, then wait for the author to accept. On **PRs with no human author** (this bot's own, Dependabot, renovate), don't stop at analysis: apply the fix per **Push fixes** so the PR can go green, since no author will act on the offer.
 - **A check was cancelled** (conclusion `cancelled`) -> the poll reports it as unverified, not green, and the approval stands: a check that reached no verdict cannot withhold on its merits. Name it as unverified in the closing summary rather than reporting the commit green. A cancellation a rerun replaced at the same SHA is superseded before it reaches that bucket, so one the poll names is a check nothing covered. **Do not re-run cancelled jobs** — that creates another run that gets cancelled again, wasting time in a loop.
-- **A check failed** (conclusion `failure`, not `cancelled`) and it's a transient flake (unrelated to the PR changes) ->
-  1. **Re-run the failed jobs:**
-     ```bash
-     gh run rerun <run-id> --failed
-     ```
-  2. **Report the flake.** Search for an open issue about the specific flaky test. If found, append to an existing bot comment rather than posting a new one.
+- **A check failed** (conclusion `failure`, not `cancelled`) and it's unrelated to the PR changes ->
+  1. **Re-run the failed jobs** and wait for them, per **Rerunning failed jobs** in `/tend-ci-runner:monitor-ci`. A repeat doesn't settle the cause, since a timing-sensitive test can fail twice running; if the repeat shows the PR causes it after all, handle it as the related case above.
+  2. **Route the failure to its fixer.** Where it came from infrastructure — runner disk, network, an upstream incident — there is nothing to fix; name it in the closing summary. Where an unsuccessful default-branch run shows the same failure, `/tend-ci-runner:ci-fix` answers it there; name that run in the closing summary. Otherwise one of the project's own tests fails on this PR while the default branch passes it: a race in the code or in the test, which a rerun hides and `ci-fix` never sees. Search for an open issue about that test. If one exists, append this PR's runs to the bot's comment there, or post one where the bot has none; otherwise open one per `/tend-ci-runner:open-pr`, naming the test, its failure message and the runs, which `tend-triage` takes up to reproduce and fix.

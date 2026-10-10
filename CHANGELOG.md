@@ -6,6 +6,53 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.10
+
+### Improved
+
+- When a review finds a check failing for reasons unrelated to the pull request, it reruns the failed jobs, waits for the result, and routes the failure. An infrastructure failure is named in the review summary. A failure the default branch also shows is left to `ci-fix`. A project test that fails on the pull request while the default branch passes it gets a tracking issue, opened or updated, which triage reproduces and fixes. ([#1518](https://github.com/max-sixty/tend/pull/1518))
+
+### Internal
+
+- The action runtime ships in the published `tend` package and runs through `tend runtime` commands. Actions install the candidate package from the frozen lock into separate runner and sandbox environments, replacing loose scripts and the runtime staging manifest. ([#1512](https://github.com/max-sixty/tend/pull/1512))
+- Evals run as one Promptfoo provider per arm and are recorded for `promptfoo view`; the optional Claude harness's file permission now matches the Write tool. ([#1513](https://github.com/max-sixty/tend/pull/1513), [#1514](https://github.com/max-sixty/tend/pull/1514), [#1515](https://github.com/max-sixty/tend/pull/1515))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
+## 0.3.9
+
+### Improved
+
+- `tend check` verifies that public repositories have an active Actions event policy allowing generated `pull_request_target` workflows before GitHub enforces its default restriction on November 2, 2026. An administrator running `tend check --fix` can create policies scoped to exact workflow paths and their declared events; existing restrictions remain subject to their owner's review. ([#1509](https://github.com/max-sixty/tend/pull/1509))
+
+### Documentation
+
+- The security model and installer clarify that every process in Tend's sandbox shares brokered GitHub access as the bot without receiving its PAT. Installation guidance describes the current credential flow and identifies hosted subscription refresh as the default; pinned startup configuration is distinguished from resistance to prompt injection. ([#1507](https://github.com/max-sixty/tend/pull/1507), [#1509](https://github.com/max-sixty/tend/pull/1509))
+
+### Internal
+
+- Package publication requires a successful authenticated Codex smoke on the exact release commit, verifying the candidate CLI and default model with subscription authentication before tagging. ([#1508](https://github.com/max-sixty/tend/pull/1508))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.8
+
+### Improved
+
+- The Claude harness pins Claude Code 2.1.289, and uv installation pins 0.12.23 with verified archive checksums. ([#1499](https://github.com/max-sixty/tend/pull/1499), [#1500](https://github.com/max-sixty/tend/pull/1500))
+- Code review requires a concrete operational or maintenance consequence, or an applicable project rule, for structure and organization findings. ([#1501](https://github.com/max-sixty/tend/pull/1501))
+
+### Fixed
+
+- Codex pins CLI 0.160.0, enabling the default `gpt-6.1-sol` model with ChatGPT subscription authentication. Nightly upgrades retain a Codex model pin unless a live request succeeds with the candidate action's CLI and the consumer's authentication mode. ([#1504](https://github.com/max-sixty/tend/pull/1504), [#1506](https://github.com/max-sixty/tend/pull/1506))
+
+### Internal
+
+- Refresh site, Worker, and pre-commit dependency pins. ([#1498](https://github.com/max-sixty/tend/pull/1498))
+- Historical evaluations include notification-cutoff and credential-policy investigations, paired corrected controls, and checks that read-only trajectories leave the repository unchanged. ([#1501](https://github.com/max-sixty/tend/pull/1501))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.7
 
 ### Improved

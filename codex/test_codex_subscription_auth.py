@@ -4,8 +4,9 @@ import json
 import stat
 from pathlib import Path
 
-import codex_subscription_auth
 import pytest
+from tend.runtime.codex import codex_subscription_auth
+
 from _fakes import FakeGh
 
 FULL_AUTH = {
@@ -82,7 +83,7 @@ def test_prepare_cli_publishes_the_selected_mode(
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
 
-    assert codex_subscription_auth.main(["prepare", str(tmp_path / "auth.json")]) == 0
+    assert codex_subscription_auth.prepare_command(tmp_path / "auth.json") == 0
 
     assert output.read_text() == "mode=api-key\n"
 
@@ -123,10 +124,7 @@ def test_stage_refresh_cli_publishes_whether_subscription_auth_is_configured(
     monkeypatch.setenv("CODEX_REFRESH_PAT", "pat")
     monkeypatch.setenv("CODEX_CONSUMER_AUTH_CONFIGURED", "true")
 
-    assert (
-        codex_subscription_auth.main(["stage-refresh", str(tmp_path / "auth.json")])
-        == 0
-    )
+    assert codex_subscription_auth.stage_refresh_command(tmp_path / "auth.json") == 0
     assert output.read_text() == "configured=true\n"
 
 

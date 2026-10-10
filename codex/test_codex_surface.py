@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import codex_surface
 import pytest
+from tend.runtime.codex import codex_surface
 
 
 @pytest.fixture

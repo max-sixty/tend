@@ -76,7 +76,3 @@ def main() -> int:
         return 0
     except (OSError, subprocess.CalledProcessError, ValueError) as problem:
         return fail(str(problem))
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

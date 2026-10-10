@@ -6,18 +6,13 @@ it into `AGENTS.md`. Three things in it vary — the bot's name, merge mode,
 and how a skill is invoked — so the file writes those as `${BOT_NAME}`,
 `${TEND_MERGE}`, and `${SKILL:<name>}` and this module substitutes them.
 
-`SKILL_PREFIX` restates the mapping `Config.default_prompt` applies to
-generated workflow prompts, because the generator is not installed on the
-runner and this code is not importable from the generator;
-`test_skill_prefixes_match_the_generator` in `generator/tests/test_repo_pins.py`
-holds the pair in step.
 """
 
 from __future__ import annotations
 
 import re
 
-SKILL_PREFIX = {"claude": "/tend-ci-runner:", "codex": "$"}
+from tend.config import SKILL_PREFIX
 
 SKILL_REF = re.compile(r"\$\{SKILL:([a-z0-9-]+)\}")
 

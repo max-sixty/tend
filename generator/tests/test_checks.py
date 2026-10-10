@@ -17,9 +17,11 @@ from tend.checks import (
     ROLE_ID_MAINTAIN,
     ROLE_ID_WRITE,
     CheckResult,
+    OwnerLookupError,
     _control_plane_ruleset,
     _list_org_secrets,
     _restrict_updates_ruleset,
+    check_actions_event_policy,
     check_bot_permission,
     check_branch_protection,
     check_control_plane_codeowners,
@@ -35,6 +37,7 @@ from tend.checks import (
     check_yolo_workflows,
     detect_canonical_owner,
     detect_repo,
+    fix_actions_event_policy,
     fix_branch_protection,
     fix_environment,
     fix_immutable_releases,
@@ -346,13 +349,16 @@ def test_detect_canonical_owner_no_gh() -> None:
         assert detect_canonical_owner() is None
 
 
-def test_detect_canonical_owner_api_failure_returns_none() -> None:
+def test_detect_canonical_owner_api_failure_raises() -> None:
     """If `gh repo view` works but the API call fails (rate limit, auth,
-    network), return None rather than the view's possibly-fork answer.
-    Shipping the fork owner in the guard would silently no-op on canonical —
-    worse than no guard at all."""
-    with patch("tend.checks._gh", side_effect=_gh_for("max-sixty/prql", None)):
-        assert detect_canonical_owner() is None
+    network), raise rather than answer. The view's possibly-fork owner would
+    make the guard a silent no-op on canonical, and None would make `init`
+    drop a guard the committed workflows carry."""
+    with (
+        patch("tend.checks._gh", side_effect=_gh_for("max-sixty/prql", None)),
+        pytest.raises(OwnerLookupError, match="repos/max-sixty/prql"),
+    ):
+        detect_canonical_owner()
 
 
 # ---------------------------------------------------------------------------
@@ -1993,6 +1999,16 @@ def _gh_all_pass(
         if "graphql" in args:
             return _make_completed(_workflow_tree({}))
         url = _url(args)
+        if url == "repos/owner/repo" and ".private" in args:
+            return _make_completed("false\n")
+        if "/actions/policies?" in url:
+            policy = _actions_policy()
+            summary = _actions_policy_summary(policy)
+            return _make_completed(
+                json.dumps([{"total_count": 1, "policies": [summary]}])
+            )
+        if url == "repos/owner/repo/actions/policies/1":
+            return _make_completed(json.dumps(_actions_policy()))
         # The common consumer shape: only the ref-gated environment exists.
         if url.endswith("/environments"):
             environments = [TEND_ENVIRONMENT]
@@ -2381,7 +2397,7 @@ def test_run_all_checks_with_protected_branches() -> None:
     # default + v1 + v2 + bot-permission + environment + environment-deployments
     # + tag protection + immutable releases + credential-environments + secrets
     # + claude-auth + allowlist = 12
-    assert len(results) == 12
+    assert len(results) == 13
     bp_results = [r for r in results if r.name.startswith("branch-protection:")]
     assert len(bp_results) == 3
     assert {r.name for r in bp_results} == {
@@ -2690,8 +2706,8 @@ def test_run_all_checks_deduplicates_default_branch() -> None:
         )
     # main (deduped) + v1 + bot-permission + environment + environment-deployments
     # + tag protection + immutable releases + credential-environments + secrets
-    # + claude-auth + allowlist = 11
-    assert len(results) == 11
+    # + claude-auth + allowlist + actions-event-policy = 12
+    assert len(results) == 12
     bp_results = [r for r in results if r.name.startswith("branch-protection:")]
     assert len(bp_results) == 2
     assert {r.name for r in bp_results} == {
@@ -3276,7 +3292,10 @@ def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("tend.checks._gh", side_effect=_gh_all_pass()),
-        patch("tend.checks.detect_canonical_owner", return_value=None),
+        patch(
+            "tend.checks.detect_canonical_owner",
+            side_effect=OwnerLookupError("Could not read repos/owner/repo"),
+        ),
         patch("tend.checks._fetch_workflow_files", return_value=files),
     ):
         results = run_all_checks(cfg, repo="owner/repo")
@@ -4463,3 +4482,419 @@ def test_fix_environment_surfaces_a_failed_delete() -> None:
         result = fix_environment("owner/repo", ["main"])
     assert result.passed is False
     assert "stale" in result.message
+
+
+# Actions policy API responses are external fixtures; all workflow generation,
+# policy matching, pagination, reconciliation and CLI dispatch below are real.
+def _actions_policy(
+    *,
+    policy_id: int = 1,
+    events: tuple[str, ...] = ("pull_request_target",),
+    include: tuple[str, ...] = (".github/workflows/tend-review.yaml",),
+    exclude: tuple[str, ...] = (),
+    enforcement: str = "active",
+    rules: list[dict] | None = None,
+) -> dict:
+    return {
+        "id": policy_id,
+        "name": f"Custom policy {policy_id}",
+        "enforcement": enforcement,
+        "conditions": {
+            "workflow_path": {"include": list(include), "exclude": list(exclude)}
+        },
+        "rules": rules
+        if rules is not None
+        else [
+            {
+                "type": "restrict_action_events",
+                "parameters": {"allowed_events": list(events)},
+            }
+        ],
+    }
+
+
+def _actions_policy_summary(policy: dict, *, inherited: bool = False) -> dict:
+    source = "orgs/owner" if inherited else "repos/owner/repo"
+    return {
+        "id": policy["id"],
+        "name": policy["name"],
+        "enforcement": policy["enforcement"],
+        "_links": {
+            "self": {
+                "href": f"https://api.github.com/{source}/actions/policies/{policy['id']}"
+            }
+        },
+    }
+
+
+def _actions_policy_api(
+    monkeypatch: pytest.MonkeyPatch,
+    policies: list[dict],
+    *,
+    private: bool = False,
+    inherited: bool = False,
+    pages: int = 1,
+):
+    calls = []
+
+    def api(*args, input=None):
+        calls.append((args, input))
+        endpoint = _url(args)
+        if endpoint == "repos/owner/repo" and ".private" in args:
+            return _make_completed(str(private).lower())
+        if "--method" in args:
+            assert args[args.index("--method") + 1] == "POST", (
+                "Must not edit existing restrictions"
+            )
+            new = json.loads(input)
+            new["id"] = len(policies) + 100
+            policies.append(new)
+            return _make_completed(json.dumps(new))
+        if "/actions/policies?" in endpoint:
+            summaries = [
+                _actions_policy_summary(p, inherited=inherited) for p in policies
+            ]
+            listed_pages = [
+                {"total_count": len(summaries), "policies": summaries[i::pages]}
+                for i in range(pages)
+            ]
+            return _make_completed(json.dumps(listed_pages))
+        if "/actions/policies/" in endpoint:
+            policy_id = int(endpoint.rsplit("/", 1)[1])
+            return _make_completed(
+                json.dumps(next(p for p in policies if p["id"] == policy_id))
+            )
+        raise AssertionError(args)
+
+    monkeypatch.setattr("tend.checks._gh", api)
+    return calls
+
+
+def test_actions_policy_missing_check_and_fix_preserves_generated_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policies = []
+    calls = _actions_policy_api(monkeypatch, policies)
+    cfg = _config(
+        workflows={
+            "review": WorkflowConfig(
+                workflow_extra={
+                    "on": {"workflow_dispatch": {}, "issues": {"types": ["opened"]}}
+                }
+            )
+        }
+    )
+    before = check_actions_event_policy("owner/repo", cfg)
+    assert before.passed is False
+    assert "November 2, 2026" in before.message
+    assert fix_actions_event_policy("owner/repo", cfg).passed is True
+    assert len(policies) == 1
+    assert policies[0]["conditions"] == {
+        "workflow_path": {
+            "include": [".github/workflows/tend-review.yaml"],
+            "exclude": [],
+        }
+    }
+    assert policies[0]["rules"] == [
+        {
+            "type": "restrict_action_events",
+            "parameters": {
+                "allowed_events": ["issues", "pull_request_target", "workflow_dispatch"]
+            },
+        }
+    ]
+    assert fix_actions_event_policy("owner/repo", cfg).passed is True
+    assert sum(input is not None for _, input in calls) == 1
+    assert any("--paginate" in args and "--slurp" in args for args, _ in calls)
+
+
+@pytest.mark.parametrize(
+    "policies, expected",
+    [
+        ([_actions_policy(include=("~ALL",))], True),
+        ([_actions_policy(include=())], True),
+        ([_actions_policy(), _actions_policy(policy_id=2, events=("push",))], False),
+        ([_actions_policy(enforcement="evaluate")], False),
+        ([_actions_policy(enforcement="disabled")], False),
+        (
+            [
+                _actions_policy(
+                    include=("~ALL",), exclude=(".github/workflows/tend-review.yaml",)
+                )
+            ],
+            False,
+        ),
+        ([_actions_policy(include=(".github/workflows/other.yaml",))], False),
+        ([_actions_policy(include=(".github/workflows/*.yaml",))], None),
+        (
+            [_actions_policy(include=("~ALL",), exclude=(".github/workflows/*.yaml",))],
+            None,
+        ),
+        (
+            [
+                _actions_policy(
+                    rules=[
+                        {
+                            "type": "restrict_actions_actors",
+                            "parameters": {
+                                "allowed_actors": [{"type": "User", "id": 1}]
+                            },
+                        }
+                    ]
+                )
+            ],
+            False,
+        ),
+    ],
+)
+def test_actions_policy_effective_inherited_scope(
+    monkeypatch: pytest.MonkeyPatch, policies: list[dict], expected: bool | None
+) -> None:
+    calls = _actions_policy_api(monkeypatch, policies, inherited=True, pages=2)
+    result = check_actions_event_policy("owner/repo", _config())
+    assert result.passed is expected
+    if any(p["enforcement"] == "active" for p in policies):
+        assert any("orgs/owner/actions/policies/1" in args for args, _ in calls)
+    if expected is not True:
+        before = json.dumps(policies, sort_keys=True)
+        fixed = fix_actions_event_policy("owner/repo", _config())
+        if (
+            expected is None
+            or "blocks" in result.message
+            or "actor restrictions" in result.message
+        ):
+            assert fixed.passed is expected
+            assert json.dumps(policies, sort_keys=True) == before
+            assert all(input is None for _, input in calls)
+
+
+def test_actions_policy_applies_to_any_generated_target_and_disabled_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policies = []
+    calls = _actions_policy_api(monkeypatch, policies)
+    cfg = _config(
+        workflows={
+            "review": WorkflowConfig(enabled=False),
+            "nightly": WorkflowConfig(
+                workflow_extra={"on": {"pull_request_target": {"types": ["opened"]}}}
+            ),
+        }
+    )
+    assert fix_actions_event_policy("owner/repo", cfg).passed is True
+    assert policies[0]["conditions"]["workflow_path"]["include"] == [
+        ".github/workflows/tend-nightly.yaml"
+    ]
+    assert policies[0]["rules"][0]["parameters"]["allowed_events"] == [
+        "pull_request_target",
+        "schedule",
+        "workflow_dispatch",
+    ]
+    calls.clear()
+    cfg = _config(
+        workflows={
+            "review": WorkflowConfig(
+                workflow_extra={"on": {"pull_request_target": None, "pull_request": {}}}
+            )
+        }
+    )
+    assert check_actions_event_policy("owner/repo", cfg).passed is True
+    assert not calls
+
+
+def test_actions_policy_private_or_no_target_needs_no_policy_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _actions_policy_api(monkeypatch, [], private=True)
+    assert check_actions_event_policy("owner/repo", _config()).passed is True
+    assert len(calls) == 1
+    calls.clear()
+    cfg = _config(workflows={"review": WorkflowConfig(enabled=False)})
+    assert check_actions_event_policy("owner/repo", cfg).passed is True
+    assert not calls
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        None,
+        _make_completed(returncode=1, stderr="HTTP 403"),
+        _make_completed("not json"),
+        _make_completed('[{"total_count": 1, "policies": []}]'),
+    ],
+)
+def test_actions_policy_unread_listing_is_unknown(
+    monkeypatch: pytest.MonkeyPatch, response
+) -> None:
+    def api(*args, **kwargs):
+        if ".private" in args:
+            return _make_completed("false")
+        return response
+
+    monkeypatch.setattr("tend.checks._gh", api)
+    result = check_actions_event_policy("owner/repo", _config())
+    assert result.passed is None
+    if response is None or response.returncode or response.stdout == "not json":
+        assert "Administration" in result.message
+    assert fix_actions_event_policy("owner/repo", _config()).passed is None
+
+
+def test_actions_policy_missing_detail_unknown_and_fix_does_not_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def api(*args, **kwargs):
+        calls.append(args)
+        assert "--method" not in args
+        if ".private" in args:
+            return _make_completed("false")
+        if "--paginate" in args:
+            return _make_completed(
+                json.dumps(
+                    [
+                        {
+                            "total_count": 1,
+                            "policies": [
+                                _actions_policy_summary(
+                                    _actions_policy(), inherited=True
+                                )
+                            ],
+                        }
+                    ]
+                )
+            )
+        return _make_completed(returncode=1, stderr="HTTP 403")
+
+    monkeypatch.setattr("tend.checks._gh", api)
+    result = fix_actions_event_policy("owner/repo", _config())
+    assert result.passed is None
+    assert "Administration" in result.message
+    assert any("orgs/owner/actions/policies/1" in args for args in calls)
+
+
+def test_cli_check_fix_dispatches_actions_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    failure = [CheckResult("actions-event-policy", False, "missing policy")]
+    passed = [CheckResult("actions-event-policy", True, "policy verified")]
+    with (
+        patch("tend.cli.run_all_checks", side_effect=[failure, passed]),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch("tend.cli.fix_actions_event_policy", return_value=passed[0]) as fix,
+    ):
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+    assert result.exit_code == 0, result.output
+    assert "Configuring Actions event policies" in result.output
+    fix.assert_called_once()
+    assert fix.call_args.args[0] == "owner/repo"
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        {"enforcement": []},
+        {"enforcement": {}},
+        {"_links": None},
+        {"_links": []},
+        {"_links": {"self": "not an object"}},
+        {"conditions": {"workflow_path": None}},
+        *[
+            {"conditions": {"workflow_path": {"include": bad, "exclude": []}}}
+            for bad in (None, 0, "", {})
+        ],
+        {
+            "conditions": {
+                "workflow_path": {
+                    "include": [".github/workflows/{tend-review,other}.yaml"],
+                    "exclude": [],
+                }
+            }
+        },
+        {
+            "conditions": {
+                "workflow_path": {
+                    "include": [".github/workflows/(tend-review).yaml"],
+                    "exclude": [],
+                }
+            }
+        },
+        {"rules": [{"type": "restrict_action_events", "parameters": None}]},
+        {"rules": [{"type": "restrict_action_events", "parameters": []}]},
+        {
+            "rules": [
+                {
+                    "type": "restrict_action_events",
+                    "parameters": {"allowed_events": "pull_request_target"},
+                }
+            ]
+        },
+        {"rules": "not an array"},
+    ],
+)
+def test_actions_policy_malformed_external_data_is_unknown(
+    monkeypatch: pytest.MonkeyPatch, malformed: dict
+) -> None:
+    policy = _actions_policy()
+    policy.update(malformed)
+
+    def api(*args, **kwargs):
+        assert "--method" not in args
+        if ".private" in args:
+            return _make_completed("false")
+        if "--paginate" in args:
+            summary = _actions_policy_summary(policy)
+            if "_links" in malformed:
+                summary.update(malformed)
+            return _make_completed(
+                json.dumps([{"total_count": 1, "policies": [summary]}])
+            )
+        return _make_completed(json.dumps(policy))
+
+    monkeypatch.setattr("tend.checks._gh", api)
+    assert fix_actions_event_policy("owner/repo", _config()).passed is None
+
+
+def test_actions_policy_fix_preserves_actor_restrictions_and_owned_name_collisions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = _actions_policy(
+        rules=[
+            {"type": "restrict_actions_actors", "parameters": {"allowed_actors": []}}
+        ]
+    )
+    calls = _actions_policy_api(monkeypatch, [policy])
+    result = fix_actions_event_policy("owner/repo", _config())
+    assert result.passed is False
+    assert "No active Actions event policy" in result.message
+    assert all(input is None for _, input in calls)
+    policy = _actions_policy(enforcement="disabled")
+    policy["name"] = "Tend events: .github/workflows/tend-review.yaml"
+    calls = _actions_policy_api(monkeypatch, [policy])
+    assert fix_actions_event_policy("owner/repo", _config()).passed is False
+    assert all(input is None for _, input in calls)
+
+
+def test_cli_yolo_policy_unknown_is_visible_without_gating_merge_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_config(tmp_path, "bot_name: test-bot\nmerge: yolo\n")
+    monkeypatch.chdir(tmp_path)
+    skipped = CheckResult("actions-event-policy", None, "Run as a repository admin")
+    with patch("tend.cli.run_all_checks", return_value=[skipped]):
+        result = CliRunner().invoke(main, ["check", "--repo", "owner/repo"])
+    assert result.exit_code == 0, result.output
+    assert "SKIP" in result.output
+    assert "repository admin" in result.output
+    before = [skipped, CheckResult("branch-protection:main", False, "not protected")]
+    after = [skipped, CheckResult("branch-protection:main", True, "protected")]
+    with (
+        patch("tend.cli.run_all_checks", side_effect=[before, after, after]),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch("tend.cli.fix_branch_protection", return_value=after[1]) as fix,
+    ):
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+    assert result.exit_code == 0, result.output
+    assert fix.call_args.args[3] == "yolo"

@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 
 import pytest
-import token_usage
-from _safe_files import read_regular_nofollow
+from tend.runtime.shared import token_usage
+from tend.runtime.shared._safe_files import read_regular_nofollow
 
 
 def test_privileged_copy_exports_only_regular_files(tmp_path: Path) -> None:
@@ -72,12 +72,12 @@ def test_fixed_export_rejects_a_fifo_without_blocking(tmp_path: Path) -> None:
     os.mkfifo(fifo)
     probe = (
         "from pathlib import Path; "
-        "from _safe_files import read_regular_nofollow; "
+        "from tend.runtime.shared._safe_files import read_regular_nofollow; "
         "read_regular_nofollow(Path(__import__('sys').argv[1]), max_bytes=100)"
     )
 
     result = subprocess.run(
-        [sys.executable, "-c", probe, str(fifo)],
+        [sys.executable, "-I", "-c", probe, str(fifo)],
         cwd=Path(__file__).parent,
         capture_output=True,
         text=True,

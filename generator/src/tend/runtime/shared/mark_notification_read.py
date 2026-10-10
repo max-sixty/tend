@@ -35,7 +35,7 @@ import os
 import subprocess
 from typing import Any
 
-import _common
+from tend.runtime.shared import _common
 
 
 def subject_url(repo: str) -> str | None:
@@ -118,7 +118,3 @@ def main() -> int:
         except subprocess.CalledProcessError:
             continue
     return 0
-
-
-if __name__ == "__main__":
-    _common.run(main)

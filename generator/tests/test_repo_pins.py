@@ -7,9 +7,10 @@ every file, not a phrase pinned in one.
 
 from __future__ import annotations
 
-import importlib.util
 import json
+import os
 import re
+import shlex
 import shutil
 import subprocess
 import tomllib
@@ -22,6 +23,7 @@ from packaging.version import Version
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 from tend.config import KNOWN_HARNESSES, Config
+from tend.runtime.shared import _prompt as prompt
 from tend.workflows import UV_SHA256, UV_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -114,7 +116,14 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
         {"OPENAI_API_KEY", "CODEX_AUTH_JSON", "GH_TOKEN", "GITHUB_TOKEN"}
         & run_env.keys()
     )
-    assert steps["Run Codex"]["run"].endswith('launch_agent.py"')
+    assert shlex.split(steps["Run Codex"]["run"]) == [
+        "$TEND_RUNTIME_PYTHON",
+        "-I",
+        "-m",
+        "tend",
+        "runtime",
+        "launch-agent",
+    ]
     assert "CODEX_SANDBOX_MODE" not in run_env
     assert run_env["AUTH_MODE"] == "${{ steps.codex_auth.outputs.mode }}"
     assert steps["Token usage"]["env"]["SANDBOX_REAPED"] == (
@@ -123,31 +132,26 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
 
 
 def test_codex_action_drives_its_stateful_phases_through_the_runner() -> None:
-    """The action is the only thing that reaches `runner.py`, three ways.
+    """The action runs setup through the installed Tend runtime CLI.
 
-    Two steps invoke it directly, and `Run Codex` names it in `TEND_CODEX_RUNNER`
-    for the third command, which `agent_lifecycle` issues from inside the
-    sandbox. `runner.py` dispatches on an exact argv and indexes that variable,
-    and nothing runs a composite action in CI, so a rename or a dropped
-    variable first fails in a consumer's job. What the commands then do is
-    covered by test_codex_runner.py and test_agent_lifecycle.py.
+    The lifecycle dispatches the agent command inside the sandbox; these
+    assertions cover the two outer action commands and their package interface.
     """
     action = YAML(typ="safe", pure=True).load(
         (REPO_ROOT / "codex" / "action.yaml").read_text()
     )
     steps = action["runs"]["steps"]
-    invoked = {
-        step["run"].rsplit('"', 1)[-1].strip()
-        for step in steps
-        if "runner.py" in step.get("run", "")
+    prefix = ("$TEND_RUNTIME_PYTHON", "-I", "-m", "tend", "runtime", "codex")
+    setup = {
+        "Install Tend plugins (sandbox)": "install-plugin",
+        "Stage AGENTS.md (sandbox)": "stage-agents",
     }
+    commands = {step["name"]: step["run"] for step in steps if "run" in step}
+    for name, command in setup.items():
+        assert tuple(shlex.split(commands[name])) == (*prefix, command)
 
-    assert {"install-plugin", "stage-agents"} <= invoked
-
-    # launch_agent.py gates the passthrough on this being set, and
-    # agent_lifecycle.py then indexes it — unset, the codex turn raises KeyError.
     run_codex = next(step for step in steps if step["name"] == "Run Codex")
-    assert run_codex["env"]["TEND_CODEX_RUNNER"].endswith("/runner.py")
+    assert "TEND_CODEX_RUNNER" not in run_codex["env"]
 
 
 def test_codex_marketplace_declares_the_plugins_the_runner_installs() -> None:
@@ -190,12 +194,19 @@ def test_sandbox_resources_are_removed_immediately_after_agent_reap(
 
     assert cleanup["name"] == "Dispose sandbox resources"
     assert cleanup["if"] == "always()"
-    assert cleanup["run"].endswith('/dispose_sandbox_resources.py"')
+    assert shlex.split(cleanup["run"]) == [
+        "$TEND_RUNTIME_PYTHON",
+        "-I",
+        "-m",
+        "tend",
+        "runtime",
+        "dispose-sandbox-resources",
+    ]
 
 
-def test_hosted_probe_launches_only_from_the_action_copy() -> None:
+def test_hosted_probe_launches_only_from_the_installed_action_package() -> None:
     script = (REPO_ROOT / "proxy" / "test-setup-sandbox.sh").read_text()
-    invocation = '"$TEND_TEST_ACTION_PATH/shared/steps/launch_agent.py" || rc=$?'
+    invocation = '"$TEND_RUNTIME_PYTHON" -I -m tend runtime launch-agent || rc=$?'
 
     assert script.count(invocation) == 2
     assert "-s shared/steps/launch_agent.py" not in script
@@ -248,7 +259,15 @@ def test_memory_gist_actions_share_the_trusted_lifecycle(harness: str) -> None:
     ):
         invocation = lifecycle[name]["run"]
         assert len(invocation.splitlines()) == 1
-        assert invocation.endswith(f'/shared/steps/gist_memory.py" {command}')
+        assert shlex.split(invocation) == [
+            "$TEND_RUNTIME_PYTHON",
+            "-I",
+            "-m",
+            "tend",
+            "runtime",
+            "gist-memory",
+            command,
+        ]
     assert lifecycle[restore_name]["env"]["TEND_HARNESS"] == harness
 
     assert (
@@ -391,6 +410,102 @@ def test_codex_actions_pin_the_same_cli_version() -> None:
     }
 
     assert len(set(versions.values())) == 1, f"Codex CLI pins differ: {versions}"
+
+
+def test_codex_smoke_uses_only_access_auth_on_canonical_main() -> None:
+    path = REPO_ROOT / ".github/workflows/codex-model-smoke.yaml"
+    workflow = YAML(typ="safe", pure=True).load(path.read_text())
+    assert set(workflow["on"]) == {"workflow_dispatch"}
+    job = workflow["jobs"]["smoke"]
+    assert job["if"] == (
+        "github.repository == 'max-sixty/tend' && github.ref == 'refs/heads/main'"
+    )
+    assert job["environment"] == {"name": "tend", "deployment": False}
+    assert job["permissions"] == {"contents": "read"}
+    checkout = job["steps"][0]
+    assert checkout["with"] == {
+        "ref": "${{ github.sha }}",
+        "persist-credentials": False,
+    }
+    assert re.findall(r"secrets\.([A-Z_]+)", path.read_text()) == ["CODEX_AUTH_JSON"]
+    smoke = job["steps"][-1]
+    assert smoke["env"] == {"CODEX_AUTH_JSON": "${{ secrets.CODEX_AUTH_JSON }}"}
+    assert smoke["run"] == (
+        "uv run --package tend --no-dev tend runtime codex model-smoke"
+    )
+    assert (
+        REPO_ROOT / "generator/src/tend/runtime/codex/codex_model_smoke.py"
+    ).is_file()
+
+
+def test_release_requires_successful_smoke_on_exact_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Execute the publication gate with GitHub run-list responses.
+
+    The GitHub CLI boundary is replaced; Bash and jq run the actual workflow
+    command, including rejecting API failure and a successful different SHA.
+    """
+    workflow = YAML(typ="safe", pure=True).load(
+        (REPO_ROOT / ".github/workflows/pypi-release.yaml").read_text()
+    )
+    build = workflow["jobs"]["build"]
+    assert build["permissions"] == {"contents": "read", "actions": "read"}
+    gate = build["steps"][0]
+    assert gate["shell"] == "bash"
+    assert gate["env"] == {"GH_TOKEN": "${{ github.token }}"}
+    assert "if" not in gate and "continue-on-error" not in gate
+    assert workflow["jobs"]["pypi"]["needs"] == "build"
+    assert workflow["jobs"]["github-release"]["needs"] == "pypi"
+
+    gh = tmp_path / "gh"
+    gh.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$@" > "$SMOKE_ARGS"\n'
+        'printf "%s\\n" "$SMOKE_RUNS"\n'
+        'exit "$SMOKE_GH_EXIT"\n'
+    )
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("GITHUB_SHA", "a" * 40)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "max-sixty/tend")
+    monkeypatch.setenv("SMOKE_ARGS", str(tmp_path / "args"))
+    success = {"headSha": "a" * 40, "status": "completed", "conclusion": "success"}
+    cases = [
+        ([success], 0, True),
+        ([], 0, False),
+        ([success | {"headSha": "b" * 40}], 0, False),
+        ([success | {"status": "in_progress"}], 0, False),
+        ([success | {"conclusion": "failure"}], 0, False),
+        ([success], 1, False),
+    ]
+    for runs, gh_exit, accepted in cases:
+        monkeypatch.setenv("SMOKE_RUNS", json.dumps(runs))
+        monkeypatch.setenv("SMOKE_GH_EXIT", str(gh_exit))
+        result = subprocess.run(
+            ["bash", "-eo", "pipefail", "-c", gate["run"]],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert (result.returncode == 0) is accepted, (runs, gh_exit, result.stderr)
+    args = (tmp_path / "args").read_text().splitlines()
+    assert args == [
+        "run",
+        "list",
+        "--repo",
+        "max-sixty/tend",
+        "--workflow",
+        "codex-model-smoke.yaml",
+        "--branch",
+        "main",
+        "--commit",
+        "a" * 40,
+        "--event",
+        "workflow_dispatch",
+        "--json",
+        "headSha,status,conclusion",
+    ]
 
 
 # Every `${{ github.action_path }}/…` reference in the composite actions.
@@ -614,7 +729,14 @@ def test_codex_action_passes_selected_auth_mode_to_runner() -> None:
     run = next(step for step in doc["runs"]["steps"] if step.get("name") == "Run Codex")
 
     assert run["env"]["AUTH_MODE"] == "${{ steps.codex_auth.outputs.mode }}"
-    assert run["run"].endswith('/launch_agent.py"')
+    assert shlex.split(run["run"]) == [
+        "$TEND_RUNTIME_PYTHON",
+        "-I",
+        "-m",
+        "tend",
+        "runtime",
+        "launch-agent",
+    ]
 
 
 def test_codex_refresher_keeps_the_secret_writer_pat_out_of_the_model_step() -> None:
@@ -886,26 +1008,12 @@ def test_every_workflow_prompt_names_a_skill_that_exists() -> None:
     )
 
 
-def _prompt_module():
-    spec = importlib.util.spec_from_file_location(
-        "tend_prompt", REPO_ROOT / "shared/steps/_prompt.py"
-    )
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def test_skill_prefixes_match_the_generator() -> None:
     """One mapping from skill name to invocation, asserted across two deliverables.
 
-    `shared/steps/_prompt.py` renders `${SKILL:<name>}` in the system prompt at
-    runtime; `Config.default_prompt` writes the same invocation into generated
-    workflow prompts. The generator is not installed on the runner, so neither
-    can import the other.
+    The runtime prompt renderer and generator defaults must select the same
+    skill invocation syntax for each harness.
     """
-    prompt = _prompt_module()
-
     for harness, prefix in prompt.SKILL_PREFIX.items():
         cfg = Config(
             bot_name="bot",
@@ -931,7 +1039,6 @@ def test_shipped_prompt_skill_tokens_resolve_to_a_bundled_skill() -> None:
     generator's half. A token malformed enough to miss the pattern survives
     rendering instead, reaching the model verbatim.
     """
-    prompt = _prompt_module()
     files = [REPO_ROOT / "shared/system-prompt.md", REPO_ROOT / "codex/agents-tail.md"]
 
     for path in files:

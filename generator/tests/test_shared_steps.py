@@ -4,7 +4,7 @@ The composite actions' remaining shell steps under shared/steps/ and the
 generator's preflight scripts are all exercised at their runtime boundary.
 Shellcheck cannot catch runtime behavior, so shell steps run as commands;
 inlined Python runs against a fake `gh` and an injected clock. Shared Python
-step bodies test themselves beside their modules in shared/steps/test_*.py.
+step bodies live in tend.runtime.shared and are tested in shared/steps/.
 """
 
 from __future__ import annotations

@@ -13,12 +13,11 @@ from __future__ import annotations
 import copy
 import json
 import os
-import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import _common
+from tend.runtime.shared import _common
 
 CONSUMER_AUTH_MODE = "chatgptAuthTokens"
 FULL_AUTH_SECRET = "CODEX_REFRESH_AUTH_JSON"
@@ -203,59 +202,45 @@ def publish_refresh(
         raise SubscriptionAuthError("Codex failed after refreshing and persisting auth")
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = list(sys.argv[1:] if argv is None else argv)
-    if not args:
-        raise SystemExit(
-            "usage: codex_subscription_auth.py prepare PATH | "
-            "stage-refresh PATH | publish-refresh PATH"
-        )
-    command = args.pop(0)
-    try:
-        if command == "prepare" and len(args) == 1:
-            mode = prepare(
-                codex_auth_json=os.environ.get(CONSUMER_AUTH_SECRET, ""),
-                openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
-                destination=Path(args[0]),
-            )
-            if os.environ.get("GITHUB_OUTPUT"):
-                _common.set_output("mode", mode)
-            print(f"Codex auth: using {mode}")
-            return 0
-        if command == "stage-refresh" and len(args) == 1:
-            configured = stage_refresh(
-                consumer_auth_configured=os.environ.get(
-                    "CODEX_CONSUMER_AUTH_CONFIGURED"
-                )
-                == "true",
-                refresh_auth_json=os.environ.get(FULL_AUTH_SECRET, ""),
-                refresh_pat=os.environ.get(REFRESH_PAT_SECRET, ""),
-                destination=Path(args[0]),
-            )
-            if os.environ.get("GITHUB_OUTPUT"):
-                _common.set_output("configured", str(configured).lower())
-            print(
-                "Codex subscription auth staged"
-                if configured
-                else "Codex subscription auth is not configured; nothing to refresh"
-            )
-            return 0
-        if command == "publish-refresh" and len(args) == 1:
-            values = _common.require_env("GITHUB_REPOSITORY")
-            publish_refresh(
-                auth_file=Path(args[0]),
-                repository=values["GITHUB_REPOSITORY"],
-                codex_succeeded=os.environ.get("CODEX_OUTCOME") == "success",
-            )
-            print("Codex subscription auth refreshed")
-            return 0
-    except SubscriptionAuthError as exc:
-        raise SystemExit(str(exc)) from exc
-    raise SystemExit(
-        "usage: codex_subscription_auth.py prepare PATH | "
-        "stage-refresh PATH | publish-refresh PATH"
+def prepare_command(destination: Path) -> int:
+    """Prepare consumer auth and publish its mode to the action."""
+    mode = prepare(
+        codex_auth_json=os.environ.get(CONSUMER_AUTH_SECRET, ""),
+        openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
+        destination=destination,
     )
+    if os.environ.get("GITHUB_OUTPUT"):
+        _common.set_output("mode", mode)
+    print(f"Codex auth: using {mode}")
+    return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def stage_refresh_command(destination: Path) -> int:
+    """Stage the refresh owner's credentials and publish presence."""
+    configured = stage_refresh(
+        consumer_auth_configured=os.environ.get("CODEX_CONSUMER_AUTH_CONFIGURED")
+        == "true",
+        refresh_auth_json=os.environ.get(FULL_AUTH_SECRET, ""),
+        refresh_pat=os.environ.get(REFRESH_PAT_SECRET, ""),
+        destination=destination,
+    )
+    if os.environ.get("GITHUB_OUTPUT"):
+        _common.set_output("configured", str(configured).lower())
+    print(
+        "Codex subscription auth staged"
+        if configured
+        else "Codex subscription auth is not configured; nothing to refresh"
+    )
+    return 0
+
+
+def publish_refresh_command(auth_file: Path) -> int:
+    """Publish the rotated credentials after a successful Codex request."""
+    values = _common.require_env("GITHUB_REPOSITORY")
+    publish_refresh(
+        auth_file=auth_file,
+        repository=values["GITHUB_REPOSITORY"],
+        codex_succeeded=os.environ.get("CODEX_OUTCOME") == "success",
+    )
+    print("Codex subscription auth refreshed")
+    return 0

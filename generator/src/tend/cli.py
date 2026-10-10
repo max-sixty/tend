@@ -1,4 +1,4 @@
-"""CLI for generating tend workflow files."""
+"""CLI for configuring Tend workflows and running action operations."""
 
 from __future__ import annotations
 
@@ -11,10 +11,12 @@ import click
 
 from tend.checks import (
     CheckResult,
+    OwnerLookupError,
     detect_authenticated_user,
     detect_canonical_owner,
     detect_default_branch,
     detect_repo,
+    fix_actions_event_policy,
     fix_branch_protection,
     fix_environment,
     fix_immutable_releases,
@@ -25,6 +27,7 @@ from tend.checks import (
 )
 from tend.config import CODEX_REFRESH_ENVIRONMENT, Config
 from tend.migrate import migrate_toml_to_yaml, render_toml_as_yaml
+from tend.runtime.cli import runtime
 from tend.workflows import (
     actionlint_config,
     codeowners_config,
@@ -131,6 +134,7 @@ def _print_check_results(results: list[CheckResult]) -> None:
 def _yolo_activation_blockers(results: list[CheckResult]) -> list[CheckResult]:
     """Non-fixable checks that must hold before granting merge access."""
     fixable = {
+        "actions-event-policy",
         "control-plane-ruleset",
         "environment",
         "immutable-releases",
@@ -148,6 +152,9 @@ def _yolo_activation_blockers(results: list[CheckResult]) -> list[CheckResult]:
 @click.group()
 def main() -> None:
     """An autonomous junior maintainer for GitHub repos, powered by Claude or OpenAI Codex. Generates and manages workflows from .config/tend.yaml."""
+
+
+main.add_command(runtime)
 
 
 @main.command()
@@ -205,7 +212,13 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
             preview_path.write_text(preview_yaml, encoding="utf-8")
             cfg = Config.load(preview_path)
     cfg.default_branch = _detect_default_branch_local()
-    cfg.repo_owner = detect_canonical_owner() or ""
+    try:
+        cfg.repo_owner = detect_canonical_owner() or ""
+    except OwnerLookupError as e:
+        raise click.ClickException(
+            f"{e}. The fork guard needs the canonical owner; rerun once "
+            "`gh` can reach the API."
+        ) from e
     if not cfg.repo_owner:
         click.echo(
             "Warning: could not detect the canonical repo owner via `gh` "
@@ -282,7 +295,7 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
 )
 @click.option("--fix", is_flag=True, help="Fix failing checks (creates rulesets, etc.)")
 def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
-    """Verify release integrity, branch protection, bot access, and credentials."""
+    """Verify event policies, releases, branch protection, bot access, and credentials."""
     cfg = Config.load(config_path)
     results = run_all_checks(cfg, repo)
     click.echo("Security checks:")
@@ -293,7 +306,8 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
         _yolo_activation_blockers(results) if cfg.merge == "yolo" else []
     )
     unverified_yolo = cfg.merge == "yolo" and any(
-        result.passed is None for result in results
+        result.passed is None and result.name != "actions-event-policy"
+        for result in results
     )
     if not failures and not unverified_yolo:
         return
@@ -415,6 +429,14 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
             results = run_all_checks(applied_cfg, repo)
             failures = [r for r in results if r.passed is False]
 
+    if any(r.name == "actions-event-policy" for r in failures):
+        click.echo()
+        click.echo("Configuring Actions event policies...")
+        fix_result = fix_actions_event_policy(repo, cfg)
+        _print_check_results([fix_result])
+        if fix_result.passed:
+            fixed_any = True
+
     if any(r.name == "immutable-releases" for r in failures):
         click.echo()
         click.echo("Enabling immutable releases...")
@@ -463,7 +485,9 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
         click.echo("Re-running checks...")
         results = run_all_checks(cfg, repo)
         _print_check_results(results)
-    if cfg.merge == "yolo" and any(r.passed is None for r in results):
+    if cfg.merge == "yolo" and any(
+        r.passed is None and r.name != "actions-event-policy" for r in results
+    ):
         raise click.ClickException(
             "Yolo security checks are incomplete; resolve the skipped checks."
         )

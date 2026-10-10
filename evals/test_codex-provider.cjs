@@ -61,8 +61,11 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
     }
     await fs.rm(root, { recursive: true, force: true });
   });
+  // One prepared arm serves every case; the test's metadata selects one.
   const arm = path.join(root, "arm");
-  const template = path.join(arm, "workspace");
+  const staged = path.join(arm, "case");
+  const template = path.join(staged, "workspace");
+  const run = (kind, name = "case") => ({ test: { metadata: { case: name, kind } } });
   await fs.mkdir(path.join(template, "plugin", "skills", "draft"), { recursive: true });
   await fs.writeFile(path.join(template, "plugin", "skills", "draft", "SKILL.md"), "Draft skill");
   await fs.mkdir(path.join(template, ".agents", "skills"), { recursive: true });
@@ -80,7 +83,7 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
   git(["add", "."]);
   git(["-c", "user.name=Eval", "-c", "user.email=eval@example.com", "commit", "-qm", "Case starting tree"]);
   const transcript = "Original transcripts are not actor inputs";
-  await fs.writeFile(path.join(arm, "history.jsonl"), transcript);
+  await fs.writeFile(path.join(staged, "history.jsonl"), transcript);
   const usage = { prompt: 70, cached: 60, completion: 3, total: 73 };
   const items = [{ type: "command_execution", command: "run real tests", aggregated_output: "tests passed", exit_code: 0 }];
   const raw = JSON.stringify({ items, finalResponse: "Final response differs from file" });
@@ -135,11 +138,11 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
       };
     }
   }
-  const provider = new DeterministicProvider({ config: { prepared: arm, model: "gpt-6-sol", mode: "focused" } });
-  const results = await Promise.all([provider.callApi("A"), provider.callApi("B")]);
-  assert.deepEqual(results.map((result) => result.output), ["Literal A\n\n", "Literal B\n\n"]);
+  const provider = new DeterministicProvider({ config: { prepared: arm, model: "gpt-6.1-sol" } });
+  const results = await Promise.all([provider.callApi("A", run("focused")), provider.callApi("B", run("focused"))]);
+  assert.deepEqual(results.map((result) => result.output ?? result.error), ["Literal A\n\n", "Literal B\n\n"]);
   assert.deepEqual(results.map((result) => [result.tokenUsage, result.raw]), [[usage, raw], [usage, raw]]);
-  const longer = await new DeterministicProvider({ config: { prepared: arm, model: "gpt-6-sol", mode: "trajectory" } }).callApi("Trajectory brief");
+  const longer = await provider.callApi("Trajectory brief", run("trajectory"));
   const trajectory = JSON.parse(longer.output);
   assert.equal(trajectory.artifact, "Literal Trajectory brief\n\n");
   assert.deepEqual(trajectory.items, items);
@@ -151,7 +154,7 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
   assert.notEqual(trajectory.finalHead, trajectory.initialHead);
   assert.equal(repositoryUnchanged(longer.output).pass, false);
   assert.equal(reviewEvidence(longer.output).pass, true);
-  const unchanged = await new DeterministicProvider({ config: { prepared: arm, model: "gpt-6.1-sol", mode: "trajectory" } }).callApi("Read-only brief");
+  const unchanged = await provider.callApi("Read-only brief", run("trajectory"));
   assert.equal(unchanged.error, undefined);
   assert.equal(repositoryUnchanged(unchanged.output).pass, true);
   assert.equal(reviewEvidence(unchanged.output).pass, true);
@@ -159,7 +162,7 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
   assert.equal(longer.raw, raw);
   assert.equal(new Set(workspaces).size, 4);
   for (const workspace of workspaces) await assert.rejects(fs.access(workspace), { code: "ENOENT" });
-  assert.equal(await fs.readFile(path.join(arm, "history.jsonl"), "utf8"), transcript);
+  assert.equal(await fs.readFile(path.join(staged, "history.jsonl"), "utf8"), transcript);
   assert.equal(await fs.readFile(path.join(template, "evidence.txt"), "utf8"), "Verified evidence");
   assert.equal(await fs.readFile(path.join(repository, "source.txt"), "utf8"), "old\n");
   assert.equal(await fs.readFile(path.join(authHome, "auth.json"), "utf8"), auth);
@@ -179,7 +182,7 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
       };
     }
   }
-  const missing = await new EmptyProvider({ config: { prepared: arm } }).callApi("draft");
+  const missing = await new EmptyProvider({ config: { prepared: arm } }).callApi("draft", run("focused"));
   assert.equal(missing.error, "No captured.md draft was written by Codex");
   assert.deepEqual(missing.tokenUsage, usage);
   const judged = await new EmptyProvider({ config: { judge: true } }).callApi("grade");
@@ -188,8 +191,10 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
   const noCheckout = path.join(root, "no-checkout");
   await fs.mkdir(path.join(noCheckout, "workspace"), { recursive: true });
   await fs.writeFile(path.join(noCheckout, "workspace", "AGENTS.md"), "Staged guidance");
-  const invalid = await new EmptyProvider({ config: { prepared: noCheckout, mode: "trajectory" } }).callApi("work");
+  const invalid = await new EmptyProvider({ config: { prepared: root } }).callApi("work", run("trajectory", "no-checkout"));
   assert.match(invalid.error, /Trajectory eval requires a Git checkout at repository\//);
+  const unknown = await new EmptyProvider({ config: { prepared: arm } }).callApi("work", run("history"));
+  assert.match(unknown.error, /Unknown eval kind: history/);
 
   process.env.OPENAI_API_KEY = "test-key";
   const rejected = await provider.callApi("draft");

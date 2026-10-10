@@ -95,8 +95,8 @@ itself the go-ahead.
    - **Codex — Plus/Pro subscription** — experimental. It needs two browser
      handoffs: a Codex login for this repo and a repo-scoped GitHub token.
      Concurrent jobs receive access-only auth; this repo's serialized weekly
-     workflow owns its refresh token. This depends on Codex's internal auth
-     mode; detail in ${CLAUDE_SKILL_DIR}/references/security-model.md.
+     workflow owns its refresh token by default. This depends on Codex's internal
+     auth mode; detail in ${CLAUDE_SKILL_DIR}/references/security-model.md.
    - **Codex — OpenAI API key** — standard pay-per-token path.
 2. **Merge mode** — who may merge into the default branch:
    - **Maintainer** (recommended) — the bot opens and updates PRs; only admins can
@@ -391,11 +391,21 @@ user that team members should @-mention the bot account instead of `@claude`.
 
 ## 3. Ref protection
 
-Reconcile Tend's canonical rulesets and environment policy:
+Reconcile Tend's canonical rulesets, environment policy, and Actions event
+policy using the maintainer's repository-admin credentials:
 
 ```bash
 uvx tend@latest check --fix --repo "$REPO"
 ```
+
+For public repositories, this also checks that an active Actions event policy
+allows every generated workflow using `pull_request_target`. GitHub's default
+restriction will block that event in affected repositories on November 2, 2026.
+`--fix` creates a policy scoped to those workflow paths and their declared
+events when no applicable active event policy exists. It preserves existing
+repository and inherited restrictions; resolve a conflicting policy with its
+owner. An unreadable policy is unresolved, not evidence that it is missing.
+The API requires Administration permission; keep the bot at write access.
 
 The command is expected to remain non-zero until later steps install the
 secrets. Fix every ref-protection finding now. Under `restricted`, `Merge access`
@@ -1116,6 +1126,7 @@ line picks the row that matches the chosen harness):
 
 - [ ] Config: `.config/tend.yaml` created (with `harness` set if Codex)
 - [ ] Workflows: generated in `.github/workflows/`
+- [ ] Actions event policy: generated `pull_request_target` workflows explicitly allowed (public repositories)
 - [ ] Rulesets: merge mode on the default branch, extra protected branches admin-only, tag operations admin-only; yolo also has control-plane CODEOWNERS review
 - [ ] Immutable releases: enabled before the next release
 - [ ] Release/deploy credentials: environment-protected; policies list only verified refs, with default-branch credentials deliberately reachable by bot-merged code in yolo

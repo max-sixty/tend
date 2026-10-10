@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import compose_system_prompt
 import pytest
+from tend.runtime.claude import compose_system_prompt
 
 
 def test_renders_shared_prompt_in_claude_syntax_and_appends_extra(

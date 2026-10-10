@@ -19,6 +19,13 @@ Append `--filter-pattern "[Gg]allery"` to narrow the suite or
 make Promptfoo exit nonzero; inspect individual results to distinguish them
 from execution errors.
 
+Promptfoo's table has a column per arm (`codex/historical`, `codex/current`)
+and a row per case, and every case runs on both arms. Each test's metadata
+names its case and kind; the provider reads that case's staged inputs from its
+arm. Promptfoo records every run in its local database under a description
+naming the harness and `git describe` of the current arm, and
+`npm --prefix evals run view` opens its viewer on them.
+
 Each Codex attempt gets an isolated workspace and HOME/CODEX_HOME with
 subscription authentication and a controlled permission profile. Personal
 settings, plugins and MCP servers are absent. Commands can inspect staged files

@@ -18,7 +18,7 @@ from unittest.mock import patch
 import click.testing
 import pytest
 from click.testing import CliRunner
-from tend.checks import CheckResult
+from tend.checks import CheckResult, OwnerLookupError
 from tend.cli import main
 from tend.workflows import (
     ACTIONLINT_QUEUE_IGNORE,
@@ -517,6 +517,26 @@ def test_init_warns_when_canonical_owner_undetected(
     assert "could not detect the canonical repo owner" in result.output
 
 
+def test_init_refuses_when_the_owner_read_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo `gh` resolved but whose owner the API would not return (rate
+    limit, auth, network) stops `init` before it writes anything, so a
+    transient failure cannot strip the fork guard from committed workflows."""
+    _write_config(tmp_path, "bot_name: test-bot")
+    monkeypatch.chdir(tmp_path)
+
+    def fail() -> str:
+        raise OwnerLookupError("Could not read repos/PRQL/prql: HTTP 403")
+
+    monkeypatch.setattr("tend.cli.detect_canonical_owner", fail)
+
+    result = CliRunner().invoke(main, ["init"])
+    assert result.exit_code != 0
+    assert "Could not read repos/PRQL/prql" in result.output
+    assert not _workflow_dir(tmp_path).exists()
+
+
 def test_init_wires_detected_owner_into_workflows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -588,6 +608,7 @@ def test_yolo_init_output_passes_exact_workflow_check_with_same_context(
         "check_branch_protection": "branch-protection:trunk",
         "check_control_plane_codeowners": "control-plane-codeowners",
         "check_control_plane_ruleset": "control-plane-ruleset",
+        "check_actions_event_policy": "actions-event-policy",
         "check_bot_permission": "bot-permission",
         "check_tag_protection": "tag-protection",
         "check_immutable_releases": "immutable-releases",

@@ -7,8 +7,8 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
-import _sandbox
 import pytest
+from tend.runtime.shared import _sandbox
 
 WITHHELD = (
     "GITHUB_TOKEN",
