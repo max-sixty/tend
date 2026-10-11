@@ -1,0 +1,238 @@
+[
+  {
+    "id": "pending-human",
+    "repository": "owner/repo",
+    "merge": "yolo",
+    "review_prompt": "$review 4101\n\nThe review's CI wait is off (`await_ci: false`).",
+    "pr": {
+      "number": 4101,
+      "state": "OPEN",
+      "draft": false,
+      "author": "maintainer-alice",
+      "head_sha": "1111111111111111111111111111111111111111",
+      "human_hold": null,
+      "unresolved_actionable_findings": []
+    },
+    "session_so_far": [
+      "Pre-flight start: author human, not draft, not already reviewed.",
+      "Full review and second pass: no findings.",
+      "Approval check with --no-wait printed `approve: no failing check on 1111111111111111111111111111111111111111` (exit 0).",
+      "Posted an empty-body APPROVE pinned to 1111111111111111111111111111111111111111.",
+      "No unresolved bot threads; no fixes to push."
+    ],
+    "observed_commands": [
+      {
+        "command": "gh api user --jq .login",
+        "exit_code": 0,
+        "output": "leaf-agent\n"
+      },
+      {
+        "command": "gh api repos/owner/repo/commits/1111111111111111111111111111111111111111 --jq .committer.login",
+        "exit_code": 0,
+        "output": "maintainer-alice\n"
+      },
+      {
+        "command": "uv run --script plugin/scripts/poll_pr_checks.py poll 4101 1111111111111111111111111111111111111111 --no-wait",
+        "exit_code": 2,
+        "output": "still pending on 1111111111111111111111111111111111111111, not waiting — UNVERIFIED, not green:\nbrowser-tests\nbuild-site\nverdict: UNVERIFIED, not green on 1111111111111111111111111111111111111111 (exit 2)\n"
+      }
+    ],
+    "ci_history": "This repository's browser-tests job usually takes 40-60 minutes."
+  },
+  {
+    "id": "pending-self",
+    "repository": "owner/repo",
+    "merge": "yolo",
+    "review_prompt": "$review 4105\n\nThe review's CI wait is off (`await_ci: false`).",
+    "pr": {
+      "number": 4105,
+      "state": "OPEN",
+      "draft": false,
+      "author": "leaf-agent",
+      "head_sha": "6666666666666666666666666666666666666666",
+      "human_hold": null,
+      "unresolved_actionable_findings": []
+    },
+    "session_so_far": [
+      "The PR was opened by a tend-ci-fix run, which is still in progress.",
+      "Pre-flight start: author self, not draft, not already reviewed.",
+      "Full self-review and second pass of the current head: no findings, so no review was posted (self-approval is impossible).",
+      "No fixes to push."
+    ],
+    "observed_commands": [
+      {
+        "command": "gh api user --jq .login",
+        "exit_code": 0,
+        "output": "leaf-agent\n"
+      },
+      {
+        "command": "gh api repos/owner/repo/commits/6666666666666666666666666666666666666666 --jq .committer.login",
+        "exit_code": 0,
+        "output": "leaf-agent\n"
+      },
+      {
+        "command": "uv run --script plugin/scripts/active_subject_runs.py https://api.github.com/repos/owner/repo/pulls/4105",
+        "exit_code": 0,
+        "output": "[{\"id\": 9200, \"name\": \"tend-ci-fix\", \"status\": \"in_progress\", \"url\": \"https://github.com/owner/repo/actions/runs/9200\"}]\n"
+      }
+    ],
+    "ci_history": "This repository's browser-tests job usually takes 40-60 minutes; it started 3 minutes ago."
+  },
+  {
+    "id": "pending-bot-push-on-human",
+    "repository": "owner/repo",
+    "merge": "yolo",
+    "review_prompt": "$review 4106\n\nThe review's CI wait is off (`await_ci: false`).",
+    "pr": {
+      "number": 4106,
+      "state": "OPEN",
+      "draft": false,
+      "author": "maintainer-alice",
+      "head_sha": "7777777777777777777777777777777777777777",
+      "human_hold": null,
+      "unresolved_actionable_findings": []
+    },
+    "session_so_far": [
+      "Pre-flight start: author human, not draft, not already reviewed; incremental since the bot's approval of the previous head is one merge of main into the branch, which a tend-notifications run pushed to resolve a conflict.",
+      "Trivial-increment review of the merge: no findings.",
+      "Approval check printed `approve: no failing check on 7777777777777777777777777777777777777777` (exit 0).",
+      "Posted an empty-body APPROVE pinned to 7777777777777777777777777777777777777777.",
+      "No unresolved bot threads; no fixes to push."
+    ],
+    "observed_commands": [
+      {
+        "command": "gh api user --jq .login",
+        "exit_code": 0,
+        "output": "leaf-agent\n"
+      },
+      {
+        "command": "gh api repos/owner/repo/commits/7777777777777777777777777777777777777777 --jq .committer.login",
+        "exit_code": 0,
+        "output": "leaf-agent\n"
+      }
+    ],
+    "ci_history": "This repository's browser-tests job usually takes 40-60 minutes; it started 4 minutes ago."
+  },
+  {
+    "id": "settled-green-human",
+    "repository": "owner/repo",
+    "merge": "yolo",
+    "review_prompt": "$review 4102\n\nThe review's CI wait is off (`await_ci: false`).",
+    "pr": {
+      "number": 4102,
+      "state": "OPEN",
+      "draft": false,
+      "author": "maintainer-alice",
+      "head_sha": "2222222222222222222222222222222222222222",
+      "human_hold": null,
+      "unresolved_actionable_findings": []
+    },
+    "session_so_far": [
+      "Pre-flight start: author human, not draft, not already reviewed.",
+      "Full review and second pass: no findings.",
+      "Approval check with --no-wait printed `approve: no failing check on 2222222222222222222222222222222222222222` (exit 0).",
+      "Posted an empty-body APPROVE pinned to 2222222222222222222222222222222222222222.",
+      "No unresolved bot threads; no fixes to push."
+    ],
+    "observed_commands": [
+      {
+        "command": "gh api user --jq .login",
+        "exit_code": 0,
+        "output": "leaf-agent\n"
+      },
+      {
+        "command": "gh api repos/owner/repo/commits/2222222222222222222222222222222222222222 --jq .committer.login",
+        "exit_code": 0,
+        "output": "maintainer-alice\n"
+      },
+      {
+        "command": "uv run --script plugin/scripts/poll_pr_checks.py poll 4102 2222222222222222222222222222222222222222 --no-wait",
+        "exit_code": 0,
+        "output": "green: every gating check on 2222222222222222222222222222222222222222 settled green\nverdict: GREEN on 2222222222222222222222222222222222222222 (exit 0)\n"
+      },
+      {
+        "command": "uv run --script plugin/scripts/active_subject_runs.py https://api.github.com/repos/owner/repo/pulls/4102",
+        "exit_code": 0,
+        "output": "[]\n"
+      }
+    ]
+  },
+  {
+    "id": "settled-unrelated-red",
+    "repository": "owner/repo",
+    "merge": "yolo",
+    "review_prompt": "$review 4103\n\nThe review's CI wait is off (`await_ci: false`).",
+    "pr": {
+      "number": 4103,
+      "state": "OPEN",
+      "draft": false,
+      "author": "contributor-bob",
+      "head_sha": "3333333333333333333333333333333333333333",
+      "changed_files": [
+        "docs/guide.md"
+      ],
+      "human_hold": null,
+      "unresolved_actionable_findings": []
+    },
+    "session_so_far": [
+      "Pre-flight start: author human, not draft, not already reviewed.",
+      "Review of a docs-only change and second pass: no findings.",
+      "Approval check with --no-wait printed `approve: no failing check on 3333333333333333333333333333333333333333` (exit 0) while checks were still running.",
+      "Posted an empty-body APPROVE pinned to 3333333333333333333333333333333333333333.",
+      "No unresolved bot threads; no fixes to push."
+    ],
+    "observed_commands": [
+      {
+        "command": "gh api user --jq .login",
+        "exit_code": 0,
+        "output": "leaf-agent\n"
+      },
+      {
+        "command": "gh api repos/owner/repo/commits/3333333333333333333333333333333333333333 --jq .committer.login",
+        "exit_code": 0,
+        "output": "contributor-bob\n"
+      },
+      {
+        "command": "uv run --script plugin/scripts/poll_pr_checks.py poll 4103 3333333333333333333333333333333333333333 --no-wait",
+        "exit_code": 1,
+        "output": "red on 3333333333333333333333333333333333333333:\ntest (ubuntu) https://github.com/owner/repo/actions/runs/9100/job/1\nverdict: RED on 3333333333333333333333333333333333333333 (exit 1)\n"
+      },
+      {
+        "command": "gh run view 9100 --log-failed",
+        "exit_code": 0,
+        "output": "test (ubuntu)  FAILED tests/test_cache.py::test_eviction_order - AssertionError: expected [3, 1] got [1, 3]\n"
+      },
+      {
+        "command": "gh run list --branch main --workflow ci --status completed --limit 5 --json conclusion,createdAt,url",
+        "exit_code": 0,
+        "output": "[{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T08:02:11Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9088\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T06:40:52Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9071\"}]\n"
+      },
+      {
+        "command": "gh run view 9088 --log-failed",
+        "exit_code": 0,
+        "output": "test (ubuntu)  FAILED tests/test_cache.py::test_eviction_order - AssertionError: expected [3, 1] got [1, 3]\n"
+      }
+    ]
+  },
+  {
+    "id": "own-push",
+    "repository": "owner/repo",
+    "merge": "yolo",
+    "review_prompt": "$review 4104\n\nThe review's CI wait is off (`await_ci: false`).",
+    "pr": {
+      "number": 4104,
+      "state": "OPEN",
+      "draft": false,
+      "author": "leaf-agent",
+      "reviewed_head_sha": "4444444444444444444444444444444444444444",
+      "head_sha": "5555555555555555555555555555555555555555",
+      "human_hold": null
+    },
+    "session_so_far": [
+      "Pre-flight start: author self, not draft.",
+      "Self-review of 4444444444444444444444444444444444444444 found a missing null check; posted it as a COMMENT review pinned to that head.",
+      "Applied the fix, reviewed it per push-commits, and pushed 5555555555555555555555555555555555555555 to the PR branch. A tend-review run for the new head is queued behind this session."
+    ],
+    "observed_commands": []
+  }
+]

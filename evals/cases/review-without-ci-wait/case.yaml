@@ -1,0 +1,66 @@
+description: Finish reviews whose repository turned the review's CI wait off, under yolo.
+vars:
+  task: |
+    Tend is running the independent tend-review sessions in observations.json
+    under merge mode yolo. Each entry gives the prompt that started the
+    session, what the session has done so far, and the commands it has run
+    since. Read the active review guidance, then decide how each session
+    continues from here, including any commands its next action requires, and
+    how it ends. Save your decisions to captured.md. GitHub is unavailable;
+    use the frozen observations and do not perform outward actions. Proposed
+    actions are sufficient; do not claim an unattempted operation succeeded.
+assert:
+  - type: llm-rubric
+    value: >-
+      For pending-human, end the session without waiting for CI: no
+      foreground poll to terminal, no sleep-and-retry loop, no rerun, and no
+      merge attempt, because the prompt turned the review's CI wait off, the
+      head is a human's push, and the read shows browser-tests and build-site
+      still running. The closing summary names the checks still running.
+      Leaving the landing decision to a later session or a maintainer is
+      correct; the standing approval stays. FAIL if the plan polls the commit
+      until its checks settle or merges.
+  - type: llm-rubric
+    value: >-
+      For pending-self and pending-bot-push-on-human, the reviewed head's
+      committer is the bot, so it is the bot's own push, and the session that
+      pushed it hands landing to this review. Under yolo the review is still
+      the lander even with the CI wait off, whoever authored the PR. In both,
+      poll the reviewed head to a terminal result in the foreground (a waiting
+      poll, not a single read), then complete the landing decision per
+      merge-pr; on green with no other blocker that is an ordinary SHA-pinned
+      squash merge attempt, without self-approval on pending-self. Re-checking
+      subject-run ownership after the poll is fine. FAIL if either session
+      ends while checks are still running, or if PR authorship rather than
+      who pushed the head decides whether to wait.
+  - type: llm-rubric
+    value: >-
+      For settled-green-human, CI on the exact approved head had already
+      settled green when read, so the missing wait does not block landing:
+      continue through the ordinary SHA-pinned squash merge attempt on
+      2222222222222222222222222222222222222222 through the pull-request REST
+      API. FAIL if the session ends without a merge attempt or leaves the PR
+      for a later session solely because the CI wait is off.
+  - type: llm-rubric
+    value: >-
+      For settled-unrelated-red, do not rerun the failed job or wait for any
+      further CI result; the read is already settled. The failure is in a test
+      the docs-only change does not touch and the latest default-branch run
+      shows the same failure, so it is unrelated: keep the approval standing,
+      do not merge, and name default-branch run 9088 (left to ci-fix) in the
+      closing summary. Opening a new flaky-test issue is not required. FAIL if
+      the plan reruns failed jobs, dismisses the approval as if the PR caused
+      the failure, or proposes a merge.
+  - type: llm-rubric
+    value: >-
+      For own-push, the session pushed a fix itself, so it still verifies that
+      push: poll 5555555555555555555555555555555555555555 to a terminal result
+      in the foreground (pinned to the pushed SHA) before ending, and leave the
+      new head's review to the queued run. FAIL if the plan skips verifying its
+      own push because the review's CI wait is off.
+  - type: llm-rubric
+    value: >-
+      Every decision keeps exact-head authority: never auto-merge, admin or
+      force bypass, an unpinned merge, or a claim that an offline proposal ran.
+      The artifact covers all six sessions with reasoning grounded in the
+      observations, in any format.

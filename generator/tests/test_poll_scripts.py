@@ -364,6 +364,88 @@ def test_approval_is_undecided_when_the_head_moves_while_it_waits(
     assert "moved" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("response", "code", "named"),
+    [
+        # A red beside a running check withholds as it stands, naming both.
+        (_resp(OMNIBUS_RED, MATRIX_RUNNING), 1, "not waited for:\nmatrix"),
+        # Nothing failing approves beside a running check, as with the wait.
+        (_resp(_check_run("tests"), MATRIX_RUNNING), 0, ""),
+        # A red with nothing pending withholds, as with the wait.
+        (_resp(OMNIBUS_RED, _check_run("matrix")), 1, "check-ok-to-merge"),
+    ],
+)
+def test_approval_without_the_wait_reads_once(
+    env: dict[str, str], response: str, code: int, named: str
+) -> None:
+    _serve(env, response)
+
+    result = _invoke(poll_pr_checks, env, ["approval", "7", HEAD_SHA, "--no-wait"])
+
+    assert result.returncode == code, result.stdout + result.stderr
+    assert named in result.stdout + result.stderr
+    assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "1"
+
+
+def test_no_wait_combines_with_skip(env: dict[str, str]) -> None:
+    """The flag parses beside `--skip`, which still drops the skipped red."""
+    _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING))
+
+    result = _invoke(
+        poll_pr_checks,
+        env,
+        ["approval", "7", HEAD_SHA, "--no-wait", "--skip", "check-ok-to-merge"],
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.startswith("approve:")
+
+
+@pytest.mark.parametrize(
+    ("responses", "code", "named", "reads"),
+    [
+        # Pending checks are reported, not waited for.
+        (
+            (_resp(_check_run("tests"), MATRIX_RUNNING),),
+            2,
+            "still pending",
+            "1",
+        ),
+        # A settled read is confirmed once, then judged as the wait judges it.
+        ((_resp(_check_run("tests")),), 0, "green", "2"),
+        (
+            (_resp(_check_run("lint", conclusion="FAILURE")),),
+            1,
+            "red on",
+            "2",
+        ),
+        # No complete reading is unverified, not waited out.
+        ((NULL_ROLLUP,), 2, "no complete check rollup", "1"),
+        # A check that registers before the confirming read keeps it pending.
+        (
+            (_resp(_check_run("tests")), _resp(_check_run("tests"), MATRIX_RUNNING)),
+            2,
+            "matrix",
+            "2",
+        ),
+    ],
+)
+def test_poll_without_the_wait_reads_once(
+    env: dict[str, str],
+    responses: tuple[str, ...],
+    code: int,
+    named: str,
+    reads: str,
+) -> None:
+    _serve(env, *responses)
+
+    result = _poll_args(env, "7", HEAD_SHA, "--no-wait")
+
+    assert result.returncode == code, result.stdout + result.stderr
+    assert named in result.stdout
+    assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == reads
+
+
 def test_red_names_the_failing_check_with_its_url(env: dict[str, str]) -> None:
     _serve(env, _resp(_check_run("tests"), _check_run("lint", conclusion="FAILURE")))
 

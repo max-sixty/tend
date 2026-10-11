@@ -1,0 +1,14 @@
+{
+  "kind": "focused",
+  "historical_ref": "8b7ebd53942dd8345ba779aca36067d2ba61e5f4",
+  "bot": "leaf-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "7f7e84020e7422ef3129058a869565b9799564c40bb4c3991c06b5258fbb5f82"
+  },
+  "origin": {
+    "kind": "synthetic contrast",
+    "motivating_run": "https://github.com/max-sixty/leaf/actions/runs/38006736464",
+    "construction": "Review sessions on a repository that set workflows.review.await_ci: false, each at the point where the review's own work is done. A human PR whose checks still run; a self-authored PR, pushed by a ci-fix session that hands landing to the review, whose checks still run; a human PR whose head the bot pushed (a conflict-resolving merge), whose checks still run; a human PR whose read settled green; a human PR whose read settled on a red the default branch shares; and a self-authored PR the review itself pushed to. These vary whether CI had settled and who pushed the head, under yolo throughout. The historical arm predates the option, so it has no guidance for the prompt line."
+  }
+}

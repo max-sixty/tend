@@ -265,4 +265,6 @@ If you pushed fixes, finish per **Push fixes**.
 Otherwise, for a non-draft head meeting **Reviewed head** in
 `/tend-ci-runner:merge-pr`, obtain CI evidence pinned to `$TMPDIR/reviewed-head`
 per `/tend-ci-runner:monitor-ci`, then handle it per **After the approval** in
-`references/approving.md` to complete the landing decision.
+`references/approving.md` to complete the landing decision. When the prompt
+says the review's CI wait is off, follow **Without the CI wait** in
+`references/approving.md`.

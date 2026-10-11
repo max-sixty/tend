@@ -298,6 +298,8 @@ class WorkflowConfig:
     # the top level; an empty args list clears top-level arguments.
     effort: str | None = None
     args: list[str] | None = None
+    # Review only: whether the review waits for the reviewed commit's CI.
+    await_ci: bool = True
 
 
 # Models are not enumerated for either harness. Both catalogs churn, both
@@ -721,6 +723,16 @@ class Config:
                         f"workflows.{name}.prompt is blank. Drop the key to "
                         f"use the default prompt."
                     )
+                await_ci = wf_raw.get("await_ci", True)
+                if "await_ci" in wf_raw and name != "review":
+                    raise click.ClickException(
+                        f"workflows.{name}.await_ci is not supported: only "
+                        "the review workflow reads it."
+                    )
+                if not isinstance(await_ci, bool):
+                    raise click.ClickException(
+                        f"workflows.{name}.await_ci must be true or false"
+                    )
                 workflows[name] = WorkflowConfig(
                     enabled=enabled,
                     prompt=wf_prompt,
@@ -733,6 +745,7 @@ class Config:
                     model=wf_model,
                     effort=wf_effort,
                     args=wf_args,
+                    await_ci=await_ci,
                 )
             else:
                 workflows[name] = WorkflowConfig(enabled=enabled)
