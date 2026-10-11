@@ -16,7 +16,11 @@ on:
 
 jobs:
   fix-ci:
-    if: github.repository_owner == 'test-owner' && vars.TEND_ENABLED != 'false' && contains(fromJSON('["failure", "cancelled"]'), github.event.workflow_run.conclusion)
+    # Failures only. On a busy branch nearly every cancellation is a run a
+    # newer commit superseded, and each would take the one pending slot below
+    # from a failure's trigger. A job that hit its timeout also ends cancelled,
+    # so it starts no session (tend's TODO.md, "Issues as the bus").
+    if: github.repository_owner == 'test-owner' && vars.TEND_ENABLED != 'false' && github.event.workflow_run.conclusion == 'failure'
     concurrency:
       # A red branch fails every push that follows, each on its own commit, so
       # one session per branch ? not per commit ? is what collapses the burst.
@@ -54,6 +58,5 @@ jobs:
           prompt: |2
             /tend-ci-runner:ci-fix ${{ github.event.workflow_run.id }}
             - Run URL: ${{ github.event.workflow_run.html_url }}
-            - Conclusion: ${{ github.event.workflow_run.conclusion }}
             - Commit: ${{ github.event.workflow_run.head_sha }}
             - Commit message: ${{ github.event.workflow_run.head_commit.message }}

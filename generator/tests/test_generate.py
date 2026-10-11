@@ -840,19 +840,14 @@ def test_ci_fix_custom_branches(tmp_path: Path) -> None:
     assert 'branches: ["main", "release"]' in ci_fix.content
 
 
-def test_ci_fix_runs_for_failures_and_cancellations(tmp_path: Path) -> None:
+def test_ci_fix_runs_only_for_failures(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-fix")))
     generated = next(
         wf for wf in generate_all(cfg) if wf.filename == "tend-ci-fix.yaml"
     )
     workflow = yaml.safe_load(generated.content)
     assert workflow["jobs"]["fix-ci"]["if"] == (
-        f"{TEND_ENABLED_CONDITION} && "
-        'contains(fromJSON(\'["failure", "cancelled"]\'), '
-        "github.event.workflow_run.conclusion)"
-    )
-    assert "- Conclusion: ${{ github.event.workflow_run.conclusion }}" in agent_prompt(
-        generated.content
+        f"{TEND_ENABLED_CONDITION} && github.event.workflow_run.conclusion == 'failure'"
     )
 
 
@@ -1404,9 +1399,7 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
     # ci-fix's conclusion check must survive even without the guard.
     ci_fix = yaml.safe_load(workflows["tend-ci-fix.yaml"].content)
     assert ci_fix["jobs"]["fix-ci"]["if"] == (
-        f"{TEND_ENABLED_CONDITION} && "
-        'contains(fromJSON(\'["failure", "cancelled"]\'), '
-        "github.event.workflow_run.conclusion)"
+        f"{TEND_ENABLED_CONDITION} && github.event.workflow_run.conclusion == 'failure'"
     )
 
 
