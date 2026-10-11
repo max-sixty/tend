@@ -77,7 +77,7 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 | **mention**       | @bot mention, review       | Responds to requests in PR and issue conversations.                                                                                                         |
 | **mention-relay** | PR review                  | Hands review events on same-repo PRs to **mention** from a job that holds no secrets.                                                                       |
 | **triage**        | Issue opened               | Classifies the issue, checks for duplicates, reproduces bugs, attempts conservative fixes.                                                                  |
-| **ci-fix**        | CI fails or is cancelled   | Diagnoses the unsuccessful default-branch run, searches for the same pattern elsewhere, and opens a fix PR when needed.                                  |
+| **ci-fix**        | CI fails                   | Diagnoses the failing default-branch run, searches for the same pattern elsewhere, and opens a fix PR when needed.                                          |
 | **nightly**       | Daily                      | Resolves conflicts on open PRs, reviews recent commits, surveys ~10 files for bugs and stale docs, closes resolved issues, regenerates tend workflow files. |
 | **weekly**        | Weekly                     | Reviews dependency PRs and approves safe patch and minor updates; merging follows the configured mode.                                                     |
 | **notifications** | Every 15 minutes           | Drains unread notifications as a recovery queue and repairs conflicts on bot-authored PRs.                                                                  |

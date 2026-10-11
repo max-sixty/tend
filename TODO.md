@@ -237,3 +237,24 @@ lives in KV and is what the site renders. If the summary wants a longer
 span than the last week (beyond GitHub's ~90-day events window or one
 Search page), a KV/D1 accumulator that appends activity as it arrives
 earns its keep — until then, demand-fetch is cheap enough.
+
+## Issues as the bus from failing runs to fixes
+
+`ci-fix` starts only on a watched run's `failure`. A cancelled run starts
+nothing, because on a busy default branch nearly every cancellation is a run a
+newer commit superseded, and each one took the job's single pending slot from
+a failure's trigger. That leaves two gaps. A job that hit its timeout ends
+cancelled and goes unwatched. And the pending slot holds one trigger, so a
+failure that lands while a session runs is replaced by the next failure, and a
+fix still unmerged at the six-hour job limit has no session to finish it.
+
+An issue per failing run would carry each failure as durable state. A
+deterministic step would read the finished run and file or update an issue
+for a failure or a timeout, and nothing for a superseded cancellation. The
+standard triage path would then work it, and `ci-fix` would reduce to
+triage's handling of that issue. It needs a dedup design: for example, key
+each issue by its failing job or test ids in a hidden marker, add a later
+run's recurrences to the open issue, file only failures no open issue holds,
+and close the issue when a later run passes. It also needs a granularity
+choice: one issue per run keeps sessions few, one per cause lets them run in
+parallel.
