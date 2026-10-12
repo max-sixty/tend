@@ -517,16 +517,21 @@ def test_release_requires_successful_smoke_on_exact_commit(
 ACTION_PATH_REF = re.compile(r"\$\{\{\s*github\.action_path\s*\}\}/?([^\s\"')]*)")
 
 
-COMPOSITE_ACTIONS = (
-    "claude/action.yaml",
-    "codex/action.yaml",
-    "codex/refresh/action.yaml",
+# Every composite action a consumer's workflow can name. Each ships at the
+# release tag under its own path, so a new one is covered with no edit here.
+COMPOSITE_ACTIONS = tuple(
+    str(path.relative_to(REPO_ROOT))
+    for path in sorted(REPO_ROOT.glob("**/action.yaml"))
+    if not {"node_modules", ".tmp", ".venv"} & set(path.parts)
 )
 
 
 @pytest.mark.parametrize("action", COMPOSITE_ACTIONS)
 def test_credential_actions_cache_only_in_restricted_mode(action: str) -> None:
-    """Only restricted mode trusts main-branch code that can publish caches."""
+    """Only restricted mode trusts main-branch code that can publish caches.
+
+    The harness actions, which take the merge mode, keep their cache for it.
+    """
     data = YAML(typ="safe").load((REPO_ROOT / action).read_text())
     restores = [
         step
@@ -534,11 +539,9 @@ def test_credential_actions_cache_only_in_restricted_mode(action: str) -> None:
         if step.get("uses", "").split("@", 1)[0].casefold()
         in {"actions/cache", "actions/cache/restore"}
     ]
-    if action != "codex/refresh/action.yaml":
+    if "merge" in (data.get("inputs") or {}):
         assert restores, f"{action} must retain caching in restricted mode"
-        assert all(
-            step.get("if") == "inputs.merge == 'restricted'" for step in restores
-        )
+    assert all(step.get("if") == "inputs.merge == 'restricted'" for step in restores)
 
 
 @pytest.mark.parametrize("action", COMPOSITE_ACTIONS)

@@ -1,0 +1,43 @@
+name: Check a Tend landing on CI completion
+description: >-
+  Decide, with no agent and no checkout of the pull request, whether a finished
+  check starts the landing of a pull request whose review recorded its head
+  (every check green) or the repair of one with no human author (red). Runs
+  Tend's own pinned script.
+
+inputs:
+  github_token:
+    required: true
+    description: The bot's token, which reads the PRs, records and checks
+  head_sha:
+    required: true
+    description: The commit a check finished on
+
+outputs:
+  land_prs:
+    description: JSON array of pull requests whose recorded heads are now green
+    value: ${{ steps.check.outputs.land_prs }}
+  red_prs:
+    description: JSON array of pull requests with no human author whose CI went red
+    value: ${{ steps.check.outputs.red_prs }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install runtime uv
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
+      env:
+        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
+
+    - name: Check
+      id: check
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        HEAD_SHA: ${{ inputs.head_sha }}
+        UV_NO_CACHE: "1"
+      run: |
+        "$RUNNER_TEMP/tend-uv/uv" run --script \
+          "${{ github.action_path }}/../plugins/tend-ci-runner/scripts/land_pr.py" \
+          check "$HEAD_SHA"

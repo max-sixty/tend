@@ -239,7 +239,7 @@ Outdated comments (null line) are best-effort — skip if the original context c
 
 ### 8. Push fixes
 
-Pushing to the branch under review fires `synchronize`, which queues another run behind this session rather than cancelling it. Submit the review (**Submit**) and resolve threads (**Resolve handled suggestions**) before pushing, so the review documents the code the fix responds to. Batch every fix into a single push; each push costs another review round. Poll the pushed fix's CI to green per `/tend-ci-runner:monitor-ci` before ending the session; the queued run reviews the new HEAD.
+Pushing to the branch under review fires `synchronize`, which queues another run behind this session rather than cancelling it. Submit the review (**Submit**) and resolve threads (**Resolve handled suggestions**) before pushing, so the review documents the code the fix responds to. Batch every fix into a single push; each push costs another review round. Poll the pushed fix's CI to green per `/tend-ci-runner:monitor-ci` before ending the session, except where **Without the CI wait** in `references/approving.md` hands that to the queued run; the queued run reviews the new HEAD.
 
 Before the push, review the fix itself per **Review the change before the push** in `/tend-ci-runner:push-commits`. Leave the review pinned to the head you reviewed. **Submit**'s re-targeting is for pushes by others during the review; re-target onto your own fix and the queued run reads that head as already reviewed, then finishes without looking at the fix. That run reviews the pushed head and resolves the threads the fix addressed.
 
@@ -257,6 +257,8 @@ git add <files>
 git commit -m "fix: <description>"
 git push
 ```
+
+Then record the push per **After the push** in `/tend-ci-runner:push-commits`.
 
 ### 9. Complete the review
 

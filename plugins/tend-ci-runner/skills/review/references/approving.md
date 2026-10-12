@@ -46,14 +46,7 @@ per `/tend-ci-runner:merge-pr`, using the same reviewed head and its CI evidence
 
 ## Without the CI wait
 
-When the prompt says the review's CI wait is off, the repository has chosen to end a review once its own work is done rather than wait for CI. The wait stays where this review is the PR's lander. Under `yolo`, a session of this bot that pushes a head hands its landing to the review that follows (**Reviews arriving during verification** in `/tend-ci-runner:push-commits`), so when the reviewed head is the bot's own push, wait as usual. The bot commits under its own identity, so its push is a head whose committer is the bot, whoever authored the PR:
-
-```bash
-BOT_LOGIN=$(gh api user --jq .login)
-gh api "repos/{owner}/{repo}/commits/$(cat "$TMPDIR/reviewed-head")" --jq .committer.login
-```
-
-Elsewhere, judge CI by the checks that have already finished:
+When the prompt says the review's CI wait is off, the repository has chosen to end a review once its own work is done rather than wait for CI. Judge CI by the checks that have already finished:
 
 - Run the approval check with `--no-wait`. A failure beside checks still running then withholds as it stands, and the check names the ones still running.
 - In place of the poll, read the pinned commit once, with the same `--skip` arguments:
@@ -61,6 +54,17 @@ Elsewhere, judge CI by the checks that have already finished:
   uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \
     poll <number> "$(cat "$TMPDIR/reviewed-head")" --no-wait
   ```
-  Handle exit 0 or 1 per **After the approval**, except that an unrelated failure is routed without a rerun, since a rerun is a wait. Exit 1 also covers a check that has already failed while others still run: the failure is final, so act on it now, and leave the PR unmerged. Exit 2 (checks still running with none failed, checks that settled without a result, or no complete reading) ends the review: name the checks it lists in the closing summary, and leave the landing decision to a later session or a maintainer.
+  Handle exit 0 or 1 per **After the approval**, except that an unrelated failure is routed without a rerun, since a rerun is a wait. Exit 1 also covers a check that has already failed while others still run: the failure is final, so act on it now, and leave the PR unmerged. Exit 2 (checks still running with none failed, checks that settled without a result, or no complete reading) ends the review: name the checks it lists in the closing summary, and leave the landing decision to a later session or a maintainer, except as below.
 
-A fix this session pushes is still its own to verify, per **Push fixes**.
+Under `yolo`, this review is the lander of a head this bot pushed: a session of this bot that pushes a head hands its landing to the review that follows (**Reviews arriving during verification** in `/tend-ci-runner:push-commits`), so the pushing session's run, even while still going, is not an owner that keeps the head open. That landing doesn't wait on this session either. On exit 2 with checks still running, where everything `/tend-ci-runner:merge-pr` asks of the head but its CI holds — it is the **Reviewed head**, and nothing under **Readiness and ownership** leaves it open — record the head for landing and end:
+
+```bash
+uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/land_pr.py" \
+  intend <number> "$(cat "$TMPDIR/reviewed-head")" "$(cat "$TMPDIR/reviewed-base")"
+```
+
+Add the same `--skip` arguments; the record carries them, with the base this review judged, so the landing judges the same checks against the same base. Exit 3 records nothing: the head carries no record of this bot's push (`tend/land/pushed`, which the pushing session made per `/tend-ci-runner:push-commits`), or the PR has moved off that head or base. Leave that landing to a later session or a maintainer. Exit 0 means the record stands, and tend-land takes it from here; the record's own status wakes tend-land, so a check that finished since the review's read isn't missed.
+
+The record is a `tend/land/<number>` status on that exact commit. When every check on it has finished green, tend-land starts a short landing session that makes the landing decision per `/tend-ci-runner:merge-pr`, reading the PR afresh for holds, findings, the approval and ownership. A red result on a PR with no human author starts a session that continues its repair per `/tend-ci-runner:continue-pr`. Where the review can't record the head (a draft, a hold, an unresolved finding), the landing decision passes to a later session or a maintainer, as it does on a head someone else pushed.
+
+A fix this session pushes is covered the same way: record the push (**After the push** in `/tend-ci-runner:push-commits`), and the run queued behind this one reviews and records the pushed head, so end once the push is made rather than polling it.

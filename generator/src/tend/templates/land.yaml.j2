@@ -1,0 +1,136 @@
+{%- set land_prompt %}<<cfg.default_prompt('merge-pr', '${{ matrix.pr }}')>>
+
+tend-land: every check on ${{ needs.check.outputs.sha }} has finished green, the head a review recorded for landing (`tend/land/${{ matrix.pr }}`). Complete the landing decision for that exact head. The review's CI wait is off (`await_ci: false`).{% endset -%}
+{%- set repair_prompt %}<<cfg.default_prompt('continue-pr', '${{ matrix.pr }}')>>
+
+CI settled red on this PR's head ${{ needs.check.outputs.sha }} after its review ended. The review's CI wait is off (`await_ci: false`).{% endset -%}
+{%- set current = "steps.current.outputs.current == 'true'" -%}
+{#- Reads whether the head a session was started for is still the PR's, so a
+    session queued behind another that already moved the head ends before
+    `setup:` and the agent cost anything. #}
+{%- macro still_current() %}
+      - name: Check the head is still the PR's
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ matrix.pr }}
+          SHA: ${{ needs.check.outputs.sha }}
+        run: |
+          head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .head.sha)
+          if [ "$head" = "$SHA" ]; then current=true; else current=false; fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+{%- endmacro -%}
+<<header>>
+name: tend-land
+# Lands a reviewed PR once its CI completes, with no session waiting for it.
+# With the review's CI wait off, a review that settles everything about a head
+# the bot pushed but its CI records the head for landing (a `tend/land/<PR>`
+# commit status naming the base and any skipped checks) and ends. `check`, Tend's
+# pinned script with no agent and no checkout of the PR, runs whenever anything
+# that reports on a commit finishes, so whatever its gate waits on also wakes
+# it: every workflow but Tend's own, a commit status, or another app's check
+# suite. It decides only what is crisp: a record for that head and base, and
+# every check finished. Green with a record starts a short `land` session per
+# PR that makes the landing decision; a red on a PR with no human author starts
+# `repair`. `land_pr.py` documents the records.
+on:
+  workflow_run:
+    workflows: ["**", "!tend-*"]
+    types: [completed]
+  status:
+  check_suite:
+    types: [completed]
+
+jobs:
+  check:
+    # Filtered here, before a runner is allocated, so the wake-up costs
+    # nothing for events that can't land or repair anything: a pending status;
+    # Tend's own push and repair markers, which change no verdict; a workflow
+    # run or check suite with no PR in this repository behind it (a push to
+    # this repo's default branch or to a branch with no PR). A fork PR's run
+    # lists no PR either, so a run from another repository passes.
+    if: >-
+      <<fork_guard_prefix(cfg)>><<tend_enabled>> && (
+        (github.event_name == 'status'
+          && github.event.state != 'pending'
+          && github.event.context != 'tend/land/pushed'
+          && github.event.context != 'tend/land/repair')
+        || (github.event_name == 'workflow_run'
+          && (github.event.workflow_run.pull_requests[0] != null
+            || github.event.workflow_run.head_repository.full_name != github.repository))
+        || (github.event_name == 'check_suite'
+          && github.event.check_suite.pull_requests[0] != null))
+    # One check per commit at a time: a burst of events for one head runs the
+    # first and the newest, which re-reads everything the others would have.
+    concurrency:
+      group: ${{ github.workflow }}-check-${{ github.event.workflow_run.head_sha || github.event.check_suite.head_sha || github.event.sha }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+<<environment()>>
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.event.outputs.sha }}
+      land_prs: ${{ steps.check.outputs.land_prs }}
+      red_prs: ${{ steps.check.outputs.red_prs }}
+    steps:
+      - name: Read the event's commit
+        id: event
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.event.check_suite.head_sha || github.event.sha }}
+        run: echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - uses: max-sixty/tend/land@<<tend_version>>
+        id: check
+        with:
+          github_token: ${{ secrets.<<bot_token_secret>> }}
+          head_sha: ${{ steps.event.outputs.sha }}
+
+  # One session per PR. Each shares the review's concurrency group for that
+  # PR, so a landing or repair never runs beside a review of the same PR, and
+  # queues rather than replacing a pending one.
+  land:
+    needs: check
+    if: needs.check.outputs.land_prs != '[]' && needs.check.outputs.land_prs != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: ${{ fromJSON(needs.check.outputs.land_prs) }}
+    # The job's name carries its PR, which is how `active_subject_runs.py`
+    # finds this session as the PR's owner.
+    name: "land #${{ matrix.pr }}"
+    concurrency:
+      group: tend-review-${{ matrix.pr }}
+      queue: max
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+<<environment()>>
+    permissions:
+<<permissions()>>
+    steps:
+<<still_current()>>
+<<checkout(cfg, ref=cfg.default_branch, if_condition=current)>>
+<<agent_step(cfg, block_input('prompt', land_prompt), if_condition=current)>>
+
+  # A PR with no human author went red after its review ended, so no session
+  # is waiting to repair it; this one continues it, as the review would have.
+  repair:
+    needs: check
+    if: needs.check.outputs.red_prs != '[]' && needs.check.outputs.red_prs != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: ${{ fromJSON(needs.check.outputs.red_prs) }}
+    name: "repair #${{ matrix.pr }}"
+    concurrency:
+      group: tend-review-${{ matrix.pr }}
+      queue: max
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+<<environment()>>
+    permissions:
+<<permissions()>>
+    steps:
+<<still_current()>>
+<<checkout(cfg, ref=cfg.default_branch, if_condition=current)>>
+<<setup_current>>
+<<agent_step(cfg, block_input('prompt', repair_prompt), if_condition=current)>>

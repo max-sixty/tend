@@ -741,6 +741,7 @@ def test_non_string_prompt_is_rejected(tmp_path: Path) -> None:
             (
                 "merge: yolo\nworkflows:\n  review:\n"
                 '    await_ci: false\n    prompt: "/my-review {pr_number}"\n'
+                "  ci-fix:\n    watched_workflows: [ci]\n"
             ),
             True,
         ),
@@ -759,6 +760,167 @@ def test_review_prompt_says_when_the_ci_wait_is_off(
         is told
     )
     assert "${{ github.event.pull_request.number }}" in prompt
+
+
+_WATCHED = "  ci-fix:\n    watched_workflows: [ci, lint]\n"
+
+
+@pytest.mark.parametrize(
+    ("extra", "lands"),
+    [
+        (f"merge: yolo\nworkflows:\n{_WATCHED}", False),
+        (f"merge: yolo\nworkflows:\n  review:\n    await_ci: true\n{_WATCHED}", False),
+        (f"workflows:\n  review:\n    await_ci: false\n{_WATCHED}", False),
+        (
+            (
+                "merge: yolo\nworkflows:\n  review:\n    enabled: false\n"
+                f"    await_ci: false\n{_WATCHED}"
+            ),
+            False,
+        ),
+        (f"merge: yolo\nworkflows:\n  review:\n    await_ci: false\n{_WATCHED}", True),
+    ],
+)
+def test_tend_land_exists_where_a_review_leaves_landing_to_it(
+    tmp_path: Path, extra: str, lands: bool
+) -> None:
+    """Only a yolo review with its CI wait off ends before CI and records the
+    head; everywhere else a review or a maintainer lands, and tend-land would
+    find no record to act on."""
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    assert ("tend-land.yaml" in {wf.filename for wf in generate_all(cfg)}) is lands
+
+
+def _land_prompts(content: str) -> dict[str, str]:
+    """Each agent job's prompt in tend-land, by job."""
+    jobs = yaml.safe_load(content)["jobs"]
+    return {
+        name: step["with"]["prompt"]
+        for name, job in jobs.items()
+        for step in job["steps"]
+        if "prompt" in step.get("with", {})
+    }
+
+
+def test_tend_land_wakes_on_whatever_its_gate_reads(tmp_path: Path) -> None:
+    """The check waits on every check on the commit, so anything that can
+    finish one wakes it: every workflow but Tend's own, a commit status, and
+    another app's check suite. A gate wider than its wake-up strands a
+    recorded head whose last check comes from outside it."""
+    extra = "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
+    data = yaml.safe_load(land.content)
+
+    assert data["on"]["workflow_run"] == {
+        "workflows": ["**", "!tend-*"],
+        "types": ["completed"],
+    }
+    assert "status" in data["on"]
+    assert data["on"]["check_suite"] == {"types": ["completed"]}
+    check = data["jobs"]["check"]
+    # Near-free wake-up: events that can't land or repair anything are
+    # filtered before a runner is allocated, and one check runs per commit.
+    for skipped in (
+        "github.event.state != 'pending'",
+        "github.event.context != 'tend/land/pushed'",
+        "github.event.context != 'tend/land/repair'",
+        "github.event.workflow_run.pull_requests[0] != null",
+        "github.event.check_suite.pull_requests[0] != null",
+    ):
+        assert skipped in check["if"]
+    assert check["concurrency"]["cancel-in-progress"] is False
+    assert "head_sha" in check["concurrency"]["group"]
+    assert check["steps"][-1]["uses"] == f"max-sixty/tend/land@{ACTION_VERSION}"
+    assert check["permissions"] == {"contents": "read"}
+    # A fork's PR run lists no PR, so a run from another repository passes;
+    # only a run in this one with no PR behind it is skipped.
+    assert (
+        "github.event.workflow_run.head_repository.full_name != github.repository"
+        in check["if"]
+    )
+
+
+def test_tend_lands_check_reads_outputs_the_action_and_script_produce(
+    tmp_path: Path,
+) -> None:
+    """The workflow reads the check's outputs through the composite action,
+    which maps the ones `land_pr.py check` writes (`test_land_pr.py` pins
+    those); a name either drops leaves both sessions unstarted with every
+    check green."""
+    extra = "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
+    read = set(re.findall(r"steps\.check\.outputs\.(\w+)", land.content))
+    repo = Path(__file__).resolve().parents[2]
+    action = yaml.safe_load((repo / "land" / "action.yaml").read_text())
+    assert read == set(action["outputs"]) == {"land_prs", "red_prs"}
+    for name in action["outputs"]:
+        assert action["outputs"][name]["value"] == (
+            f"${{{{ steps.check.outputs.{name} }}}}"
+        )
+
+
+def test_tend_land_starts_a_session_per_pr_in_the_reviews_group(
+    tmp_path: Path,
+) -> None:
+    """Every PR the check names gets its own session, named for the PR so
+    ownership lookups find it, and queued in the review's group for that PR
+    so it never runs beside a review of the same PR."""
+    extra = "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    generated = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(generated["tend-land.yaml"].content)
+    review = yaml.safe_load(generated["tend-review.yaml"].content)
+
+    review_group = review["jobs"]["review"]["concurrency"]["group"]
+    assert review_group.startswith("${{ github.workflow }}-")
+    for job, output in (("land", "land_prs"), ("repair", "red_prs")):
+        spec = data["jobs"][job]
+        assert spec["strategy"]["matrix"]["pr"] == (
+            f"${{{{ fromJSON(needs.check.outputs.{output}) }}}}"
+        )
+        assert spec["name"] == f"{job} #${{{{ matrix.pr }}}}"
+        assert spec["concurrency"] == {
+            "group": "tend-review-${{ matrix.pr }}",
+            "queue": "max",
+            "cancel-in-progress": False,
+        }
+    # A session queued behind one that already moved the head ends before
+    # `setup:` or the agent costs anything.
+    for job in ("land", "repair"):
+        steps = data["jobs"][job]["steps"]
+        assert steps[0]["id"] == "current"
+        assert all(
+            step.get("if") == "steps.current.outputs.current == 'true'"
+            or "steps.current.outputs.current == 'true'" in str(step.get("if"))
+            for step in steps[1:]
+        )
+    prompts = _land_prompts(generated["tend-land.yaml"].content)
+    assert prompts["land"].startswith("/tend-ci-runner:merge-pr ${{ matrix.pr }}")
+    assert prompts["repair"].startswith("/tend-ci-runner:continue-pr ${{ matrix.pr }}")
+    for prompt in prompts.values():
+        assert prompt.rstrip().endswith(
+            "The review's CI wait is off (`await_ci: false`)."
+        )
+
+
+def test_tend_lands_sessions_run_on_the_reviews_harness(tmp_path: Path) -> None:
+    """Landing and repair continue the review, and the install provisions
+    credentials for the harnesses its enabled workflows use, not for the
+    top-level one."""
+    extra = (
+        "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+        "    harness: codex\n"
+        "  ci-fix:\n    enabled: false\n    watched_workflows: [ci]\n"
+    )
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
+    assert f"max-sixty/tend/codex@{ACTION_VERSION}" in land.content
+    assert "max-sixty/tend/claude@" not in land.content
+    prompts = _land_prompts(land.content)
+    assert prompts["land"].startswith("$merge-pr ")
+    assert prompts["repair"].startswith("$continue-pr ")
 
 
 @pytest.mark.parametrize(

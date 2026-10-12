@@ -116,7 +116,9 @@ def _emit_json(value: dict[str, Any]) -> bool:
 
 def _start(pr: str) -> int:
     repo = github_cli.repository()
-    initial = _pr_view(pr, repo, "headRefOid,state,baseRefOid,author,isDraft")
+    initial = _pr_view(
+        pr, repo, "headRefOid,state,baseRefOid,author,isDraft,baseRefName"
+    )
     if not initial or not all(
         initial.get(key) is not None
         for key in ("headRefOid", "state", "baseRefOid", "author", "isDraft")
@@ -190,6 +192,12 @@ def _start(pr: str) -> int:
     Path(
         os.environ.get("REVIEWED_HEAD_FILE", str(TEMP_DIR / "reviewed-head"))
     ).write_text(f"{head_sha}\n")
+    # The base this review judges the head against, which a landing record
+    # names so a retarget after the review can't land on another base.
+    if initial.get("baseRefName"):
+        Path(
+            os.environ.get("REVIEWED_BASE_FILE", str(TEMP_DIR / "reviewed-base"))
+        ).write_text(f"{initial['baseRefName']}\n")
     return 0
 
 

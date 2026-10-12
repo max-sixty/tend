@@ -359,17 +359,24 @@ bot_name: my-project-bot
 # reruns a failure that looks unrelated, fixes a red on a PR with no human
 # author, and under `yolo` merges once CI is green. Where CI runs long, that
 # wait is most of the review's runner time. `await_ci: false` ends the review
-# once its own work is done, acting on the checks that have already finished.
-# Under `yolo`, a head the bot pushed itself still waits as before, since the
-# session that pushed it hands landing to the review, and so does a fix the
-# review pushes. On any other head:
+# once its own work is done, acting on the checks that have already finished:
 #
-# - A check already red withholds the approval. A check that fails after the
-#   review ends stands beside the approval: the review neither withdraws the
-#   approval nor fixes the failure.
-# - The review doesn't merge a PR whose checks are still running. Under
-#   `yolo`, a human's PR then lands through a maintainer and a dependency PR
-#   through `weekly`.
+# - A check already red withholds the approval.
+# - Under `yolo`, a head the bot pushed itself (the pushing session records
+#   that as a `tend/land/pushed` status), whose review settled everything but
+#   its CI, is recorded for landing (a `tend/land/<PR>` commit status naming
+#   the base and any skipped checks). Whenever something reporting on a
+#   commit finishes (any workflow but Tend's own, a commit status, another
+#   app's check suite), the generated `tend-land` workflow checks, with no
+#   agent, whether a recorded head on its recorded base has every check
+#   green, and if so starts a short landing session per PR that makes the
+#   landing decision. A red result on a PR with no human author starts a
+#   session that continues its repair. Neither session waits on CI after a
+#   push: it records the push, and the next review and completion carry on.
+# - A head someone else pushed, or one the review can't record, is left for a
+#   maintainer while its checks run, as is every PR under `restricted`. A
+#   check that fails after the review ends on a human's PR stands beside the
+#   approval.
 #
 # tend-review checks out the prospective post-merge tree
 # (`refs/pull/N/merge`) when available, and falls back to the PR branch head

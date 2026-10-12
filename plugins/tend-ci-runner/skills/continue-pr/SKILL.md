@@ -1,6 +1,6 @@
 ---
 name: continue-pr
-description: Continue the configured bot's unfinished PR, including red CI and unresolved findings after a prior response or review.
+description: Continue an unfinished PR with no human author, including red CI and unresolved findings after a prior response or review.
 argument-hint: "[PR number]"
 metadata:
   internal: true
@@ -32,8 +32,9 @@ uv run --script \
   "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/<number>"
 ```
 
-Continue only an open PR authored by the configured bot with its head in this
-repository. Establish ownership per **Subject-run ownership**
+Continue only an open PR with no human author — the configured bot's, or
+another bot's such as Dependabot's or Renovate's, which the review repairs as
+its author — with its head in this repository. Establish ownership per **Subject-run ownership**
 in `/tend-ci-runner:merge-pr`; defer to an independent dedicated owner. A human
 takeover or maintainer instruction to stop leaves the work with them. Read any
 related in-flight PR before treating it as the owner of this repair: an
@@ -69,7 +70,13 @@ arrives while this run works remains with its reviewer per
 Once the remaining findings are addressed, poll the pinned head per
 `/tend-ci-runner:monitor-ci`, including a head this run did not push. Handle
 failures as remaining repair work, then complete the landing decision per
-`/tend-ci-runner:merge-pr`. If the repair is obsolete or its premise
+`/tend-ci-runner:merge-pr`. When the prompt says the review's CI wait is off,
+under `yolo`, this run polls no head. A push of yours ends it: record the push
+per **After the push** in `/tend-ci-runner:push-commits` and end. The review
+queued behind the push records the head for landing, and tend-land lands it
+when its CI is green or starts the next repair if it goes red. A head someone
+else moved since this run was started (another repair's push) is theirs to
+see through, so end without pushing. If the repair is obsolete or its premise
 is disproved, withdraw only the bot's PR after the branch-state recheck in
 `/tend-ci-runner:push-commits`.
 

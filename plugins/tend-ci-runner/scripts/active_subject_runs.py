@@ -14,6 +14,7 @@ whose unchanged non-terminal state would otherwise defer the subject forever.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -32,6 +33,11 @@ ACTIVE_STATUSES = ("queued", "in_progress", "waiting", "requested", "pending")
 # excluded below by run id rather than by workflow, since a second poll would
 # own nothing.
 WORKFLOW_PREFIX = ".github/workflows/tend-"
+
+# tend-land starts from a CI completion, so no run-level title names a PR: each
+# of its sessions is a job named for the PR it works on (`land #7`).
+SUBJECT_JOBS_WORKFLOW = ".github/workflows/tend-land.yaml"
+SUBJECT_JOB_RE = re.compile(r"#(\d+)$")
 
 # A run whose state has not moved in this long is never going to deliver.
 # GitHub documents no queue-time cancellation for its hosted runners — the 24h
@@ -68,13 +74,22 @@ def abandoned(run: dict[str, Any], *, now: datetime) -> bool:
 
 
 def subject_runs(
-    runs: list[dict[str, Any]], *, subject_title: str, own_run_id: int, now: datetime
+    runs: list[dict[str, Any]],
+    *,
+    subject_title: str,
+    own_run_id: int,
+    now: datetime,
+    job_subjects: dict[int, set[int]] | None = None,
+    subject_number: int = 0,
 ) -> list[dict[str, Any]]:
-    """Reduce workflow runs to active dedicated candidates for *subject_title*.
+    """Reduce workflow runs to active dedicated candidates for a subject.
 
     Matches on `display_title` because `workflow_run` does not expose the issue
-    number for comment and review events.
+    number for comment and review events. A run in *job_subjects* (its active
+    jobs' subject numbers, for workflows whose jobs name their subject) matches
+    on *subject_number* instead.
     """
+    job_subjects = job_subjects or {}
     candidates: dict[int, dict[str, Any]] = {}
     for run in runs:
         run_id = int(run["id"])
@@ -83,7 +98,10 @@ def subject_runs(
         path = str(run.get("path") or "")
         if not path.startswith(WORKFLOW_PREFIX):
             continue
-        if run.get("display_title") != subject_title:
+        if run_id in job_subjects:
+            if subject_number not in job_subjects[run_id]:
+                continue
+        elif run.get("display_title") != subject_title:
             continue
         if abandoned(run, now=now):
             continue
@@ -116,19 +134,43 @@ def fetch_active_runs(repo: str) -> list[dict[str, Any]]:
     return runs
 
 
+def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[int]]:
+    """The subject numbers active jobs name, for runs whose jobs name one."""
+    subjects: dict[int, set[int]] = {}
+    for run in runs:
+        if run.get("path") != SUBJECT_JOBS_WORKFLOW:
+            continue
+        jobs = (
+            github_cli.json_call(
+                "api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100"
+            ).get("jobs")
+            or []
+        )
+        subjects[int(run["id"])] = {
+            int(match.group(1))
+            for job in jobs
+            if job.get("status") != "completed"
+            and (match := SUBJECT_JOB_RE.search(str(job.get("name") or "")))
+        }
+    return subjects
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 1 or not args[0]:
         print(f"usage: {sys.argv[0]} <subject-url>", file=sys.stderr)
         return 2
     repo = github_cli.repository()
-    subject_title = github_cli.json_call("api", args[0])["title"]
+    subject = github_cli.json_call("api", args[0])
+    runs = fetch_active_runs(repo)
     github_cli.dump(
         subject_runs(
-            fetch_active_runs(repo),
-            subject_title=subject_title,
+            runs,
+            subject_title=subject["title"],
             own_run_id=int(os.environ.get("GITHUB_RUN_ID") or 0),
             now=datetime.now(UTC),
+            job_subjects=fetch_job_subjects(repo, runs),
+            subject_number=int(subject.get("number") or 0),
         )
     )
     return 0

@@ -22,6 +22,16 @@ Always use `git push` without specifying a remote — `gh pr checkout` configure
 
 If pushing fails (fork PR with edits disabled), fall back to posting code snippets in a comment. Don't reference commit SHAs from temporary branches — post code inline.
 
+### After the push
+
+Under `yolo`, record each push to a PR's branch, with the commit you pushed:
+
+```bash
+uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/land_pr.py" pushed <sha>
+```
+
+It sets a `tend/land/pushed` status that only this bot's token can make. A review whose CI wait is off records a head for landing only where it finds one, since the pushing session is the one that knows who pushed; without it, that head's landing waits for a maintainer.
+
 ### Review the change before the push
 
 Before the push that opens a PR, and before pushing a fix to a PR under review, review the diff you are about to push, at a depth set by what the change touches and how likely it is to be wrong. A docs, config, or mechanical change gets a read-through. A change to the project's logic, to what it writes on a user's behalf, or to a helper with other call sites gets `/tend-ci-runner:code-review` over the diff and a search for the same pattern elsewhere. Fold what you find into the same push; the queued review is otherwise the first pass over the change, and each round that finds something is another session.

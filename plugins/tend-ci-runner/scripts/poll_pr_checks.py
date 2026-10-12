@@ -29,6 +29,10 @@ RED_CONCLUSIONS = {
 # conclusion GitHub adds later — so it is neither red nor green. Naming green
 # rather than the no-result set keeps the unrecognized case fail-closed.
 GREEN_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+#: The commit statuses a review sets to record that a head lands once its CI
+#: is green, one per PR under this prefix (`land_pr.py`). They are Tend's own
+#: records, like the review's check, not CI, so no verdict reads them.
+LAND_CONTEXT = "tend/land"
 #: Seconds between rollup reads, and between a clean read and the one that
 #: confirms it.
 POLL_SEC = 60
@@ -80,7 +84,8 @@ def reduce_rollup(
 ) -> dict[str, list[str]] | None:
     """Filter and collapse raw contexts to pending, failed and unverified names.
 
-    Drops this run's own checks, tend-review's, and any named in *skip*.
+    Drops this run's own checks, tend-review's, the landing record, and any
+    named in *skip*.
     """
     contexts: list[dict[str, str]] = []
     own_run = f"/runs/{run_id}/" if run_id else ""
@@ -112,7 +117,11 @@ def reduce_rollup(
             continue
         if workflow and context["workflow"] == workflow:
             continue
-        if context["workflow"] == "tend-review" or context["name"] in skip:
+        if (
+            context["workflow"] == "tend-review"
+            or context["name"].startswith(f"{LAND_CONTEXT}/")
+            or context["name"] in skip
+        ):
             continue
         contexts.append(context)
 
