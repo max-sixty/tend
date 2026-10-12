@@ -1,54 +1,70 @@
-{%- set red_prompt %}<<cfg.default_prompt('continue-pr', '${{ needs.land.outputs.red_pr }}')>>
+{%- set land_prompt %}<<cfg.default_prompt('merge-pr', '${{ needs.check.outputs.land_pr }}')>>
 
-CI settled red on this PR's head after a review recorded the head for landing:
+tend-land: every check on ${{ github.event.workflow_run.head_sha }} has finished green, the head a review recorded for landing (`tend/land/${{ needs.check.outputs.land_pr }}`). Complete the landing decision for that exact head.{% endset -%}
+{%- set repair_prompt %}<<cfg.default_prompt('continue-pr', '${{ needs.check.outputs.red_pr }}')>>
+
+CI settled red on this PR's head after its review ended:
 ${{ github.event.workflow_run.html_url }}{% endset -%}
 <<header>>
 name: tend-land
-# Lands a reviewed PR once its CI completes. With the review's CI wait off, a
-# review that settles everything about a head the bot pushed but its CI
-# records the head for landing (a `tend/land/<PR>` commit status naming the
-# base and any skipped checks) and ends instead of waiting; each
-# completion of a watched CI workflow then lands any PR at that commit whose
-# record still holds. The `land` job runs Tend's pinned script, no agent and
-# no checkout of the PR; `land_pr.py` documents what it checks.
+# Lands a reviewed PR once its CI completes, with no session waiting for it.
+# With the review's CI wait off, a review that settles everything about a head
+# the bot pushed but its CI records the head for landing (a `tend/land/<PR>`
+# commit status naming the base and any skipped checks) and ends. Each
+# completion of a watched CI workflow runs `check`, Tend's pinned script with
+# no agent and no checkout of the PR, which decides only what is crisp: a
+# record for that head and base, and every check finished. Green with a record
+# starts a short `land` session that makes the landing decision; a red on a PR
+# with no human author starts `repair`. `land_pr.py` documents the records.
 on:
   workflow_run:
     workflows: <<watched|tojson>>
     types: [completed]
 
 jobs:
-  land:
+  check:
     # A run on this repository's default branch has no PR to land. The repo is
     # part of that test: a fork's PR from its own `main` carries the same
     # branch name.
     if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && !(github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == github.event.repository.default_branch)
-    concurrency:
-      # Each watched workflow's completion arrives separately; one at a time
-      # per commit, so the second reads the first's merge instead of racing it.
-      # Never cancel: the later completion may be the one that finds it green.
-      group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha }}
-      cancel-in-progress: false
     runs-on: ubuntu-24.04
 <<environment()>>
     permissions:
       contents: read
     outputs:
-      red_pr: ${{ steps.land.outputs.red_pr }}
+      land_pr: ${{ steps.check.outputs.land_pr }}
+      red_pr: ${{ steps.check.outputs.red_pr }}
     steps:
       - uses: max-sixty/tend/land@<<tend_version>>
-        id: land
+        id: check
         with:
           github_token: ${{ secrets.<<bot_token_secret>> }}
           head_sha: ${{ github.event.workflow_run.head_sha }}
           conclusion: ${{ github.event.workflow_run.conclusion }}
 
+  # Each watched workflow's completion arrives separately, so both sessions
+  # queue per PR and never cancel: the second reads what the first did.
+  land:
+    needs: check
+    if: needs.check.outputs.land_pr != ''
+    concurrency:
+      group: ${{ github.workflow }}-${{ needs.check.outputs.land_pr }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+<<environment()>>
+    permissions:
+<<permissions()>>
+    steps:
+<<checkout(cfg, ref=cfg.default_branch)>>
+<<agent_step(cfg, block_input('prompt', land_prompt))>>
+
   # A PR with no human author went red after its review ended, so no session
   # is waiting to repair it; this one continues it, as the review would have.
-  red:
-    needs: land
-    if: needs.land.outputs.red_pr != ''
+  repair:
+    needs: check
+    if: needs.check.outputs.red_pr != ''
     concurrency:
-      group: ${{ github.workflow }}-red-${{ needs.land.outputs.red_pr }}
+      group: ${{ github.workflow }}-${{ needs.check.outputs.red_pr }}
       cancel-in-progress: false
     runs-on: ubuntu-24.04
 <<environment()>>
@@ -57,4 +73,4 @@ jobs:
     steps:
 <<checkout(cfg, ref=cfg.default_branch)>>
 <<setup>>
-<<agent_step(cfg, block_input('prompt', red_prompt))>>
+<<agent_step(cfg, block_input('prompt', repair_prompt))>>

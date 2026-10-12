@@ -63,12 +63,13 @@ Three load-bearing boundaries, with one deliberate policy choice:
    `.config/tend.yaml`, CODEOWNERS, or agent instructions still need fresh
    CODEOWNER approval. Extra protected
    branches and tags remain admin-only in both policies. With the review's CI
-   wait off, the generated `tend-land` workflow makes the merge a review
-   recorded, once CI is green. It holds the bot token in a job that runs
+   wait off, the generated `tend-land` workflow starts the landing a review
+   recorded, once CI is green. Its first job holds the bot token to run
    Tend's own pinned `land_pr.py` on the default branch, with no agent and no
-   checkout of the PR, and it merges only the exact commit the bot recorded
-   for that PR and base (a `tend/land/<PR>` status the bot itself created on
-   a head it pushed), so a push after the review is refused by GitHub rather
+   checkout of the PR; it only names a PR whose exact head carries the bot's
+   record for that PR and base (a `tend/land/<PR>` status the bot itself
+   created on a head it pushed). The landing session it starts merges with
+   that head's SHA, so a push after the review is refused by GitHub rather
    than landed.
 2. **Tend's operational credentials stay out of the agent process.** The
    generated workflows' harness isolates the long-lived credentials from the

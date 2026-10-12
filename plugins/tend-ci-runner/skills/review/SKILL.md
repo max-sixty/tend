@@ -258,6 +258,8 @@ git commit -m "fix: <description>"
 git push
 ```
 
+Then record the push per **After the push** in `/tend-ci-runner:push-commits`.
+
 ### 9. Complete the review
 
 If you pushed fixes, finish per **Push fixes**.

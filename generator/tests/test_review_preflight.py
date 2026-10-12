@@ -130,6 +130,7 @@ class Fixture:
             "headRefOid": sha,
             "state": state,
             "baseRefOid": self.base,
+            "baseRefName": "main",
             "author": {"login": "author", "is_bot": False},
             "isDraft": False,
         }
@@ -161,6 +162,7 @@ class Fixture:
             "GITHUB_REPOSITORY": "owner/repo",
             "BOT_LOGIN": BOT,
             "REVIEWED_HEAD_FILE": str(self.pin),
+            "REVIEWED_BASE_FILE": str(self.tmp_path / "reviewed-base"),
             "PR_JSON": str(self.tmp_path / "pr_json.json"),
             "FINAL_PR_JSON": str(self.tmp_path / "final_pr_json.json"),
             "BOT_HEAD_JSON": str(self.tmp_path / "bot_head_json.json"),
@@ -261,6 +263,8 @@ def test_start_records_one_snapshot_and_prepares_the_incremental(pr: Fixture) ->
     assert "base-2" not in incremental
     assert "base.txt" not in incremental
     assert pr.pinned() == moved
+    # The base the review judges, which a landing record must name.
+    assert (pr.tmp_path / "reviewed-base").read_text() == "main\n"
 
 
 def test_the_incremental_lists_the_branch_merge_but_not_the_bases_own(

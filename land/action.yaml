@@ -1,24 +1,28 @@
-name: Land a reviewed Tend pull request
+name: Check a Tend landing on CI completion
 description: >-
-  Merge each open pull request at a commit whose review recorded it for
-  landing, once every check on that commit has finished green. Runs Tend's
-  own pinned script with no agent and no checkout of the pull request.
+  Decide, with no agent and no checkout of the pull request, whether a CI
+  completion starts the landing of a pull request whose review recorded its
+  head (every check green) or the repair of one with no human author (red).
+  Runs Tend's own pinned script.
 
 inputs:
   github_token:
     required: true
-    description: The bot's token, which merges and reads the review record
+    description: The bot's token, which reads the PRs, records and checks
   head_sha:
     required: true
     description: The commit whose CI run completed
   conclusion:
     required: true
-    description: That run's conclusion; only a failed run hands a red result on
+    description: That run's conclusion; only a failed run starts a repair
 
 outputs:
+  land_pr:
+    description: The pull request whose recorded head is now green, if any
+    value: ${{ steps.check.outputs.land_pr }}
   red_pr:
-    description: The bot's own pull request whose CI settled red, if any
-    value: ${{ steps.land.outputs.red_pr }}
+    description: The pull request with no human author whose CI went red, if any
+    value: ${{ steps.check.outputs.red_pr }}
 
 runs:
   using: composite
@@ -29,8 +33,8 @@ runs:
       env:
         UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
 
-    - name: Land
-      id: land
+    - name: Check
+      id: check
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
@@ -40,4 +44,4 @@ runs:
       run: |
         "$RUNNER_TEMP/tend-uv/uv" run --script \
           "${{ github.action_path }}/../plugins/tend-ci-runner/scripts/land_pr.py" \
-          land "$HEAD_SHA" "$CONCLUSION"
+          check "$HEAD_SHA" "$CONCLUSION"

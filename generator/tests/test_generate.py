@@ -791,7 +791,18 @@ def test_tend_land_exists_where_a_review_leaves_landing_to_it(
     assert ("tend-land.yaml" in {wf.filename for wf in generate_all(cfg)}) is lands
 
 
-def test_tend_land_fires_on_the_ci_workflows_and_runs_the_pinned_action(
+def _land_prompts(content: str) -> dict[str, str]:
+    """Each agent job's prompt in tend-land, by job."""
+    jobs = yaml.safe_load(content)["jobs"]
+    return {
+        name: step["with"]["prompt"]
+        for name, job in jobs.items()
+        for step in job["steps"]
+        if "prompt" in step.get("with", {})
+    }
+
+
+def test_tend_land_fires_on_the_ci_workflows_and_runs_the_pinned_check(
     tmp_path: Path,
 ) -> None:
     extra = f"merge: yolo\nworkflows:\n  review:\n    await_ci: false\n{_WATCHED}"
@@ -803,23 +814,32 @@ def test_tend_land_fires_on_the_ci_workflows_and_runs_the_pinned_action(
     assert trigger["workflows"] == ["ci", "lint"]
     # PR heads are on any branch: ci-fix's default-branch filter isn't copied.
     assert "branches" not in trigger
-    steps = data["jobs"]["land"]["steps"]
-    assert [step["uses"] for step in steps] == [f"max-sixty/tend/land@{ACTION_VERSION}"]
-    assert data["jobs"]["land"]["permissions"] == {"contents": "read"}
+    check = data["jobs"]["check"]
+    assert [step["uses"] for step in check["steps"]] == [
+        f"max-sixty/tend/land@{ACTION_VERSION}"
+    ]
+    assert check["permissions"] == {"contents": "read"}
     # A fork's PR from its own `main` is still a PR head: only this repo's
     # default branch is skipped.
     assert (
         "github.event.workflow_run.head_repository.full_name == github.repository"
-        in data["jobs"]["land"]["if"]
+        in check["if"]
     )
-    assert agent_prompt(land.content).startswith(
-        "/tend-ci-runner:continue-pr ${{ needs.land.outputs.red_pr }}"
+    prompts = _land_prompts(land.content)
+    assert prompts["land"].startswith(
+        "/tend-ci-runner:merge-pr ${{ needs.check.outputs.land_pr }}"
     )
+    assert prompts["repair"].startswith(
+        "/tend-ci-runner:continue-pr ${{ needs.check.outputs.red_pr }}"
+    )
+    assert data["jobs"]["land"]["if"] == "needs.check.outputs.land_pr != ''"
+    assert data["jobs"]["repair"]["if"] == "needs.check.outputs.red_pr != ''"
 
 
-def test_tend_lands_red_repair_runs_on_the_reviews_harness(tmp_path: Path) -> None:
-    """The repair continues the review, and the install provisions credentials
-    for the harnesses its enabled workflows use, not for the top-level one."""
+def test_tend_lands_sessions_run_on_the_reviews_harness(tmp_path: Path) -> None:
+    """Landing and repair continue the review, and the install provisions
+    credentials for the harnesses its enabled workflows use, not for the
+    top-level one."""
     extra = (
         "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
         "    harness: codex\n"
@@ -829,9 +849,9 @@ def test_tend_lands_red_repair_runs_on_the_reviews_harness(tmp_path: Path) -> No
     land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
     assert f"max-sixty/tend/codex@{ACTION_VERSION}" in land.content
     assert "max-sixty/tend/claude@" not in land.content
-    assert agent_prompt(land.content).startswith(
-        "$continue-pr ${{ needs.land.outputs.red_pr }}"
-    )
+    prompts = _land_prompts(land.content)
+    assert prompts["land"].startswith("$merge-pr ")
+    assert prompts["repair"].startswith("$continue-pr ")
 
 
 def test_tend_land_without_named_ci_workflows_is_a_config_error(

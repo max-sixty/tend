@@ -28,8 +28,9 @@ assert:
       For pending-self and pending-bot-push-on-human, the review has settled
       everything about the head but its still-running CI, and the head being
       the bot's own push no longer changes that: record each head for landing
-      (land_pr.py intend with the PR number and its exact head SHA) and end
-      without a waiting poll, leaving the merge to tend-land. No self-approval
+      (land_pr.py intend with the PR number, its exact head SHA and the base
+      the review read) and end without a waiting poll, leaving the landing
+      to tend-land. No self-approval
       on pending-self. FAIL if either session polls the head to a terminal
       result, sleeps and retries, or merges while checks are still running, or
       if either ends without recording the head for landing.
@@ -67,17 +68,19 @@ assert:
       For own-push, the session pushed a fix to its own PR (no human author),
       and a review of the pushed head is queued behind it. With the CI wait
       off, that queued review records the pushed head for landing, so this
-      session ends once the push is made: no foreground poll of
-      5555555555555555555555555555555555555555 and no merge. FAIL if the plan
-      polls the pushed head to a terminal result before ending.
+      session records its push (land_pr.py pushed
+      5555555555555555555555555555555555555555) and ends: no foreground poll
+      of the pushed head and no merge. FAIL if the plan polls the pushed head
+      to a terminal result before ending.
   - type: llm-rubric
     value: >-
       For own-push-human, the session pushed a fix the human author accepted,
       so the new head 9999999999999999999999999999999999999999 is the bot's
       push even though a human authored the PR, and a review of it is queued
       behind this session. With the CI wait off, that queued review records
-      it for landing, so this session ends once the push is made: no
-      foreground poll of the pushed head and no merge. FAIL if the plan polls
+      it for landing, so this session records its push (land_pr.py pushed
+      9999999999999999999999999999999999999999) and ends: no foreground poll
+      of the pushed head and no merge. FAIL if the plan polls
       the pushed head to a terminal result before ending or merges.
   - type: llm-rubric
     value: >-
