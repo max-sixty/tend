@@ -359,17 +359,20 @@ bot_name: my-project-bot
 # reruns a failure that looks unrelated, fixes a red on a PR with no human
 # author, and under `yolo` merges once CI is green. Where CI runs long, that
 # wait is most of the review's runner time. `await_ci: false` ends the review
-# once its own work is done, acting on the checks that have already finished.
-# Under `yolo`, a head the bot pushed itself still waits as before, since the
-# session that pushed it hands landing to the review, and so does a fix the
-# review pushes. On any other head:
+# once its own work is done, acting on the checks that have already finished:
 #
-# - A check already red withholds the approval. A check that fails after the
-#   review ends stands beside the approval: the review neither withdraws the
-#   approval nor fixes the failure.
-# - The review doesn't merge a PR whose checks are still running. Under
-#   `yolo`, a human's PR then lands through a maintainer and a dependency PR
-#   through `weekly`.
+# - A check already red withholds the approval.
+# - Under `yolo`, a head whose review settled everything but its CI is
+#   recorded for landing (a `tend/land` commit status), and the generated
+#   `tend-land` workflow merges it at that exact commit once every check has
+#   finished green. It runs no agent; it declines if the head moved, the
+#   bot's approval was dismissed, or a person wrote on the PR since. A red
+#   result on the bot's own PR starts a session that continues its repair.
+#   `tend-land` fires on the workflows `ci-fix.watched_workflows` names, so
+#   that list must name every workflow whose checks gate a PR.
+# - Under `restricted`, or where the review can't record the head, a PR whose
+#   checks are still running is left for a maintainer. A check that fails
+#   after the review ends on another author's PR stands beside the approval.
 #
 # tend-review checks out the prospective post-merge tree
 # (`refs/pull/N/merge`) when available, and falls back to the PR branch head

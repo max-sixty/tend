@@ -63,6 +63,8 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/land_pr.py" \
   intend <number> "$(cat "$TMPDIR/reviewed-head")"
 ```
 
+Add the same `--skip` arguments. Once the record stands, the script reads CI again, since a check that finished in between found no record to act on: exit 2 means checks still run and tend-land takes it from here; exit 0 or 1 means CI settled since the review's read, so handle that result now as the settled read it is.
+
 The record is a `tend/land` status on that exact commit. The tend-land workflow merges the PR at that commit once every check on it has finished green, and only while nothing has changed the judgement the record stands for: the head hasn't moved, the bot's approval stands, and no person has written on the PR since. A red result on this bot's own PR starts a session that continues its repair per `/tend-ci-runner:continue-pr`. Where the review can't record the head (a draft, a hold, an unresolved finding), the landing decision passes to a later session or a maintainer, as it does under `restricted`.
 
 A fix this session pushes to a PR with no human author is covered the same way: the run queued behind this one reviews the pushed head and records it, so end once the push is made rather than polling it. On a human's PR, verify the pushed fix per **Push fixes**.

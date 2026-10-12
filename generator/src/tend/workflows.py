@@ -453,10 +453,14 @@ def generate_land(cfg: Config) -> GeneratedWorkflow:
             "    ci-fix:\n"
             '      watched_workflows: ["ci"]'
         )
+    # The red job continues the review's work, so it runs on the review's
+    # harness, model, effort and arguments, whose credentials the install
+    # already provisions.
+    eff = _effective_cfg(cfg, cfg.workflows.get("review", WorkflowConfig()))
     content = _LAND_TMPL.render(
-        cfg=cfg,
+        cfg=eff,
         watched=watched,
-        setup=_setup_yaml(cfg),
+        setup=_setup_yaml(eff),
     )
     return GeneratedWorkflow(filename="tend-land.yaml", content=content)
 

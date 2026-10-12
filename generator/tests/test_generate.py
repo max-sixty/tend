@@ -772,8 +772,10 @@ _WATCHED = "  ci-fix:\n    watched_workflows: [ci, lint]\n"
         (f"merge: yolo\nworkflows:\n  review:\n    await_ci: true\n{_WATCHED}", False),
         (f"workflows:\n  review:\n    await_ci: false\n{_WATCHED}", False),
         (
-            "merge: yolo\nworkflows:\n  review:\n    enabled: false\n"
-            f"    await_ci: false\n{_WATCHED}",
+            (
+                "merge: yolo\nworkflows:\n  review:\n    enabled: false\n"
+                f"    await_ci: false\n{_WATCHED}"
+            ),
             False,
         ),
         (f"merge: yolo\nworkflows:\n  review:\n    await_ci: false\n{_WATCHED}", True),
@@ -802,12 +804,27 @@ def test_tend_land_fires_on_the_ci_workflows_and_runs_the_pinned_action(
     # PR heads are on any branch: ci-fix's default-branch filter isn't copied.
     assert "branches" not in trigger
     steps = data["jobs"]["land"]["steps"]
-    assert [step["uses"] for step in steps] == [
-        f"max-sixty/tend/land@{ACTION_VERSION}"
-    ]
+    assert [step["uses"] for step in steps] == [f"max-sixty/tend/land@{ACTION_VERSION}"]
     assert data["jobs"]["land"]["permissions"] == {"contents": "read"}
     assert agent_prompt(land.content).startswith(
         "/tend-ci-runner:continue-pr ${{ needs.land.outputs.red_pr }}"
+    )
+
+
+def test_tend_lands_red_repair_runs_on_the_reviews_harness(tmp_path: Path) -> None:
+    """The repair continues the review, and the install provisions credentials
+    for the harnesses its enabled workflows use, not for the top-level one."""
+    extra = (
+        "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+        "    harness: codex\n"
+        "  ci-fix:\n    enabled: false\n    watched_workflows: [ci]\n"
+    )
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
+    assert f"max-sixty/tend/codex@{ACTION_VERSION}" in land.content
+    assert "max-sixty/tend/claude@" not in land.content
+    assert agent_prompt(land.content).startswith(
+        "$continue-pr ${{ needs.land.outputs.red_pr }}"
     )
 
 

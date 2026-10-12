@@ -107,6 +107,14 @@ def test_a_red_on_the_bots_own_pr_is_handed_on_by_the_run_that_failed() -> None:
     assert decide(rollup=red, run_conclusion="failure")[0] == "skip"
 
 
+def test_a_failure_beside_running_checks_is_handed_on_by_its_own_run() -> None:
+    """A failed check is final. Waiting for its siblings would leave it to a
+    green completion, which hands nothing on, so no repair would start."""
+    red_running = {**GREEN, "failed": ["ci / test url"], "pending": ["lint"]}
+    own = pr(user={"login": BOT})
+    assert decide(pr=own, rollup=red_running, run_conclusion="failure")[0] == "red"
+
+
 def test_only_the_bots_latest_success_record_stands() -> None:
     later_error = status(state="error", created_at="2026-10-12T11:00:00Z")
     assert land_pr.record([later_error, status()], BOT) is None
@@ -117,10 +125,19 @@ def test_only_the_bots_latest_success_record_stands() -> None:
 
 def test_people_since_counts_only_people_after_the_record() -> None:
     activity = [
-        {"user": {"login": "alice", "type": "User"}, "created_at": "2026-10-12T09:00:00Z"},
+        {
+            "user": {"login": "alice", "type": "User"},
+            "created_at": "2026-10-12T09:00:00Z",
+        },
         {"user": {"login": BOT, "type": "User"}, "created_at": "2026-10-12T10:30:00Z"},
-        {"user": {"login": "codecov", "type": "Bot"}, "created_at": "2026-10-12T10:30:00Z"},
-        {"user": {"login": "bob", "type": "User"}, "submitted_at": "2026-10-12T10:31:00Z"},
+        {
+            "user": {"login": "codecov", "type": "Bot"},
+            "created_at": "2026-10-12T10:30:00Z",
+        },
+        {
+            "user": {"login": "bob", "type": "User"},
+            "submitted_at": "2026-10-12T10:31:00Z",
+        },
         # A maintainer's bare approval adds no hold; one with words might.
         {
             "user": {"login": "carol", "type": "User"},

@@ -68,9 +68,7 @@ def record(statuses: list[dict[str, Any]], bot: str) -> dict[str, Any] | None:
     return None
 
 
-def people_since(
-    activity: list[dict[str, Any]], *, since: str, bot: str
-) -> list[str]:
+def people_since(activity: list[dict[str, Any]], *, since: str, bot: str) -> list[str]:
     """Logins of people (not bots) who wrote on the PR after *since*.
 
     A bare approval says nothing the record didn't already, so it doesn't
@@ -115,15 +113,16 @@ def decide(
         )
     if rollup is None:
         return "skip", f"#{number}: no complete check rollup for {sha}"
-    if rollup["pending"]:
-        return "skip", f"#{number}: still running: {', '.join(rollup['pending'])}"
     if rollup["failed"]:
-        # Each failing workflow's completion reaches here; only a red
-        # completion hands on, so a green sibling finishing later doesn't
-        # start a second session for the same failure.
+        # A failed check is final, so the run that failed hands it on even
+        # while siblings still run. A sibling that completes green later
+        # reads the same failure and hands nothing on; one that fails too
+        # queues behind the first session (tend-land's per-PR `red` group).
         if own and run_conclusion == "failure":
             return "red", f"#{number}: red on {sha}: {', '.join(rollup['failed'])}"
         return "skip", f"#{number}: red on {sha}: {', '.join(rollup['failed'])}"
+    if rollup["pending"]:
+        return "skip", f"#{number}: still running: {', '.join(rollup['pending'])}"
     if rollup["unverified"]:
         return "skip", (
             f"#{number}: settled without a result: {', '.join(rollup['unverified'])}"
@@ -131,8 +130,16 @@ def decide(
     return "merge", f"#{number}: every check on {sha} settled green"
 
 
-def intend(pr: str, sha: str) -> int:
-    """Record that the review settled *sha* and it lands once CI is green."""
+def intend(pr: str, sha: str, *, skip: frozenset[str] = frozenset()) -> int:
+    """Record that the review settled *sha* and it lands once CI is green.
+
+    tend-land acts on a CI completion, so a completion that arrived between
+    the review's read and this record found nothing to land and fires no
+    more. Reading CI again once the record stands closes that gap: with
+    checks still running, a later completion will find the record (exit 2,
+    as the review's own read); settled, the review handles the result itself
+    as it would a settled read (exit 0 green, 1 red).
+    """
     repo = github_cli.repository()
     head = github_cli.json_call(
         "pr", "view", pr, "--repo", repo, "--json", "headRefOid,state"
@@ -153,8 +160,13 @@ def intend(pr: str, sha: str) -> int:
         server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
         fields += ["-f", f"target_url={server}/{repo}/actions/runs/{run_id}"]
     github_cli.run("api", f"repos/{repo}/statuses/{sha}", "-X", "POST", *fields)
-    print(f"landing recorded on {sha}: tend-land merges PR #{pr} once CI is green")
-    return 0
+    print(f"landing recorded on {sha}")
+    code = poll_pr_checks.poll(pr, sha, skip=skip, wait=False)
+    if code == 2:
+        print(f"tend-land merges PR #{pr} once CI is green")
+    else:
+        print("CI settled since the review's read: handle this result now")
+    return code
 
 
 def _activity(repo: str, number: int) -> list[dict[str, Any]]:
@@ -237,13 +249,22 @@ def land(sha: str, run_conclusion: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    if len(args) == 3 and args[0] == "intend" and args[1].isdigit():
-        if SHA_RE.fullmatch(args[2]):
-            return intend(args[1], args[2])
+    skip: set[str] = set()
+    while len(args) > 3 and args[-2] == "--skip":
+        skip.add(args[-1])
+        args = args[:-2]
+    if (
+        len(args) == 3
+        and args[0] == "intend"
+        and args[1].isdigit()
+        and SHA_RE.fullmatch(args[2])
+    ):
+        return intend(args[1], args[2], skip=frozenset(skip))
     if len(args) == 3 and args[0] == "land" and SHA_RE.fullmatch(args[1]):
         return land(args[1], args[2])
     print(
-        f"usage: {sys.argv[0]} intend <pr-number> <sha> | land <sha> <conclusion>",
+        f"usage: {sys.argv[0]} intend <pr-number> <sha> [--skip <check>]... | "
+        "land <sha> <conclusion>",
         file=sys.stderr,
     )
     return 2
