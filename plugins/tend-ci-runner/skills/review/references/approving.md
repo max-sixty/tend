@@ -56,7 +56,7 @@ When the prompt says the review's CI wait is off, the repository has chosen to e
   ```
   Handle exit 0 or 1 per **After the approval**, except that an unrelated failure is routed without a rerun, since a rerun is a wait. Exit 1 also covers a check that has already failed while others still run: the failure is final, so act on it now, and leave the PR unmerged. Exit 2 (checks still running with none failed, checks that settled without a result, or no complete reading) ends the review: name the checks it lists in the closing summary.
 
-Under `yolo`, landing doesn't wait on this session either. On exit 2 with checks still running, where everything `/tend-ci-runner:merge-pr` asks of the head but its CI holds — it is the **Reviewed head**, and nothing under **Readiness and ownership** leaves it open — record the head for landing and end:
+Under `yolo`, landing doesn't wait on this session either. On exit 2 with checks still running, where everything `/tend-ci-runner:merge-pr` asks of the head but its CI holds — it is the **Reviewed head**, and nothing under **Readiness and ownership** leaves it open — record the head for landing and end. A session of this bot that pushed the head hands its landing to the review that follows (**Reviews arriving during verification** in `/tend-ci-runner:push-commits`), so its run, even while still going, is not an owner that keeps the head open; the record is this review's to make:
 
 ```bash
 uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/land_pr.py" \
