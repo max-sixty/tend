@@ -411,6 +411,14 @@ def test_no_wait_combines_with_skip(env: dict[str, str]) -> None:
             "still pending",
             "1",
         ),
+        # A red beside pending checks is final for that check: it is
+        # reported red now, naming what still runs.
+        (
+            (_resp(_check_run("lint", conclusion="FAILURE"), MATRIX_RUNNING),),
+            1,
+            "not waited for:\nmatrix",
+            "1",
+        ),
         # A settled read is confirmed once, then judged as the wait judges it.
         ((_resp(_check_run("tests")),), 0, "green", "2"),
         (

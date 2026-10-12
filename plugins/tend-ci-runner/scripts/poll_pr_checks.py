@@ -420,12 +420,19 @@ def poll(
         if current == "none" or last is None:
             print(f"no complete check rollup for {sha} — UNVERIFIED, not green")
             return 2
+        if current == "pending" and last["failed"]:
+            # A failed check is final on its own; the review acts on it now
+            # rather than leaving it for nobody once it ends.
+            print(f"red on {sha}:")
+            print(*last["failed"], sep="\n")
+            print("still running, not waited for:")
+            print(*last["pending"], sep="\n")
+            _unverified_note(last)
+            head_note(pr=pr, repo=repo, sha=sha)
+            return 1
         if current == "pending":
             print(f"still pending on {sha}, not waiting — UNVERIFIED, not green:")
             print(*last["pending"], sep="\n")
-            if last["failed"]:
-                print("failures so far (unconfirmed while checks pend):")
-                print(*last["failed"], sep="\n")
             _unverified_note(last)
             return 2
         outcome = "settled"

@@ -53,6 +53,17 @@ assert:
       the failure, or proposes a merge.
   - type: llm-rubric
     value: >-
+      For pending-related-red, the read reports lint already failed on the
+      approved head while other checks still run. A failed check is final, so
+      the review acts on it now rather than ending or waiting for the rest:
+      the F821 error is in src/cache.py, which the PR changes, so it is
+      related. Post a COMMENT with the analysis and dismiss the bot's approval
+      ("CI failed — ..."); on this human-authored PR, offer a fix rather than
+      pushing one. Do not merge and do not poll the remaining checks. FAIL if
+      the session ends with the approval standing, waits for the running
+      checks, or reruns the lint job.
+  - type: llm-rubric
+    value: >-
       For own-push, the session pushed a fix itself, so it still verifies that
       push: poll 5555555555555555555555555555555555555555 to a terminal result
       in the foreground (pinned to the pushed SHA) before ending, and leave the
@@ -62,5 +73,5 @@ assert:
     value: >-
       Every decision keeps exact-head authority: never auto-merge, admin or
       force bypass, an unpinned merge, or a claim that an offline proposal ran.
-      The artifact covers all six sessions with reasoning grounded in the
+      The artifact covers all seven sessions with reasoning grounded in the
       observations, in any format.

@@ -215,6 +215,53 @@
     ]
   },
   {
+    "id": "pending-related-red",
+    "repository": "owner/repo",
+    "merge": "yolo",
+    "review_prompt": "$review 4106\n\nThe review's CI wait is off (`await_ci: false`).",
+    "pr": {
+      "number": 4106,
+      "state": "OPEN",
+      "draft": false,
+      "author": "contributor-bob",
+      "head_sha": "6666666666666666666666666666666666666666",
+      "changed_files": [
+        "src/cache.py"
+      ],
+      "human_hold": null,
+      "unresolved_actionable_findings": []
+    },
+    "session_so_far": [
+      "Pre-flight start: author human, not draft, not already reviewed.",
+      "Full review of a cache refactor and second pass: no findings.",
+      "Approval check with --no-wait printed `approve: no failing check on 6666666666666666666666666666666666666666` (exit 0) while every check was still running.",
+      "Posted an empty-body APPROVE pinned to 6666666666666666666666666666666666666666.",
+      "No unresolved bot threads; no fixes to push."
+    ],
+    "observed_commands": [
+      {
+        "command": "gh api user --jq .login",
+        "exit_code": 0,
+        "output": "leaf-agent\n"
+      },
+      {
+        "command": "gh api repos/owner/repo/commits/6666666666666666666666666666666666666666 --jq .committer.login",
+        "exit_code": 0,
+        "output": "contributor-bob\n"
+      },
+      {
+        "command": "uv run --script plugin/scripts/poll_pr_checks.py poll 4106 6666666666666666666666666666666666666666 --no-wait",
+        "exit_code": 1,
+        "output": "red on 6666666666666666666666666666666666666666:\nlint https://github.com/owner/repo/actions/runs/9120/job/1\nstill running, not waited for:\ntest (ubuntu)\nverdict: RED on 6666666666666666666666666666666666666666 (exit 1)\n"
+      },
+      {
+        "command": "gh run view 9120 --log-failed",
+        "exit_code": 0,
+        "output": "lint  src/cache.py:41:5: F821 Undefined name `evict_oldest`\nlint  Found 1 error.\n"
+      }
+    ]
+  },
+  {
     "id": "own-push",
     "repository": "owner/repo",
     "merge": "yolo",

@@ -60,6 +60,6 @@ Elsewhere, judge CI by the checks that have already finished:
   uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \
     poll <number> "$(cat "$TMPDIR/reviewed-head")" --no-wait
   ```
-  Handle a settled result (exit 0 or 1) per **After the approval**, except that an unrelated failure goes straight to routing, without a rerun. Exit 2 (checks still running, checks that settled without a result, or no complete reading) ends the review: name the checks it lists in the closing summary, and leave the landing decision to a later session or a maintainer.
+  Handle exit 0 or 1 per **After the approval**, except that an unrelated failure goes straight to routing, without a rerun. Exit 1 also covers a check that has already failed while others still run: the failure is final, so act on it now, and leave the PR unmerged. Exit 2 (checks still running with none failed, checks that settled without a result, or no complete reading) ends the review: name the checks it lists in the closing summary, and leave the landing decision to a later session or a maintainer.
 
 A fix this session pushes is still its own to verify, per **Push fixes**.
