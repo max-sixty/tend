@@ -1,9 +1,9 @@
 name: Check a Tend landing on CI completion
 description: >-
-  Decide, with no agent and no checkout of the pull request, whether a CI
-  completion starts the landing of a pull request whose review recorded its
-  head (every check green) or the repair of one with no human author (red).
-  Runs Tend's own pinned script.
+  Decide, with no agent and no checkout of the pull request, whether a finished
+  check starts the landing of a pull request whose review recorded its head
+  (every check green) or the repair of one with no human author (red). Runs
+  Tend's own pinned script.
 
 inputs:
   github_token:
@@ -11,10 +11,7 @@ inputs:
     description: The bot's token, which reads the PRs, records and checks
   head_sha:
     required: true
-    description: The commit whose CI run completed
-  conclusion:
-    required: true
-    description: That run's conclusion; only a failed run starts a repair
+    description: The commit a check finished on
 
 outputs:
   land_prs:
@@ -39,9 +36,8 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github_token }}
         HEAD_SHA: ${{ inputs.head_sha }}
-        CONCLUSION: ${{ inputs.conclusion }}
         UV_NO_CACHE: "1"
       run: |
         "$RUNNER_TEMP/tend-uv/uv" run --script \
           "${{ github.action_path }}/../plugins/tend-ci-runner/scripts/land_pr.py" \
-          check "$HEAD_SHA" "$CONCLUSION"
+          check "$HEAD_SHA"

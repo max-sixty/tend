@@ -4,6 +4,22 @@ tend-land: every check on ${{ needs.check.outputs.sha }} has finished green, the
 {%- set repair_prompt %}<<cfg.default_prompt('continue-pr', '${{ matrix.pr }}')>>
 
 CI settled red on this PR's head ${{ needs.check.outputs.sha }} after its review ended. The review's CI wait is off (`await_ci: false`).{% endset -%}
+{%- set current = "steps.current.outputs.current == 'true'" -%}
+{#- Reads whether the head a session was started for is still the PR's, so a
+    session queued behind another that already moved the head ends before
+    `setup:` and the agent cost anything. #}
+{%- macro still_current() %}
+      - name: Check the head is still the PR's
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ matrix.pr }}
+          SHA: ${{ needs.check.outputs.sha }}
+        run: |
+          head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .head.sha)
+          if [ "$head" = "$SHA" ]; then current=true; else current=false; fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+{%- endmacro -%}
 <<header>>
 name: tend-land
 # Lands a reviewed PR once its CI completes, with no session waiting for it.
@@ -27,10 +43,28 @@ on:
 
 jobs:
   check:
-    # A workflow run on this repository's default branch has no PR to land.
-    # The repo is part of that test: a fork's PR from its own `main` carries
-    # the same branch name.
-    if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && !(github.event_name == 'workflow_run' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == github.event.repository.default_branch)
+    # Filtered here, before a runner is allocated, so the wake-up costs
+    # nothing for events that can't land or repair anything: a pending status;
+    # Tend's own push and repair markers, which change no verdict; a workflow
+    # run or check suite with no PR in this repository behind it (a push to
+    # this repo's default branch or to a branch with no PR). A fork PR's run
+    # lists no PR either, so a run from another repository passes.
+    if: >-
+      <<fork_guard_prefix(cfg)>><<tend_enabled>> && (
+        (github.event_name == 'status'
+          && github.event.state != 'pending'
+          && github.event.context != 'tend/land/pushed'
+          && github.event.context != 'tend/land/repair')
+        || (github.event_name == 'workflow_run'
+          && (github.event.workflow_run.pull_requests[0] != null
+            || github.event.workflow_run.head_repository.full_name != github.repository))
+        || (github.event_name == 'check_suite'
+          && github.event.check_suite.pull_requests[0] != null))
+    # One check per commit at a time: a burst of events for one head runs the
+    # first and the newest, which re-reads everything the others would have.
+    concurrency:
+      group: ${{ github.workflow }}-check-${{ github.event.workflow_run.head_sha || github.event.check_suite.head_sha || github.event.sha }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
 <<environment()>>
     permissions:
@@ -40,26 +74,20 @@ jobs:
       land_prs: ${{ steps.check.outputs.land_prs }}
       red_prs: ${{ steps.check.outputs.red_prs }}
     steps:
-      # Each event names the commit and how it finished in its own fields.
-      - name: Read the event
+      - name: Read the event's commit
         id: event
         env:
           SHA: ${{ github.event.workflow_run.head_sha || github.event.check_suite.head_sha || github.event.sha }}
-          CONCLUSION: ${{ github.event.workflow_run.conclusion || github.event.check_suite.conclusion || github.event.state }}
-        run: |
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "conclusion=$CONCLUSION" >> "$GITHUB_OUTPUT"
+        run: echo "sha=$SHA" >> "$GITHUB_OUTPUT"
       - uses: max-sixty/tend/land@<<tend_version>>
         id: check
         with:
           github_token: ${{ secrets.<<bot_token_secret>> }}
           head_sha: ${{ steps.event.outputs.sha }}
-          conclusion: ${{ steps.event.outputs.conclusion }}
 
   # One session per PR. Each shares the review's concurrency group for that
   # PR, so a landing or repair never runs beside a review of the same PR, and
-  # queues rather than replacing a pending one; a second completion's session
-  # reads what the first did.
+  # queues rather than replacing a pending one.
   land:
     needs: check
     if: needs.check.outputs.land_prs != '[]' && needs.check.outputs.land_prs != ''
@@ -79,8 +107,9 @@ jobs:
     permissions:
 <<permissions()>>
     steps:
-<<checkout(cfg, ref=cfg.default_branch)>>
-<<agent_step(cfg, block_input('prompt', land_prompt))>>
+<<still_current()>>
+<<checkout(cfg, ref=cfg.default_branch, if_condition=current)>>
+<<agent_step(cfg, block_input('prompt', land_prompt), if_condition=current)>>
 
   # A PR with no human author went red after its review ended, so no session
   # is waiting to repair it; this one continues it, as the review would have.
@@ -101,6 +130,7 @@ jobs:
     permissions:
 <<permissions()>>
     steps:
-<<checkout(cfg, ref=cfg.default_branch)>>
-<<setup>>
-<<agent_step(cfg, block_input('prompt', repair_prompt))>>
+<<still_current()>>
+<<checkout(cfg, ref=cfg.default_branch, if_condition=current)>>
+<<setup_current>>
+<<agent_step(cfg, block_input('prompt', repair_prompt), if_condition=current)>>

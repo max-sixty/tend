@@ -446,7 +446,10 @@ def generate_land(cfg: Config) -> GeneratedWorkflow:
     # on the review's harness, model, effort and arguments, whose credentials
     # the install already provisions.
     eff = _effective_cfg(cfg, cfg.workflows.get("review", WorkflowConfig()))
-    content = _LAND_TMPL.render(cfg=eff, setup=_setup_yaml(eff))
+    content = _LAND_TMPL.render(
+        cfg=eff,
+        setup_current=_setup_yaml(eff, "steps.current.outputs.current == 'true'"),
+    )
     return GeneratedWorkflow(filename="tend-land.yaml", content=content)
 
 

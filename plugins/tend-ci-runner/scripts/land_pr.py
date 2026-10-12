@@ -5,29 +5,36 @@
 """Hand a reviewed PR's landing to the completion of its CI.
 
 Under `merge: yolo` with the review's CI wait off, no session waits ~an hour
-for a head's CI to land it. Three records, each written by the session that
-knows its fact, carry the landing across instead:
+for a head's CI to land it. Records on the commit, each written by the
+session that knows its fact, carry the landing across instead:
 
 * ``pushed <sha>`` — a session of this bot that pushes a PR head says so, as
-  a ``tend/land/pushed`` status on that commit. Only the bot's token can create a
-  status the bot created, so a head without one was not the bot's push. A
-  missing record errs safe: that head's landing stays with a maintainer.
+  a ``tend/land/pushed`` status on that commit. Only the bot's token can
+  create a status the bot created, so a head without one was not the bot's
+  push. A missing record errs safe: that head's landing stays with a
+  maintainer.
 * ``intend <pr> <sha> <base>`` — the review that settled everything about a
   head the bot pushed, except its CI, records the head for landing: a
   ``tend/land/<pr>`` status whose description names the base the review
   judged and the checks its CI policy skips. It refuses a head with no
-  ``tend/land/pushed`` record, or whose PR has since moved off that head or base.
-* ``check <sha> <conclusion>`` — tend-land runs this, with no agent, each
-  time something that reports on a commit finishes: any of the repository's
-  workflows, a commit status, or another app's check suite, so whatever the
-  gate below waits on also wakes it. It decides only what is crisp: whether a PR at that commit holds a landing record for its head
-  and base, and whether every check but the recorded skips finished green.
-  Green with a record starts a short landing session, which makes the
-  landing decision per `/tend-ci-runner:merge-pr` — holds, findings,
-  approval, ownership are judgement, read there, not here. A red on a PR with
-  no human author starts a session that continues its repair per
-  `/tend-ci-runner:continue-pr`, record or not, as the review that waited
-  used to.
+  ``tend/land/pushed`` record, or whose PR has since moved off that head or
+  base. The record is itself a status, so creating it wakes ``check`` too,
+  and a check that finished between the review's read and the record is
+  not missed.
+* ``check <sha>`` — tend-land runs this, with no agent, each time something
+  that reports on a commit finishes: any of the repository's workflows but
+  Tend's own, a commit status, or another app's check suite, so whatever its
+  gate waits on also wakes it. It decides only what is crisp: whether a PR
+  at that commit holds a landing record for its head and base, and whether
+  every check but the recorded skips finished green. Green with a record
+  starts a short landing session, which makes the landing decision per
+  `/tend-ci-runner:merge-pr` — holds, findings, approval and ownership are
+  judgement, read there, not here. A red on a PR with no human author starts
+  a session that continues its repair per `/tend-ci-runner:continue-pr`,
+  record or not, as the review that waited used to. ``check`` marks that
+  hand-off with a ``tend/land/repair`` status, so the next event on the same
+  red head (another failed workflow, a late status) starts no second
+  session, whichever event arrives first.
 
 GitHub's native auto-merge is not used: it stays enabled across pushes by
 anyone with write access, so it can land a head no review read. The landing
@@ -49,6 +56,7 @@ import poll_pr_checks
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PUSHED_CONTEXT = f"{poll_pr_checks.LAND_CONTEXT}/pushed"
+REPAIR_CONTEXT = f"{poll_pr_checks.LAND_CONTEXT}/repair"
 #: GitHub truncates a longer status description, which would lose the policy.
 DESCRIPTION_LIMIT = 140
 Decision = Literal["land", "red", "skip"]
@@ -117,9 +125,9 @@ def decide(
     bot: str,
     landing: dict[str, Any] | None,
     rollup: dict[str, list[str]] | None,
-    run_conclusion: str,
+    repair_started: bool,
 ) -> tuple[Decision, str]:
-    """Whether CI on *sha* starts PR *pr*'s landing or repair, or neither."""
+    """Whether the commit's state starts PR *pr*'s landing or repair, or neither."""
     number = pr["number"]
     if pr["head"]["sha"] != sha:
         return "skip", f"#{number}: no longer at {sha}"
@@ -128,13 +136,10 @@ def decide(
     if rollup is None:
         return "skip", f"#{number}: no complete check rollup for {sha}"
     if rollup["failed"]:
-        # A failed check is final, so the run that failed hands it on even
-        # while siblings still run. A sibling that completes green later
-        # reads the same failure and hands nothing on; one that fails too
-        # queues behind the first session (tend-land's per-PR group).
+        # A failed check is final, so it is handed on even while siblings
+        # still run, once per head.
         failed = f"#{number}: red on {sha}: {', '.join(rollup['failed'])}"
-        red_run = run_conclusion.upper() in poll_pr_checks.RED_CONCLUSIONS
-        if no_human_author(pr, bot) and red_run:
+        if no_human_author(pr, bot) and not repair_started:
             return "red", failed
         return "skip", failed
     if landing is None:
@@ -178,10 +183,6 @@ def intend(pr: str, sha: str, base: str, *, skip: frozenset[str] = frozenset()) 
     Exit 3 records nothing and leaves the landing to a maintainer: the head
     isn't the bot's push, the PR moved off *sha* or *base*, or *skip* doesn't
     fit the record.
-
-    The record is itself a commit status, so creating it wakes tend-land like
-    any other: a check that finished between the review's read and the record
-    is not lost, since the record's own event reads every check again.
     """
     repo = github_cli.repository()
     bot = str(github_cli.json_call("api", "user")["login"])
@@ -224,8 +225,8 @@ def intend(pr: str, sha: str, base: str, *, skip: frozenset[str] = frozenset()) 
     return 0
 
 
-def check(sha: str, run_conclusion: str) -> int:
-    """Name every PR at *sha* whose landing or repair this completion starts."""
+def check(sha: str) -> int:
+    """Name every PR at *sha* whose landing or repair its state now starts."""
     repo = os.environ["GITHUB_REPOSITORY"]
     bot = str(github_cli.json_call("api", "user")["login"])
     pulls = [
@@ -233,11 +234,11 @@ def check(sha: str, run_conclusion: str) -> int:
         for pr in github_cli.paginated(f"repos/{repo}/pulls?state=open&per_page=100")
         if pr["head"]["sha"] == sha
     ]
-    if not pulls:
-        print(f"no open PR at {sha}")
-        return 0
-    statuses = github_cli.paginated(f"repos/{repo}/commits/{sha}/statuses")
     started: dict[str, list[int]] = {"land": [], "red": []}
+    statuses = (
+        github_cli.paginated(f"repos/{repo}/commits/{sha}/statuses") if pulls else []
+    )
+    repair_started = _standing(statuses, REPAIR_CONTEXT, bot) is not None
     for pr in pulls:
         landing = record(statuses, bot, pr["number"])
         rollup = poll_pr_checks.fetch_rollup(
@@ -254,11 +255,15 @@ def check(sha: str, run_conclusion: str) -> int:
             bot=bot,
             landing=landing,
             rollup=rollup,
-            run_conclusion=run_conclusion,
+            repair_started=repair_started,
         )
         print(f"{decision}: {reason}")
         if decision != "skip":
             started[decision].append(pr["number"])
+    if started["red"]:
+        _status(repo, sha, REPAIR_CONTEXT, "Red; repair started")
+    if not pulls:
+        print(f"no open PR at {sha}")
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         # Every eligible PR, for the workflow's per-PR matrix.
@@ -272,7 +277,7 @@ def check(sha: str, run_conclusion: str) -> int:
 USAGE = (
     "usage: land_pr.py pushed <sha> | "
     "intend <pr-number> <sha> <base> [--skip <check>]... | "
-    "check <sha> <conclusion>"
+    "check <sha>"
 )
 
 
@@ -293,8 +298,8 @@ def main(argv: list[str] | None = None) -> int:
         and args[3]
     ):
         return intend(args[1], args[2], args[3], skip=frozenset(skip))
-    if command == "check" and len(args) == 3 and SHA_RE.fullmatch(args[1]):
-        return check(args[1], args[2])
+    if command == "check" and len(args) == 2 and SHA_RE.fullmatch(args[1]):
+        return check(args[1])
     print(USAGE, file=sys.stderr)
     return 2
 

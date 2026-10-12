@@ -819,12 +819,24 @@ def test_tend_land_wakes_on_whatever_its_gate_reads(tmp_path: Path) -> None:
     assert "status" in data["on"]
     assert data["on"]["check_suite"] == {"types": ["completed"]}
     check = data["jobs"]["check"]
+    # Near-free wake-up: events that can't land or repair anything are
+    # filtered before a runner is allocated, and one check runs per commit.
+    for skipped in (
+        "github.event.state != 'pending'",
+        "github.event.context != 'tend/land/pushed'",
+        "github.event.context != 'tend/land/repair'",
+        "github.event.workflow_run.pull_requests[0] != null",
+        "github.event.check_suite.pull_requests[0] != null",
+    ):
+        assert skipped in check["if"]
+    assert check["concurrency"]["cancel-in-progress"] is False
+    assert "head_sha" in check["concurrency"]["group"]
     assert check["steps"][-1]["uses"] == f"max-sixty/tend/land@{ACTION_VERSION}"
     assert check["permissions"] == {"contents": "read"}
-    # A fork's PR from its own `main` is still a PR head: only this repo's
-    # default branch is skipped.
+    # A fork's PR run lists no PR, so a run from another repository passes;
+    # only a run in this one with no PR behind it is skipped.
     assert (
-        "github.event.workflow_run.head_repository.full_name == github.repository"
+        "github.event.workflow_run.head_repository.full_name != github.repository"
         in check["if"]
     )
 
@@ -874,6 +886,16 @@ def test_tend_land_starts_a_session_per_pr_in_the_reviews_group(
             "queue": "max",
             "cancel-in-progress": False,
         }
+    # A session queued behind one that already moved the head ends before
+    # `setup:` or the agent costs anything.
+    for job in ("land", "repair"):
+        steps = data["jobs"][job]["steps"]
+        assert steps[0]["id"] == "current"
+        assert all(
+            step.get("if") == "steps.current.outputs.current == 'true'"
+            or "steps.current.outputs.current == 'true'" in str(step.get("if"))
+            for step in steps[1:]
+        )
     prompts = _land_prompts(generated["tend-land.yaml"].content)
     assert prompts["land"].startswith("/tend-ci-runner:merge-pr ${{ matrix.pr }}")
     assert prompts["repair"].startswith("/tend-ci-runner:continue-pr ${{ matrix.pr }}")

@@ -60,7 +60,7 @@ def decide(**overrides: Any) -> tuple[str, str]:
         "bot": BOT,
         "landing": landing(),
         "rollup": GREEN,
-        "run_conclusion": "success",
+        "repair_started": False,
         **overrides,
     }
     return land_pr.decide(**args)
@@ -92,30 +92,28 @@ def test_anything_short_of_a_green_recorded_head_starts_no_landing(
 
 @pytest.mark.parametrize("author", [OWN, DEPENDABOT], ids=["self", "dependabot"])
 @pytest.mark.parametrize("recorded", [True, False], ids=["recorded", "unrecorded"])
-def test_a_red_on_a_pr_with_no_human_author_starts_its_repair(
+def test_a_red_on_a_pr_with_no_human_author_starts_its_repair_once(
     author: dict[str, str], recorded: bool
 ) -> None:
     """The review that waited repaired these; with no session waiting, the
-    run that failed hands it on, record or not. A green sibling finishing
-    later reads the same failure and starts nothing."""
+    first event to see the red hands it on, record or not. Every later event
+    on that head (another failed workflow, a late status) finds the hand-off
+    marked and starts no second session, whichever event came first."""
     authored = pr(user=author)
     held = landing() if recorded else None
-    red = decide(pr=authored, landing=held, rollup=RED, run_conclusion="failure")
-    assert red[0] == "red"
-    later = decide(pr=authored, landing=held, rollup=RED, run_conclusion="success")
+    first = decide(pr=authored, landing=held, rollup=RED, repair_started=False)
+    assert first[0] == "red"
+    later = decide(pr=authored, landing=held, rollup=RED, repair_started=True)
     assert later[0] == "skip"
 
 
 def test_a_human_authors_red_is_theirs() -> None:
-    assert decide(rollup=RED, run_conclusion="failure")[0] == "skip"
+    assert decide(rollup=RED)[0] == "skip"
 
 
-def test_a_failure_beside_running_checks_is_handed_on_by_its_own_run() -> None:
+def test_a_failure_beside_running_checks_is_handed_on_now() -> None:
     red_running = {**RED, "pending": ["lint"]}
-    assert (
-        decide(pr=pr(user=OWN), rollup=red_running, run_conclusion="failure")[0]
-        == "red"
-    )
+    assert decide(pr=pr(user=OWN), rollup=red_running)[0] == "red"
 
 
 def test_a_record_belongs_to_one_pr() -> None:
@@ -226,16 +224,6 @@ def test_pushed_records_the_bots_push(github: FakeGitHub) -> None:
     assert f"repos/owner/repo/statuses/{SHA}" in write
 
 
-@pytest.mark.parametrize(
-    "conclusion", ["failure", "timed_out", "startup_failure", "error"]
-)
-def test_every_red_conclusion_starts_a_repair(conclusion: str) -> None:
-    """A workflow run's `timed_out`, a status's `error`: the triggering event
-    reports red by the same classification the rollup uses."""
-    authored = pr(user=OWN)
-    assert decide(pr=authored, rollup=RED, run_conclusion=conclusion)[0] == "red"
-
-
 def test_check_names_every_eligible_pr_at_the_commit(
     github: FakeGitHub, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -250,5 +238,29 @@ def test_check_names_every_eligible_pr_at_the_commit(
         lambda path, **_: pulls if "/pulls" in path else github.statuses,
     )
     monkeypatch.setattr(land_pr.poll_pr_checks, "fetch_rollup", lambda **_: GREEN)
-    assert land_pr.check(SHA, "success") == 0
+    assert land_pr.check(SHA) == 0
     assert output.read_text() == "land_prs=[7, 8]\nred_prs=[]\n"
+    assert github.writes == []
+
+
+def test_check_marks_the_repair_it_starts(
+    github: FakeGitHub, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    output = tmp_path / "output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    pulls = [pr(number=9, user=OWN)]
+    monkeypatch.setattr(
+        land_pr.github_cli,
+        "paginated",
+        lambda path, **_: pulls if "/pulls" in path else github.statuses,
+    )
+    monkeypatch.setattr(land_pr.poll_pr_checks, "fetch_rollup", lambda **_: RED)
+    assert land_pr.check(SHA) == 0
+    assert output.read_text() == "land_prs=[]\nred_prs=[9]\n"
+    (write,) = github.writes
+    assert _fields(write)["context"] == "tend/land/repair"
+    # The next event on the same red head finds the mark.
+    github.statuses = [status(context="tend/land/repair", description="Red")]
+    output.write_text("")
+    assert land_pr.check(SHA) == 0
+    assert output.read_text() == "land_prs=[]\nred_prs=[]\n"
