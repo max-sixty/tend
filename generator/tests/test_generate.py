@@ -829,6 +829,26 @@ def test_tend_land_wakes_on_whatever_its_gate_reads(tmp_path: Path) -> None:
     )
 
 
+def test_tend_lands_check_reads_outputs_the_action_and_script_produce(
+    tmp_path: Path,
+) -> None:
+    """The workflow reads the check's outputs through the composite action,
+    which maps the ones `land_pr.py check` writes (`test_land_pr.py` pins
+    those); a name either drops leaves both sessions unstarted with every
+    check green."""
+    extra = "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
+    read = set(re.findall(r"steps\.check\.outputs\.(\w+)", land.content))
+    repo = Path(__file__).resolve().parents[2]
+    action = yaml.safe_load((repo / "land" / "action.yaml").read_text())
+    assert read == set(action["outputs"]) == {"land_prs", "red_prs"}
+    for name in action["outputs"]:
+        assert action["outputs"][name]["value"] == (
+            f"${{{{ steps.check.outputs.{name} }}}}"
+        )
+
+
 def test_tend_land_starts_a_session_per_pr_in_the_reviews_group(
     tmp_path: Path,
 ) -> None:

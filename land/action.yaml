@@ -17,12 +17,12 @@ inputs:
     description: That run's conclusion; only a failed run starts a repair
 
 outputs:
-  land_pr:
-    description: The pull request whose recorded head is now green, if any
-    value: ${{ steps.check.outputs.land_pr }}
-  red_pr:
-    description: The pull request with no human author whose CI went red, if any
-    value: ${{ steps.check.outputs.red_pr }}
+  land_prs:
+    description: JSON array of pull requests whose recorded heads are now green
+    value: ${{ steps.check.outputs.land_prs }}
+  red_prs:
+    description: JSON array of pull requests with no human author whose CI went red
+    value: ${{ steps.check.outputs.red_prs }}
 
 runs:
   using: composite
