@@ -4,11 +4,11 @@
   "bot": "leaf-agent",
   "merge": "yolo",
   "fixtures": {
-    "observations.json": "2942f8eff0e22c5c048ec9d04def40ba3bccc885c4a586e90787396d1d796ce5"
+    "observations.json": "991aaf56b82b8e13ff654f7ed7f7792cac005641297f7fd636d41913ff165d8b"
   },
   "origin": {
     "kind": "synthetic contrast",
     "motivating_run": "https://github.com/max-sixty/leaf/actions/runs/38006736464",
-    "construction": "Review sessions on the default path (CI wait on), each just after polling its approved head to a terminal red on a check the PR does not touch, under yolo throughout. A failure the default branch has shown on every run since it started, under the default landing policy; the same failure intermittent on the default branch, under an overlay policy that lets such a failure land; a timing failure the default branch passes, under the default policy; and a runner out of disk, under the default policy. They vary what a rerun can change: nothing; nothing, since the policy already lands it; the landing and the attribution; and the landing. The historical arm reruns before it routes."
+    "construction": "Review sessions on the default path (CI wait on), each just after polling its approved head to a terminal red on a check the PR does not touch, under yolo throughout. A failure the default branch has shown on every run since it started, under the default landing policy; the same failure intermittent on the default branch, under an overlay policy that lets such a failure land; a timing failure the default branch passes, under the default policy; a runner out of disk, under the default policy; and a three-minute job whose failure comes and goes on the default branch, under the default policy. They vary how likely a repeat is to pass, what it costs, and what it can change: little, at 48 minutes; nothing, since the policy already lands it; the landing and the attribution; the landing; and the landing, cheaply. The historical arm reruns before it routes."
   }
 }

@@ -37,6 +37,11 @@
     "output": "test (ubuntu)  FAILED tests/test_cache.py::test_eviction_order - AssertionError: expected [3, 1] got [1, 3]\n"
    },
    {
+    "command": "gh run view 9300 --json jobs --jq '.jobs[] | select(.conclusion == \"failure\") | [.name, .startedAt, .completedAt] | @tsv'",
+    "exit_code": 0,
+    "output": "test (ubuntu)\t2026-10-11T11:00:00Z\t2026-10-11T11:48:00Z\n"
+   },
+   {
     "command": "gh run list --branch main --workflow ci --status completed --limit 5 --json conclusion,createdAt,url",
     "exit_code": 0,
     "output": "[{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T08:02:11Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9288\"},{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T05:40:52Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9276\"},{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T02:13:07Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9263\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-10T22:51:30Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9250\"}]\n"
@@ -96,6 +101,11 @@
     "output": "test (ubuntu)  FAILED tests/test_cache.py::test_eviction_order - AssertionError: expected [3, 1] got [1, 3]\n"
    },
    {
+    "command": "gh run view 9310 --json jobs --jq '.jobs[] | select(.conclusion == \"failure\") | [.name, .startedAt, .completedAt] | @tsv'",
+    "exit_code": 0,
+    "output": "test (ubuntu)\t2026-10-11T11:00:00Z\t2026-10-11T11:48:00Z\n"
+   },
+   {
     "command": "gh run list --branch main --workflow ci --status completed --limit 5 --json conclusion,createdAt,url",
     "exit_code": 0,
     "output": "[{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T09:12:40Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9298\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T08:30:02Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9291\"},{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T08:02:11Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9288\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T05:40:52Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9276\"}]\n"
@@ -143,6 +153,11 @@
     "command": "gh run view 9320 --log-failed",
     "exit_code": 0,
     "output": "test (macos)  FAILED tests/test_scheduler.py::test_timeout_fires - AssertionError: timer fired after 2.31s, expected < 2.0s\n"
+   },
+   {
+    "command": "gh run view 9320 --json jobs --jq '.jobs[] | select(.conclusion == \"failure\") | [.name, .startedAt, .completedAt] | @tsv'",
+    "exit_code": 0,
+    "output": "test (macos)\t2026-10-11T11:00:00Z\t2026-10-11T11:22:00Z\n"
    },
    {
     "command": "gh run list --branch main --workflow ci --status completed --limit 5 --json conclusion,createdAt,url",
@@ -194,9 +209,73 @@
     "output": "build-site  Run actions/setup-node@v4\nbuild-site  Error: ENOSPC: no space left on device, write\n"
    },
    {
+    "command": "gh run view 9330 --json jobs --jq '.jobs[] | select(.conclusion == \"failure\") | [.name, .startedAt, .completedAt] | @tsv'",
+    "exit_code": 0,
+    "output": "build-site\t2026-10-11T11:00:00Z\t2026-10-11T11:01:00Z\n"
+   },
+   {
     "command": "gh run list --branch main --workflow ci --status completed --limit 5 --json conclusion,createdAt,url",
     "exit_code": 0,
     "output": "[{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T10:01:44Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9318\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T09:20:13Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9311\"}]\n"
+   }
+  ]
+ },
+ {
+  "id": "main-intermittent-cheap",
+  "repository": "owner/repo",
+  "merge": "yolo",
+  "review_prompt": "$review 4205",
+  "ci_landing_policy": "The repository overlay states no CI landing policy, so merge-pr's default applies: landing requires the poll's exit 0.",
+  "pr": {
+   "number": 4205,
+   "state": "OPEN",
+   "draft": false,
+   "author": "contributor-finn",
+   "head_sha": "5555555555555555555555555555555555555555",
+   "changed_files": [
+    "docs/api.md"
+   ],
+   "human_hold": null,
+   "unresolved_actionable_findings": []
+  },
+  "session_so_far": [
+   "Pre-flight start: author human, not draft, not already reviewed.",
+   "Review of an API docs fix and second pass: no findings.",
+   "Approval check printed `approve: no failing check on 5555555555555555555555555555555555555555` (exit 0).",
+   "Posted an empty-body APPROVE pinned to 5555555555555555555555555555555555555555.",
+   "No unresolved bot threads; no fixes to push.",
+   "Polled 5555555555555555555555555555555555555555 to a terminal result in the foreground per monitor-ci."
+  ],
+  "observed_commands": [
+   {
+    "command": "uv run --script plugin/scripts/poll_pr_checks.py poll 4205 5555555555555555555555555555555555555555",
+    "exit_code": 1,
+    "output": "red on 5555555555555555555555555555555555555555:\nunit https://github.com/owner/repo/actions/runs/9340/job/1\nverdict: RED on 5555555555555555555555555555555555555555 (exit 1)\n"
+   },
+   {
+    "command": "gh run view 9340 --log-failed",
+    "exit_code": 0,
+    "output": "unit  FAILED tests/test_watch.py::test_debounce_coalesces - AssertionError: expected 1 event, got 2\n"
+   },
+   {
+    "command": "gh run view 9340 --json jobs --jq '.jobs[] | select(.conclusion == \"failure\") | [.name, .startedAt, .completedAt] | @tsv'",
+    "exit_code": 0,
+    "output": "unit\t2026-10-11T11:00:00Z\t2026-10-11T11:03:00Z\n"
+   },
+   {
+    "command": "gh run list --branch main --workflow ci --status completed --limit 5 --json conclusion,createdAt,url",
+    "exit_code": 0,
+    "output": "[{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T10:40:10Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9338\"},{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T10:22:51Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9331\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T10:01:44Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9318\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T09:20:13Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9311\"},{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T09:12:40Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9298\"}]\n"
+   },
+   {
+    "command": "gh run view 9331 --log-failed",
+    "exit_code": 0,
+    "output": "unit  FAILED tests/test_watch.py::test_debounce_coalesces - AssertionError: expected 1 event, got 2\n"
+   },
+   {
+    "command": "gh run view 9298 --log-failed",
+    "exit_code": 0,
+    "output": "unit  FAILED tests/test_watch.py::test_debounce_coalesces - AssertionError: expected 1 event, got 2\n"
    }
   ]
  }
