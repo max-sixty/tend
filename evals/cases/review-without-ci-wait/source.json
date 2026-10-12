@@ -4,7 +4,7 @@
   "bot": "leaf-agent",
   "merge": "yolo",
   "fixtures": {
-    "observations.json": "099684417a0a4cb176465f65dcac0892f53f9ddfdc3d59949bfad04fdf74c6e1"
+    "observations.json": "ce7b7bd41fa6d78d5617c0e063d7061b06e0503e2e205d4cd65d50c586f40c87"
   },
   "origin": {
     "kind": "synthetic contrast",
