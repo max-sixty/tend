@@ -802,22 +802,24 @@ def _land_prompts(content: str) -> dict[str, str]:
     }
 
 
-def test_tend_land_fires_on_the_ci_workflows_and_runs_the_pinned_check(
-    tmp_path: Path,
-) -> None:
-    extra = f"merge: yolo\nworkflows:\n  review:\n    await_ci: false\n{_WATCHED}"
+def test_tend_land_wakes_on_whatever_its_gate_reads(tmp_path: Path) -> None:
+    """The check waits on every check on the commit, so anything that can
+    finish one wakes it: every workflow but Tend's own, a commit status, and
+    another app's check suite. A gate wider than its wake-up strands a
+    recorded head whose last check comes from outside it."""
+    extra = "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
     data = yaml.safe_load(land.content)
 
-    trigger = data["on"]["workflow_run"]
-    assert trigger["workflows"] == ["ci", "lint"]
-    # PR heads are on any branch: ci-fix's default-branch filter isn't copied.
-    assert "branches" not in trigger
+    assert data["on"]["workflow_run"] == {
+        "workflows": ["**", "!tend-*"],
+        "types": ["completed"],
+    }
+    assert "status" in data["on"]
+    assert data["on"]["check_suite"] == {"types": ["completed"]}
     check = data["jobs"]["check"]
-    assert [step["uses"] for step in check["steps"]] == [
-        f"max-sixty/tend/land@{ACTION_VERSION}"
-    ]
+    assert check["steps"][-1]["uses"] == f"max-sixty/tend/land@{ACTION_VERSION}"
     assert check["permissions"] == {"contents": "read"}
     # A fork's PR from its own `main` is still a PR head: only this repo's
     # default branch is skipped.
@@ -825,18 +827,40 @@ def test_tend_land_fires_on_the_ci_workflows_and_runs_the_pinned_check(
         "github.event.workflow_run.head_repository.full_name == github.repository"
         in check["if"]
     )
-    prompts = _land_prompts(land.content)
-    assert prompts["land"].startswith(
-        "/tend-ci-runner:merge-pr ${{ needs.check.outputs.land_pr }}"
-    )
-    assert prompts["repair"].startswith(
-        "/tend-ci-runner:continue-pr ${{ needs.check.outputs.red_pr }}"
-    )
-    # Named for the PR, so the subject-ownership lookup, which matches a run's
-    # display title against the PR's, sees a landing or repair session.
-    assert data["run-name"] == "${{ github.event.workflow_run.display_title }}"
-    assert data["jobs"]["land"]["if"] == "needs.check.outputs.land_pr != ''"
-    assert data["jobs"]["repair"]["if"] == "needs.check.outputs.red_pr != ''"
+
+
+def test_tend_land_starts_a_session_per_pr_in_the_reviews_group(
+    tmp_path: Path,
+) -> None:
+    """Every PR the check names gets its own session, named for the PR so
+    ownership lookups find it, and queued in the review's group for that PR
+    so it never runs beside a review of the same PR."""
+    extra = "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    generated = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(generated["tend-land.yaml"].content)
+    review = yaml.safe_load(generated["tend-review.yaml"].content)
+
+    review_group = review["jobs"]["review"]["concurrency"]["group"]
+    assert review_group.startswith("${{ github.workflow }}-")
+    for job, output in (("land", "land_prs"), ("repair", "red_prs")):
+        spec = data["jobs"][job]
+        assert spec["strategy"]["matrix"]["pr"] == (
+            f"${{{{ fromJSON(needs.check.outputs.{output}) }}}}"
+        )
+        assert spec["name"] == f"{job} #${{{{ matrix.pr }}}}"
+        assert spec["concurrency"] == {
+            "group": "tend-review-${{ matrix.pr }}",
+            "queue": "max",
+            "cancel-in-progress": False,
+        }
+    prompts = _land_prompts(generated["tend-land.yaml"].content)
+    assert prompts["land"].startswith("/tend-ci-runner:merge-pr ${{ matrix.pr }}")
+    assert prompts["repair"].startswith("/tend-ci-runner:continue-pr ${{ matrix.pr }}")
+    for prompt in prompts.values():
+        assert prompt.rstrip().endswith(
+            "The review's CI wait is off (`await_ci: false`)."
+        )
 
 
 def test_tend_lands_sessions_run_on_the_reviews_harness(tmp_path: Path) -> None:
@@ -855,15 +879,6 @@ def test_tend_lands_sessions_run_on_the_reviews_harness(tmp_path: Path) -> None:
     prompts = _land_prompts(land.content)
     assert prompts["land"].startswith("$merge-pr ")
     assert prompts["repair"].startswith("$continue-pr ")
-
-
-def test_tend_land_without_named_ci_workflows_is_a_config_error(
-    tmp_path: Path,
-) -> None:
-    extra = "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    with pytest.raises(click.ClickException, match="watched_workflows"):
-        generate_all(cfg)
 
 
 @pytest.mark.parametrize(

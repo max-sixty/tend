@@ -335,7 +335,7 @@ Concurrency groups:
 | notifications | `tend-notifications` | **no** — one poll drains notifications and repairs bot PRs at a time |
 | ci-fix | `workflow-<watched workflow>-<branch>` | **no** — a session mid-fix may already have pushed a branch or opened a PR |
 | land/check | none | stateless — reads records and checks, starts nothing itself |
-| land/land, land/repair | `workflow-PR#` | **no** — each watched workflow's completion arrives separately, so a second session queues behind the first and reads what it did |
+| land/land, land/repair | `tend-review-PR#` (the review's group) | **no** — a landing or repair never runs beside a review of the same PR; `queue: max` keeps every pending one, and each reads what the one before it did |
 | nightly / weekly | none | cron-serialized |
 | codex-auth-refresh (codex only) | `tend-codex-auth-refresh` | **no** — only this workflow may rotate the refresh-token chain, so a second refresher must never race it |
 

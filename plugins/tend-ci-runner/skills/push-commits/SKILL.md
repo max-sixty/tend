@@ -30,7 +30,7 @@ Under `yolo`, record each push to a PR's branch, with the commit you pushed:
 uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/land_pr.py" pushed <sha>
 ```
 
-It sets a `tend/pushed` status that only this bot's token can make. A review whose CI wait is off records a head for landing only where it finds one, since the pushing session is the one that knows who pushed; without it, that head's landing waits for a maintainer.
+It sets a `tend/land/pushed` status that only this bot's token can make. A review whose CI wait is off records a head for landing only where it finds one, since the pushing session is the one that knows who pushed; without it, that head's landing waits for a maintainer.
 
 ### Review the change before the push
 

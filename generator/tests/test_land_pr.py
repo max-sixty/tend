@@ -167,7 +167,6 @@ def github(monkeypatch: pytest.MonkeyPatch) -> FakeGitHub:
     monkeypatch.setattr(land_pr.github_cli, "json_call", fake.json_call)
     monkeypatch.setattr(land_pr.github_cli, "paginated", fake.paginated)
     monkeypatch.setattr(land_pr.github_cli, "run", fake.run)
-    monkeypatch.setattr(land_pr.poll_pr_checks, "poll", lambda *_, **__: 2)
     return fake
 
 
@@ -178,7 +177,7 @@ def _fields(write: tuple[str, ...]) -> dict[str, str]:
 def test_intend_records_pr_reviewed_base_and_skipped_checks(
     github: FakeGitHub,
 ) -> None:
-    assert land_pr.intend("7", SHA, "main", skip=frozenset({"bench"})) == 2
+    assert land_pr.intend("7", SHA, "main", skip=frozenset({"bench"})) == 0
     (write,) = github.writes
     fields = _fields(write)
     assert fields["context"] == "tend/land/7"
@@ -225,3 +224,31 @@ def test_pushed_records_the_bots_push(github: FakeGitHub) -> None:
     (write,) = github.writes
     assert _fields(write)["context"] == "tend/land/pushed"
     assert f"repos/owner/repo/statuses/{SHA}" in write
+
+
+@pytest.mark.parametrize(
+    "conclusion", ["failure", "timed_out", "startup_failure", "error"]
+)
+def test_every_red_conclusion_starts_a_repair(conclusion: str) -> None:
+    """A workflow run's `timed_out`, a status's `error`: the triggering event
+    reports red by the same classification the rollup uses."""
+    authored = pr(user=OWN)
+    assert decide(pr=authored, rollup=RED, run_conclusion=conclusion)[0] == "red"
+
+
+def test_check_names_every_eligible_pr_at_the_commit(
+    github: FakeGitHub, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Two PRs can share a head; each recorded one gets its own landing."""
+    output = tmp_path / "output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    pulls = [pr(number=7), pr(number=8), pr(number=9, user=OWN)]
+    github.statuses = [status("tend/land/7"), status("tend/land/8")]
+    monkeypatch.setattr(
+        land_pr.github_cli,
+        "paginated",
+        lambda path, **_: pulls if "/pulls" in path else github.statuses,
+    )
+    monkeypatch.setattr(land_pr.poll_pr_checks, "fetch_rollup", lambda **_: GREEN)
+    assert land_pr.check(SHA, "success") == 0
+    assert output.read_text() == "land_prs=[7, 8]\nred_prs=[]\n"

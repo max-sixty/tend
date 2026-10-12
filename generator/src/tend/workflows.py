@@ -442,26 +442,11 @@ def lands_on_ci(cfg: Config) -> bool:
 
 
 def generate_land(cfg: Config) -> GeneratedWorkflow:
-    # The CI workflows whose completion can make a head green are the ones
-    # ci-fix already names as the repository's CI.
-    watched = cfg.workflows.get("ci-fix", WorkflowConfig()).watched_workflows
-    if not watched:
-        raise click.ClickException(
-            "review.await_ci: false under merge: yolo lands each reviewed PR "
-            "when its CI completes, so it needs the CI workflows named:\n\n"
-            "  workflows:\n"
-            "    ci-fix:\n"
-            '      watched_workflows: ["ci"]'
-        )
-    # The red job continues the review's work, so it runs on the review's
-    # harness, model, effort and arguments, whose credentials the install
-    # already provisions.
+    # The landing and repair sessions continue the review's work, so they run
+    # on the review's harness, model, effort and arguments, whose credentials
+    # the install already provisions.
     eff = _effective_cfg(cfg, cfg.workflows.get("review", WorkflowConfig()))
-    content = _LAND_TMPL.render(
-        cfg=eff,
-        watched=watched,
-        setup=_setup_yaml(eff),
-    )
+    content = _LAND_TMPL.render(cfg=eff, setup=_setup_yaml(eff))
     return GeneratedWorkflow(filename="tend-land.yaml", content=content)
 
 

@@ -42,6 +42,13 @@ case "$*" in
     file="$RUNS_DIR/$status.json"
     [ -f "$file" ] && emit "$(cat "$file")" || emit '{"workflow_runs": []}'
     ;;
+  *"/actions/runs/"*"/jobs"*)
+    args="$*"
+    rid="${args#*/actions/runs/}"
+    rid="${rid%%/*}"
+    file="$RUNS_DIR/jobs-$rid.json"
+    [ -f "$file" ] && emit "$(cat "$file")" || emit '{"jobs": []}'
+    ;;
   *"/pulls/"*) emit "$(cat "$SUBJECT_JSON")" ;;
   *) exit 1 ;;
 esac
@@ -88,7 +95,7 @@ def env(tmp_path: Path) -> dict[str, str]:
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir()
     subject = tmp_path / "subject.json"
-    subject.write_text(json.dumps({"title": TITLE}))
+    subject.write_text(json.dumps({"title": TITLE, "number": 4082}))
     return {
         "PATH": tool_path(bindir),
         "GH_CALLS": str(tmp_path / "gh-calls.log"),
@@ -153,18 +160,31 @@ def test_a_run_named_for_its_subject_keeps_its_workflow_identity(
     ]
 
 
-def test_a_tend_land_session_owns_the_pr_its_ci_run_named(
+def test_a_tend_land_session_owns_the_pr_its_job_names(
     env: dict[str, str],
 ) -> None:
-    """tend-land's landing or repair session takes its `run-name` from the
-    pull-request CI run that started it, whose display title is the PR's, so
-    a notifications poll defers to it instead of starting a second repair."""
-    run = _run(111, "tend-land", "in_progress")
-    run["name"] = TITLE
-    _stage(env, "in_progress", run)
-    assert [(run["id"], run["name"]) for run in _subject_runs(env)] == [
-        (111, "tend-land")
-    ]
+    """tend-land starts from a CI completion, so its run's title names no PR;
+    each landing or repair session is a job named for its PR. A run whose
+    active job works on this PR owns it, whatever the run is titled, so a
+    notifications poll defers to it instead of starting a second repair."""
+    mine = _run(111, "tend-land", "in_progress", title="ci")
+    other = _run(112, "tend-land", "in_progress", title=TITLE)
+    finished = _run(113, "tend-land", "in_progress", title="ci")
+    _stage(env, "in_progress", mine, other, finished)
+    jobs = {
+        111: [
+            {"name": "check", "status": "completed"},
+            {"name": "repair #4082", "status": "in_progress"},
+        ],
+        # Titled like the PR, but its session works on another one.
+        112: [{"name": "land #77", "status": "queued"}],
+        113: [{"name": "land #4082", "status": "completed"}],
+    }
+    for rid, listed in jobs.items():
+        (Path(env["RUNS_DIR"]) / f"jobs-{rid}.json").write_text(
+            json.dumps({"jobs": listed})
+        )
+    assert [run["id"] for run in _subject_runs(env)] == [111]
 
 
 def test_deployment_gated_run_is_a_subject_candidate(env: dict[str, str]) -> None:

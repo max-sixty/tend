@@ -25,7 +25,9 @@ head: a `tend/land/<number>` status the bot created on `PINNED_SHA`
 (`land_pr.py`), whose description names the base the review judged and the
 checks it skipped. Read it (`gh api repos/{owner}/{repo}/commits/<sha>/statuses`),
 leave the PR open if the base has changed since, and apply the CI policy with
-those skips. Everything below still applies: the record settles nothing that
+those skips, reading CI once without waiting. If checks are running again (a
+rerun since tend-land saw green), end: their completion starts another
+landing. Everything below still applies: the record settles nothing that
 happened after it.
 A caller with neither reviews the head per `/tend-ci-runner:review` before
 landing, or leaves that review with an identified queued reviewer.

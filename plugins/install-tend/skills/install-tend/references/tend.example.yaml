@@ -363,15 +363,16 @@ bot_name: my-project-bot
 #
 # - A check already red withholds the approval.
 # - Under `yolo`, a head the bot pushed itself (the pushing session records
-#   that as a `tend/pushed` status), whose review settled everything but its
-#   CI, is recorded for landing (a `tend/land/<PR>` commit status naming the
-#   base and any skipped checks). When a watched CI workflow completes, the
-#   generated `tend-land` workflow checks, with no agent, whether the
-#   recorded head on its recorded base has every check green, and if so
-#   starts a short landing session that makes the landing decision. A red
-#   result on a PR with no human author starts a session that continues its
-#   repair. `tend-land` fires on the workflows `ci-fix.watched_workflows`
-#   names, so that list must name every workflow whose checks gate a PR.
+#   that as a `tend/land/pushed` status), whose review settled everything but
+#   its CI, is recorded for landing (a `tend/land/<PR>` commit status naming
+#   the base and any skipped checks). Whenever something reporting on a
+#   commit finishes (any workflow but Tend's own, a commit status, another
+#   app's check suite), the generated `tend-land` workflow checks, with no
+#   agent, whether a recorded head on its recorded base has every check
+#   green, and if so starts a short landing session per PR that makes the
+#   landing decision. A red result on a PR with no human author starts a
+#   session that continues its repair. Neither session waits on CI after a
+#   push: it records the push, and the next review and completion carry on.
 # - A head someone else pushed, or one the review can't record, is left for a
 #   maintainer while its checks run, as is every PR under `restricted`. A
 #   check that fails after the review ends on a human's PR stands beside the
