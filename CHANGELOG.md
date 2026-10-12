@@ -6,6 +6,14 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.13
+
+### Improved
+
+- When a check the PR didn't cause fails after a review approves, the review reads what the default branch shows before rerunning it, and weighs the rerun's cost (a full suite on a long CI) against whether a repeat could change the landing or the attribution. A failure the default branch shows on every recent run goes to `ci-fix` without a rerun; a race issue is filed only once a chosen rerun has been weighed. ([#1541](https://github.com/max-sixty/tend/pull/1541))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
 ## 0.3.12
 
 ### Improved
