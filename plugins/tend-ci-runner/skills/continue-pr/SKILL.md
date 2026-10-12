@@ -1,6 +1,6 @@
 ---
 name: continue-pr
-description: Continue the configured bot's unfinished PR, including red CI and unresolved findings after a prior response or review.
+description: Continue an unfinished PR with no human author, including red CI and unresolved findings after a prior response or review.
 argument-hint: "[PR number]"
 metadata:
   internal: true
@@ -32,8 +32,9 @@ uv run --script \
   "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/<number>"
 ```
 
-Continue only an open PR authored by the configured bot with its head in this
-repository. Establish ownership per **Subject-run ownership**
+Continue only an open PR with no human author — the configured bot's, or
+another bot's such as Dependabot's or Renovate's, which the review repairs as
+its author — with its head in this repository. Establish ownership per **Subject-run ownership**
 in `/tend-ci-runner:merge-pr`; defer to an independent dedicated owner. A human
 takeover or maintainer instruction to stop leaves the work with them. Read any
 related in-flight PR before treating it as the owner of this repair: an

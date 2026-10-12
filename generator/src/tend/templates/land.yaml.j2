@@ -5,8 +5,9 @@ ${{ github.event.workflow_run.html_url }}{% endset -%}
 <<header>>
 name: tend-land
 # Lands a reviewed PR once its CI completes. With the review's CI wait off, a
-# review that settles everything about a head but its CI records the head for
-# landing (a `tend/land` commit status) and ends instead of waiting; each
+# review that settles everything about a head the bot pushed but its CI
+# records the head for landing (a `tend/land/<PR>` commit status naming the
+# base and any skipped checks) and ends instead of waiting; each
 # completion of a watched CI workflow then lands any PR at that commit whose
 # record still holds. The `land` job runs Tend's pinned script, no agent and
 # no checkout of the PR; `land_pr.py` documents what it checks.
@@ -17,8 +18,10 @@ on:
 
 jobs:
   land:
-    # A run on the default branch has no PR to land.
-    if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && github.event.workflow_run.head_branch != github.event.repository.default_branch
+    # A run on this repository's default branch has no PR to land. The repo is
+    # part of that test: a fork's PR from its own `main` carries the same
+    # branch name.
+    if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && !(github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == github.event.repository.default_branch)
     concurrency:
       # Each watched workflow's completion arrives separately; one at a time
       # per commit, so the second reads the first's merge instead of racing it.
@@ -39,8 +42,8 @@ jobs:
           head_sha: ${{ github.event.workflow_run.head_sha }}
           conclusion: ${{ github.event.workflow_run.conclusion }}
 
-  # The bot's own PR went red after its review ended, so no session is waiting
-  # to repair it; this one continues it, as the review would have.
+  # A PR with no human author went red after its review ended, so no session
+  # is waiting to repair it; this one continues it, as the review would have.
   red:
     needs: land
     if: needs.land.outputs.red_pr != ''

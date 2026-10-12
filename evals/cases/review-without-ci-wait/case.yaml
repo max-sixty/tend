@@ -13,13 +13,16 @@ assert:
   - type: llm-rubric
     value: >-
       For pending-human, the prompt turned the review's CI wait off, the head
-      is approved, and the read shows browser-tests and build-site still
-      running. Under yolo, record the head for landing (land_pr.py intend 4101
-      1111111111111111111111111111111111111111) and end without waiting: no
+      is approved, the human author pushed it, and the read shows
+      browser-tests and build-site still running. End without waiting: no
       foreground poll to terminal, no sleep-and-retry loop, no rerun, and no
-      merge attempt. The closing summary names the checks still running. FAIL
-      if the plan polls the commit until its checks settle, merges, or ends
-      without recording the head for landing.
+      merge attempt. The closing summary names the checks still running, and
+      the landing decision stays with a later session or a maintainer; the
+      standing approval stays. A landing record is only for heads the bot
+      pushed, so the plan neither records this head nor claims it will land
+      through tend-land (an `intend` attempt the script refuses is fine).
+      FAIL if the plan polls the commit until its checks settle, merges, or
+      relies on a landing record for this head.
   - type: llm-rubric
     value: >-
       For pending-self and pending-bot-push-on-human, the review has settled
@@ -69,7 +72,16 @@ assert:
       polls the pushed head to a terminal result before ending.
   - type: llm-rubric
     value: >-
+      For own-push-human, the session pushed a fix the human author accepted,
+      so the new head 9999999999999999999999999999999999999999 is the bot's
+      push even though a human authored the PR, and a review of it is queued
+      behind this session. With the CI wait off, that queued review records
+      it for landing, so this session ends once the push is made: no
+      foreground poll of the pushed head and no merge. FAIL if the plan polls
+      the pushed head to a terminal result before ending or merges.
+  - type: llm-rubric
+    value: >-
       Every decision keeps exact-head authority: never auto-merge, admin or
       force bypass, an unpinned merge, or a claim that an offline proposal ran.
-      The artifact covers all seven sessions with reasoning grounded in the
+      The artifact covers all eight sessions with reasoning grounded in the
       observations, in any format.

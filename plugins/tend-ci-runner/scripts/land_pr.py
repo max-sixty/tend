@@ -5,29 +5,36 @@
 """Land a reviewed pull request when its CI completes, with no session waiting.
 
 Under `merge: yolo` with the review's CI wait off, a review that has settled
-everything about a head except its CI records that with ``intend``: a commit
-status, :data:`poll_pr_checks.LAND_CONTEXT`, created by the bot on the exact
-head it reviewed. The review then ends. ``land`` runs in the generated
-tend-land workflow each time one of the repository's CI workflows completes,
-and merges any open PR at that commit whose record still holds.
+everything about a head this bot pushed, except its CI, records that with
+``intend`` and ends. The record is a commit status the bot creates on the
+exact head, under a context naming the PR (:func:`context`), whose description
+carries the base the review judged and the checks its CI policy leaves out.
+``land`` runs in the generated tend-land workflow each time one of the
+repository's CI workflows completes, and merges any open PR at that commit
+whose record still holds.
 
-The judgement — human holds in prose, findings, ownership — belongs to the
-review that wrote the record. ``land`` decides only what is crisp in the data,
-and declines whenever a fact it reads leaves the review's judgement open:
+A head someone else pushed is not recorded: a review with its CI wait off
+leaves those for a maintainer, and ``intend`` refuses a head whose committer
+isn't the bot.
 
-* the record is the bot's, on this exact commit, and the latest for its
-  context;
-* the PR is open, not a draft, and its head is still that commit;
+The judgement — holds in prose, findings, ownership — belongs to the review
+that wrote the record. ``land`` reads no prose. It decides only what is crisp
+in the data, and declines whenever something changed after the record that
+the review's judgement didn't cover:
+
+* the record is the bot's, the latest for this PR's context, on this commit;
+* the PR is open, not a draft, at that head, on the base the record names;
 * on a PR the bot didn't author, the bot's approval stands on that commit;
-* no person has commented or reviewed since the record, since anything they
-  wrote may change what the review decided;
-* every check on the commit has finished green.
+* no person has written, edited, or reviewed on the PR at or after the
+  record's time (a bare approval excepted);
+* every check on the commit, less those the record leaves out, finished green.
 
-A red result on the bot's own PR is handed to a session (``red_pr`` output),
-which continues the repair as `/tend-ci-runner:continue-pr` describes; on
-another author's PR it is left as a review that ended on pending checks
-leaves it. Anything else ends without a merge, and a merge GitHub refuses
-leaves the PR open.
+A red result on a PR with no human author (this bot's, or another bot's such
+as Dependabot's) is handed to a session (``red_pr`` output), which continues
+the repair as `/tend-ci-runner:continue-pr` describes, as the review that
+waited used to. On a human's PR it stands beside the approval for its author.
+Anything else ends without a merge, and a merge GitHub refuses leaves the PR
+open.
 
 GitHub's native auto-merge is not used: it stays enabled across pushes by
 anyone with write access, so it can land a head no review read. The merge
@@ -36,6 +43,7 @@ here passes the recorded ``sha``, which GitHub refuses once the head moves.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -47,41 +55,80 @@ import github_cli
 import poll_pr_checks
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+#: GitHub truncates a longer status description, which would lose the policy.
+DESCRIPTION_LIMIT = 140
 Decision = Literal["merge", "red", "skip"]
 
 
-def record(statuses: list[dict[str, Any]], bot: str) -> dict[str, Any] | None:
-    """The standing landing record among a commit's statuses, newest first.
+def context(number: int | str) -> str:
+    """The status context recording PR *number*'s landing.
+
+    One per PR, so a commit that heads two PRs carries a separate record for
+    each, and the review of one never lands the other.
+    """
+    return f"{poll_pr_checks.LAND_CONTEXT}/{number}"
+
+
+def record(
+    statuses: list[dict[str, Any]], bot: str, number: int
+) -> dict[str, Any] | None:
+    """PR *number*'s standing landing record among a commit's statuses.
 
     GitHub serves statuses newest first, and the latest of a context is the
-    one that stands, so a later status of the same context replaces it.
+    one that stands, so a later status of the same context replaces it. The
+    returned record carries the description's ``base`` and ``skip``.
     """
     for status in statuses:
-        if status.get("context") != poll_pr_checks.LAND_CONTEXT:
+        if status.get("context") != context(number):
             continue
         if (
-            status.get("state") == "success"
-            and github_cli.actor_login(status.get("creator")) == bot
+            status.get("state") != "success"
+            or github_cli.actor_login(status.get("creator")) != bot
         ):
-            return status
-        return None
+            return None
+        try:
+            policy = json.loads(status.get("description") or "")
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(policy, dict) or not isinstance(policy.get("base"), str):
+            return None
+        skip = policy.get("skip", [])
+        if not isinstance(skip, list) or not all(isinstance(n, str) for n in skip):
+            return None
+        return {**status, "base": policy["base"], "skip": frozenset(skip)}
     return None
 
 
-def people_since(activity: list[dict[str, Any]], *, since: str, bot: str) -> list[str]:
-    """Logins of people (not bots) who wrote on the PR after *since*.
+def _when(item: dict[str, Any]) -> str:
+    return max(
+        str(item.get(key) or "") for key in ("created_at", "updated_at", "submitted_at")
+    )
 
-    A bare approval says nothing the record didn't already, so it doesn't
-    count; an approval with words might, so it does.
+
+def people_since(activity: list[dict[str, Any]], *, since: str, bot: str) -> list[str]:
+    """Logins of people (not bots) who wrote on the PR at or after *since*.
+
+    An edit counts from when it was made, so an earlier comment rewritten
+    after the record counts; a tie counts, since the order within GitHub's
+    one-second timestamps is unknown. A bare approval says nothing the record
+    didn't already, so it doesn't count; an approval with words might.
     """
     return github_cli.unique(
         github_cli.actor_login(item.get("user"))
         for item in activity
-        if (item.get("created_at") or item.get("submitted_at") or "") > since
+        if _when(item) >= since
         and isinstance(item.get("user"), dict)
         and item["user"].get("type") == "User"
         and github_cli.actor_login(item.get("user")) != bot
         and not (item.get("state") == "APPROVED" and not item.get("body"))
+    )
+
+
+def no_human_author(pr: dict[str, Any], bot: str) -> bool:
+    """True for this bot's PR or another bot's (Dependabot, Renovate)."""
+    user = pr.get("user")
+    return github_cli.actor_login(user) == bot or (
+        isinstance(user, dict) and user.get("type") == "Bot"
     )
 
 
@@ -102,15 +149,13 @@ def decide(
         return "skip", f"#{number}: no landing recorded on {sha}"
     if pr.get("state") != "open" or pr["head"]["sha"] != sha:
         return "skip", f"#{number}: no longer open at {sha}"
+    if pr["base"]["ref"] != landing["base"]:
+        return "skip", (
+            f"#{number}: retargeted to {pr['base']['ref']} since the review of "
+            f"{landing['base']}"
+        )
     if pr.get("draft"):
         return "skip", f"#{number}: draft"
-    own = github_cli.actor_login(pr.get("user")) == bot
-    if not own and approval_sha != sha:
-        return "skip", f"#{number}: the bot's approval no longer stands on {sha}"
-    if people:
-        return "skip", (
-            f"#{number}: {', '.join(people)} wrote since the landing was recorded"
-        )
     if rollup is None:
         return "skip", f"#{number}: no complete check rollup for {sha}"
     if rollup["failed"]:
@@ -118,9 +163,17 @@ def decide(
         # while siblings still run. A sibling that completes green later
         # reads the same failure and hands nothing on; one that fails too
         # queues behind the first session (tend-land's per-PR `red` group).
-        if own and run_conclusion == "failure":
-            return "red", f"#{number}: red on {sha}: {', '.join(rollup['failed'])}"
-        return "skip", f"#{number}: red on {sha}: {', '.join(rollup['failed'])}"
+        failed = f"#{number}: red on {sha}: {', '.join(rollup['failed'])}"
+        if no_human_author(pr, bot) and run_conclusion == "failure":
+            return "red", failed
+        return "skip", failed
+    own = github_cli.actor_login(pr.get("user")) == bot
+    if not own and approval_sha != sha:
+        return "skip", f"#{number}: the bot's approval no longer stands on {sha}"
+    if people:
+        return "skip", (
+            f"#{number}: {', '.join(people)} wrote since the landing was recorded"
+        )
     if rollup["pending"]:
         return "skip", f"#{number}: still running: {', '.join(rollup['pending'])}"
     if rollup["unverified"]:
@@ -133,6 +186,11 @@ def decide(
 def intend(pr: str, sha: str, *, skip: frozenset[str] = frozenset()) -> int:
     """Record that the review settled *sha* and it lands once CI is green.
 
+    Only a head this bot pushed is recorded (exit 3 otherwise, leaving the
+    landing to a maintainer). The record names the PR's base and *skip*, the
+    checks the review's CI policy leaves out, so the lander judges the same
+    checks against the same base.
+
     tend-land acts on a CI completion, so a completion that arrived between
     the review's read and this record found nothing to land and fires no
     more. Reading CI again once the record stands closes that gap: with
@@ -141,19 +199,37 @@ def intend(pr: str, sha: str, *, skip: frozenset[str] = frozenset()) -> int:
     as it would a settled read (exit 0 green, 1 red).
     """
     repo = github_cli.repository()
-    head = github_cli.json_call(
-        "pr", "view", pr, "--repo", repo, "--json", "headRefOid,state"
+    bot = str(github_cli.json_call("api", "user")["login"])
+    view = github_cli.json_call(
+        "pr", "view", pr, "--repo", repo, "--json", "headRefOid,state,baseRefName"
     )
-    if head["state"] != "OPEN" or head["headRefOid"] != sha:
+    if view["state"] != "OPEN" or view["headRefOid"] != sha:
         print(f"PR #{pr} is not open at {sha}; no landing recorded", file=sys.stderr)
         return 1
+    commit = github_cli.json_call("api", f"repos/{repo}/commits/{sha}")
+    if github_cli.actor_login(commit.get("committer")) != bot:
+        print(
+            f"{sha} is not this bot's push; its landing stays with a maintainer",
+            file=sys.stderr,
+        )
+        return 3
+    description = json.dumps(
+        {"base": view["baseRefName"], "skip": sorted(skip)}, separators=(",", ":")
+    )
+    if len(description) > DESCRIPTION_LIMIT:
+        print(
+            "the skipped checks don't fit in a landing record; "
+            "its landing stays with a maintainer",
+            file=sys.stderr,
+        )
+        return 3
     fields = [
         "-f",
         "state=success",
         "-f",
-        f"context={poll_pr_checks.LAND_CONTEXT}",
+        f"context={context(pr)}",
         "-f",
-        "description=Reviewed; lands when its checks pass",
+        f"description={description}",
     ]
     run_id = os.environ.get("GITHUB_RUN_ID")
     if run_id:
@@ -190,10 +266,10 @@ def land(sha: str, run_conclusion: str) -> int:
         print(f"no open PR at {sha}")
         return 0
     statuses = github_cli.paginated(f"repos/{repo}/commits/{sha}/statuses")
-    landing = record(statuses, bot)
     red: list[int] = []
     for pr in pulls:
         number = pr["number"]
+        landing = record(statuses, bot, number)
         approval_sha = ""
         people: list[str] = []
         rollup = None
@@ -206,7 +282,12 @@ def land(sha: str, run_conclusion: str) -> int:
                 _activity(repo, number), since=landing["created_at"], bot=bot
             )
             rollup = poll_pr_checks.fetch_rollup(
-                repo=repo, sha=sha, run_id="", workflow="", allow_filtered_empty=True
+                repo=repo,
+                sha=sha,
+                run_id="",
+                workflow="",
+                skip=landing["skip"],
+                allow_filtered_empty=True,
             )
         decision, reason = decide(
             pr=pr,

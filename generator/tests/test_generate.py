@@ -806,6 +806,12 @@ def test_tend_land_fires_on_the_ci_workflows_and_runs_the_pinned_action(
     steps = data["jobs"]["land"]["steps"]
     assert [step["uses"] for step in steps] == [f"max-sixty/tend/land@{ACTION_VERSION}"]
     assert data["jobs"]["land"]["permissions"] == {"contents": "read"}
+    # A fork's PR from its own `main` is still a PR head: only this repo's
+    # default branch is skipped.
+    assert (
+        "github.event.workflow_run.head_repository.full_name == github.repository"
+        in data["jobs"]["land"]["if"]
+    )
     assert agent_prompt(land.content).startswith(
         "/tend-ci-runner:continue-pr ${{ needs.land.outputs.red_pr }}"
     )

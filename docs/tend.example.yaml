@@ -362,17 +362,20 @@ bot_name: my-project-bot
 # once its own work is done, acting on the checks that have already finished:
 #
 # - A check already red withholds the approval.
-# - Under `yolo`, a head whose review settled everything but its CI is
-#   recorded for landing (a `tend/land` commit status), and the generated
+# - Under `yolo`, a head the bot pushed itself, whose review settled
+#   everything but its CI, is recorded for landing (a `tend/land/<PR>` commit
+#   status naming the base and any skipped checks), and the generated
 #   `tend-land` workflow merges it at that exact commit once every check has
-#   finished green. It runs no agent; it declines if the head moved, the
-#   bot's approval was dismissed, or a person wrote on the PR since. A red
-#   result on the bot's own PR starts a session that continues its repair.
-#   `tend-land` fires on the workflows `ci-fix.watched_workflows` names, so
-#   that list must name every workflow whose checks gate a PR.
-# - Under `restricted`, or where the review can't record the head, a PR whose
-#   checks are still running is left for a maintainer. A check that fails
-#   after the review ends on another author's PR stands beside the approval.
+#   finished green. It runs no agent; it declines if the head moved, the PR
+#   was retargeted, the bot's approval was dismissed, or a person wrote on
+#   the PR since. A red result on a PR with no human author starts a session
+#   that continues its repair. `tend-land` fires on the workflows
+#   `ci-fix.watched_workflows` names, so that list must name every workflow
+#   whose checks gate a PR.
+# - A head someone else pushed, or one the review can't record, is left for a
+#   maintainer while its checks run, as is every PR under `restricted`. A
+#   check that fails after the review ends on a human's PR stands beside the
+#   approval.
 #
 # tend-review checks out the prospective post-merge tree
 # (`refs/pull/N/merge`) when available, and falls back to the PR branch head

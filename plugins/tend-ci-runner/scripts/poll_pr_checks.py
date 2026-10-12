@@ -29,9 +29,9 @@ RED_CONCLUSIONS = {
 # conclusion GitHub adds later — so it is neither red nor green. Naming green
 # rather than the no-result set keeps the unrecognized case fail-closed.
 GREEN_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
-#: The commit status a review sets to record that a head lands once its CI is
-#: green (`land_pr.py`). It is Tend's own record, like the review's check, not
-#: CI, so no verdict reads it.
+#: The commit statuses a review sets to record that a head lands once its CI
+#: is green, one per PR under this prefix (`land_pr.py`). They are Tend's own
+#: records, like the review's check, not CI, so no verdict reads them.
 LAND_CONTEXT = "tend/land"
 #: Seconds between rollup reads, and between a clean read and the one that
 #: confirms it.
@@ -119,7 +119,7 @@ def reduce_rollup(
             continue
         if (
             context["workflow"] == "tend-review"
-            or context["name"] == LAND_CONTEXT
+            or context["name"].startswith(f"{LAND_CONTEXT}/")
             or context["name"] in skip
         ):
             continue
