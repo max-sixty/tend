@@ -9,7 +9,7 @@ repos:
   # only meant that each new Python directory arrived unlinted and stayed that
   # way until someone noticed.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: f12be1ebaa5351c1fc76472de98db2c3446c8253  # frozen: v0.16.10
+    rev: 44b5042edab9382aba712eed4f9c7bab7a3d6a3e  # frozen: v0.17.0
     hooks:
       - id: ruff-check
         args: ["--fix"]
@@ -21,7 +21,7 @@ repos:
       - id: uv-lock
         files: ^(generator/)?(pyproject\.toml|uv\.lock)$
   - repo: https://github.com/adhtruong/mirrors-typos
-    rev: 3eb3b00ab99fd9a875b2ca1e580651d33cef2ace  # frozen: v1.50.3
+    rev: becd063d63e29765b8d07e15567044e5497809ce  # frozen: v1.51.1
     hooks:
       - id: typos
   - repo: https://github.com/rhysd/actionlint
