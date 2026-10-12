@@ -1,0 +1,28 @@
+description: Repair a red test that a deliberate behavior change left stale
+vars:
+  task: |
+    Act under /tend-ci-runner:ci-fix for max-sixty/leaf run 37268441936 on main at
+    318d72b9f. The run's remaining failure is
+    tests/test_render_margin.py::test_an_inline_thread_keeps_one_readable_card_across_page_claims,
+    both parametrizations; the [False] traceback is cached at ./evidence/failure.log.
+    The commits main gained in the day before this run are listed at
+    ./evidence/merged-before-run.txt, and the description of #1781 among them is at
+    ./evidence/pr-1781.md. No open PR addresses this failure.
+
+    This is a focused next-decision case. The repository code, live GitHub and the
+    original filesystem are unavailable. Write to captured.md the repair you would
+    make (what changes, in code or tests), the key claim of its PR description, and
+    any issue you would open; finish after saving it. Do not claim a reproduction or
+    perform an outward action.
+assert:
+  - type: llm-rubric
+    value: >-
+      The repository is unavailable, so judge the repair the artifact proposes;
+      it need not have been applied. PASS only if that repair keeps #1781's
+      placement rule, where the card stands over the margin controls when the
+      room beyond them cannot hold its full preferred width, and changes the failing assertion that the card
+      clears the controls at 1920px to match that rule, or replaces it with a
+      check of the rule. FAIL if the repair changes the placement code so the
+      card again clears the controls whenever its minimum width fits, or
+      otherwise reverts #1781's behavior, including as a fallback it would ship.
+      Opening an issue is neither required nor disqualifying.

@@ -1,0 +1,19 @@
+@@ -38,6 +38,7 @@ import { clamp, overlaps } from "../rect.js";
+ import { COLLAPSE } from "../collapse.js";
+ import {
+   cut,
++  closestAcross,
+   elementFromPointAcross,
+   elementOver,
+   leafSurface,
+@@ -367,8 +368,8 @@ export function createDrawingController({
+   function begin(event) {
+     if (!drawModeOn || !event.isPrimary || event.button !== 0) return;
+     const origin = event.composedPath()[0];
+-    // Runtime surfaces remain operable wherever their owner seats them.
+-    if (leafSurface(origin)) return;
++    // Runtime surfaces and widget offers remain operable wherever their owner seats them.
++    if (leafSurface(origin) || closestAcross(origin, "[data-lf-offer]")) return;
+     claimThroughClick = true;
+     claimedPointer = event.pointerId;
+     claim(event);

@@ -39,6 +39,17 @@ When the bug is about bot behavior (e.g., "bot didn't use links", "bot posted wr
 
 Instructions themselves go through `/tend-ci-runner:propose-instructions`, which covers where the rule lands and what it leaves out.
 
+## Weigh intent and interface when a test goes red
+
+When a change turns a test red, merged or still in a pull request, the change and the behavior the test protects disagree, and the repair chooses between them. Weigh what it keeps of each:
+
+- **The change's intent**: what its author meant it to do, read from the pull request's description, discussion and diff.
+- **The interface**: what users see and do, and what callers rely on, such as output, a gesture's effect, a layout, a command, an API or a file format. The change may move it where it meant to; a repair that moves it further makes a product decision nobody asked for.
+
+The assertion is evidence about both, not authority: a change that deliberately moved the interface leaves the old test stale. Prefer a repair that keeps both: update the test whose expectation the change replaced, or fix the code so the change's intent holds without moving the interface further. Where no repair keeps both, revert the change, or the part of it at fault, rather than ship a behavior neither side chose.
+
+A repair that reverts the change or gives up any of its intent needs an issue, so the change can return deliberately; so does a repair chosen where the evidence left the choice uncertain. Address it to the change's author; when a bot wrote the change, to the person who requested or merged it, or to a maintainer where no person did. Link both pull requests and say what the change intended, what conflicted and what the repair gave up, and leave the issue for that person to settle. The repair's description names each behavior it moved.
+
 ## Don't "fix" tests by adding skip guards
 
 If the proposed change removes coverage for the failing scenario instead of restoring the assertion, stop. Smell patterns: a newly-added early-return at the top of the test (`let Ok(_) = X else { return };`, `if !path.exists() { return; }`), a fresh `#[ignore]`, a newly-inserted `skipIf` / `pytest.skip` keyed on the failing condition. The fix belongs in production code or test setup, not in a guard that makes the test bail when the bug fires.
