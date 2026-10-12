@@ -121,5 +121,21 @@ def test_people_since_counts_only_people_after_the_record() -> None:
         {"user": {"login": BOT, "type": "User"}, "created_at": "2026-10-12T10:30:00Z"},
         {"user": {"login": "codecov", "type": "Bot"}, "created_at": "2026-10-12T10:30:00Z"},
         {"user": {"login": "bob", "type": "User"}, "submitted_at": "2026-10-12T10:31:00Z"},
+        # A maintainer's bare approval adds no hold; one with words might.
+        {
+            "user": {"login": "carol", "type": "User"},
+            "state": "APPROVED",
+            "body": "",
+            "submitted_at": "2026-10-12T10:32:00Z",
+        },
+        {
+            "user": {"login": "dave", "type": "User"},
+            "state": "APPROVED",
+            "body": "LGTM once the docs land",
+            "submitted_at": "2026-10-12T10:33:00Z",
+        },
     ]
-    assert land_pr.people_since(activity, since=RECORDED_AT, bot=BOT) == ["bob"]
+    assert land_pr.people_since(activity, since=RECORDED_AT, bot=BOT) == [
+        "bob",
+        "dave",
+    ]

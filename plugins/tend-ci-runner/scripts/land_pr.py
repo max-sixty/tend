@@ -71,7 +71,11 @@ def record(statuses: list[dict[str, Any]], bot: str) -> dict[str, Any] | None:
 def people_since(
     activity: list[dict[str, Any]], *, since: str, bot: str
 ) -> list[str]:
-    """Logins of people (not bots) who wrote on the PR after *since*."""
+    """Logins of people (not bots) who wrote on the PR after *since*.
+
+    A bare approval says nothing the record didn't already, so it doesn't
+    count; an approval with words might, so it does.
+    """
     return github_cli.unique(
         github_cli.actor_login(item.get("user"))
         for item in activity
@@ -79,6 +83,7 @@ def people_since(
         and isinstance(item.get("user"), dict)
         and item["user"].get("type") == "User"
         and github_cli.actor_login(item.get("user")) != bot
+        and not (item.get("state") == "APPROVED" and not item.get("body"))
     )
 
 
