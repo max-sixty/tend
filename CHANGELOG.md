@@ -6,6 +6,26 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.12
+
+### Improved
+
+- `workflows.review.await_ci: false` ends a review once its own work is done instead of waiting for the reviewed commit's CI. The review acts on checks that have already finished: a failure the PR caused is analyzed and the approval dismissed, an unrelated one is routed without a rerun, and a settled green lands as before. Checks still running end the review and are named in its summary. Under `yolo`, a review still waits on a head the bot pushed, since it lands those. The default, `true`, keeps the wait. ([#1538](https://github.com/max-sixty/tend/pull/1538))
+- An approved PR is landed by the review that approved it, through one merge action shared with continuation sessions, rather than deferred to later runs that skipped the already-reviewed head. Landing policy moves from `monitor-ci` into `merge-pr`. ([#1534](https://github.com/max-sixty/tend/pull/1534))
+- `tend-ci-fix` starts only on failed runs. A cancelled run no longer replaces a failed run's pending trigger. ([#1535](https://github.com/max-sixty/tend/pull/1535))
+- The Claude harness default moves to Claude Code 2.1.296. ([#1536](https://github.com/max-sixty/tend/pull/1536))
+
+### Documentation
+
+- The site describes Codex and the current security boundaries, including optional `yolo` merging. ([#1527](https://github.com/max-sixty/tend/pull/1527))
+
+### Internal
+
+- Executable dependency-recovery evals with case-owned setup. ([#1533](https://github.com/max-sixty/tend/pull/1533))
+- Dependency and repo-local pin bumps. ([#1531](https://github.com/max-sixty/tend/pull/1531), [#1537](https://github.com/max-sixty/tend/pull/1537))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
 ## 0.3.11
 
 ### Fixed
