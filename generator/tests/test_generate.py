@@ -731,6 +731,49 @@ def test_non_string_prompt_is_rejected(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("extra", "told"),
+    [
+        ("", False),
+        ("workflows:\n  review:\n    await_ci: true\n", False),
+        ("workflows:\n  review:\n    await_ci: false\n", True),
+        # A custom prompt is told too, after the consumer's own text.
+        (
+            (
+                "merge: yolo\nworkflows:\n  review:\n"
+                '    await_ci: false\n    prompt: "/my-review {pr_number}"\n'
+            ),
+            True,
+        ),
+    ],
+)
+def test_review_prompt_says_when_the_ci_wait_is_off(
+    tmp_path: Path, extra: str, told: bool
+) -> None:
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    review = {wf.filename: wf for wf in generate_all(cfg)}["tend-review.yaml"]
+
+    prompt = agent_prompt(review.content)
+
+    assert (
+        prompt.rstrip().endswith("The review's CI wait is off (`await_ci: false`).")
+        is told
+    )
+    assert "${{ github.event.pull_request.number }}" in prompt
+
+
+@pytest.mark.parametrize(
+    ("extra", "match"),
+    [
+        ("workflows:\n  review:\n    await_ci: no\n", "must be true or false"),
+        ("workflows:\n  mention:\n    await_ci: false\n", "only the review"),
+    ],
+)
+def test_await_ci_is_a_review_boolean(tmp_path: Path, extra: str, match: str) -> None:
+    with pytest.raises(click.ClickException, match=match):
+        Config.load(_minimal_config(tmp_path, extra))
+
+
+@pytest.mark.parametrize(
     "workflow,placeholder,expression",
     [(name, *pair) for name, pair in sorted(_PROMPT_WORKFLOWS.items())],
 )

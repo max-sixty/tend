@@ -286,11 +286,40 @@ def _settle(
             return "settled", current
 
 
+def _read_once(
+    *,
+    repo: str,
+    sha: str,
+    skip: frozenset[str] = frozenset(),
+    sleep: Callable[[float], None],
+) -> tuple[Literal["settled", "pending", "none"], dict[str, list[str]] | None]:
+    """Read the rollup as it stands, without waiting for pending checks.
+
+    A clean read is confirmed :data:`CONFIRM_SEC` later, as :func:`_settle`
+    confirms one, so a check that registers just behind its siblings isn't
+    missed. "none" means no complete rollup could be read.
+    """
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    workflow = os.environ.get("GITHUB_WORKFLOW", "")
+    current = fetch_rollup(
+        repo=repo, sha=sha, run_id=run_id, workflow=workflow, skip=skip
+    )
+    if current is not None and not current["pending"]:
+        sleep(CONFIRM_SEC)
+        current = fetch_rollup(
+            repo=repo, sha=sha, run_id=run_id, workflow=workflow, skip=skip
+        )
+    if current is None:
+        return "none", None
+    return ("pending" if current["pending"] else "settled"), current
+
+
 def approval(
     pr: str,
     sha: str,
     *,
     skip: frozenset[str] = frozenset(),
+    wait: bool = True,
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
     """Decide whether one pinned PR commit's checks allow an approval.
@@ -305,6 +334,10 @@ def approval(
     environment's approval, or a conclusion outside the passing set — never
     reached a verdict, so it cannot withhold on its merits. It approves, named
     as unverified so the approval doesn't read as a check that passed.
+
+    Without *wait*, a red beside pending checks withholds as it stands, naming
+    the checks still running; a replacement that would supersede it is left to
+    the next review.
 
     A head that moves during that wait leaves the approval undecided; otherwise
     whether *sha* is still the head is not judged here: the review skill posts
@@ -322,7 +355,7 @@ def approval(
     if rollup is None:
         print(f"could not read a complete check rollup for {sha}", file=sys.stderr)
         return 2
-    if rollup["failed"] and rollup["pending"]:
+    if rollup["failed"] and rollup["pending"] and wait:
         outcome, rollup = _settle(repo=repo, pr=pr, sha=sha, skip=skip, sleep=sleep)
         if outcome == "moved":
             print(f"PR head moved off {sha} while its checks pend", file=sys.stderr)
@@ -334,6 +367,9 @@ def approval(
     if rollup["failed"]:
         print(f"withhold: red on {sha}:")
         print(*rollup["failed"], sep="\n")
+        if rollup["pending"]:
+            print("still running, not waited for:")
+            print(*rollup["pending"], sep="\n")
         return 1
     if rollup["unverified"]:
         print(f"approve: no failing check on {sha}; unverified:")
@@ -358,9 +394,14 @@ def poll(
     sha: str,
     *,
     skip: frozenset[str] = frozenset(),
+    wait: bool = True,
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
-    """Poll one pinned PR commit until its checks, less those in *skip*, settle."""
+    """Poll one pinned PR commit until its checks, less those in *skip*, settle.
+
+    Without *wait*, report the checks as they stand: checks still pending make
+    the result unverified rather than something to wait for.
+    """
     repo = os.environ["GITHUB_REPOSITORY"]
     try:
         github_cli.run("api", f"repos/{repo}/commits/{sha}", "--silent", quiet=True)
@@ -374,7 +415,29 @@ def poll(
             )
             return 2
 
-    outcome, last = _settle(repo=repo, pr=pr, sha=sha, skip=skip, sleep=sleep)
+    if not wait:
+        current, last = _read_once(repo=repo, sha=sha, skip=skip, sleep=sleep)
+        if current == "none" or last is None:
+            print(f"no complete check rollup for {sha} — UNVERIFIED, not green")
+            return 2
+        if current == "pending" and last["failed"]:
+            # A failed check is final on its own; the review acts on it now
+            # rather than leaving it for nobody once it ends.
+            print(f"red on {sha}:")
+            print(*last["failed"], sep="\n")
+            print("still running, not waited for:")
+            print(*last["pending"], sep="\n")
+            _unverified_note(last)
+            head_note(pr=pr, repo=repo, sha=sha)
+            return 1
+        if current == "pending":
+            print(f"still pending on {sha}, not waiting — UNVERIFIED, not green:")
+            print(*last["pending"], sep="\n")
+            _unverified_note(last)
+            return 2
+        outcome = "settled"
+    else:
+        outcome, last = _settle(repo=repo, pr=pr, sha=sha, skip=skip, sleep=sleep)
     if outcome == "none" or last is None:
         print(
             f"no check registered on {sha} within {REGISTRATION_SEC // 60} minutes "
@@ -425,6 +488,8 @@ def main(
     args = sys.argv[1:] if argv is None else argv
     command = args[0] if args else ""
     args = args[1:]
+    wait = "--no-wait" not in args
+    args = [arg for arg in args if arg != "--no-wait"]
     skip: set[str] = set()
     while len(args) > 3 and args[-2] == "--skip":
         skip.add(args.pop())
@@ -434,7 +499,7 @@ def main(
     if len(args) != 2:
         print(
             "usage: poll_pr_checks.py poll|approval <pr-number> <sha> "
-            "[--skip <check>]... — UNVERIFIED, not green",
+            "[--no-wait] [--skip <check>]... — UNVERIFIED, not green",
             file=sys.stderr,
         )
         return 2
@@ -449,9 +514,9 @@ def main(
         print(f"unknown command: {command or '<none>'}", file=sys.stderr)
         return 2
     if command == "approval":
-        code = approval(pr, sha, skip=frozenset(skip), sleep=sleep)
+        code = approval(pr, sha, skip=frozenset(skip), wait=wait, sleep=sleep)
     else:
-        code = poll(pr, sha, skip=frozenset(skip), sleep=sleep)
+        code = poll(pr, sha, skip=frozenset(skip), wait=wait, sleep=sleep)
     # Sessions pipe this through `tail -N`, which drops the leading verdict
     # behind a long check list, so the last line restates it.
     print(f"verdict: {VERDICTS[command][code]} on {sha} (exit {code})")

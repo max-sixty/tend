@@ -2,6 +2,7 @@
 
 - [Before the `APPROVE`](#before-the-approve)
 - [After the approval](#after-the-approval)
+- [Without the CI wait](#without-the-ci-wait)
 
 ## Before the `APPROVE`
 
@@ -12,7 +13,7 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \
   approval <number> "$(cat "$TMPDIR/reviewed-head")"
 ```
 
-Add the same `--skip` arguments `/tend-ci-runner:monitor-ci` passes the poll, so a check the repo leaves out of the gate can't withhold the approval.
+Add the same `--skip` arguments `/tend-ci-runner:monitor-ci` passes the poll, so a check the repo leaves out of the gate can't withhold the approval, and `--no-wait` where **Without the CI wait** applies.
 
 It judges the latest run of each check outside this run and this workflow, and prints one verdict:
 
@@ -41,3 +42,24 @@ Poll the pinned commit to terminal per `/tend-ci-runner:monitor-ci`, then handle
 
 Once the review's remaining work is addressed, complete the landing decision
 per `/tend-ci-runner:merge-pr`, using the same reviewed head and its CI evidence.
+
+## Without the CI wait
+
+When the prompt says the review's CI wait is off, the repository has chosen to end a review once its own work is done rather than wait for CI. The wait stays where this review is the PR's lander. Under `yolo`, a session of this bot that pushes a head hands its landing to the review that follows (**Reviews arriving during verification** in `/tend-ci-runner:push-commits`), so when the reviewed head is the bot's own push, wait as usual. The bot commits under its own identity, so its push is a head whose committer is the bot, whoever authored the PR:
+
+```bash
+BOT_LOGIN=$(gh api user --jq .login)
+gh api "repos/{owner}/{repo}/commits/$(cat "$TMPDIR/reviewed-head")" --jq .committer.login
+```
+
+Elsewhere, judge CI by the checks that have already finished:
+
+- Run the approval check with `--no-wait`. A failure beside checks still running then withholds as it stands, and the check names the ones still running.
+- In place of the poll, read the pinned commit once, with the same `--skip` arguments:
+  ```bash
+  uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \
+    poll <number> "$(cat "$TMPDIR/reviewed-head")" --no-wait
+  ```
+  Handle exit 0 or 1 per **After the approval**, except that an unrelated failure goes straight to routing, without a rerun. Exit 1 also covers a check that has already failed while others still run: the failure is final, so act on it now, and leave the PR unmerged. Exit 2 (checks still running with none failed, checks that settled without a result, or no complete reading) ends the review: name the checks it lists in the closing summary, and leave the landing decision to a later session or a maintainer.
+
+A fix this session pushes is still its own to verify, per **Push fixes**.

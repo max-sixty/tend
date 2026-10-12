@@ -347,11 +347,29 @@ bot_name: my-project-bot
 # ### review
 #
 # Triggers on PR open/update. Reviews for correctness, duplication, error paths.
-# Monitors CI. Pushes fixes to bot-authored PRs.
+# Monitors CI unless `await_ci: false`. Pushes fixes to bot-authored PRs.
 #
 # workflows:
 #   review:
 #     prompt: "/my-custom-review {pr_number}"   # override default prompt
+#     await_ci: false                           # end once the review is done
+#
+# By default (`await_ci: true`), a review stays until the reviewed commit's
+# CI finishes. It withdraws its approval if a check fails because of the PR,
+# reruns a failure that looks unrelated, fixes a red on a PR with no human
+# author, and under `yolo` merges once CI is green. Where CI runs long, that
+# wait is most of the review's runner time. `await_ci: false` ends the review
+# once its own work is done, acting on the checks that have already finished.
+# Under `yolo`, a head the bot pushed itself still waits as before, since the
+# session that pushed it hands landing to the review, and so does a fix the
+# review pushes. On any other head:
+#
+# - A check already red withholds the approval. A check that fails after the
+#   review ends stands beside the approval: the review neither withdraws the
+#   approval nor fixes the failure.
+# - The review doesn't merge a PR whose checks are still running. Under
+#   `yolo`, a human's PR then lands through a maintainer and a dependency PR
+#   through `weekly`.
 #
 # tend-review checks out the prospective post-merge tree
 # (`refs/pull/N/merge`) when available, and falls back to the PR branch head

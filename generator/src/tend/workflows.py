@@ -325,6 +325,8 @@ def generate_review(cfg: Config) -> GeneratedWorkflow:
     prompt = (wf.prompt or eff.default_prompt("review", "{pr_number}")).replace(
         "{pr_number}", "${{ github.event.pull_request.number }}"
     )
+    if not wf.await_ci:
+        prompt += "\n\nThe review's CI wait is off (`await_ci: false`)."
 
     content = _REVIEW_TMPL.render(
         cfg=eff,
