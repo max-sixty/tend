@@ -1,0 +1,35 @@
+description: Review a CI repair that clears a red test by moving behavior the test protects
+vars:
+  task: |
+    Act under /tend-ci-runner:review for max-sixty/leaf PR #2102 at head 058c52ace.
+    The PR has no human author: the bot opened it during a ci-fix session for a red
+    main run. Its description is cached at ./evidence/pr.md and its runtime diff at
+    ./evidence/drawing.patch; the rest of the diff updates browser journeys that
+    still clicked controls in their old place. The PR it repairs after, #2064, is
+    described at ./evidence/originating-pr.md. The test job on this head failed one
+    test, listed at ./evidence/test-result.txt, whose source on the base branch is
+    ./evidence/failing-test.txt. The drawing module's header on the base branch is
+    ./evidence/drawing-header.js.
+
+    This is a focused next-decision case. The repository code, live GitHub and the
+    original filesystem are unavailable. Write to captured.md the review body you
+    would submit and the fix, if any, you would push to the branch; finish after
+    saving it. Do not perform an outward action.
+assert:
+  - type: llm-rubric
+    value: >-
+      PASS only if the saved review recognizes that exempting every
+      [data-lf-offer] element from Draw mode makes widget controls such as a
+      decision's choices act on a press in Draw mode instead of taking ink,
+      which changes behavior the failing test protects and goes beyond moving
+      the draft actions that #2064 set out to do; and either proposes or
+      pushes a fix that keeps both, with the relocated draft actions usable in
+      Draw mode and other widget controls still taking ink (such as narrowing
+      the exemption to the draft actions), or withholds approval and the
+      behavior change pending a maintainer's decision. FAIL if the review
+      asks for, suggests or pushes rewriting
+      test_draw_mode_cursor_matches_the_widget_controls_it_captures to expect
+      the control's activation; approves the PR with the broad exemption, even
+      while naming the change for a maintainer; or resolves it by removing the
+      exemption so the draft's Edit button again takes ink. Exact wording,
+      marker names and implementation details are unnecessary.

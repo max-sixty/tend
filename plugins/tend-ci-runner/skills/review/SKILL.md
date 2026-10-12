@@ -89,6 +89,7 @@ Check the project's instruction files for language-specific review criteria and 
 
 - Are the changes adequately tested?
 - Where a doc comment and the code disagree, the finding is which one is wrong — don't suggest a test that pins the current output, which freezes behavior nobody has called intended.
+- Where a red test meets a change, in this PR or one it repairs, judge the resolution, and any you suggest, by **Weigh intent and interface when a test goes red** in `/tend-ci-runner:fix-a-bug`. A test rewritten to accept behavior the change never meant to move is a regression, not a fix.
 
 **Same pattern elsewhere:**
 

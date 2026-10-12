@@ -1,0 +1,4 @@
+test job on head 058c52ace (PR #2102):
+FAILED tests/test_render_drawing.py::test_draw_mode_cursor_matches_the_widget_controls_it_captures
+    assert control.evaluate("el => getComputedStyle(el).cursor") == "crosshair"
+E   AssertionError: assert 'auto' == 'crosshair'
