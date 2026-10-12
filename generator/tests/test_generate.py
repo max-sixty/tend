@@ -832,6 +832,9 @@ def test_tend_land_fires_on_the_ci_workflows_and_runs_the_pinned_check(
     assert prompts["repair"].startswith(
         "/tend-ci-runner:continue-pr ${{ needs.check.outputs.red_pr }}"
     )
+    # Named for the PR, so the subject-ownership lookup, which matches a run's
+    # display title against the PR's, sees a landing or repair session.
+    assert data["run-name"] == "${{ github.event.workflow_run.display_title }}"
     assert data["jobs"]["land"]["if"] == "needs.check.outputs.land_pr != ''"
     assert data["jobs"]["repair"]["if"] == "needs.check.outputs.red_pr != ''"
 

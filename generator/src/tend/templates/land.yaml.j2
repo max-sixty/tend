@@ -7,6 +7,12 @@ CI settled red on this PR's head after its review ended:
 ${{ github.event.workflow_run.html_url }}{% endset -%}
 <<header>>
 name: tend-land
+# Named for the PR, like every other run that works on one, so a notifications
+# poll or `continue-pr` sees a landing or repair session as that PR's owner
+# (`active_subject_runs.py` matches `display_title`). A pull-request CI run's
+# own display title is its PR's title; a push-triggered one carries its commit
+# message instead, and its sessions go unseen by that lookup.
+run-name: ${{ github.event.workflow_run.display_title }}
 # Lands a reviewed PR once its CI completes, with no session waiting for it.
 # With the review's CI wait off, a review that settles everything about a head
 # the bot pushed but its CI records the head for landing (a `tend/land/<PR>`

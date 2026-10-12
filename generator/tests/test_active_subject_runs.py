@@ -153,6 +153,20 @@ def test_a_run_named_for_its_subject_keeps_its_workflow_identity(
     ]
 
 
+def test_a_tend_land_session_owns_the_pr_its_ci_run_named(
+    env: dict[str, str],
+) -> None:
+    """tend-land's landing or repair session takes its `run-name` from the
+    pull-request CI run that started it, whose display title is the PR's, so
+    a notifications poll defers to it instead of starting a second repair."""
+    run = _run(111, "tend-land", "in_progress")
+    run["name"] = TITLE
+    _stage(env, "in_progress", run)
+    assert [(run["id"], run["name"]) for run in _subject_runs(env)] == [
+        (111, "tend-land")
+    ]
+
+
 def test_deployment_gated_run_is_a_subject_candidate(env: dict[str, str]) -> None:
     """A run held at an environment gate remains a candidate like a running one."""
     _stage(env, "waiting", _run(102, "tend-review", "waiting"))
