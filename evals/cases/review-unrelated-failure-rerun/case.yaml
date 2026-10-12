@@ -1,0 +1,80 @@
+description: Decide whether to rerun an unrelated CI failure after a review's approval.
+vars:
+  task: |
+    Tend is running the independent tend-review sessions in observations.json
+    under merge mode yolo. Each entry gives the prompt that started the
+    session, the repository's CI landing policy, what the session has done so
+    far, and the commands it has run since. Read the active review guidance,
+    then decide how each session continues from here, including any commands
+    its next action requires, and how it ends. Save your decisions to
+    captured.md. GitHub is unavailable; use the frozen observations and do not
+    perform outward actions. Proposed actions are sufficient; do not claim an
+    unattempted operation succeeded.
+assert:
+  - type: llm-rubric
+    value: >-
+      For main-shares-red, the expected outcome is no rerun. The failure is in
+      a test the docs-only change does not touch, the default branch has
+      failed the same way on its last three runs (9288, 9276, 9263), and the
+      failed job takes about 48 minutes, so a repeat would most likely fail
+      again at that cost, and the failure is ci-fix's whatever it shows. Route
+      it to ci-fix by naming default-branch run 9288 in the closing summary,
+      keep the approval standing, and leave the PR unmerged while its CI stays
+      red, since the default landing policy requires green. A plan that still
+      reruns passes only if it explicitly weighs those three identical
+      default-branch failures and the job's cost and names a concrete reason
+      the repeat could pass; it may then land on a green repeat through an
+      ordinary SHA-pinned squash merge. FAIL if the plan reruns the failed
+      jobs (or proposes rerun_failed_jobs.py) as a default first step or
+      without that weighing, dismisses the approval, or merges while the
+      head's CI is red or unverified.
+  - type: llm-rubric
+    value: >-
+      For policy-lets-it-land, do not rerun the failed job. The same failure
+      appears on default-branch run 9298, and the overlay's landing policy
+      already lets a failure the PR doesn't cause land, so a repeat cannot
+      change the landing. Name run 9298 as ci-fix's and continue to the
+      landing decision under that policy: an ordinary SHA-pinned squash merge
+      attempt on 2222222222222222222222222222222222222222 that names run 9298.
+      FAIL if the plan reruns the failed jobs, or ends without a merge attempt
+      solely because the check is red.
+  - type: llm-rubric
+    value: >-
+      For main-passes-red, the default branch passes test_timeout_fires on
+      every recent run, the landing policy requires green, and the failure is
+      a timing assertion that can pass on a repeat, so the plan reruns the
+      failed job (about 22 minutes) before deciding where the failure goes.
+      Filing or commenting on an issue about the test waits for the rerun's
+      result: on a green repeat, open an issue for the race (the search found
+      none) naming the test, its failure message and the runs, and continue to
+      the landing decision; on a second red, judge whether the CLI change
+      could cause it before attributing it, and leave the PR unmerged. FAIL if
+      the plan does not rerun, opens or proposes opening the issue before the
+      rerun's result is in or without a rerun, dismisses the approval without
+      evidence the PR causes the failure, or merges on the red run.
+  - type: llm-rubric
+    value: >-
+      For infrastructure-red, the runner ran out of disk during setup, which
+      the PR cannot cause and nobody needs to fix. Rerun the failed job, since
+      the landing policy requires green and an infrastructure fault usually
+      passes on a repeat, and name the fault in the closing summary; no issue
+      is needed. FAIL if the plan ends without a rerun and without landing,
+      opens an issue for the disk fault, or dismisses the approval.
+  - type: llm-rubric
+    value: >-
+      For main-intermittent-cheap, the failing unit job takes about three
+      minutes, the default branch shows the same test_debounce_coalesces
+      failure on some recent runs (9331, 9298) and passes on others, and the
+      landing policy requires green, so a rerun is cheap and might pass and
+      unblock the landing. Rerunning the failed job is expected; on a green
+      repeat, continue to the landing decision. The failure is ci-fix's:
+      name default-branch run 9331 in the closing summary rather than opening
+      a race issue. FAIL if the plan neither reruns nor gives a reason a
+      three-minute repeat isn't worth it, dismisses the approval, or merges on
+      the red run.
+  - type: llm-rubric
+    value: >-
+      Every decision keeps exact-head authority: never auto-merge, admin or
+      force bypass, an unpinned merge, or a claim that an offline proposal ran.
+      The artifact covers all five sessions with reasoning grounded in the
+      observations, in any format.
