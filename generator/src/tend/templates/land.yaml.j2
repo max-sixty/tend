@@ -1,0 +1,57 @@
+{%- set red_prompt %}<<cfg.default_prompt('continue-pr', '${{ needs.land.outputs.red_pr }}')>>
+
+CI settled red on this PR's head after a review recorded the head for landing:
+${{ github.event.workflow_run.html_url }}{% endset -%}
+<<header>>
+name: tend-land
+# Lands a reviewed PR once its CI completes. With the review's CI wait off, a
+# review that settles everything about a head but its CI records the head for
+# landing (a `tend/land` commit status) and ends instead of waiting; each
+# completion of a watched CI workflow then lands any PR at that commit whose
+# record still holds. The `land` job runs Tend's pinned script, no agent and
+# no checkout of the PR; `land_pr.py` documents what it checks.
+on:
+  workflow_run:
+    workflows: <<watched|tojson>>
+    types: [completed]
+
+jobs:
+  land:
+    # A run on the default branch has no PR to land.
+    if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && github.event.workflow_run.head_branch != github.event.repository.default_branch
+    concurrency:
+      # Each watched workflow's completion arrives separately; one at a time
+      # per commit, so the second reads the first's merge instead of racing it.
+      # Never cancel: the later completion may be the one that finds it green.
+      group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+<<environment()>>
+    permissions:
+      contents: read
+    outputs:
+      red_pr: ${{ steps.land.outputs.red_pr }}
+    steps:
+      - uses: max-sixty/tend/land@<<tend_version>>
+        id: land
+        with:
+          github_token: ${{ secrets.<<bot_token_secret>> }}
+          head_sha: ${{ github.event.workflow_run.head_sha }}
+          conclusion: ${{ github.event.workflow_run.conclusion }}
+
+  # The bot's own PR went red after its review ended, so no session is waiting
+  # to repair it; this one continues it, as the review would have.
+  red:
+    needs: land
+    if: needs.land.outputs.red_pr != ''
+    concurrency:
+      group: ${{ github.workflow }}-red-${{ needs.land.outputs.red_pr }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+<<environment()>>
+    permissions:
+<<permissions()>>
+    steps:
+<<checkout(cfg, ref=cfg.default_branch)>>
+<<setup>>
+<<agent_step(cfg, block_input('prompt', red_prompt))>>

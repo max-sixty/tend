@@ -424,6 +424,44 @@ def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
 
 
 # ---------------------------------------------------------------------------
+# Land
+# ---------------------------------------------------------------------------
+
+
+_LAND_TMPL = _JINJA.get_template("land.yaml.j2")
+
+
+def lands_on_ci(cfg: Config) -> bool:
+    """Whether a review ends before CI and leaves landing to tend-land.
+
+    Only under `yolo`, where the bot lands what it reviews, and only with the
+    review's CI wait off: a review that waits lands the head itself.
+    """
+    review = cfg.workflows.get("review", WorkflowConfig())
+    return cfg.merge == "yolo" and review.enabled and not review.await_ci
+
+
+def generate_land(cfg: Config) -> GeneratedWorkflow:
+    # The CI workflows whose completion can make a head green are the ones
+    # ci-fix already names as the repository's CI.
+    watched = cfg.workflows.get("ci-fix", WorkflowConfig()).watched_workflows
+    if not watched:
+        raise click.ClickException(
+            "review.await_ci: false under merge: yolo lands each reviewed PR "
+            "when its CI completes, so it needs the CI workflows named:\n\n"
+            "  workflows:\n"
+            "    ci-fix:\n"
+            '      watched_workflows: ["ci"]'
+        )
+    content = _LAND_TMPL.render(
+        cfg=cfg,
+        watched=watched,
+        setup=_setup_yaml(cfg),
+    )
+    return GeneratedWorkflow(filename="tend-land.yaml", content=content)
+
+
+# ---------------------------------------------------------------------------
 # Scheduled (nightly, weekly)
 # ---------------------------------------------------------------------------
 
@@ -861,6 +899,8 @@ def generate_all(
         wf = gen_fn(cfg)
         wf = _apply_extras(wf, wf_cfg)
         results.append(wf)
+    if lands_on_ci(cfg):
+        results.append(generate_land(cfg))
     # The relay only feeds tend-mention; alone, it would add a check to every
     # reviewed PR and dispatch into nothing.
     relay_cfg = cfg.workflows.get("mention-relay", WorkflowConfig())

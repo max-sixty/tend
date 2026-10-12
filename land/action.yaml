@@ -1,0 +1,43 @@
+name: Land a reviewed Tend pull request
+description: >-
+  Merge each open pull request at a commit whose review recorded it for
+  landing, once every check on that commit has finished green. Runs Tend's
+  own pinned script with no agent and no checkout of the pull request.
+
+inputs:
+  github_token:
+    required: true
+    description: The bot's token, which merges and reads the review record
+  head_sha:
+    required: true
+    description: The commit whose CI run completed
+  conclusion:
+    required: true
+    description: That run's conclusion; only a failed run hands a red result on
+
+outputs:
+  red_pr:
+    description: The bot's own pull request whose CI settled red, if any
+    value: ${{ steps.land.outputs.red_pr }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install runtime uv
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
+      env:
+        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
+
+    - name: Land
+      id: land
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        HEAD_SHA: ${{ inputs.head_sha }}
+        CONCLUSION: ${{ inputs.conclusion }}
+        UV_NO_CACHE: "1"
+      run: |
+        "$RUNNER_TEMP/tend-uv/uv" run --script \
+          "${{ github.action_path }}/../plugins/tend-ci-runner/scripts/land_pr.py" \
+          land "$HEAD_SHA" "$CONCLUSION"

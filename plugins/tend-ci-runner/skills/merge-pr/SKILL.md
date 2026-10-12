@@ -64,7 +64,11 @@ the authenticated bot; an aggregate `mergeStateStatus: BLOCKED` or
 `mergeable_state: blocked` is not an API refusal. GitHub enforces the
 preconditions itself — 409 when the head no longer matches `sha`, 405 when the
 PR is closed or not mergeable. On a refusal, leave the PR open and report the
-response. Never use auto-merge or omit `sha`:
+response. Never use auto-merge or omit `sha`: auto-merge stays enabled across
+pushes by anyone with write access, so it can land a head no review read. A
+review whose CI wait is off records the head instead, and the tend-land
+workflow makes this same pinned merge once CI is green (**Without the CI wait**
+in `/tend-ci-runner:review`):
 
 ```bash
 gh api "repos/{owner}/{repo}/pulls/<number>/merge" -X PUT \

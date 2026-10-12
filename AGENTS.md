@@ -54,7 +54,7 @@ Four pieces:
    skills). Both ship from the same marketplace.
 2. **Composite actions** — the stable interface, pinned to an immutable
    release tag (`max-sixty/tend/<action-path>@X.Y.Z`, the generator's own version
-   — no floating `v1`). Every action lives under a harness-named path; there
+   — no floating `v1`). Every action lives under a named path; there
    is no bare-root default. The two harness runners are:
    - `max-sixty/tend/claude@X.Y.Z` (Claude) — runs the official `claude`
      binary headless (`claude -p`) inside the shared sandbox, a hardened
@@ -73,6 +73,11 @@ Four pieces:
    runner's home, reap it, and upload bounded session logs. The generated
    workflow's checkout stays on the default or PR base tree for setup and
    local-action POST chains; nothing the agent writes reaches it.
+
+   `max-sixty/tend/land@X.Y.Z` runs no agent: the generated `tend-land`
+   workflow calls it when a CI workflow completes, and it merges any open PR
+   at that commit whose review recorded it for landing
+   (`plugins/tend-ci-runner/scripts/land_pr.py`). Inputs in `land/action.yaml`.
 
    `max-sixty/tend/codex/refresh@X.Y.Z` is the Codex support action. A generated
    serialized workflow runs it weekly to rotate Plus/Pro credentials and
@@ -327,6 +332,8 @@ Concurrency groups:
 | triage | `workflow-issue#` | yes — latest comment wins |
 | notifications | `tend-notifications` | **no** — one poll drains notifications and repairs bot PRs at a time |
 | ci-fix | `workflow-<watched workflow>-<branch>` | **no** — a session mid-fix may already have pushed a branch or opened a PR |
+| land/land | `workflow-<head sha>` | **no** — each watched workflow's completion arrives separately, and the later one may be what finds the commit green |
+| land/red | `workflow-red-PR#` | **no** — a session mid-repair may already have pushed |
 | nightly / weekly | none | cron-serialized |
 | codex-auth-refresh (codex only) | `tend-codex-auth-refresh` | **no** — only this workflow may rotate the refresh-token chain, so a second refresher must never race it |
 

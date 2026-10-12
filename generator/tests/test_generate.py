@@ -741,6 +741,7 @@ def test_non_string_prompt_is_rejected(tmp_path: Path) -> None:
             (
                 "merge: yolo\nworkflows:\n  review:\n"
                 '    await_ci: false\n    prompt: "/my-review {pr_number}"\n'
+                "  ci-fix:\n    watched_workflows: [ci]\n"
             ),
             True,
         ),
@@ -759,6 +760,64 @@ def test_review_prompt_says_when_the_ci_wait_is_off(
         is told
     )
     assert "${{ github.event.pull_request.number }}" in prompt
+
+
+_WATCHED = "  ci-fix:\n    watched_workflows: [ci, lint]\n"
+
+
+@pytest.mark.parametrize(
+    ("extra", "lands"),
+    [
+        (f"merge: yolo\nworkflows:\n{_WATCHED}", False),
+        (f"merge: yolo\nworkflows:\n  review:\n    await_ci: true\n{_WATCHED}", False),
+        (f"workflows:\n  review:\n    await_ci: false\n{_WATCHED}", False),
+        (
+            "merge: yolo\nworkflows:\n  review:\n    enabled: false\n"
+            f"    await_ci: false\n{_WATCHED}",
+            False,
+        ),
+        (f"merge: yolo\nworkflows:\n  review:\n    await_ci: false\n{_WATCHED}", True),
+    ],
+)
+def test_tend_land_exists_where_a_review_leaves_landing_to_it(
+    tmp_path: Path, extra: str, lands: bool
+) -> None:
+    """Only a yolo review with its CI wait off ends before CI and records the
+    head; everywhere else a review or a maintainer lands, and tend-land would
+    find no record to act on."""
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    assert ("tend-land.yaml" in {wf.filename for wf in generate_all(cfg)}) is lands
+
+
+def test_tend_land_fires_on_the_ci_workflows_and_runs_the_pinned_action(
+    tmp_path: Path,
+) -> None:
+    extra = f"merge: yolo\nworkflows:\n  review:\n    await_ci: false\n{_WATCHED}"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
+    data = yaml.safe_load(land.content)
+
+    trigger = data["on"]["workflow_run"]
+    assert trigger["workflows"] == ["ci", "lint"]
+    # PR heads are on any branch: ci-fix's default-branch filter isn't copied.
+    assert "branches" not in trigger
+    steps = data["jobs"]["land"]["steps"]
+    assert [step["uses"] for step in steps] == [
+        f"max-sixty/tend/land@{ACTION_VERSION}"
+    ]
+    assert data["jobs"]["land"]["permissions"] == {"contents": "read"}
+    assert agent_prompt(land.content).startswith(
+        "/tend-ci-runner:continue-pr ${{ needs.land.outputs.red_pr }}"
+    )
+
+
+def test_tend_land_without_named_ci_workflows_is_a_config_error(
+    tmp_path: Path,
+) -> None:
+    extra = "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    with pytest.raises(click.ClickException, match="watched_workflows"):
+        generate_all(cfg)
 
 
 @pytest.mark.parametrize(
