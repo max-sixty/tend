@@ -6,6 +6,20 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.14
+
+### Improved
+
+- Under `merge: yolo` with `workflows.review.await_ci: false`, a review no longer waits for CI on a head the bot pushed. It records the head for landing and ends, and a new generated `tend-land` workflow, woken when a check on that commit completes, starts a short `merge-pr` session to land it once every check is green. A red check on a PR with no human author starts a `continue-pr` repair session, which now covers Dependabot and Renovate PRs. The new `max-sixty/tend/land@X.Y.Z` action runs the agentless check. ([#1544](https://github.com/max-sixty/tend/pull/1544))
+- When a change turns a test red, the repair weighs the change's intent against the interface the test protects, prefers a fix that keeps both, and files an issue to the change's author when it reverts the change or gives up intent. ([#1546](https://github.com/max-sixty/tend/pull/1546))
+- `tend-ci-fix` keys its concurrency group on the triggering run's event, so a pending scheduled failure is no longer replaced by the next push failure on the same branch. A push failure and a scheduled failure can now run concurrently. ([#1547](https://github.com/max-sixty/tend/pull/1547))
+
+### Documentation
+
+- The example config notes that a job exceeding its time limit ends cancelled and starts no `ci-fix` session, while a step exceeding its own `timeout-minutes` fails and is diagnosed. ([#1548](https://github.com/max-sixty/tend/pull/1548))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
 ## 0.3.13
 
 ### Improved
