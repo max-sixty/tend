@@ -411,7 +411,10 @@ bot_name: my-project-bot
 # ### ci-fix
 #
 # Triggers when a watched CI workflow fails on the default branch. Diagnoses
-# the run and opens a fix PR when needed.
+# the run and opens a fix PR when needed. A cancelled run starts nothing, and
+# GitHub ends a job that exceeds its time limit as cancelled; a step that
+# exceeds its own `timeout-minutes` fails instead, so a hang bounded there is
+# diagnosed.
 #
 # workflows:
 #   ci-fix:

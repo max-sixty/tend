@@ -243,10 +243,14 @@ earns its keep — until then, demand-fetch is cheap enough.
 `ci-fix` starts only on a watched run's `failure`. A cancelled run starts
 nothing, because on a busy default branch nearly every cancellation is a run a
 newer commit superseded, and each one took the job's single pending slot from
-a failure's trigger. That leaves two gaps. A job that hit its timeout ends
-cancelled and goes unwatched. And the pending slot holds one trigger, so a
-failure that lands while a session runs is replaced by the next failure, and a
-fix still unmerged at the six-hour job limit has no session to finish it.
+a failure's trigger. That leaves three gaps. A job that hit its time limit
+ends cancelled and goes unwatched; a consumer can bound a hang with a step's
+`timeout-minutes` instead, which fails the run. The pending slot holds one
+trigger per triggering event, so a failure that lands while a session runs is
+replaced by the next failure of that event, and a fix still unmerged at the
+six-hour job limit has no session to finish it. And a push failure and a
+scheduled failure from one breakage run two sessions at once; `ci-fix`'s
+existing-fix checks narrow the race to a second PR rather than close it.
 
 An issue per failing run would carry each failure as durable state. A
 deterministic step would read the finished run and file or update an issue
