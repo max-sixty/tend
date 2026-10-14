@@ -359,8 +359,11 @@ commit retried. The watched workflow and the triggering run's event are in
 the key too: a red `publish-site` isn't starved behind a stream of red `ci`,
 and a scheduled run's failure isn't replaced by the next push failure on the
 same branch, since a scheduled suite can fail on tests push CI never runs.
-ci-fix's group is job-level, not workflow-level: most `workflow_run` events
-are green runs the job's `if` skips, and a skipped job never enters the group.
+Separate lanes can each start a session on one breakage. What stops the later
+one opening a second PR is ci-fix re-running its existing-fix query just before
+`gh pr create`, which narrows that race rather than closing it. ci-fix's group
+is job-level, not workflow-level: most `workflow_run` events are green runs the
+job's `if` skips, and a skipped job never enters the group.
 
 **GHA queue depth.** Review sets `queue: max`, so pending PR events within
 GitHub's queue limit wait and a later push cannot replace `ready_for_review`.
