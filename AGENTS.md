@@ -333,7 +333,7 @@ Concurrency groups:
 | mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
 | triage | `workflow-issue#` | yes — latest comment wins |
 | notifications | `tend-notifications` | **no** — one poll drains notifications and repairs bot PRs at a time |
-| ci-fix | `workflow-<watched workflow>-<branch>` | **no** — a session mid-fix may already have pushed a branch or opened a PR |
+| ci-fix | `workflow-<watched workflow>-<event>-<branch>` | **no** — a session mid-fix may already have pushed a branch or opened a PR |
 | land/check | none | stateless — reads records and checks, starts nothing itself |
 | land/land, land/repair | `tend-review-PR#` (the review's group) | **no** — a landing or repair never runs beside a review of the same PR; `queue: max` keeps every pending one, and each reads what the one before it did |
 | nightly / weekly | none | cron-serialized |
@@ -355,9 +355,14 @@ github.repository`, so neither needs the guard.
 **Red branches.** A red default branch fails every push that follows it, each
 on its own commit, so ci-fix keys its group on the branch — a commit-keyed
 group collapses nothing, since the burst is distinct commits rather than one
-commit retried. The watched workflow is in the key too, so a red
-`publish-site` isn't starved behind a stream of red `ci`. ci-fix's group is
-job-level, not workflow-level: most `workflow_run` events are green runs the
+commit retried. The watched workflow and the triggering run's event are in
+the key too: a red `publish-site` isn't starved behind a stream of red `ci`,
+and a scheduled run's failure isn't replaced by the next push failure on the
+same branch, since a scheduled suite can fail on tests push CI never runs.
+Separate lanes can each start a session on one breakage. What stops the later
+one opening a second PR is ci-fix re-running its existing-fix query just before
+`gh pr create`, which narrows that race rather than closing it. ci-fix's group
+is job-level, not workflow-level: most `workflow_run` events are green runs the
 job's `if` skips, and a skipped job never enters the group.
 
 **GHA queue depth.** Review sets `queue: max`, so pending PR events within
@@ -374,8 +379,9 @@ timestamp and job start) into the prompt — over ~40 s indicates the job was
 queued behind another run, making conversation drift more likely.
 Notifications stay unread until a poll records an outcome, so the newest
 pending run covers a replaced poll. ci-fix keeps the default too, and wants
-it: while a session works a red branch, the newest unsuccessful run carries
-that branch's current state, so replacing the pending run loses nothing.
+it: while a session works a red branch, the newest failure of the same
+workflow and event carries that branch's current state, so replacing the
+pending run loses nothing.
 
 ## Shipped instructions and tend's own
 

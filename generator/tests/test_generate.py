@@ -1056,13 +1056,17 @@ def test_ci_fix_runs_only_for_failures(tmp_path: Path) -> None:
     )
 
 
-def test_ci_fix_serializes_per_branch_and_watched_workflow(tmp_path: Path) -> None:
+def test_ci_fix_serializes_per_branch_watched_workflow_and_event(
+    tmp_path: Path,
+) -> None:
     """One session per red branch, not per red commit.
 
     A branch stays red across the pushes that follow, each failing on its own
     commit, so a commit-keyed group would let every one of them boot its own
     agent against the same breakage. The watched workflow is keyed in as well
-    so a red `publish-site` is not starved by a stream of red `ci`.
+    so a red `publish-site` is not starved by a stream of red `ci`, and the
+    triggering run's event so a scheduled run's pending failure is not
+    replaced by the next push failure on the same branch.
     """
     extra = dedent("""\
         workflows:
@@ -1076,6 +1080,7 @@ def test_ci_fix_serializes_per_branch_and_watched_workflow(tmp_path: Path) -> No
 
     assert job["concurrency"]["group"] == (
         "${{ github.workflow }}-${{ github.event.workflow_run.name }}"
+        "-${{ github.event.workflow_run.event }}"
         "-${{ github.event.workflow_run.head_branch }}"
     )
     # Cancelling mid-session strands outward actions already taken — a pushed
