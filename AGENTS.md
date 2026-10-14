@@ -522,14 +522,9 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 
 ## Agent-driven vs deterministic steps
 
-Tend's workflows invoke the agent through the harness-specific composite
-action (`max-sixty/tend/claude@X.Y.Z` for Claude, `max-sixty/tend/codex@X.Y.Z`
-for Codex). When adding new capability, split work along this line:
-
 - **The agent drives diagnostics and remediation.** Once the action is
   running, put logic into the relevant skill (or a script the skill calls —
-  see `plugins/tend-ci-runner/scripts/`). The agent handles edge cases,
-  interprets output, and writes clearer messages than shell.
+  see `plugins/tend-ci-runner/scripts/`).
 - **Actions gate whether the agent runs at all.** Agent invocations cost
   tokens; gating them in YAML is cheap. Pre-check steps that early-exit
   the job (e.g. `tend-notifications`'s notification and PR conflict check)
@@ -543,9 +538,6 @@ Keep the actions' Bash as linear installation and plumbing, not a second
 implementation layer. Do not add branches, retries, caches, or state for rare
 event shapes or small runner-time savings; put substantial behavior in a skill
 or tested Python.
-
-Don't build deterministic YAML steps for work that happens *inside* an
-agent run. Extend the skill instead.
 
 ### What waste is worth fixing
 
