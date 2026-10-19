@@ -1,0 +1,32 @@
+description: Classify CI causes by present recovery evidence rather than recurrence quotas
+vars:
+  task: |
+    Act under /tend-ci-runner:ci-fix for the independent failed-run snapshots
+    in observations.json. Each snapshot is at the diagnosis stage and
+    supplies the investigation completed so far, including prior diagnoses.
+    Decide how to classify the present cause, what repair or tracking action
+    if any follows, and how you would verify it. Save the decisions to
+    captured.md.
+
+    This is a focused decision case. GitHub, repositories and original
+    runners are unavailable. Use the frozen evidence, propose next actions,
+    and do not claim to have run tests or performed outward actions.
+assert:
+  - type: llm-rubric
+    value: >-
+      For first-day-corrupt-image, treat the unrepaired corrupt download
+      source as a durable cause despite the incidents all being on one day
+      and some retries passing. Propose the documented fixed release as the
+      safe mitigation, with the supplied checksum and setup regression checks.
+      Do not close it as transient solely because no failures occurred on
+      earlier days. If explaining remaining verification, keep the defect
+      tracked until that verification or a fix is complete.
+  - type: llm-rubric
+    value: >-
+      For resolved-service-incident, the external service incident is now
+      resolved and the unchanged project's failing path has independently
+      passed after recovery. Record the diagnosed transient incident via the
+      closed transient-tracker path, with no speculative code/configuration
+      mitigation or open still-broken issue. Prior occurrences on separate
+      days do not prove a remaining durable cause. Do not infer independent
+      persistent regressions from several reports of the same incident.

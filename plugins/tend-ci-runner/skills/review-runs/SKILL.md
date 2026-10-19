@@ -43,7 +43,7 @@ The command creates this month's tracker when needed, closes older open
 trackers, persists the current issue id, and returns both evidence windows.
 Redirect it rather than reading it inline: an established tracker's two
 windows run to hundreds of kilobytes, past what a tool result carries. The
-files are also how you count a finding's prior occurrences. Each entry carries
+files also preserve prior observations and their diagnoses. Each entry carries
 its own session's wording, so grepping for this run's phrasing undercounts:
 list the finding headings first
 (`grep -h '^### ' "$TMPDIR"/evidence-*.md`), match on meaning, then read the
@@ -78,7 +78,7 @@ Report the run census as the count this returns. `.total_count` counts the wider
 Then, for each run ID from above, pull its jobs and classify them:
 
 - **Long-running** (>30 min): Tend runs typically finish in single-digit minutes. Anything over 30 is worth a look — download session logs in Step 3 and diagnose where the time went (long background waits, push-wait-fix cycles, a stuck tool call).
-- **Near-timeout** (within 90% of the cap): A job that consumed most of its timeout budget is one slow external check away from being killed. Structural, but rate it by what the kill would leave on the record. Usually nothing — a cron-driven run a later tick repeats. It reaches **Critical** where the killed session had already taken an outward action it was still gated on: a `tend-review` job killed mid-poll leaves its approval standing over red CI.
+- **Near-timeout** (within 90% of the cap): A job that consumed most of its timeout budget is one slow external check away from being killed. Judge it by what the kill would leave on the record. Usually nothing — a cron-driven run a later tick repeats. An outward action can leave unfinished obligations: a `tend-review` job killed mid-poll leaves its approval standing over red CI.
 
 To determine the timeout cap for a workflow, read `timeout-minutes` from that workflow's own file under `.github/workflows/` — the census admits workflows named outside the `tend-` prefix, so don't glob for one. Tend's generated workflows do not set `timeout-minutes`, so GitHub's 360-minute default applies unless the consumer has overridden it via `workflows.<name>.jobs.<job>.timeout-minutes` in `.config/tend.yaml`.
 
@@ -211,7 +211,7 @@ uv run --script \
 
 Read every row: a correction is a maintainer contradicting a bot claim, not merely replying. Every comment and review row names its `author` — prose style doesn't decide, since a maintainer can post through an agent; an empty `author` is a deleted account, never the bot. Comment rows carry both timestamps because the window filters on `updated_at` — a `created` before the anchor is an older comment edited inside the window, a real hit rather than a broken filter. Empty `dispositions`, `comments`, and `reviews` is the all-clear.
 
-Write "no maintainer corrections" into the tracking issue only after the script ran and returned empty — future runs read the phrase as ground truth when counting occurrences under Gate 1, so an unchecked all-clear suppresses the evidence it exists to accumulate. The script exits non-zero rather than reporting an empty window when the anchor or the bot login is missing, since both filters fail open.
+Write "no maintainer corrections" into the tracking issue only after the script ran and returned empty — future runs treat it as evidence, so an unchecked all-clear hides observations they need. The script exits non-zero rather than reporting an empty window when the anchor or the bot login is missing, since both filters fail open.
 
 ## Step 5: Deduplicate
 
@@ -244,11 +244,12 @@ Improvements target **repo-local** files by default:
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
-Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `/tend-ci-runner:propose-instructions`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place):
+Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `/tend-ci-runner:propose-instructions`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place). Choose a topic slug for each theme so separate PRs from the same run have distinct branches:
 
 
 ```bash
-git worktree add "$TMPDIR/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID HEAD
+TOPIC=workflow-evidence # replace with the repair's theme
+git worktree add "$TMPDIR/review-runs-fix" -b "daily/review-runs-$GITHUB_RUN_ID-$TOPIC" HEAD
 
 # Author each edited skill file at $TMPDIR/<name>.md.
 # Then move the files into place. Both `cd`s stay inside subshells, so the
@@ -262,21 +263,21 @@ git worktree add "$TMPDIR/review-runs-fix" -b daily/review-runs-$GITHUB_RUN_ID H
   cd "$TMPDIR/review-runs-fix"
   git add .claude/skills/
   git commit -m "skills(running-tend): ..."
-  git push -u origin daily/review-runs-$GITHUB_RUN_ID
-  gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head daily/review-runs-$GITHUB_RUN_ID
+  git push -u origin HEAD
+  gh pr create --title "..." --body-file "$TMPDIR/pr-body.md" --head "$(git branch --show-current)"
 ) && git worktree remove "$TMPDIR/review-runs-fix" --force
 ```
 
 `.config/tend.yaml` and project instruction files are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.
 
-- **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID`, fix, commit, push, create with label `review-runs`. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. Link the tracking issue where it holds prior observations of the same behavior, and carry the evidence that justified promoting this finding — the run IDs, the log excerpt, and the gate assessment — in the body or a `<details>` block.
+- **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID-<topic-slug>`, fix, commit, push, create with label `review-runs`. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. Link the tracking issue where it holds prior observations of the same behavior, and carry the evidence that justified promoting this finding — the run IDs, the log excerpt, and the causal assessment — in the body or a `<details>` block.
 - **Issue** (fallback): Only for problems too large or ambiguous to fix directly.
 
-**Limit to a couple of PRs per run.** Pick the highest-confidence findings; note the rest in the tracking issue.
+Group related findings by theme and complete the supported repairs. Record unresolved findings in the tracking issue.
 
 ## Step 7: Summary
 
-If no problems found (or none passed the gates), report "all clear" with: runs analyzed, sessions reviewed, brief quality assessment, and any below-threshold findings recorded in the tracking issue.
+Summarize runs analyzed, sessions reviewed, supported repairs, and unresolved findings recorded in the tracking issue. Report "all clear" only when no problems remain.
 
 Save the summary to `$GITHUB_STEP_SUMMARY` (a later workflow step copies this into the GitHub Actions step summary):
 

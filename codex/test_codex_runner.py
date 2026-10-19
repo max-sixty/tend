@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -187,8 +188,12 @@ def test_stage_agents_writes_as_the_sandbox_user(
 
 
 @pytest.mark.parametrize("memory_enabled", [False, True])
+@pytest.mark.parametrize("effort", ["none", 'future"level', "future-𝚡"])
 def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, memory_enabled: bool
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    memory_enabled: bool,
+    effort: str,
 ) -> None:
     _, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
     run_dir = agent_home / "run"
@@ -200,7 +205,7 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
     monkeypatch.setenv("TEND_RUN_DIR", str(run_dir))
     monkeypatch.setenv("CODEX_PROXY_URL", "http://127.0.0.1:1234")
     monkeypatch.setenv("MODEL", "gpt-test")
-    monkeypatch.setenv("EFFORT", "high")
+    monkeypatch.setenv("EFFORT", effort)
     monkeypatch.setenv(
         "EXTRA_ARGS", "--skip-git-repo-check\n--config\nproject_doc_max_bytes=8192"
     )
@@ -242,6 +247,10 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
     assert "NO_PROXY=" in launch
     assert "no_proxy=" in launch
     codex_at = launch.index("/opt/codex/bin/codex")
+    effort_config = next(
+        arg for arg in launch[codex_at:] if arg.startswith("model_reasoning_effort=")
+    )
+    assert tomllib.loads(effort_config)["model_reasoning_effort"] == effort
     assert launch[codex_at:] == [
         "/opt/codex/bin/codex",
         "exec",
@@ -270,7 +279,7 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
         "background_terminal_max_timeout=21600000",
         *(["--config", "features.memories=false"] if memory_enabled else []),
         "--config",
-        'model_reasoning_effort="high"',
+        f"model_reasoning_effort={json.dumps(effort, ensure_ascii=False)}",
         "Review this",
     ]
 

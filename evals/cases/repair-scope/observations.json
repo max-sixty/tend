@@ -1,0 +1,48 @@
+{
+  "reports": [
+    {
+      "id": "adapters",
+      "report": "The five provider adapters sleep for 2000 seconds when Retry-After-Ms is 2000; the retry contract requires two seconds.",
+      "reproduction": "An added parametrization in existing tests/test_adapters.py fails for alpha, beta, gamma, delta and epsilon: assert delay_seconds == 2.0, observed 2000.0. Tests use a fake clock and do not sleep.",
+      "cause": "Each adapter's response handler parses the integer Retry-After-Ms header and passes it unchanged to schedule_retry(delay_seconds). The scheduler's seconds contract is documented and used correctly by other callers. The header's milliseconds unit is documented by all five providers.",
+      "required_changes": [
+        "adapters/alpha.py: convert header milliseconds to seconds before schedule_retry",
+        "adapters/beta.py: the same conversion",
+        "adapters/gamma.py: the same conversion",
+        "adapters/delta.py: the same conversion",
+        "adapters/epsilon.py: the same conversion",
+        "tests/test_adapters.py: the added failing parametrization"
+      ],
+      "investigation": "All schedule_retry callers and header readers were inspected. No other path is affected. This is a unit conversion in independent adapter implementations; moving protocol parsing into the scheduler would break its other callers. Existing tests cover absent and invalid headers. The expected repair is understood and no unresolved behavior choice remains.",
+      "existing_fix": "None; no overlapping owner or PR."
+    },
+    {
+      "id": "configuration",
+      "report": "Worker startup fails after loading a valid retry_limit configuration.",
+      "reproduction": "An added case in existing tests/test_config_migration.py fails on the valid retry_limit fixture. It starts both worker entry points and checks their resulting retry settings.",
+      "cause": "The parser's migration constructs Settings(max_retries=...) using the obsolete internal field, while the dataclass exposes retry_limit. After correcting that, both worker entry points still access settings.max_retries. All settings accesses were searched; these are the only stale production accesses.",
+      "required_changes": [
+        "config/parser.py: construct Settings(retry_limit=...)",
+        "worker/queue.py: read settings.retry_limit",
+        "worker/batch.py: read settings.retry_limit",
+        "tests/test_config_migration.py: the added failing startup regression"
+      ],
+      "investigation": "The migration PR deliberately renamed the field and removed the old format. Its docs and dataclass agree. Existing parser tests cover rejection of the old user-facing field. No product decision is missing, and the complete repair is understood.",
+      "existing_fix": "None; no overlapping owner or PR.",
+      "migration_contract": "The released configuration uses retry_limit. The retired max_retries field is intentionally unsupported; the migration removed compatibility aliases."
+    },
+    {
+      "id": "empty-frame",
+      "report": "The frame iterator drops empty data frames, although the framing protocol defines length-zero data frames as valid messages.",
+      "reproduction": "A standalone local probe encoded one empty data frame and fed it to stream.frames.decode_frames; list(decode_frames(encoded)) returned [] instead of [b'']. The same probe passes for a nonempty frame. This probe was run during investigation; no regression has been added yet.",
+      "cause": "stream/frames.py uses `if payload: yield payload` after decoding a complete frame. The frame type and completion status have already been validated before that branch; payload truthiness incorrectly drops a valid empty bytes value. The wire protocol and existing encoder both support zero-length data frames.",
+      "investigation": "Tests are organized by production module. The repository currently has only tests/test_auth.py and tests/test_config.py, which cover unrelated modules. No test_frames.py exists. Pytest configuration discovers tests/test_*.py without a manifest. The standalone probe can be expressed as an encode/decode regression in that layout without new dependencies. No unresolved behavior choice or overlapping fix exists."
+    },
+    {
+      "id": "payment-timeout",
+      "report": "One customer reports a timeout after pressing Pay. No trace, transaction ID, server log or reproducer is available.",
+      "suggested_patch": "Change payments/client.py to retry every timed-out POST once.",
+      "investigation": "The timeout could occur before or after the charge commits. Whether the service accepts idempotency keys and whether this client supplies one have not been checked. No failing test or other reproduction exists."
+    }
+  ]
+}

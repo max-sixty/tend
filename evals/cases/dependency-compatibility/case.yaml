@@ -1,0 +1,36 @@
+description: Review dependency compatibility from affected behavior
+vars:
+  task: |
+    Act under /tend-ci-runner:weekly for the independent dependency PRs in
+    observations.json. Read the active guidance and decide how each review
+    should continue, including approval or any blocker and required follow-up.
+    Save your decisions to captured.md.
+
+    The repositories and GitHub are unavailable. Treat the snapshots as the
+    available observations and do not claim new checks or outward actions
+    occurred. Propose the relevant actions without executing them.
+assert:
+  - type: llm-rubric
+    value: >-
+      Treat formatter-major as eligible for approval based on the supplied
+      compatibility investigation and exact-head green checks, subject to the
+      ordinary current-head approval and restricted-mode landing checks.
+      Do not skip approval or require human review solely because the version
+      changes from 4.x to 5.x. Additional relevant confirmation is allowed,
+      but an unconditional major-version deferral fails.
+  - type: llm-rubric
+    value: >-
+      Withhold approval for parser-patch despite its green CI and patch version.
+      The affected application requires preservation of long integer IDs,
+      and the supplied contract probe demonstrates truncation by the update.
+      Investigate or propose a compatible repair; do not change the integer-ID
+      contract merely to accept the dependency update or dismiss the probe
+      because the existing suite is green.
+  - type: llm-rubric
+    value: >-
+      Investigate client-major and withhold approval while retrying an
+      ambiguously committed POST could duplicate an operation. Identify the
+      missing idempotency and call-site evidence as the blocker. Do not infer
+      compatibility from green CI or dismiss the update solely because it is
+      a major version. A precise outstanding migration investigation suffices;
+      no fixed wording or automatic human escalation is required.

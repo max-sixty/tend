@@ -1,7 +1,7 @@
 """Tests for plugins/tend-ci-runner/scripts/review_runs_corrections.py.
 
 Step 4 of review-runs decides whether the tracking issue records "no
-maintainer corrections", which later runs read as ground truth under Gate 1.
+maintainer corrections", which later runs read as historical evidence.
 Every filter here fails open when its input is empty — an unset anchor
 compares less than every timestamp, `--author ""` applies no author filter —
 so an empty result is only trustworthy if the inputs were checked. These pin
@@ -313,7 +313,7 @@ def test_a_comment_row_names_its_author(env: dict[str, str]) -> None:
     """The filter already resolves each login to drop the bot's own comments.
     Step 4 needs that same login on the row: a maintainer's reply posted
     through an agent reads like bot output, and a row the reader misjudges is
-    dropped from the correction count Gate 1 relies on."""
+    dropped from the correction history later reviews rely on."""
     _write(env, "ISSUE_COMMENTS_JSON", [_comment(IN_WINDOW)])
 
     (row,) = _collect(env)["comments"]

@@ -1,0 +1,13 @@
+{
+  "kind": "focused",
+  "historical_ref": "c5bf1093689165282928b448ecc6e28f51cd3c0e",
+  "bot": "repair-agent",
+  "merge": "restricted",
+  "fixtures": {
+    "observations.json": "96b3cd0f2f60830e209bc6eef58ffc8e6c91d6c7bd88c5a99802e1c7e3446728"
+  },
+  "origin": {
+    "kind": "synthetic contrast",
+    "construction": "Synthetic diagnosis contrasts: a corrupt upstream source still reproduces across clean runners on its first day despite successful retries; and one resolved external outage produced failures on several days with unchanged-code success after recovery. Distinguishes a present durable cause from recurrence counts or days."
+  }
+}

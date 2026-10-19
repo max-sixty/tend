@@ -43,9 +43,8 @@ bot_name: my-project-bot
 
 # ## Effort
 #
-# Reasoning effort for the selected model. Codex accepts low, medium, high,
-# and xhigh; Claude also accepts max. A model that does not read the level
-# ignores it. Empty (default) leaves the choice to the harness CLI.
+# Reasoning effort passed to the selected harness CLI. Empty (default)
+# leaves the choice to the harness CLI.
 #
 # effort: medium
 

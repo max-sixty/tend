@@ -1,0 +1,49 @@
+description: Choose complete repairs from reproduction and cause evidence
+vars:
+  task: |
+    Act under /tend-ci-runner:fix-a-bug for the independent bug reports in
+    observations.json. Each snapshot records the investigation completed so
+    far. Read the active guidance and decide the next action for each report,
+    including what repair, if any, you would attempt and how you would verify
+    it. Save the decisions to captured.md.
+
+    This is a focused decision case. The repositories and original runners
+    are unavailable. Use the supplied evidence without claiming to have run
+    tests or applied patches. Do not perform outward actions.
+assert:
+  - type: llm-rubric
+    value: >-
+      Attempt the adapter repair: update all five affected provider adapters
+      and the existing parametrized regression test. The observed failure
+      and traced shared contract establish the cause and required behavior.
+      Reject a partial repair that leaves some adapters passing milliseconds
+      as seconds, and do not stop at a reproduction-only report or ask a
+      maintainer to authorize the repair solely because it spans six files.
+      Verify the regression and the existing adapter contract tests. Proposed
+      actions suffice; no exact command or wording is required.
+  - type: llm-rubric
+    value: >-
+      Attempt the configuration repair across the parser, its two production
+      consumers, and the existing migration regression test. Use the canonical
+      retry_limit field consistently and remove the unintended max_retries
+      accesses. Do not preserve the obsolete field through an alias or
+      consumer fallback, and do not defer the complete repair solely because
+      it spans four files. Verify the migration regression and existing config
+      tests. Proposed actions suffice.
+  - type: llm-rubric
+    value: >-
+      Attempt the empty-frame repair with a regression in a new
+      tests/test_frames.py module, following the repository's test discovery.
+      The supplied command already reproduces the documented-contract defect;
+      turn it into a failing regression before the production fix. Do not
+      omit coverage, put unrelated frame tests in an auth/config module, or
+      decline the repair solely because no frame test file exists. Verify
+      both empty and nonempty frames. Proposed actions suffice.
+  - type: llm-rubric
+    value: >-
+      Investigate the payment timeout before applying its suggested one-file
+      retry patch. No reproduction or understood cause establishes that the
+      operation failed rather than committed, and replay could charge twice.
+      Seeking the missing server and idempotency evidence is appropriate;
+      patching first, inventing a reproduction, or treating the patch's small
+      size as sufficient confidence is not.

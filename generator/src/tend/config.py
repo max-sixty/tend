@@ -328,13 +328,6 @@ def effective_model(
     return model
 
 
-# Empty string leaves effort at the harness CLI's model-specific default.
-KNOWN_EFFORTS_BY_HARNESS = {
-    "claude": {"", "low", "medium", "high", "xhigh", "max"},
-    "codex": {"", "low", "medium", "high", "xhigh"},
-}
-
-
 @dataclass(frozen=True)
 class CodexConfig:
     """Codex subscription credentials have one hosted or external refresh owner."""
@@ -438,7 +431,7 @@ class Config:
                 f"{harness} CLI accepts"
             )
 
-        effort = _parse_effort(raw.get("effort", ""), harness, "effort")
+        effort = _parse_effort(raw.get("effort", ""), "effort")
 
         args = _parse_args(raw.get("args", []), "args")
 
@@ -675,21 +668,11 @@ class Config:
                 wf_effort = (
                     _parse_effort(
                         wf_raw["effort"],
-                        eff_harness,
                         f"workflows.{name}.effort",
                     )
                     if "effort" in wf_raw
                     else None
                 )
-                # A workflow that switches harness inherits the top-level
-                # effort, which the other CLI may not accept.
-                if wf_effort is None and wf_harness is not None:
-                    _parse_effort(
-                        effort,
-                        eff_harness,
-                        "effort",
-                        inherited_by=f"workflows.{name}",
-                    )
                 wf_prompt = wf_raw.get("prompt", "")
                 if wf_prompt is None:  # `prompt:` with nothing after it
                     wf_prompt = ""
@@ -817,21 +800,11 @@ def _parse_args(raw: object, key: str) -> list[str]:
     return list(raw)
 
 
-def _parse_effort(
-    raw: object,
-    harness: str,
-    key: str,
-    *,
-    inherited_by: str | None = None,
-) -> str:
-    """Validate an effort value against the CLI selected for it, not the model:
-    which models read the level is the harness CLI's to know."""
-    source = key if inherited_by is None else f"{key} (inherited by {inherited_by})"
-    known = KNOWN_EFFORTS_BY_HARNESS[harness]
-    if not isinstance(raw, str) or raw not in known:
+def _parse_effort(raw: object, key: str) -> str:
+    """Pass effort names to the CLI that owns them; empty uses its default."""
+    if not isinstance(raw, str):
         raise click.ClickException(
-            f"{source} '{raw}' is not recognized for harness '{harness}' "
-            f"(known: {', '.join(sorted(e for e in known if e))})"
+            f"{key} must be a string (empty leaves the harness CLI's default)"
         )
     return raw
 

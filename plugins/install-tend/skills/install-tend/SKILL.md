@@ -184,7 +184,7 @@ bot_name: <bot-name>
 # harness: codex
 # model: gpt-6.1-sol
 # Both harnesses optionally accept:
-# effort: medium   # low | medium | high | xhigh; Claude also accepts max
+# effort: medium   # passed to the selected harness CLI
 ```
 
 Write the Codex model into the config. It is the installation's reviewed pin;

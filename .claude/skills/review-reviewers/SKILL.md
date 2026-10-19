@@ -18,7 +18,7 @@ Load `/tend-ci-runner:run-tend` first — it contains CI security rules, the per
 
 The bot's job is to produce useful outputs: reviews, triage comments, fix commits, issue responses. Judge them first by whether they were **accepted** (merged, kept, acted on) or **rejected** (reverted, closed, corrected, disagreed with). Escalate to session-log inspection only when an outcome signal points at a problem to diagnose.
 
-Log parsing and outcome checking produce bulk text; run them in a subagent so the context that makes the judgments — evaluating findings against the gates, deciding whether to act, drafting PRs — holds the conclusions rather than the transcripts.
+Log parsing and outcome checking produce bulk text; run them in a subagent so the context that makes the judgments — assessing findings and remedies, deciding whether to act, drafting PRs — holds the conclusions rather than the transcripts.
 
 Expected behavior that looks suspicious — designed no-ops, designed silence, re-review after a fix commit — is listed under **Non-issues** in `review-gates.md`. Read it before a finding becomes a PR.
 
@@ -51,7 +51,7 @@ The command finds or creates both index and gist, announces a new gist once,
 persists their ids, and prints both evidence windows and the gist's
 `gist_url`, which the PR bodies and summary below link.
 
-After applying the gates, write this run's findings in the format from
+After assessing findings, write this run's findings in the format from
 `@review-gates.md` to `$TMPDIR/findings.md`. Append a `## Run
 $GITHUB_RUN_ID` heading every run, including an all-clear window; the heading
 is the audit trail future runs use. Then append it:
@@ -316,10 +316,10 @@ Then read the bodies of the candidates (`gh pr view <n> --json body`). Only comm
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
-- **PR** (default): Branch `review-reviewers/$GITHUB_RUN_ID-<target-repo-name>-<topic-slug>`, fix, commit, push, create with label `claude-behavior`. `$GITHUB_RUN_ID` alone is not a unique branch name: every matrix leg of a run carries the same one, and a single leg may open more than one PR (see the limit below). The target's repo name (the part after the `/`) keeps two legs from racing the same ref; the topic slug keeps one leg's own PRs from doing the same. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. The evidence gist already carries the run history, outcome evidence, and gate assessment; link it and include only what the reader needs to understand this change. Don't also create a separate issue.
+- **PR** (default): Branch `review-reviewers/$GITHUB_RUN_ID-<target-repo-name>-<topic-slug>`, fix, commit, push, create with label `claude-behavior`. `$GITHUB_RUN_ID` alone is not a unique branch name: every matrix leg of a run carries the same one, and a single leg may open more than one PR. The target's repo name (the part after the `/`) keeps two legs from racing the same ref; the topic slug keeps one leg's own PRs from doing the same. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. The evidence gist already carries the run history, outcome evidence, and causal assessment; link it and include only what the reader needs to understand this change. Don't also create a separate issue.
 - **Issue** (fallback): Only for problems too large or ambiguous to fix directly. Include run ID, outcome evidence, root cause analysis.
 
-Group multiple findings by broad theme. **Limit to a couple of PRs per run** — if you have more findings, pick the highest-confidence ones and record the rest in the evidence gist.
+Group related findings by theme and complete the supported repairs. Record unresolved findings in the evidence gist.
 
 PR/issue bodies should link to the evidence gist (`gist_url`) so reviewers can see the accumulated history behind the finding.
 
@@ -339,4 +339,4 @@ Report results in the conversation log and save a markdown summary to `$GITHUB_S
 #   ...
 ```
 
-If no problems found (or none passed the gates), report "all clear" with: runs analyzed, outcomes checked, brief quality assessment, and a link to the evidence gist for any below-threshold findings recorded this run.
+Summarize runs analyzed, outcomes checked, supported repairs, and unresolved findings, linking to the evidence gist. Report "all clear" only when no problems remain.

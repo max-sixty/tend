@@ -84,24 +84,32 @@ If the diagnosis identifies the failure as transient — runner-disk corruption,
 
 Use this path only when the evidence points to ephemeral infrastructure, not anything the project's code does. Signals (examples, not a checklist): the same code path passed on recent prior runs with no relevant change; the failure shape is filesystem/network-level; an upstream status incident matches the timing and components. If you can't tell whether it's transient, treat it as durable — create a fix PR, or follow 4b if a safe fix can't be produced.
 
-#### Repeat-occurrence escalation
+#### Reassess transient diagnoses
 
-Before filing the tracker below, check whether the same failure shape has already been classified transient recently. The single-shot criteria above don't catch an intermittent upstream regression — each rerun-pass reinforces the wrong classification.
+Before filing the tracker below, inspect related prior diagnoses. A passing rerun does not establish that an intermittent cause has gone away.
 
 ```bash
 BOT_LOGIN=$(gh api user --jq '.login')
 gh issue list --state all --label tend-outage --author "$BOT_LOGIN" \
-  --search "ci-fix: transient failure in:title created:>=$(date -u -d '7 days ago' +%F)" \
+  --search "ci-fix: transient failure in:title" \
   --json number,title,body,createdAt --limit 100
 ```
 
-Both filters are load-bearing: the label keeps 4b's durable trackers out, and the title keeps out the `report_failure.py` **"Bot temporarily unavailable"** issues, which carry the same label and author and vastly outnumber these — without it the first page is all outage rows and the count reads zero.
+The label and title distinguish these diagnoses: the label keeps 4b's durable trackers out, and the title keeps out the `report_failure.py` **"Bot temporarily unavailable"** issues, which carry the same label and author and vastly outnumber these — without it the first page can hide the relevant diagnoses.
 
-Use failure-shape keywords (e.g. `rustup-init`, `composer connect timeout`, `docker pull rate limit`) to find candidates. Read their diagnoses and compare the evidence per **Claims of recurrence** in `/tend-ci-runner:ground-claims` before counting occurrences. A keyword match finds evidence to inspect, not an occurrence to count; the same proven cause can surface on multiple jobs.
+Use failure-shape keywords (e.g. `rustup-init`, `composer connect timeout`,
+`docker pull rate limit`) to find candidates. Read their diagnoses and compare
+current evidence per **Claims of recurrence** in
+`/tend-ci-runner:ground-claims`. Related reports are leads, not proof that the
+same cause persists.
 
-If the current failure shape has 2+ prior occurrences on separate days within the past 7, escalate to durable: a fault that keeps coming back within a week is not transient even when individual reruns pass. Count occurrences, not trackers — the same root cause taking down several jobs in one afternoon files several trackers and is still one occurrence.
-
-An escalated fault still reruns green, so a mitigation prevents future red runs rather than fixing a bug. Open a fix PR proposing the smallest mitigation that holds, usually one setting in one place (pin the runner image, skip the affected leg, disable the relevant cache layer), preferring an upstream-documented workaround — `gh issue search` against the action's repo, the action's README, GitHub Community threads — and linking the upstream issue if the search surfaced one. If the fault has no such mitigation, treat it as a durable cause without a safe fix and follow 4b.
+Classify by the present cause and its recovery evidence. A reproducible
+project or upstream defect remains durable even when it first appears today
+or some reruns pass. A resolved external incident can explain many failures
+without leaving a defect to repair. Where a durable cause remains, propose a
+mitigation that addresses it safely, preferring an upstream-documented
+workaround and linking its evidence. If no safe fix can be produced, follow
+4b. Otherwise, when the evidence supports recovery, file the transient tracker.
 
 #### File the transient tracker
 

@@ -1,0 +1,13 @@
+{
+  "kind": "focused",
+  "historical_ref": "c5bf1093689165282928b448ecc6e28f51cd3c0e",
+  "bot": "repair-agent",
+  "merge": "restricted",
+  "fixtures": {
+    "observations.json": "1fc72aff7fec42d9a34da5e2a8d95c8b3e688488d608a5019d044ef882fb5ab1"
+  },
+  "origin": {
+    "kind": "synthetic contrast",
+    "construction": "Synthetic focused contrasts: one reproduced deterministic defect without wrong outward action; five unverified omission reports under an already adequate rule; and three independent fully investigated repairs eligible under the historical confidence thresholds. Distinguishes causal eligibility and completeness from occurrence and PR quotas without asserting production impact."
+  }
+}

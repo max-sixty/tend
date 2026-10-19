@@ -75,7 +75,7 @@ Record what you found (or didn't find) for use in steps 6 and 7.
 
 *Bug reports only.*
 
-Follow **Reproduce first** in `/tend-ci-runner:fix-a-bug`: a failing test in an existing test file, run to confirm it fails.
+Follow **Reproduce first** in `/tend-ci-runner:fix-a-bug`.
 
 If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7. If the test passes, the bug may already be fixed — note that for the comment.
 

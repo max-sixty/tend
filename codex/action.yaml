@@ -46,8 +46,8 @@ inputs:
   effort:
     default: ""
     description: >-
-      Reasoning effort — low, medium, high, or xhigh. Empty means leave
-      at the selected model's Codex CLI default.
+      Reasoning effort passed to Codex. Empty leaves the selected model's
+      Codex CLI default.
   args:
     default: ""
     description: >-

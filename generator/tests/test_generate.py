@@ -2250,18 +2250,23 @@ def test_codex_auth_refresher_follows_a_per_workflow_override(tmp_path: Path) ->
 HARNESS_ACTIONS = {"max-sixty/tend/claude", "max-sixty/tend/codex"}
 
 
+@pytest.mark.parametrize("harness", ["claude", "codex"])
 @pytest.mark.parametrize(
-    ("config", "expected"),
+    ("yaml_effort", "effort"),
     [
-        ("effort: max", "max"),
-        ("harness: codex\neffort: high", "high"),
+        ('"none"', "none"),
+        ('"null"', "null"),
+        ('"high # extra"', "high # extra"),
+        ('"future\\nlevel"', "future\nlevel"),
+        ('"future-𝚡\\N"', "future-𝚡\x85"),
     ],
-    ids=["claude", "codex"],
 )
 def test_effort_renders_for_both_harnesses(
-    tmp_path: Path, config: str, expected: str
+    tmp_path: Path, harness: str, yaml_effort: str, effort: str
 ) -> None:
-    cfg = Config.load(_minimal_config(tmp_path, config))
+    cfg = Config.load(
+        _minimal_config(tmp_path, f"harness: {harness}\neffort: {yaml_effort}")
+    )
     for wf in generate_all(cfg):
         inputs = [
             step["with"]
@@ -2270,7 +2275,7 @@ def test_effort_renders_for_both_harnesses(
             if step.get("uses", "").partition("@")[0] in HARNESS_ACTIONS
         ]
         for action_inputs in inputs:
-            assert action_inputs["effort"] == expected
+            assert action_inputs["effort"] == effort
 
 
 def test_effort_is_omitted_at_the_harness_default(tmp_path: Path) -> None:
@@ -2469,39 +2474,24 @@ def test_model_unrestricted(tmp_path: Path, config: str, model: str) -> None:
 
 @pytest.mark.parametrize(
     "config",
-    ["effort: turbo", "harness: codex\neffort: max", "effort: [high]"],
+    ["effort: [high]", "effort: 1", "effort: null", "effort: true"],
 )
-def test_effort_rejected_when_unsupported_or_malformed(
-    tmp_path: Path, config: str
-) -> None:
-    with pytest.raises(click.ClickException, match="effort .* is not recognized"):
+def test_effort_rejected_unless_a_string(tmp_path: Path, config: str) -> None:
+    with pytest.raises(click.ClickException, match="effort must be a string"):
         Config.load(_minimal_config(tmp_path, config))
 
 
 def test_effort_is_not_validated_against_the_model(tmp_path: Path) -> None:
     """Which models read `--effort` is the CLI's to know, so the pair renders."""
     cfg = Config.load(_minimal_config(tmp_path, "model: haiku\neffort: low"))
-    workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    review = workflows["tend-review.yaml"].content
-    assert "model: haiku" in review
-    assert "effort: low" in review
-
-
-def test_inherited_effort_rejected_when_a_workflow_switches_harness(
-    tmp_path: Path,
-) -> None:
-    """`max` is Claude-only, so a codex workflow cannot inherit it."""
-    extra = dedent("""\
-        effort: max
-        workflows:
-          nightly:
-            harness: codex
-    """)
-    with pytest.raises(
-        click.ClickException,
-        match=r"effort \(inherited by workflows\.nightly\) 'max' is not recognized",
-    ):
-        Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: yaml.safe_load(wf.content) for wf in generate_all(cfg)}
+    review = next(
+        step
+        for step in workflows["tend-review.yaml"]["jobs"]["review"]["steps"]
+        if "/claude@" in step.get("uses", "")
+    )
+    assert review["with"]["model"] == "haiku"
+    assert review["with"]["effort"] == "low"
 
 
 @pytest.mark.parametrize(
@@ -2546,21 +2536,41 @@ def test_per_workflow_effort_and_args_override_the_top_level(tmp_path: Path) -> 
     assert weekly["with"]["args"] == "--max-turns\n40\n"
 
 
-def test_cross_harness_workflow_validates_inherited_effort(tmp_path: Path) -> None:
+@pytest.mark.parametrize("override", [None, "minimal", ""])
+def test_cross_harness_effort_inheritance_and_override(
+    tmp_path: Path, override: str | None
+) -> None:
+    extra = dedent("""\
+        effort: future-level
+        workflows:
+          nightly:
+            harness: codex
+    """)
+    if override is not None:
+        extra += f'    effort: "{override}"\n'
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: yaml.safe_load(wf.content) for wf in generate_all(cfg)}
+    nightly = next(
+        step
+        for step in workflows["tend-nightly.yaml"]["jobs"]["nightly"]["steps"]
+        if "/codex@" in step.get("uses", "")
+    )
+    expected = "future-level" if override is None else override
+    assert nightly["with"].get("effort", "") == expected
+
+
+def test_per_workflow_effort_rejects_malformed_value(tmp_path: Path) -> None:
     with pytest.raises(
-        click.ClickException,
-        match=r"effort \(inherited by workflows\.nightly\) 'max' is not recognized "
-        r"for harness 'codex'",
+        click.ClickException, match=r"workflows\.nightly\.effort must be a string"
     ):
         Config.load(
             _minimal_config(
                 tmp_path,
                 dedent("""\
-                    effort: max
                     workflows:
                       nightly:
                         harness: codex
-                        model: gpt-5.5
+                        effort: [high]
                 """),
             )
         )

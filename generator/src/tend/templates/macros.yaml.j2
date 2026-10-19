@@ -43,7 +43,7 @@
           checkout_mode: <<checkout_mode>>
           base_branch: <<base_branch>>
 {% if cfg.effort %}
-          effort: <<cfg.effort>>
+          effort: <<cfg.effort|yaml_string>>
 {% endif %}
 {% if cfg.args %}
           <<block_input('args', cfg.args|join('\n'))>>

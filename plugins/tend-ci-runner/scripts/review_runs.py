@@ -4,7 +4,7 @@
 # ///
 """Own the review-runs workflow's persisted records.
 
-Two of them: the monthly below-threshold evidence tracker, and the lookup that
+Two of them: the monthly evidence tracker, and the lookup that
 tells the sweep which `tend-outage` trackers still owe it a drain.
 """
 
@@ -23,7 +23,7 @@ from typing import Any
 import github_cli
 
 LABEL = "review-runs-tracking"
-BODY = """Monthly tracking issue for below-threshold findings. Each run appends findings as a comment. Future runs read these to build cumulative evidence.
+BODY = """Monthly tracking issue for observations and diagnoses. Each run appends findings as a comment. Future runs read these to build cumulative evidence.
 
 **Do not close manually** — a new issue is created each month, and prior months are closed automatically.
 """

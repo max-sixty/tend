@@ -18,7 +18,7 @@ The gates every fix attempt clears, whichever workflow you are running.
 
 1. **Understand the report** — What command was run? What was expected? What actually happened?
 2. **Find relevant code** — Search the codebase for the functionality described.
-3. **Write a failing test** — Add a test to the appropriate *existing* test file that demonstrates the bug. Don't create new test files.
+3. **Write a failing test** — Add a regression test that demonstrates the bug, following the repository's test organization.
 4. **Run the test** to confirm it fails. Use the test commands from the project's instruction files.
 
 Generally, have a failing test before writing a fix. A fix without reproduction evidence is not a conservative fix: report what you established instead. If the test passes, the bug may already be fixed — say so.
@@ -27,7 +27,6 @@ Generally, have a failing test before writing a fix. A fix without reproduction 
 
 - Bug is clearly reproducible (usually, the test written above fails)
 - Root cause is understood
-- Fix is localized (1-3 files changed)
 - Confident the fix is correct
 
 ## Skill text fixes

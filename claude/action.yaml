@@ -45,8 +45,8 @@ inputs:
   effort:
     default: ""
     description: >-
-      Claude effort level — low, medium, high, xhigh, or max. Empty leaves
-      effort at the model's Claude Code default.
+      Reasoning effort passed to Claude Code. Empty leaves the selected
+      model's Claude Code default.
   args:
     default: ""
     description: >-
