@@ -1575,30 +1575,39 @@ def check_yolo_workflows(repo: str, cfg: Config) -> CheckResult:
     unread = sorted(filename for filename, content in files.items() if content is None)
     if mismatched or extra_holders or unresolved or external_calls:
         details = []
+        remedies = []
         if mismatched:
             details.append(f"not current generated output: {', '.join(mismatched)}")
+            remedies.append("Run `tend init` and merge its control-plane changes.")
         if extra_holders:
             details.append(
                 "non-generated files use a Tend credential environment: "
                 f"{', '.join(extra_holders)}"
             )
+            remedies.append(
+                "Move non-generated jobs to a separate environment that satisfies "
+                "`credential-environments`."
+            )
         if unresolved:
             details.append(
                 f"environment use could not be resolved in: {', '.join(unresolved)}"
             )
+            remedies.append("Resolve unreadable or dynamic environment use.")
         if external_calls:
             details.append(
                 "external or ref-qualified reusable workflows may use the "
                 "tend environment: "
                 f"{', '.join(external_calls)}"
             )
+            remedies.append(
+                "Use same-tree reusable workflow calls "
+                "(`./.github/workflows/...`) so their environment use can be audited."
+            )
         return CheckResult(
             name,
             False,
             "Yolo requires Tend's secrets to reach only the audited "
-            f"generated workflows ({'; '.join(details)}). Run `tend init`, "
-            "merge its control-plane changes, and move any other job to a "
-            "separate reviewer-gated environment.",
+            f"generated workflows ({'; '.join(details)}). {' '.join(remedies)}",
         )
     if unread:
         return CheckResult(
