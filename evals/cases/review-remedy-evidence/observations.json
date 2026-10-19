@@ -1,0 +1,44 @@
+{
+  "snapshots": [
+    {
+      "id": "empty-evidence-month",
+      "observed_outcome": "A review-runs session crashes while formatting an empty previous-month evidence window. It stops before posting findings; no incorrect review, issue closure or other wrong outward action occurred.",
+      "history": "This is the only observed incident. No prior matching session was found.",
+      "investigation": "The evidence API intentionally returns previous_comments: null when no previous tracker exists. render_evidence loops directly over that field. The schema and producer were inspected; the optional window is supported and the renderer is its only unchecked consumer.",
+      "reproduction": "An added case in existing tests/test_evidence_rendering.py exercises the actual API fixture and raises TypeError at the loop. Converting the absent window to an empty sequence in render_evidence makes the regression pass; populated-window cases also pass.",
+      "candidate_change": "Handle the optional previous window in render_evidence and retain the regression in tests/test_evidence_rendering.py.",
+      "ownership": "No existing fix or overlapping PR. No policy or product decision is unresolved."
+    },
+    {
+      "id": "reported-check-omissions",
+      "observations": "The evidence tracker contains five summaries saying the bot forgot to check current CI before approving. They do not include the original tool calls, posted review bodies or verified head identities. Their session artifacts have not been inspected; independence of the summaries is unverified.",
+      "available_excerpt": "One entry includes the loaded review skill text: before approving, inspect the current PR head and its checks. The excerpt ends before the bot's next tool call. No actual approval or check omission is visible in it.",
+      "candidate_change": "Add a new paragraph to the review skill reminding the bot to check current CI before approving.",
+      "remaining_evidence": "The original session decisions and posted outcomes, whether the summaries describe independent events, and whether the relevant rule was loaded in each session."
+    },
+    {
+      "id": "independent-validated-repairs",
+      "history": "Three verified prior sessions for each finding show its stated cause and outcome; the linked original tool calls and outputs were inspected. All affected components are maintained here, with no existing fix, overlapping PR, or maintainer hold.",
+      "findings": [
+        {
+          "subject": "UTF-8 session decoding",
+          "outcome": "Log ingestion crashes before diagnosis on a UTF-8 session containing non-ASCII filenames.",
+          "cause": "The session reader opens the documented UTF-8 format as ASCII. The source and format contract agree; an existing-test regression reproduces UnicodeDecodeError with a frozen session fixture.",
+          "candidate_change": "Use UTF-8 in the session reader and retain the failing fixture case in its existing tests. The regression passes with this change, as do the ordinary ASCII session cases."
+        },
+        {
+          "subject": "Offset timestamp comparison",
+          "outcome": "The run-census helper crashes comparing a valid offset-aware API completion time with a naive cursor.",
+          "cause": "A refactor dropped the cursor's UTC timezone. The API schema, cursor producer and comparison path were inspected, and an existing-test regression reproduces the TypeError.",
+          "candidate_change": "Restore timezone-aware cursor construction at its producer. The regression and existing UTC/offset comparison cases pass."
+        },
+        {
+          "subject": "API payload content field",
+          "outcome": "The evidence uploader rejects valid prepared artifacts before it writes to GitHub.",
+          "cause": "The uploader uses contents instead of the documented content field in its API payload. The installed client signature and payload validator reproduce the rejection without sending a request.",
+          "candidate_change": "Correct the API field and retain the payload-validator regression. It passes alongside the existing upload construction cases."
+        }
+      ]
+    }
+  ]
+}

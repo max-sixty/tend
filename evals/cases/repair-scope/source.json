@@ -1,0 +1,13 @@
+{
+  "kind": "focused",
+  "historical_ref": "c5bf1093689165282928b448ecc6e28f51cd3c0e",
+  "bot": "repair-agent",
+  "merge": "restricted",
+  "fixtures": {
+    "observations.json": "bb39da6f2001b6c2a2aeb6d2bf788220add7f976d5a51ebaee4ae08380a3794a"
+  },
+  "origin": {
+    "kind": "synthetic contrast",
+    "construction": "Two understood, reproduced repairs with different causes span more than three files; a module-organized suite needs a new regression test file for a confirmed framing defect; a one-file payment retry lacks reproduction and a safe understood cause. These isolate repair confidence from file count and test-file availability without claiming a historical production failure."
+  }
+}

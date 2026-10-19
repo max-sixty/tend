@@ -243,8 +243,8 @@ def test_review_reviewers_prepare_creates_and_indexes_a_secret_gist(
             "findings.md": {
                 "content": (
                     "# review-reviewers evidence — owner/target — 2026-09\n\n"
-                    "Secret gist. Append-only log of below-threshold findings used "
-                    "for gate evaluation.\n"
+                    "Secret gist. Append-only log of observations and diagnoses used "
+                    "for causal assessment.\n"
                 )
             }
         },

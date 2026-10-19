@@ -255,7 +255,7 @@ That projection orients you; it does not clear a finding. It omits both states a
 
 The default action is a PR, not an issue. If there's a plausible fix, make it — explain uncertainty in the PR description.
 
-Group findings by theme and keep a run to a couple of PRs, picking the highest-confidence ones; the rest go in the Step 9 summary for a later run.
+Group related findings by theme and complete the supported repairs. Record unresolved findings in the Step 9 summary.
 
 For each finding:
 

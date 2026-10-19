@@ -473,6 +473,9 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 - **Be brief.** Skills are loaded into every relevant session — extra prose
   is overhead. Lead with the rule or recipe; cut motivation, anecdotes, and
   historical context unless required to apply the rule.
+- **Hard constraints need a requirement or invariant.** Use evidence and
+  judgment for tradeoffs such as scope, effort, and confidence rather than
+  fixed file, PR, or occurrence quotas.
 - **An action more than one workflow takes gets its own skill**, named for
   the action and described by the situation that calls for it
   (`post-to-github`, `push-commits`, `open-pr`). The skill listing every

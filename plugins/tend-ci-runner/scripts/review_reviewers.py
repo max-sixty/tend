@@ -50,8 +50,8 @@ def _gist_content(gist_id: str) -> str:
 def _create_gist(target: str, month: str, description: str) -> dict[str, Any]:
     content = (
         f"# review-reviewers evidence — {target} — {month}\n\n"
-        "Secret gist. Append-only log of below-threshold findings used for "
-        "gate evaluation.\n"
+        "Secret gist. Append-only log of observations and diagnoses used for "
+        "causal assessment.\n"
     )
     response = github_cli.json_call(
         "api",

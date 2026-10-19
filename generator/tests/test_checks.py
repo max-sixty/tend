@@ -3281,6 +3281,8 @@ def test_yolo_workflows_require_exact_generated_output() -> None:
         result = check_yolo_workflows("owner/repo", cfg)
     assert result.passed is False
     assert "tend-nightly.yaml" in result.message
+    assert "tend init" in result.message
+    assert "credential-environments" not in result.message
 
 
 def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
@@ -3304,9 +3306,14 @@ def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
     assert result.passed is None
 
 
-def test_yolo_workflows_reject_other_users_of_tend_environment() -> None:
+@pytest.mark.parametrize("generated_drift", [False, True])
+def test_yolo_workflows_reject_other_users_of_tend_environment(
+    generated_drift: bool,
+) -> None:
     cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
+    if generated_drift:
+        files["tend-nightly.yaml"] += "\n# stale\n"
     files["publish.yaml"] = """\
 on: push
 jobs:
@@ -3321,6 +3328,8 @@ jobs:
 
     assert result.passed is False
     assert "publish.yaml" in result.message
+    assert ("tend init" in result.message) is generated_drift
+    assert "credential-environments" in result.message
 
 
 def test_yolo_workflows_environment_names_are_case_insensitive() -> None:
@@ -3358,6 +3367,8 @@ jobs:
     assert result.passed is False
     assert "external or ref-qualified reusable workflows" in result.message
     assert "publish.yaml" in result.message
+    assert "tend init" not in result.message
+    assert "./.github/workflows/..." in result.message
 
 
 def test_yolo_workflows_reject_ref_qualified_same_repo_workflows() -> None:
@@ -3395,6 +3406,8 @@ jobs:
 
     assert result.passed is False
     assert "environment use could not be resolved" in result.message
+    assert "tend init" not in result.message
+    assert "Resolve unreadable or dynamic environment use" in result.message
 
 
 def test_unverified_protected_branch_is_not_demanded() -> None:

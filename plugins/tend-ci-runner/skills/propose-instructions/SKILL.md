@@ -22,29 +22,22 @@ mechanics of proposing it.
 
 ## Whether to propose
 
-The feedback must be **generalizable** — it applies to future runs, not just
-this task — and clear at least one bar:
+Propose instructions when the evidence identifies a generalizable guidance
+gap and the expected benefit outweighs the ambiguity, reading cost, and upkeep
+of the rule. Inspect the guidance loaded at the decision and how it contributed
+to the outcome. Repeated reports of a lapse do not establish that instructions
+were missing or wrong; a failure under adequate guidance may need no new rule.
 
-- **Recurrence**: the same correction seen at least twice, or direct evidence
-  the failure mode recurs. "Saw it once, wrote a rule" is below the bar.
-- **Invisible failure mode**: the bad behavior wouldn't surface as a future CI
-  failure (a cancelled or timed-out run whose work actually succeeded), so
-  nothing would catch it next time.
-- **Maintainer asked** for the rule to be codified, even after one occurrence.
+Weigh exposure, consequences, and what will catch the failure in future runs.
+A failure invisible to CI can warrant an instruction repair without waiting
+for another incident. Prefer correcting or removing the responsible text to
+adding reminders beside adequate guidance. Task-specific details and uncertain
+causal explanations stay in the current investigation.
 
-Bundled tend defaults go through human review on the tend repo, which acts as
-an implicit recurrence filter; per-repo overlays don't, so the bar lives here.
-
-Signals pointing at a generalizable rule: the correction names a pattern
-("stop adding inline suggestions for formatting — the linter handles that")
-rather than a task detail, or references a repo convention ("we use
-conventional commits", "PRs go to `develop`").
-
-Don't propose when the feedback is task-specific, when confidence that it
-generalizes is low (ask instead), or when it comes from a non-maintainer —
-check `author_association`. Non-maintainers can raise preferences, but only a
-maintainer authorizes codifying them; note the pattern in a reply and let one
-confirm.
+A maintainer's request to codify a rule establishes their desired policy even
+without prior incidents. Non-maintainer feedback can supply evidence, but only
+a maintainer authorizes repository preferences — check `author_association`
+before turning one into a durable rule.
 
 ## Where it lands
 
@@ -90,9 +83,9 @@ body links that evidence. Cited cases read as the rule's targets and age into
 trivia. A decision settled for one site belongs in a comment at that site,
 where the next session to edit it will read it.
 
-When a skill's code block needs edge-case handling or grows past a couple of
-dozen lines, put the logic in a tested script in a `scripts/` directory beside
-the skill, and leave the skill a one-line invocation with the intent. A prose
+When a skill's code block needs tested logic or edge-case handling, put it in
+a tested script in a `scripts/` directory beside the skill, and leave the skill
+a one-line invocation with the intent. A prose
 recipe gets no shellcheck and no tests; every session re-derives its
 correctness.
 

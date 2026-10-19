@@ -227,7 +227,12 @@ def run_codex() -> int:
         args.extend(["--config", "features.memories=false"])
     effort = os.environ.get("EFFORT", "")
     if effort:
-        args.extend(["--config", f'model_reasoning_effort="{effort}"'])
+        args.extend(
+            [
+                "--config",
+                f"model_reasoning_effort={json.dumps(effort, ensure_ascii=False)}",
+            ]
+        )
     args.append(os.environ.get("PROMPT", ""))
     launch = ["/usr/bin/env"]
     if auth_mode == "api-key":

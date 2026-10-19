@@ -17,7 +17,7 @@ import click
 from jinja2 import Environment, PackageLoader, StrictUndefined
 from jinja2.runtime import Macro
 from ruamel.yaml import YAML, YAMLError
-from ruamel.yaml.scalarstring import LiteralScalarString
+from ruamel.yaml.scalarstring import DoubleQuotedScalarString, LiteralScalarString
 
 from tend.config import (
     ANTHROPIC_API_KEY_SECRET,
@@ -174,6 +174,16 @@ def _indent_block(text: str, width: int) -> str:
 
 
 _JINJA.filters["indent_block"] = _indent_block
+
+
+def _yaml_string(value: str) -> str:
+    """Preserve a literal string through YAML scalar parsing."""
+    stream = io.StringIO()
+    _YAML_BLOCK.dump(DoubleQuotedScalarString(value), stream)
+    return stream.getvalue().rstrip("\n")
+
+
+_JINJA.filters["yaml_string"] = _yaml_string
 
 _JINJA.globals["header"] = HEADER
 _JINJA.globals["tend_version"] = _TEND_VERSION
