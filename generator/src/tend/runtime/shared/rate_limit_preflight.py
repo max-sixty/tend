@@ -23,9 +23,9 @@ close every hour to get through a legitimate spike on a flat bump. At the
 formula's floor the two coincide — 10 doubles to 20 — so they only diverge
 where a flat bump stops working.
 
-Activity comes from one paginated repository listing, not GitHub's search
-index. Every count uses that same reading. Unavailable activity, tracker or
-approval data stops the run before it creates or reopens a pause issue.
+Activity counts use GitHub issue search, scoped to the authenticated bot and
+repository. Failed, malformed or incomplete reads stop the run before it
+creates or reopens a pause issue.
 Approvals on duplicate trackers count too; the oldest receives new refusals.
 
 The burst limit is deliberately not resumable: ten PRs in twenty minutes is a
@@ -47,6 +47,7 @@ import subprocess
 import time
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
 
 from tend.runtime.shared import _common, _issue
 
@@ -126,34 +127,20 @@ def main() -> int:
     today = now.strftime(_DAY)
     since = (now - BURST_WINDOW).strftime(_STAMP)
 
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    baseline = midnight - timedelta(days=BASELINE_DAYS)
-    # /issues includes PRs. Its `since` filters updated_at, so request just
-    # before the baseline boundary and partition by created_at locally.
-    path = (
-        f"repos/{repo}/issues?creator={bot}&state=all&sort=created&direction=asc&per_page=100"
-        f"&since={(baseline - timedelta(seconds=1)).strftime(_STAMP)}"
-    )
+    today_query = activity_query(repo, bot, today)
+    first = (now - timedelta(days=BASELINE_DAYS)).strftime(_DAY)
+    last = (now - timedelta(days=1)).strftime(_DAY)
     try:
-        items = _common.gh_paginated(path)
-        for item in items:
-            datetime.strptime(item["created_at"], _STAMP)
-            if type(item["number"]) is not int:
-                raise _common.UnexpectedShape("invalid issue number")
-        recent = [item for item in items if item["created_at"] > since]
-        recent_prs = sum("pull_request" in item for item in recent)
-        recent_issues = len(recent) - recent_prs
-        today_items = [
-            item for item in items if item["created_at"] >= midnight.strftime(_STAMP)
-        ]
-        today_posts = len(today_items)
-        past_posts = sum(
-            baseline.strftime(_STAMP) <= item["created_at"] < midnight.strftime(_STAMP)
-            for item in items
+        recent_prs = _search_count(activity_query(repo, bot, f">{since}") + " is:pr")
+        recent_issues = _search_count(
+            activity_query(repo, bot, f">{since}") + " is:issue"
         )
-    except (*_common.GH_READ_FAILED, KeyError, TypeError, ValueError):
+        today_posts = _search_count(today_query)
+        past_posts = _search_count(activity_query(repo, bot, f"{first}..{last}"))
+    except _common.GH_READ_FAILED as error:
         return _common.fail(
-            "Rate limit preflight: activity could not be read; no rate-limit issue was changed."
+            "Rate limit preflight: activity could not be read; "
+            f"no rate-limit issue was changed. {error}"
         )
     limit = spike_limit(past_posts)
 
@@ -195,10 +182,10 @@ def main() -> int:
             approvals = sum(
                 _approvals(repo, number, bot_id, today) for number in pauses
             )
-        except (*_common.GH_READ_FAILED, KeyError, TypeError, ValueError):
+        except (*_common.GH_READ_FAILED, KeyError, TypeError, ValueError) as error:
             return _common.fail(
                 "Rate limit preflight: pause issues or approvals could not be read; "
-                "no rate-limit issue was changed."
+                f"no rate-limit issue was changed. {error}"
             )
         pause = pauses[0] if pauses else None
         ceiling = limit << approvals
@@ -215,22 +202,46 @@ def main() -> int:
                 f"ceiling of {ceiling} (base limit {limit}, {approvals} approval(s), "
                 f"baseline {past_posts} over past {BASELINE_DAYS} days)"
             )
-            links = ", ".join(
-                f"[#{item['number']}]({env['GITHUB_SERVER_URL']}/{repo}/issues/{item['number']})"
-                for item in sorted(today_items, key=lambda item: item["number"])
+            activity_url = (
+                f"{env['GITHUB_SERVER_URL']}/search?"
+                f"{urlencode({'q': today_query, 'type': 'issues'})}"
             )
             row = (
                 f"{_issue.row()}\n\n"
                 f"{today_posts} items today; ceiling {ceiling} "
                 f"(base {limit}, {approvals} approval(s), "
                 f"{past_posts} items over the previous {BASELINE_DAYS} days).\n\n"
-                f"Counted today ({today} UTC): {links}"
+                f"[View items counted today ({today} UTC)]({activity_url})"
             )
             recovery = _file_pause_issue(row, pause)
             _common.annotate("error", f"{headline}. {recovery}")
             return 1
     _common.log("rate-limit", "check passed")
     return 0
+
+
+def activity_query(repo: str, bot: str, created: str) -> str:
+    """Issues and PRs filed by this bot in the specified creation window."""
+    return f"author:{bot} repo:{repo} created:{created}"
+
+
+def _search_count(query: str) -> int:
+    """A complete search count; unavailable evidence is never a zero count."""
+    path = "search/issues?" + urlencode({"q": query, "per_page": 1})
+    try:
+        result = _common.gh_json("api", path)
+        if (
+            not isinstance(result, dict)
+            or type(result.get("total_count")) is not int
+            or result["total_count"] < 0
+            or result.get("incomplete_results") is not False
+        ):
+            raise _common.UnexpectedShape(
+                f"invalid or incomplete search count: {result!r}"
+            )
+        return result["total_count"]
+    except _common.GH_READ_FAILED as error:
+        raise _common.UnexpectedShape(f"gh api {path}: {error}") from error
 
 
 def spike_limit(past_posts: int) -> int:
