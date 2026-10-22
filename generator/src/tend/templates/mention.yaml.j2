@@ -56,21 +56,15 @@ on:
 
 jobs:
   verify:
-    # Skip comments on the issues tend files about its own health: the action
-    # auto-comments on those when a run fails or is refused, and without this
-    # guard those comments re-trigger tend-mention, producing a
-    # self-sustaining ~1 run/minute loop until the underlying condition
-    # clears. The prompt's self-loop guard can't help here because the model
-    # never executes — the action fails before Claude starts. A relayed review
-    # enters as `repository_dispatch` and is judged in the check step below,
-    # against the record the API holds.
+    # The check step rejects the bot's own comments before handle starts,
+    # including health-report comments from a failed preflight. Human replies
+    # on those same issues still go through engagement verification.
     if: |
       <<tend_enabled>> && (
         github.event_name == 'repository_dispatch' ||
         (github.event_name == 'issues' &&
           contains(github.event.issue.body, '@<<cfg.bot_name>>')) ||
-        (github.event_name == 'issue_comment' &&
-          <<not_bookkeeping()>>))
+        github.event_name == 'issue_comment')
     runs-on: ubuntu-24.04
 <<environment()>>
     permissions:

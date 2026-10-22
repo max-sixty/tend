@@ -120,9 +120,8 @@
 {% endif %}
 {%- endmacro %}
 
-{# True when the issue carries none of the labels tend puts on its own
-   bookkeeping issues. The list lives in workflows.py so a new one reaches
-   every workflow at once; see BOOKKEEPING_LABELS for why they are skipped.
+{# True when the issue carries none of Tend's bookkeeping labels, which
+   triage skips. BOOKKEEPING_LABELS in workflows.py owns the list.
 
    `contains(…) == false` rather than `!contains(…)`: a value starting with
    `!` is a tag indicator to YAML, so the negated form only parses where the
