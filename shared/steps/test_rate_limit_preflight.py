@@ -275,6 +275,14 @@ def test_bot_cannot_approve_itself(gh: FakeGh) -> None:
         # Approvals are scoped to today, since the count they lift resets at
         # the UTC rollover.
         ([_closed("maintainer", day="2026-01-01")], 0, "yesterday's close"),
+        (
+            [
+                _closed("deleted", day="2026-01-01") | {"actor": None},
+                _closed("maintainer"),
+            ],
+            1,
+            "an old deleted actor cannot invalidate today's approval",
+        ),
     ],
 )
 def test_count_approvals_takes_only_a_persons_close_today(

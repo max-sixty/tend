@@ -260,14 +260,6 @@ def count_approvals(
         # These fields decide whether a person approved more work. Missing
         # evidence must stop the check, not silently manufacture a verdict.
         datetime.strptime(event["created_at"], _STAMP)
-        if event["event"] == "closed":
-            actor = event["actor"]
-            if (
-                type(actor["id"]) is not int
-                or not isinstance(actor["type"], str)
-                or not actor["type"]
-            ):
-                raise _common.UnexpectedShape("invalid close actor")
         if event["event"] == "labeled" and not isinstance(event["label"]["name"], str):
             raise _common.UnexpectedShape("invalid event label")
         labelled = event["event"] == "labeled"
@@ -278,12 +270,18 @@ def count_approvals(
 
 
 def _is_approval(event: dict[str, Any], *, bot_id: int, since: str) -> bool:
-    if event["event"] != "closed":
+    if event["event"] != "closed" or event["created_at"] <= since:
         return False
     actor = event["actor"]
+    if (
+        type(actor["id"]) is not int
+        or not isinstance(actor["type"], str)
+        or not actor["type"]
+    ):
+        raise _common.UnexpectedShape("invalid close actor")
     if actor["id"] == bot_id or actor["type"] == "Bot":
         return False
-    return event["created_at"] > since
+    return True
 
 
 def _file_pause_issue(row: str, pause: int | None) -> str:

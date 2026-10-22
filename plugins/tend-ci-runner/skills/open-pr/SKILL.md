@@ -68,7 +68,7 @@ gh pr list --state all --search "author:$BOT_LOGIN <issue-number>" \
   --json number,title,state,mergedAt
 ```
 
-Compare by title keywords **and** the files the new PR would modify — two concurrent fixes for the same bug typically pick different branch names, so a branch-name match is not sufficient. If a sibling bot PR overlaps in scope — whether open, closed, or already merged — **do not create**: post a comment on the triggering thread linking the existing PR and exit.
+Use title keywords, issue references, and changed files to find candidate siblings. Read their changes and discussion to determine what work remains per **Determine what remains** in `/tend-ci-runner:respond-on-thread`. Apply any prior rejection below when deciding whether to continue an existing PR or open the remaining fix.
 
 A fix may have landed directly on the default branch while you worked. Fetch it immediately before creating the PR:
 
