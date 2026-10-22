@@ -199,12 +199,8 @@ _JINJA.globals["openai_key_secret"] = OPENAI_KEY_SECRET
 _JINJA.globals["codex_auth_secret"] = CODEX_AUTH_SECRET
 _JINJA.globals["codex_refresh_auth_secret"] = CODEX_REFRESH_AUTH_SECRET
 _JINJA.globals["codex_refresh_pat_secret"] = CODEX_REFRESH_PAT_SECRET
-# Labels tend puts on the issues it files about its own health. Workflows skip
-# issues carrying them, so the bot's own record-keeping cannot re-trigger it:
-# each row the rate-limit preflight appends is a comment, which would fire
-# tend-mention, whose handle job trips the same limit and appends another.
-# A global rather than a literal per template, so the next such label is added
-# in one place.
+# Triage skips Tend's health reports. Mention's engagement check rejects the
+# bot's own comments while admitting human replies on those same issues.
 BOOKKEEPING_LABELS = ("tend-outage", "tend-rate-limit")
 _JINJA.globals["bookkeeping_labels"] = BOOKKEEPING_LABELS
 

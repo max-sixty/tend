@@ -14,7 +14,7 @@ The workflow prompt supplies the **notification snapshot cutoff**. This run owns
 ## Load required skills
 
 - Load `/tend-ci-runner:run-tend` before reading notification bodies, including its repo-specific overlay.
-- Load `/tend-ci-runner:respond-on-thread` and `/tend-ci-runner:post-to-github` before answering a thread.
+- Load `/tend-ci-runner:respond-on-thread` before deciding a thread’s outcome, and `/tend-ci-runner:post-to-github` before answering.
 - Load `/tend-ci-runner:triage` for an issue, `/tend-ci-runner:review` for an unreviewed PR head, or `/tend-ci-runner:act-in-other-repos` for an issue in another repository.
 - Load `/tend-ci-runner:resolve-conflicts` before repairing a bot PR conflict.
 
@@ -51,13 +51,12 @@ For each notification, identify the activity that made the thread unread and app
 
 ## 3. Give each thread a current outcome
 
-Process the snapshot oldest first. Read the live issue or PR and decide what it needs now:
+Process the snapshot oldest first. Determine what work or response remains from the live conversation per `/tend-ci-runner:respond-on-thread`, then choose its current outcome:
 
 - If a dedicated tend workflow is still running for the subject, defer it. Step 4 leaves it unread for the next poll.
 - For an open PR authored by the configured bot, continue any outstanding work per `/tend-ci-runner:continue-pr`, even if the latest activity was answered or the live head was reviewed. A current blocker can be recorded without posting it again.
 - If the bot already handled the latest activity and no repair remains, record it as handled without posting again.
 - Otherwise use the normal live workflow: `/tend-ci-runner:triage` for an issue, `/tend-ci-runner:review` for an unreviewed PR head, or answer a comment or review thread that asks the bot for something, per `/tend-ci-runner:respond-on-thread` and `/tend-ci-runner:post-to-github`.
-- A closed thread or a human conversation that needs nothing from the bot has the semantic outcome “no action”.
 - A non-conversational subject, such as a release or check suite, also has the outcome “no action”. Default-branch CI recovery belongs to the daily current-state scan.
 - A subject with no readable target — a `Discussion`, whose `subject.url` is null, or a deleted issue or PR, whose `subject.url` 404s — also has the outcome “no action”. Nothing makes it readable on a later poll, so leaving it unresolved would hand it to every later poll to re-examine. A read that fails for any other reason — a 5xx, a rate limit — leaves the item unresolved.
 

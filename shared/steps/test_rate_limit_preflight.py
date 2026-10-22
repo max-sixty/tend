@@ -25,15 +25,12 @@ NOW = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
 TODAY = "2026-01-02"
 LABELLED_AT = f"{TODAY}T08:00:00Z"
 
-PULLS = "repos/owner/repo/pulls?state=all&sort=created&direction=desc&per_page=30"
 ISSUES = (
-    f"repos/owner/repo/issues?creator={BOT}&state=all&sort=created"
-    "&direction=desc&per_page=30"
+    f"repos/owner/repo/issues?creator={BOT}&state=all&sort=created&direction=asc&per_page=100"
+    "&since=2025-12-26T23:59:59Z"
 )
-SEARCH_TODAY = f"search/issues?q=author:{BOT}+repo:owner/repo+created:{TODAY}"
-SEARCH_BASELINE = (
-    f"search/issues?q=author:{BOT}+repo:owner/repo+created:2025-12-27..2026-01-01"
-)
+TRACKERS = f"repos/owner/repo/issues?creator={BOT}&labels=tend-rate-limit&state=all&sort=created&direction=asc&per_page=100"
+LIST = ("api", "--paginate", "--slurp")
 
 
 @pytest.fixture(autouse=True)
@@ -56,10 +53,8 @@ def gh(
     """
     monkeypatch.setattr(_common, "utcnow", lambda: NOW)
     fake_gh.respond("api", "user", with_={"login": BOT, "id": BOT_ID})
-    fake_gh.respond("api", PULLS, with_=[])
-    fake_gh.respond("api", ISSUES, with_=[])
     _posts(fake_gh, today=10, past=15)
-    fake_gh.respond("issue", "list", with_=[])
+    fake_gh.respond(*LIST, TRACKERS, with_=[[]])
     fake_gh.respond(
         "issue", "create", with_=f"https://github.com/owner/repo/issues/{NEW_ISSUE}\n"
     )
@@ -77,8 +72,13 @@ def gh(
 
 
 def _posts(gh: FakeGh, *, today: int, past: int) -> None:
-    gh.respond("api", SEARCH_TODAY, with_={"total_count": today})
-    gh.respond("api", SEARCH_BASELINE, with_={"total_count": past})
+    items = [
+        {"number": i + 1, "created_at": f"{TODAY}T10:00:00Z"} for i in range(today)
+    ] + [
+        {"number": today + i + 1, "created_at": "2025-12-27T00:00:00Z"}
+        for i in range(past)
+    ]
+    gh.respond(*LIST, ISSUES, with_=[items])
 
 
 def _pause_issue(
@@ -89,7 +89,7 @@ def _pause_issue(
 ) -> None:
     """An open pause issue, labelled at *labelled_at*, carrying *events*."""
     gh.respond(
-        "issue", "list", with_=[{"number": number, "title": preflight.PAUSE_TITLE}]
+        *LIST, TRACKERS, with_=[[{"number": number, "title": preflight.PAUSE_TITLE}]]
     )
     labelled = {
         "event": "labeled",
@@ -140,7 +140,7 @@ def _stdin_for(gh: FakeGh, *prefix: str) -> str:
 
 
 def _serve(response: Any) -> str:
-    """One canned `issue list` response, failing the way `FakeGh` would."""
+    """One canned GitHub response, failing the way `FakeGh` would."""
     if isinstance(response, int):
         raise subprocess.CalledProcessError(response, ["gh"], "", "fake gh failure")
     return json.dumps(response)
@@ -212,67 +212,24 @@ def test_keeps_its_annotation_when_the_row_cannot_be_appended(
     assert f"Refused runs are listed in #{NEW_ISSUE}" in capsys.readouterr().out
 
 
-def test_files_nothing_when_the_issue_list_cannot_be_read(
-    gh: FakeGh, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("responses", [[1], [[], 1]])
+def test_unavailable_tracker_read_never_changes_an_issue(
+    gh: FakeGh, capsys: pytest.CaptureFixture[str], responses: list[Any]
 ) -> None:
-    """A failed list read must not be taken for "no issue exists".
-
-    Acting on the wrong reading files a second pause issue, which the
-    reconcile cannot merge away: it probes the ten numbers under the issue it
-    just filed, and an already-open pause issue is normally far older. The
-    duplicate then costs an approval outright — the lookup resolves to the
-    lowest-numbered issue, so a maintainer closing the newer one, which is the
-    issue this run's annotation names, approves nothing.
-    """
+    """Neither an initial nor a later failed read is evidence of absence."""
     _posts(gh, today=16, past=15)
-    gh.respond("issue", "list", with_=1)
-
+    reads = iter(responses)
+    gh.respond(
+        *LIST,
+        TRACKERS,
+        with_=lambda argv, stdin: _serve(
+            value if isinstance(value := next(reads), int) else [value]
+        ),
+    )
     assert preflight.main() == 1
-    out = capsys.readouterr().out
-    assert not gh.called("issue", "create"), gh.calls
-    assert "could not be read" in out
-    assert "could not be filed" not in out
-
-
-def test_still_files_when_only_the_re_read_fails(
-    gh: FakeGh, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A failed re-read must not suppress the file the first read cleared.
-
-    The two reads rule out different things. The first excludes an
-    already-open issue of any age, which is the duplicate worth avoiding; the
-    re-read after the jitter only narrows the seconds-wide sibling race, and
-    the reconcile's downward probe catches that anyway. Holding off here would
-    pause the bot with no issue at all — the outcome opening one exists to
-    avoid — and point the maintainer at an issue this run's own first read
-    established isn't there.
-    """
-    _posts(gh, today=16, past=15)
-    reads = iter([[], 1])
-    gh.respond("issue", "list", with_=lambda argv, stdin: _serve(next(reads)))
-
-    assert preflight.main() == 1
-    assert gh.called("issue", "create")
-    assert "could not be read" not in capsys.readouterr().out
-
-
-def test_files_when_only_the_first_read_fails(
-    gh: FakeGh, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """The re-read's verdict counts when the first read never landed.
-
-    The mirror of the case above, and the reason the re-read raises the flag
-    rather than merely leaving it alone. Without that raise the run refuses,
-    files nothing, and points the maintainer at an open issue the re-read had
-    just established isn't there — the same dead end from the other side.
-    """
-    _posts(gh, today=16, past=15)
-    reads = iter([1, []])
-    gh.respond("issue", "list", with_=lambda argv, stdin: _serve(next(reads)))
-
-    assert preflight.main() == 1
-    assert gh.called("issue", "create")
-    assert "could not be read" not in capsys.readouterr().out
+    assert not gh.called("issue"), gh.calls
+    assert not gh.called("label"), gh.calls
+    assert "could not be read" in capsys.readouterr().out
 
 
 def test_human_close_doubles_the_ceiling(
@@ -318,6 +275,14 @@ def test_bot_cannot_approve_itself(gh: FakeGh) -> None:
         # Approvals are scoped to today, since the count they lift resets at
         # the UTC rollover.
         ([_closed("maintainer", day="2026-01-01")], 0, "yesterday's close"),
+        (
+            [
+                _closed("deleted", day="2026-01-01") | {"actor": None},
+                _closed("maintainer"),
+            ],
+            1,
+            "an old deleted actor cannot invalidate today's approval",
+        ),
     ],
 )
 def test_count_approvals_takes_only_a_persons_close_today(
@@ -405,10 +370,8 @@ def test_reconciler_stands_down_to_a_racing_sibling(
 ) -> None:
     """A sibling that filed first keeps the record; this leg closes its own.
 
-    The pair only exists because both legs read the list as empty inside the
-    window it takes to reflect a fresh create, so the reconcile cannot re-read
-    that list — it probes the numbers below its own, which are primary-key
-    reads and return the sibling the instant it exists.
+    Both legs can read the list as empty before either creates its record.
+    The later leg finds the earlier sibling by its issue number.
     """
     _posts(gh, today=16, past=15)
     _probe(gh, 41)
@@ -451,11 +414,17 @@ def test_skips_the_issue_when_the_burst_limit_refused(gh: FakeGh) -> None:
     """
     _posts(gh, today=16, past=15)
     gh.respond(
-        "api",
-        PULLS,
+        *LIST,
+        ISSUES,
         with_=[
-            {"user": {"login": BOT}, "created_at": "2099-01-01T00:00:00Z"}
-            for _ in range(11)
+            [
+                {
+                    "number": i + 1,
+                    "created_at": f"{TODAY}T11:50:00Z",
+                    "pull_request": {},
+                }
+                for i in range(16)
+            ]
         ],
     )
 
@@ -493,21 +462,12 @@ def test_foreign_issue_is_not_the_anchor(gh: FakeGh) -> None:
     _posts(gh, today=16, past=15)
     _pause_issue(gh, _closed("maintainer"))
     gh.respond(
-        "issue",
-        "list",
-        with_=[{"number": 7, "title": "Something a maintainer labelled"}],
+        *LIST,
+        TRACKERS,
+        with_=[[{"number": 7, "title": "Something a maintainer labelled"}]],
     )
-
     assert preflight.main() == 1, "a foreign issue was taken as the anchor"
-    lookups = gh.called("issue", "list")
-    assert lookups, "the anchor lookup never ran"
-    for call in lookups:
-        assert call[call.index("--author") + 1] == "@me", (
-            f"the anchor lookup is not scoped to issues the bot authored: {call}"
-        )
-        assert call[call.index("--state") + 1] == "all", (
-            f"the anchor lookup must see a closed issue too: {call}"
-        )
+    assert gh.called(*LIST, TRACKERS)
 
 
 def test_reopens_rather_than_refiling(gh: FakeGh) -> None:
@@ -522,71 +482,91 @@ def test_reopens_rather_than_refiling(gh: FakeGh) -> None:
     )
 
 
-def test_the_limits_and_the_queries_they_are_measured_over() -> None:
+def test_spike_limit_scales_with_the_six_day_baseline() -> None:
     """The numbers and windows this check is: change one and a repo's ceiling
     moves, so they are pinned rather than derived in the assertion."""
     assert preflight.spike_limit(0) == 10, "the floor, where a doubling is a +10"
     assert preflight.spike_limit(15) == 15, "10 + 2 * (15 / 6)"
-    assert preflight.baseline_range(NOW) == "2025-12-27..2026-01-01"
 
 
-def test_issue_counts_exclude_pull_requests() -> None:
-    """`/issues` serves pull requests too, told apart only by a `pull_request`
-    member — counting one here would charge it against both limits at once."""
-    since = "2026-01-02T11:40:00Z"
-    issues = [
-        {"created_at": "2026-01-02T11:50:00Z"},
-        {"created_at": "2026-01-02T11:30:00Z"},
-        {"created_at": "2026-01-02T11:50:00Z", "pull_request": {"url": "…"}},
-    ]
-    assert preflight.count_recent_issues(issues, since) == 1
-
-
-def test_burst_window_is_the_last_twenty_minutes(gh: FakeGh) -> None:
-    """Eleven PRs trip the burst limit only if they are inside the window.
-
-    The window is what makes this a burst rather than a busy day, so it is
-    measured against the frozen clock rather than asserted on a literal the
-    step also computes.
-    """
-    inside = [
-        {"user": {"login": BOT}, "created_at": f"{TODAY}T11:41:00Z"} for _ in range(11)
-    ]
-    gh.respond("api", PULLS, with_=inside)
-    assert preflight.main() == 1
-
-    outside = [
-        {"user": {"login": BOT}, "created_at": f"{TODAY}T11:39:00Z"} for _ in range(11)
-    ]
-    gh.respond("api", PULLS, with_=outside)
-    assert preflight.main() == 0
-
-
-def test_a_blip_that_answers_with_html_leaves_the_counts_at_zero(
+def test_one_paginated_read_supplies_all_windows(
     gh: FakeGh, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A GitHub blip can answer a request with an HTML error page under a 200.
+    """Updated old issues are excluded; midnight is included; PRs count once.
 
-    `gh` then exits zero and the parse is what fails. The shell body swallowed
-    that with the same `|| echo 0` that caught a non-zero exit, and so must
-    this: a blip must degrade the counts, not crash the gate on every run and
-    file an outage row for each.
+    Pages model the real REST endpoint boundary rather than a search total.
+    Both sides of the twenty-minute window distinguish burst from daily use.
     """
-    for path in (PULLS, ISSUES, SEARCH_TODAY, SEARCH_BASELINE):
-        gh.respond("api", path, with_="<html>502 Bad Gateway</html>")
-
+    items = [
+        {"number": 1, "created_at": "2025-01-01T00:00:00Z"},
+        {"number": 2, "created_at": "2025-12-27T00:00:00Z"},
+        {"number": 3, "created_at": f"{TODAY}T00:00:00Z"},
+        {"number": 4, "created_at": f"{TODAY}T11:40:00Z"},
+        {"number": 5, "created_at": f"{TODAY}T11:41:00Z"},
+        {"number": 6, "created_at": f"{TODAY}T11:41:00Z", "pull_request": {}},
+    ]
+    gh.respond(*LIST, ISSUES, with_=[items[:3], items[3:]])
     assert preflight.main() == 0
-    assert "burst=0 PRs, 0 issues" in capsys.readouterr().out
+    assert (
+        "burst=1 PRs, 1 issues (20min); today=4 (limit: 10)" in capsys.readouterr().out
+    )
+    assert len(gh.called(*LIST, ISSUES)) == 1
 
 
+@pytest.mark.parametrize("kind", ["issue", "pull_request"])
+def test_burst_window_is_the_last_twenty_minutes(gh: FakeGh, kind: str) -> None:
+    items = [
+        {
+            "number": i + 1,
+            "created_at": f"{TODAY}T11:41:00Z",
+            **({"pull_request": {}} if kind == "pull_request" else {}),
+        }
+        for i in range(11)
+    ]
+    # Enough baseline to keep the daily check out of this contrast.
+    baseline = [{"number": 100, "created_at": "2025-12-27T00:00:00Z"}] * 15
+    gh.respond(*LIST, ISSUES, with_=[baseline, items])
+    assert preflight.main() == 1
+    for item in items:
+        item["created_at"] = f"{TODAY}T11:39:00Z"
+    assert preflight.main() == 0
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        1,
+        "<html>502 Bad Gateway</html>",
+        {"message": "unavailable"},
+        [[{"number": 1}]],
+        [[{"number": 1, "created_at": "yesterday"}]],
+    ],
+)
+def test_unavailable_activity_never_becomes_zero(
+    gh: FakeGh, capsys: pytest.CaptureFixture[str], response: Any
+) -> None:
+    gh.respond(*LIST, ISSUES, with_=response)
+    assert preflight.main() == 1
+    out = capsys.readouterr().out
+    assert "activity could not be read" in out
+    assert "burst=" not in out
+    assert not gh.called("issue"), gh.calls
+    assert not gh.called("label"), gh.calls
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        1,
+        [[{"event": "closed", "created_at": f"{TODAY}T09:00:00Z", "actor": None}]],
+        [[{"event": "labeled", "created_at": f"{TODAY}T09:00:00Z"}]],
+    ],
+)
 def test_unreadable_events_refuse_the_run_rather_than_approving_it(
     gh: FakeGh,
+    response: Any,
 ) -> None:
-    """Failing to read the events leaves approvals at zero.
-
-    That refuses the run, which is the safe direction for a check whose job is
-    to stop things — the opposite would let a blip wave a runaway through.
-    """
+    """Unavailable approval history stops before reopening or commenting."""
     _posts(gh, today=16, past=15)
     _pause_issue(gh, _closed("maintainer"))
     gh.respond(
@@ -594,10 +574,11 @@ def test_unreadable_events_refuse_the_run_rather_than_approving_it(
         "--paginate",
         "--slurp",
         f"repos/owner/repo/issues/{NEW_ISSUE}/events?per_page=100",
-        with_=1,
+        with_=response,
     )
 
     assert preflight.main() == 1
+    assert not gh.called("issue"), gh.calls
 
 
 def test_a_label_that_cannot_be_created_does_not_stop_the_filing(
@@ -624,10 +605,44 @@ def test_keeps_its_own_record_when_it_cannot_vouch_for_a_sibling(
     """
     _posts(gh, today=16, past=15)
     _probe(gh, 41)
-    identities = iter([_serve({"login": BOT, "id": BOT_ID}), None])
+    identities = iter([_serve({"login": BOT, "id": BOT_ID})] * 3 + [None])
     gh.respond("api", "user", with_=lambda argv, stdin: next(identities) or _serve(1))
 
     assert preflight.main() == 1
     assert not gh.called("issue", "close"), (
         f"stood down to a sibling it could not vouch for: {gh.calls}"
     )
+
+
+def test_duplicate_tracker_closes_count_and_oldest_gets_new_refusals(
+    gh: FakeGh, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _posts(gh, today=40, past=15)
+    _pause_issue(gh, _closed("maintainer"), number=7)
+    _pause_issue(gh, _closed("maintainer"), number=42)
+    gh.respond(
+        *LIST,
+        TRACKERS,
+        with_=[
+            [{"number": 42, "title": preflight.PAUSE_TITLE}],
+            [{"number": 7, "title": preflight.PAUSE_TITLE}],
+        ],
+    )
+    assert preflight.main() == 0
+    assert "2 approval(s) (ceiling 60)" in capsys.readouterr().out
+    _posts(gh, today=61, past=15)
+    assert preflight.main() == 1
+    assert gh.called("issue", "reopen", "7")
+    notice = _stdin_for(gh, "issue", "comment", "7")
+    assert "61 items today; ceiling 60 (base 15, 2 approval(s), 15 items" in notice
+    assert "[#61](https://github.com/owner/repo/issues/61)" in notice
+    assert "[#62]" not in notice  # baseline item
+
+
+def test_late_tracker_approval_is_read_before_reopening(gh: FakeGh) -> None:
+    _posts(gh, today=16, past=15)
+    _pause_issue(gh, _closed("maintainer"))
+    reads = iter([[], [{"number": NEW_ISSUE, "title": preflight.PAUSE_TITLE}]])
+    gh.respond(*LIST, TRACKERS, with_=lambda argv, stdin: json.dumps([next(reads)]))
+    assert preflight.main() == 0
+    assert not gh.called("issue"), gh.calls

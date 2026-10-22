@@ -23,6 +23,11 @@ close every hour to get through a legitimate spike on a flat bump. At the
 formula's floor the two coincide — 10 doubles to 20 — so they only diverge
 where a flat bump stops working.
 
+Activity comes from one paginated repository listing, not GitHub's search
+index. Every count uses that same reading. Unavailable activity, tracker or
+approval data stops the run before it creates or reopens a pause issue.
+Approvals on duplicate trackers count too; the oldest receives new refusals.
+
 The burst limit is deliberately not resumable: ten PRs in twenty minutes is a
 loop rather than a busy day, and there is nothing there to wave through.
 
@@ -104,7 +109,9 @@ def main() -> int:
     # control.
     try:
         identity = _common.gh_json("api", "user")
-        bot, bot_id = identity["login"], int(identity["id"])
+        bot, bot_id = identity["login"], identity["id"]
+        if not isinstance(bot, str) or not bot or type(bot_id) is not int:
+            raise _common.UnexpectedShape("invalid authenticated identity")
     except (*_common.GH_READ_FAILED, KeyError, TypeError, ValueError):
         return _common.fail(
             "Rate limit preflight: could not read the bot's own identity from the "
@@ -119,26 +126,41 @@ def main() -> int:
     today = now.strftime(_DAY)
     since = (now - BURST_WINDOW).strftime(_STAMP)
 
-    recent_prs = count_recent_prs(
-        _items(f"repos/{repo}/pulls?state=all&sort=created&direction=desc&per_page=30"),
-        bot,
-        since,
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    baseline = midnight - timedelta(days=BASELINE_DAYS)
+    # /issues includes PRs. Its `since` filters updated_at, so request just
+    # before the baseline boundary and partition by created_at locally.
+    path = (
+        f"repos/{repo}/issues?creator={bot}&state=all&sort=created&direction=asc&per_page=100"
+        f"&since={(baseline - timedelta(seconds=1)).strftime(_STAMP)}"
     )
-    recent_issues = count_recent_issues(
-        _items(
-            f"repos/{repo}/issues?creator={bot}&state=all&sort=created"
-            "&direction=desc&per_page=30"
-        ),
-        since,
-    )
-    today_posts = _total_count(search_path(repo, bot, today))
-    past_posts = _total_count(search_path(repo, bot, baseline_range(now)))
+    try:
+        items = _common.gh_paginated(path)
+        for item in items:
+            datetime.strptime(item["created_at"], _STAMP)
+            if type(item["number"]) is not int:
+                raise _common.UnexpectedShape("invalid issue number")
+        recent = [item for item in items if item["created_at"] > since]
+        recent_prs = sum("pull_request" in item for item in recent)
+        recent_issues = len(recent) - recent_prs
+        today_items = [
+            item for item in items if item["created_at"] >= midnight.strftime(_STAMP)
+        ]
+        today_posts = len(today_items)
+        past_posts = sum(
+            baseline.strftime(_STAMP) <= item["created_at"] < midnight.strftime(_STAMP)
+            for item in items
+        )
+    except (*_common.GH_READ_FAILED, KeyError, TypeError, ValueError):
+        return _common.fail(
+            "Rate limit preflight: activity could not be read; no rate-limit issue was changed."
+        )
     limit = spike_limit(past_posts)
 
     _common.log(
         "rate-limit",
         f"burst={recent_prs} PRs, {recent_issues} issues (20min); "
-        f"today={today_posts} (limit: {limit})",
+        f"today={today_posts} (limit: {limit}); baseline={past_posts} ({BASELINE_DAYS} days)",
     )
 
     abort = False
@@ -157,28 +179,35 @@ def main() -> int:
         )
         abort = True
 
+    # A burst is not resumable; offering a ceiling increase would promise a
+    # recovery that closing an issue cannot deliver.
+    if abort:
+        return 1
+
     # Everything below runs only once the base limit is already exceeded, so
     # the common path costs no extra API calls at all.
     if today_posts > limit:
-        # Whether the read succeeded is kept, not just what it returned: a
-        # failure and "none open" both come back as no number, and further
-        # down that difference decides whether filing is safe. For the
-        # approval count the two are equivalent — both leave it at zero, which
-        # refuses the run either way.
-        lookup_ok = True
         try:
-            pause = _issue.canonical(PAUSE_LABEL, "all", PAUSE_TITLE)
-        except _common.GH_READ_FAILED:
-            pause, lookup_ok = None, False
-
-        approvals = _approvals(repo, pause, bot_id, today) if pause is not None else 0
+            pauses = _issue.matching(PAUSE_LABEL, "all", PAUSE_TITLE)
+            if not pauses:
+                time.sleep(random.randrange(JITTER))
+                pauses = _issue.matching(PAUSE_LABEL, "all", PAUSE_TITLE)
+            approvals = sum(
+                _approvals(repo, number, bot_id, today) for number in pauses
+            )
+        except (*_common.GH_READ_FAILED, KeyError, TypeError, ValueError):
+            return _common.fail(
+                "Rate limit preflight: pause issues or approvals could not be read; "
+                "no rate-limit issue was changed."
+            )
+        pause = pauses[0] if pauses else None
         ceiling = limit << approvals
 
         if today_posts <= ceiling:
             _common.log(
                 "rate-limit",
                 f"{today_posts} today is over the base limit of {limit}, allowed by "
-                f"{approvals} approval(s) on #{pause} (ceiling {ceiling})",
+                f"{approvals} approval(s) (ceiling {ceiling})",
             )
         else:
             headline = (
@@ -186,71 +215,27 @@ def main() -> int:
                 f"ceiling of {ceiling} (base limit {limit}, {approvals} approval(s), "
                 f"baseline {past_posts} over past {BASELINE_DAYS} days)"
             )
-            # Only file when the spike is the whole reason this run is being
-            # refused. A burst trip is not resumable, so an issue offering to
-            # lift the ceiling would promise a recovery that closing it cannot
-            # deliver; the burst annotation above is the honest signal, and no
-            # row is owed for a run whose retry would be refused again on the
-            # same grounds.
-            if abort:
-                _common.annotate("error", f"{headline}.")
-            else:
-                recovery = _file_pause_issue(_issue.row(), pause, lookup_ok)
-                _common.annotate("error", f"{headline}. {recovery}")
-            abort = True
-
-    if abort:
-        return 1
+            links = ", ".join(
+                f"[#{item['number']}]({env['GITHUB_SERVER_URL']}/{repo}/issues/{item['number']})"
+                for item in sorted(today_items, key=lambda item: item["number"])
+            )
+            row = (
+                f"{_issue.row()}\n\n"
+                f"{today_posts} items today; ceiling {ceiling} "
+                f"(base {limit}, {approvals} approval(s), "
+                f"{past_posts} items over the previous {BASELINE_DAYS} days).\n\n"
+                f"Counted today ({today} UTC): {links}"
+            )
+            recovery = _file_pause_issue(row, pause)
+            _common.annotate("error", f"{headline}. {recovery}")
+            return 1
     _common.log("rate-limit", "check passed")
     return 0
-
-
-def search_path(repo: str, bot: str, created: str) -> str:
-    """The ``search/issues`` query counting what the bot filed in *created*.
-
-    ``search/issues`` covers both issues and PRs. The bot's own bookkeeping
-    issues (``tend-outage``, ``tend-rate-limit``) are counted like anything
-    else it files: a flood of them is itself a plausible runaway — a bot stuck
-    in a failure loop files them — so excluding them would blind the metric to
-    one of the shapes it exists to catch.
-    """
-    return f"search/issues?q=author:{bot}+repo:{repo}+created:{created}"
-
-
-def baseline_range(now: datetime) -> str:
-    """The ``created:`` clause covering the six whole days before today."""
-    first = (now - timedelta(days=BASELINE_DAYS)).strftime(_DAY)
-    last = (now - timedelta(days=1)).strftime(_DAY)
-    return f"{first}..{last}"
 
 
 def spike_limit(past_posts: int) -> int:
     """``10 + 2 * daily_avg``, i.e. ``10 + past_posts / 3`` over six days."""
     return 10 + past_posts // 3
-
-
-def count_recent_prs(pulls: list[dict[str, Any]], bot: str, since: str) -> int:
-    """PRs the bot opened after *since*, an ISO-8601 UTC stamp."""
-    return sum(
-        1
-        for pull in pulls
-        if (pull.get("user") or {}).get("login") == bot
-        and (pull.get("created_at") or "") > since
-    )
-
-
-def count_recent_issues(issues: list[dict[str, Any]], since: str) -> int:
-    """Issues (not PRs) created after *since*; the endpoint filters the author.
-
-    ``/issues`` serves pull requests too, distinguished only by a
-    ``pull_request`` member, so dropping those is what keeps a PR from being
-    counted against both limits at once.
-    """
-    return sum(
-        1
-        for issue in issues
-        if issue.get("pull_request") is None and (issue.get("created_at") or "") > since
-    )
 
 
 def count_approvals(
@@ -272,23 +257,32 @@ def count_approvals(
     """
     since = f"{today}T00:00:00Z"
     for event in events:
-        labelled = event.get("event") == "labeled"
-        if labelled and (event.get("label") or {}).get("name") == label:
-            at = event.get("created_at") or ""
+        # These fields decide whether a person approved more work. Missing
+        # evidence must stop the check, not silently manufacture a verdict.
+        datetime.strptime(event["created_at"], _STAMP)
+        if event["event"] == "labeled" and not isinstance(event["label"]["name"], str):
+            raise _common.UnexpectedShape("invalid event label")
+        labelled = event["event"] == "labeled"
+        if labelled and event["label"]["name"] == label:
+            at = event["created_at"]
             since = max(since, at)
     return sum(1 for event in events if _is_approval(event, bot_id=bot_id, since=since))
 
 
 def _is_approval(event: dict[str, Any], *, bot_id: int, since: str) -> bool:
-    if event.get("event") != "closed":
+    if event["event"] != "closed" or event["created_at"] <= since:
         return False
-    actor = event.get("actor") or {}
-    if actor.get("id") == bot_id or actor.get("type") == "Bot":
-        return False
-    return (event.get("created_at") or "") > since
+    actor = event["actor"]
+    if (
+        type(actor["id"]) is not int
+        or not isinstance(actor["type"], str)
+        or not actor["type"]
+    ):
+        raise _common.UnexpectedShape("invalid close actor")
+    return not (actor["id"] == bot_id or actor["type"] == "Bot")
 
 
-def _file_pause_issue(row: str, pause: int | None, lookup_ok: bool) -> str:
+def _file_pause_issue(row: str, pause: int | None) -> str:
     """Reopen and append to the pause issue, or file one; say what to close.
 
     Returns the recovery sentence the refusal annotation ends with, because
@@ -297,29 +291,6 @@ def _file_pause_issue(row: str, pause: int | None, lookup_ok: bool) -> str:
     "could not be filed" about an issue that *was* filed sends a maintainer
     away from the one thing that would restart the bot.
     """
-    if pause is None:
-        # Only look again when there is nothing to append to. The jitter
-        # narrows the create-create race, so it buys nothing once the issue is
-        # known to exist, and the lookup that found it is still good.
-        #
-        # A failed re-read leaves the first read's verdict standing rather
-        # than clearing it, because the two rule out different things. The
-        # first excludes an already-open issue of any age — the duplicate that
-        # matters here, since the lookup resolves to the lowest-numbered
-        # issue, so a maintainer closing the newer one, the issue this run's
-        # annotation names, would approve nothing and never learn it. The
-        # re-read only narrows the seconds-wide sibling race, and
-        # `_issue.create_and_reconcile`'s downward probe already catches that.
-        # So only a run that never managed a good read has to hold off filing;
-        # holding off on a failed re-read would pause the bot with no issue at
-        # all, which is the outcome opening one exists to avoid.
-        time.sleep(random.randrange(JITTER))
-        try:
-            pause = _issue.canonical(PAUSE_LABEL, "all", PAUSE_TITLE)
-            lookup_ok = True
-        except _common.GH_READ_FAILED:
-            pause = None
-
     if pause is not None:
         # A no-op when it is already open, which is the usual case for the
         # second and later runs refused in one incident.
@@ -337,18 +308,6 @@ def _file_pause_issue(row: str, pause: int | None, lookup_ok: bool) -> str:
         except subprocess.CalledProcessError:
             _common.annotate("warning", f"Could not append this run's row to #{pause}.")
         return f"Refused runs are listed in #{pause}; closing it doubles the ceiling."
-
-    if not lookup_ok:
-        # Neither read succeeded, so whether an issue is already open is
-        # unknown; file nothing. See the re-read above for why a second issue
-        # is worse here than none. An issue may well be open and worth closing
-        # — this run just never managed to see it — so unlike a failed create,
-        # naming the label is all this can offer toward it.
-        return (
-            "This repo's issues could not be read (see the error above), so none was "
-            f"filed; if an open `{PAUSE_LABEL}` issue exists, closing it doubles the "
-            "ceiling."
-        )
 
     _issue.ensure_label(PAUSE_LABEL, PAUSE_DESCRIPTION, PAUSE_COLOR)
     # The row twice over: it seeds the body, and it goes to the reconcile as
@@ -382,39 +341,11 @@ def _file_pause_issue(row: str, pause: int | None, lookup_ok: bool) -> str:
     return f"Refused runs are listed in #{number}; closing it doubles the ceiling."
 
 
-def _total_count(path: str) -> int:
-    """``total_count`` from a search, or 0 when the read fails.
-
-    Zero is the safe direction: it can only lower a count, never lift a limit.
-    """
-    try:
-        return int(_common.gh_json("api", path)["total_count"])
-    except (*_common.GH_READ_FAILED, KeyError, TypeError, ValueError):
-        return 0
-
-
-def _items(path: str) -> list[dict[str, Any]]:
-    """A list endpoint's items, or none when the read fails."""
-    try:
-        items = _common.gh_json("api", path)
-    except _common.GH_READ_FAILED:
-        return []
-    return items if isinstance(items, list) else []
-
-
 def _approvals(repo: str, issue: int, bot_id: int, today: str) -> int:
-    """Approvals recorded on *issue*, or 0 when the events cannot be read.
+    """Read all approval events; an unavailable history is not zero approvals.
 
-    ``/events`` rather than ``/timeline``: it carries every field
-    :func:`count_approvals` reads and excludes comments, which matter because
-    this issue accumulates one per refused run and is never replaced. Failing
-    to read them leaves approvals at zero, which refuses the run — the safe
-    direction for a check whose job is to stop things.
+    /events omits comments, which accumulate on every refused run, and carries
+    all facts needed to count the maintainer's closes.
     """
-    try:
-        events = _common.gh_paginated(
-            f"repos/{repo}/issues/{issue}/events?per_page=100"
-        )
-    except _common.GH_READ_FAILED:
-        return 0
+    events = _common.gh_paginated(f"repos/{repo}/issues/{issue}/events?per_page=100")
     return count_approvals(events, label=PAUSE_LABEL, bot_id=bot_id, today=today)

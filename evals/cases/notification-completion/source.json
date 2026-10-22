@@ -1,0 +1,14 @@
+{
+  "kind": "focused",
+  "historical_ref": "db67e386f26bc838877df498e24cc9f9dac78cb6",
+  "bot": "tend-agent",
+  "merge": "restricted",
+  "fixtures": {
+    "observations.json": "fcc9d57d2f8f616ed7ec9fcf69d7138b8f8e05d686fe08189034b4f8cc3e853e"
+  },
+  "origin": {
+    "kind": "incident and synthetic contrasts",
+    "run": "https://github.com/max-sixty/tend/actions/runs/39804709567",
+    "construction": "Rate-request condenses the issue, owner requests and state seen by the incident; excludes the original actor decision. Other cases contrast a later merge covering different work, fulfilled work, and withdrawal. Frozen decisions do not reproduce the live GitHub workflow."
+  }
+}

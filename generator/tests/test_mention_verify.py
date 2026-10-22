@@ -333,15 +333,25 @@ def test_a_mention_wins_over_the_bot_review_gate(env: dict[str, str]) -> None:
     assert _verdict(env) == ("true", "mention")
 
 
-def test_the_bots_own_comment_never_summons_it_even_quoting_a_mention(
-    env: dict[str, str],
+@pytest.mark.parametrize(
+    "author,expected", [(BOT, ("false", "")), ("human", ("true", "mention"))]
+)
+def test_own_issue_comments_distinguish_the_bot_from_a_human(
+    env: dict[str, str], author: str, expected: tuple[str, str]
 ) -> None:
     """The bot's PAT-based User account is invisible to the Bot-type skip, and
     the self-guard has to precede the mention check: a bot comment quoting a
-    prior @-mention would otherwise re-match it."""
-    _issue_comment(env, COMMENT_AUTHOR=BOT, COMMENT_BODY=f"you said: @{BOT} do X")
+    prior @-mention would otherwise re-match it. Health-report replies from a
+    human still summon it before any participation lookup is needed."""
+    _issue_comment(
+        env,
+        ISSUE_AUTHOR=BOT,
+        COMMENT_AUTHOR=author,
+        COMMENT_BODY=f"you said: @{BOT} do X",
+    )
 
-    assert _verdict(env) == ("false", "")
+    assert _verdict(env) == expected
+    assert _calls(env) == []
 
 
 def test_the_bots_own_relayed_inline_comment_never_summons_it(
