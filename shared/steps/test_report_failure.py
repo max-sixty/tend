@@ -14,6 +14,12 @@ NEW_ISSUE = 42
 RUN_LINK = "[workflow run](https://github.com/owner/repo/actions/runs/12345)"
 ROW = f"| when | {RUN_LINK} | #851 |"
 COMMENTS = f"repos/owner/repo/issues/{NEW_ISSUE}/comments?per_page=100"
+TRACKERS = (
+    "api",
+    "--paginate",
+    "--slurp",
+    f"repos/owner/repo/issues?creator={BOT}&labels=tend-outage&state=open&sort=created&direction=asc&per_page=100",
+)
 ACTION_REPOSITORY = "max-sixty/tend"
 RELEASES = ("api", f"repos/{ACTION_REPOSITORY}/releases/latest")
 
@@ -29,7 +35,7 @@ def _no_waiting(monkeypatch: pytest.MonkeyPatch) -> None:
 def gh(fake_gh: FakeGh, actions_env: Path) -> FakeGh:
     """A `gh` wired for the create path: no tracker open, no racing sibling."""
     fake_gh.respond("api", "user", with_={"login": BOT, "id": 4242})
-    fake_gh.respond("issue", "list", with_=[])
+    fake_gh.respond(*TRACKERS, with_=[[]])
     fake_gh.respond(
         "issue", "create", with_=f"https://github.com/owner/repo/issues/{NEW_ISSUE}\n"
     )
@@ -48,9 +54,7 @@ def gh(fake_gh: FakeGh, actions_env: Path) -> FakeGh:
 
 def _open_tracker(gh: FakeGh, number: int = NEW_ISSUE) -> None:
     """A tracker already open, so the reporter takes the append path."""
-    gh.respond(
-        "issue", "list", with_=[{"number": number, "title": report_failure.TITLE}]
-    )
+    gh.respond(*TRACKERS, with_=[[{"number": number, "title": report_failure.TITLE}]])
     gh.respond(
         "api",
         "--paginate",
@@ -153,10 +157,7 @@ def test_appends_to_the_open_tracker(gh: FakeGh) -> None:
     assert not gh.called("issue", "create"), (
         f"filed a second tracker while one was open: {gh.calls}"
     )
-    for call in gh.called("issue", "list"):
-        assert call[call.index("--state") + 1] == "open", (
-            f"a closed tracker would swallow the next incident: {call}"
-        )
+    assert gh.called(*TRACKERS)
 
 
 def test_files_nothing_when_the_issue_list_cannot_be_read(
@@ -172,7 +173,7 @@ def test_files_nothing_when_the_issue_list_cannot_be_read(
     downward probe does not reach an older tracker, so the duplicate persists.
     Skipping costs this one row, and the next failure records normally.
     """
-    gh.respond("issue", "list", with_="<html>502</html>")
+    gh.respond(*TRACKERS, with_="<html>502</html>")
 
     assert report_failure.main() == 0
     assert not gh.called("issue", "create"), gh.calls

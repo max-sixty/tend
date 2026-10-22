@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import subprocess
 from typing import Any
+from urllib.parse import urlencode
 
 from tend.runtime.shared import _common
 
@@ -82,27 +83,39 @@ def row() -> str:
 def matching(label: str, state: str, title: str) -> list[int]:
     """Every issue this bot filed under *title* carrying *label*, lowest first.
 
+    Read the repository directly: `gh issue list --author` uses the search
+    index, whose lag can hide an existing tracker and lose its approvals.
     A label no repo has yet returns an empty list rather than an error.
     """
-    issues = _common.gh_json(
-        "issue",
-        "list",
-        "--label",
-        label,
-        "--state",
-        state,
-        "--author",
-        "@me",
-        "--limit",
-        "100",
-        "--json",
-        "number,title",
-    )
-    return sorted(issue["number"] for issue in issues if issue.get("title") == title)
+    repo = os.environ["GITHUB_REPOSITORY"]
+    try:
+        login = _common.gh_json("api", "user")["login"]
+        if not isinstance(login, str) or not login:
+            raise _common.UnexpectedShape("invalid authenticated login")
+        query = urlencode(
+            {
+                "creator": login,
+                "labels": label,
+                "state": state,
+                "sort": "created",
+                "direction": "asc",
+                "per_page": 100,
+            }
+        )
+        issues = _common.gh_paginated(f"repos/{repo}/issues?{query}")
+        numbers = []
+        for issue in issues:
+            if not isinstance(issue["title"], str) or type(issue["number"]) is not int:
+                raise _common.UnexpectedShape("invalid tracker issue")
+            if "pull_request" not in issue and issue["title"] == title:
+                numbers.append(issue["number"])
+        return sorted(numbers)
+    except (KeyError, TypeError) as error:
+        raise _common.UnexpectedShape("invalid tracker issue listing") from error
 
 
 def canonical(label: str, state: str, title: str) -> int | None:
-    """The one that counts: lowest-numbered, ``None`` when there is none.
+    """The write destination: lowest-numbered, ``None`` when there is none.
 
     Lowest rather than newest, because a race can leave a duplicate the
     reconcile then closes and the lowest is the one every leg computes alike.
@@ -168,7 +181,8 @@ def is_ours(issue: dict[str, Any], *, title: str, label: str, login: str) -> boo
     keeper, and on the rate-limit record a close is read as an approval.
     """
     return (
-        issue.get("state") == "open"
+        "pull_request" not in issue
+        and issue.get("state") == "open"
         and issue.get("title") == title
         and (issue.get("user") or {}).get("login") == login
         and any(entry.get("name") == label for entry in issue.get("labels") or [])
@@ -190,20 +204,9 @@ def create_and_reconcile(label: str, title: str, row: str, body: str) -> int | N
     preserve.
 
     Callers sleep a jittered interval before their check-then-act, which
-    narrows the window when sibling jobs trip at near-identical times but
-    cannot close it: two legs can still both read the list as empty within the
-    few seconds the index takes to reflect a fresh create, and each files its
-    own.
-
-    The probe goes downwards rather than re-listing, because a settle-then-list
-    reconcile reads the same lagging index that lost the race in the first
-    place: observed in practice, a sibling created 3 s earlier was still absent
-    from the list while one created 6 s earlier was present, so two legs whose
-    creates landed in the same second each read back only their own issue and
-    closed nothing. ``GET /issues/{n}`` is a primary-key read and returns a
-    sibling the instant it exists. Deferring to the *lowest* match rather than
-    the nearest is what makes it converge: every leg computes the same keeper
-    from its own vantage point, and only higher-numbered legs stand down.
+    narrows but cannot close the race between reading and creating. Probe
+    lower issue numbers directly for racing siblings; every leg defers to the
+    lowest match it can see, and only higher-numbered legs stand down.
 
     Self-close-only is a deliberate narrowing: closing every higher duplicate
     a leg could see only ever worked when the lagging list happened to be
