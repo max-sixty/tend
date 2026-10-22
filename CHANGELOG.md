@@ -6,6 +6,27 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.15
+
+### Improved
+
+- Notification and PR handling determines what remains from the request, conversation, and delivered changes. Closed threads and overlapping PRs can still carry outstanding work, and human replies on Tend health issues reach engagement verification. ([#1559](https://github.com/max-sixty/tend/pull/1559))
+- Maintenance decisions use causal evidence, compatibility, and consequences rather than fixed file, recurrence, or PR-count gates. Independent repairs can proceed on separate topic branches. ([#1554](https://github.com/max-sixty/tend/pull/1554))
+- Effort names pass through to the selected harness CLI, preserving their literal values in generated workflows and runner configuration. ([#1554](https://github.com/max-sixty/tend/pull/1554))
+- The Claude harness defaults to Claude Code 2.1.302. ([#1553](https://github.com/max-sixty/tend/pull/1553))
+
+### Fixed
+
+- Rate-limit checks report failed, malformed, or incomplete reads instead of treating them as zero activity or missing trackers. Search queries scope counts to the bot, repository, creation window, and item type; approval closes across duplicate trackers count together, and pause notices show the calculation and link to the counted activity. ([#1559](https://github.com/max-sixty/tend/pull/1559), [#1560](https://github.com/max-sixty/tend/pull/1560))
+- `tend check` gives fault-specific remedies for workflow drift, credential environment use, and external reusable workflows. ([#1554](https://github.com/max-sixty/tend/pull/1554))
+
+### Internal
+
+- Update mitmproxy to 12.3.0 and uv to 0.13.5. ([#1556](https://github.com/max-sixty/tend/pull/1556))
+- Simplify Tend's own development guidance about skills and deterministic steps. ([#1551](https://github.com/max-sixty/tend/pull/1551))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.14
 
 ### Improved
