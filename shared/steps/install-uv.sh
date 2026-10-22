@@ -6,15 +6,15 @@
 # Inputs (env): UV_INSTALL_DIR.
 set -euo pipefail
 
-UV_VERSION=0.12.23
+UV_VERSION=0.13.5
 case "$(uname -m)" in
   x86_64)
     target=x86_64-unknown-linux-gnu
-    sha256=9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6
+    sha256=f68d291c75783122dad58ab77def0e13f3233f358731db5d6d7e8715603b928f
     ;;
   aarch64)
     target=aarch64-unknown-linux-gnu
-    sha256=6524bd338177ed50d035d39354e12545e993bbeba2ecbddf0480c5b3a81d313f
+    sha256=4bb69cf95ed13f23713bb7bc09f241896ea0c75b7c557e615a20604b82f9c403
     ;;
   *)
     echo "::error::no pinned uv archive for $(uname -m)" >&2
