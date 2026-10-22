@@ -84,7 +84,7 @@ def matching(label: str, state: str, title: str) -> list[int]:
     """Every issue this bot filed under *title* carrying *label*, lowest first.
 
     Read the repository directly: `gh issue list --author` uses the search
-    index, whose lag can hide an existing tracker and lose its approvals.
+    index, a separate source from the issue records carrying approvals.
     A label no repo has yet returns an empty list rather than an error.
     """
     repo = os.environ["GITHUB_REPOSITORY"]

@@ -279,9 +279,7 @@ def _is_approval(event: dict[str, Any], *, bot_id: int, since: str) -> bool:
         or not actor["type"]
     ):
         raise _common.UnexpectedShape("invalid close actor")
-    if actor["id"] == bot_id or actor["type"] == "Bot":
-        return False
-    return True
+    return not (actor["id"] == bot_id or actor["type"] == "Bot")
 
 
 def _file_pause_issue(row: str, pause: int | None) -> str:
