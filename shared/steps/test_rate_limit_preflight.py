@@ -25,12 +25,26 @@ NOW = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
 TODAY = "2026-01-02"
 LABELLED_AT = f"{TODAY}T08:00:00Z"
 
-ISSUES = (
-    f"repos/owner/repo/issues?creator={BOT}&state=all&sort=created&direction=asc&per_page=100"
-    "&since=2025-12-26T23:59:59Z"
+SEARCH = "search/issues?q=author%3Atend-agent+repo%3Aowner%2Frepo+created%3A"
+TODAY_SEARCH = SEARCH + "2026-01-02&per_page=1"
+BASELINE_SEARCH = SEARCH + "2025-12-27..2026-01-01&per_page=1"
+BURST_SEARCH = SEARCH + "%3E2026-01-02T11%3A40%3A00Z+is%3A"
+TRACKERS = (
+    "issue",
+    "list",
+    "--repo",
+    "owner/repo",
+    "--author",
+    "@me",
+    "--label",
+    "tend-rate-limit",
+    "--state",
+    "all",
+    "--limit",
+    "100",
+    "--json",
+    "number,title",
 )
-TRACKERS = f"repos/owner/repo/issues?creator={BOT}&labels=tend-rate-limit&state=all&sort=created&direction=asc&per_page=100"
-LIST = ("api", "--paginate", "--slurp")
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +68,9 @@ def gh(
     monkeypatch.setattr(_common, "utcnow", lambda: NOW)
     fake_gh.respond("api", "user", with_={"login": BOT, "id": BOT_ID})
     _posts(fake_gh, today=10, past=15)
-    fake_gh.respond(*LIST, TRACKERS, with_=[[]])
+    fake_gh.respond(*TRACKERS, with_=[])
+    for kind in ("pr", "issue"):
+        _count(fake_gh, BURST_SEARCH + kind + "&per_page=1", 0)
     fake_gh.respond(
         "issue", "create", with_=f"https://github.com/owner/repo/issues/{NEW_ISSUE}\n"
     )
@@ -71,14 +87,13 @@ def gh(
     return fake_gh
 
 
+def _count(gh: FakeGh, path: str, count: int) -> None:
+    gh.respond("api", path, with_={"total_count": count, "incomplete_results": False})
+
+
 def _posts(gh: FakeGh, *, today: int, past: int) -> None:
-    items = [
-        {"number": i + 1, "created_at": f"{TODAY}T10:00:00Z"} for i in range(today)
-    ] + [
-        {"number": today + i + 1, "created_at": "2025-12-27T00:00:00Z"}
-        for i in range(past)
-    ]
-    gh.respond(*LIST, ISSUES, with_=[items])
+    _count(gh, TODAY_SEARCH, today)
+    _count(gh, BASELINE_SEARCH, past)
 
 
 def _pause_issue(
@@ -88,9 +103,7 @@ def _pause_issue(
     labelled_at: str = LABELLED_AT,
 ) -> None:
     """An open pause issue, labelled at *labelled_at*, carrying *events*."""
-    gh.respond(
-        *LIST, TRACKERS, with_=[[{"number": number, "title": preflight.PAUSE_TITLE}]]
-    )
+    gh.respond(*TRACKERS, with_=[{"number": number, "title": preflight.PAUSE_TITLE}])
     labelled = {
         "event": "labeled",
         "label": {"name": preflight.PAUSE_LABEL},
@@ -220,14 +233,13 @@ def test_unavailable_tracker_read_never_changes_an_issue(
     _posts(gh, today=16, past=15)
     reads = iter(responses)
     gh.respond(
-        *LIST,
-        TRACKERS,
-        with_=lambda argv, stdin: _serve(
-            value if isinstance(value := next(reads), int) else [value]
-        ),
+        *TRACKERS,
+        with_=lambda argv, stdin: _serve(next(reads)),
     )
     assert preflight.main() == 1
-    assert not gh.called("issue"), gh.calls
+    assert not any(
+        gh.called("issue", verb) for verb in ("create", "reopen", "comment", "close")
+    ), gh.calls
     assert not gh.called("label"), gh.calls
     assert "could not be read" in capsys.readouterr().out
 
@@ -413,20 +425,7 @@ def test_skips_the_issue_when_the_burst_limit_refused(gh: FakeGh) -> None:
     double the ceiling would promise a recovery it cannot deliver.
     """
     _posts(gh, today=16, past=15)
-    gh.respond(
-        *LIST,
-        ISSUES,
-        with_=[
-            [
-                {
-                    "number": i + 1,
-                    "created_at": f"{TODAY}T11:50:00Z",
-                    "pull_request": {},
-                }
-                for i in range(16)
-            ]
-        ],
-    )
+    _count(gh, BURST_SEARCH + "pr&per_page=1", 16)
 
     assert preflight.main() == 1
     assert not gh.called("issue", "create"), (
@@ -462,12 +461,11 @@ def test_foreign_issue_is_not_the_anchor(gh: FakeGh) -> None:
     _posts(gh, today=16, past=15)
     _pause_issue(gh, _closed("maintainer"))
     gh.respond(
-        *LIST,
-        TRACKERS,
-        with_=[[{"number": 7, "title": "Something a maintainer labelled"}]],
+        *TRACKERS,
+        with_=[{"number": 7, "title": "Something a maintainer labelled"}],
     )
     assert preflight.main() == 1, "a foreign issue was taken as the anchor"
-    assert gh.called(*LIST, TRACKERS)
+    assert gh.called(*TRACKERS)
 
 
 def test_reopens_rather_than_refiling(gh: FakeGh) -> None:
@@ -489,69 +487,70 @@ def test_spike_limit_scales_with_the_six_day_baseline() -> None:
     assert preflight.spike_limit(15) == 15, "10 + 2 * (15 / 6)"
 
 
-def test_one_paginated_read_supplies_all_windows(
+def test_search_windows_are_scoped_to_bot_repo_and_creation_time(
     gh: FakeGh, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Updated old issues are excluded; midnight is included; PRs count once.
-
-    Pages model the real REST endpoint boundary rather than a search total.
-    Both sides of the twenty-minute window distinguish burst from daily use.
-    """
-    items = [
-        {"number": 1, "created_at": "2025-01-01T00:00:00Z"},
-        {"number": 2, "created_at": "2025-12-27T00:00:00Z"},
-        {"number": 3, "created_at": f"{TODAY}T00:00:00Z"},
-        {"number": 4, "created_at": f"{TODAY}T11:40:00Z"},
-        {"number": 5, "created_at": f"{TODAY}T11:41:00Z"},
-        {"number": 6, "created_at": f"{TODAY}T11:41:00Z", "pull_request": {}},
-    ]
-    gh.respond(*LIST, ISSUES, with_=[items[:3], items[3:]])
+    """Exact mocked commands distinguish burst kinds and exclude today from baseline."""
+    _count(gh, BURST_SEARCH + "pr&per_page=1", 2)
+    _count(gh, BURST_SEARCH + "issue&per_page=1", 3)
+    _posts(gh, today=10, past=105)
     assert preflight.main() == 0
     assert (
-        "burst=1 PRs, 1 issues (20min); today=4 (limit: 10)" in capsys.readouterr().out
+        "burst=2 PRs, 3 issues (20min); today=10 (limit: 45); baseline=105"
+        in capsys.readouterr().out
     )
-    assert len(gh.called(*LIST, ISSUES)) == 1
 
 
-@pytest.mark.parametrize("kind", ["issue", "pull_request"])
-def test_burst_window_is_the_last_twenty_minutes(gh: FakeGh, kind: str) -> None:
-    items = [
-        {
-            "number": i + 1,
-            "created_at": f"{TODAY}T11:41:00Z",
-            **({"pull_request": {}} if kind == "pull_request" else {}),
-        }
-        for i in range(11)
-    ]
-    # Enough baseline to keep the daily check out of this contrast.
-    baseline = [{"number": 100, "created_at": "2025-12-27T00:00:00Z"}] * 15
-    gh.respond(*LIST, ISSUES, with_=[baseline, items])
+@pytest.mark.parametrize("kind", ["issue", "pr"])
+def test_burst_limit_refuses_each_kind(gh: FakeGh, kind: str) -> None:
+    _count(gh, BURST_SEARCH + kind + "&per_page=1", 11)
     assert preflight.main() == 1
-    for item in items:
-        item["created_at"] = f"{TODAY}T11:39:00Z"
+    _count(gh, BURST_SEARCH + kind + "&per_page=1", 10)
     assert preflight.main() == 0
 
 
 @pytest.mark.parametrize(
+    "path",
+    [
+        TODAY_SEARCH,
+        BASELINE_SEARCH,
+        BURST_SEARCH + "pr&per_page=1",
+        BURST_SEARCH + "issue&per_page=1",
+    ],
+)
+@pytest.mark.parametrize(
     "response",
     [
         1,
+        "",
         "<html>502 Bad Gateway</html>",
         {"message": "unavailable"},
-        [[{"number": 1}]],
-        [[{"number": 1, "created_at": "yesterday"}]],
+        {"total_count": 0},
+        {"total_count": 0, "incomplete_results": True},
+        {"total_count": "0", "incomplete_results": False},
+        {"total_count": -1, "incomplete_results": False},
+        {"total_count": False, "incomplete_results": False},
     ],
 )
 def test_unavailable_activity_never_becomes_zero(
-    gh: FakeGh, capsys: pytest.CaptureFixture[str], response: Any
+    gh: FakeGh, capsys: pytest.CaptureFixture[str], path: str, response: Any
 ) -> None:
-    gh.respond(*LIST, ISSUES, with_=response)
+    _posts(gh, today=16, past=15)
+    gh.respond("api", path, with_=response)
     assert preflight.main() == 1
     out = capsys.readouterr().out
     assert "activity could not be read" in out
+    assert path in out
     assert "burst=" not in out
-    assert not gh.called("issue"), gh.calls
+    assert not any(
+        gh.called("issue", verb) for verb in ("create", "reopen", "comment", "close")
+    ), gh.calls
     assert not gh.called("label"), gh.calls
+
+
+def test_valid_zero_counts_are_not_errors(gh: FakeGh) -> None:
+    _posts(gh, today=0, past=0)
+    assert preflight.main() == 0
 
 
 @pytest.mark.parametrize(
@@ -578,7 +577,9 @@ def test_unreadable_events_refuse_the_run_rather_than_approving_it(
     )
 
     assert preflight.main() == 1
-    assert not gh.called("issue"), gh.calls
+    assert not any(
+        gh.called("issue", verb) for verb in ("create", "reopen", "comment", "close")
+    ), gh.calls
 
 
 def test_a_label_that_cannot_be_created_does_not_stop_the_filing(
@@ -605,7 +606,7 @@ def test_keeps_its_own_record_when_it_cannot_vouch_for_a_sibling(
     """
     _posts(gh, today=16, past=15)
     _probe(gh, 41)
-    identities = iter([_serve({"login": BOT, "id": BOT_ID})] * 3 + [None])
+    identities = iter([_serve({"login": BOT, "id": BOT_ID}), None])
     gh.respond("api", "user", with_=lambda argv, stdin: next(identities) or _serve(1))
 
     assert preflight.main() == 1
@@ -621,11 +622,10 @@ def test_duplicate_tracker_closes_count_and_oldest_gets_new_refusals(
     _pause_issue(gh, _closed("maintainer"), number=7)
     _pause_issue(gh, _closed("maintainer"), number=42)
     gh.respond(
-        *LIST,
-        TRACKERS,
+        *TRACKERS,
         with_=[
-            [{"number": 42, "title": preflight.PAUSE_TITLE}],
-            [{"number": 7, "title": preflight.PAUSE_TITLE}],
+            {"number": 42, "title": preflight.PAUSE_TITLE},
+            {"number": 7, "title": preflight.PAUSE_TITLE},
         ],
     )
     assert preflight.main() == 0
@@ -635,14 +635,18 @@ def test_duplicate_tracker_closes_count_and_oldest_gets_new_refusals(
     assert gh.called("issue", "reopen", "7")
     notice = _stdin_for(gh, "issue", "comment", "7")
     assert "61 items today; ceiling 60 (base 15, 2 approval(s), 15 items" in notice
-    assert "[#61](https://github.com/owner/repo/issues/61)" in notice
-    assert "[#62]" not in notice  # baseline item
+    assert (
+        "https://github.com/search?q=author%3Atend-agent+repo%3Aowner%2Frepo+created%3A2026-01-02&type=issues"
+        in notice
+    )
 
 
 def test_late_tracker_approval_is_read_before_reopening(gh: FakeGh) -> None:
     _posts(gh, today=16, past=15)
     _pause_issue(gh, _closed("maintainer"))
     reads = iter([[], [{"number": NEW_ISSUE, "title": preflight.PAUSE_TITLE}]])
-    gh.respond(*LIST, TRACKERS, with_=lambda argv, stdin: json.dumps([next(reads)]))
+    gh.respond(*TRACKERS, with_=lambda argv, stdin: json.dumps(next(reads)))
     assert preflight.main() == 0
-    assert not gh.called("issue"), gh.calls
+    assert not any(
+        gh.called("issue", verb) for verb in ("create", "reopen", "comment", "close")
+    ), gh.calls

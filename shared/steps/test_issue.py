@@ -100,23 +100,29 @@ def test_row_reads_n_a_when_the_event_payload_cannot_be_read(
 def test_matching_keeps_this_records_title_lowest_first(
     fake_gh: FakeGh, actions_env: Path
 ) -> None:
-    """Direct repository pages include all trackers and exclude PRs."""
-    fake_gh.respond("api", "user", with_={"login": "tend-agent"})
+    """Author/repo/label/state scope the read; title selects this record."""
     listing = (
-        "api",
-        "--paginate",
-        "--slurp",
-        "repos/owner/repo/issues?creator=tend-agent&labels=tend-outage&state=open&sort=created&direction=asc&per_page=100",
+        "issue",
+        "list",
+        "--repo",
+        "owner/repo",
+        "--author",
+        "@me",
+        "--label",
+        "tend-outage",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "number,title",
     )
     fake_gh.respond(
         *listing,
         with_=[
-            [{"number": 42, "title": OUTAGE_TITLE}],
-            [
-                {"number": 8, "title": OUTAGE_TITLE},
-                {"number": 3, "title": "Something a maintainer labelled"},
-                {"number": 1, "title": OUTAGE_TITLE, "pull_request": {}},
-            ],
+            {"number": 42, "title": OUTAGE_TITLE},
+            {"number": 8, "title": OUTAGE_TITLE},
+            {"number": 3, "title": "Something a maintainer labelled"},
         ],
     )
     assert _issue.matching(OUTAGE_LABEL, "open", OUTAGE_TITLE) == [8, 42]
@@ -124,14 +130,32 @@ def test_matching_keeps_this_records_title_lowest_first(
     assert fake_gh.called(*listing)
 
 
-@pytest.mark.parametrize("response", [1, {"message": "unavailable"}, [[{"number": 1}]]])
+@pytest.mark.parametrize(
+    "response",
+    [
+        1,
+        "",
+        {"message": "unavailable"},
+        [{"number": 1}],
+        [{"number": True, "title": OUTAGE_TITLE}],
+        [{"number": 0, "title": OUTAGE_TITLE}],
+        [None],
+        [{"number": n + 1, "title": OUTAGE_TITLE} for n in range(100)],
+    ],
+)
 def test_canonical_raises_rather_than_reading_a_failed_list_as_none(
     fake_gh: FakeGh, actions_env: Path, response: object
 ) -> None:
-    fake_gh.respond("api", "user", with_={"login": "tend-agent"})
-    fake_gh.respond("api", "--paginate", "--slurp", with_=response)
+    fake_gh.respond("issue", "list", with_=response)
     with pytest.raises(_common.GH_READ_FAILED):
         _issue.canonical(OUTAGE_LABEL, "open", OUTAGE_TITLE)
+
+
+def test_canonical_accepts_a_valid_empty_listing(
+    fake_gh: FakeGh, actions_env: Path
+) -> None:
+    fake_gh.respond("issue", "list", with_=[])
+    assert _issue.canonical(OUTAGE_LABEL, "open", OUTAGE_TITLE) is None
 
 
 @pytest.mark.parametrize(

@@ -15,10 +15,20 @@ RUN_LINK = "[workflow run](https://github.com/owner/repo/actions/runs/12345)"
 ROW = f"| when | {RUN_LINK} | #851 |"
 COMMENTS = f"repos/owner/repo/issues/{NEW_ISSUE}/comments?per_page=100"
 TRACKERS = (
-    "api",
-    "--paginate",
-    "--slurp",
-    f"repos/owner/repo/issues?creator={BOT}&labels=tend-outage&state=open&sort=created&direction=asc&per_page=100",
+    "issue",
+    "list",
+    "--repo",
+    "owner/repo",
+    "--author",
+    "@me",
+    "--label",
+    "tend-outage",
+    "--state",
+    "open",
+    "--limit",
+    "100",
+    "--json",
+    "number,title",
 )
 ACTION_REPOSITORY = "max-sixty/tend"
 RELEASES = ("api", f"repos/{ACTION_REPOSITORY}/releases/latest")
@@ -35,7 +45,7 @@ def _no_waiting(monkeypatch: pytest.MonkeyPatch) -> None:
 def gh(fake_gh: FakeGh, actions_env: Path) -> FakeGh:
     """A `gh` wired for the create path: no tracker open, no racing sibling."""
     fake_gh.respond("api", "user", with_={"login": BOT, "id": 4242})
-    fake_gh.respond(*TRACKERS, with_=[[]])
+    fake_gh.respond(*TRACKERS, with_=[])
     fake_gh.respond(
         "issue", "create", with_=f"https://github.com/owner/repo/issues/{NEW_ISSUE}\n"
     )
@@ -54,7 +64,7 @@ def gh(fake_gh: FakeGh, actions_env: Path) -> FakeGh:
 
 def _open_tracker(gh: FakeGh, number: int = NEW_ISSUE) -> None:
     """A tracker already open, so the reporter takes the append path."""
-    gh.respond(*TRACKERS, with_=[[{"number": number, "title": report_failure.TITLE}]])
+    gh.respond(*TRACKERS, with_=[{"number": number, "title": report_failure.TITLE}])
     gh.respond(
         "api",
         "--paginate",

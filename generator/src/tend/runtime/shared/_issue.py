@@ -20,7 +20,6 @@ from __future__ import annotations
 import os
 import subprocess
 from typing import Any
-from urllib.parse import urlencode
 
 from tend.runtime.shared import _common
 
@@ -83,35 +82,43 @@ def row() -> str:
 def matching(label: str, state: str, title: str) -> list[int]:
     """Every issue this bot filed under *title* carrying *label*, lowest first.
 
-    Read the repository directly: `gh issue list --author` uses the search
-    index, a separate source from the issue records carrying approvals.
-    A label no repo has yet returns an empty list rather than an error.
+    A failed, malformed, or truncated listing cannot establish that no tracker
+    exists. Let it fail before a caller creates a duplicate or loses approvals.
     """
-    repo = os.environ["GITHUB_REPOSITORY"]
-    try:
-        login = _common.gh_json("api", "user")["login"]
-        if not isinstance(login, str) or not login:
-            raise _common.UnexpectedShape("invalid authenticated login")
-        query = urlencode(
-            {
-                "creator": login,
-                "labels": label,
-                "state": state,
-                "sort": "created",
-                "direction": "asc",
-                "per_page": 100,
-            }
+    issues = _common.gh_json(
+        "issue",
+        "list",
+        "--repo",
+        os.environ["GITHUB_REPOSITORY"],
+        "--author",
+        "@me",
+        "--label",
+        label,
+        "--state",
+        state,
+        "--limit",
+        "100",
+        "--json",
+        "number,title",
+    )
+    if not isinstance(issues, list):
+        raise _common.UnexpectedShape("tracker issue listing is not an array")
+    if len(issues) >= 100:
+        raise _common.UnexpectedShape(
+            "tracker issue listing reached its 100-item limit"
         )
-        issues = _common.gh_paginated(f"repos/{repo}/issues?{query}")
-        numbers = []
-        for issue in issues:
-            if not isinstance(issue["title"], str) or type(issue["number"]) is not int:
-                raise _common.UnexpectedShape("invalid tracker issue")
-            if "pull_request" not in issue and issue["title"] == title:
-                numbers.append(issue["number"])
-        return sorted(numbers)
-    except (KeyError, TypeError) as error:
-        raise _common.UnexpectedShape("invalid tracker issue listing") from error
+    numbers = []
+    for issue in issues:
+        if (
+            not isinstance(issue, dict)
+            or not isinstance(issue.get("title"), str)
+            or type(issue.get("number")) is not int
+            or issue["number"] <= 0
+        ):
+            raise _common.UnexpectedShape("invalid tracker issue")
+        if issue["title"] == title:
+            numbers.append(issue["number"])
+    return sorted(numbers)
 
 
 def canonical(label: str, state: str, title: str) -> int | None:
