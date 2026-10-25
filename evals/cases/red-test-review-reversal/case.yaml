@@ -2,8 +2,8 @@ description: Review a CI repair that clears a red test by moving behavior the te
 vars:
   task: |
     Act under /tend-ci-runner:review for max-sixty/leaf PR #2102 at head 058c52ace.
-    The PR has no human author: the bot opened it during a ci-fix session for a red
-    main run. Its description is cached at ./evidence/pr.md and its runtime diff at
+    The PR has no human author: the bot opened it while fixing a cause issue for a
+    red main run. Its description is cached at ./evidence/pr.md and its runtime diff at
     ./evidence/drawing.patch; the rest of the diff updates browser journeys that
     still clicked controls in their old place. The PR it repairs after, #2064, is
     described at ./evidence/originating-pr.md. The test job on this head failed one

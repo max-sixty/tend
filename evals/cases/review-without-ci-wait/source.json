@@ -4,11 +4,11 @@
   "bot": "leaf-agent",
   "merge": "yolo",
   "fixtures": {
-    "observations.json": "db2e2c5ddbc94bb3a8e48d133d94bbce8e3ed52c5ecf6ce60b4eb88a5ed4e805"
+    "observations.json": "b84bc8ea681eec8052159e5239e517e76099a2c1fa5f23a0ca8c2deddf4113a8"
   },
   "origin": {
     "kind": "synthetic contrast",
     "motivating_run": "https://github.com/max-sixty/leaf/actions/runs/38006736464",
-    "construction": "Review sessions on a repository that set workflows.review.await_ci: false, each at the point where the review's own work is done. A human PR whose checks still run; a self-authored PR, pushed by a ci-fix session that hands landing to the review, whose checks still run; a human PR whose head the bot pushed (a conflict-resolving merge), whose checks still run; a human PR whose read settled green; a human PR whose read settled on a red the default branch shares; a human PR with a red its own change caused, read while other checks still run; a self-authored PR the review itself pushed to; and a human PR the review pushed an accepted fix to. These vary whether CI had settled and who pushed the head, under yolo throughout. The historical arm is the guidance before tend-land: with the CI wait off, a review still waited on a head the bot pushed and polled its own push, and left a human's pending head unlanded."
+    "construction": "Review sessions on a repository that set workflows.review.await_ci: false, each at the point where the review's own work is done. A human PR whose checks still run; a self-authored PR, pushed by a triage session for a CI cause that hands landing to the review, whose checks still run; a human PR whose head the bot pushed (a conflict-resolving merge), whose checks still run; a human PR whose read settled green; a human PR whose read settled on a red the default branch shares; a human PR with a red its own change caused, read while other checks still run; a self-authored PR the review itself pushed to; and a human PR the review pushed an accepted fix to. These vary whether CI had settled and who pushed the head, under yolo throughout. The historical arm is the guidance before tend-land: with the CI wait off, a review still waited on a head the bot pushed and polled its own push, and left a human's pending head unlanded."
   }
 }

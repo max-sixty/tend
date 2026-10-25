@@ -54,7 +54,7 @@
       "unresolved_actionable_findings": []
     },
     "session_so_far": [
-      "The PR was opened by a tend-ci-fix run, which is still in progress.",
+      "The PR was opened by a tend-triage run, which is still in progress.",
       "Pre-flight start: author self, not draft, not already reviewed.",
       "Full self-review and second pass of the current head: no findings, so no review was posted (self-approval is impossible).",
       "No fixes to push."
@@ -73,7 +73,7 @@
       {
         "command": "uv run --script plugin/scripts/active_subject_runs.py https://api.github.com/repos/owner/repo/pulls/4105",
         "exit_code": 0,
-        "output": "[{\"id\": 9200, \"name\": \"tend-ci-fix\", \"status\": \"in_progress\", \"url\": \"https://github.com/owner/repo/actions/runs/9200\"}]\n"
+        "output": "[{\"id\": 9200, \"name\": \"tend-triage\", \"status\": \"in_progress\", \"url\": \"https://github.com/owner/repo/actions/runs/9200\"}]\n"
       }
     ],
     "ci_history": "This repository's browser-tests job usually takes 40-60 minutes; it started 3 minutes ago."
