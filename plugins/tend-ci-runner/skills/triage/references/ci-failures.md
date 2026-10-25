@@ -39,9 +39,12 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
    - **An open issue or PR owns it.** Post there only evidence its thread lacks, per `/tend-ci-runner:post-to-github`. An issue has one parent: one under another open report stays there, and one under no report or under a closed one moves under this report (below, adding `-F replace_parent=true`).
    - **A closed cause recurs.** Reopen its issue with the new run as evidence, and move it under this report.
    - **Transient**: infrastructure rather than anything the project's code does, such as runner-disk corruption, an isolated network blip or an upstream incident since resolved, with the same path passing on runs around it. File nothing; the report's comment carries the diagnosis, and the lane's next pass closes the report. Earlier transient diagnoses of the same shape are leads, not proof. A reproducible project or upstream defect stays durable even when it first appeared today or some reruns passed, and a cause you can't place as transient is durable.
-   - **Nothing owns it.** File a cause issue per `/tend-ci-runner:open-pr`, even for a cause this session could fix: the issue claims the cause for every later run, and its fix gets a session of its own rather than holding up the notification queue. Title it for the failure (`test_merge_order: <short cause>`). Write the body for whoever fixes it: the failing tests or jobs, the deciding error, the runs that show it, the diagnosis so far, and the line `Cause of a failure tracked in #<report>.` Then attach it, and leave the fix to its own session:
+   - **Nothing owns it.** File a cause issue per `/tend-ci-runner:open-pr`, even for a cause this session could fix: the issue claims the cause for every later run, and its fix gets a session of its own rather than holding up the notification queue. Title it for the failure (`test_merge_order: <short cause>`), and label it `tend-ci-cause`: the label marks it as a cause issue, and the rate limit's issue burst count leaves it out. Write the body for whoever fixes it: the failing tests or jobs, the deciding error, the runs that show it, the diagnosis so far, and the line `Cause of a failure tracked in #<report>.` Then attach it, and leave the fix to its own session:
 
      ```bash
+     gh label create tend-ci-cause --color fbca04 \
+       --description "A root cause of a CI failure report" 2>/dev/null || true
+     gh issue create --label tend-ci-cause --title "<title>" --body-file "$TMPDIR/cause.md"
      id=$(gh api "repos/$GITHUB_REPOSITORY/issues/<cause>" --jq .id)
      gh api -X POST "repos/$GITHUB_REPOSITORY/issues/<report>/sub_issues" \
        -F sub_issue_id="$id" --silent
@@ -53,7 +56,7 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
 
 ## A cause issue
 
-A cause issue's body names its report. It is a bug report whose reproduction starts from its runs, and triage's steps 3 to 6 apply with these specifics.
+A cause issue is labeled `tend-ci-cause`, and its body names its report. It is a bug report whose reproduction starts from its runs, and triage's steps 3 to 6 apply with these specifics.
 
 - **An existing fix.** Continue the bot's own open PR for the cause per `/tend-ci-runner:continue-pr` rather than opening another. Leave a person's in-flight fix with them, posting only new evidence.
 - **Reproduce** with the test commands from the project's instruction files. A failure that no longer reproduces on the default branch's tip, where a later run passes the same test, is resolved: say what resolved it and close the issue.

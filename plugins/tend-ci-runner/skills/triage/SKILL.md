@@ -33,7 +33,7 @@ An issue the bot itself opened — a nightly failure, a CI report, a code-qualit
 
 One exception: a tracker the bot maintains for its own evidence — its body says **Do not close manually**, and later runs append to it — carries no report. End the run without commenting.
 
-A CI failure report, labeled `tend-ci-failure`, follows **A report** in `references/ci-failures.md` instead of steps 3 to 7. A cause issue filed under one, whose body names its report, is a bug report; read **A cause issue** there before step 3.
+A CI failure report, labeled `tend-ci-failure`, follows **A report** in `references/ci-failures.md` instead of steps 3 to 7. A cause issue filed under one, labeled `tend-ci-cause`, is a bug report; read **A cause issue** there before step 3.
 
 Classify into:
 

@@ -29,7 +29,13 @@ creates or reopens a pause issue.
 Approvals on duplicate trackers count too; the oldest receives new refusals.
 
 The burst limit is deliberately not resumable: ten PRs in twenty minutes is a
-loop rather than a busy day, and there is nothing there to wave through.
+loop rather than a busy day, and there is nothing there to wave through. Its
+issue count leaves out the cause issues triage files for a CI failure report
+(``CI_CAUSE_LABEL``): one red nightly run can hold a dozen causes, each owed an
+issue at once, and counting them would refuse every bot run for the next
+twenty minutes, those causes' own triage included. The PR burst count and the
+spike limit still count them, and a cause issue is one the report's triage
+files per root cause, so a loop filing them still meets both.
 
 Also publishes ``login``/``id`` for the bot, read off the token it already
 holds, so nothing downstream has to resolve them again from a configured name
@@ -56,6 +62,7 @@ PAUSE_TITLE = "Bot rate limit reached"
 PAUSE_DESCRIPTION = "Bot paused on its own rate limit; close to approve"
 PAUSE_COLOR = "fbca04"
 
+CI_CAUSE_LABEL = "tend-ci-cause"
 BURST_LIMIT = 10
 BURST_WINDOW = timedelta(minutes=20)
 BASELINE_DAYS = 6
@@ -133,7 +140,8 @@ def main() -> int:
     try:
         recent_prs = _search_count(activity_query(repo, bot, f">{since}") + " is:pr")
         recent_issues = _search_count(
-            activity_query(repo, bot, f">{since}") + " is:issue"
+            activity_query(repo, bot, f">{since}")
+            + f" is:issue -label:{CI_CAUSE_LABEL}"
         )
         today_posts = _search_count(today_query)
         past_posts = _search_count(activity_query(repo, bot, f"{first}..{last}"))
