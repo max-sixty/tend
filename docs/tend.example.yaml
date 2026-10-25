@@ -411,9 +411,9 @@ bot_name: my-project-bot
 #
 # Triggers when a watched CI workflow finishes on a watched branch, and runs no
 # agent. A failed run opens a CI failure report, an issue per workflow, branch
-# and triggering event, or comments on the open one; the next passing run
-# closes it. The bot triages each report from its notifications: it files
-# every distinct cause as a sub-issue, and triage fixes each one there. A
+# and triggering event, or comments on the open one, and starts tend-triage
+# for it; the next passing run closes it. Triage files every distinct cause as
+# a sub-issue, and fixes each one there. A
 # cancelled run reports nothing, and GitHub ends a job that exceeds its time
 # limit as cancelled; a step that exceeds its own `timeout-minutes` fails
 # instead, so a hang bounded there is reported.

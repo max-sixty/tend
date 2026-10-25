@@ -1,9 +1,9 @@
 """Tests for ci_failure_report.py — tend-ci-failures' report writer.
 
 Every case is an outward write a maintainer sees: a report filed, a comment
-posted, an issue closed. The script is inlined into its workflow, so these
-load it from the templates directory and swap its one GitHub call, `api`, for
-an in-memory repository.
+posted, an issue closed, a triage run started. The script is inlined into its
+workflow, so these load it from the templates directory and swap its one
+GitHub call, `api`, for an in-memory repository.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -29,10 +30,10 @@ class FakeGitHub:
 
     def __init__(self) -> None:
         self.issues: dict[int, dict[str, Any]] = {}
-        self.sub_issues: dict[int, list[int]] = {}
         self.runs: list[dict[str, Any]] = []
         self.comments: list[tuple[int, str]] = []
-        self.labels_created = 0
+        self.dispatches: list[dict[str, Any]] = []
+        self.refuse_dispatch = False
 
     def issue(self, title: str, *, author: str, labels=(), state="open") -> int:
         number = len(self.issues) + 1
@@ -49,8 +50,15 @@ class FakeGitHub:
         if method == "GET" and (
             m := re.fullmatch(rf"repos/{REPO}/actions/workflows/7/runs\?(.*)", path)
         ):
-            assert "status=completed" in m.group(1)
-            return {"workflow_runs": sorted(self.runs, key=lambda r: -r["id"])}
+            query = {key: values[0] for key, values in parse_qs(m.group(1)).items()}
+            assert query["status"] == "completed"
+            runs = [
+                run
+                for run in self.runs
+                if run["head_branch"] == query["branch"]
+                and run["event"] == query["event"]
+            ]
+            return {"workflow_runs": sorted(runs, key=lambda r: -r["id"])}
         if method == "GET" and (
             m := re.fullmatch(
                 rf"repos/{REPO}/issues\?labels=([^&]+)&state=open&per_page=100&page=(\d+)",
@@ -65,16 +73,7 @@ class FakeGitHub:
                 if issue["state"] == "open"
                 and any(label["name"] == m.group(1) for label in issue["labels"])
             ]
-        if method == "GET" and (
-            m := re.fullmatch(
-                rf"repos/{REPO}/issues/(\d+)/sub_issues\?per_page=100&page=(\d+)", path
-            )
-        ):
-            if m.group(2) != "1":
-                return []
-            return [self.issues[n] for n in self.sub_issues.get(int(m.group(1)), [])]
         if method == "POST" and path == f"repos/{REPO}/labels":
-            self.labels_created += 1
             return {}
         if method == "POST" and path == f"repos/{REPO}/issues":
             number = self.issue(
@@ -93,16 +92,26 @@ class FakeGitHub:
             assert body == {"state": "closed", "state_reason": "completed"}
             self.issues[int(m.group(1))]["state"] = "closed"
             return {}
+        if (
+            method == "POST"
+            and path == f"repos/{REPO}/actions/workflows/tend-triage.yaml/dispatches"
+        ):
+            if self.refuse_dispatch:
+                raise report.subprocess.CalledProcessError(1, ["gh"])
+            self.dispatches.append(body)
+            return None
         raise AssertionError(f"unexpected call: {method} {path}")
 
 
-def _run(run_id: int, conclusion: str, *, event: str = "push") -> dict[str, Any]:
+def _run(
+    run_id: int, conclusion: str, *, event: str = "push", branch: str = "main"
+) -> dict[str, Any]:
     return {
         "id": run_id,
         "name": "ci",
         "workflow_id": 7,
         "event": event,
-        "head_branch": "main",
+        "head_branch": branch,
         "head_sha": f"{run_id:040d}",
         "conclusion": conclusion,
         "html_url": f"https://github.com/{REPO}/actions/runs/{run_id}",
@@ -114,7 +123,7 @@ def github(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeGitHub:
     fake = FakeGitHub()
     monkeypatch.setattr(report, "api", fake)
     monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
-    monkeypatch.setenv("BOT_NAME", BOT)
+    monkeypatch.setenv("TRIAGE_WORKFLOW", "tend-triage.yaml")
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(tmp_path / "event.json"))
     return fake
 
@@ -123,7 +132,7 @@ def _finish(github: FakeGitHub, run: dict[str, Any]) -> None:
     """The run finishes, and its `workflow_run` event reaches the script."""
     github.runs.append(run)
     Path(report.os.environ["GITHUB_EVENT_PATH"]).write_text(
-        json.dumps({"workflow_run": run})
+        json.dumps({"workflow_run": run, "repository": {"default_branch": "main"}})
     )
     assert report.main() == 0
 
@@ -151,6 +160,44 @@ def test_a_failure_files_one_report_and_later_failures_comment_on_it(
     ]
 
 
+def test_each_failure_dispatches_the_reports_triage(github: FakeGitHub) -> None:
+    """The dispatched run is the fast path, on the default branch's workflow."""
+    _finish(github, _run(100, "failure"))
+    _finish(github, _run(101, "failure"))
+    [filed] = _open_reports(github)
+
+    assert github.dispatches == 2 * [
+        {
+            "ref": "main",
+            "inputs": {
+                "issue": str(filed["number"]),
+                "title": filed["title"],
+                "report": "true",
+            },
+        }
+    ]
+
+
+def test_a_refused_dispatch_leaves_the_report_to_its_notification(
+    github: FakeGitHub, capsys: pytest.CaptureFixture[str]
+) -> None:
+    github.refuse_dispatch = True
+    _finish(github, _run(100, "failure"))
+
+    assert len(_open_reports(github)) == 1
+    assert "could not dispatch triage" in capsys.readouterr().out
+
+
+def test_no_dispatch_where_triage_is_not_generated(
+    github: FakeGitHub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRIAGE_WORKFLOW", "")
+    _finish(github, _run(100, "failure"))
+
+    assert len(_open_reports(github)) == 1
+    assert github.dispatches == []
+
+
 def test_each_event_is_its_own_lane(github: FakeGitHub) -> None:
     """A scheduled suite's failure is not the push suite's: each has a report."""
     _finish(github, _run(100, "failure"))
@@ -163,24 +210,21 @@ def test_each_event_is_its_own_lane(github: FakeGitHub) -> None:
     assert github.comments == []
 
 
-def test_a_pass_closes_the_report_and_the_bots_open_causes(
-    github: FakeGitHub,
-) -> None:
+def test_a_pass_closes_the_report_and_leaves_its_causes(github: FakeGitHub) -> None:
+    """A pass shows the lane green at one commit, not that a flaky cause is
+    gone or that a cause's fix in flight is moot, so causes close themselves."""
     _finish(github, _run(100, "failure"))
     [filed] = _open_reports(github)
     cause = github.issue("test_merge: stale fixture", author=BOT)
-    fixed = github.issue("test_order: race", author=BOT, state="closed")
-    human = github.issue("a person's follow-up", author="maintainer")
-    github.sub_issues[filed["number"]] = [cause, fixed, human]
 
     _finish(github, _run(101, "success"))
 
     assert github.issues[filed["number"]]["state"] == "closed"
-    assert github.issues[cause]["state"] == "closed"
-    assert github.issues[human]["state"] == "open"
-    commented = [number for number, _ in github.comments]
-    assert commented == [cause, filed["number"]]
-    assert all("actions/runs/101" in body for _, body in github.comments)
+    assert github.issues[cause]["state"] == "open"
+    [(number, body)] = github.comments
+    assert number == filed["number"]
+    assert "actions/runs/101" in body
+    assert len(github.dispatches) == 1
 
 
 def test_a_pass_with_no_open_report_writes_nothing(github: FakeGitHub) -> None:
@@ -188,6 +232,7 @@ def test_a_pass_with_no_open_report_writes_nothing(github: FakeGitHub) -> None:
 
     assert github.issues == {}
     assert github.comments == []
+    assert github.dispatches == []
 
 
 def test_a_superseded_verdict_changes_nothing(github: FakeGitHub) -> None:
@@ -211,6 +256,16 @@ def test_a_superseded_verdict_changes_nothing(github: FakeGitHub) -> None:
     assert len(_open_reports(github)) == 1
 
 
+def test_another_lanes_newer_run_supersedes_nothing(github: FakeGitHub) -> None:
+    """Newer is judged within the lane: another branch's or event's later
+    verdict says nothing about this one."""
+    github.runs.append(_run(101, "success", event="schedule"))
+    github.runs.append(_run(102, "success", branch="release"))
+    _finish(github, _run(100, "failure"))
+
+    assert len(_open_reports(github)) == 1
+
+
 def test_a_closed_report_is_never_reused(github: FakeGitHub) -> None:
     """A failure after the lane passed is a new incident with a new report."""
     _finish(github, _run(100, "failure"))
@@ -222,8 +277,9 @@ def test_a_closed_report_is_never_reused(github: FakeGitHub) -> None:
     assert len(github.issues) == 2
 
 
-def test_a_lookalike_report_from_anyone_else_is_ignored(github: FakeGitHub) -> None:
-    """Only this workflow writes as github-actions[bot] under the label."""
+def test_a_lookalike_report_by_the_bot_is_ignored(github: FakeGitHub) -> None:
+    """The lane's report is matched by its author too, so an issue the bot or a
+    person filed under the same label and title is not taken for it."""
     github.issue("`ci` failing on `main` (push)", author=BOT, labels=[report.LABEL])
 
     _finish(github, _run(100, "failure"))

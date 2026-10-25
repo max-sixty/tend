@@ -708,7 +708,7 @@ def test_custom_prompt(tmp_path: Path) -> None:
 # override rather than accepting a key that renders nowhere.
 _PROMPT_WORKFLOWS = {
     "review": ("{pr_number}", "${{ github.event.pull_request.number }}"),
-    "triage": ("{issue_number}", "${{ github.event.issue.number }}"),
+    "triage": ("{issue_number}", "${{ github.event.issue.number || inputs.issue }}"),
     "nightly": ("", ""),
     "weekly": ("", ""),
     "review-runs": ("", ""),
@@ -1119,7 +1119,42 @@ def test_ci_failures_serializes_per_lane(tmp_path: Path) -> None:
     # Its token is the job's own: a report written with the bot's would not
     # reach the bot's notifications (`ci_failure_report.py`).
     assert "secrets." not in workflows["tend-ci-failures.yaml"].content
-    assert job["permissions"] == {"actions": "read", "issues": "write"}
+    assert job["permissions"] == {"actions": "write", "issues": "write"}
+
+
+@pytest.mark.parametrize("triage", [True, False])
+def test_ci_failures_dispatches_triage_where_it_is_generated(
+    tmp_path: Path, triage: bool
+) -> None:
+    """A dispatch to a workflow that isn't there would warn on every failure."""
+    extra = _extra_for("ci-failures") + ("" if triage else "  triage: false\n")
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    job = yaml.safe_load(workflows["tend-ci-failures.yaml"].content)["jobs"]["report"]
+    [step] = [s for s in job["steps"] if "TRIAGE_WORKFLOW" in s.get("env", {})]
+    assert step["env"]["TRIAGE_WORKFLOW"] == ("tend-triage.yaml" if triage else "")
+    assert ("tend-triage.yaml" in workflows) == triage
+
+
+def test_triage_serializes_ci_reports_and_nothing_else(tmp_path: Path) -> None:
+    """Report runs share one group, so no two file the same cause at once;
+    every other issue keeps a group of its own, and nothing is cancelled."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    doc = yaml.safe_load(workflows["tend-triage.yaml"].content)
+    job = doc["jobs"]["triage"]
+    assert job["concurrency"] == {
+        "group": (
+            "${{ inputs.report && 'tend-triage-ci-reports' || "
+            "format('{0}-{1}', github.workflow, "
+            "github.event.issue.number || inputs.issue) }}"
+        ),
+        "cancel-in-progress": False,
+    }
+    assert "concurrency" not in doc
+    assert set(doc["on"]["workflow_dispatch"]["inputs"]) == {"issue", "title", "report"}
+    # The notifications poll finds a live run by its subject's title.
+    assert doc["run-name"] == "${{ inputs.title || github.event.issue.title }}"
 
 
 def test_cli_init_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1238,8 +1273,11 @@ def test_issue_and_pr_acknowledged_with_eyes(tmp_path: Path) -> None:
 
     triage = yaml.safe_load(workflows["tend-triage.yaml"].content)
     react = _eyes_steps(triage["jobs"]["triage"]["steps"])[0]
-    assert react["env"]["TARGET"] == "issues/${{ github.event.issue.number }}"
-    # Every issues:opened event the job-level `if` admits is the bot's to take.
+    assert react["env"]["TARGET"] == (
+        "issues/${{ github.event.issue.number || inputs.issue }}"
+    )
+    # Every opened or dispatched issue the job-level `if` admits is the bot's
+    # to take.
     assert "if" not in react
 
     review = yaml.safe_load(workflows["tend-review.yaml"].content)

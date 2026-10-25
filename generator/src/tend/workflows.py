@@ -385,7 +385,7 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("triage", WorkflowConfig())
     eff = _effective_cfg(cfg, wf)
     prompt = (wf.prompt or eff.default_prompt("triage", "{issue_number}")).replace(
-        "{issue_number}", "${{ github.event.issue.number }}"
+        "{issue_number}", "${{ github.event.issue.number || inputs.issue }}"
     )
 
     content = _TRIAGE_TMPL.render(
@@ -408,11 +408,14 @@ def generate_ci_failures(cfg: Config) -> GeneratedWorkflow:
     """Report watched runs' verdicts as issues, which triage then works.
 
     Runs no agent, so it takes none of the agent options; the caller only
-    generates it once `watched_workflows` names the runs to watch.
+    generates it once `watched_workflows` names the runs to watch. Each failure
+    dispatches the report's triage where `tend-triage` is generated.
     """
     wf = cfg.workflows["ci-failures"]
+    triage = cfg.workflows.get("triage", WorkflowConfig()).enabled
     content = _CI_FAILURES_TMPL.render(
         cfg=cfg,
+        triage_workflow="tend-triage.yaml" if triage else "",
         watched=wf.watched_workflows,
         branches=wf.branches if wf.branches is not None else [cfg.default_branch],
         heredoc="<<",

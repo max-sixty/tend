@@ -331,7 +331,7 @@ Concurrency groups:
 | mention-relay | none | stateless — secretless job that re-posts review events to mention as a `repository_dispatch` |
 | mention/verify | none | stateless |
 | mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
-| triage | `workflow-issue#` | yes — latest comment wins |
+| triage | `workflow-issue#`; `tend-triage-ci-reports` for every CI failure report | **no** — a session may already have filed an issue or opened a PR; reports share one group so no two report sessions file the same cause, and the newest pending report run replaces an older one |
 | notifications | `tend-notifications` | **no** — one poll drains notifications and repairs bot PRs at a time |
 | ci-failures | `workflow-<watched workflow>-<event>-<branch>` | **no** — one writer per CI failure report, so a lane's verdicts apply in turn and never file two |
 | land/check | none | stateless — reads records and checks, starts nothing itself |
@@ -360,14 +360,15 @@ on tests push CI never runs — filing it on the first failure, commenting on
 each later one, and closing it on the next pass. Its group is keyed on that
 lane and is job-level: a cancelled or skipped run, which the job's `if` skips,
 never enters it, so it never takes the pending slot from a verdict. The report
-is written with the job's `GITHUB_TOKEN`, which starts no workflow and so puts
-it in the bot's notification queue; `ci_failure_report.py` says why that
-matters. The agent work runs through the issue path: the notifications poll
-triages the report, filing one cause issue per root cause, and each cause
-issue's own triage run fixes it. A cause issue claims its cause for every later
-run and every lane, so no second session works the same cause, and the
-notifications poll serializes the reports' triage, so no two of them file the
-same cause.
+is written with the job's `GITHUB_TOKEN`, so it reaches the bot as a
+notification, and each failure dispatches `tend-triage` for it;
+`ci_failure_report.py` says why. The agent work runs through the issue path:
+the dispatched run triages the report, filing one cause issue per root cause,
+and each cause issue's own triage run fixes it. A cause issue claims its cause
+for every later run and every lane, so no second session works the same cause,
+and the report runs share one concurrency group, so no two of them file the
+same cause. The notification is the fallback: the notifications poll never
+triages a report itself, and re-dispatches one whose run never succeeded.
 
 **GHA queue depth.** Review sets `queue: max`, so pending PR events within
 GitHub's queue limit wait and a later push cannot replace `ready_for_review`.

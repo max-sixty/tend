@@ -9,9 +9,10 @@
 
 name: tend-ci-failures
 # Turns a watched workflow's verdict on a watched branch into its CI failure
-# report, with no agent: a failure files the report or comments on it, and a
-# pass closes it. `ci_failure_report.py` documents the report, and why it
-# writes with the job's own token rather than the bot's.
+# report, with no agent: a failure files the report or comments on it and
+# dispatches the report's triage, and a pass closes it. `ci_failure_report.py`
+# documents the report, and why it writes with the job's own token rather than
+# the bot's.
 on:
   workflow_run:
     workflows: ["ci"]
@@ -43,8 +44,10 @@ jobs:
       group: ${{ github.workflow }}-${{ github.event.workflow_run.name }}-${{ github.event.workflow_run.event }}-${{ github.event.workflow_run.head_branch }}
       cancel-in-progress: false
     runs-on: ubuntu-24.04
+    # `actions: write` is what the triage dispatch needs; the job holds no
+    # secret, and runs only the pinned script below.
     permissions:
-      actions: read
+      actions: write
       issues: write
     steps:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -59,7 +62,7 @@ jobs:
       - name: File, update or close the CI failure report
         env:
           GH_TOKEN: ${{ github.token }}
-          BOT_NAME: test-bot
+          TRIAGE_WORKFLOW: "tend-triage.yaml"
           TEND_UV: ${{ steps.tend_uv.outputs.uv-path }}
         run: |
           "$TEND_UV" run --script - <<'TEND_PY'
@@ -70,29 +73,29 @@ jobs:
           """File, update or close the CI failure report a finished watched run calls for.
 
           `tend-ci-failures` runs this, with no agent, when a watched workflow finishes
-          on a watched branch with a verdict. A report is one issue per workflow, branch
-          and triggering event, the unit a run's verdict speaks for: a scheduled suite
-          can fail on tests that push runs never reach.
+          on a watched branch of this repository with a verdict. A report is one issue
+          per workflow, branch and triggering event, the unit a run's verdict speaks
+          for: a scheduled suite can fail on tests that push runs never reach.
 
-          - A failed run files the report, or comments on the one already open.
-          - A passing run closes the open report, and the open sub-issues the bot filed
-            under it, which are the causes of this lane's failure. The lane passing
-            means none of them reproduces at this commit; a later failure files a new
-            report, whose triage finds the closed cause again.
+          - A failed run files the report, or comments on the one already open, and
+            dispatches `tend-triage` for it.
+          - A passing run closes the open report. The cause issues filed under it stay
+            as they are: a pass doesn't show that a flaky cause is gone, and a cause's
+            fix may still be in flight, so each cause's own triage closes it.
           - A run that a newer finished run of the same lane supersedes changes nothing.
             Runs can finish out of order, and the newer verdict is the lane's state.
 
           The job's own `GITHUB_TOKEN` writes, as `github-actions[bot]`, rather than the
-          bot's token. That is what puts a report in the bot's notification queue:
-          GitHub notifies nobody of their own activity, so a report the bot filed would
-          reach it only through the `issues: opened` run, and a run the rate limit
-          refused would leave nothing to recover. An issue `GITHUB_TOKEN` opens starts
-          no workflow; the bot, which watches the repository, is notified of the report
-          and of each later comment, and `tend-notifications` triages it. The comment
-          per failed run is what notifies it again while the lane stays red.
+          bot's token, so the bot is notified of the report and of each later comment;
+          GitHub notifies nobody of their own activity. `GITHUB_TOKEN` starts no workflow
+          by opening an issue, but it may dispatch one, and the dispatched triage run is
+          the fast path. The notification is the fallback, for a dispatch that failed or
+          a run the rate limit refused: the run marks it read only once it succeeds, and
+          the notifications poll re-dispatches whatever is left unread.
 
-          Inputs (env): ``GH_TOKEN``, ``BOT_NAME``, ``GITHUB_REPOSITORY``,
-          ``GITHUB_EVENT_PATH`` (a `workflow_run` payload).
+          Inputs (env): ``GH_TOKEN``, ``GITHUB_REPOSITORY``, ``GITHUB_EVENT_PATH`` (a
+          `workflow_run` payload), and ``TRIAGE_WORKFLOW``, the triage workflow's file,
+          empty where triage is not generated.
           """
 
           from __future__ import annotations
@@ -180,7 +183,9 @@ jobs:
 
 
           def open_report(repo: str, run: dict[str, Any]) -> int | None:
-              """The lane's open report, which only this workflow files under its title."""
+              """The lane's open report: the lowest open issue by `github-actions[bot]`
+              under the label and the lane's title. Any workflow's `GITHUB_TOKEN` writes
+              as that account, so this matches what no person and not the bot filed."""
               issues = paginated(f"repos/{repo}/issues?labels={LABEL}&state=open&per_page=100")
               numbers = sorted(
                   issue["number"]
@@ -196,19 +201,7 @@ jobs:
               api(f"repos/{repo}/issues/{number}/comments", method="POST", body={"body": body})
 
 
-          def close(repo: str, number: int, body: str) -> None:
-              comment(repo, number, body)
-              api(
-                  f"repos/{repo}/issues/{number}",
-                  method="PATCH",
-                  body={"state": "closed", "state_reason": "completed"},
-              )
-
-
-          def report_failure(repo: str, run: dict[str, Any], number: int | None) -> None:
-              if number is not None:
-                  comment(repo, number, f"Failed again: {run_link(run)}.")
-                  return
+          def file_report(repo: str, run: dict[str, Any]) -> int:
               # Fails once the label exists, which is every run after the first.
               try:
                   api(
@@ -227,37 +220,41 @@ jobs:
                   f"triggered by `{run['event']}`.\n\n"
                   f"This issue tracks `{run['name']}`'s `{run['event']}` runs on "
                   f"`{run['head_branch']}` until one passes. Each later failed run adds a "
-                  "comment, and the next passing run closes this issue along with the open "
-                  "cause issues Tend filed under it. Tend triages this report from its "
-                  "notifications, filing each distinct cause as a sub-issue and working it "
+                  "comment, and the next passing run closes this issue. Tend triages each "
+                  "failure, filing every distinct cause as a sub-issue and working it "
                   "there.\n"
               )
-              api(
+              issue = api(
                   f"repos/{repo}/issues",
                   method="POST",
                   body={"title": title(run), "body": body, "labels": [LABEL]},
               )
+              return issue["number"]
 
 
-          def report_success(repo: str, run: dict[str, Any], number: int, bot: str) -> None:
-              passed = f"{run_link(run)} passed"
-              subs = paginated(f"repos/{repo}/issues/{number}/sub_issues?per_page=100")
-              for sub in subs:
-                  # The bot's own cause issues; one a person attached stays theirs.
-                  if sub["state"] == "open" and sub["user"]["login"].casefold() == bot.casefold():
-                      close(
-                          repo,
-                          sub["number"],
-                          f"{passed}, so this cause no longer reproduces on "
-                          f"`{run['head_branch']}`. Closing with #{number}; a later failure "
-                          "files a new report.",
-                      )
-              close(repo, number, f"{passed}. Closing.")
+          def dispatch_triage(repo: str, run: dict[str, Any], number: int, ref: str) -> None:
+              """Start the report's triage; a failure leaves it to the notification."""
+              workflow = os.environ.get("TRIAGE_WORKFLOW", "")
+              if not workflow:
+                  return
+              try:
+                  api(
+                      f"repos/{repo}/actions/workflows/{workflow}/dispatches",
+                      method="POST",
+                      body={
+                          "ref": ref,
+                          "inputs": {"issue": str(number), "title": title(run), "report": "true"},
+                      },
+                  )
+              except subprocess.CalledProcessError:
+                  print(
+                      f"::warning::could not dispatch triage for #{number}; the "
+                      "notifications poll picks it up"
+                  )
 
 
           def main() -> int:
               repo = os.environ["GITHUB_REPOSITORY"]
-              bot = os.environ["BOT_NAME"]
               event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
               run = event["workflow_run"]
               if superseded(repo, run):
@@ -265,9 +262,18 @@ jobs:
                   return 0
               number = open_report(repo, run)
               if run["conclusion"] != "success":
-                  report_failure(repo, run, number)
+                  if number is None:
+                      number = file_report(repo, run)
+                  else:
+                      comment(repo, number, f"Failed again: {run_link(run)}.")
+                  dispatch_triage(repo, run, number, event["repository"]["default_branch"])
               elif number is not None:
-                  report_success(repo, run, number, bot)
+                  comment(repo, number, f"{run_link(run)} passed. Closing.")
+                  api(
+                      f"repos/{repo}/issues/{number}",
+                      method="PATCH",
+                      body={"state": "closed", "state_reason": "completed"},
+                  )
               return 0
 
 

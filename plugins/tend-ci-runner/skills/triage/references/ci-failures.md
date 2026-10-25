@@ -1,6 +1,6 @@
 # CI failure reports and their causes
 
-When a watched workflow fails on a watched branch, the generated `tend-ci-failures` workflow opens a **report**: an issue by `github-actions[bot]`, labeled `tend-ci-failure`, one per workflow, branch and triggering event. Each later failed run adds a comment, and the next passing run closes the report together with the open sub-issues the bot filed under it. Each comment notifies the bot, which is how a report comes back while the lane stays red.
+When a watched workflow fails on a watched branch, the generated `tend-ci-failures` workflow opens a **report**: an issue by `github-actions[bot]`, labeled `tend-ci-failure`, one per workflow, branch and triggering event. Each later failed run adds a comment, and each failure dispatches a triage run for the report. The next passing run closes the report; the cause issues under it stay open until their own sessions close them.
 
 A report is a queue entry, not a cause. Its session diagnoses the failures and files one **cause issue** per root cause as a sub-issue of the report. Filing a cause issue starts its own triage session, which fixes it like any bug report.
 
@@ -36,8 +36,8 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
    Candidates include this report's sub-issues, other reports' sub-issues, and issues and PRs of any author. A closed PR a maintainer rejected ends that cause's work here: read the closure's rationale, and don't re-derive the fix.
 
 4. **Act on each cause.**
-   - **An open issue or PR owns it.** Post there only evidence its thread lacks, per `/tend-ci-runner:post-to-github`. An issue under no report becomes a sub-issue of this one (below); an issue has one parent, so one under another report stays there.
-   - **A closed cause recurs.** Reopen its issue with the new run as evidence, and attach it here.
+   - **An open issue or PR owns it.** Post there only evidence its thread lacks, per `/tend-ci-runner:post-to-github`. An issue has one parent: one under another open report stays there, and one under no report or under a closed one moves under this report (below, adding `-F replace_parent=true`).
+   - **A closed cause recurs.** Reopen its issue with the new run as evidence, and move it under this report.
    - **Transient**: infrastructure rather than anything the project's code does, such as runner-disk corruption, an isolated network blip or an upstream incident since resolved, with the same path passing on runs around it. File nothing; the report's comment carries the diagnosis, and the lane's next pass closes the report. Earlier transient diagnoses of the same shape are leads, not proof. A reproducible project or upstream defect stays durable even when it first appeared today or some reruns passed, and a cause you can't place as transient is durable.
    - **Nothing owns it.** File a cause issue per `/tend-ci-runner:open-pr`, even for a cause this session could fix: the issue claims the cause for every later run, and its fix gets a session of its own rather than holding up the notification queue. Title it for the failure (`test_merge_order: <short cause>`). Write the body for whoever fixes it: the failing tests or jobs, the deciding error, the runs that show it, the diagnosis so far, and the line `Cause of a failure tracked in #<report>.` Then attach it, and leave the fix to its own session:
 
