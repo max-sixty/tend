@@ -109,6 +109,18 @@ def _patch_calls(fake_gh: FakeGh) -> list[str]:
             None,
             id="dispatch-without-a-pr",
         ),
+        pytest.param(
+            "workflow_dispatch",
+            {"inputs": {"issue": "7", "report": True}},
+            f"https://api.github.com/repos/{REPO}/issues/7",
+            id="dispatched-triage",
+        ),
+        pytest.param(
+            "workflow_dispatch",
+            {"inputs": None},
+            None,
+            id="scheduled-workflow-run-by-hand",
+        ),
         pytest.param("schedule", {}, None, id="nothing-to-mark"),
     ],
 )

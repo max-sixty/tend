@@ -39,12 +39,12 @@ def ref() -> str:
     caller renders that as ``N/A``.
     """
     if os.environ["GITHUB_EVENT_NAME"] == "workflow_run":
-        # Link the run being fixed — without its id there is no way back to
-        # the failure the ci-fix job was dispatched to handle.
+        # Link the finished run that started this one: without its id there
+        # is no way back to what the session was started for.
         run_id = _common.dig(_common.event_payload(), "workflow_run", "id")
         if not run_id:
-            return "CI fix for workflow run"
-        return f"CI fix for [run {run_id}]({_run_url(run_id)})"
+            return "Finished workflow run"
+        return f"Finished [run {run_id}]({_run_url(run_id)})"
     number = _common.subject_number()
     return f"#{number}" if number else ""
 

@@ -5,9 +5,9 @@ on:
   pull_request:
   # `test-sandbox` is the only job that builds the real sandbox, out of the
   # runner image's systemd and kernel, which move with no commit here.  tend's
-  # other watches — `tend-ci-fix`, `tend-review-runs`, the outage issues — all
-  # boot an agent inside that same sandbox, so a broken sandbox disables its own
-  # detection.  This schedule runs outside it, and a
+  # other watches — the CI failure reports' triage, `tend-review-runs`, the
+  # outage issues — all boot an agent inside that same sandbox, so a broken
+  # sandbox disables its own detection.  This schedule runs outside it, and a
   # failing scheduled run on the default branch mails whoever last edited the
   # cron line below, or last re-enabled the workflow.  Keep both a human's: the
   # path is agent-free only while the alarm lands on an account outside the

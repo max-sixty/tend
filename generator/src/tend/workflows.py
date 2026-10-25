@@ -211,8 +211,9 @@ _JINJA.globals["bookkeeping_labels"] = BOOKKEEPING_LABELS
 # organization variable works: GitHub evaluates `jobs.<id>.if` before the job
 # enters the `tend` environment, so an environment variable is invisible to it.
 # The relay carries it too, though it boots no agent: everything it dispatches
-# would be skipped. The Codex refresher does not, so a paused subscription's
-# tokens stay valid.
+# would be skipped. So does the CI failure reporter, so a paused tend files no
+# issues. The Codex refresher does not, so a paused subscription's tokens stay
+# valid.
 TEND_ENABLED_CONDITION = "vars.TEND_ENABLED != 'false'"
 _JINJA.globals["tend_enabled"] = TEND_ENABLED_CONDITION
 _JINJA.globals["uv_version"] = UV_VERSION
@@ -384,7 +385,7 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("triage", WorkflowConfig())
     eff = _effective_cfg(cfg, wf)
     prompt = (wf.prompt or eff.default_prompt("triage", "{issue_number}")).replace(
-        "{issue_number}", "${{ github.event.issue.number }}"
+        "{issue_number}", "${{ github.event.issue.number || inputs.issue }}"
     )
 
     content = _TRIAGE_TMPL.render(
@@ -396,37 +397,31 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
 
 
 # ---------------------------------------------------------------------------
-# CI Fix
+# CI failures
 # ---------------------------------------------------------------------------
 
 
-_CI_FIX_TMPL = _JINJA.get_template("ci-fix.yaml.j2")
+_CI_FAILURES_TMPL = _JINJA.get_template("ci-failures.yaml.j2")
 
 
-def generate_ci_fix(cfg: Config) -> GeneratedWorkflow:
-    wf = cfg.workflows.get("ci-fix", WorkflowConfig())
-    if wf.watched_workflows is None:
-        raise click.ClickException(
-            "ci-fix requires watched_workflows — specify the CI workflow(s) to monitor.\n\n"
-            "  workflows:\n"
-            "    ci-fix:\n"
-            '      watched_workflows: ["ci"]'
-        )
-    eff = _effective_cfg(cfg, wf)
-    watched = wf.watched_workflows
-    branches = wf.branches if wf.branches is not None else [eff.default_branch]
-    prompt = (wf.prompt or eff.default_prompt("ci-fix", "{run_id}")).replace(
-        "{run_id}", "${{ github.event.workflow_run.id }}"
+def generate_ci_failures(cfg: Config) -> GeneratedWorkflow:
+    """Report watched runs' verdicts as issues, which triage then works.
+
+    Runs no agent, so it takes none of the agent options; the caller only
+    generates it once `watched_workflows` names the runs to watch. Each failure
+    dispatches the report's triage where `tend-triage` is generated.
+    """
+    wf = cfg.workflows["ci-failures"]
+    triage = cfg.workflows.get("triage", WorkflowConfig()).enabled
+    content = _CI_FAILURES_TMPL.render(
+        cfg=cfg,
+        triage_workflow="tend-triage.yaml" if triage else "",
+        watched=wf.watched_workflows,
+        branches=wf.branches if wf.branches is not None else [cfg.default_branch],
+        heredoc="<<",
+        report_script=_inline_script("ci_failure_report.py"),
     )
-
-    content = _CI_FIX_TMPL.render(
-        cfg=eff,
-        watched=watched,
-        branches=branches,
-        setup=_setup_yaml(eff),
-        prompt=prompt,
-    )
-    return GeneratedWorkflow(filename="tend-ci-fix.yaml", content=content)
+    return GeneratedWorkflow(filename="tend-ci-failures.yaml", content=content)
 
 
 # ---------------------------------------------------------------------------
@@ -700,7 +695,6 @@ GENERATORS: dict[str, Callable[[Config], GeneratedWorkflow]] = {
     "review": generate_review,
     "mention": generate_mention,
     "triage": generate_triage,
-    "ci-fix": generate_ci_fix,
     "nightly": lambda cfg: _generate_scheduled(cfg, "nightly"),
     "weekly": lambda cfg: _generate_scheduled(cfg, "weekly"),
     "notifications": generate_notifications,
@@ -884,19 +878,21 @@ def generate_all(
         wf_cfg = cfg.workflows.get(name, WorkflowConfig())
         if not wf_cfg.enabled:
             continue
-        if name == "ci-fix" and wf_cfg.watched_workflows is None:
-            click.echo(
-                "Skipping ci-fix: watched_workflows not configured. "
-                "To enable, add to .config/tend.yaml:\n\n"
-                "  workflows:\n"
-                "    ci-fix:\n"
-                '      watched_workflows: ["ci"]',
-                err=True,
-            )
-            continue
         wf = gen_fn(cfg)
         wf = _apply_extras(wf, wf_cfg)
         results.append(wf)
+    failures_cfg = cfg.workflows.get("ci-failures", WorkflowConfig())
+    if failures_cfg.enabled and failures_cfg.watched_workflows is None:
+        click.echo(
+            "Skipping ci-failures: watched_workflows not configured. "
+            "To enable, add to .config/tend.yaml:\n\n"
+            "  workflows:\n"
+            "    ci-failures:\n"
+            '      watched_workflows: ["ci"]',
+            err=True,
+        )
+    elif failures_cfg.enabled:
+        results.append(_apply_extras(generate_ci_failures(cfg), failures_cfg))
     if lands_on_ci(cfg):
         results.append(generate_land(cfg))
     # The relay only feeds tend-mention; alone, it would add a check to every

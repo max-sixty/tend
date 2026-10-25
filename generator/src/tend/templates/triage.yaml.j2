@@ -1,25 +1,53 @@
+{%- set issue = '${{ github.event.issue.number || inputs.issue }}' -%}
 <<header>>
 name: tend-triage
+# A dispatched run would otherwise be named for the workflow. Named for the
+# issue, like an opened one, the notifications poll can see it holds that
+# issue.
+run-name: ${{ inputs.title || github.event.issue.title }}
 on:
   issues:
     types: [opened]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  # A CI failure report, dispatched by tend-ci-failures for each failed run,
+  # and an issue a later run hands back, such as a stalled cause issue.
+  # GitHub creates the run even when a `GITHUB_TOKEN` dispatched it, and it
+  # carries the default branch, which the environment admits.
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: The issue to triage
+        type: number
+        required: true
+      title:
+        description: The issue's title, which names the run
+        type: string
+        default: ""
+      report:
+        description: Whether the issue is a CI failure report
+        type: boolean
+        default: false
 
 jobs:
   triage:
     if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && <<not_bookkeeping()>>
+    # Reports share one group, so no two report sessions file the same cause
+    # at once. Each finished failure dispatches one, and the newest pending one
+    # replaces an older: it reads every run its report holds since the bot's
+    # last word, and a replaced one's report keeps its notification. Every
+    # other issue is a group of its own. Never cancelled: a session may already
+    # have filed an issue or opened a PR.
+    concurrency:
+      group: ${{ inputs.report && 'tend-triage-ci-reports' || format('{0}-{1}', github.workflow, github.event.issue.number || inputs.issue) }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
 <<environment()>>
     permissions:
 <<permissions()>>
     steps:
-<<react_eyes('issues/${{ github.event.issue.number }}')>>
+<<react_eyes('issues/' ~ issue)>>
 
 <<checkout(cfg, ref=cfg.default_branch)>>
 <<setup>>
 <<agent_step(cfg, block_input('prompt', prompt))>>
 
-<<unreact_eyes(cfg, 'issues/${{ github.event.issue.number }}', if_condition='always()')>>
+<<unreact_eyes(cfg, 'issues/' ~ issue, if_condition='always()')>>

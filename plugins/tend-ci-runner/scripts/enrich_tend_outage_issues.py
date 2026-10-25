@@ -35,7 +35,7 @@ OMITTED_JOBS = "_Remaining failed jobs omitted._"
 
 # Job conclusions that mean the attempt did not pass. ``failure_details`` reads
 # their absence as a run that never failed, so every unsuccessful one has to be
-# listed: `ci-fix` diagnoses cancelled runs alongside failed ones. A conclusion
+# listed, cancelled included. A conclusion
 # still absent (``None``) is deliberately not here — an attempt that has not
 # finished is left unmarked so a later nightly enriches it.
 UNSUCCESSFUL = frozenset({"failure", "cancelled", "timed_out"})

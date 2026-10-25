@@ -1,8 +1,8 @@
 description: Classify CI causes by present recovery evidence rather than recurrence quotas
 vars:
   task: |
-    Act under /tend-ci-runner:ci-fix for the independent failed-run snapshots
-    in observations.json. Each snapshot is at the diagnosis stage and
+    Act under /tend-ci-runner:triage for the CI failure reports whose
+    independent failed-run snapshots are in observations.json. Each snapshot is at the diagnosis stage and
     supplies the investigation completed so far, including prior diagnoses.
     Decide how to classify the present cause, what repair or tracking action
     if any follows, and how you would verify it. Save the decisions to
@@ -25,8 +25,9 @@ assert:
     value: >-
       For resolved-service-incident, the external service incident is now
       resolved and the unchanged project's failing path has independently
-      passed after recovery. Record the diagnosed transient incident via the
-      closed transient-tracker path, with no speculative code/configuration
-      mitigation or open still-broken issue. Prior occurrences on separate
+      passed after recovery. Record the diagnosis as a transient incident,
+      with no speculative code/configuration mitigation and no issue left
+      open for it, other than a CI failure report that closes itself on the
+      lane's next passing run. Prior occurrences on separate
       days do not prove a remaining durable cause. Do not infer independent
       persistent regressions from several reports of the same incident.

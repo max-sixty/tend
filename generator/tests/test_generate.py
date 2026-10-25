@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.resources
 import json
 import re
+import sys
 from pathlib import Path
 from textwrap import dedent
 
@@ -42,6 +43,11 @@ from tend.workflows import (
 
 from tests import ACTION_VERSION, agent_prompt, without_relay
 from tests import _yaml as yaml
+
+# The report script is inlined into its workflow rather than imported by the
+# package, so it is loaded from where `_inline_script` reads it.
+sys.path.insert(0, str(importlib.resources.files("tend") / "templates"))
+import ci_failure_report
 
 
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
@@ -161,7 +167,7 @@ def test_generated_runner_uv_does_not_restore_dependency_caches(
     cfg = Config.load(
         _minimal_config(
             tmp_path,
-            f"harness: {harness}\nworkflows:\n  ci-fix:\n    watched_workflows: [ci]\n",
+            f"harness: {harness}\nworkflows:\n  ci-failures:\n    watched_workflows: [ci]\n",
         )
     )
     setup_steps = [
@@ -176,7 +182,7 @@ def test_generated_runner_uv_does_not_restore_dependency_caches(
 
 
 def test_minimal_config_generates_eight_workflows(tmp_path: Path) -> None:
-    """ci-fix requires watched_workflows, so minimal config produces eight."""
+    """ci-failures requires watched_workflows, so minimal config produces eight."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = generate_all(cfg)
     assert len(workflows) == 8
@@ -304,17 +310,17 @@ def test_generated_workflows_survive_the_whitespace_hooks(
     extra += (
         f"harness: {harness}\n"
         "workflows:\n"
-        "  ci-fix:\n"
+        "  ci-failures:\n"
         '    watched_workflows: ["ci"]\n'
         "  nightly:\n"
         '    prompt: "\\n\\nsweep the repo\\n\\nthen stop\\n\\n   \\n"\n'
     )
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = generate_all(cfg, with_install_test=True)
-    # ci-fix and install-test are both opt-in, and neither renders without the
+    # ci-failures and install-test are both opt-in, and neither renders without the
     # config above; assert they are present so the coverage can't silently lapse.
     assert {wf.filename for wf in workflows} >= {
-        "tend-ci-fix.yaml",
+        "tend-ci-failures.yaml",
         "tend-install-test.yaml",
         "tend-nightly.yaml",
     }
@@ -349,7 +355,7 @@ def test_memory_gist_is_an_explicit_agent_input(
 ) -> None:
     harness_config = (
         f"harness: {harness}\nmodel: {model}\n"
-        "workflows:\n  ci-fix:\n    watched_workflows: [ci]\n"
+        "workflows:\n  ci-failures:\n    watched_workflows: [ci]\n"
     )
     disabled = Config.load(_minimal_config(tmp_path, harness_config))
     for wf in generate_all(disabled):
@@ -385,7 +391,6 @@ def test_memory_gist_is_an_explicit_agent_input(
         "tend-review.yaml",
         "tend-mention.yaml",
         "tend-triage.yaml",
-        "tend-ci-fix.yaml",
         "tend-nightly.yaml",
         "tend-weekly.yaml",
         "tend-notifications.yaml",
@@ -630,7 +635,8 @@ def test_operational_secrets_imply_environment(tmp_path: Path) -> None:
     whole point. `secrets.GITHUB_TOKEN` is workflow-scoped, not stored, so it
     doesn't count. install-test is included: it runs on `pull_request`, whose
     merge ref the policy refuses, so it may neither read a secret nor name
-    the environment. ci-fix is enabled here so the corpus is every workflow:
+    the environment, and so is ci-failures, which writes with the job's own
+    token. ci-failures is enabled here so the corpus is every workflow:
     without `watched_workflows` the generator skips it, and a skipped
     workflow is one this invariant silently stops covering."""
 
@@ -645,16 +651,20 @@ def test_operational_secrets_imply_environment(tmp_path: Path) -> None:
 
     cfg = Config.load(
         _minimal_config(
-            tmp_path, 'workflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n'
+            tmp_path, 'workflows:\n  ci-failures:\n    watched_workflows: ["ci"]\n'
         )
     )
     generated = generate_all(cfg, with_install_test=True)
     # Assert the corpus is *every* workflow, not that one name is present:
     # the next generator with a config precondition would otherwise drop out
-    # of this invariant as silently as ci-fix did.
+    # of this invariant as silently as ci-failures would.
     assert {wf.filename for wf in generated} == {
         f"tend-{name}.yaml" for name in GENERATORS
-    } | {"tend-mention-relay.yaml", "tend-install-test.yaml"}
+    } | {
+        "tend-mention-relay.yaml",
+        "tend-install-test.yaml",
+        "tend-ci-failures.yaml",
+    }
     for wf in generated:
         data = yaml.safe_load(wf.content)
         for job_name, job in data["jobs"].items():
@@ -698,8 +708,7 @@ def test_custom_prompt(tmp_path: Path) -> None:
 # override rather than accepting a key that renders nowhere.
 _PROMPT_WORKFLOWS = {
     "review": ("{pr_number}", "${{ github.event.pull_request.number }}"),
-    "triage": ("{issue_number}", "${{ github.event.issue.number }}"),
-    "ci-fix": ("{run_id}", "${{ github.event.workflow_run.id }}"),
+    "triage": ("{issue_number}", "${{ github.event.issue.number || inputs.issue }}"),
     "nightly": ("", ""),
     "weekly": ("", ""),
     "review-runs": ("", ""),
@@ -741,7 +750,7 @@ def test_non_string_prompt_is_rejected(tmp_path: Path) -> None:
             (
                 "merge: yolo\nworkflows:\n  review:\n"
                 '    await_ci: false\n    prompt: "/my-review {pr_number}"\n'
-                "  ci-fix:\n    watched_workflows: [ci]\n"
+                "  ci-failures:\n    watched_workflows: [ci]\n"
             ),
             True,
         ),
@@ -762,7 +771,7 @@ def test_review_prompt_says_when_the_ci_wait_is_off(
     assert "${{ github.event.pull_request.number }}" in prompt
 
 
-_WATCHED = "  ci-fix:\n    watched_workflows: [ci, lint]\n"
+_WATCHED = "  ci-failures:\n    watched_workflows: [ci, lint]\n"
 
 
 @pytest.mark.parametrize(
@@ -912,7 +921,7 @@ def test_tend_lands_sessions_run_on_the_reviews_harness(tmp_path: Path) -> None:
     extra = (
         "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
         "    harness: codex\n"
-        "  ci-fix:\n    enabled: false\n    watched_workflows: [ci]\n"
+        "  ci-failures:\n    enabled: false\n    watched_workflows: [ci]\n"
     )
     cfg = Config.load(_minimal_config(tmp_path, extra))
     land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
@@ -946,8 +955,8 @@ def test_multi_line_prompt_generates_parseable_yaml(
     """A prompt spanning lines is a documented knob, and `init` never parses what
     it writes — so nothing but this catches a prompt shape that can only hold
     one line. Three shapes could not: review's was a `format('...')` expression,
-    where a newline ended the GitHub Actions string literal; ci-fix's was a
-    block scalar the template indented by hand, which only indented the first
+    where a newline ended the GitHub Actions string literal; another was a
+    block scalar a template indented by hand, which only indented the first
     line; and the shared block-scalar macro itself let YAML infer the block's
     indent from the first line, so an indented first line made every later line
     look like the end of the scalar. Each wrote a file GitHub rejects from a
@@ -959,14 +968,10 @@ def test_multi_line_prompt_generates_parseable_yaml(
     to the one expression that names this workflow's event.
     """
     body = f"  Do the thing for {placeholder}.\n\nSkip files matching {{generated}}.\n"
-    # ci-fix is the one workflow that needs a key of its own to render at all,
-    # so it is always configured and gains the prompt when it is the subject.
     extra = (
-        f'harness: {harness}\nworkflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n'
+        f"harness: {harness}\nworkflows:\n  {workflow}:\n"
+        f"    prompt: {json.dumps(body)}\n"
     )
-    if workflow != "ci-fix":
-        extra += f"  {workflow}:\n"
-    extra += f"    prompt: {json.dumps(body)}\n"
     content = {
         wf.filename: wf.content
         for wf in generate_all(Config.load(_minimal_config(tmp_path, extra)))
@@ -1020,75 +1025,136 @@ def test_blank_prompt_is_rejected(tmp_path: Path, blank: str) -> None:
 def test_watched_workflows(tmp_path: Path) -> None:
     extra = dedent("""\
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["build", "test", "lint"]
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    ci_fix = workflows["tend-ci-fix.yaml"]
-    assert '"build"' in ci_fix.content
-    assert '"test"' in ci_fix.content
-    assert '"lint"' in ci_fix.content
-    assert 'branches: ["main"]' in ci_fix.content
+    report = workflows["tend-ci-failures.yaml"]
+    assert '"build"' in report.content
+    assert '"test"' in report.content
+    assert '"lint"' in report.content
+    assert 'branches: ["main"]' in report.content
 
 
-def test_ci_fix_custom_branches(tmp_path: Path) -> None:
+def test_ci_failures_custom_branches(tmp_path: Path) -> None:
     extra = dedent("""\
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["ci"]
             branches: ["main", "release"]
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    ci_fix = workflows["tend-ci-fix.yaml"]
-    assert 'branches: ["main", "release"]' in ci_fix.content
+    report = workflows["tend-ci-failures.yaml"]
+    assert 'branches: ["main", "release"]' in report.content
 
 
-def test_ci_fix_runs_only_for_failures(tmp_path: Path) -> None:
-    cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-fix")))
+def test_ci_failures_admits_exactly_the_reports_verdicts(tmp_path: Path) -> None:
+    """The job's `if:` and the report script name the same verdicts.
+
+    A conclusion the `if:` admits but the script doesn't count would read as a
+    failure; one the script counts but the `if:` skips would never reach it.
+    """
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-failures")))
     generated = next(
-        wf for wf in generate_all(cfg) if wf.filename == "tend-ci-fix.yaml"
+        wf for wf in generate_all(cfg) if wf.filename == "tend-ci-failures.yaml"
     )
-    workflow = yaml.safe_load(generated.content)
-    assert workflow["jobs"]["fix-ci"]["if"] == (
-        f"{TEND_ENABLED_CONDITION} && github.event.workflow_run.conclusion == 'failure'"
+    condition = yaml.safe_load(generated.content)["jobs"]["report"]["if"]
+    admitted = re.findall(
+        r"github\.event\.workflow_run\.conclusion == '(\w+)'", condition
+    )
+    assert admitted == list(ci_failure_report.VERDICTS)
+    assert condition.startswith(f"{TEND_ENABLED_CONDITION} && ")
+
+
+def test_ci_failures_skips_fork_runs(tmp_path: Path) -> None:
+    """A fork PR from the fork's own `main` reports `head_branch: main`.
+
+    It passes the `workflow_run` branch filter, so only the head repository
+    tells it from this repository's `main`; without the check it would file and
+    close this lane's report, from a run the fork's author controls.
+    """
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-failures")))
+    cfg.repo_owner = "test-owner"
+    generated = next(
+        wf for wf in generate_all(cfg) if wf.filename == "tend-ci-failures.yaml"
+    )
+    condition = yaml.safe_load(generated.content)["jobs"]["report"]["if"]
+    clauses = [clause.strip() for clause in condition.split(" && ")]
+    assert (
+        "github.event.workflow_run.head_repository.full_name == github.repository"
+        in clauses
     )
 
 
-def test_ci_fix_serializes_per_branch_watched_workflow_and_event(
-    tmp_path: Path,
-) -> None:
-    """One session per red branch, not per red commit.
+def test_ci_failures_serializes_per_lane(tmp_path: Path) -> None:
+    """One writer per report, which is one lane: workflow, event and branch.
 
-    A branch stays red across the pushes that follow, each failing on its own
-    commit, so a commit-keyed group would let every one of them boot its own
-    agent against the same breakage. The watched workflow is keyed in as well
-    so a red `publish-site` is not starved by a stream of red `ci`, and the
-    triggering run's event so a scheduled run's pending failure is not
-    replaced by the next push failure on the same branch.
+    Two writers on one lane could each find no open report and file two. The
+    watched workflow and the run's event are lanes of their own, since each has
+    its own report: a scheduled suite can fail on tests push CI never runs.
     """
     extra = dedent("""\
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["ci", "publish-site"]
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    doc = yaml.safe_load(workflows["tend-ci-fix.yaml"].content)
-    job = doc["jobs"]["fix-ci"]
+    doc = yaml.safe_load(workflows["tend-ci-failures.yaml"].content)
+    job = doc["jobs"]["report"]
 
     assert job["concurrency"]["group"] == (
         "${{ github.workflow }}-${{ github.event.workflow_run.name }}"
         "-${{ github.event.workflow_run.event }}"
         "-${{ github.event.workflow_run.head_branch }}"
     )
-    # Cancelling mid-session strands outward actions already taken — a pushed
-    # branch, a half-written PR.
+    # Cancelling a writer midway can leave a report filed and its row unposted.
     assert job["concurrency"]["cancel-in-progress"] is False
-    # Job-level, not workflow-level: the `if` filters the green runs that make
-    # up most workflow_run events, and a skipped job never enters the group.
+    # Job-level, not workflow-level: the `if` skips the cancelled runs that make
+    # up most completions on a busy branch, and a skipped job never enters the
+    # group, so it never replaces a pending verdict.
     assert "concurrency" not in doc
+    # Its token is the job's own: a report written with the bot's would not
+    # reach the bot's notifications (`ci_failure_report.py`).
+    assert "secrets." not in workflows["tend-ci-failures.yaml"].content
+    assert job["permissions"] == {"actions": "write", "issues": "write"}
+
+
+@pytest.mark.parametrize("triage", [True, False])
+def test_ci_failures_dispatches_triage_where_it_is_generated(
+    tmp_path: Path, triage: bool
+) -> None:
+    """A dispatch to a workflow that isn't there would warn on every failure."""
+    extra = _extra_for("ci-failures") + ("" if triage else "  triage: false\n")
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    job = yaml.safe_load(workflows["tend-ci-failures.yaml"].content)["jobs"]["report"]
+    [step] = [s for s in job["steps"] if "TRIAGE_WORKFLOW" in s.get("env", {})]
+    assert step["env"]["TRIAGE_WORKFLOW"] == ("tend-triage.yaml" if triage else "")
+    assert ("tend-triage.yaml" in workflows) == triage
+
+
+def test_triage_serializes_ci_reports_and_nothing_else(tmp_path: Path) -> None:
+    """Report runs share one group, so no two file the same cause at once;
+    every other issue keeps a group of its own, and nothing is cancelled."""
+    cfg = Config.load(_minimal_config(tmp_path))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    doc = yaml.safe_load(workflows["tend-triage.yaml"].content)
+    job = doc["jobs"]["triage"]
+    assert job["concurrency"] == {
+        "group": (
+            "${{ inputs.report && 'tend-triage-ci-reports' || "
+            "format('{0}-{1}', github.workflow, "
+            "github.event.issue.number || inputs.issue) }}"
+        ),
+        "cancel-in-progress": False,
+    }
+    assert "concurrency" not in doc
+    assert set(doc["on"]["workflow_dispatch"]["inputs"]) == {"issue", "title", "report"}
+    # The notifications poll finds a live run by its subject's title.
+    assert doc["run-name"] == "${{ inputs.title || github.event.issue.title }}"
 
 
 def test_cli_init_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1207,8 +1273,11 @@ def test_issue_and_pr_acknowledged_with_eyes(tmp_path: Path) -> None:
 
     triage = yaml.safe_load(workflows["tend-triage.yaml"].content)
     react = _eyes_steps(triage["jobs"]["triage"]["steps"])[0]
-    assert react["env"]["TARGET"] == "issues/${{ github.event.issue.number }}"
-    # Every issues:opened event the job-level `if` admits is the bot's to take.
+    assert react["env"]["TARGET"] == (
+        "issues/${{ github.event.issue.number || inputs.issue }}"
+    )
+    # Every opened or dispatched issue the job-level `if` admits is the bot's
+    # to take.
     assert "if" not in react
 
     review = yaml.safe_load(workflows["tend-review.yaml"].content)
@@ -1539,7 +1608,7 @@ def test_mention_invokes_its_workflow_skill(tmp_path: Path, harness: str) -> Non
 # noisily because the bot/Claude secrets are empty in the fork's secret store.
 _GUARDED_WORKFLOWS = [
     "tend-codex-auth-refresh.yaml",
-    "tend-ci-fix.yaml",
+    "tend-ci-failures.yaml",
     "tend-nightly.yaml",
     "tend-weekly.yaml",
     "tend-review-runs.yaml",
@@ -1595,7 +1664,7 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
     """When auto-detection fails (non-github remote, no remote, etc.), no
     guard is rendered and workflows behave as they did pre-change."""
     cfg = Config.load(
-        _minimal_config(tmp_path, _extra_for("ci-fix") + "harness: codex\n")
+        _minimal_config(tmp_path, _extra_for("ci-failures") + "harness: codex\n")
     )
     # cfg.repo_owner is "" by default — Config.load does not auto-detect.
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -1606,11 +1675,11 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
                 f"{filename} job '{job_name}' must not contain the guard "
                 "when repo_owner is unset"
             )
-    # ci-fix's conclusion check must survive even without the guard.
-    ci_fix = yaml.safe_load(workflows["tend-ci-fix.yaml"].content)
-    assert ci_fix["jobs"]["fix-ci"]["if"] == (
-        f"{TEND_ENABLED_CONDITION} && github.event.workflow_run.conclusion == 'failure'"
-    )
+    # ci-failures' conclusion check must survive even without the guard.
+    report = yaml.safe_load(workflows["tend-ci-failures.yaml"].content)
+    condition = report["jobs"]["report"]["if"]
+    assert condition.startswith(f"{TEND_ENABLED_CONDITION} && ")
+    assert "github.event.workflow_run.conclusion == 'failure'" in condition
 
 
 @pytest.mark.parametrize(
@@ -1626,14 +1695,13 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
             ),
             {},
         ),
-        # ci-fix: the rendered if is `<guard> && <pause> && <conclusion-check>`.
-        # Clobbering removes the guard and the conclusion check — so the
-        # workflow would also lose its "only run on failure" gate. More
-        # interesting than triage because runtime semantics change beyond just
-        # the fork guard.
+        # ci-failures: the rendered if is `<guard> && <pause> && <verdicts>`.
+        # Clobbering removes the guard and the verdict check — so a cancelled
+        # run would also take the lane's pending slot. More interesting than
+        # triage because runtime semantics change beyond just the fork guard.
         (
-            "ci-fix",
-            "fix-ci",
+            "ci-failures",
+            "report",
             f"{TEND_ENABLED_CONDITION} && github.actor == 'tend-agent'",
             {"watched_workflows": ["ci"]},
         ),
@@ -1648,7 +1716,7 @@ def test_user_job_if_extra_replaces_fork_guard(
 ) -> None:
     """A user-supplied job-level `if:` replaces the rendered job-level if via
     RFC 7396 scalar replacement — this includes the fork guard *and* any other
-    conditions tend composed with it (ci-fix's conclusion check, future
+    conditions tend composed with it (ci-failures' verdict check, future
     combined ifs).
 
     Pins current behavior so a future merge-strategy change is a deliberate
@@ -1706,11 +1774,11 @@ def test_fork_guard_rendered_shape_regtest(
 
 def test_tend_enabled_variable_guards_every_agent_job(tmp_path: Path) -> None:
     """Every job that can boot the agent checks the TEND_ENABLED variable
-    before a runner starts, itself or through a job it `needs`, as does the
-    relay that only feeds one; the other workflows that run no agent carry
-    none."""
+    before a runner starts, itself or through a job it `needs`, as do the
+    relay that only feeds one and the CI failure reporter, so a paused tend
+    files nothing; the other workflows that run no agent carry none."""
     cfg = Config.load(
-        _minimal_config(tmp_path, _extra_for("ci-fix") + "harness: codex\n")
+        _minimal_config(tmp_path, _extra_for("ci-failures") + "harness: codex\n")
     )
     cfg.repo_owner = "test-owner"
     no_agent = {
@@ -1854,10 +1922,7 @@ def test_no_extras_output_unchanged(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     via_all = {wf.filename: wf.content for wf in generate_all(cfg)}
     for gen_fn in GENERATORS.values():
-        try:
-            wf = gen_fn(cfg)
-        except click.ClickException:
-            continue  # ci-fix requires watched_workflows
+        wf = gen_fn(cfg)
         if wf.filename in via_all:
             assert via_all[wf.filename] == wf.content, (
                 f"{wf.filename}: generate_all() changed output without extras"
@@ -1960,11 +2025,11 @@ def test_unknown_job_warns(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
 
 
 def _extra_for(name: str) -> str:
-    """Return extra config needed for a specific generator (e.g. ci-fix)."""
+    """Return extra config needed for a specific workflow (e.g. ci-failures)."""
     if name == "codex-auth-refresh":
         return "harness: codex\n"
-    if name == "ci-fix":
-        return 'workflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n'
+    if name == "ci-failures":
+        return 'workflows:\n  ci-failures:\n    watched_workflows: ["ci"]\n'
     return ""
 
 

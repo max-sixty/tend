@@ -97,7 +97,7 @@ def test_init_workflows_have_correct_triggers(
         dedent("""\
         bot_name: test-bot
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["ci"]
     """),
     )
@@ -109,7 +109,7 @@ def test_init_workflows_have_correct_triggers(
         "tend-review.yaml": "pull_request_target",
         "tend-mention-relay.yaml": "pull_request_review",
         "tend-triage.yaml": "issues",
-        "tend-ci-fix.yaml": "workflow_run",
+        "tend-ci-failures.yaml": "workflow_run",
         "tend-nightly.yaml": "schedule",
         "tend-weekly.yaml": "schedule",
         "tend-notifications.yaml": "schedule",
@@ -165,26 +165,26 @@ def test_init_workflows_have_required_permissions(
 # ---------------------------------------------------------------------------
 
 
-def test_init_ci_fix_with_watched_workflows(
+def test_init_ci_failures_with_watched_workflows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """ci-fix workflow is generated when watched_workflows is configured,
+    """ci-failures workflow is generated when watched_workflows is configured,
     and the watched workflow names appear in the trigger."""
     _write_config(
         tmp_path,
         dedent("""\
         bot_name: test-bot
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["build", "test"]
     """),
     )
     monkeypatch.chdir(tmp_path)
     _run_init()
 
-    ci_fix_path = _workflow_dir(tmp_path) / "tend-ci-fix.yaml"
-    assert ci_fix_path.exists()
-    data = yaml.safe_load(ci_fix_path.read_text())
+    report_path = _workflow_dir(tmp_path) / "tend-ci-failures.yaml"
+    assert report_path.exists()
+    data = yaml.safe_load(report_path.read_text())
     workflows_trigger = data["on"]["workflow_run"]["workflows"]
     assert "build" in workflows_trigger
     assert "test" in workflows_trigger

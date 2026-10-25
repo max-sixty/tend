@@ -23,6 +23,8 @@ Decisions this encodes:
   ``pull_request`` field is what tells the two apart.
 - Review events reach tend-mention re-posted by tend-mention-relay as
   ``repository_dispatch``, whose ``client_payload.pr`` names the PR.
+- A dispatched ``tend-triage`` run names its issue in ``inputs.issue``; a
+  scheduled workflow's manual run names none.
 
 Inputs (env): ``GITHUB_EVENT_NAME``, ``GITHUB_EVENT_PATH``,
 ``GITHUB_REPOSITORY``, ``GITHUB_RUN_ID`` (from Actions), plus the bot's
@@ -50,7 +52,7 @@ def subject_url(repo: str) -> str | None:
     if number is None:
         return None
     event_name = os.environ["GITHUB_EVENT_NAME"]
-    on_an_issue = event_name == "issues" or (
+    on_an_issue = event_name in ("issues", "workflow_dispatch") or (
         event_name == "issue_comment"
         and not _common.dig(_common.event_payload(), "issue", "pull_request")
     )

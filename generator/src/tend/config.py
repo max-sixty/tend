@@ -20,7 +20,6 @@ STANDARD_WORKFLOWS = {
     "review",
     "mention",
     "triage",
-    "ci-fix",
     "nightly",
     "weekly",
     "notifications",
@@ -31,6 +30,10 @@ KNOWN_WORKFLOWS = {
     # Generated with mention to carry its review events; runs no agent. Honors
     # the common workflow enabled/override contract.
     "mention-relay",
+    # Files an issue for each watched workflow failing on a watched branch,
+    # which triage then works; runs no agent. Generated once
+    # `watched_workflows` names the workflows to watch.
+    "ci-failures",
     # Generated for Codex with hosted auth refresh. This entry configures its
     # schedule and job overrides; codex.auth_refresh owns whether it exists.
     "codex-auth-refresh",
@@ -571,6 +574,16 @@ class Config:
                 raise click.ClickException(
                     "workflows.renovate has been renamed to workflows.weekly"
                 )
+            if name == "ci-fix":
+                raise click.ClickException(
+                    "workflows.ci-fix was replaced by workflows.ci-failures, which "
+                    "files an issue when a watched workflow fails and leaves the "
+                    "fix to triage. Rename the key; `watched_workflows`, "
+                    "`branches` and `enabled` keep their meaning. It runs no "
+                    "agent, so drop any `prompt`, `harness`, `model`, `effort` or "
+                    "`args` there, and put CI-specific instructions in the "
+                    "repo's `running-tend` skill overlay instead."
+                )
             if name not in KNOWN_WORKFLOWS:
                 click.echo(
                     f"Warning: unknown workflow '{name}' in config (known: {', '.join(sorted(KNOWN_WORKFLOWS))})",
@@ -597,8 +610,8 @@ class Config:
                 # Both render straight into the `workflow_run:` trigger through
                 # `tojson`, so an unchecked value reaches the workflow file
                 # verbatim: `watched_workflows: ci` becomes `workflows: "ci"`,
-                # which GitHub matches against nothing, and ci-fix silently
-                # never fires. A number gets no further than `len()` below,
+                # which GitHub matches against nothing, and ci-failures
+                # silently never fires. A number gets no further than `len()` below,
                 # which raises a bare TypeError instead of a config error.
                 for key, value, example in (
                     ("watched_workflows", watched, '["ci"]'),
@@ -618,11 +631,11 @@ class Config:
                         "omit the key to default to the repository's default "
                         "branch, or list the branches to watch."
                     )
-                if watched is not None and len(watched) == 0 and name == "ci-fix":
+                if watched is not None and len(watched) == 0 and name == "ci-failures":
                     raise click.ClickException(
-                        "watched_workflows: [] is invalid for ci-fix — "
+                        "watched_workflows: [] is invalid for ci-failures — "
                         "workflow_run requires at least one workflow name. "
-                        "Disable ci-fix with enabled: false instead."
+                        "Disable ci-failures with enabled: false instead."
                     )
                 workflow_extra = wf_raw.get("workflow_extra")
                 if workflow_extra is not None and not isinstance(workflow_extra, dict):
@@ -815,8 +828,6 @@ def _enabled_harnesses(harness: str, workflows: dict[str, WorkflowConfig]) -> se
     for name in STANDARD_WORKFLOWS:
         workflow = workflows.get(name, WorkflowConfig())
         if not workflow.enabled:
-            continue
-        if name == "ci-fix" and workflow.watched_workflows is None:
             continue
         enabled.add(workflow.harness or harness)
     return enabled

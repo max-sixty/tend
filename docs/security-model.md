@@ -48,9 +48,9 @@ prompts apply to every workflow; the table lists what is specific to each.
 | Workflow | Injection surface | Attacker control | Specific mitigations |
 |----------|-------------------|-------------------|-------------|
 | **review** | PR diff content, review body on bot PRs | Full (any PR) / Medium (reviewers) | Base-branch config restoration |
-| **triage** | Issue body | Partial (structured skill) | Structured skill |
+| **triage** | Issue body; the failed run's logs for a CI failure report | Partial (structured skill) / Minimal (must disrupt CI on a watched branch) | Structured skill |
 | **mention** | Comment body on any issue/PR | Full | Engagement verification; review events re-entered via a secretless relay |
-| **ci-fix** | Unsuccessful CI logs | Minimal (must disrupt CI on default branch) | Automatic trigger |
+| **ci-failures** | None (runs no agent) | Run metadata of this repository's own runs | No secrets; writes issues and dispatches triage with the job's own `GITHUB_TOKEN` |
 | **weekly** | None | None | Scheduled trigger |
 
 ## What we do
@@ -581,6 +581,11 @@ the full login in its own credential store; unused refresh secrets must be remov
 **Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
 spike detection (today's volume vs 6-day baseline, scaled per repo) abort
 the run before the agent starts, catching runaway loops between workflows.
+The burst's issue count leaves out the `tend-ci-cause` issues triage files
+for a CI failure report, one per root cause, since one red run can hold a
+dozen; the PR burst count and the spike limit count them. The bot sets that
+label itself, so a loop that labels what it files escapes only the issue
+burst count, and still meets the spike limit.
 The check runs as its own step in the composite action, so a
 prompt-injection attack inside the agent session cannot skip it. Concrete limits live in
 `generator/src/tend/runtime/shared/rate_limit_preflight.py`.

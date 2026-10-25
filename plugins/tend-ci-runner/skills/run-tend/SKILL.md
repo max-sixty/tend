@@ -57,8 +57,8 @@ completed outcome, an identified owner of the remaining work, or a specific
 current blocker.
 
 After pushing a fix, own its CI follow-up: diagnose failures, repair what this
-task authorizes, and verify the new commit. `tend-ci-fix` watches the default
-branch, so it does not take over a PR branch's red CI. Once the review and
+task authorizes, and verify the new commit. `tend-ci-failures` reports only the
+branches it watches, so nothing takes over a PR branch's red CI. Once the review and
 verification work is complete, finish the landing decision per
 `/tend-ci-runner:merge-pr`.
 

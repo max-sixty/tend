@@ -128,6 +128,8 @@ _SUBJECT_NUMBER_KEYS = {
     "issues": ("issue", "number"),
     "issue_comment": ("issue", "number"),
     "repository_dispatch": ("client_payload", "pr"),
+    # tend-triage's dispatched runs; a scheduled workflow's has no `issue`.
+    "workflow_dispatch": ("inputs", "issue"),
 }
 # Where each event keeps its own commit. Only the pull-request events and
 # `workflow_run` carry one; see :func:`subject_sha` for what the rest report.

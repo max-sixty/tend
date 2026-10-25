@@ -310,22 +310,22 @@ place. Classify each remaining secret and act now — don't defer:
   out of their password manager and re-paste it — issuing a fresh token
   and revoking the old one is part of the migration's point.
 
-Discover existing CI workflows so tend-ci-fix can watch them:
+Discover existing CI workflows so tend-ci-failures can watch them:
 
 ```bash
 grep -l 'push:\|pull_request' .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null
 ```
 
 For each match, extract the workflow `name:` field. These are the workflows
-that run tests, linting, or builds — tend-ci-fix should watch them. Configure:
+that run tests, linting, or builds — tend-ci-failures should watch them. Configure:
 
 ```yaml
 workflows:
-  ci-fix:
+  ci-failures:
     watched_workflows: ["ci", "lint"]  # names of workflows to watch
 ```
 
-If no CI workflows exist, either skip ci-fix (`enabled: false`) or help the
+If no CI workflows exist, either skip ci-failures (`enabled: false`) or help the
 user create one first.
 
 If the user picked workflow config at Kickoff, ask which overrides to set in

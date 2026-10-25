@@ -29,6 +29,11 @@ SEARCH = "search/issues?q=author%3Atend-agent+repo%3Aowner%2Frepo+created%3A"
 TODAY_SEARCH = SEARCH + "2026-01-02&per_page=1"
 BASELINE_SEARCH = SEARCH + "2025-12-27..2026-01-01&per_page=1"
 BURST_SEARCH = SEARCH + "%3E2026-01-02T11%3A40%3A00Z+is%3A"
+# Each kind's burst query; the issue count leaves out CI cause issues.
+BURST = {
+    "pr": BURST_SEARCH + "pr&per_page=1",
+    "issue": BURST_SEARCH + "issue+-label%3Atend-ci-cause&per_page=1",
+}
 TRACKERS = (
     "issue",
     "list",
@@ -70,7 +75,7 @@ def gh(
     _posts(fake_gh, today=10, past=15)
     fake_gh.respond(*TRACKERS, with_=[])
     for kind in ("pr", "issue"):
-        _count(fake_gh, BURST_SEARCH + kind + "&per_page=1", 0)
+        _count(fake_gh, BURST[kind], 0)
     fake_gh.respond(
         "issue", "create", with_=f"https://github.com/owner/repo/issues/{NEW_ISSUE}\n"
     )
@@ -491,8 +496,8 @@ def test_search_windows_are_scoped_to_bot_repo_and_creation_time(
     gh: FakeGh, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Exact mocked commands distinguish burst kinds and exclude today from baseline."""
-    _count(gh, BURST_SEARCH + "pr&per_page=1", 2)
-    _count(gh, BURST_SEARCH + "issue&per_page=1", 3)
+    _count(gh, BURST["pr"], 2)
+    _count(gh, BURST["issue"], 3)
     _posts(gh, today=10, past=105)
     assert preflight.main() == 0
     assert (
@@ -503,9 +508,9 @@ def test_search_windows_are_scoped_to_bot_repo_and_creation_time(
 
 @pytest.mark.parametrize("kind", ["issue", "pr"])
 def test_burst_limit_refuses_each_kind(gh: FakeGh, kind: str) -> None:
-    _count(gh, BURST_SEARCH + kind + "&per_page=1", 11)
+    _count(gh, BURST[kind], 11)
     assert preflight.main() == 1
-    _count(gh, BURST_SEARCH + kind + "&per_page=1", 10)
+    _count(gh, BURST[kind], 10)
     assert preflight.main() == 0
 
 
@@ -514,8 +519,8 @@ def test_burst_limit_refuses_each_kind(gh: FakeGh, kind: str) -> None:
     [
         TODAY_SEARCH,
         BASELINE_SEARCH,
-        BURST_SEARCH + "pr&per_page=1",
-        BURST_SEARCH + "issue&per_page=1",
+        BURST["pr"],
+        BURST["issue"],
     ],
 )
 @pytest.mark.parametrize(

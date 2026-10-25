@@ -38,9 +38,9 @@ def _trigger(
         (
             "workflow_run",
             {"workflow_run": {"id": 555}},
-            "CI fix for [run 555](https://github.com/owner/repo/actions/runs/555)",
+            "Finished [run 555](https://github.com/owner/repo/actions/runs/555)",
         ),
-        ("workflow_run", {}, "CI fix for workflow run"),
+        ("workflow_run", {}, "Finished workflow run"),
         # An event with no thread of its own, and payloads whose shape is not
         # the one the event promises.
         ("schedule", {}, ""),
