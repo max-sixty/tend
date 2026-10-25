@@ -2,7 +2,7 @@
 
 When a watched workflow fails on a watched branch, the generated `tend-ci-failures` workflow opens a **report**: an issue by `github-actions[bot]`, labeled `tend-ci-failure`, one per workflow, branch and triggering event. Each later failed run adds a comment, and each failure dispatches a triage run for the report. The next passing run closes the report; the cause issues under it stay open until their own sessions close them.
 
-A report is a queue entry, not a cause. Its session diagnoses the failures and files one **cause issue** per root cause as a sub-issue of the report. Filing a cause issue starts its own triage session, which fixes it like any bug report.
+A report is a queue entry, not a cause. Its session diagnoses the failures and files one **cause issue** per root cause as a sub-issue of the report. Filing a cause issue starts its own triage session, which fixes it like any bug report. A cause no session is working, because its run was refused or its lane went quiet, is the daily `/tend-ci-runner:review-runs` sweep's to re-dispatch; a report session leaves it alone.
 
 ## A report
 
@@ -50,9 +50,7 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
        -F sub_issue_id="$id" --silent
      ```
 
-5. **Pick up a stalled cause.** An open sub-issue with no bot comment, no PR referencing it, and no run listed by the active-run check in **Give each thread a current outcome** in `/tend-ci-runner:notifications` never got its session; a run the rate limit refused leaves exactly this. Triage it now, as a cause issue.
-
-6. **Comment on the report only when its map changed**: a cause filed, reopened or attached, a failure matched to another lane's issue, a transient diagnosis. Give each cause its issue and one line of mechanism. When the new runs show only causes already owned, post nothing.
+5. **Comment on the report only when its map changed**: a cause filed, reopened or attached, a failure matched to another lane's issue, a transient diagnosis. Give each cause its issue and one line of mechanism. When the new runs show only causes already owned, post nothing.
 
 ## A cause issue
 
