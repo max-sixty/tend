@@ -1065,7 +1065,27 @@ def test_ci_failures_admits_exactly_the_reports_verdicts(tmp_path: Path) -> None
         r"github\.event\.workflow_run\.conclusion == '(\w+)'", condition
     )
     assert admitted == list(ci_failure_report.VERDICTS)
-    assert condition.startswith(f"{TEND_ENABLED_CONDITION} && (")
+    assert condition.startswith(f"{TEND_ENABLED_CONDITION} && ")
+
+
+def test_ci_failures_skips_fork_runs(tmp_path: Path) -> None:
+    """A fork PR from the fork's own `main` reports `head_branch: main`.
+
+    It passes the `workflow_run` branch filter, so only the head repository
+    tells it from this repository's `main`; without the check it would file and
+    close this lane's report, from a run the fork's author controls.
+    """
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-failures")))
+    cfg.repo_owner = "test-owner"
+    generated = next(
+        wf for wf in generate_all(cfg) if wf.filename == "tend-ci-failures.yaml"
+    )
+    condition = yaml.safe_load(generated.content)["jobs"]["report"]["if"]
+    clauses = [clause.strip() for clause in condition.split(" && ")]
+    assert (
+        "github.event.workflow_run.head_repository.full_name == github.repository"
+        in clauses
+    )
 
 
 def test_ci_failures_serializes_per_lane(tmp_path: Path) -> None:
@@ -1620,7 +1640,7 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
     # ci-failures' conclusion check must survive even without the guard.
     report = yaml.safe_load(workflows["tend-ci-failures.yaml"].content)
     condition = report["jobs"]["report"]["if"]
-    assert condition.startswith(f"{TEND_ENABLED_CONDITION} && (")
+    assert condition.startswith(f"{TEND_ENABLED_CONDITION} && ")
     assert "github.event.workflow_run.conclusion == 'failure'" in condition
 
 
