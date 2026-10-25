@@ -6,6 +6,15 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.16
+
+### Improved
+
+- CI failures on a watched branch now go through issues and triage, replacing `ci-fix` sessions. A new agentless `tend-ci-failures` workflow keeps one report issue per workflow, branch and event: a failed run opens or comments on it and dispatches triage, and a passing run closes it. Report triage files one `tend-ci-cause` sub-issue for each cause nothing already covers, and each cause issue gets its own triage run, which fixes it with a PR that closes it. Daily, review-runs re-dispatches open causes that have no PR and no active run. The issue burst limit skips `tend-ci-cause` issues; the PR burst and spike limits still count them. ([#1566](https://github.com/max-sixty/tend/pull/1566))
+- **Config:** `workflows.ci-fix` is now `workflows.ci-failures`, keeping `branches`, `watched_workflows` and `enabled`. `tend init` refuses the old key with a message naming the new one, and removes the generated `tend-ci-fix.yaml`. The `ci-fix` skill is removed; put CI-specific instructions in the repo's `running-tend` overlay. ([#1566](https://github.com/max-sixty/tend/pull/1566))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
 ## 0.3.15
 
 ### Improved
