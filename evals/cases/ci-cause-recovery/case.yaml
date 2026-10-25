@@ -26,7 +26,8 @@ assert:
       For resolved-service-incident, the external service incident is now
       resolved and the unchanged project's failing path has independently
       passed after recovery. Record the diagnosis as a transient incident,
-      leaving no issue open for it, with no speculative code/configuration
-      mitigation. Prior occurrences on separate
+      with no speculative code/configuration mitigation and no issue left
+      open for it, other than a CI failure report that closes itself on the
+      lane's next passing run. Prior occurrences on separate
       days do not prove a remaining durable cause. Do not infer independent
       persistent regressions from several reports of the same incident.
