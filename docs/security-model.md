@@ -48,9 +48,9 @@ prompts apply to every workflow; the table lists what is specific to each.
 | Workflow | Injection surface | Attacker control | Specific mitigations |
 |----------|-------------------|-------------------|-------------|
 | **review** | PR diff content, review body on bot PRs | Full (any PR) / Medium (reviewers) | Base-branch config restoration |
-| **triage** | Issue body | Partial (structured skill) | Structured skill |
+| **triage** | Issue body; the failed run's logs for a CI failure report | Partial (structured skill) / Minimal (must disrupt CI on a watched branch) | Structured skill |
 | **mention** | Comment body on any issue/PR | Full | Engagement verification; review events re-entered via a secretless relay |
-| **ci-fix** | Unsuccessful CI logs | Minimal (must disrupt CI on default branch) | Automatic trigger |
+| **ci-failures** | None (runs no agent) | Run metadata only | No secrets; writes issues with the job's own `GITHUB_TOKEN` |
 | **weekly** | None | None | Scheduled trigger |
 
 ## What we do

@@ -183,7 +183,7 @@ Check outcomes across all runs from Step 1: map runs to PRs and issues, and chec
 >   gh -R $ARGUMENTS run view <run-id> --log | grep -E '^verify.*PAYLOAD_(KIND|PR|ID):'
 >   ```
 >   Each line carries a `verify<TAB><step><TAB><timestamp>` prefix; the value follows the key. `PAYLOAD_PR` is the issue/PR number and `PAYLOAD_KIND` is the relayed event (`pull_request_review`, `pull_request_review_comment`). Read the gate's verdict off the `handle` job, which is gated on `should_run`: `handle` with conclusion `skipped` means the engagement gate declined and no agent booted — expected silence, not missing output. Do not read it off `React to mention`, which is skipped on every relayed `pull_request_review` regardless of the verdict (a review submission has no single comment to react to) and on a comment relay admitted for participation rather than a mention.
-> - `tend-ci-fix`: map run → PR via `headBranch`, check for bot commits
+> - `tend-ci-failures`: no agent of its own; the report it files or closes is the output, and its triage runs under `tend-notifications`
 >
 > **Negative outcome signals** — report any sign the bot's output was rejected, corrected, or ignored. Common shapes (use judgment for signals not listed):
 > - Human reviewer posted CHANGES_REQUESTED after bot approved
@@ -323,7 +323,7 @@ Group related findings by theme and complete the supported repairs. Record unres
 
 PR/issue bodies should link to the evidence gist (`gist_url`) so reviewers can see the accumulated history behind the finding.
 
-**Do not poll CI** after creating a PR. The `tend-review` and `tend-ci-fix` workflows handle PRs independently. Exit after pushing and creating the PR.
+**Do not poll CI** after creating a PR. The `tend-review` workflow handles PRs independently. Exit after pushing and creating the PR.
 
 ## Step 6: Summary
 

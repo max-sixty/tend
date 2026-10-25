@@ -875,8 +875,9 @@ def test_plugin_skill_citations_resolve() -> None:
 # A conservative description cap for crowded Codex skill listings. Re-measured
 # with Codex 0.160.0 and both plugins at SKILLS_MEASURED_AT: every shipped
 # description appeared intact. Keep this cap for consumer installations that
-# also carry other skills. The count spans both
-# plugins; adding a skill still calls for checking the installed listing.
+# also carry other skills. The count spans both plugins; a listing with fewer
+# skills shares the same budget among fewer, so only adding a skill past the
+# count calls for checking the installed listing.
 #
 # To re-measure, install both plugins from this checkout into a throwaway Codex
 # home and run any prompt:
@@ -917,8 +918,8 @@ def test_skill_frontmatter_is_loadable() -> None:
     yaml = YAML(typ="safe", pure=True)
     broken = []
     installed = sorted((REPO_ROOT / "plugins").glob("*/skills/*/SKILL.md"))
-    assert len(installed) == SKILLS_MEASURED_AT, (
-        f"{len(installed)} skills across both plugins, not the "
+    assert len(installed) <= SKILLS_MEASURED_AT, (
+        f"{len(installed)} skills across both plugins, more than the "
         f"{SKILLS_MEASURED_AT} the budget was measured at — re-measure the "
         "installed listing before updating the count and description cap"
     )

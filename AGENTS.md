@@ -122,7 +122,7 @@ tend/
 │   └── marketplace.json  # Codex marketplace — lists both Tend plugins
 ├── plugins/
 │   ├── install-tend/     # User-facing plugin (setup skill)
-│   └── tend-ci-runner/   # CI plugin (review, triage, ci-fix, etc.)
+│   └── tend-ci-runner/   # CI plugin (review, triage, nightly, etc.)
 │       ├── .codex-plugin/  # Codex plugin manifest
 │       └── scripts/      # Helper scripts (survey, run listing)
 ├── claude/              # Claude action, installation shell scripts, and tests
@@ -333,7 +333,7 @@ Concurrency groups:
 | mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
 | triage | `workflow-issue#` | yes — latest comment wins |
 | notifications | `tend-notifications` | **no** — one poll drains notifications and repairs bot PRs at a time |
-| ci-fix | `workflow-<watched workflow>-<event>-<branch>` | **no** — a session mid-fix may already have pushed a branch or opened a PR |
+| ci-failures | `workflow-<watched workflow>-<event>-<branch>` | **no** — one writer per CI failure report, so a lane's verdicts apply in turn and never file two |
 | land/check | none | stateless — reads records and checks, starts nothing itself |
 | land/land, land/repair | `tend-review-PR#` (the review's group) | **no** — a landing or repair never runs beside a review of the same PR; `queue: max` keeps every pending one, and each reads what the one before it did |
 | nightly / weekly | none | cron-serialized |
@@ -352,18 +352,22 @@ repo only) and `tend-mention-relay`, which carries tend-mention's review
 events, already filters forks via `head.repo.full_name ==
 github.repository`, so neither needs the guard.
 
-**Red branches.** A red default branch fails every push that follows it, each
-on its own commit, so ci-fix keys its group on the branch — a commit-keyed
-group collapses nothing, since the burst is distinct commits rather than one
-commit retried. The watched workflow and the triggering run's event are in
-the key too: a red `publish-site` isn't starved behind a stream of red `ci`,
-and a scheduled run's failure isn't replaced by the next push failure on the
-same branch, since a scheduled suite can fail on tests push CI never runs.
-Separate lanes can each start a session on one breakage. What stops the later
-one opening a second PR is ci-fix re-running its existing-fix query just before
-`gh pr create`, which narrows that race rather than closing it. ci-fix's group
-is job-level, not workflow-level: most `workflow_run` events are green runs the
-job's `if` skips, and a skipped job never enters the group.
+**Red branches.** A red branch fails every push that follows it, each on its
+own commit, and every one of those runs finishes. `tend-ci-failures` runs no
+agent: it turns each verdict into the lane's CI failure report — one issue per
+watched workflow, branch and triggering event, since a scheduled suite can fail
+on tests push CI never runs — filing it on the first failure, commenting on
+each later one, and closing it on the next pass. Its group is keyed on that
+lane and is job-level: a cancelled or skipped run, which the job's `if` skips,
+never enters it, so it never takes the pending slot from a verdict. The report
+is written with the job's `GITHUB_TOKEN`, which starts no workflow and so puts
+it in the bot's notification queue; `ci_failure_report.py` says why that
+matters. The agent work runs through the issue path: the notifications poll
+triages the report, filing one cause issue per root cause, and each cause
+issue's own triage run fixes it. A cause issue claims its cause for every later
+run and every lane, so no second session works the same cause, and the
+notifications poll serializes the reports' triage, so no two of them file the
+same cause.
 
 **GHA queue depth.** Review sets `queue: max`, so pending PR events within
 GitHub's queue limit wait and a later push cannot replace `ready_for_review`.
@@ -378,10 +382,8 @@ first). The workflow injects the queue-to-run time delta (seconds between event
 timestamp and job start) into the prompt — over ~40 s indicates the job was
 queued behind another run, making conversation drift more likely.
 Notifications stay unread until a poll records an outcome, so the newest
-pending run covers a replaced poll. ci-fix keeps the default too, and wants
-it: while a session works a red branch, the newest failure of the same
-workflow and event carries that branch's current state, so replacing the
-pending run loses nothing.
+pending run covers a replaced poll. ci-failures keeps the default too, and
+wants it: the newest pending verdict of a lane supersedes the one it replaces.
 
 ## Shipped instructions and tend's own
 

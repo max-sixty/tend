@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Triages a newly opened GitHub issue — classifies, reproduces bugs, attempts conservative fixes, and comments.
+description: Triages a GitHub issue or CI failure report — classifies, reproduces bugs, attempts conservative fixes, and comments.
 argument-hint: "[issue number]"
 metadata:
   internal: true
@@ -32,6 +32,8 @@ gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
 An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on, not a self-conversation: the system prompt's self-loop guard covers the bot's own *comments*, and triage runs on these normally while no bot comment answers them yet.
 
 One exception: a tracker the bot maintains for its own evidence — its body says **Do not close manually**, and later runs append to it — carries no report. End the run without commenting.
+
+A CI failure report, labeled `tend-ci-failure`, follows **A report** in `references/ci-failures.md` instead of steps 3 to 7. A cause issue filed under one, whose body names its report, is a bug report; read **A cause issue** there before step 3.
 
 Classify into:
 

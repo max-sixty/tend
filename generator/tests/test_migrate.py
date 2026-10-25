@@ -54,7 +54,7 @@ def test_migrate_full_config_round_trips_through_config_load(tmp_path: Path) -> 
         run = "echo hi"
         env = { FOO = "bar" }
 
-        [workflows.ci-fix]
+        [workflows.ci-failures]
         watched_workflows = ["ci"]
 
         [workflows.review.jobs.review]
@@ -73,7 +73,7 @@ def test_migrate_full_config_round_trips_through_config_load(tmp_path: Path) -> 
     assert len(cfg.setup) == 2
     assert cfg.setup[0].fields == {"uses": "astral-sh/setup-uv@v6"}
     assert cfg.setup[1].fields == {"run": "echo hi", "env": {"FOO": "bar"}}
-    assert cfg.workflows["ci-fix"].watched_workflows == ["ci"]
+    assert cfg.workflows["ci-failures"].watched_workflows == ["ci"]
     assert cfg.workflows["review"].jobs == {"review": {"timeout-minutes": 240}}
 
 
@@ -95,7 +95,7 @@ def test_migrate_preserves_the_parsed_config(tmp_path: Path) -> None:
         [[setup]]
         uses = "astral-sh/setup-uv@v6"
 
-        [workflows.ci-fix]
+        [workflows.ci-failures]
         watched_workflows = ["ci"]
     """)
     toml_path = _write_toml(tmp_path, toml_text)
@@ -136,7 +136,7 @@ def test_init_auto_migrates_legacy_toml(
         tmp_path,
         dedent("""\
         bot_name = "test-bot"
-        [workflows.ci-fix]
+        [workflows.ci-failures]
         watched_workflows = ["ci"]
     """),
     )
@@ -149,7 +149,7 @@ def test_init_auto_migrates_legacy_toml(
     assert (tmp_path / ".config" / "tend.yaml").exists()
 
     wf_dir = tmp_path / ".github" / "workflows"
-    assert (wf_dir / "tend-ci-fix.yaml").exists()
+    assert (wf_dir / "tend-ci-failures.yaml").exists()
     assert (wf_dir / "tend-review.yaml").exists()
 
 
@@ -166,7 +166,7 @@ def test_init_dry_run_previews_the_migration_without_performing_it(
         tmp_path,
         dedent("""\
         bot_name = "test-bot"
-        [workflows.ci-fix]
+        [workflows.ci-failures]
         watched_workflows = ["ci"]
     """),
     )
@@ -243,7 +243,7 @@ def test_workflows_from_migrated_config_match_workflows_built_from_toml_dict(
         [[setup]]
         uses = "astral-sh/setup-uv@v6"
 
-        [workflows.ci-fix]
+        [workflows.ci-failures]
         watched_workflows = ["ci"]
 
         [workflows.review.jobs.review]

@@ -102,7 +102,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 - an open issue with no bot response to the latest human activity;
 - an open PR whose live head has no bot review, or whose latest comment, review, or inline review comment directed at the bot has no response; this includes replies to the bot's review on a fork PR;
 - unfinished configured-bot PRs, regardless of notification or review state. List the bot's open PRs (`gh pr list --state open --author "$BOT_NAME" --limit 200 --json number`) and continue each per `/tend-ci-runner:continue-pr`. A green proposal awaiting a maintainer in restricted mode, an explicit maintainer hold, or an unchanged external blocker needs no repeated post;
-- failing default-branch CI with no bot fix in progress. A live-state check like the two above it: scoped neither to `ci-fix`'s watched workflows — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window.
+- failing default-branch CI with no bot fix in progress. A live-state check like the two above it: scoped neither to the workflows `tend-ci-failures` reports — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window. A failure its open CI failure report (labeled `tend-ci-failure`) tracks is in progress there.
 
   ```bash
   uv run --script \
@@ -135,7 +135,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 
   The PAT's `repo` scope covers this. Where alerts are disabled the call fails with `403 Dependabot alerts are disabled for this repository.` — that is the check not applying, not a missing scope; only an empty result means no open alerts. Otherwise run it unconditionally. An alert open for more than a few days with no PR naming its package is live work in the same sense as a red default-branch run. A red `dynamic/dependabot/...` row above naming that package is the mechanism: Dependabot is erroring, so waiting will not produce a PR and the manifest or lockfile has to be bumped directly. `gh run view <id> --log-failed` ends with an error table naming the dependency and the error type; `security_update_not_possible` also reports the lowest non-vulnerable version beside the highest the dependency tree currently resolves, which is the constraint to relax.
 
-Handle live work through the normal triage, review, or CI-fix instructions. Keep
+Handle live work through the normal triage or review instructions. Keep
 failed runs in the report as diagnostic evidence.
 
 After the exhaustive live scan, read every row on every outage tracker this
@@ -197,7 +197,7 @@ For each analyzed run, compare what the bot did against what happened next. The 
 - **Review**: did subsequent commits undo something the bot approved? Did human reviewers flag issues it missed?
 - **Triage**: was the classification correct? Did the issue get relabeled?
 - **Nightly**: did the bot's PRs merge, or get closed as unhelpful?
-- **CI-fix**: did the fix actually resolve the failure?
+- **CI failure reports**: did each cause's fix resolve its failure, and did the report close when the lane passed?
 
 mention, notifications, and weekly runs get the same treatment: find the bot's output and check whether it was accepted.
 

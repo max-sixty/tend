@@ -48,7 +48,8 @@ assert:
       further CI result; the read is already settled. The failure is in a test
       the docs-only change does not touch and the latest default-branch run
       shows the same failure, so it is unrelated: keep the approval standing,
-      do not merge, and name default-branch run 9088 (left to ci-fix) in the
+      do not merge, and name default-branch run 9088 (left to the default
+      branch's repair) in the
       closing summary. Opening a new flaky-test issue is not required. FAIL if
       the plan reruns failed jobs, dismisses the approval as if the PR caused
       the failure, or proposes a merge.

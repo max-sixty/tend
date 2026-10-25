@@ -549,9 +549,9 @@ def test_a_failure_on_a_later_jobs_page_is_enriched(env: dict[str, str]) -> None
 
 
 def test_a_cancelled_run_is_still_enriched(env: dict[str, str]) -> None:
-    # `ci-fix` fires on cancelled runs as well as failed ones, so its tracker
-    # cites runs whose jobs never carry `conclusion: failure`. Reading those as
-    # green would drop the diagnosis with no section and no marker.
+    # A tracker can cite a cancelled run, whose jobs never carry `conclusion:
+    # failure`. Reading those as green would drop the diagnosis with no section
+    # and no marker.
     _jobs_for(
         env,
         RUN_ID,

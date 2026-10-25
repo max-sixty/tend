@@ -151,7 +151,6 @@ def test_memory_gist_ignores_a_disabled_top_level_harness(
             "review",
             "mention",
             "triage",
-            "ci-fix",
             "nightly",
             "weekly",
             "notifications",
@@ -637,7 +636,7 @@ def test_watched_workflows_empty_list_rejected(tmp_path: Path) -> None:
         dedent("""\
         bot_name: my-bot
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: []
     """),
     )
@@ -672,10 +671,10 @@ def test_workflow_list_fields_reject_non_list_of_strings(
     body = "".join(f"    {k}: {v}\n" for k, v in keys.items())
     path = _write_config(
         tmp_path,
-        f"bot_name: my-bot\nworkflows:\n  ci-fix:\n{body}",
+        f"bot_name: my-bot\nworkflows:\n  ci-failures:\n{body}",
     )
     with pytest.raises(
-        ClickException, match=rf"workflows\.ci-fix\.{key} must be a list"
+        ClickException, match=rf"workflows\.ci-failures\.{key} must be a list"
     ):
         Config.load(path)
 
@@ -687,7 +686,7 @@ def test_branches_empty_list_rejected(tmp_path: Path) -> None:
         dedent("""\
         bot_name: my-bot
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["ci"]
             branches: []
     """),
@@ -703,14 +702,14 @@ def test_branches_explicit_value(tmp_path: Path) -> None:
         dedent("""\
         bot_name: my-bot
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["ci"]
             branches: ["main", "release"]
     """),
     )
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    assert 'branches: ["main", "release"]' in workflows["tend-ci-fix.yaml"].content
+    assert 'branches: ["main", "release"]' in workflows["tend-ci-failures.yaml"].content
 
 
 def test_watched_workflows_explicit_value(tmp_path: Path) -> None:
@@ -720,38 +719,42 @@ def test_watched_workflows_explicit_value(tmp_path: Path) -> None:
         dedent("""\
         bot_name: my-bot
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["build"]
     """),
     )
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    ci_fix = workflows["tend-ci-fix.yaml"]
-    assert '"build"' in ci_fix.content
-    assert '"ci"' not in ci_fix.content
+    ci_failures = workflows["tend-ci-failures.yaml"]
+    assert '"build"' in ci_failures.content
+    assert '"ci"' not in ci_failures.content
 
 
-def test_watched_workflows_missing_raises_on_direct_call(tmp_path: Path) -> None:
-    """generate_ci_fix errors when watched_workflows is not configured."""
-    from tend.workflows import generate_ci_fix
-
-    path = _write_config(tmp_path, "bot_name: my-bot")
-    cfg = Config.load(path)
-    with pytest.raises(ClickException, match="ci-fix requires watched_workflows"):
-        generate_ci_fix(cfg)
-
-
-def test_watched_workflows_missing_skips_ci_fix(
+def test_watched_workflows_missing_skips_ci_failures(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """ci-fix is skipped with a warning when watched_workflows is not configured."""
+    """ci-failures is skipped with a warning when watched_workflows is unset."""
     path = _write_config(tmp_path, "bot_name: my-bot")
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    assert "tend-ci-fix.yaml" not in workflows
+    assert "tend-ci-failures.yaml" not in workflows
     captured = capsys.readouterr()
-    assert "Skipping ci-fix" in captured.err
+    assert "Skipping ci-failures" in captured.err
     assert "watched_workflows" in captured.err
+
+
+def test_ci_fix_is_refused_with_its_replacement(tmp_path: Path) -> None:
+    """`ci-fix` was an agent workflow; `ci-failures` files issues instead.
+
+    Warning past the old key would drop the consumer's CI repair on the next
+    regeneration with nothing but a line in a nightly log.
+    """
+    path = _write_config(
+        tmp_path,
+        'bot_name: my-bot\nworkflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n',
+    )
+    with pytest.raises(ClickException, match="replaced by workflows.ci-failures"):
+        Config.load(path)
 
 
 # ---------------------------------------------------------------------------

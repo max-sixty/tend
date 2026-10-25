@@ -89,20 +89,18 @@
       deployment: false
 {%- endmacro %}
 
-{# Permissions block at column 6. `issues` defaults to True because every
-   workflow except ci-fix needs it. The trailing inline conditional avoids
-   the trim_blocks-eats-the-separator issue between `actions: read` and
-   `      issues: write` that arises with `{% if %}` on its own line.
+{# Permissions block at column 6, for a job that runs the agent.
 
    No `id-token: write`: nothing in the harness actions requests an OIDC
    token, and a job holding it can mint the repository's OIDC identity for
    any relying party whose trust policy doesn't pin the workflow and ref.
    In restricted mode, a consumer whose `setup:` authenticates over OIDC
    re-adds it with a `jobs.<name>.permissions` override. #}
-{% macro permissions(issues=True) %}
+{% macro permissions() %}
       contents: write
       pull-requests: write
-      actions: read<<'\n      issues: write' if issues else ''>>
+      actions: read
+      issues: write
 {%- endmacro %}
 
 {# Skip a job when running outside the canonical owner. Compares
@@ -113,7 +111,7 @@
    Two shapes:
    - fork_guard_if(cfg): emits `    if: <expr>` on its own line, or nothing
    - fork_guard_prefix(cfg): emits `<expr> && ` inline, or nothing — used
-     when the job already has an `if:` (e.g. ci-fix's conclusion check) #}
+     when the job already has an `if:` (e.g. ci-failures' conclusion check) #}
 {% macro fork_guard_if(cfg) %}
 {% if cfg.repo_owner %}
     if: github.repository_owner == '<<cfg.repo_owner|replace("'", "''")>>'
@@ -225,8 +223,8 @@
    indented at column 12. Every input whose value is consumer-supplied and may
    span lines renders through here — `prompt`, and the three `sandbox_*` levers
    — so the indentation is written once rather than per call site. A caller with
-   extra context to append (ci-fix's run coordinates) composes the text first
-   and passes the whole thing.
+   extra context to append (notifications' snapshot cutoff) composes the text
+   first and passes the whole thing.
 
    `|2` is an explicit indentation indicator: two columns further in than the
    `with:` mapping this renders into, which is where `indent_block` puts the
@@ -237,7 +235,7 @@
 
    `${{ ... }}` in the text reaches the generated file verbatim, and GitHub
    Actions evaluates it when it sets the input — that is how a prompt's
-   per-event placeholder (`{pr_number}`, `{issue_number}`, `{run_id}`) is
+   per-event placeholder (`{pr_number}`, `{issue_number}`) is
    substituted. #}
 {% macro block_input(name, text) -%}
 <<name>>: |2

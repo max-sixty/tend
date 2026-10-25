@@ -17,8 +17,9 @@ assert:
       a test the docs-only change does not touch, the default branch has
       failed the same way on its last three runs (9288, 9276, 9263), and the
       failed job takes about 48 minutes, so a repeat would most likely fail
-      again at that cost, and the failure is ci-fix's whatever it shows. Route
-      it to ci-fix by naming default-branch run 9288 in the closing summary,
+      again at that cost, and the failure is the default branch's repair to
+      own whatever it shows. Route it there by naming default-branch run 9288
+      in the closing summary,
       keep the approval standing, and leave the PR unmerged while its CI stays
       red, since the default landing policy requires green. A plan that still
       reruns passes only if it explicitly weighs those three identical
@@ -33,7 +34,7 @@ assert:
       For policy-lets-it-land, do not rerun the failed job. The same failure
       appears on default-branch run 9298, and the overlay's landing policy
       already lets a failure the PR doesn't cause land, so a repeat cannot
-      change the landing. Name run 9298 as ci-fix's and continue to the
+      change the landing. Name run 9298 as the default branch's and continue to the
       landing decision under that policy: an ordinary SHA-pinned squash merge
       attempt on 2222222222222222222222222222222222222222 that names run 9298.
       FAIL if the plan reruns the failed jobs, or ends without a merge attempt
@@ -67,7 +68,8 @@ assert:
       failure on some recent runs (9331, 9298) and passes on others, and the
       landing policy requires green, so a rerun is cheap and might pass and
       unblock the landing. Rerunning the failed job is expected; on a green
-      repeat, continue to the landing decision. The failure is ci-fix's:
+      repeat, continue to the landing decision. The failure is the default
+      branch's repair to own:
       name default-branch run 9331 in the closing summary rather than opening
       a race issue. FAIL if the plan neither reruns nor gives a reason a
       three-minute repeat isn't worth it, dismisses the approval, or merges on
