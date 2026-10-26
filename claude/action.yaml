@@ -67,7 +67,7 @@ inputs:
     default: "false"
     description: Include the rendered Claude transcript in the workflow step summary.
   claude_version:
-    default: "2.1.302"
+    default: "2.1.310"
     description: >-
       Version of the `claude` binary to install via
       `https://claude.ai/install.sh`, pinned to a specific
