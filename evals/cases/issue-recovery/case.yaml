@@ -1,0 +1,38 @@
+description: Recover the actionable issue backlog through ordinary triage with current ownership and access.
+vars:
+  task: |
+    Act as Tend's daily review-runs session for each independent daily snapshot
+    in observations.json, and as its notifications session for the explicitly
+    marked notification snapshot. Load the relevant active guidance. Decide
+    what work remains and what to dispatch, defer, acknowledge or update.
+    Save the decisions in captured.md.
+
+    This is an offline next-decision case: repositories and GitHub are
+    unavailable. All current-state reads are supplied. Propose actions without
+    performing them or claiming they occurred.
+assert:
+  - type: llm-rubric
+    value: >-
+      Evaluate decisions, not execution, for these independent snapshots.
+      In partial-investigation, propose one ordinary current-issue triage
+      worker as a control for uncertain capacity, keeping both issues as open
+      work until the control's actual result informs further admission. A
+      partial comment does not settle issue201. In healthy-backlog, recover
+      all three unowned issues211,212,213 through ordinary triage in this
+      sweep, using the serial workflow queue. Do not stop after one, wait for
+      unrelated issue214 to finish, or defer the remainder to another day.
+      A successful investigation without a repair is still engineering work;
+      an empty inbox or bot authorship does not erase the live backlog.
+      In established-dispositions, preserve PR303's repair ownership and
+      issue204's unchanged specific approval requirement without dispatching
+      redundant verification workers, repeating diagnosis or posting again.
+      In queued-worker, skip issue205 because its own worker is queued, but
+      enqueue unowned issue210 despite unrelated issue209 running. In
+      provider-reset, defer206 until access changes rather than probe the
+      known unavailable account. In foreign-notification, address only the
+      authorized remote clarification, without dispatching or mutating
+      same-number local issue201 or inventing remote dispatch authority.
+      Across snapshots use current issues and ownership; do not add attempt
+      labels or another persistent recovery ledger, replay historical runs,
+      repair candidates inline instead of ordinary triage, claim bugs fixed
+      without evidence, or claim proposed actions executed.

@@ -17,7 +17,7 @@ jobs:
 <<permissions()>>
     steps:
 <<setup_tend_uv()>>
-      - name: Check notifications, conflicts and pending triage
+      - name: Check notifications and conflicts
         id: check
         env:
           GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}

@@ -24,12 +24,14 @@ Reproduce before fixing, find evidence before speculating, and test before commi
 ## Step 2: Read and classify the issue
 
 ```bash
-gh issue view $ARGUMENTS --json title,body,labels,author
+gh issue view $ARGUMENTS --json title,body,labels,author,state,comments
 # The reporter's relationship to the repository, read by steps 6 and 7
 gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
 ```
 
-An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on, not a self-conversation: the system prompt's self-loop guard covers the bot's own *comments*, and triage runs on these normally while no bot comment answers them yet.
+Read the live conversation and linked repairs before acting; the issue may have changed while this run queued. If it is closed, or the current work is covered by a completed disposition, repair owner, or unchanged access/product decision from its owner, finish without another diagnosis or post. A prior bot reply or successful run alone does not settle unfinished engineering work; apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`.
+
+An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on. The system prompt's self-loop guard covers the bot's own *comments*, not unfinished work in its issues.
 
 One exception: a tracker the bot maintains for its own evidence — its body says **Do not close manually**, and later runs append to it — carries no report. End the run without commenting.
 

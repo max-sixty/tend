@@ -388,14 +388,10 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
         "{issue_number}", "${{ github.event.issue.number || inputs.issue }}"
     )
 
-    ready_condition = "steps.admit.outputs.ready == 'true'"
     content = _TRIAGE_TMPL.render(
         cfg=eff,
-        setup=_setup_yaml(eff, condition=ready_condition),
+        setup=_setup_yaml(eff),
         prompt=prompt,
-        ready_condition=ready_condition,
-        queue_script=_inline_script("triage_queue.py"),
-        heredoc="<<",
     )
     return GeneratedWorkflow(filename="tend-triage.yaml", content=content)
 
@@ -502,15 +498,12 @@ def generate_notifications(cfg: Config) -> GeneratedWorkflow:
         "Notification snapshot cutoff: "
         "${{ steps.check.outputs.cutoff }}\n"
         "Possible conflicted bot PR count: "
-        "${{ steps.check.outputs.conflict_count }}\n"
-        "Pending triage ready for recovery: "
-        "${{ steps.check.outputs.triage_count }}"
+        "${{ steps.check.outputs.conflict_count }}"
     )
 
     skip_condition = (
         "steps.check.outputs.count != '0' || "
         "steps.check.outputs.conflict_count != '0' || "
-        "steps.check.outputs.triage_count != '0' || "
         "github.event_name == 'workflow_dispatch'"
     )
     check_script = _inline_script("notifications_check.py")
