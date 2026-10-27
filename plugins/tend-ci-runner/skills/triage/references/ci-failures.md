@@ -20,17 +20,22 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
 
 2. **Group the failures into causes.** A cause is one mechanism that one fix addresses: several failing tests can share one, and one job can hold several. Establish each current failure per **Claims of recurrence** in `/tend-ci-runner:ground-claims` before matching it to earlier work.
 
-3. **Find each cause's existing owner**, matching evidence per **Claims of recurrence**, not titles or run ids:
+3. **Find each cause's existing owner.** Read the shared inventories once for this diagnosis and reuse them across causes, updating them as this session files or attaches work:
+
+   ```bash
+   gh pr list --state open --limit 200 --json number,title,headRefName,author
+   # earlier reports for this lane, with their diagnoses and sub-issues
+   gh issue list --label tend-ci-failure --state closed --search "<workflow> in:title" \
+     --json number,title,closedAt --limit 20
+   ```
+
+   For each cause, match evidence per **Claims of recurrence**, not titles or run ids. Search for owners the shared inventories do not identify:
 
    ```bash
    # <term>: a failing test or job name, or a distinctive phrase from the error;
    # search matches titles and bodies, so run one per term
    gh issue list --state open --search "<term>" --json number,title,author --limit 100
-   gh pr list --state open --limit 200 --json number,title,headRefName,author
    gh pr list --state closed --search "<term>" --limit 100 --json number,title,state
-   # earlier reports for this lane, with their diagnoses and sub-issues
-   gh issue list --label tend-ci-failure --state closed --search "<workflow> in:title" \
-     --json number,title,closedAt --limit 20
    ```
 
    Candidates include this report's sub-issues, other reports' sub-issues, and issues and PRs of any author. A closed PR a maintainer rejected ends that cause's work here: read the closure's rationale, and don't re-derive the fix.

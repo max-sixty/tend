@@ -25,14 +25,11 @@ NOW = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
 TODAY = "2026-01-02"
 LABELLED_AT = f"{TODAY}T08:00:00Z"
 
-SEARCH = "search/issues?q=author%3Atend-agent+repo%3Aowner%2Frepo+created%3A"
-TODAY_SEARCH = SEARCH + "2026-01-02&per_page=1"
-BASELINE_SEARCH = SEARCH + "2025-12-27..2026-01-01&per_page=1"
-BURST_SEARCH = SEARCH + "%3E2026-01-02T11%3A40%3A00Z+is%3A"
-# Each kind's burst query; the issue count leaves out CI cause issues.
-BURST = {
-    "pr": BURST_SEARCH + "pr&per_page=1",
-    "issue": BURST_SEARCH + "issue+-label%3Atend-ci-cause&per_page=1",
+COUNT_QUERIES = {
+    "recent_prs": "author:tend-agent repo:owner/repo created:>2026-01-02T11:40:00Z is:pr",
+    "recent_issues": "author:tend-agent repo:owner/repo created:>2026-01-02T11:40:00Z is:issue -label:tend-ci-cause",
+    "today_posts": "author:tend-agent repo:owner/repo created:2026-01-02",
+    "past_posts": "author:tend-agent repo:owner/repo created:2025-12-27..2026-01-01",
 }
 TRACKERS = (
     "issue",
@@ -72,10 +69,8 @@ def gh(
     """
     monkeypatch.setattr(_common, "utcnow", lambda: NOW)
     fake_gh.respond("api", "user", with_={"login": BOT, "id": BOT_ID})
-    _posts(fake_gh, today=10, past=15)
+    _counts(fake_gh, recent_prs=0, recent_issues=0, today_posts=10, past_posts=15)
     fake_gh.respond(*TRACKERS, with_=[])
-    for kind in ("pr", "issue"):
-        _count(fake_gh, BURST[kind], 0)
     fake_gh.respond(
         "issue", "create", with_=f"https://github.com/owner/repo/issues/{NEW_ISSUE}\n"
     )
@@ -92,13 +87,12 @@ def gh(
     return fake_gh
 
 
-def _count(gh: FakeGh, path: str, count: int) -> None:
-    gh.respond("api", path, with_={"total_count": count, "incomplete_results": False})
-
-
-def _posts(gh: FakeGh, *, today: int, past: int) -> None:
-    _count(gh, TODAY_SEARCH, today)
-    _count(gh, BASELINE_SEARCH, past)
+def _counts(gh: FakeGh, **counts: int) -> None:
+    response = gh.responses.get(("api", "graphql"), {"data": {}})
+    response["data"].update(
+        {name: {"issueCount": count} for name, count in counts.items()}
+    )
+    gh.respond("api", "graphql", with_=response)
 
 
 def _pause_issue(
@@ -177,6 +171,7 @@ def test_passes_under_the_limit_and_publishes_the_bots_identity(
     assert "check passed" in capsys.readouterr().out
     assert not gh.called("issue"), f"touched an issue under the limit: {gh.calls}"
     assert github_files.outputs() == {"login": BOT, "id": str(BOT_ID)}
+    assert gh.calls == [("api", "user"), ("api", "graphql", "--input", "-")]
 
 
 def test_files_an_issue_when_unapproved(
@@ -184,7 +179,7 @@ def test_files_an_issue_when_unapproved(
 ) -> None:
     """Over the limit with no approval: refuse, file the issue that says so,
     and name its number — the annotation is what sends a maintainer to it."""
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
 
     assert preflight.main() == 1
     out = capsys.readouterr().out
@@ -204,7 +199,7 @@ def test_says_so_when_the_issue_cannot_be_filed(
     the one thing that would restart the bot, while it stays halted for the
     UTC day.
     """
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     gh.respond("issue", "create", with_=1)
 
     assert preflight.main() == 1
@@ -222,7 +217,7 @@ def test_keeps_its_annotation_when_the_row_cannot_be_appended(
     incident takes it. The row is the lesser loss: the issue exists, so the
     annotation can still say what to close.
     """
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     _pause_issue(gh)
     gh.respond("issue", "comment", with_=1)
 
@@ -235,7 +230,7 @@ def test_unavailable_tracker_read_never_changes_an_issue(
     gh: FakeGh, capsys: pytest.CaptureFixture[str], responses: list[Any]
 ) -> None:
     """Neither an initial nor a later failed read is evidence of absence."""
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     reads = iter(responses)
     gh.respond(
         *TRACKERS,
@@ -253,7 +248,7 @@ def test_human_close_doubles_the_ceiling(
     gh: FakeGh, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """One close by a person takes the ceiling from 15 to 30."""
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     _pause_issue(gh, _closed("maintainer"))
 
     assert preflight.main() == 0
@@ -268,7 +263,7 @@ def test_bot_cannot_approve_itself(gh: FakeGh) -> None:
     What stops that being self-approval is `count_approvals`, not an
     instruction in a prompt.
     """
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     _pause_issue(gh, _closed(BOT, actor_id=BOT_ID))
 
     assert preflight.main() == 1, (
@@ -369,7 +364,7 @@ def test_reconciler_keeps_only_what_the_preflight_filed(gh: FakeGh) -> None:
     Each of these sits inside the probe window failing exactly one of author,
     title, label, still-open.
     """
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     _probe(gh, 41, title="Something a maintainer labelled")
     _probe(gh, 40, labels=[{"name": "unrelated-label"}])
     _probe(gh, 39, user={"login": "someone"})
@@ -390,7 +385,7 @@ def test_reconciler_stands_down_to_a_racing_sibling(
     Both legs can read the list as empty before either creates its record.
     The later leg finds the earlier sibling by its issue number.
     """
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     _probe(gh, 41)
 
     assert preflight.main() == 1
@@ -410,7 +405,7 @@ def test_carries_its_row_onto_the_racing_sibling(gh: FakeGh) -> None:
     artifact a person is asked to act on is the one missing the run it
     refused.
     """
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     _probe(gh, 41)
     # A sibling from another workflow: its seed row cites a different run.
     gh.respond("issue", "view", with_={"body": "run 999 row", "comments": []})
@@ -429,8 +424,8 @@ def test_skips_the_issue_when_the_burst_limit_refused(gh: FakeGh) -> None:
     The burst limit is deliberately not resumable, so an issue offering to
     double the ceiling would promise a recovery it cannot deliver.
     """
-    _posts(gh, today=16, past=15)
-    _count(gh, BURST_SEARCH + "pr&per_page=1", 16)
+    _counts(gh, today_posts=16, past_posts=15)
+    _counts(gh, recent_prs=16)
 
     assert preflight.main() == 1
     assert not gh.called("issue", "create"), (
@@ -463,7 +458,7 @@ def test_foreign_issue_is_not_the_anchor(gh: FakeGh) -> None:
     through `_issue.matching`; the author half is a server-side flag, so it is
     asserted on the call the step made.
     """
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     _pause_issue(gh, _closed("maintainer"))
     gh.respond(
         *TRACKERS,
@@ -475,7 +470,7 @@ def test_foreign_issue_is_not_the_anchor(gh: FakeGh) -> None:
 
 def test_reopens_rather_than_refiling(gh: FakeGh) -> None:
     """Past the doubled ceiling the existing issue is reopened, not duplicated."""
-    _posts(gh, today=40, past=15)
+    _counts(gh, today_posts=40, past_posts=15)
     _pause_issue(gh, _closed("maintainer"))
 
     assert preflight.main() == 1
@@ -495,66 +490,76 @@ def test_spike_limit_scales_with_the_six_day_baseline() -> None:
 def test_search_windows_are_scoped_to_bot_repo_and_creation_time(
     gh: FakeGh, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Exact mocked commands distinguish burst kinds and exclude today from baseline."""
-    _count(gh, BURST["pr"], 2)
-    _count(gh, BURST["issue"], 3)
-    _posts(gh, today=10, past=105)
+    """One read preserves each search scope without using the REST search budget."""
+    _counts(gh, recent_prs=2, recent_issues=3)
+    _counts(gh, today_posts=10, past_posts=105)
     assert preflight.main() == 0
+    request = json.loads(_stdin_for(gh, "api", "graphql"))
+    assert request["variables"] == COUNT_QUERIES
+    for name in COUNT_QUERIES:
+        assert (
+            f"{name}: search(query: ${name}, type: ISSUE, first: 1) {{ issueCount }}"
+            in request["query"]
+        )
     assert (
         "burst=2 PRs, 3 issues (20min); today=10 (limit: 45); baseline=105"
         in capsys.readouterr().out
     )
 
 
-@pytest.mark.parametrize("kind", ["issue", "pr"])
+@pytest.mark.parametrize("kind", ["recent_issues", "recent_prs"])
 def test_burst_limit_refuses_each_kind(gh: FakeGh, kind: str) -> None:
-    _count(gh, BURST[kind], 11)
+    _counts(gh, **{kind: 11})
     assert preflight.main() == 1
-    _count(gh, BURST[kind], 10)
+    _counts(gh, **{kind: 10})
     assert preflight.main() == 0
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        TODAY_SEARCH,
-        BASELINE_SEARCH,
-        BURST["pr"],
-        BURST["issue"],
-    ],
-)
 @pytest.mark.parametrize(
     "response",
     [
         1,
         "",
         "<html>502 Bad Gateway</html>",
-        {"message": "unavailable"},
-        {"total_count": 0},
-        {"total_count": 0, "incomplete_results": True},
-        {"total_count": "0", "incomplete_results": False},
-        {"total_count": -1, "incomplete_results": False},
-        {"total_count": False, "incomplete_results": False},
+        {"errors": [{"message": "rate limit exceeded"}]},
+        {"data": None},
+        {"data": {}},
+        {"data": {"today_posts": {"issueCount": 0}}},
+        {
+            "data": {name: {"issueCount": 0} for name in COUNT_QUERIES},
+            "errors": [{"message": "search timed out"}],
+        },
     ],
 )
 def test_unavailable_activity_never_becomes_zero(
-    gh: FakeGh, capsys: pytest.CaptureFixture[str], path: str, response: Any
+    gh: FakeGh, capsys: pytest.CaptureFixture[str], response: Any
 ) -> None:
-    _posts(gh, today=16, past=15)
-    gh.respond("api", path, with_=response)
+    gh.respond("api", "graphql", with_=response)
     assert preflight.main() == 1
     out = capsys.readouterr().out
     assert "activity could not be read" in out
-    assert path in out
+    assert "gh api graphql" in out
     assert "burst=" not in out
-    assert not any(
-        gh.called("issue", verb) for verb in ("create", "reopen", "comment", "close")
-    ), gh.calls
+    assert not gh.called("issue"), gh.calls
+    assert not gh.called("label"), gh.calls
+
+
+@pytest.mark.parametrize("name", COUNT_QUERIES)
+@pytest.mark.parametrize(
+    "field", [None, {}, {"issueCount": "0"}, {"issueCount": -1}, {"issueCount": False}]
+)
+def test_invalid_count_refuses_the_whole_batch(
+    gh: FakeGh, capsys: pytest.CaptureFixture[str], name: str, field: Any
+) -> None:
+    gh.responses[("api", "graphql")]["data"][name] = field
+    assert preflight.main() == 1
+    assert f"invalid search count {name}" in capsys.readouterr().out
+    assert not gh.called("issue"), gh.calls
     assert not gh.called("label"), gh.calls
 
 
 def test_valid_zero_counts_are_not_errors(gh: FakeGh) -> None:
-    _posts(gh, today=0, past=0)
+    _counts(gh, today_posts=0, past_posts=0)
     assert preflight.main() == 0
 
 
@@ -571,7 +576,7 @@ def test_unreadable_events_refuse_the_run_rather_than_approving_it(
     response: Any,
 ) -> None:
     """Unavailable approval history stops before reopening or commenting."""
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     _pause_issue(gh, _closed("maintainer"))
     gh.respond(
         "api",
@@ -592,7 +597,7 @@ def test_a_label_that_cannot_be_created_does_not_stop_the_filing(
 ) -> None:
     """The label already exists on every repo after the first incident, and
     `gh label create` has no idempotent form — so its failure is expected."""
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     gh.respond("label", "create", with_=1)
 
     assert preflight.main() == 1
@@ -609,7 +614,7 @@ def test_keeps_its_own_record_when_it_cannot_vouch_for_a_sibling(
     approval. Without a name to check against, keeping both open is the safe
     failure.
     """
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     _probe(gh, 41)
     identities = iter([_serve({"login": BOT, "id": BOT_ID}), None])
     gh.respond("api", "user", with_=lambda argv, stdin: next(identities) or _serve(1))
@@ -623,7 +628,7 @@ def test_keeps_its_own_record_when_it_cannot_vouch_for_a_sibling(
 def test_duplicate_tracker_closes_count_and_oldest_gets_new_refusals(
     gh: FakeGh, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _posts(gh, today=40, past=15)
+    _counts(gh, today_posts=40, past_posts=15)
     _pause_issue(gh, _closed("maintainer"), number=7)
     _pause_issue(gh, _closed("maintainer"), number=42)
     gh.respond(
@@ -635,7 +640,7 @@ def test_duplicate_tracker_closes_count_and_oldest_gets_new_refusals(
     )
     assert preflight.main() == 0
     assert "2 approval(s) (ceiling 60)" in capsys.readouterr().out
-    _posts(gh, today=61, past=15)
+    _counts(gh, today_posts=61, past_posts=15)
     assert preflight.main() == 1
     assert gh.called("issue", "reopen", "7")
     notice = _stdin_for(gh, "issue", "comment", "7")
@@ -647,7 +652,7 @@ def test_duplicate_tracker_closes_count_and_oldest_gets_new_refusals(
 
 
 def test_late_tracker_approval_is_read_before_reopening(gh: FakeGh) -> None:
-    _posts(gh, today=16, past=15)
+    _counts(gh, today_posts=16, past_posts=15)
     _pause_issue(gh, _closed("maintainer"))
     reads = iter([[], [{"number": NEW_ISSUE, "title": preflight.PAUSE_TITLE}]])
     gh.respond(*TRACKERS, with_=lambda argv, stdin: json.dumps(next(reads)))

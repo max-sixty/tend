@@ -57,11 +57,16 @@ GitHub or recreates the original production session.
 
 ## Behavior improvements
 
-Changes intended to improve agent behavior need relevant eval coverage. Before
-editing guidance, name the general behavior being improved and select existing
-cases that exercise it. Add, adjust or replace cases where coverage is missing;
-an existing case that already measures the claim needs no edit. Use ordinary
-tests for deterministic mechanics.
+Scale validation to remaining uncertainty and the consequences of being wrong.
+Use model evals when they can resolve material uncertainty about agent decisions
+or protect consequential behavior. For low-uncertainty mechanical changes,
+review the instructions and verify their commands directly. Use ordinary tests
+for deterministic mechanics.
+
+When using evals, name the general behavior being improved and select existing
+cases that exercise it before editing guidance. Add, adjust or replace cases
+where coverage is missing; an existing case that already measures the claim
+needs no edit.
 
 Choose the smallest set that distinguishes useful general behavior: a
 representative failure, a materially different situation where the same rule
@@ -78,9 +83,10 @@ behavior. Neither a fixed case quota nor a greener score justifies removing
 coverage of a still-relevant failure.
 
 Follow **Validation** below for before/after comparisons. Report which behavior
-the cases cover, observed results and limits. If model runs are unavailable,
-prepare runnable coverage and report the improvement as unvalidated, with the
-blocker; authoring a case alone does not establish improvement.
+the cases cover, observed results and limits. If model evaluation is warranted
+but runs are unavailable, prepare runnable coverage and report the improvement
+as unvalidated, with the blocker; authoring a case alone does not establish
+improvement.
 
 ## Collector and case authoring
 
@@ -136,10 +142,11 @@ still lacking live GitHub and the original runner environment.
 
 ## Validation
 
-Require a failing historical control on the selected executor before claiming
-an instruction improvement. Both arms passing provides coverage, not evidence
-of improvement. Calibrate changed rubrics on known good and bad artifacts or
-trajectories, and inspect saved drafts and tool events alongside verdicts.
+Before claiming an instruction improvement from a before/after eval, require a
+failing historical control on the selected executor. Both arms passing provides
+coverage, not evidence of improvement. Calibrate changed rubrics on known good
+and bad artifacts or trajectories, and inspect saved drafts and tool events
+alongside verdicts.
 Small samples establish observed behavior rather than reliability rates.
 
 Compare arms with identical starting evidence, model and execution settings.
