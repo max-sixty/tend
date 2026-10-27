@@ -131,6 +131,32 @@ def _conflicts(repo: str) -> int:
         return 0
 
 
+def _pending_triage(repo: str) -> int:
+    """Wake recovery only when pending issues outlive the active triage queue."""
+    try:
+        issues = _paginated(
+            f"repos/{repo}/issues?labels=tend-triage-pending&state=open&per_page=100"
+        )
+        count = sum("pull_request" not in issue for issue in issues)
+        if not count:
+            return 0
+        # Query every nonterminal status, rather than a recent-run window:
+        # a long-running or queued worker may be older than that window.
+        for status in ("queued", "in_progress", "waiting", "requested", "pending"):
+            runs = _json(
+                "api",
+                f"repos/{repo}/actions/workflows/tend-triage.yaml/runs"
+                f"?status={status}&per_page=1",
+                quiet=True,
+            )
+            if runs["total_count"]:
+                return 0
+        return count
+    except (json.JSONDecodeError, KeyError, subprocess.CalledProcessError, TypeError):
+        print("::warning::pending triage scan failed; retrying next cycle")
+        return 0
+
+
 #: How old a notification must be before this poll takes it. The event run a
 #: notification started usually finishes, and marks it read, within this, so a
 #: poll doesn't boot a session only to find that run still holds its subject.
@@ -162,14 +188,18 @@ def main(*, now: datetime | None = None) -> int:
     _output("count", count)
     conflict_count = _conflicts(repo)
     _output("conflict_count", conflict_count)
+    triage_count = _pending_triage(repo)
+    _output("triage_count", triage_count)
 
-    if count == 0 and conflict_count == 0:
-        print("No notification or conflict work — skipping")
+    if count == 0 and conflict_count == 0 and triage_count == 0:
+        print("No notification, conflict or triage work — skipping")
     else:
         if count:
             print(f"{count} notification task(s) — proceeding")
         if conflict_count:
             print(f"{conflict_count} possible conflicted bot PR(s) — proceeding")
+        if triage_count:
+            print(f"{triage_count} pending triage issue(s) — proceeding")
     return 0
 
 

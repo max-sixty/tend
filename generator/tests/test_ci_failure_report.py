@@ -1,7 +1,7 @@
 """Tests for ci_failure_report.py — tend-ci-failures' report writer.
 
 Every case is an outward write a maintainer sees: a report filed, a comment
-posted, an issue closed, a triage run started. The script is inlined into its
+posted, an issue closed. The script is inlined into its
 workflow, so these load it from the templates directory and swap its one
 GitHub call, `api`, for an in-memory repository.
 """
@@ -32,8 +32,6 @@ class FakeGitHub:
         self.issues: dict[int, dict[str, Any]] = {}
         self.runs: list[dict[str, Any]] = []
         self.comments: list[tuple[int, str]] = []
-        self.dispatches: list[dict[str, Any]] = []
-        self.refuse_dispatch = False
 
     def issue(self, title: str, *, author: str, labels=(), state="open") -> int:
         number = len(self.issues) + 1
@@ -76,9 +74,7 @@ class FakeGitHub:
         if method == "POST" and path == f"repos/{REPO}/labels":
             return {}
         if method == "POST" and path == f"repos/{REPO}/issues":
-            number = self.issue(
-                body["title"], author=report.REPORTER, labels=body["labels"]
-            )
+            number = self.issue(body["title"], author=BOT, labels=body["labels"])
             self.issues[number]["body"] = body["body"]
             return {"number": number}
         if method == "POST" and (
@@ -92,14 +88,6 @@ class FakeGitHub:
             assert body == {"state": "closed", "state_reason": "completed"}
             self.issues[int(m.group(1))]["state"] = "closed"
             return {}
-        if (
-            method == "POST"
-            and path == f"repos/{REPO}/actions/workflows/tend-triage.yaml/dispatches"
-        ):
-            if self.refuse_dispatch:
-                raise report.subprocess.CalledProcessError(1, ["gh"])
-            self.dispatches.append(body)
-            return None
         raise AssertionError(f"unexpected call: {method} {path}")
 
 
@@ -123,7 +111,6 @@ def github(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeGitHub:
     fake = FakeGitHub()
     monkeypatch.setattr(report, "api", fake)
     monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
-    monkeypatch.setenv("TRIAGE_WORKFLOW", "tend-triage.yaml")
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(tmp_path / "event.json"))
     return fake
 
@@ -141,7 +128,9 @@ def _open_reports(github: FakeGitHub) -> list[dict[str, Any]]:
     return [
         issue
         for issue in github.issues.values()
-        if issue["state"] == "open" and issue["user"]["login"] == report.REPORTER
+        if issue["state"] == "open"
+        and "pull_request" not in issue
+        and any(label["name"] == report.LABEL for label in issue["labels"])
     ]
 
 
@@ -158,44 +147,6 @@ def test_a_failure_files_one_report_and_later_failures_comment_on_it(
     assert [(n, "actions/runs/101" in body) for n, body in github.comments] == [
         (filed["number"], True)
     ]
-
-
-def test_each_failure_dispatches_the_reports_triage(github: FakeGitHub) -> None:
-    """The dispatched run is the fast path, on the default branch's workflow."""
-    _finish(github, _run(100, "failure"))
-    _finish(github, _run(101, "failure"))
-    [filed] = _open_reports(github)
-
-    assert github.dispatches == 2 * [
-        {
-            "ref": "main",
-            "inputs": {
-                "issue": str(filed["number"]),
-                "title": filed["title"],
-                "report": "true",
-            },
-        }
-    ]
-
-
-def test_a_refused_dispatch_leaves_the_report_to_its_notification(
-    github: FakeGitHub, capsys: pytest.CaptureFixture[str]
-) -> None:
-    github.refuse_dispatch = True
-    _finish(github, _run(100, "failure"))
-
-    assert len(_open_reports(github)) == 1
-    assert "could not dispatch triage" in capsys.readouterr().out
-
-
-def test_no_dispatch_where_triage_is_not_generated(
-    github: FakeGitHub, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("TRIAGE_WORKFLOW", "")
-    _finish(github, _run(100, "failure"))
-
-    assert len(_open_reports(github)) == 1
-    assert github.dispatches == []
 
 
 def test_each_event_is_its_own_lane(github: FakeGitHub) -> None:
@@ -224,7 +175,6 @@ def test_a_pass_closes_the_report_and_leaves_its_causes(github: FakeGitHub) -> N
     [(number, body)] = github.comments
     assert number == filed["number"]
     assert "actions/runs/101" in body
-    assert len(github.dispatches) == 1
 
 
 def test_a_pass_with_no_open_report_writes_nothing(github: FakeGitHub) -> None:
@@ -232,7 +182,6 @@ def test_a_pass_with_no_open_report_writes_nothing(github: FakeGitHub) -> None:
 
     assert github.issues == {}
     assert github.comments == []
-    assert github.dispatches == []
 
 
 def test_a_superseded_verdict_changes_nothing(github: FakeGitHub) -> None:
@@ -277,12 +226,37 @@ def test_a_closed_report_is_never_reused(github: FakeGitHub) -> None:
     assert len(github.issues) == 2
 
 
-def test_a_lookalike_report_by_the_bot_is_ignored(github: FakeGitHub) -> None:
-    """The lane's report is matched by its author too, so an issue the bot or a
-    person filed under the same label and title is not taken for it."""
-    github.issue("`ci` failing on `main` (push)", author=BOT, labels=[report.LABEL])
+@pytest.mark.parametrize("author", [BOT, "github-actions[bot]", "maintainer"])
+def test_an_existing_report_is_reused_regardless_of_author(
+    github: FakeGitHub, author: str
+) -> None:
+    existing = github.issue(
+        "`ci` failing on `main` (push)", author=author, labels=[report.LABEL]
+    )
+
+    _finish(github, _run(100, "failure"))
+    _finish(github, _run(101, "success"))
+
+    assert len(github.issues) == 1
+    assert github.issues[existing]["state"] == "closed"
+    assert [number for number, _ in github.comments] == [existing, existing]
+
+
+@pytest.mark.parametrize("pull_request", [False, True])
+def test_unlabelled_issues_and_pull_requests_are_not_reports(
+    github: FakeGitHub, pull_request: bool
+) -> None:
+    """The label identifies a report, but a PR can never be one."""
+    lookalike = github.issue(
+        "`ci` failing on `main` (push)",
+        author=BOT,
+        labels=[report.LABEL] if pull_request else [],
+    )
+    if pull_request:
+        github.issues[lookalike]["pull_request"] = {}
 
     _finish(github, _run(100, "failure"))
 
     assert len(_open_reports(github)) == 1
+    assert len(github.issues) == 2
     assert github.comments == []

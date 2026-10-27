@@ -360,7 +360,14 @@ FAKE_GH_NOTIFICATIONS = (
     + r"""
 case "$1:$2" in
   api:--paginate)
-    case "$4" in notifications\?*) ;; *) exit 1 ;; esac
+    case "$4" in
+      repos/*/issues\?labels=tend-triage-pending*)
+        [ -z "${FAIL_TRIAGE:-}" ] || exit 1
+        emit "$(cat "$PENDING_TRIAGE_JSON")"
+        exit 0 ;;
+      notifications\?*) ;;
+      *) exit 1 ;;
+    esac
     [ -z "${FAIL_NOTIFS:-}" ] || exit 1
     # A 200 carrying something other than JSON, verbatim.
     if [ -n "${RAW_BODY:-}" ]; then cat "$RAW_BODY"; exit 0; fi
@@ -378,6 +385,13 @@ case "$1:$2" in
     [ -z "${FAIL_SUBSCRIPTION_WRITE:-}" ] || exit 1
     echo "put" >> "$SUBSCRIPTION_WRITES"
     emit '{"subscribed":true,"ignored":false}'
+    ;;
+  api:repos/*/actions/workflows/tend-triage.yaml/runs*)
+    [ -z "${FAIL_TRIAGE_RUNS:-}" ] || exit 1
+    case "$2" in
+      *status=${ACTIVE_TRIAGE_STATUS:-none}\&*) emit '{"total_count":1}' ;;
+      *) emit '{"total_count":0}' ;;
+    esac
     ;;
   api:user)
     [ -z "${FAIL_PRS:-}" ] || exit 1
@@ -425,6 +439,8 @@ def notifications_env(tmp_path: Path) -> dict[str, str]:
     notifications.write_text("[]")
     pulls = tmp_path / "pulls.json"
     pulls.write_text("[]")
+    pending_triage = tmp_path / "pending-triage.json"
+    pending_triage.write_text("[]")
     subscription_writes = tmp_path / "subscription-writes"
     subscription_writes.write_text("")
 
@@ -435,6 +451,7 @@ def notifications_env(tmp_path: Path) -> dict[str, str]:
         "GITHUB_REPOSITORY": "owner/repo",
         "NOTIFICATIONS_JSON": str(notifications),
         "PULLS_JSON": str(pulls),
+        "PENDING_TRIAGE_JSON": str(pending_triage),
         "NOTIF_CUTOFF": NOTIF_CUTOFF,
         "SUBSCRIPTION_WRITES": str(subscription_writes),
     }
@@ -458,6 +475,43 @@ def _run_check(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
 
 def _write_json(env: dict[str, str], key: str, value: object) -> None:
     Path(env[key]).write_text(json.dumps(value))
+
+
+def test_pending_triage_survives_without_notifications(
+    notifications_env: dict[str, str],
+) -> None:
+    _write_json(
+        notifications_env,
+        "PENDING_TRIAGE_JSON",
+        [{"number": 12}, {"number": 13}, {"number": 14, "pull_request": {}}],
+    )
+    result = _run_check(notifications_env)
+    assert result.returncode == 0
+    assert _output(notifications_env, "count") == "0"
+    assert _output(notifications_env, "triage_count") == "2"
+
+
+@pytest.mark.parametrize(
+    "status", ["queued", "in_progress", "waiting", "requested", "pending"]
+)
+def test_pending_triage_defers_to_admitted_workers(
+    notifications_env: dict[str, str], status: str
+) -> None:
+    _write_json(notifications_env, "PENDING_TRIAGE_JSON", [{"number": 12}])
+    notifications_env["ACTIVE_TRIAGE_STATUS"] = status
+    assert _run_check(notifications_env).returncode == 0
+    assert _output(notifications_env, "triage_count") == "0"
+
+
+@pytest.mark.parametrize("failure", ["FAIL_TRIAGE", "FAIL_TRIAGE_RUNS"])
+def test_pending_triage_read_failure_does_not_admit_work(
+    notifications_env: dict[str, str], failure: str
+) -> None:
+    _write_json(notifications_env, "PENDING_TRIAGE_JSON", [{"number": 12}])
+    notifications_env[failure] = "1"
+    result = _run_check(notifications_env)
+    assert "pending triage scan failed" in result.stdout
+    assert _output(notifications_env, "triage_count") == "0"
 
 
 def test_notifications_check_reports_no_work_on_an_empty_inbox(

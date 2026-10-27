@@ -523,6 +523,7 @@ def test_setup_step_user_if_narrows_notifications_guard(
     assert step["if"] == (
         "(steps.check.outputs.count != '0' || "
         "steps.check.outputs.conflict_count != '0' || "
+        "steps.check.outputs.triage_count != '0' || "
         "github.event_name == 'workflow_dispatch') && (runner.os == 'Linux')"
     )
 
@@ -635,8 +636,7 @@ def test_operational_secrets_imply_environment(tmp_path: Path) -> None:
     whole point. `secrets.GITHUB_TOKEN` is workflow-scoped, not stored, so it
     doesn't count. install-test is included: it runs on `pull_request`, whose
     merge ref the policy refuses, so it may neither read a secret nor name
-    the environment, and so is ci-failures, which writes with the job's own
-    token. ci-failures is enabled here so the corpus is every workflow:
+    the environment. ci-failures is enabled here so the corpus is every workflow:
     without `watched_workflows` the generator skips it, and a skipped
     workflow is one this invariant silently stops covering."""
 
@@ -1116,43 +1116,53 @@ def test_ci_failures_serializes_per_lane(tmp_path: Path) -> None:
     # up most completions on a busy branch, and a skipped job never enters the
     # group, so it never replaces a pending verdict.
     assert "concurrency" not in doc
-    # Its token is the job's own: a report written with the bot's would not
-    # reach the bot's notifications (`ci_failure_report.py`).
-    assert "secrets." not in workflows["tend-ci-failures.yaml"].content
-    assert job["permissions"] == {"actions": "write", "issues": "write"}
+    # The bot token makes a new report trigger the normal issues workflow.
+    [step] = [s for s in job["steps"] if "GH_TOKEN" in s.get("env", {})]
+    assert step["env"]["GH_TOKEN"] == "${{ secrets." + BOT_TOKEN_SECRET + " }}"
+    assert job["environment"] == {"name": "tend", "deployment": False}
+    assert job["permissions"] == {}
 
 
 @pytest.mark.parametrize("triage", [True, False])
-def test_ci_failures_dispatches_triage_where_it_is_generated(
+def test_ci_failures_reporting_is_independent_of_triage(
     tmp_path: Path, triage: bool
 ) -> None:
-    """A dispatch to a workflow that isn't there would warn on every failure."""
+    """Report creation uses issue events; it never dispatches a workflow."""
     extra = _extra_for("ci-failures") + ("" if triage else "  triage: false\n")
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     job = yaml.safe_load(workflows["tend-ci-failures.yaml"].content)["jobs"]["report"]
-    [step] = [s for s in job["steps"] if "TRIAGE_WORKFLOW" in s.get("env", {})]
-    assert step["env"]["TRIAGE_WORKFLOW"] == ("tend-triage.yaml" if triage else "")
+    [step] = [s for s in job["steps"] if "GH_TOKEN" in s.get("env", {})]
+    assert "TRIAGE_WORKFLOW" not in step["env"]
+    assert "/dispatches" not in step["run"]
     assert ("tend-triage.yaml" in workflows) == triage
 
 
-def test_triage_serializes_ci_reports_and_nothing_else(tmp_path: Path) -> None:
-    """Report runs share one group, so no two file the same cause at once;
-    every other issue keeps a group of its own, and nothing is cancelled."""
+def test_triage_records_work_before_bounded_admission(tmp_path: Path) -> None:
+    """An overflow/cancelled worker retains the issue's durable pending marker."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     doc = yaml.safe_load(workflows["tend-triage.yaml"].content)
     job = doc["jobs"]["triage"]
     assert job["concurrency"] == {
-        "group": (
-            "${{ inputs.report && 'tend-triage-ci-reports' || "
-            "format('{0}-{1}', github.workflow, "
-            "github.event.issue.number || inputs.issue) }}"
-        ),
+        "group": "tend-triage",
         "cancel-in-progress": False,
+        "queue": "max",
     }
     assert "concurrency" not in doc
-    assert set(doc["on"]["workflow_dispatch"]["inputs"]) == {"issue", "title", "report"}
+    enqueue = doc["jobs"]["enqueue"]
+    assert "concurrency" not in enqueue
+    assert enqueue["permissions"] == {}
+    assert job["needs"] == "enqueue"
+    assert "needs.enqueue.outputs.ready == 'true'" in job["if"]
+    complete = next(
+        s for s in job["steps"] if s.get("name") == "Complete pending triage"
+    )
+    assert complete["if"] == "success() && steps.admit.outputs.ready == 'true'"
+    assert (
+        complete["env"]["QUEUE_GENERATION"] == "${{ steps.admit.outputs.generation }}"
+    )
+    assert set(doc["on"]["workflow_dispatch"]["inputs"]) == {"issue", "title"}
     # The notifications poll finds a live run by its subject's title.
     assert doc["run-name"] == "${{ inputs.title || github.event.issue.title }}"
 
@@ -1276,9 +1286,8 @@ def test_issue_and_pr_acknowledged_with_eyes(tmp_path: Path) -> None:
     assert react["env"]["TARGET"] == (
         "issues/${{ github.event.issue.number || inputs.issue }}"
     )
-    # Every opened or dispatched issue the job-level `if` admits is the bot's
-    # to take.
-    assert "if" not in react
+    # A queued issue may have closed before the worker was admitted.
+    assert react["if"] == "steps.admit.outputs.ready == 'true'"
 
     review = yaml.safe_load(workflows["tend-review.yaml"].content)
     react = _eyes_steps(review["jobs"]["review"]["steps"])[0]

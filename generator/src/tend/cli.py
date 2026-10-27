@@ -248,7 +248,10 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
         path.write_text(wf.content, encoding="utf-8")
         click.echo(f"  wrote {path}")
 
-    if any(wf.filename == "tend-review.yaml" for wf in workflows):
+    if any(
+        wf.filename in {"tend-review.yaml", "tend-triage.yaml", "tend-land.yaml"}
+        for wf in workflows
+    ):
         _update_actionlint_config(dry_run)
     # Remove stale tend-*.yaml files the generator didn't produce this run.
     # Catches: install-test cleanup on regen, disabled workflows leaving

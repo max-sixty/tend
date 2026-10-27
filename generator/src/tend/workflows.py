@@ -388,10 +388,14 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
         "{issue_number}", "${{ github.event.issue.number || inputs.issue }}"
     )
 
+    ready_condition = "steps.admit.outputs.ready == 'true'"
     content = _TRIAGE_TMPL.render(
         cfg=eff,
-        setup=_setup_yaml(eff),
+        setup=_setup_yaml(eff, condition=ready_condition),
         prompt=prompt,
+        ready_condition=ready_condition,
+        queue_script=_inline_script("triage_queue.py"),
+        heredoc="<<",
     )
     return GeneratedWorkflow(filename="tend-triage.yaml", content=content)
 
@@ -408,14 +412,12 @@ def generate_ci_failures(cfg: Config) -> GeneratedWorkflow:
     """Report watched runs' verdicts as issues, which triage then works.
 
     Runs no agent, so it takes none of the agent options; the caller only
-    generates it once `watched_workflows` names the runs to watch. Each failure
-    dispatches the report's triage where `tend-triage` is generated.
+    generates it once `watched_workflows` names the runs to watch. The bot's
+    token makes new reports trigger the ordinary issue workflow.
     """
     wf = cfg.workflows["ci-failures"]
-    triage = cfg.workflows.get("triage", WorkflowConfig()).enabled
     content = _CI_FAILURES_TMPL.render(
         cfg=cfg,
-        triage_workflow="tend-triage.yaml" if triage else "",
         watched=wf.watched_workflows,
         branches=wf.branches if wf.branches is not None else [cfg.default_branch],
         heredoc="<<",
@@ -500,12 +502,15 @@ def generate_notifications(cfg: Config) -> GeneratedWorkflow:
         "Notification snapshot cutoff: "
         "${{ steps.check.outputs.cutoff }}\n"
         "Possible conflicted bot PR count: "
-        "${{ steps.check.outputs.conflict_count }}"
+        "${{ steps.check.outputs.conflict_count }}\n"
+        "Pending triage ready for recovery: "
+        "${{ steps.check.outputs.triage_count }}"
     )
 
     skip_condition = (
         "steps.check.outputs.count != '0' || "
         "steps.check.outputs.conflict_count != '0' || "
+        "steps.check.outputs.triage_count != '0' || "
         "github.event_name == 'workflow_dispatch'"
     )
     check_script = _inline_script("notifications_check.py")

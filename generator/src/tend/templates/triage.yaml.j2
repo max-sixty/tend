@@ -7,11 +7,8 @@ name: tend-triage
 run-name: ${{ inputs.title || github.event.issue.title }}
 on:
   issues:
-    types: [opened]
-  # A CI failure report, dispatched by tend-ci-failures for each failed run,
-  # and an issue a later run hands back, such as a stalled cause issue.
-  # GitHub creates the run even when a `GITHUB_TOKEN` dispatched it, and it
-  # carries the default branch, which the environment admits.
+    types: [opened, reopened]
+  # An issue a later run hands back, such as a stalled CI report or cause.
   workflow_dispatch:
     inputs:
       issue:
@@ -22,32 +19,68 @@ on:
         description: The issue's title, which names the run
         type: string
         default: ""
-      report:
-        description: Whether the issue is a CI failure report
-        type: boolean
-        default: false
 
 jobs:
-  triage:
+  enqueue:
     if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && <<not_bookkeeping()>>
-    # Reports share one group, so no two report sessions file the same cause
-    # at once. Each finished failure dispatches one, and the newest pending one
-    # replaces an older: it reads every run its report holds since the bot's
-    # last word, and a replaced one's report keeps its notification. Every
-    # other issue is a group of its own. Never cancelled: a session may already
-    # have filed an issue or opened a PR.
+    runs-on: ubuntu-24.04
+<<environment()>>
+    permissions: {}
+    outputs:
+      ready: ${{ steps.queue.outputs.ready }}
+    steps:
+      - name: Record pending triage before admission
+        id: queue
+        env:
+          GH_TOKEN: ${{ secrets.<<bot_token_secret>> }}
+          ISSUE_NUMBER: <<issue>>
+          QUEUE_ACTION: enqueue
+        run: |
+          python3 -I - <<heredoc>>'TEND_PY'
+<<queue_script|indent(10, first=True)>>
+          TEND_PY
+
+  triage:
+    needs: enqueue
+    if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && needs.enqueue.outputs.ready == 'true'
+    # One issue worker at a time, including report diagnosis and recovery.
+    # The issue's pending label survives failure or GitHub's finite queue.
     concurrency:
-      group: ${{ inputs.report && 'tend-triage-ci-reports' || format('{0}-{1}', github.workflow, github.event.issue.number || inputs.issue) }}
+      group: tend-triage
       cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-24.04
 <<environment()>>
     permissions:
 <<permissions()>>
     steps:
-<<react_eyes('issues/' ~ issue)>>
+      - name: Recheck live issue after admission
+        id: admit
+        env:
+          GH_TOKEN: ${{ secrets.<<bot_token_secret>> }}
+          ISSUE_NUMBER: <<issue>>
+          QUEUE_ACTION: admit
+        run: |
+          python3 -I - <<heredoc>>'TEND_PY'
+<<queue_script|indent(10, first=True)>>
+          TEND_PY
 
-<<checkout(cfg, ref=cfg.default_branch)>>
+<<react_eyes('issues/' ~ issue, if_condition=ready_condition)>>
+
+<<checkout(cfg, ref=cfg.default_branch, if_condition=ready_condition)>>
 <<setup>>
-<<agent_step(cfg, block_input('prompt', prompt))>>
+<<agent_step(cfg, block_input('prompt', prompt), if_condition=ready_condition)>>
 
-<<unreact_eyes(cfg, 'issues/' ~ issue, if_condition='always()')>>
+      - name: Complete pending triage
+        if: success() && <<ready_condition>>
+        env:
+          GH_TOKEN: ${{ secrets.<<bot_token_secret>> }}
+          ISSUE_NUMBER: <<issue>>
+          QUEUE_ACTION: complete
+          QUEUE_GENERATION: ${{ steps.admit.outputs.generation }}
+        run: |
+          python3 -I - <<heredoc>>'TEND_PY'
+<<queue_script|indent(10, first=True)>>
+          TEND_PY
+
+<<unreact_eyes(cfg, 'issues/' ~ issue, if_condition='always() && ' ~ ready_condition)>>

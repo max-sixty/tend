@@ -14,11 +14,8 @@ name: tend-triage
 run-name: ${{ inputs.title || github.event.issue.title }}
 on:
   issues:
-    types: [opened]
-  # A CI failure report, dispatched by tend-ci-failures for each failed run,
-  # and an issue a later run hands back, such as a stalled cause issue.
-  # GitHub creates the run even when a `GITHUB_TOKEN` dispatched it, and it
-  # carries the default branch, which the environment admits.
+    types: [opened, reopened]
+  # An issue a later run hands back, such as a stalled CI report or cause.
   workflow_dispatch:
     inputs:
       issue:
@@ -29,23 +26,162 @@ on:
         description: The issue's title, which names the run
         type: string
         default: ""
-      report:
-        description: Whether the issue is a CI failure report
-        type: boolean
-        default: false
 
 jobs:
-  triage:
+  enqueue:
     if: github.repository_owner == 'test-owner' && vars.TEND_ENABLED != 'false' && contains(github.event.issue.labels.*.name, 'tend-outage') == false && contains(github.event.issue.labels.*.name, 'tend-rate-limit') == false
-    # Reports share one group, so no two report sessions file the same cause
-    # at once. Each finished failure dispatches one, and the newest pending one
-    # replaces an older: it reads every run its report holds since the bot's
-    # last word, and a replaced one's report keeps its notification. Every
-    # other issue is a group of its own. Never cancelled: a session may already
-    # have filed an issue or opened a PR.
+    runs-on: ubuntu-24.04
+    environment:
+      name: tend
+      deployment: false
+    permissions: {}
+    outputs:
+      ready: ${{ steps.queue.outputs.ready }}
+    steps:
+      - name: Record pending triage before admission
+        id: queue
+        env:
+          GH_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue }}
+          QUEUE_ACTION: enqueue
+        run: |
+          python3 -I - <<'TEND_PY'
+          # /// script
+          # requires-python = ">=3.12"
+          # dependencies = []
+          # ///
+          """Keep unfinished issue triage durable outside GitHub's bounded run queue.
+
+          Enqueue an open issue before its agent job queues. Remove the pending label
+          only after a successful agent turn; failed or cancelled runs leave it for
+          recovery. Inputs: GH_TOKEN, GITHUB_REPOSITORY, ISSUE_NUMBER, QUEUE_ACTION
+          (enqueue, admit or complete), GITHUB_OUTPUT, and optionally GITHUB_API_URL.
+          Enqueue records work; admit only accepts work still pending. Both output ready
+          and generation (the latest reopen event ID, or zero). Complete
+          takes that admitted generation as QUEUE_GENERATION and preserves newer work.
+          """
+
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+
+          LABEL = "tend-triage-pending"
+
+
+          def api(path: str, *, method: str = "GET", body: dict | None = None):
+              request = Request(
+                  f"{os.environ.get('GITHUB_API_URL', 'https://api.github.com')}/{path}",
+                  data=json.dumps(body).encode() if body is not None else None,
+                  method=method,
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                      "Accept": "application/vnd.github+json",
+                      "Content-Type": "application/json",
+                  },
+              )
+              with urlopen(request, timeout=30) as response:
+                  payload = response.read()
+              return json.loads(payload) if payload else None
+
+
+          def ensure_label(repo: str) -> None:
+              path = f"repos/{repo}/labels/{LABEL}"
+              try:
+                  api(path)
+                  return
+              except HTTPError as error:
+                  if error.code != 404:
+                      raise
+              try:
+                  api(
+                      f"repos/{repo}/labels",
+                      method="POST",
+                      body={
+                          "name": LABEL,
+                          "color": "ededed",
+                          "description": "Tend issue triage has not completed successfully",
+                      },
+                  )
+              except HTTPError as error:
+                  if error.code != 422:
+                      raise
+                  # Another enqueue may have created the label since our GET.
+                  api(path)
+
+
+          def generation(path: str) -> int:
+              """A reopen creates new work even while an earlier triage is finishing."""
+              latest = 0
+              page = 1
+              while True:
+                  events = api(f"{path}/events?per_page=100&page={page}")
+                  latest = max(
+                      latest,
+                      max(
+                          (event["id"] for event in events if event["event"] == "reopened"),
+                          default=0,
+                      ),
+                  )
+                  if len(events) < 100:
+                      return latest
+                  page += 1
+
+
+          def main() -> int:
+              repo = os.environ["GITHUB_REPOSITORY"]
+              number = int(os.environ["ISSUE_NUMBER"])
+              if number <= 0:
+                  raise ValueError("ISSUE_NUMBER must be a positive issue number")
+              path = f"repos/{repo}/issues/{number}"
+              action = os.environ["QUEUE_ACTION"]
+              if action == "complete":
+                  admitted = int(os.environ["QUEUE_GENERATION"])
+                  if generation(path) != admitted:
+                      return 0
+                  try:
+                      api(f"{path}/labels/{LABEL}", method="DELETE")
+                  except HTTPError as error:
+                      if error.code != 404:
+                          raise
+                  # GitHub has no conditional label deletion. Restore a reopen that
+                  # raced the delete; a later reopen's own enqueue adds the label.
+                  if generation(path) != admitted:
+                      api(f"{path}/labels", method="POST", body={"labels": [LABEL]})
+              elif action in ("enqueue", "admit"):
+                  issue = api(path)
+                  if "pull_request" in issue:
+                      raise ValueError("Issue triage cannot enqueue a pull request")
+                  pending = any(label["name"] == LABEL for label in issue["labels"])
+                  ready = issue["state"] == "open" and (action == "enqueue" or pending)
+                  admitted = generation(path) if ready else 0
+                  if ready and not pending:
+                      ensure_label(repo)
+                      api(f"{path}/labels", method="POST", body={"labels": [LABEL]})
+                  with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+                      output.write(f"ready={str(ready).lower()}\n")
+                      output.write(f"generation={admitted}\n")
+              else:
+                  raise ValueError(f"Unknown QUEUE_ACTION: {action}")
+              return 0
+
+
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          TEND_PY
+
+  triage:
+    needs: enqueue
+    if: github.repository_owner == 'test-owner' && vars.TEND_ENABLED != 'false' && needs.enqueue.outputs.ready == 'true'
+    # One issue worker at a time, including report diagnosis and recovery.
+    # The issue's pending label survives failure or GitHub's finite queue.
     concurrency:
-      group: ${{ inputs.report && 'tend-triage-ci-reports' || format('{0}-{1}', github.workflow, github.event.issue.number || inputs.issue) }}
+      group: tend-triage
       cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-24.04
     environment:
       name: tend
@@ -56,7 +192,143 @@ jobs:
       actions: read
       issues: write
     steps:
+      - name: Recheck live issue after admission
+        id: admit
+        env:
+          GH_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue }}
+          QUEUE_ACTION: admit
+        run: |
+          python3 -I - <<'TEND_PY'
+          # /// script
+          # requires-python = ">=3.12"
+          # dependencies = []
+          # ///
+          """Keep unfinished issue triage durable outside GitHub's bounded run queue.
+
+          Enqueue an open issue before its agent job queues. Remove the pending label
+          only after a successful agent turn; failed or cancelled runs leave it for
+          recovery. Inputs: GH_TOKEN, GITHUB_REPOSITORY, ISSUE_NUMBER, QUEUE_ACTION
+          (enqueue, admit or complete), GITHUB_OUTPUT, and optionally GITHUB_API_URL.
+          Enqueue records work; admit only accepts work still pending. Both output ready
+          and generation (the latest reopen event ID, or zero). Complete
+          takes that admitted generation as QUEUE_GENERATION and preserves newer work.
+          """
+
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+
+          LABEL = "tend-triage-pending"
+
+
+          def api(path: str, *, method: str = "GET", body: dict | None = None):
+              request = Request(
+                  f"{os.environ.get('GITHUB_API_URL', 'https://api.github.com')}/{path}",
+                  data=json.dumps(body).encode() if body is not None else None,
+                  method=method,
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                      "Accept": "application/vnd.github+json",
+                      "Content-Type": "application/json",
+                  },
+              )
+              with urlopen(request, timeout=30) as response:
+                  payload = response.read()
+              return json.loads(payload) if payload else None
+
+
+          def ensure_label(repo: str) -> None:
+              path = f"repos/{repo}/labels/{LABEL}"
+              try:
+                  api(path)
+                  return
+              except HTTPError as error:
+                  if error.code != 404:
+                      raise
+              try:
+                  api(
+                      f"repos/{repo}/labels",
+                      method="POST",
+                      body={
+                          "name": LABEL,
+                          "color": "ededed",
+                          "description": "Tend issue triage has not completed successfully",
+                      },
+                  )
+              except HTTPError as error:
+                  if error.code != 422:
+                      raise
+                  # Another enqueue may have created the label since our GET.
+                  api(path)
+
+
+          def generation(path: str) -> int:
+              """A reopen creates new work even while an earlier triage is finishing."""
+              latest = 0
+              page = 1
+              while True:
+                  events = api(f"{path}/events?per_page=100&page={page}")
+                  latest = max(
+                      latest,
+                      max(
+                          (event["id"] for event in events if event["event"] == "reopened"),
+                          default=0,
+                      ),
+                  )
+                  if len(events) < 100:
+                      return latest
+                  page += 1
+
+
+          def main() -> int:
+              repo = os.environ["GITHUB_REPOSITORY"]
+              number = int(os.environ["ISSUE_NUMBER"])
+              if number <= 0:
+                  raise ValueError("ISSUE_NUMBER must be a positive issue number")
+              path = f"repos/{repo}/issues/{number}"
+              action = os.environ["QUEUE_ACTION"]
+              if action == "complete":
+                  admitted = int(os.environ["QUEUE_GENERATION"])
+                  if generation(path) != admitted:
+                      return 0
+                  try:
+                      api(f"{path}/labels/{LABEL}", method="DELETE")
+                  except HTTPError as error:
+                      if error.code != 404:
+                          raise
+                  # GitHub has no conditional label deletion. Restore a reopen that
+                  # raced the delete; a later reopen's own enqueue adds the label.
+                  if generation(path) != admitted:
+                      api(f"{path}/labels", method="POST", body={"labels": [LABEL]})
+              elif action in ("enqueue", "admit"):
+                  issue = api(path)
+                  if "pull_request" in issue:
+                      raise ValueError("Issue triage cannot enqueue a pull request")
+                  pending = any(label["name"] == LABEL for label in issue["labels"])
+                  ready = issue["state"] == "open" and (action == "enqueue" or pending)
+                  admitted = generation(path) if ready else 0
+                  if ready and not pending:
+                      ensure_label(repo)
+                      api(f"{path}/labels", method="POST", body={"labels": [LABEL]})
+                  with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+                      output.write(f"ready={str(ready).lower()}\n")
+                      output.write(f"generation={admitted}\n")
+              else:
+                  raise ValueError(f"Unknown QUEUE_ACTION: {action}")
+              return 0
+
+
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          TEND_PY
+
       - name: React with eyes
+        if: steps.admit.outputs.ready == 'true'
         run: |
           gh api "repos/$REPO/$TARGET/reactions" -f content=eyes --silent \
             || echo "::warning::could not add the eyes reaction"
@@ -66,12 +338,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.admit.outputs.ready == 'true'
         with:
           ref: main
           fetch-depth: 0
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: max-sixty/tend/claude@X.Y.Z
+        if: steps.admit.outputs.ready == 'true'
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           merge: restricted
@@ -84,8 +358,144 @@ jobs:
           prompt: |2
             /tend-ci-runner:triage ${{ github.event.issue.number || inputs.issue }}
 
+      - name: Complete pending triage
+        if: success() && steps.admit.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue }}
+          QUEUE_ACTION: complete
+          QUEUE_GENERATION: ${{ steps.admit.outputs.generation }}
+        run: |
+          python3 -I - <<'TEND_PY'
+          # /// script
+          # requires-python = ">=3.12"
+          # dependencies = []
+          # ///
+          """Keep unfinished issue triage durable outside GitHub's bounded run queue.
+
+          Enqueue an open issue before its agent job queues. Remove the pending label
+          only after a successful agent turn; failed or cancelled runs leave it for
+          recovery. Inputs: GH_TOKEN, GITHUB_REPOSITORY, ISSUE_NUMBER, QUEUE_ACTION
+          (enqueue, admit or complete), GITHUB_OUTPUT, and optionally GITHUB_API_URL.
+          Enqueue records work; admit only accepts work still pending. Both output ready
+          and generation (the latest reopen event ID, or zero). Complete
+          takes that admitted generation as QUEUE_GENERATION and preserves newer work.
+          """
+
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+
+          LABEL = "tend-triage-pending"
+
+
+          def api(path: str, *, method: str = "GET", body: dict | None = None):
+              request = Request(
+                  f"{os.environ.get('GITHUB_API_URL', 'https://api.github.com')}/{path}",
+                  data=json.dumps(body).encode() if body is not None else None,
+                  method=method,
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                      "Accept": "application/vnd.github+json",
+                      "Content-Type": "application/json",
+                  },
+              )
+              with urlopen(request, timeout=30) as response:
+                  payload = response.read()
+              return json.loads(payload) if payload else None
+
+
+          def ensure_label(repo: str) -> None:
+              path = f"repos/{repo}/labels/{LABEL}"
+              try:
+                  api(path)
+                  return
+              except HTTPError as error:
+                  if error.code != 404:
+                      raise
+              try:
+                  api(
+                      f"repos/{repo}/labels",
+                      method="POST",
+                      body={
+                          "name": LABEL,
+                          "color": "ededed",
+                          "description": "Tend issue triage has not completed successfully",
+                      },
+                  )
+              except HTTPError as error:
+                  if error.code != 422:
+                      raise
+                  # Another enqueue may have created the label since our GET.
+                  api(path)
+
+
+          def generation(path: str) -> int:
+              """A reopen creates new work even while an earlier triage is finishing."""
+              latest = 0
+              page = 1
+              while True:
+                  events = api(f"{path}/events?per_page=100&page={page}")
+                  latest = max(
+                      latest,
+                      max(
+                          (event["id"] for event in events if event["event"] == "reopened"),
+                          default=0,
+                      ),
+                  )
+                  if len(events) < 100:
+                      return latest
+                  page += 1
+
+
+          def main() -> int:
+              repo = os.environ["GITHUB_REPOSITORY"]
+              number = int(os.environ["ISSUE_NUMBER"])
+              if number <= 0:
+                  raise ValueError("ISSUE_NUMBER must be a positive issue number")
+              path = f"repos/{repo}/issues/{number}"
+              action = os.environ["QUEUE_ACTION"]
+              if action == "complete":
+                  admitted = int(os.environ["QUEUE_GENERATION"])
+                  if generation(path) != admitted:
+                      return 0
+                  try:
+                      api(f"{path}/labels/{LABEL}", method="DELETE")
+                  except HTTPError as error:
+                      if error.code != 404:
+                          raise
+                  # GitHub has no conditional label deletion. Restore a reopen that
+                  # raced the delete; a later reopen's own enqueue adds the label.
+                  if generation(path) != admitted:
+                      api(f"{path}/labels", method="POST", body={"labels": [LABEL]})
+              elif action in ("enqueue", "admit"):
+                  issue = api(path)
+                  if "pull_request" in issue:
+                      raise ValueError("Issue triage cannot enqueue a pull request")
+                  pending = any(label["name"] == LABEL for label in issue["labels"])
+                  ready = issue["state"] == "open" and (action == "enqueue" or pending)
+                  admitted = generation(path) if ready else 0
+                  if ready and not pending:
+                      ensure_label(repo)
+                      api(f"{path}/labels", method="POST", body={"labels": [LABEL]})
+                  with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+                      output.write(f"ready={str(ready).lower()}\n")
+                      output.write(f"generation={admitted}\n")
+              else:
+                  raise ValueError(f"Unknown QUEUE_ACTION: {action}")
+              return 0
+
+
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          TEND_PY
+
       - name: Remove the eyes reaction
-        if: always()
+        if: always() && steps.admit.outputs.ready == 'true'
         run: |
           REACTION_ID=$(gh api --paginate \
             "repos/$REPO/$TARGET/reactions?content=eyes&per_page=100" \
