@@ -1,0 +1,15 @@
+{
+  "kind": "focused",
+  "historical_ref": "2619b48c6fdecc845aa0cbdca51498fd103345f5",
+  "bot": "widget-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "727e4ce73ece92047af03e9239374780c361b4dc0466b49fec7e87f13f62de49"
+  },
+  "origin": {
+    "kind": "synthetic contrast from observed decisions",
+    "motivating_run": "https://github.com/max-sixty/leaf/actions/runs/40343295224",
+    "session_artifact_id": 12660238659,
+    "construction": "The engineering investigation preserves the observed touch-alignment decision boundary after a locally reproduced failure and an unresolved diagnostic mechanism. Other contrasts vary available verification capability versus genuinely missing access, reserved product direction versus engineering uncertainty, and evidence proving a shared cause versus similar error wording with a distinct reproduction. Issue numbers and repository are synthetic. Original observations were read from saved issue discussions and the motivating worker transcript; these fixtures are reduced next-decision states, not full execution replays."
+  }
+}

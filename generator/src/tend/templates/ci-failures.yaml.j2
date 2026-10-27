@@ -1,10 +1,8 @@
 <<header>>
 name: tend-ci-failures
 # Turns a watched workflow's verdict on a watched branch into its CI failure
-# report, with no agent: a failure files the report or comments on it and
-# dispatches the report's triage, and a pass closes it. `ci_failure_report.py`
-# documents the report, and why it writes with the job's own token rather than
-# the bot's.
+# report, with no agent: a failure files the report or comments on it, and a
+# pass closes it. The bot token makes a new report trigger ordinary issue triage.
 on:
   workflow_run:
     workflows: <<watched|tojson>>
@@ -36,17 +34,13 @@ jobs:
       group: ${{ github.workflow }}-${{ github.event.workflow_run.name }}-${{ github.event.workflow_run.event }}-${{ github.event.workflow_run.head_branch }}
       cancel-in-progress: false
     runs-on: ubuntu-24.04
-    # `actions: write` is what the triage dispatch needs; the job holds no
-    # secret, and runs only the pinned script below.
-    permissions:
-      actions: write
-      issues: write
+<<environment()>>
+    permissions: {}
     steps:
 <<setup_tend_uv()>>
       - name: File, update or close the CI failure report
         env:
-          GH_TOKEN: ${{ github.token }}
-          TRIAGE_WORKFLOW: "<<triage_workflow>>"
+          GH_TOKEN: ${{ secrets.<<bot_token_secret>> }}
           TEND_UV: ${{ steps.tend_uv.outputs.uv-path }}
         run: |
           "$TEND_UV" run --script - <<heredoc>>'TEND_PY'

@@ -49,12 +49,8 @@ evidence. Apply a safe fix, verify it, and push to this PR's branch. Use an
 isolated `$TMPDIR` worktree when the caller is also handling other subjects;
 retain the original checkout for its remaining work.
 
-A previous failed attempt or uncertain diagnosis calls for further diagnostic
-work; it does not by itself transfer the repair to a maintainer. Stop for a
-current blocker you cannot clear, such as inaccessible evidence or tooling, an
-external dependency, or a semantic decision with no defensible default. State
-what is blocked and what would unblock it. Re-check a recorded blocker against
-current state before relying on it.
+Follow **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` when
+diagnosis or verification remains incomplete.
 
 When prior attempts failed to clear the same failure, another push needs new
 evidence or a materially different approach. Continue diagnosis; if neither

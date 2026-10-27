@@ -1,0 +1,42 @@
+{
+  "repository": "example/widget",
+  "bot": "widget-agent",
+  "situations": [
+    {
+      "id": "engineering-investigation",
+      "issue": {"number": 101, "labels": ["tend-ci-cause"], "state": "OPEN", "request": "Touch alignment preserves focus but misses the established reading position."},
+      "investigation": "The original feature explicitly promises alignment while preserving focus, selection and history. At current main, the unchanged regression passes at normal speed but times out under CPU throttling. A post-tap diagnostic shows focus restored and the target at 12px instead of the required 19px. Two candidate mechanisms remain: a later scroll supersedes correct placement, or alignment begins before earlier travel finishes. No trace yet records the sequence of scroll writes and completion events. No safe fix has been established, and speculative edits were removed.",
+      "available_work": "The throttled reproduction runs locally. Source and browser event instrumentation are available. No permission, access, missing environment, product-policy disagreement, existing fix owner, or maintainer stop instruction blocks further investigation."
+    },
+    {
+      "id": "available-verification",
+      "issue": {"number": 102, "labels": ["tend-ci-cause"], "state": "OPEN", "request": "Margin card fails its bottom-clamping assertion on macOS."},
+      "investigation": "Current main passes the focused test on Linux, including CPU-throttled attempts. The macOS artifact shows the card following its source but extending below its container. The test reads geometry two frames after scrolling while placement also awaits an asynchronous calculation. No evidence yet distinguishes an early read from a completed incorrect placement; no patch is justified.",
+      "available_work": "The repository already has a protected verification workflow that accepts a revision and focused test name and runs that path on macOS with placement-state tracing. Its documented dispatch permission is available to this bot without changing a workflow, secrets, branch policy or sandbox. The trace is returned as a downloadable artifact. This session itself is Linux."
+    },
+    {
+      "id": "missing-access",
+      "issue": {"number": 103, "labels": ["tend-ci-cause"], "state": "OPEN", "request": "A container verification job intermittently reports that its page container did not stop."},
+      "investigation": "The CI traceback contains the final assertion after the stop command, but not the state needed to tell a failed stop from a restart. In this sandbox docker info cannot connect to the daemon. No product fix or reproduction has been verified.",
+      "available_work": "The workflow and repository instructions have been inspected. No currently permitted job exposes the required container lifecycle diagnostics. The bot may propose changes for review but cannot change privileged workflow policy or use a host Docker socket. A fresh dispatch runs the identical sandbox with the same missing capability. A maintainer can approve a narrowly scoped verification job in the existing trusted CI setup."
+    },
+    {
+      "id": "product-choice",
+      "issue": {"number": 104, "labels": ["tend-ci-cause"], "state": "OPEN", "request": "The card toolbar overlaps message metadata at narrow widths."},
+      "investigation": "A reproduced defect is caused by an intentionally added action sharing the existing narrow header. A draft repair moves the complete toolbar to a dedicated row and passes the original regression plus all actions' focused checks. Product guidance reserves that row for readable content. Another feasible repair moves selected actions into a menu, changing their discoverability. Neither direction is established by the original feature or current guidance; the maintainer has explicitly reserved this interface tradeoff for review.",
+      "available_work": "The tested draft and evidence are preserved. No missing tool or engineering uncertainty prevents presenting both concrete alternatives."
+    },
+    {
+      "id": "proven-shared-cause",
+      "issue": {"number": 105, "labels": ["tend-ci-cause"], "state": "OPEN", "request": "A document geometry test reads a missing caption."},
+      "investigation": "The unchanged test fails on main. Instrumentation establishes that an update skipped while data was unread leaves the first real drawing without a presentation claim. Two other tracked failures have the same proven mechanism. PR 205 repairs that shared update boundary and its regression fails before the change. All three affected paths, including this exact caption test, pass on its head; the shared fix preserves their assertions.",
+      "available_work": "PR 205 is open and an independent bot worker is actively finishing its checks. Issue 105 still lacks a link to that repair. Main has not received it. This worker has enough evidence to propose a separate local caption wait, but that wait would conceal the same shared readiness gap."
+    },
+    {
+      "id": "similar-symptoms",
+      "issue": {"number": 106, "labels": ["tend-ci-cause"], "state": "OPEN", "request": "Reopening a resolved thread reports uncredited layout motion."},
+      "investigation": "PR 206 repairs startup presentation and clears several shift-watch failures. This issue has similar error wording, but its own trace proves startup has already completed before the shift. Reopening scrolls an internal container without recording its scroll credit. The original regression still fails on PR 206's head, while a focused reproduction identifies the missing scroll accounting as a separate mechanism. No patch for this mechanism exists.",
+      "available_work": "Both traces and the relevant source are available. The bot owns this issue; another worker owns PR 206. No product decision, missing capability, or existing owner covers the scroll-accounting repair."
+    }
+  ]
+}

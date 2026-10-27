@@ -9,25 +9,20 @@ on a watched branch of this repository with a verdict. A report is one issue
 per workflow, branch and triggering event, the unit a run's verdict speaks
 for: a scheduled suite can fail on tests that push runs never reach.
 
-- A failed run files the report, or comments on the one already open, and
-  dispatches `tend-triage` for it.
+- A failed run files the report, or comments on the one already open.
 - A passing run closes the open report. The cause issues filed under it stay
   as they are: a pass doesn't show that a flaky cause is gone, and a cause's
   fix may still be in flight, so each cause's own triage closes it.
 - A run that a newer finished run of the same lane supersedes changes nothing.
   Runs can finish out of order, and the newer verdict is the lane's state.
 
-The job's own `GITHUB_TOKEN` writes, as `github-actions[bot]`, rather than the
-bot's token, so the bot is notified of the report and of each later comment;
-GitHub notifies nobody of their own activity. `GITHUB_TOKEN` starts no workflow
-by opening an issue, but it may dispatch one, and the dispatched triage run is
-the fast path. The notification is the fallback, for a dispatch that failed or
-a run the rate limit refused: the run marks it read only once it succeeds, and
-the notifications poll re-dispatches whatever is left unread.
+The bot's token writes the report, so creating it triggers ordinary issue
+triage. Later failure comments add evidence without starting another session.
+The daily `review-runs` sweep revisits reports with unhandled failures and
+causes whose repair stalled; the bot gets no notification for its own writes.
 
-Inputs (env): ``GH_TOKEN``, ``GITHUB_REPOSITORY``, ``GITHUB_EVENT_PATH`` (a
-`workflow_run` payload), and ``TRIAGE_WORKFLOW``, the triage workflow's file,
-empty where triage is not generated.
+Inputs (env): ``GH_TOKEN`` (the bot's token), ``GITHUB_REPOSITORY``,
+``GITHUB_EVENT_PATH`` (a `workflow_run` payload).
 """
 
 from __future__ import annotations
@@ -43,7 +38,6 @@ from urllib.parse import urlencode
 LABEL = "tend-ci-failure"
 LABEL_DESCRIPTION = "A watched CI workflow is failing; Tend tracks its causes here"
 LABEL_COLOR = "b60205"
-REPORTER = "github-actions[bot]"
 # The verdicts that say something about the lane. The generated job's `if:`
 # admits only these, so a cancelled run never takes the lane's pending slot
 # from a verdict; everything but `success` reaching here is a failure.
@@ -115,16 +109,15 @@ def superseded(repo: str, run: dict[str, Any]) -> bool:
 
 
 def open_report(repo: str, run: dict[str, Any]) -> int | None:
-    """The lane's open report: the lowest open issue by `github-actions[bot]`
-    under the label and the lane's title. Any workflow's `GITHUB_TOKEN` writes
-    as that account, so this matches what no person and not the bot filed."""
+    """The lane's report is the lowest open issue with its label and title.
+
+    The label assigns report ownership independently of who created the issue.
+    """
     issues = paginated(f"repos/{repo}/issues?labels={LABEL}&state=open&per_page=100")
     numbers = sorted(
         issue["number"]
         for issue in issues
-        if "pull_request" not in issue
-        and issue["user"]["login"] == REPORTER
-        and issue["title"] == title(run)
+        if "pull_request" not in issue and issue["title"] == title(run)
     )
     return numbers[0] if numbers else None
 
@@ -133,7 +126,7 @@ def comment(repo: str, number: int, body: str) -> None:
     api(f"repos/{repo}/issues/{number}/comments", method="POST", body={"body": body})
 
 
-def file_report(repo: str, run: dict[str, Any]) -> int:
+def file_report(repo: str, run: dict[str, Any]) -> None:
     # Fails once the label exists, which is every run after the first.
     try:
         api(
@@ -152,37 +145,15 @@ def file_report(repo: str, run: dict[str, Any]) -> int:
         f"triggered by `{run['event']}`.\n\n"
         f"This issue tracks `{run['name']}`'s `{run['event']}` runs on "
         f"`{run['head_branch']}` until one passes. Each later failed run adds a "
-        "comment, and the next passing run closes this issue. Tend triages each "
-        "failure, filing every distinct cause as a sub-issue and working it "
-        "there.\n"
+        "comment, and the next passing run closes this issue. Tend triages this "
+        "report when it opens, filing every distinct cause as a sub-issue and "
+        "working it there. The daily review revisits unhandled failures.\n"
     )
-    issue = api(
+    api(
         f"repos/{repo}/issues",
         method="POST",
         body={"title": title(run), "body": body, "labels": [LABEL]},
     )
-    return issue["number"]
-
-
-def dispatch_triage(repo: str, run: dict[str, Any], number: int, ref: str) -> None:
-    """Start the report's triage; a failure leaves it to the notification."""
-    workflow = os.environ.get("TRIAGE_WORKFLOW", "")
-    if not workflow:
-        return
-    try:
-        api(
-            f"repos/{repo}/actions/workflows/{workflow}/dispatches",
-            method="POST",
-            body={
-                "ref": ref,
-                "inputs": {"issue": str(number), "title": title(run), "report": "true"},
-            },
-        )
-    except subprocess.CalledProcessError:
-        print(
-            f"::warning::could not dispatch triage for #{number}; the "
-            "notifications poll picks it up"
-        )
 
 
 def main() -> int:
@@ -195,10 +166,9 @@ def main() -> int:
     number = open_report(repo, run)
     if run["conclusion"] != "success":
         if number is None:
-            number = file_report(repo, run)
+            file_report(repo, run)
         else:
             comment(repo, number, f"Failed again: {run_link(run)}.")
-        dispatch_triage(repo, run, number, event["repository"]["default_branch"])
     elif number is not None:
         comment(repo, number, f"{run_link(run)} passed. Closing.")
         api(

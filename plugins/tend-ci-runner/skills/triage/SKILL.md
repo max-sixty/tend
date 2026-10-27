@@ -8,7 +8,7 @@ metadata:
 
 # Issue Triage
 
-Triage a newly opened GitHub issue.
+Triage a GitHub issue.
 
 **Issue to triage:** $ARGUMENTS
 
@@ -79,7 +79,7 @@ Record what you found (or didn't find) for use in steps 6 and 7.
 
 Follow **Reproduce first** in `/tend-ci-runner:fix-a-bug`.
 
-If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7. If the test passes, the bug may already be fixed — note that for the comment.
+When reproduction or diagnosis remains incomplete, follow **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` before reporting the disposition in step 7.
 
 ## Step 6: Fix (conservative)
 
@@ -92,7 +92,7 @@ Open a PR when a maintainer is reasonably likely to merge it; otherwise report t
 
 The change must also be verifiable. For a feature, a test of the new behavior that fails before the change, or a check the repository already runs over the edited files, stands in for the reproduction in `/tend-ci-runner:fix-a-bug`'s gates. Title a feature's commit and PR `feat:` rather than `fix:`.
 
-`/tend-ci-runner:fix-a-bug` carries the gates: the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
+`/tend-ci-runner:fix-a-bug` carries the reproduction and verification gates and how to continue when they are not yet met. Read it before writing any fix.
 
 ### If fixing
 
