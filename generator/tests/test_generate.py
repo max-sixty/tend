@@ -523,7 +523,6 @@ def test_setup_step_user_if_narrows_notifications_guard(
     assert step["if"] == (
         "(steps.check.outputs.count != '0' || "
         "steps.check.outputs.conflict_count != '0' || "
-        "steps.check.outputs.triage_count != '0' || "
         "github.event_name == 'workflow_dispatch') && (runner.os == 'Linux')"
     )
 
@@ -1138,8 +1137,8 @@ def test_ci_failures_reporting_is_independent_of_triage(
     assert ("tend-triage.yaml" in workflows) == triage
 
 
-def test_triage_records_work_before_bounded_admission(tmp_path: Path) -> None:
-    """An overflow/cancelled worker retains the issue's durable pending marker."""
+def test_triage_serializes_new_and_recovered_issues(tmp_path: Path) -> None:
+    """Event and dispatched issue work share the ordinary triage worker."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     doc = yaml.safe_load(workflows["tend-triage.yaml"].content)
@@ -1150,18 +1149,8 @@ def test_triage_records_work_before_bounded_admission(tmp_path: Path) -> None:
         "queue": "max",
     }
     assert "concurrency" not in doc
-    enqueue = doc["jobs"]["enqueue"]
-    assert "concurrency" not in enqueue
-    assert enqueue["permissions"] == {}
-    assert job["needs"] == "enqueue"
-    assert "needs.enqueue.outputs.ready == 'true'" in job["if"]
-    complete = next(
-        s for s in job["steps"] if s.get("name") == "Complete pending triage"
-    )
-    assert complete["if"] == "success() && steps.admit.outputs.ready == 'true'"
-    assert (
-        complete["env"]["QUEUE_GENERATION"] == "${{ steps.admit.outputs.generation }}"
-    )
+    assert set(doc["jobs"]) == {"triage"}
+    assert doc["on"]["issues"]["types"] == ["opened", "reopened"]
     assert set(doc["on"]["workflow_dispatch"]["inputs"]) == {"issue", "title"}
     # The notifications poll finds a live run by its subject's title.
     assert doc["run-name"] == "${{ inputs.title || github.event.issue.title }}"
@@ -1286,8 +1275,7 @@ def test_issue_and_pr_acknowledged_with_eyes(tmp_path: Path) -> None:
     assert react["env"]["TARGET"] == (
         "issues/${{ github.event.issue.number || inputs.issue }}"
     )
-    # A queued issue may have closed before the worker was admitted.
-    assert react["if"] == "steps.admit.outputs.ready == 'true'"
+    assert "if" not in react
 
     review = yaml.safe_load(workflows["tend-review.yaml"].content)
     react = _eyes_steps(review["jobs"]["review"]["steps"])[0]

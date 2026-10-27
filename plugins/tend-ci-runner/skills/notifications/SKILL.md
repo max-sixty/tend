@@ -1,13 +1,13 @@
 ---
 name: notifications
-description: Drains notifications, recovers pending issue triage, and resolves bot PR conflicts.
+description: Drains notifications, routes unfinished issues to triage, and resolves bot PR conflicts.
 metadata:
   internal: true
 ---
 
 # Check Notifications and Bot PRs
 
-Unread notifications retain unanswered activity; `tend-triage-pending` labels retain issue triage that has not completed, including the bot's own issues that generate no notification. Event workflows are the fast path. This poll recovers pending work and repairs conflicts on the configured bot's PRs.
+Unread notifications retain unanswered activity. Event workflows are the fast path; this poll handles missed activity and repairs conflicts on the configured bot's PRs. The daily live-work scan in `/tend-ci-runner:review-runs` also finds unfinished issues without a notification, including the bot's own reports.
 
 The workflow prompt supplies the **notification snapshot cutoff**. This run owns whatever the snapshot returned; anything the snapshot did not return belongs to the next poll.
 
@@ -33,7 +33,7 @@ jq '.[] | {id, reason, repo: .repository.full_name, updated_at,
 
 A thread's `updated_at` can be later than the cutoff. `before` is documented as filtering on `updated_at`, but threads bumped after they became unread — including by the bot's own activity, which bumps a thread without re-notifying — have been observed in snapshots taken minutes after the bump. Take the snapshot's membership as the run's scope rather than re-deriving it: whatever came back is this run's to handle, so do not filter it back out on `updated_at`.
 
-If the snapshot is empty and the prompt reports neither possible conflicted PRs nor pending triage, exit.
+If the snapshot is empty and the prompt reports no possible conflicted PRs, exit.
 Otherwise continue; notification work still comes before conflict repair.
 
 ## 2. Check the requester
@@ -54,11 +54,10 @@ For each notification, identify the activity that made the thread unread and app
 Process the snapshot oldest first. Determine what work or response remains from the live conversation per `/tend-ci-runner:respond-on-thread`, then choose its current outcome:
 
 - If a dedicated tend workflow is still running for the subject, defer it. Step 4 leaves it unread for the next poll.
-- A same-repository issue labeled `tend-triage-pending` belongs to **Recover pending triage** below; do not repair it inline in this poll. Leave its notification unread until it has an outcome.
 - For an open PR authored by the configured bot, continue any outstanding work per `/tend-ci-runner:continue-pr`, even if the latest activity was answered or the live head was reviewed. A current blocker can be recorded without posting it again.
-- An open same-repository CI failure report (labeled `tend-ci-failure`) needing diagnosis also goes through **Recover pending triage**, whether or not it already has the pending label. Leave the notification unread until its worker succeeds. A report closed when its lane passed needs no action.
+- An open same-repository CI failure report (labeled `tend-ci-failure`) needing diagnosis also goes through **Recover issue work**. Leave the notification unread until its worker succeeds. A report closed when its lane passed needs no action.
 - If the bot already handled the latest activity and no repair remains, record it as handled without posting again.
-- Otherwise route a same-repository issue needing triage through **Recover pending triage**; use `/tend-ci-runner:review` for an unreviewed PR head, or answer a comment or review thread that asks the bot for something per `/tend-ci-runner:respond-on-thread` and `/tend-ci-runner:post-to-github`. Another repository's issue follows `/tend-ci-runner:act-in-other-repos`.
+- Otherwise route a same-repository issue needing triage through **Recover issue work**; use `/tend-ci-runner:review` for an unreviewed PR head, or answer a comment or review thread that asks the bot for something per `/tend-ci-runner:respond-on-thread` and `/tend-ci-runner:post-to-github`. Another repository's issue follows `/tend-ci-runner:act-in-other-repos`.
 - A non-conversational subject, such as a release or check suite, also has the outcome “no action”. Default-branch CI recovery belongs to the daily current-state scan.
 - A subject with no readable target — a `Discussion`, whose `subject.url` is null, or a deleted issue or PR, whose `subject.url` 404s — also has the outcome “no action”. Nothing makes it readable on a later poll, so leaving it unresolved would hand it to every later poll to re-examine. A read that fails for any other reason — a 5xx, a rate limit — leaves the item unresolved.
 
@@ -107,26 +106,19 @@ per `/tend-ci-runner:resolve-conflicts`
 only. The count is a boot signal; the conflict skill re-reads and test-merges the
 current PR heads before changing a branch.
 
-## 6. Recover pending triage
+## 6. Recover issue work
 
-Use this admission rule for every triage recovery, including reports or stalled causes found in notifications or the daily sweep without a pending label.
+Route same-repository issues found by notifications or the daily live-work scan through ordinary triage. Re-read each issue's state, conversation and linked PRs. A closed issue needs no new worker. For open issues, skip work covered by a current disposition, repair owner, or unchanged access/product decision addressed to its owner. Unfinished diagnosis remains engineering work under **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`; a bot reply or successful run alone does not complete it.
 
-The workflow records `tend-triage-pending` before scarce worker admission and clears it after a successful agent turn. Failure, cancellation, or a full GitHub queue leaves the issue pending. A bot comment alone does not complete that work: a failed worker may have posted a partial investigation.
+Before dispatching an issue, check its live runs per **Give each thread a current outcome**. Skip a subject already active or queued. Check recent worker outcomes, current outage/rate-limit records and the configured daily allowance. Respect an outstanding approval gate or provider reset. When access is uncertain, dispatch one ordinary worker as a control and inspect its actual result before admitting more.
 
-```bash
-gh api "repos/$GITHUB_REPOSITORY/issues?labels=tend-triage-pending&state=open&sort=created&direction=asc&per_page=100" \
-  --paginate --jq '.[] | select(has("pull_request") | not) | {number,title,created_at,labels}'
-```
-
-Re-read the pending issues oldest first, their current conversation and linked PRs. An existing repair owner, a completed disposition, or an unchanged access/product decision addressed to its owner needs no repeated diagnosis. A pending issue still goes through ordinary triage to verify that live disposition and complete its marker; only the workflow clears it, preserving newer reopens. Unfinished engineering diagnosis remains work, following **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`.
-
-Before dispatching, check live runs per **Give each thread a current outcome** and the triage workflow's queued/running jobs. Defer while any triage worker is active or awaiting admission. Read the previous failure and current outage/rate-limit record: respect an outstanding approval gate or provider reset; do not bulk replay into unavailable access. When access is uncertain, one pending issue's ordinary triage run is the control. Admit at most one recovery worker per poll, retaining every other pending label; its actual result informs the next poll.
+With working access, dispatch each distinct actionable issue oldest first, within the current rate-limit allowance and queue capacity. There is no one-issue-per-poll or daily-sweep cap. Workers for other issues may already be active or queued: the shared triage lane serializes their execution. Stop admitting work if access fails or the queue refuses it; the open issues remain for the next sweep.
 
 ```bash
 gh workflow run tend-triage.yaml -f issue="$NUMBER" -f title="$TITLE"
 ```
 
-Dispatch through the current workflow and live issue, never by rerunning a historical payload. The triage lane also admits new issue events, so new and recovered triage workers use the same concurrency bound. The issue stays pending until its worker completes; clearing a label is not closing the issue or claiming the bug is fixed.
+Dispatch through the current workflow and live issue, never by rerunning a historical payload. A dispatch hands work to a worker; it does not establish that the issue is resolved.
 
-Report the notifications handled, responses posted, items deferred, threads
-acknowledged, pending triage recovery, and conflict outcomes.
+Report the notifications handled, responses posted, issues dispatched or deferred,
+threads acknowledged, and conflict outcomes.

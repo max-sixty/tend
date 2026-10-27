@@ -21,30 +21,9 @@ on:
         default: ""
 
 jobs:
-  enqueue:
-    if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && <<not_bookkeeping()>>
-    runs-on: ubuntu-24.04
-<<environment()>>
-    permissions: {}
-    outputs:
-      ready: ${{ steps.queue.outputs.ready }}
-    steps:
-      - name: Record pending triage before admission
-        id: queue
-        env:
-          GH_TOKEN: ${{ secrets.<<bot_token_secret>> }}
-          ISSUE_NUMBER: <<issue>>
-          QUEUE_ACTION: enqueue
-        run: |
-          python3 -I - <<heredoc>>'TEND_PY'
-<<queue_script|indent(10, first=True)>>
-          TEND_PY
-
   triage:
-    needs: enqueue
-    if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && needs.enqueue.outputs.ready == 'true'
-    # One issue worker at a time, including report diagnosis and recovery.
-    # The issue's pending label survives failure or GitHub's finite queue.
+    if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && <<not_bookkeeping()>>
+    # New issues and recovery share one worker lane.
     concurrency:
       group: tend-triage
       cancel-in-progress: false
@@ -54,33 +33,10 @@ jobs:
     permissions:
 <<permissions()>>
     steps:
-      - name: Recheck live issue after admission
-        id: admit
-        env:
-          GH_TOKEN: ${{ secrets.<<bot_token_secret>> }}
-          ISSUE_NUMBER: <<issue>>
-          QUEUE_ACTION: admit
-        run: |
-          python3 -I - <<heredoc>>'TEND_PY'
-<<queue_script|indent(10, first=True)>>
-          TEND_PY
+<<react_eyes('issues/' ~ issue)>>
 
-<<react_eyes('issues/' ~ issue, if_condition=ready_condition)>>
-
-<<checkout(cfg, ref=cfg.default_branch, if_condition=ready_condition)>>
+<<checkout(cfg, ref=cfg.default_branch)>>
 <<setup>>
-<<agent_step(cfg, block_input('prompt', prompt), if_condition=ready_condition)>>
+<<agent_step(cfg, block_input('prompt', prompt))>>
 
-      - name: Complete pending triage
-        if: success() && <<ready_condition>>
-        env:
-          GH_TOKEN: ${{ secrets.<<bot_token_secret>> }}
-          ISSUE_NUMBER: <<issue>>
-          QUEUE_ACTION: complete
-          QUEUE_GENERATION: ${{ steps.admit.outputs.generation }}
-        run: |
-          python3 -I - <<heredoc>>'TEND_PY'
-<<queue_script|indent(10, first=True)>>
-          TEND_PY
-
-<<unreact_eyes(cfg, 'issues/' ~ issue, if_condition='always() && ' ~ ready_condition)>>
+<<unreact_eyes(cfg, 'issues/' ~ issue, if_condition='always()')>>
