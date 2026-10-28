@@ -406,7 +406,7 @@ bot_name: my-project-bot
 #
 # Triggers on new and reopened issues. Classifies, checks for duplicates,
 # reproduces bugs and attempts conservative fixes. One worker runs at a time;
-# pending issue labels retain failed attempts for recovery.
+# the daily review recovers unfinished work from open issues.
 # Under `yolo` with review enabled and `await_ci: false`, opening a repair PR
 # hands CI follow-up to the review and `tend-land`, releasing the issue worker.
 
