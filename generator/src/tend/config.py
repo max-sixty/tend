@@ -303,6 +303,8 @@ class WorkflowConfig:
     args: list[str] | None = None
     # Review only: whether the review waits for the reviewed commit's CI.
     await_ci: bool = True
+    # Triage only: simultaneous issue jobs within the serialized batch.
+    max_parallel: int = 5
 
 
 # Models are not enumerated for either harness. Both catalogs churn, both
@@ -719,6 +721,15 @@ class Config:
                         f"workflows.{name}.prompt is blank. Drop the key to "
                         f"use the default prompt."
                     )
+                max_parallel = wf_raw.get("max_parallel", WorkflowConfig.max_parallel)
+                if "max_parallel" in wf_raw and name != "triage":
+                    raise click.ClickException(
+                        f"workflows.{name}.max_parallel is only supported for triage"
+                    )
+                if type(max_parallel) is not int or not 1 <= max_parallel <= 256:
+                    raise click.ClickException(
+                        f"workflows.{name}.max_parallel must be an integer from 1 to 256"
+                    )
                 await_ci = wf_raw.get("await_ci", True)
                 if "await_ci" in wf_raw and name != "review":
                     raise click.ClickException(
@@ -742,6 +753,7 @@ class Config:
                     effort=wf_effort,
                     args=wf_args,
                     await_ci=await_ci,
+                    max_parallel=max_parallel,
                 )
             else:
                 workflows[name] = WorkflowConfig(enabled=enabled)

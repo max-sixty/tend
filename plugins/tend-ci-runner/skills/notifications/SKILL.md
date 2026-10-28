@@ -70,7 +70,7 @@ uv run --script \
   "${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py" "$SUBJECT_URL"
 ```
 
-It counts a run that has not started yet. `queued` is a status of its own in the Actions API, and a `tend-mention` run created for a maintainer's comment can sit unstarted for hours — that run owns its subject as much as a running one, and answering it here posts the bot's reply twice. It stops counting one whose state has not moved in over a day: GitHub strands runs that never start, and an owner that never finishes would defer its thread forever.
+It counts a run that has not started yet. `queued` is a status of its own in the Actions API, and a `tend-mention` run created for a maintainer's comment can sit unstarted for hours — that run owns its subject as much as a running one, and answering it here posts the bot's reply twice. Triage batches identify their queued and running issues by number, including matrix jobs waiting for a slot. They retain ownership until their job or run finishes, however long they wait. For other workflows it stops counting a run whose state has not moved in over a day: GitHub strands runs that never start, and an owner that never finishes would defer its thread forever.
 
 Issue deduplication includes bot-authored PRs that cross-reference the issue. A PR with `Refs #N` may be the bot's response even when it posted no issue comment. Pad the notification time by 60 seconds because GitHub's notification index can trail the event that produced it:
 
@@ -112,10 +112,11 @@ Route same-repository issues found by notifications or the daily live-work scan 
 
 Before dispatching an issue, check its live runs per **Give each thread a current outcome**. Skip a subject already active or queued. Check recent worker outcomes and current access or outage records. Respect an outstanding approval gate or provider reset. When access is uncertain, dispatch one ordinary worker as a control and inspect its actual result before admitting more. Tend's creation allowance governs new issues and PRs; apply **Creation allowance** in `/tend-ci-runner:open-pr` when that is the remaining work.
 
-With working access, dispatch each distinct actionable issue oldest first, within queue capacity. There is no one-issue-per-poll or daily-sweep cap. Workers for other issues may already be active or queued: the shared triage lane serializes their execution. Stop admitting work if access fails or the queue refuses it; the open issues remain for the next sweep.
+With working access, collect the distinct actionable issue numbers oldest first and dispatch them together as a JSON array. Split only at GitHub's 256-job matrix limit. There is no one-issue-per-poll or daily-sweep cap. Each number creates one issue job; an empty selection creates none. The workflow serializes whole batches and runs at most the configured `workflows.triage.max_parallel` issue jobs at once (default five). A new batch waits for the current batch's slowest job. Stop admitting work if access fails or the queue refuses it; open issues remain for the next sweep. One failed job does not cancel its peers.
 
 ```bash
-gh workflow run tend-triage.yaml -f issue="$NUMBER" -f title="$TITLE"
+# Example: the actual selection, not a fixed set of worker slots.
+gh workflow run tend-triage.yaml -f issues='[211,212,213]'
 ```
 
 Dispatch through the current workflow and live issue, never by rerunning a historical payload. A dispatch hands work to a worker; it does not establish that the issue is resolved.

@@ -549,7 +549,10 @@ def test_prompt_punctuation_reaches_the_agent_verbatim(
     assert isinstance(yaml.safe_load(content), dict)
     prompt = _agent_prompt(content)
     assert "format(" not in prompt
-    assert prompt.startswith("Don't touch {0} or {1}; fix ${{ github.event.")
+    expression = (
+        "github.event.pull_request.number" if workflow == "review" else "matrix.issue"
+    )
+    assert prompt == f"Don't touch {{0}} or {{1}}; fix ${{{{ {expression} }}}}\n"
 
 
 # ---------------------------------------------------------------------------

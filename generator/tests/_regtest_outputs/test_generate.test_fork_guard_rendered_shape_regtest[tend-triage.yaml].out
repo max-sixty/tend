@@ -8,33 +8,119 @@
 # happen upstream in the tend-ci-runner plugin.
 
 name: tend-triage
-# A dispatched run would otherwise be named for the workflow. Named for the
-# issue, like an opened one, the notifications poll can see it holds that
-# issue.
-run-name: ${{ inputs.title || github.event.issue.title }}
+# Keep the selected IDs visible before matrix jobs exist, including while queued.
+run-name: triage ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
 on:
   issues:
     types: [opened, reopened]
-  # An issue a later run hands back, such as a stalled CI report or cause.
   workflow_dispatch:
     inputs:
-      issue:
-        description: The issue to triage
-        type: number
-        required: true
-      title:
-        description: The issue's title, which names the run
+      issues:
+        description: JSON array of issue numbers, up to 256
         type: string
-        default: ""
+        required: true
+
+# The whole batch holds the lane: overlapping events cannot multiply the cap.
+concurrency:
+  group: tend-triage
+  cancel-in-progress: false
+  queue: max
 
 jobs:
-  triage:
+  select:
     if: github.repository_owner == 'test-owner' && vars.TEND_ENABLED != 'false' && contains(github.event.issue.labels.*.name, 'tend-outage') == false && contains(github.event.issue.labels.*.name, 'tend-rate-limit') == false
-    # New issues and recovery share one worker lane.
-    concurrency:
-      group: tend-triage
-      cancel-in-progress: false
-      queue: max
+    runs-on: ubuntu-24.04
+    environment:
+      name: tend
+      deployment: false
+    permissions:
+      contents: read
+    outputs:
+      issues: ${{ steps.select.outputs.issues }}
+    steps:
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        id: tend_uv
+        env:
+          UV_NO_MODIFY_PATH: "1"
+        with:
+          version: "0.13.5"
+          checksum: ${{ runner.arch == 'ARM64' && '4bb69cf95ed13f23713bb7bc09f241896ea0c75b7c557e615a20604b82f9c403' || 'f68d291c75783122dad58ab77def0e13f3233f358731db5d6d7e8715603b928f' }}
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Select current issues
+        id: select
+        env:
+          GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
+          ISSUES: ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
+          BOOKKEEPING_LABELS: '["tend-outage", "tend-rate-limit"]'
+          TEND_UV: ${{ steps.tend_uv.outputs.uv-path }}
+        run: |
+          "$TEND_UV" run --script - <<'TEND_PY'
+          # /// script
+          # requires-python = ">=3.12"
+          # dependencies = []
+          # ///
+          """Validate a selected triage batch after it acquires the workflow lane.
+
+          Selection judgment belongs to notifications/recovery. This boundary deduplicates
+          IDs and removes closed issues, PRs and bookkeeping before expanding real issue
+          jobs. GitHub limits each matrix to 256 jobs; callers split larger selections.
+          Open issues remain the recovery backlog after a cancelled or failed run.
+          """
+
+          from __future__ import annotations
+
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+
+          def issue_numbers(raw: str) -> list[int]:
+              numbers = json.loads(raw)
+              if not isinstance(numbers, list) or any(
+                  type(number) is not int or number < 1 for number in numbers
+              ):
+                  raise ValueError("issues must be a JSON array of positive issue numbers")
+              numbers = list(dict.fromkeys(numbers))
+              if len(numbers) > 256:
+                  raise ValueError("a triage batch cannot exceed GitHub's 256-job matrix limit")
+              return numbers
+
+
+          def main() -> None:
+              repo = os.environ["GITHUB_REPOSITORY"]
+              bookkeeping = set(json.loads(os.environ["BOOKKEEPING_LABELS"]))
+              selected = []
+              for number in issue_numbers(os.environ["ISSUES"]):
+                  issue = json.loads(
+                      subprocess.check_output(
+                          ["gh", "api", f"repos/{repo}/issues/{number}"], text=True
+                      )
+                  )
+                  if (
+                      issue["state"] == "open"
+                      and "pull_request" not in issue
+                      and not bookkeeping.intersection(label["name"] for label in issue["labels"])
+                  ):
+                      selected.append(number)
+              with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+                  output.write(f"issues={json.dumps(selected, separators=(',', ':'))}\n")
+
+
+          if __name__ == "__main__":
+              main()
+          TEND_PY
+
+  triage:
+    needs: select
+    if: needs.select.outputs.issues != '[]'
+    name: "triage #${{ matrix.issue }}"
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        issue: ${{ fromJSON(needs.select.outputs.issues) }}
     runs-on: ubuntu-24.04
     environment:
       name: tend
@@ -44,6 +130,8 @@ jobs:
       pull-requests: write
       actions: read
       issues: write
+    env:
+      TEND_ISSUE_NUMBER: ${{ matrix.issue }}
     steps:
       - name: React with eyes
         run: |
@@ -51,7 +139,7 @@ jobs:
             || echo "::warning::could not add the eyes reaction"
         env:
           REPO: ${{ github.repository }}
-          TARGET: issues/${{ github.event.issue.number || inputs.issue }}
+          TARGET: issues/${{ matrix.issue }}
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,7 +159,7 @@ jobs:
           checkout_mode: base
           base_branch: ${{ github.event.repository.default_branch }}
           prompt: |2
-            /tend-ci-runner:triage ${{ github.event.issue.number || inputs.issue }}
+            /tend-ci-runner:triage ${{ matrix.issue }}
 
       - name: Remove the eyes reaction
         if: always()
@@ -85,6 +173,6 @@ jobs:
           fi
         env:
           REPO: ${{ github.repository }}
-          TARGET: issues/${{ github.event.issue.number || inputs.issue }}
+          TARGET: issues/${{ matrix.issue }}
           BOT_NAME: test-bot
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}

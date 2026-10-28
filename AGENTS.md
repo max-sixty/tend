@@ -333,7 +333,7 @@ Concurrency groups:
 | mention-relay | none | stateless — secretless job that re-posts review events to mention as a `repository_dispatch` |
 | mention/verify | none | stateless |
 | mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
-| triage | `tend-triage` | **no** — one issue worker at a time, including reports, causes and recovery; `queue: max` holds pending jobs; the daily sweep recovers unfinished open issues outside GitHub's finite queue |
+| triage | `tend-triage` | **no** — one whole batch at a time; its matrix runs up to `workflows.triage.max_parallel` issue jobs (default five); `queue: max` holds pending batches; the daily sweep recovers unfinished open issues outside GitHub's finite queue |
 | notifications | `tend-notifications` | **no** — one poll drains notifications and repairs bot PRs at a time |
 | ci-failures | `workflow-<watched workflow>-<event>-<branch>` | **no** — one writer per CI failure report, so a lane's verdicts apply in turn and never file two |
 | land/check | none | stateless — reads records and checks, starts nothing itself |
@@ -368,14 +368,14 @@ another session. The agent work runs through the issue path:
 triage diagnoses the report, filing one cause issue per root cause,
 and each cause issue's own triage run fixes it. A cause issue claims its cause
 for every later run and every lane, so no second session works the same cause,
-and all triage workers share one concurrency group. The bot gets no notification
-for its own writes. The daily `review-runs` sweep inspects all open issues for
+and all triage batches share one workflow concurrency group. The bot gets no
+notification for its own writes. The daily `review-runs` sweep inspects all open issues for
 unfinished work, including bot-authored reports and partial investigations after
 successful turns. It routes unowned work through ordinary triage using
 **Recover issue work** in `/tend-ci-runner:notifications`. With working access,
 the sweep can queue the actionable backlog within provider access and queue
-bounds; one worker executes at a time. Each worker checks the live issue
-and repair ownership again when it starts.
+bounds; each batch runs a bounded matrix of the selected issue IDs. Each worker
+checks the live issue and repair ownership again when it starts.
 
 **GHA queue depth.** Review, triage and land set `queue: max`, so pending events within
 GitHub's queue limit wait: a later push cannot replace `ready_for_review`, and

@@ -385,7 +385,7 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
     wf = cfg.workflows.get("triage", WorkflowConfig())
     eff = _effective_cfg(cfg, wf)
     prompt = (wf.prompt or eff.default_prompt("triage", "{issue_number}")).replace(
-        "{issue_number}", "${{ github.event.issue.number || inputs.issue }}"
+        "{issue_number}", "${{ matrix.issue }}"
     )
     if lands_on_ci(cfg):
         prompt += "\n\nThe review's CI wait is off (`await_ci: false`)."
@@ -394,6 +394,9 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
         cfg=eff,
         setup=_setup_yaml(eff),
         prompt=prompt,
+        max_parallel=wf.max_parallel,
+        select_script=_inline_script("triage_batch.py"),
+        heredoc="<<",
     )
     return GeneratedWorkflow(filename="tend-triage.yaml", content=content)
 

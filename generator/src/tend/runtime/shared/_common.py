@@ -128,8 +128,6 @@ _SUBJECT_NUMBER_KEYS = {
     "issues": ("issue", "number"),
     "issue_comment": ("issue", "number"),
     "repository_dispatch": ("client_payload", "pr"),
-    # tend-triage's dispatched runs; a scheduled workflow's has no `issue`.
-    "workflow_dispatch": ("inputs", "issue"),
 }
 # Where each event keeps its own commit. Only the pull-request events and
 # `workflow_run` carry one; see :func:`subject_sha` for what the rest report.
@@ -193,12 +191,16 @@ def as_int(value: Any) -> int | None:
 
 
 def subject_number() -> int | None:
-    """The issue or PR number the triggering event is about, if it has one.
+    """The matrix job's issue, or the triggering event's issue/PR number.
+
+    Generated triage jobs supply validated matrix IDs as ``TEND_ISSUE_NUMBER``.
 
     ``None`` for an event with no thread of its own (``schedule``,
     ``workflow_dispatch``, ``workflow_run``) and for a payload whose shape is
     not the one its event promises.
     """
+    if issue := os.environ.get("TEND_ISSUE_NUMBER"):
+        return int(issue)
     keys = _SUBJECT_NUMBER_KEYS.get(os.environ.get("GITHUB_EVENT_NAME", ""))
     return as_int(dig(event_payload(), *keys)) if keys else None
 
