@@ -1,0 +1,37 @@
+[
+  {
+    "name": "ready-repair",
+    "report": {"number": 100, "state": "open", "label": "tend-ci-failure", "run": 1000},
+    "failures": [
+      {
+        "test": "test_retry_uses_repository_root",
+        "diagnosis": "The retry resolves its workspace against cwd instead of the configured repository root.",
+        "reproduction": "The focused regression fails before the change and passes after it; the ordinary success-path regression also passes.",
+        "working_tree": "A complete reviewed patch changes the retry to use the same root as the initial attempt. Focused lint and compile checks pass. No other reported cause remains.",
+        "ownership": "The fresh search of issues, branches and open/closed PRs found no existing repair owner. No publication has occurred."
+      }
+    ]
+  },
+  {
+    "name": "independent-causes",
+    "report": {"number": 200, "state": "open", "label": "tend-ci-failure", "run": 2000},
+    "failures": [
+      {
+        "test": "test_socket_reconnect",
+        "diagnosis": "The current trace matches the established socket reuse defect owned by active PR 220. Its regression and fix cover this path.",
+        "ownership": "PR 220 is open and actively being repaired; its discussion already contains this run's evidence."
+      },
+      {
+        "test": "test_keyboard_commit",
+        "diagnosis": "The keyboard handler commits the prior field value after compositionend. It reproduces independently of the socket failure and needs investigation of event ordering.",
+        "ownership": "No existing issue, branch or PR owns it."
+      },
+      {
+        "test": "test_package_render",
+        "diagnosis": "The render runner passes a package composition object to an API accepting package names, failing before any browser starts. This is independent of keyboard event ordering and socket reuse, and needs a caller/API repair.",
+        "ownership": "No existing issue, branch or PR owns it."
+      }
+    ],
+    "environment": "The report session has completed diagnosis and owner searches. The keyboard and package failures require separate repository investigations; neither has a prepared patch."
+  }
+]
