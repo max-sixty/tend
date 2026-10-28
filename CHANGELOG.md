@@ -6,6 +6,20 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.19
+
+### Improved
+
+- CI report triagers can repair a cause directly or fan out independent causes into issues. Reports and recovery recognize either an issue or repair PR as the durable owner. ([#1601](https://github.com/max-sixty/tend/pull/1601))
+- A blocker applies only to the work it prevents: triagers continue separable investigation and make independently useful, verified partial repairs while keeping unresolved work open. ([#1601](https://github.com/max-sixty/tend/pull/1601))
+
+### Fixed
+
+- New issues and PRs share one adaptive creation allowance enforced by the credential proxy. Exhaustion leaves reviews, existing repairs, comments and issue cleanup running; maintainer approval increases the allowance until UTC midnight. ([#1594](https://github.com/max-sixty/tend/pull/1594))
+- Nightly cleanup can close a recovered creation-limit tracker once creation has resumed and blocked work is accounted for; a bot closing it grants no additional capacity. ([#1594](https://github.com/max-sixty/tend/pull/1594))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.18
 
 ### Improved
