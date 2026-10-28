@@ -6,6 +6,23 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.18
+
+### Improved
+
+- CI reports link ordinary cause issues, so a long-running failure report can track causes beyond GitHub's sub-issue limit. Ownership searches include closed issues so recurring failures can reopen their existing cause. ([#1585](https://github.com/max-sixty/tend/pull/1585))
+- Triage hands CI follow-up to the existing review and landing owner when automatic continuation is configured, freeing the issue worker for the next investigation. Configurations without that continuation retain triage's verification responsibility. ([#1586](https://github.com/max-sixty/tend/pull/1586))
+
+### Fixed
+
+- Report triage records the runs it diagnosed even when all causes already have owners, allowing the next session to identify new work. Already-recorded evidence produces no duplicate diagnosis. ([#1587](https://github.com/max-sixty/tend/pull/1587))
+
+### Internal
+
+- Outcome reviews follow CI reports' triage runs for diagnosis and cause issues. ([#1576](https://github.com/max-sixty/tend/pull/1576))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.17
 
 ### Improved
