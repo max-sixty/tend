@@ -149,7 +149,7 @@ The change must also be verifiable. For a feature, a test of the new behavior th
    ```bash
    gh pr create --title "fix: <description>" --body-file "$TMPDIR/pr-body.md"
    ```
-3. Wait for CI per `/tend-ci-runner:monitor-ci`.
+3. Follow **CI and landing** in `/tend-ci-runner:continue-pr`, which also governs the reproduction-only PR below.
 
 ### If reproduction test works but fix is not confident
 
@@ -174,7 +174,7 @@ Note the PR number for the comment.
 
 Re-fetch before posting, per **Recheck before posting** in `/tend-ci-runner:post-to-github` — triage can take minutes, so re-fetch the issue and skip any point a new human comment or a sibling tend workflow already covered.
 
-Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`; do not restate the report or narrate the investigation. Report the fix's verified CI and landing disposition; opening a fix alone does not establish resolution. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
+Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`; do not restate the report or narrate the investigation. Report the fix's current verification and owner, including review and CI still pending after a handoff; opening a fix alone does not establish resolution. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
 
 **Stay within what you verified.** State facts you found in the codebase — don't characterize something as "known" unless you find prior issues or documentation about it. Don't speculate beyond the code you read.
 

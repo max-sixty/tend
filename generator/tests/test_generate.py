@@ -796,7 +796,11 @@ def test_tend_land_exists_where_a_review_leaves_landing_to_it(
     head; everywhere else a review or a maintainer lands, and tend-land would
     find no record to act on."""
     cfg = Config.load(_minimal_config(tmp_path, extra))
-    assert ("tend-land.yaml" in {wf.filename for wf in generate_all(cfg)}) is lands
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    assert ("tend-land.yaml" in workflows) is lands
+    # Triage can release its serialized lane only when that continuation exists.
+    prompt = agent_prompt(workflows["tend-triage.yaml"].content)
+    assert ("The review's CI wait is off (`await_ci: false`)." in prompt) is lands
 
 
 def _land_prompts(content: str) -> dict[str, str]:

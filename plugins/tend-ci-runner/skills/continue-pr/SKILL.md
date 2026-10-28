@@ -63,6 +63,8 @@ in `/tend-ci-runner:push-commits`. Preserve any sibling's commits. A review that
 arrives while this run works remains with its reviewer per
 **Reviews arriving during verification** in `/tend-ci-runner:push-commits`.
 
+## CI and landing
+
 Once the remaining findings are addressed, poll the pinned head per
 `/tend-ci-runner:monitor-ci`, including a head this run did not push. Handle
 failures as remaining repair work, then complete the landing decision per

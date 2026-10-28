@@ -1,0 +1,28 @@
+description: Triage releases CI to the configured continuation owner and waits when none exists.
+vars:
+  task: |
+    Act as the Tend triage worker at the decision points in observations.json.
+    Load the active triage guidance and follow its references as needed. For
+    each independent situation, decide the next actions, who owns the remaining
+    work, and what the issue author should be told now. Save your decisions in
+    captured.md.
+
+    The repository and GitHub are unavailable. Use the frozen observations;
+    propose the next actions without claiming to have executed them. No
+    additional checks, pushes, comments, merges or dispatches have occurred.
+assert:
+  - type: llm-rubric
+    value: >-
+      In fix-awaiting-ci, finish the triage handoff without polling CI or
+      repairing its future results: the recorded bot push and queued review
+      transfer verification and landing to review/tend-land. Keep the issue
+      unresolved and describe local verification separately from pending CI
+      and review. In red-reproduction, preserve the failing reproduction and
+      let the identified active repair run continue the engineering work;
+      do not poll, start a competing fix, merge the failing draft, close the
+      cause, or hand the diagnosis to a maintainer merely because no fix is
+      established. In no-landing-workflow, retain responsibility for obtaining
+      CI evidence on the pushed head and responding to failures; do not assume
+      review/tend-land will take over when those workflows are disabled.
+      Proposed actions suffice. Do not claim unobserved execution or a
+      resolved issue in any situation.
