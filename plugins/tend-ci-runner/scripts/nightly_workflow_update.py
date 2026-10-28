@@ -72,13 +72,33 @@ def _paths() -> tuple[Path, Path, Path, Path]:
     )
 
 
-def _version(worktree: Path) -> str:
-    versions = {
-        match.group(1)
-        for path in (worktree / ".github/workflows").glob("tend-*.yaml")
-        for line in path.read_text().splitlines()
-        if (match := VERSION_RE.match(line))
-    }
+def _version(worktree: Path, ref: str = "") -> str:
+    if ref:
+        paths = _run(
+            "git",
+            "ls-tree",
+            "-r",
+            "--name-only",
+            ref,
+            "--",
+            ".github/workflows/",
+            cwd=worktree,
+        ).stdout.splitlines()
+        lines = [
+            line
+            for path in paths
+            if Path(path).match(".github/workflows/tend-*.yaml")
+            for line in _run(
+                "git", "show", f"{ref}:{path}", cwd=worktree
+            ).stdout.splitlines()
+        ]
+    else:
+        lines = [
+            line
+            for path in (worktree / ".github/workflows").glob("tend-*.yaml")
+            for line in path.read_text().splitlines()
+        ]
+    versions = {match.group(1) for line in lines if (match := VERSION_RE.match(line))}
     return min(
         versions,
         key=lambda version: tuple(int(part) for part in version.split(".")),
@@ -132,17 +152,18 @@ def _prepare() -> int:
         "--json",
         "number,url",
     )
+    default = github_cli.json_call("api", f"repos/{repo}")["default_branch"]
+    _run("git", "fetch", "origin", default)
+    default_head = _run("git", "rev-parse", "FETCH_HEAD").stdout.strip()
     if open_prs:
         _run("git", "fetch", "origin", BRANCH)
         base = _run("git", "rev-parse", f"origin/{BRANCH}").stdout.strip()
     else:
         _run("git", "push", "origin", "--delete", BRANCH, check=False)
-        default = github_cli.json_call("api", f"repos/{repo}")["default_branch"]
-        _run("git", "fetch", "origin", default)
-        base = _run("git", "rev-parse", "FETCH_HEAD").stdout.strip()
+        base = default_head
 
     _run("git", "worktree", "add", str(worktree), "-B", BRANCH, base)
-    old_version = _version(worktree)
+    old_version = _version(worktree, default_head)
     _run("uv", "tool", "run", "tend@latest", "init", cwd=worktree)
     _stage_generated(worktree)
     if not _staged_change(worktree):
