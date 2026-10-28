@@ -122,10 +122,12 @@ For each of these issues, check whether recent commits or the current codebase s
 - The bot opened the issue itself to report a transient condition (e.g., a "Nightly tests failed" report from a prior run) and the condition has clearly resolved — the fix PR is merged and the relevant CI on `main` is passing. Skip this case where closing the issue is itself a signal rather than a record of resolution:
   - a body containing "Do not close manually" — recurring trackers with their own lifecycle.
   - the `tend-outage` label. Its rows identify failed runs that `review-runs` diagnoses before checking the live repository for missed work. Nightly's cron precedes `review-runs` under the generated defaults, so closing the issue here can remove those rows before that check.
-  - the `tend-rate-limit` label, where a maintainer's close is what lifts the bot past its own rate limit. Closing that one as the bot lifts nothing — the preflight counts only closes by a person — but it clears a decision still waiting on one.
+  - the `tend-rate-limit` label; use its recovery rule below.
 - The repo's instructions (e.g., `running-tend` skill) explicitly authorize closing issues.
 
 Otherwise, leave it open for a maintainer to close.
+
+For a `tend-rate-limit` tracker, reconcile blocked work through **Recover issue work** in `/tend-ci-runner:notifications`. Close it with the recovery evidence only when an agent's issue or PR creation succeeded through the proxy after the latest refusal, and the blocked work is resolved or accounted for on existing issues or PRs with current owners or recovery dispositions. Elapsed refill time, UTC rollover and trusted runner reports do not establish restored agent creation; restored creation alone does not settle missed work. A bot close records recovery and grants no capacity. Leave a still-exhausted or unreconciled tracker open.
 
 ### Enrich tend-outage issues
 

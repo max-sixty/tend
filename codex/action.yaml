@@ -135,11 +135,11 @@ runs:
     # Also publishes `login`/`id` for the bot: it reads them off the token it
     # already holds, so nothing downstream has to resolve them again from the
     # configured name, which a rename would leave stale.
-    - name: Rate limit preflight
+    - name: Resolve bot identity
       id: bot
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime rate-limit-preflight
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime bot-identity
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
@@ -391,7 +391,7 @@ runs:
 
     # Gate on the job being red, not on the agent step specifically — see the
     # matching note in claude/action.yaml, including why the security preflight
-    # is excluded. Every step ahead of `codex` (the rate-limit preflight, bot-ID
+    # is excluded. Every step ahead of `codex` (bot-ID
     # resolution, the CLI and proxy installs, the sandbox handoff, the AGENTS.md
     # staging, and PR config restoration) strands the same work when it fails, and
     # keying on `steps.codex.outcome` kept all of them out of the outage
