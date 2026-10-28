@@ -10,7 +10,7 @@ per workflow, branch and triggering event, the unit a run's verdict speaks
 for: a scheduled suite can fail on tests that push runs never reach.
 
 - A failed run files the report, or comments on the one already open.
-- A passing run closes the open report. The cause issues filed under it stay
+- A passing run closes the open report. The cause issues linked from it stay
   as they are: a pass doesn't show that a flaky cause is gone, and a cause's
   fix may still be in flight, so each cause's own triage closes it.
 - A run that a newer finished run of the same lane supersedes changes nothing.
@@ -146,7 +146,7 @@ def file_report(repo: str, run: dict[str, Any]) -> None:
         f"This issue tracks `{run['name']}`'s `{run['event']}` runs on "
         f"`{run['head_branch']}` until one passes. Each later failed run adds a "
         "comment, and the next passing run closes this issue. Tend triages this "
-        "report when it opens, filing every distinct cause as a sub-issue and "
+        "report when it opens, linking a separate issue for each distinct cause and "
         "working it there. The daily review revisits unhandled failures.\n"
     )
     api(
