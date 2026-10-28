@@ -578,31 +578,42 @@ job and `tend check` accepts access-only auth without refresh credentials.
 The external owner must wait for existing refresh runs to finish and retain
 the full login in its own credential store; unused refresh secrets must be removed.
 
-**Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
-spike detection (today's volume vs 6-day baseline, scaled per repo) abort
-the run before the agent starts, catching runaway loops between workflows.
-The burst's issue count leaves out the `tend-ci-cause` issues triage files
-for a CI failure report, one per root cause, since one red run can hold a
-dozen; the PR burst count and the spike limit count them. The bot sets that
-label itself, so a loop that labels what it files escapes only the issue
-burst count, and still meets the spike limit.
-The check runs as its own step in the composite action, so a
-prompt-injection attack inside the agent session cannot skip it. Concrete limits live in
-`generator/src/tend/runtime/shared/rate_limit_preflight.py`.
+**Rate limiting.** The credential proxy checks each agent request to create an
+issue or PR in the workflow's repository. Both consume one replenishing
+allowance, including CI cause issues. The allowance permits a burst and refills
+at a rate based on the bot's creation volume over the preceding six UTC days.
+The bucket starts full at UTC midnight; replaying today's creations determines
+its current balance. Both the bucket and any approved increase reset at the
+next UTC midnight.
+Creations made under an approval still contribute to the following six days'
+baseline. The refill rate adapts to observed volume, so this guards sudden
+spikes rather than imposing a fixed ceiling on sustained output. The daily
+reset also permits another full burst immediately after midnight.
+An exhausted allowance refuses the creation, with a refill time and recovery
+tracker, while reviews, comments, existing branch updates and issue closure
+continue. An unavailable history refuses creation without stopping the agent.
 
-The spike limit is resumable by a maintainer, the burst limit is not. On a
-spike trip the run files or reopens a `tend-rate-limit` issue listing the
-runs it refused; closing that issue doubles the ceiling for the rest of the
-UTC day, and each further close doubles it again, so the limit re-arms
-after use rather than switching off. Approval is a check rather than an
-instruction: the preflight counts only closes whose actor is not the bot,
-and since GitHub admits only the author or a triage/write collaborator to
-close an issue — and the bot is the author — that leaves exactly the
-maintainers. The bot cannot approve itself even if a prompt injection tells
-it to, and there is no allowlist to maintain.
+GitHub's creation timestamps provide the shared history. Each proxy also counts
+its own successful creations until the listing includes them. This prevents
+sequential requests in a session from spending the same allowance twice;
+separate runners can still admit concurrent creations against the same history.
+The limit is a spike guard, not an atomic reservation across runners.
+Trusted runner-side failure reports and the limiter's own tracker remain
+operational and count toward later history. Requests to other repositories are
+outside this repository's allowance.
 
-Refused runs do not retry on their own; the issue's table carries their
-links. Automating that is deferred (see `TODO.md`).
+The proxy files or reopens one `tend-rate-limit` issue on refusal. A maintainer
+closing it doubles both the burst allowance and refill rate for the rest of the
+UTC day; further closes double them again. Approval comes from GitHub close
+events after the label was applied, excluding the bot's own numeric ID and
+GitHub Apps. The sandbox cannot change that privileged check. Concrete limits
+live in `generator/src/tend/runtime/shared/creation_limit.py`.
+
+The refusal leaves unfinished work with its existing issue or PR. Notifications
+and the daily live-work sweep recover it through their ordinary ownership and
+access checks; closing the rate-limit issue does not replay historical runs.
+Nightly applies its recovery rule before closing an obsolete tracker as the
+bot; that close grants no additional allowance.
 
 **Fixed prompts and marketplace skills.** The prompt and skill set come from
 the composite action and the tend marketplace, not from the PR. PR changes

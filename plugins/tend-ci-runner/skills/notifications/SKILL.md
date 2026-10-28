@@ -110,9 +110,9 @@ current PR heads before changing a branch.
 
 Route same-repository issues found by notifications or the daily live-work scan through ordinary triage. Re-read each issue's state, conversation and linked PRs. A closed issue needs no new worker. For open issues, skip work covered by a current disposition, repair owner, or unchanged access/product decision addressed to its owner. Unfinished diagnosis remains engineering work under **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`; a bot reply or successful run alone does not complete it.
 
-Before dispatching an issue, check its live runs per **Give each thread a current outcome**. Skip a subject already active or queued. Check recent worker outcomes, current outage/rate-limit records and the configured daily allowance. Respect an outstanding approval gate or provider reset. When access is uncertain, dispatch one ordinary worker as a control and inspect its actual result before admitting more.
+Before dispatching an issue, check its live runs per **Give each thread a current outcome**. Skip a subject already active or queued. Check recent worker outcomes and current access or outage records. Respect an outstanding approval gate or provider reset. When access is uncertain, dispatch one ordinary worker as a control and inspect its actual result before admitting more. Tend's creation allowance governs new issues and PRs; apply **Creation allowance** in `/tend-ci-runner:open-pr` when that is the remaining work.
 
-With working access, dispatch each distinct actionable issue oldest first, within the current rate-limit allowance and queue capacity. There is no one-issue-per-poll or daily-sweep cap. Workers for other issues may already be active or queued: the shared triage lane serializes their execution. Stop admitting work if access fails or the queue refuses it; the open issues remain for the next sweep.
+With working access, dispatch each distinct actionable issue oldest first, within queue capacity. There is no one-issue-per-poll or daily-sweep cap. Workers for other issues may already be active or queued: the shared triage lane serializes their execution. Stop admitting work if access fails or the queue refuses it; the open issues remain for the next sweep.
 
 ```bash
 gh workflow run tend-triage.yaml -f issue="$NUMBER" -f title="$TITLE"

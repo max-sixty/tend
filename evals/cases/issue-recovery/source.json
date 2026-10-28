@@ -1,13 +1,13 @@
 {
   "kind": "focused",
-  "historical_ref": "b6181d713cc1539a3e3176bb87ce1c271d96cfbe",
+  "historical_ref": "4802c0b7d3f60022807fe1894868f97a8722d8a7",
   "bot": "widget-agent",
   "merge": "yolo",
   "fixtures": {
-    "observations.json": "f87ceddd71337576ff0182d9a840b64d704def0fa0bcc3e0eb2d6d9ba2a270e1"
+    "observations.json": "7c2336ef45c5fa619d0e989f38efc543383020c61ccd948d069276bbe4a6bb67"
   },
   "origin": {
     "kind": "synthetic contrast",
-    "construction": "Synthetic live-work snapshots compare an unresolved capacity failure, a healthy multi-issue backlog, existing repair/access ownership, same-issue versus unrelated queued workers, a known provider reset and a foreign notification. Issues have no attempt-state labels. Includes bot-authored issues and unfinished diagnosis after a successful run. Current reads are frozen; execution is not simulated."
+    "construction": "Synthetic live-work snapshots compare an unresolved capacity failure, a healthy multi-issue backlog, existing repair/access ownership, same-issue versus unrelated queued workers, a known provider reset and a foreign notification. Issues have no attempt-state labels. Includes bot-authored issues and unfinished diagnosis after a successful run. Current reads are frozen; execution is not simulated. A creation-exhausted snapshot contrasts unfinished diagnosis and existing PR work with a prepared fix whose only remaining action is a refused PR creation. The control is the last main revision before creation-only admission."
   }
 }

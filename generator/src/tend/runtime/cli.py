@@ -34,12 +34,20 @@ def security_preflight_command() -> None:
     _common.run(security_preflight.main)
 
 
-@runtime.command("rate-limit-preflight")
-def rate_limit_preflight_command() -> None:
-    """Check whether account limits allow an agent run."""
-    from tend.runtime.shared import rate_limit_preflight
+@runtime.command("bot-identity")
+def bot_identity_command() -> None:
+    """Resolve the authenticated bot for the action."""
+    from tend.runtime.shared import bot_identity
 
-    _common.run(rate_limit_preflight.main)
+    _common.run(bot_identity.main)
+
+
+@runtime.command("creation-limit")
+def creation_limit_command() -> None:
+    """Read a proxy admission request from stdin and return its JSON decision."""
+    from tend.runtime.shared import creation_limit
+
+    _common.run(creation_limit.main)
 
 
 @runtime.command("launch-agent")

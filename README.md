@@ -125,8 +125,8 @@ When the review workflow is generated, `init` also merges one ignore into
 syntax that actionlint's schema rejects. The ignore applies only to generated
 workflows and preserves the rest of the consumer-owned config.
 
-Both actions run the same security and rate-limit preflight checks and
-resolve bot identity. They differ in how the agent runs:
+Both actions run the same security preflight and resolve bot identity. Their
+credential proxy limits new issues and PRs. They differ in how the agent runs:
 
 - **Claude harness** — runs the official `claude` binary headless
   (`claude -p`) as a non-sudo user inside a hardened systemd unit, behind a local
@@ -237,9 +237,10 @@ can still edit an immutable release's notes. `tend check` requires the setting a
 repository admin, so a run as the bot checks the newest release's own
 `immutable` flag instead.
 
-**Rate limiting** — Burst detection (10 PRs and 10 issues per 20 minutes,
-checked independently) and daily spike detection halt the bot before runaway
-loops cause damage.
+**Rate limiting** — One replenishing creation allowance covers issues and PRs
+in the workflow's repository. Exhausting it pauses new creations while reviews,
+existing repairs and issue closure continue. A maintainer can approve more
+capacity by closing the bot's rate-limit issue.
 
 **Fixed prompts** — Workflow prompts come from the action, not from
 attacker-controlled input like PR descriptions or comments.

@@ -1,15 +1,16 @@
 """Shared machinery for the issues the actions file about their own runs.
 
 ``tend-outage`` (``report_failure.py``) and ``tend-rate-limit``
-(``rate_limit_preflight.py``) both name the run and the trigger it stranded in
+(``creation_limit.py``) both name the run and the trigger it stranded in
 one table format, and both race with sibling jobs failing or tripping at the
 same instant.
 
 Callers keep their own policy about a closed issue, because the two differ and
 the difference is deliberate: an outage issue closed as resolved must not
 swallow the next incident, so ``report_failure`` files a fresh one; the
-rate-limit issue is a single long-lived record whose closes *are* the
-approvals, so the preflight reopens it.
+rate-limit issue is a single long-lived record whose maintainer closes are
+approvals and whose bot closes record recovery, so the creation limiter
+reopens it on another refusal.
 
 Inputs (env, from Actions): ``GITHUB_SERVER_URL``, ``GITHUB_REPOSITORY``,
 ``GITHUB_RUN_ID``, ``GITHUB_EVENT_NAME``, ``GITHUB_EVENT_PATH``.

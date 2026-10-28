@@ -1,0 +1,29 @@
+{
+  "repository": "example/widget",
+  "bot": "widget-agent",
+  "now": "2026-10-28T01:00:00Z",
+  "shared_state": "Each snapshot is independent. All trackers are open, authored by widget-agent, labeled tend-rate-limit, and have no manual-close prohibition or other lifecycle label. No maintainer has closed them. The bot cannot approve extra creation capacity by closing a tracker. Current reads, comments and issue closure work. There is no provider outage or separate approval gate. The repository has no override for closing these trackers.",
+  "snapshots": [
+    {
+      "id": "recovered-accounted",
+      "tracker": 410,
+      "latest_refusal": "2026-10-27T21:00:00Z: agent PR creation was refused for exhausted allowance. The tracker records the two affected runs.",
+      "creation_evidence": "A later agent session's privileged proxy admitted PR411 creation at 2026-10-27T23:45:00Z, and GitHub returned 201 with the new PR. No refusal occurred after that success. This was an ordinary agent request, not a trusted runner report.",
+      "blocked_work": "The run for issue409 had already pushed its tested fix; PR411 now contains that fix and has an active review owner. The other refused run's unfinished diagnosis is fully recorded on existing issue412. Its ordinary triage worker is currently active and owns the repair. No recorded work is missing or abandoned. Issue412 remains open and its defect is not fixed."
+    },
+    {
+      "id": "elapsed-only",
+      "tracker": 420,
+      "latest_refusal": "2026-10-27T23:30:00Z: agent issue creation was refused for exhausted allowance, with a suggested retry at 2026-10-28T00:00:00Z.",
+      "creation_evidence": "The suggested retry time and UTC rollover have passed. At 2026-10-28T00:20:00Z a trusted runner directly created an outage-report issue outside the credential proxy. No agent issue or PR creation has been attempted or observed since the refusal; current creation capacity has not been read.",
+      "blocked_work": "The refused task was recorded on an existing issue and its repair has since landed. Its relevant CI is green. No other missed work is recorded."
+    },
+    {
+      "id": "recovered-unaccounted",
+      "tracker": 430,
+      "latest_refusal": "2026-10-27T21:00:00Z: a run tried to create an issue, was refused, and then exited. Its tracker row contains the run URL, but does not name the intended issue or its contents.",
+      "creation_evidence": "At 2026-10-28T00:40:00Z a different agent session successfully created PR431 through the proxy. No later refusal is recorded. PR431 is an unrelated dependency update.",
+      "blocked_work": "No existing issue, PR, owner or disposition has been connected to the refused run's work. The original session artifact has not yet been retrieved, so its intended action and whether anything remains are unknown. No evidence supports treating that run as redundant or resolved."
+    }
+  ]
+}

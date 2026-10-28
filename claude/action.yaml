@@ -150,11 +150,11 @@ runs:
     # Also publishes `login`/`id` for the bot: it reads them off the token it
     # already holds, so nothing downstream has to resolve them again from the
     # configured name, which a rename would leave stale.
-    - name: Rate limit preflight
+    - name: Resolve bot identity
       id: bot
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime rate-limit-preflight
+        "$TEND_RUNTIME_PYTHON" -I -m tend runtime bot-identity
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
@@ -379,11 +379,11 @@ runs:
         "$TEND_RUNTIME_PYTHON" -I -m tend runtime token-usage --harness claude
 
     # Gate on the job being red, not on the agent step specifically. A dozen
-    # steps run before the agent — the rate-limit preflight, auth validation,
+    # steps run before the agent — identity resolution, auth validation,
     # and proxy and sandbox build — while the event checkout runs inside the same
     # lifecycle step. Any of them failing strands the same work, so each needs to reach the outage
     # tracker. Keying on `steps.claude.outcome` meant a pre-agent failure went
-    # out as a red run and nothing else; a rate-limit preflight abort held
+    # out as a red run and nothing else; a pre-agent abort held
     # every workflow on this repo for a full UTC day without filing a thing.
     #
     # The security preflight is the one exclusion, and what carves it out is

@@ -578,6 +578,15 @@ wheels = [
 ]
 
 [[package]]
+name = "graphql-core"
+version = "3.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/91/223fbace7c8648690d7fb77855e29bd248c9ed1e0833ed3002ab29bc1441/graphql_core-3.3.1.tar.gz", hash = "sha256:8d9b6f95fb66b58b260904cf9e191f422782620533ec8fa0c96ab941b6659a2a", size = 751402, upload-time = "2026-10-25T09:34:09.764Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/0e/e51b006267e7fa785abf5d1f86a7d60b84f7f893e3ba4fe23df9be2000cf/graphql_core-3.3.1-py3-none-any.whl", hash = "sha256:43ebcd0d9a0662a71b1a2f6562ba863d253057ec11cbc45835b2e2683a0a3770", size = 349047, upload-time = "2026-10-25T09:34:07.725Z" },
+]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1066,6 +1075,7 @@ source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [
+    { name = "graphql-core" },
     { name = "mitmproxy" },
     { name = "packaging" },
     { name = "pytest" },
@@ -1074,6 +1084,7 @@ dev = [
     { name = "tend" },
 ]
 proxy = [
+    { name = "graphql-core" },
     { name = "mitmproxy" },
 ]
 
@@ -1081,6 +1092,7 @@ proxy = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "graphql-core", specifier = ">=3.2.6,<4" },
     { name = "mitmproxy", specifier = "==12.3.1" },
     { name = "packaging", specifier = ">=25" },
     { name = "pytest", specifier = ">=9.0.2" },
@@ -1088,7 +1100,10 @@ dev = [
     { name = "ruamel-yaml", specifier = ">=0.18" },
     { name = "tend", editable = "generator" },
 ]
-proxy = [{ name = "mitmproxy", specifier = "==12.3.1" }]
+proxy = [
+    { name = "graphql-core", specifier = ">=3.2.6,<4" },
+    { name = "mitmproxy", specifier = "==12.3.1" },
+]
 
 [[package]]
 name = "tornado"
