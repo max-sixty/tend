@@ -376,7 +376,9 @@ It routes unowned work through ordinary triage using
 **Recover issue work** in `/tend-ci-runner:notifications`. With working access,
 the sweep can queue the actionable backlog within provider access and queue
 bounds; each batch runs a bounded matrix of the selected issue IDs. Each worker
-checks the live issue and repair ownership again when it starts.
+checks the live issue and repair ownership again when it starts. The runtime's
+`triage-batch dispatch` command splits selections at GitHub's matrix and run-name
+limits; `select` refuses payloads whose queued ownership would be truncated.
 
 **GHA queue depth.** Review, triage and land set `queue: max`, so pending events within
 GitHub's queue limit wait: a later push cannot replace `ready_for_review`, and

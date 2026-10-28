@@ -69,6 +69,11 @@
           ignore-empty-workdir: true
 {%- endmacro %}
 
+{# Lightweight jobs use the same locked, isolated package as the harnesses. #}
+{% macro setup_tend_runtime() %}
+      - uses: max-sixty/tend/setup-runtime@<<tend_version>>
+{%- endmacro %}
+
 {# Environment block at column 4. The environment is a secret scope, not a
    deploy target: its branch policy is what stops a workflow pushed to a
    feature branch reading the operational secrets (see TEND_ENVIRONMENT in

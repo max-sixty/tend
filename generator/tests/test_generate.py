@@ -1164,6 +1164,13 @@ def test_triage_serializes_batches_and_limits_real_issue_jobs(
         "max-parallel": limit or 5,
         "matrix": {"issue": "${{ fromJSON(needs.select.outputs.issues) }}"},
     }
+    select = doc["jobs"]["select"]
+    assert (
+        select["steps"][0]["uses"] == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
+    )
+    assert select["steps"][-1]["run"].strip() == (
+        '"$TEND_RUNTIME_PYTHON" -I -m tend runtime triage-batch select'
+    )
     assert job["needs"] == "select"
     assert job["if"] == "needs.select.outputs.issues != '[]'"
     assert job["env"]["TEND_ISSUE_NUMBER"] == "${{ matrix.issue }}"

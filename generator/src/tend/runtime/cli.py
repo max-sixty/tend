@@ -26,6 +26,35 @@ def runtime() -> None:
     """Run Tend's harness and action operations."""
 
 
+@runtime.group("triage-batch")
+def triage_batch_group() -> None:
+    """Dispatch and validate selected triage issues."""
+
+
+def _run_triage_batch(operation: Callable[[], int]) -> None:
+    try:
+        _common.run(operation)
+    except ValueError as error:
+        raise click.ClickException(str(error)) from error
+
+
+@triage_batch_group.command("select")
+def select_triage_batch_command() -> None:
+    """Recheck selected issues before expanding the workflow matrix."""
+    from tend.runtime.shared import triage_batch
+
+    _run_triage_batch(triage_batch.select)
+
+
+@triage_batch_group.command("dispatch")
+@click.argument("issues")
+def dispatch_triage_batch_command(issues: str) -> None:
+    """Dispatch a JSON array of issue IDs in batches that fit GitHub's limits."""
+    from tend.runtime.shared import triage_batch
+
+    _run_triage_batch(lambda: triage_batch.dispatch(issues))
+
+
 @runtime.command("security-preflight")
 def security_preflight_command() -> None:
     """Verify the repository's security policy before launching an agent."""

@@ -410,6 +410,8 @@ bot_name: my-project-bot
 # together. Whole batches serialize, with at most five issue jobs running at once.
 # New arrivals wait for the current batch's slowest job. Failed or cancelled work
 # stays on the open issues for recovery; independent jobs continue on failure.
+# Recovery dispatches split at GitHub's matrix and run-name limits; the latter
+# keeps all selected issue IDs visible while a batch waits in the queue.
 # To change the concurrent issue-job limit (1–256):
 #
 # workflows:

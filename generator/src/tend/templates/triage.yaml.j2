@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       issues:
-        description: JSON array of issue numbers, up to 256
+        description: JSON array of issue numbers; use the triage-batch dispatch command to split large selections
         type: string
         required: true
 
@@ -29,18 +29,15 @@ jobs:
     outputs:
       issues: ${{ steps.select.outputs.issues }}
     steps:
-<<setup_tend_uv()>>
+<<setup_tend_runtime()>>
       - name: Select current issues
         id: select
         env:
           GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}
           ISSUES: ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
           BOOKKEEPING_LABELS: '<<bookkeeping_labels|tojson>>'
-          TEND_UV: ${{ steps.tend_uv.outputs.uv-path }}
         run: |
-          "$TEND_UV" run --script - <<heredoc>>'TEND_PY'
-<<select_script|indent(10, first=True)>>
-          TEND_PY
+          "$TEND_RUNTIME_PYTHON" -I -m tend runtime triage-batch select
 
   triage:
     needs: select

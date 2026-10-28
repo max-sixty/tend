@@ -1,0 +1,16 @@
+name: Install Tend runtime
+description: Install the pinned action's Tend package with its frozen dependencies and isolated imports.
+runs:
+  using: composite
+  steps:
+    - name: Install runtime uv
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
+      env:
+        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
+    - name: Install Tend runtime package
+      shell: bash
+      run: bash "${{ github.action_path }}/../shared/steps/install-runtime.sh"
+      env:
+        ACTION_PATH: ${{ github.action_path }}/..
+        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv

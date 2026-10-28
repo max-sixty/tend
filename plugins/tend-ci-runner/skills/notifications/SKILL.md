@@ -112,11 +112,11 @@ Route same-repository issues found by notifications or the daily live-work scan 
 
 Before dispatching an issue, check its live runs per **Give each thread a current outcome**. Skip a subject already active or queued. Check recent worker outcomes and current access or outage records. Respect an outstanding approval gate or provider reset. When access is uncertain, dispatch one ordinary worker as a control and inspect its actual result before admitting more. Tend's creation allowance governs new issues and PRs; apply **Creation allowance** in `/tend-ci-runner:open-pr` when that is the remaining work.
 
-With working access, collect the distinct actionable issue numbers oldest first and dispatch them together as a JSON array. Split only at GitHub's 256-job matrix limit. There is no one-issue-per-poll or daily-sweep cap. Each number creates one issue job; an empty selection creates none. The workflow serializes whole batches and runs at most the configured `workflows.triage.max_parallel` issue jobs at once (default five). A new batch waits for the current batch's slowest job. Stop admitting work if access fails or the queue refuses it; open issues remain for the next sweep. One failed job does not cancel its peers.
+With working access, collect the distinct actionable issue numbers oldest first and dispatch them together as a JSON array. The dispatch command splits at GitHub's matrix and run-name limits so queued batches keep every issue ID visible to ownership checks. There is no one-issue-per-poll or daily-sweep cap. Each number creates one issue job; an empty selection creates none. The workflow serializes whole batches and runs at most the configured `workflows.triage.max_parallel` issue jobs at once (default five). A new batch waits for the current batch's slowest job. Stop admitting work if access fails or the queue refuses it; open issues remain for the next sweep. One failed job does not cancel its peers.
 
 ```bash
 # Example: the actual selection, not a fixed set of worker slots.
-gh workflow run tend-triage.yaml -f issues='[211,212,213]'
+"$TEND_RUNTIME_PYTHON" -I -m tend runtime triage-batch dispatch '[211,212,213]'
 ```
 
 Dispatch through the current workflow and live issue, never by rerunning a historical payload. A dispatch hands work to a worker; it does not establish that the issue is resolved.

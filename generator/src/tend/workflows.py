@@ -395,8 +395,6 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
         setup=_setup_yaml(eff),
         prompt=prompt,
         max_parallel=wf.max_parallel,
-        select_script=_inline_script("triage_batch.py"),
-        heredoc="<<",
     )
     return GeneratedWorkflow(filename="tend-triage.yaml", content=content)
 
