@@ -68,11 +68,13 @@ Four pieces:
      runtime modules under `tend.runtime.shared`.
 
    Both harness runners resolve the bot's numeric ID at runtime, run security
-   and rate-limit preflight, then select the event's topology and run the
+   preflight, then select the event's topology and run the
    complete agent turn in one systemd unit over a copy-on-write view of the
    runner's home, reap it, and upload bounded session logs. The generated
    workflow's checkout stays on the default or PR base tree for setup and
-   local-action POST chains; nothing the agent writes reaches it.
+   local-action POST chains; nothing the agent writes reaches it. The credential
+   proxy admits new issues and PRs against one creation allowance for the job's
+   repository; exhaustion leaves the agent and its other operations running.
 
    `max-sixty/tend/land@X.Y.Z` runs no agent: the generated `tend-land`
    workflow calls it when a CI workflow completes, and it names the PR at that
@@ -371,8 +373,8 @@ for its own writes. The daily `review-runs` sweep inspects all open issues for
 unfinished work, including bot-authored reports and partial investigations after
 successful turns. It routes unowned work through ordinary triage using
 **Recover issue work** in `/tend-ci-runner:notifications`. With working access,
-the sweep can queue the actionable backlog within the existing rate-limit and
-queue bounds; one worker executes at a time. Each worker checks the live issue
+the sweep can queue the actionable backlog within provider access and queue
+bounds; one worker executes at a time. Each worker checks the live issue
 and repair ownership again when it starts.
 
 **GHA queue depth.** Review, triage and land set `queue: max`, so pending events within

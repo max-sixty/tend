@@ -9,6 +9,7 @@ metadata:
 
 - [Filing issues in this repo](#filing-issues-in-this-repo)
 - [PR creation](#pr-creation)
+- [Creation allowance](#creation-allowance)
 - [Atomic PRs](#atomic-prs)
 - [Keeping PR titles and descriptions current](#keeping-pr-titles-and-descriptions-current)
 
@@ -96,6 +97,10 @@ gh issue view <n> --json body,comments --jq '[.body, .comments[].body]'
 ```
 
 What you find governs: a PR closed on the **code** leaves the fix available to redo, while one closed on the **approach** means the semantics are still an open maintainer question — add findings to that thread rather than opening a second implementation of it.
+
+## Creation allowance
+
+Tend's proxy limits new issues and PRs in this repository through one allowance. When it is exhausted, the refusal names when capacity returns and the tracker a maintainer can close to approve more. A refused creation leaves the session running: keep diagnosis, reviews, comments, existing branch repairs and issue closure moving. Record a refused creation and the remaining work on its existing issue or PR; a CI report still owes any cause whose issue could not be filed. Preserve a prepared fix on its branch when appropriate, and follow the ordinary recovery path in **Recover issue work** in `/tend-ci-runner:notifications`. When an exhausted allowance is the only remaining blocker, defer creation until refill or approval. Changing labels does not change the allowance.
 
 ## Atomic PRs
 
