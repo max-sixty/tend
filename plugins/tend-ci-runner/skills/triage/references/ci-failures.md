@@ -50,7 +50,7 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
      gh issue create --label tend-ci-cause --title "<title>" --body-file "$TMPDIR/cause.md"
      ```
 
-5. **Comment on the report only when its map changed**: a cause filed or reopened, a failure matched to an owner not yet linked from this report, a transient diagnosis. Give each cause its issue and one line of mechanism. When the new runs show only causes already linked here, post nothing.
+5. **Record the diagnosis on the report.** Name the runs diagnosed and link each cause's owner or explain its transient resolution. This comment tells the next session which runs are handled, including when their causes were already linked. When no run or evidence is new, there is nothing to record.
 
 ## A cause issue
 
