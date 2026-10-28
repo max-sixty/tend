@@ -365,13 +365,14 @@ never enters it, so it never takes the pending slot from a verdict. The report
 is written with the bot token from the `tend` environment, so opening it starts
 ordinary `tend-triage`. Later failure comments add evidence without starting
 another session. The agent work runs through the issue path:
-triage diagnoses the report, filing one cause issue per root cause,
-and each cause issue's own triage run fixes it. A cause issue claims its cause
-for every later run and every lane, so no second session works the same cause,
-and all triage batches share one workflow concurrency group. The bot gets no
-notification for its own writes. The daily `review-runs` sweep inspects all open issues for
-unfinished work, including bot-authored reports and partial investigations after
-successful turns. It routes unowned work through ordinary triage using
+triage diagnoses the report, fixing causes directly or filing cause issues for
+separate triage sessions. Its diagnosis links each repair's issue or PR; an
+unresolved durable cause keeps that owner when a passing run closes the report.
+Sessions recheck existing owners before starting work. All triage batches share
+one workflow concurrency group. The bot gets no notification for its own writes.
+The daily `review-runs` sweep inspects all open issues for unfinished work,
+including bot-authored reports and partial investigations after successful turns.
+It routes unowned work through ordinary triage using
 **Recover issue work** in `/tend-ci-runner:notifications`. With working access,
 the sweep can queue the actionable backlog within provider access and queue
 bounds; each batch runs a bounded matrix of the selected issue IDs. Each worker
