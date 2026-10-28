@@ -360,7 +360,6 @@ FAKE_GH_NOTIFICATIONS = (
     + r"""
 case "$1:$2" in
   api:--paginate)
-    case "$4" in notifications\?*) ;; *) exit 1 ;; esac
     [ -z "${FAIL_NOTIFS:-}" ] || exit 1
     # A 200 carrying something other than JSON, verbatim.
     if [ -n "${RAW_BODY:-}" ]; then cat "$RAW_BODY"; exit 0; fi

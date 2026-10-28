@@ -23,9 +23,10 @@ close every hour to get through a legitimate spike on a flat bump. At the
 formula's floor the two coincide — 10 doubles to 20 — so they only diverge
 where a flat bump stops working.
 
-Activity counts use GitHub issue search, scoped to the authenticated bot and
-repository. Failed, malformed or incomplete reads stop the run before it
-creates or reopens a pause issue.
+Activity counts use one GraphQL query, scoped to the authenticated bot and
+repository, rather than four requests against REST's smaller search budget.
+Failed, partial or malformed reads stop the run before it creates or reopens
+a pause issue.
 Approvals on duplicate trackers count too; the oldest receives new refusals.
 
 The burst limit is deliberately not resumable: ten PRs in twenty minutes is a
@@ -48,6 +49,7 @@ reads.
 
 from __future__ import annotations
 
+import json
 import random
 import subprocess
 import time
@@ -91,6 +93,16 @@ with `gh run rerun <id> --failed` once this is closed.
 
 _STAMP = "%Y-%m-%dT%H:%M:%SZ"
 _DAY = "%Y-%m-%d"
+
+_COUNTS_QUERY = """\
+query($recent_prs: String!, $recent_issues: String!,
+      $today_posts: String!, $past_posts: String!) {
+  recent_prs: search(query: $recent_prs, type: ISSUE, first: 1) { issueCount }
+  recent_issues: search(query: $recent_issues, type: ISSUE, first: 1) { issueCount }
+  today_posts: search(query: $today_posts, type: ISSUE, first: 1) { issueCount }
+  past_posts: search(query: $past_posts, type: ISSUE, first: 1) { issueCount }
+}
+"""
 
 
 def main() -> int:
@@ -138,18 +150,24 @@ def main() -> int:
     first = (now - timedelta(days=BASELINE_DAYS)).strftime(_DAY)
     last = (now - timedelta(days=1)).strftime(_DAY)
     try:
-        recent_prs = _search_count(activity_query(repo, bot, f">{since}") + " is:pr")
-        recent_issues = _search_count(
-            activity_query(repo, bot, f">{since}")
-            + f" is:issue -label:{CI_CAUSE_LABEL}"
+        counts = _search_counts(
+            {
+                "recent_prs": activity_query(repo, bot, f">{since}") + " is:pr",
+                "recent_issues": activity_query(repo, bot, f">{since}")
+                + f" is:issue -label:{CI_CAUSE_LABEL}",
+                "today_posts": today_query,
+                "past_posts": activity_query(repo, bot, f"{first}..{last}"),
+            }
         )
-        today_posts = _search_count(today_query)
-        past_posts = _search_count(activity_query(repo, bot, f"{first}..{last}"))
     except _common.GH_READ_FAILED as error:
         return _common.fail(
             "Rate limit preflight: activity could not be read; "
             f"no rate-limit issue was changed. {error}"
         )
+    recent_prs = counts["recent_prs"]
+    recent_issues = counts["recent_issues"]
+    today_posts = counts["today_posts"]
+    past_posts = counts["past_posts"]
     limit = spike_limit(past_posts)
 
     _common.log(
@@ -233,23 +251,34 @@ def activity_query(repo: str, bot: str, created: str) -> str:
     return f"author:{bot} repo:{repo} created:{created}"
 
 
-def _search_count(query: str) -> int:
-    """A complete search count; unavailable evidence is never a zero count."""
-    path = "search/issues?" + urlencode({"q": query, "per_page": 1})
+def _search_counts(queries: dict[str, str]) -> dict[str, int]:
+    """Read every count together; unavailable evidence is never a zero count."""
     try:
-        result = _common.gh_json("api", path)
-        if (
-            not isinstance(result, dict)
-            or type(result.get("total_count")) is not int
-            or result["total_count"] < 0
-            or result.get("incomplete_results") is not False
-        ):
-            raise _common.UnexpectedShape(
-                f"invalid or incomplete search count: {result!r}"
-            )
-        return result["total_count"]
+        result = _common.gh_json(
+            "api",
+            "graphql",
+            "--input",
+            "-",
+            input=json.dumps({"query": _COUNTS_QUERY, "variables": queries}),
+        )
+        if not isinstance(result, dict) or result.get("errors"):
+            raise _common.UnexpectedShape(f"invalid search counts: {result!r}")
+        data = result.get("data")
+        if not isinstance(data, dict):
+            raise _common.UnexpectedShape(f"missing search counts: {result!r}")
+        counts = {}
+        for name in queries:
+            field = data.get(name)
+            if (
+                not isinstance(field, dict)
+                or type(field.get("issueCount")) is not int
+                or field["issueCount"] < 0
+            ):
+                raise _common.UnexpectedShape(f"invalid search count {name}: {field!r}")
+            counts[name] = field["issueCount"]
+        return counts
     except _common.GH_READ_FAILED as error:
-        raise _common.UnexpectedShape(f"gh api {path}: {error}") from error
+        raise _common.UnexpectedShape(f"gh api graphql: {error}") from error
 
 
 def spike_limit(past_posts: int) -> int:

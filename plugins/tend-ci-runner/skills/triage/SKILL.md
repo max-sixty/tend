@@ -8,7 +8,7 @@ metadata:
 
 # Issue Triage
 
-Triage a newly opened GitHub issue.
+Triage a GitHub issue.
 
 **Issue to triage:** $ARGUMENTS
 
@@ -24,12 +24,14 @@ Reproduce before fixing, find evidence before speculating, and test before commi
 ## Step 2: Read and classify the issue
 
 ```bash
-gh issue view $ARGUMENTS --json title,body,labels,author
+gh issue view $ARGUMENTS --json title,body,labels,author,state,comments
 # The reporter's relationship to the repository, read by steps 6 and 7
 gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
 ```
 
-An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on, not a self-conversation: the system prompt's self-loop guard covers the bot's own *comments*, and triage runs on these normally while no bot comment answers them yet.
+Read the live conversation and linked repairs before acting; the issue may have changed while this run queued. If it is closed, or the current work is covered by a completed disposition, repair owner, or unchanged access/product decision from its owner, finish without another diagnosis or post. A prior bot reply or successful run alone does not settle unfinished engineering work; apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`.
+
+An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on. The system prompt's self-loop guard covers the bot's own *comments*, not unfinished work in its issues.
 
 One exception: a tracker the bot maintains for its own evidence — its body says **Do not close manually**, and later runs append to it — carries no report. End the run without commenting.
 
@@ -79,7 +81,7 @@ Record what you found (or didn't find) for use in steps 6 and 7.
 
 Follow **Reproduce first** in `/tend-ci-runner:fix-a-bug`.
 
-If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7. If the test passes, the bug may already be fixed — note that for the comment.
+When reproduction or diagnosis remains incomplete, follow **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` before reporting the disposition in step 7.
 
 ## Step 6: Fix (conservative)
 
@@ -92,7 +94,7 @@ Open a PR when a maintainer is reasonably likely to merge it; otherwise report t
 
 The change must also be verifiable. For a feature, a test of the new behavior that fails before the change, or a check the repository already runs over the edited files, stands in for the reproduction in `/tend-ci-runner:fix-a-bug`'s gates. Title a feature's commit and PR `feat:` rather than `fix:`.
 
-`/tend-ci-runner:fix-a-bug` carries the gates: the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
+`/tend-ci-runner:fix-a-bug` carries the reproduction and verification gates and how to continue when they are not yet met. Read it before writing any fix.
 
 ### If fixing
 

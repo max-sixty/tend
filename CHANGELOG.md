@@ -6,6 +6,25 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.17
+
+### Improved
+
+- The daily open-work sweep inspects all open issues, including bot-authored reports and unfinished investigations after successful turns. With working access, it queues the actionable backlog within existing rate and queue limits; one triage worker runs at a time and rechecks live repair ownership when it starts. Recovery needs no separate pending marker or one-issue-per-day limit. ([#1580](https://github.com/max-sixty/tend/pull/1580), [#1581](https://github.com/max-sixty/tend/pull/1581))
+- Rate-limit preflight fetches activity counts in one GraphQL request, and CI triage reuses its issue and PR inventory when checking repair ownership. ([#1578](https://github.com/max-sixty/tend/pull/1578))
+- The Claude harness defaults to Claude Code 2.1.310. ([#1564](https://github.com/max-sixty/tend/pull/1564))
+
+### Fixed
+
+- CI failure reports use the bot token, so opening or reopening a report starts ordinary issue triage without an explicit dispatch. Later failure comments add evidence for the daily sweep. Report and cause workers share the triage queue, and unfinished work remains discoverable through open issues. ([#1580](https://github.com/max-sixty/tend/pull/1580), [#1581](https://github.com/max-sixty/tend/pull/1581))
+
+### Internal
+
+- Update development, deployment and evaluation dependencies. ([#1552](https://github.com/max-sixty/tend/pull/1552), [#1555](https://github.com/max-sixty/tend/pull/1555), [#1562](https://github.com/max-sixty/tend/pull/1562), [#1567](https://github.com/max-sixty/tend/pull/1567), [#1568](https://github.com/max-sixty/tend/pull/1568))
+- Scale behavioral evaluation requirements to uncertainty in the change. ([#1579](https://github.com/max-sixty/tend/pull/1579))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.16
 
 ### Improved

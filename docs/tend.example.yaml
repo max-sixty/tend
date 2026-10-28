@@ -404,16 +404,18 @@ bot_name: my-project-bot
 
 # ### triage
 #
-# Triggers on new issues. Classifies, checks for duplicates, reproduces bugs,
-# attempts conservative fixes.
+# Triggers on new and reopened issues. Classifies, checks for duplicates,
+# reproduces bugs and attempts conservative fixes. One worker runs at a time;
+# pending issue labels retain failed attempts for recovery.
 
 # ### ci-failures
 #
 # Triggers when a watched CI workflow finishes on a watched branch, and runs no
 # agent. A failed run opens a CI failure report, an issue per workflow, branch
-# and triggering event, or comments on the open one, and starts tend-triage
-# for it; the next passing run closes it. Triage files every distinct cause as
-# a sub-issue, and fixes each one there. A
+# and triggering event, or comments on the open one. The bot token makes a new
+# report trigger ordinary triage; later comments retain evidence for daily review.
+# The next passing run closes the report. Triage files every distinct cause as
+# a sub-issue and fixes each one there. A
 # cancelled run reports nothing, and GitHub ends a job that exceeds its time
 # limit as cancelled; a step that exceeds its own `timeout-minutes` fails
 # instead, so a hang bounded there is reported.

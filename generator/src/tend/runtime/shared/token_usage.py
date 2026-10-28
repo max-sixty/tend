@@ -41,9 +41,8 @@ Claude's accounting has three paths, tried in order:
    ``usage.*`` and ``num_turns`` are per-event while ``total_cost_usd`` is
    cumulative, so the per-event fields are summed and cost taken from the last.
 2. No result event: the session JSONL this step has just consolidated. A
-   cancelled session never emits a result, and ``tend-triage`` runs with
-   ``cancel-in-progress: true``, so this is routine rather than exotic — the
-   run may have done dozens of turns and already posted its comment.
+   cancelled session never emits a result; it may still have done dozens of
+   turns and already posted its comment.
 3. Neither: the agent never ran (a preflight failure, say). That run genuinely
    cost nothing, so it reports a real zero rather than flagging an unknown.
 

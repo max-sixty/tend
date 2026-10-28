@@ -95,14 +95,20 @@ After retrieving the timeout cap from the workflow file, flag any job whose dura
 
 ### Reconcile live work
 
-The failed-run census and the `tend-outage` issue diagnose availability. Do not replay historical workflow runs to recover their event payloads: issue and PR recovery belongs to the unread notification queue, which applies the current workflow and current repository state.
+The failed-run census and the `tend-outage` issue diagnose availability. Open issues and PRs retain the work, including after a failed worker or a successful partial investigation. Recover from their current state through **Recover issue work** in `/tend-ci-runner:notifications`, rather than replaying historical workflow payloads.
 
 As a daily backstop for delayed notifications, retention, edited activity, and repaired subscriptions, inspect the live repository for:
 
-- an open issue with no bot response to the latest human activity;
+- an open issue with unanswered activity or unfinished engineering work and no current repair owner. Include bot-authored reports, reopened issues and partial investigations, regardless of the last run's conclusion or whether a human has replied. Apply **Recover issue work** in `/tend-ci-runner:notifications` to determine which still need a worker. List every page, rather than only a recent window or CI causes:
+
+  ```bash
+  gh api "repos/$GITHUB_REPOSITORY/issues?state=open&sort=created&direction=asc&per_page=100" \
+    --paginate --jq '.[] | select(has("pull_request") | not) | {number,title,labels}'
+  ```
+
 - an open PR whose live head has no bot review, or whose latest comment, review, or inline review comment directed at the bot has no response; this includes replies to the bot's review on a fork PR;
 - unfinished configured-bot PRs, regardless of notification or review state. List the bot's open PRs (`gh pr list --state open --author "$BOT_NAME" --limit 200 --json number`) and continue each per `/tend-ci-runner:continue-pr`. A green proposal awaiting a maintainer in restricted mode, an explicit maintainer hold, or an unchanged external blocker needs no repeated post;
-- failing default-branch CI with no bot fix in progress. A live-state check like the two above it: scoped neither to the workflows `tend-ci-failures` reports — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window. A failure an open CI failure report (labeled `tend-ci-failure`) tracks is in progress only where the bot has triaged the report since its newest run and a cause issue covers the failure, which the next item checks is being worked. Otherwise dispatch the report's triage rather than working it here: `gh workflow run tend-triage.yaml -f issue="$NUMBER" -f title="$TITLE" -f report=true`.
+- failing default-branch CI with no bot fix in progress. Another live-state check: scoped neither to the workflows `tend-ci-failures` reports — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window. A failure an open CI failure report (labeled `tend-ci-failure`) tracks is in progress only where the bot has triaged the report since its newest run and a cause issue covers the failure, whose ownership the open-issue check above verifies. Otherwise hand the report to ordinary triage through **Recover issue work** in `/tend-ci-runner:notifications`, including its access and admission checks, rather than working it here.
 
   ```bash
   uv run --script \
@@ -114,13 +120,6 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
   Listings can serve old snapshots; repeated agreement cannot establish freshness. Treat candidates as investigation leads. Apply evidence already collected: an independently verified later success on the same branch and subject closes older failures even when the helper's returned green is older. Do not leave those rows unresolved or demand the same verification again. Before opening a fix or reporting a remaining unresolved failure, inspect its run's jobs/logs and the workflow's current branch checks and later runs. Resolve contradictory evidence before acting; do not attribute it to a client cache or a GitHub cache without evidence. With no candidates, report only that no unfixed failures were found in the returned pages, naming the scope checked rather than declaring the branch green.
 
   Read without a time window: an old failure may still need a fix. Dependabot updates have one-off names, so use a fix PR or tracker to determine whether one is already addressed. Step 1 covers tend rows inside its census window; older tend failures still belong here.
-
-- an open cause issue (labeled `tend-ci-cause`) that no session is working: no open PR references it, and the active-run check in **Give each thread a current outcome** in `/tend-ci-runner:notifications` lists no run for it. A refused or failed triage run leaves this, and so does a cause whose lane went quiet or green, since nothing else revisits it: a report session only files and attaches causes, and a pass leaves them open. Dispatch its triage rather than working it here. One whose latest word is the bot's decision addressed to a person, with nothing since, is that person's and needs no dispatch.
-
-  ```bash
-  gh issue list --state open --label tend-ci-cause --limit 100 --json number,title
-  gh workflow run tend-triage.yaml -f issue="$NUMBER" -f title="$TITLE"
-  ```
 
 - a tend workflow whose queue is dead. A run parked in GitHub's pre-job `waiting` state holds its concurrency group without ever concluding, so under `cancel-in-progress: false` every later tick takes the single pending slot and is replaced by its successor — the workflow stops running and nothing fails. Step 1's census cannot see the parked run, which admits a row only on a non-null `conclusion`, and the replacements it causes read there as ordinary concurrency.
 
@@ -142,8 +141,9 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 
   The PAT's `repo` scope covers this. Where alerts are disabled the call fails with `403 Dependabot alerts are disabled for this repository.` — that is the check not applying, not a missing scope; only an empty result means no open alerts. Otherwise run it unconditionally. An alert open for more than a few days with no PR naming its package is live work in the same sense as a red default-branch run. A red `dynamic/dependabot/...` row above naming that package is the mechanism: Dependabot is erroring, so waiting will not produce a PR and the manifest or lockfile has to be bumped directly. `gh run view <id> --log-failed` ends with an error table naming the dependency and the error type; `security_update_not_possible` also reports the lowest non-vulnerable version beside the highest the dependency tree currently resolves, which is the constraint to relax.
 
-Handle live work through the normal triage or review instructions. Keep
-failed runs in the report as diagnostic evidence.
+Route same-repository issues needing triage through **Recover issue work**
+in `/tend-ci-runner:notifications`; use the normal review instructions for PRs.
+Keep failed runs in the report as diagnostic evidence.
 
 After the exhaustive live scan, read every row on every outage tracker this
 sweep still owes a drain. Each tracker's `rows` holds them in order: the issue

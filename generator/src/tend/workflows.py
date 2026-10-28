@@ -408,14 +408,12 @@ def generate_ci_failures(cfg: Config) -> GeneratedWorkflow:
     """Report watched runs' verdicts as issues, which triage then works.
 
     Runs no agent, so it takes none of the agent options; the caller only
-    generates it once `watched_workflows` names the runs to watch. Each failure
-    dispatches the report's triage where `tend-triage` is generated.
+    generates it once `watched_workflows` names the runs to watch. The bot's
+    token makes new reports trigger the ordinary issue workflow.
     """
     wf = cfg.workflows["ci-failures"]
-    triage = cfg.workflows.get("triage", WorkflowConfig()).enabled
     content = _CI_FAILURES_TMPL.render(
         cfg=cfg,
-        triage_workflow="tend-triage.yaml" if triage else "",
         watched=wf.watched_workflows,
         branches=wf.branches if wf.branches is not None else [cfg.default_branch],
         heredoc="<<",

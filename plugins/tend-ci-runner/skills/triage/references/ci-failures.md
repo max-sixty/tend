@@ -1,6 +1,6 @@
 # CI failure reports and their causes
 
-When a watched workflow fails on a watched branch, the generated `tend-ci-failures` workflow opens a **report**: an issue by `github-actions[bot]`, labeled `tend-ci-failure`, one per workflow, branch and triggering event. Each later failed run adds a comment, and each failure dispatches a triage run for the report. The next passing run closes the report; the cause issues under it stay open until their own sessions close them.
+When a watched workflow fails on a watched branch, the generated `tend-ci-failures` workflow opens a **report** with the bot token: an issue labeled `tend-ci-failure`, one per workflow, branch and triggering event. Opening it starts ordinary issue triage. Each later failed run adds a comment without starting a session; `/tend-ci-runner:review-runs` checks for unhandled failures. The next passing run closes the report; the cause issues under it stay open until their own sessions close them.
 
 A report is a queue entry, not a cause. Its session diagnoses the failures and files one **cause issue** per root cause as a sub-issue of the report. Filing a cause issue starts its own triage session, which fixes it like any bug report. A cause no session is working, because its run was refused or its lane went quiet, is the daily `/tend-ci-runner:review-runs` sweep's to re-dispatch; a report session leaves it alone.
 
@@ -8,7 +8,7 @@ A report is a queue entry, not a cause. Its session diagnoses the failures and f
 
 Load `/tend-ci-runner:ground-claims` before reading the failures.
 
-1. **Read what is new.** This session owes the runs the report and its comments name since the bot's last comment on it, or all of them when it has none. Work from the newest; an older run matters only for a failure the newest doesn't show. A closed report needs nothing.
+1. **Read what is new.** This session owes the runs the report and its comments name since the last triage diagnosis, or all of them when it has none. Automated run-record comments are evidence, not diagnoses, even though both are authored by the bot. Work from the newest; an older run matters only for a failure the newest doesn't show. A closed report needs nothing.
 
    ```bash
    gh issue view <report> --json state,body,comments
@@ -20,17 +20,22 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
 
 2. **Group the failures into causes.** A cause is one mechanism that one fix addresses: several failing tests can share one, and one job can hold several. Establish each current failure per **Claims of recurrence** in `/tend-ci-runner:ground-claims` before matching it to earlier work.
 
-3. **Find each cause's existing owner**, matching evidence per **Claims of recurrence**, not titles or run ids:
+3. **Find each cause's existing owner.** Read the shared inventories once for this diagnosis and reuse them across causes, updating them as this session files or attaches work:
+
+   ```bash
+   gh pr list --state open --limit 200 --json number,title,headRefName,author
+   # earlier reports for this lane, with their diagnoses and sub-issues
+   gh issue list --label tend-ci-failure --state closed --search "<workflow> in:title" \
+     --json number,title,closedAt --limit 20
+   ```
+
+   For each cause, match evidence per **Claims of recurrence**, not titles or run ids. Search for owners the shared inventories do not identify:
 
    ```bash
    # <term>: a failing test or job name, or a distinctive phrase from the error;
    # search matches titles and bodies, so run one per term
    gh issue list --state open --search "<term>" --json number,title,author --limit 100
-   gh pr list --state open --limit 200 --json number,title,headRefName,author
    gh pr list --state closed --search "<term>" --limit 100 --json number,title,state
-   # earlier reports for this lane, with their diagnoses and sub-issues
-   gh issue list --label tend-ci-failure --state closed --search "<workflow> in:title" \
-     --json number,title,closedAt --limit 20
    ```
 
    Candidates include this report's sub-issues, other reports' sub-issues, and issues and PRs of any author. A closed PR a maintainer rejected ends that cause's work here: read the closure's rationale, and don't re-derive the fix.
@@ -56,7 +61,7 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
 
 A cause issue is labeled `tend-ci-cause`, and its body names its report. It is a bug report whose reproduction starts from its runs, and triage's steps 3 to 6 apply with these specifics.
 
-- **An existing fix.** Continue the bot's own open PR for the cause per `/tend-ci-runner:continue-pr` rather than opening another. Leave a person's in-flight fix with them, posting only new evidence.
-- **Reproduce** with the test commands from the project's instruction files. A failure that no longer reproduces on the default branch's tip, where a later run passes the same test, is resolved: say what resolved it and close the issue.
+- **An existing fix.** Follow **Share ownership of a proven cause** in `/tend-ci-runner:fix-a-bug` when evidence connects this issue to other reports or an existing repair.
+- **Reproduce** with the test commands from the project's instruction files. Close a cause when evidence establishes its resolution on the default branch, verifying the affected path against the repair or recovered incident. A passing rerun alone does not settle an intermittent failure.
 - **Fix** per `/tend-ci-runner:fix-a-bug`, at the level the cause lives, after searching for the same pattern elsewhere. Before `gh pr create`, follow **Dedup recheck immediately before `gh pr create`** in `/tend-ci-runner:open-pr`. The PR body ends `Closes #<cause> — automated triage`, so the merge closes the cause.
-- **Escalate** a cause the bot can't safely fix: one in a system it can't change, one whose fix needs a judgment that isn't the bot's, or one whose attempted fix didn't validate. Leave the issue open and end its comment with the decision needed, addressed with an `@` mention to the person who has to make it: the author of the change that introduced the failure, the person who requested or merged that change where a bot wrote it, or a maintainer. A decision nobody is addressed for stays unmade.
+- **Unfinished diagnosis or verification.** Follow **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`.

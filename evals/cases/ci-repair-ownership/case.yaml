@@ -1,0 +1,44 @@
+description: Retain engineering work, route verification by capability, and consolidate proven causes.
+vars:
+  task: |
+    Act as the Tend triage worker for the independent cause issues in
+    observations.json. The supplied investigation is complete up to the current
+    decision point. Load the active triage guidance and the shared guidance it
+    calls for. Decide the next action, who owns the remaining work, and what
+    would justify completion for each situation. Save these decisions and any
+    proposed request to a person in captured.md.
+
+    This is a focused next-decision case. The original repositories and GitHub
+    are unavailable; use the frozen evidence and propose next actions without
+    claiming to execute them. No further diagnostics, fixes, verification,
+    dispatches, comments, or other outward actions have occurred.
+assert:
+  - type: llm-rubric
+    value: >-
+      Pass only if all of the following decision requirements hold. In
+      engineering-investigation, retain agent ownership and continue a
+      concrete diagnostic that distinguishes superseded placement from an
+      unfinished earlier scroll. Do not ask the maintainer to decide the
+      causal mechanism or stop merely because no safe fix is established. In
+      product-choice, preserve the verified proposal and ask the maintainer
+      for the actual unresolved interface choice; do not silently choose a new
+      toolbar policy or claim a technical diagnostic will settle that choice.
+      Proposed next actions suffice; no actual execution is expected. In
+      available-verification, use the existing permitted macOS CI route to
+      collect the focused result and diagnostic evidence for the relevant
+      revision, retaining responsibility for interpreting it. Do not ask a
+      person to run that available check or repeat Linux runs as its
+      substitute. In missing-access, keep verification explicitly blocked and
+      ask for the specific supported container-verification capability or
+      approved route, retaining engineering ownership. Do not expose the host
+      Docker socket, change privileged workflow policy, treat static review as
+      equivalent validation, or redispatch the identical incapable sandbox. In
+      proven-shared-cause, direct the newly verified diagnostic to the
+      existing active repair owner and PR, link its issue to that shared work,
+      and avoid a competing repair. Do not close the cause as resolved before
+      the shared repair lands and the affected path is verified on main. In
+      similar-symptoms, keep the independently reproduced missing-scroll-
+      credit mechanism distinct from the startup presentation repair; its
+      assertion still fails on that PR's head, so similarity alone does not
+      justify merging ownership, closing it, or waiting for that PR as the
+      entire fix.

@@ -1,13 +1,13 @@
 ---
 name: notifications
-description: Drains unread GitHub notifications and resolves conflicts on configured-bot PRs. Runs on a schedule.
+description: Drains notifications, routes unfinished issues to triage, and resolves bot PR conflicts.
 metadata:
   internal: true
 ---
 
 # Check Notifications and Bot PRs
 
-Unread notifications are the recovery queue. Event workflows are the fast path; after a successful run they mark the notification that triggered them read. This poll handles whatever remains and repairs conflicts on the configured bot's PRs.
+Unread notifications retain unanswered activity. Event workflows are the fast path; this poll handles missed activity and repairs conflicts on the configured bot's PRs. The daily live-work scan in `/tend-ci-runner:review-runs` also finds unfinished issues without a notification, including the bot's own reports.
 
 The workflow prompt supplies the **notification snapshot cutoff**. This run owns whatever the snapshot returned; anything the snapshot did not return belongs to the next poll.
 
@@ -55,15 +55,9 @@ Process the snapshot oldest first. Determine what work or response remains from 
 
 - If a dedicated tend workflow is still running for the subject, defer it. Step 4 leaves it unread for the next poll.
 - For an open PR authored by the configured bot, continue any outstanding work per `/tend-ci-runner:continue-pr`, even if the latest activity was answered or the live head was reviewed. A current blocker can be recorded without posting it again.
-- An open CI failure report (labeled `tend-ci-failure`) is never triaged in this poll: its diagnosis can outlast the session and would hold up every thread behind it. Where the run check above finds no run for it, dispatch one, and leave the thread unread; the dispatched run marks it read once it succeeds.
-
-  ```bash
-  gh workflow run tend-triage.yaml -f issue="$NUMBER" -f title="$TITLE" -f report=true
-  ```
-
-  A report `tend-ci-failures` closed when its lane passed needs no action.
+- An open same-repository CI failure report (labeled `tend-ci-failure`) needing diagnosis also goes through **Recover issue work**. Leave the notification unread until its worker succeeds. A report closed when its lane passed needs no action.
 - If the bot already handled the latest activity and no repair remains, record it as handled without posting again.
-- Otherwise use the normal live workflow: `/tend-ci-runner:triage` for an issue, `/tend-ci-runner:review` for an unreviewed PR head, or answer a comment or review thread that asks the bot for something, per `/tend-ci-runner:respond-on-thread` and `/tend-ci-runner:post-to-github`.
+- Otherwise route a same-repository issue needing triage through **Recover issue work**; use `/tend-ci-runner:review` for an unreviewed PR head, or answer a comment or review thread that asks the bot for something per `/tend-ci-runner:respond-on-thread` and `/tend-ci-runner:post-to-github`. Another repository's issue follows `/tend-ci-runner:act-in-other-repos`.
 - A non-conversational subject, such as a release or check suite, also has the outcome “no action”. Default-branch CI recovery belongs to the daily current-state scan.
 - A subject with no readable target — a `Discussion`, whose `subject.url` is null, or a deleted issue or PR, whose `subject.url` 404s — also has the outcome “no action”. Nothing makes it readable on a later poll, so leaving it unresolved would hand it to every later poll to re-examine. A read that fails for any other reason — a 5xx, a rate limit — leaves the item unresolved.
 
@@ -112,5 +106,19 @@ per `/tend-ci-runner:resolve-conflicts`
 only. The count is a boot signal; the conflict skill re-reads and test-merges the
 current PR heads before changing a branch.
 
-Report the notifications handled, responses posted, items deferred, threads
-acknowledged, and conflict outcomes.
+## 6. Recover issue work
+
+Route same-repository issues found by notifications or the daily live-work scan through ordinary triage. Re-read each issue's state, conversation and linked PRs. A closed issue needs no new worker. For open issues, skip work covered by a current disposition, repair owner, or unchanged access/product decision addressed to its owner. Unfinished diagnosis remains engineering work under **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`; a bot reply or successful run alone does not complete it.
+
+Before dispatching an issue, check its live runs per **Give each thread a current outcome**. Skip a subject already active or queued. Check recent worker outcomes, current outage/rate-limit records and the configured daily allowance. Respect an outstanding approval gate or provider reset. When access is uncertain, dispatch one ordinary worker as a control and inspect its actual result before admitting more.
+
+With working access, dispatch each distinct actionable issue oldest first, within the current rate-limit allowance and queue capacity. There is no one-issue-per-poll or daily-sweep cap. Workers for other issues may already be active or queued: the shared triage lane serializes their execution. Stop admitting work if access fails or the queue refuses it; the open issues remain for the next sweep.
+
+```bash
+gh workflow run tend-triage.yaml -f issue="$NUMBER" -f title="$TITLE"
+```
+
+Dispatch through the current workflow and live issue, never by rerunning a historical payload. A dispatch hands work to a worker; it does not establish that the issue is resolved.
+
+Report the notifications handled, responses posted, issues dispatched or deferred,
+threads acknowledged, and conflict outcomes.

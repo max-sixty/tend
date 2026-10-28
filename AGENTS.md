@@ -92,7 +92,7 @@ Four pieces:
    the consumer's `.github/workflows/` from `.config/tend.yaml`. Picks the
    right action ref and secret names per `harness`. Generation is
    idempotent — running `init` again overwrites all files from the
-   current config. When the review workflow is generated, it also merges the
+   current config. When review, triage or land is generated, it also merges the
    `concurrency.queue` ignore into the consumer-owned
    `.github/actionlint.yaml` (see "Concurrency and filtering").
 4. **Config** (`.config/tend.yaml`) — inputs to the generator. Overrides
@@ -331,7 +331,7 @@ Concurrency groups:
 | mention-relay | none | stateless — secretless job that re-posts review events to mention as a `repository_dispatch` |
 | mention/verify | none | stateless |
 | mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
-| triage | `workflow-issue#`; `tend-triage-ci-reports` for every CI failure report | **no** — a session may already have filed an issue or opened a PR; reports share one group so no two report sessions file the same cause, and the newest pending report run replaces an older one |
+| triage | `tend-triage` | **no** — one issue worker at a time, including reports, causes and recovery; `queue: max` holds pending jobs; the daily sweep recovers unfinished open issues outside GitHub's finite queue |
 | notifications | `tend-notifications` | **no** — one poll drains notifications and repairs bot PRs at a time |
 | ci-failures | `workflow-<watched workflow>-<event>-<branch>` | **no** — one writer per CI failure report, so a lane's verdicts apply in turn and never file two |
 | land/check | none | stateless — reads records and checks, starts nothing itself |
@@ -360,18 +360,24 @@ on tests push CI never runs — filing it on the first failure, commenting on
 each later one, and closing it on the next pass. Its group is keyed on that
 lane and is job-level: a cancelled or skipped run, which the job's `if` skips,
 never enters it, so it never takes the pending slot from a verdict. The report
-is written with the job's `GITHUB_TOKEN`, so it reaches the bot as a
-notification, and each failure dispatches `tend-triage` for it;
-`ci_failure_report.py` says why. The agent work runs through the issue path:
-the dispatched run triages the report, filing one cause issue per root cause,
+is written with the bot token from the `tend` environment, so opening it starts
+ordinary `tend-triage`. Later failure comments add evidence without starting
+another session. The agent work runs through the issue path:
+triage diagnoses the report, filing one cause issue per root cause,
 and each cause issue's own triage run fixes it. A cause issue claims its cause
 for every later run and every lane, so no second session works the same cause,
-and the report runs share one concurrency group, so no two of them file the
-same cause. The notification is the fallback: the notifications poll never
-triages a report itself, and re-dispatches one whose run never succeeded.
+and all triage workers share one concurrency group. The bot gets no notification
+for its own writes. The daily `review-runs` sweep inspects all open issues for
+unfinished work, including bot-authored reports and partial investigations after
+successful turns. It routes unowned work through ordinary triage using
+**Recover issue work** in `/tend-ci-runner:notifications`. With working access,
+the sweep can queue the actionable backlog within the existing rate-limit and
+queue bounds; one worker executes at a time. Each worker checks the live issue
+and repair ownership again when it starts.
 
-**GHA queue depth.** Review sets `queue: max`, so pending PR events within
-GitHub's queue limit wait and a later push cannot replace `ready_for_review`.
+**GHA queue depth.** Review, triage and land set `queue: max`, so pending events within
+GitHub's queue limit wait: a later push cannot replace `ready_for_review`, and
+a new report cannot replace an earlier report's triage.
 GitHub accepts the key; actionlint's schema does not, so `init` merges the
 matching ignore into `.github/actionlint.yaml`, which the binary reads for
 every invocation.
