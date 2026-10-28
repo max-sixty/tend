@@ -1,0 +1,34 @@
+{
+  "situations": [
+    {
+      "id": "fix-awaiting-ci",
+      "workflow_prompt": "Triage issue 4428. The review's CI wait is off (`await_ci: false`).",
+      "state": "The triage worker reproduced the Firefox caret clipping bug, fixed the paint room, passed its focused local regression check, pushed commit 3b3c64e39056a5433425fe61eb30339198b4d3da and opened PR4442. The pushed status was recorded successfully. PR is open, bot authored and ready for review. Review and test jobs are running. The issue is still open. No other findings or uncommitted work remain.",
+      "policy": {
+        "merge": "yolo",
+        "review_enabled": true,
+        "review_await_ci": false
+      }
+    },
+    {
+      "id": "red-reproduction",
+      "workflow_prompt": "Triage issue 4497. The review's CI wait is off (`await_ci: false`).",
+      "state": "The triage worker reproduced three native-anchor failures. The minimal failing test is committed on reproduction branch c40387c20039ec96b474b8f3704a2f33e80e1147, pushed with its status recorded and opened as draft PR4503. It deliberately contains no fix. CI has just reported red; the PR's repair status links an active tend-land repair run. No product decision or missing access prevents further engineering investigation. The issue is still open; the worker has not posted its disposition.",
+      "policy": {
+        "merge": "yolo",
+        "review_enabled": true,
+        "review_await_ci": false
+      }
+    },
+    {
+      "id": "no-landing-workflow",
+      "workflow_prompt": "Triage issue 92.",
+      "state": "A conservative bug fix and local regression test are committed, pushed and in open bot PR93. The test job is running; no other actor is working on the PR. Review is disabled and no tend-land workflow exists. The triage worker has not obtained CI evidence or posted its issue disposition.",
+      "policy": {
+        "merge": "yolo",
+        "review_enabled": false,
+        "review_await_ci": false
+      }
+    }
+  ]
+}

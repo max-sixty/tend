@@ -387,6 +387,8 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
     prompt = (wf.prompt or eff.default_prompt("triage", "{issue_number}")).replace(
         "{issue_number}", "${{ github.event.issue.number || inputs.issue }}"
     )
+    if lands_on_ci(cfg):
+        prompt += "\n\nThe review's CI wait is off (`await_ci: false`)."
 
     content = _TRIAGE_TMPL.render(
         cfg=eff,
