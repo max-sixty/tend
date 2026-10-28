@@ -30,7 +30,7 @@ testpaths = ["."]
 # closure from uv.lock (`--frozen --only-group proxy` in
 # proxy/setup_sandbox.py), hashes and all, so uv.lock is what the process
 # holding the real PAT and model credential runs — not only what tests see.
-proxy = ["mitmproxy==12.3.0"]
+proxy = ["mitmproxy==12.3.1"]
 dev = [
   "tend",
   "pytest>=9.0.2",
