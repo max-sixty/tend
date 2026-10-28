@@ -415,7 +415,7 @@ runs:
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: ${{ steps.tokens.outputs.artifact_name || 'codex-session-logs' }}
+        name: ${{ steps.tokens.outputs.artifact_name || (env.TEND_ISSUE_NUMBER && format('codex-session-logs-n{0}', env.TEND_ISSUE_NUMBER)) || 'codex-session-logs' }}
         path: ${{ runner.temp }}/tend-codex-logs/
         retention-days: 30
         if-no-files-found: warn

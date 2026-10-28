@@ -796,3 +796,15 @@ def test_consolidation_drops_a_fifo_the_agent_planted(
 
     assert (logs_dir / "project" / "session.jsonl").is_file()
     assert not (logs_dir / "project" / "pipe").exists()
+
+
+@pytest.mark.parametrize("number", [7, 8])
+def test_batch_artifact_and_usage_name_the_matrix_issue(
+    monkeypatch, actions_env, number
+):
+    actions_env.write_text(json.dumps({"inputs": {"issues": "[7,8]"}}))
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("TEND_ISSUE_NUMBER", str(number))
+    assert token_usage.run_context()["number"] == number
+    for harness in ("claude", "codex"):
+        assert token_usage.artifact_name(harness) == f"{harness}-session-logs-n{number}"

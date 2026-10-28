@@ -446,6 +446,7 @@ def main() -> int:
     # Appended last, so they win over the agent env file.
     overrides = {
         "ACTION_PATH": str(bundle_root),
+        "TEND_RUNTIME_PYTHON": str(python),
         "TEND_VIEW_MASKS": os.pathsep.join(str(path) for path in masks),
         # Read back after the reap, so outside the view.
         "GITHUB_STEP_SUMMARY": str(step_summary),

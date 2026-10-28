@@ -13,6 +13,7 @@ whose unchanged non-terminal state would otherwise defer the subject forever.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -36,7 +37,8 @@ WORKFLOW_PREFIX = ".github/workflows/tend-"
 
 # tend-land starts from a CI completion, so no run-level title names a PR: each
 # of its sessions is a job named for the PR it works on (`land #7`).
-SUBJECT_JOBS_WORKFLOW = ".github/workflows/tend-land.yaml"
+TRIAGE_WORKFLOW = ".github/workflows/tend-triage.yaml"
+SUBJECT_JOBS_WORKFLOWS = {".github/workflows/tend-land.yaml", TRIAGE_WORKFLOW}
 SUBJECT_JOB_RE = re.compile(r"#(\d+)$")
 
 # A run whose state has not moved in this long is never going to deliver.
@@ -103,7 +105,7 @@ def subject_runs(
                 continue
         elif run.get("display_title") != subject_title:
             continue
-        if abandoned(run, now=now):
+        if path != TRIAGE_WORKFLOW and abandoned(run, now=now):
             continue
         candidates.setdefault(
             run_id,
@@ -119,39 +121,58 @@ def subject_runs(
 
 
 def fetch_active_runs(repo: str) -> list[dict[str, Any]]:
-    """Fetch one page per non-terminal status.
-
-    Keeps the server-side `status=` filter rather than scanning the newest 100
-    runs of any status: a long-queued run on a busy repository falls outside
-    that window, and it is exactly the run this check exists to see.
-    """
-    runs: list[dict[str, Any]] = []
+    """Fetch every page per non-terminal status, including long-queued batches."""
+    runs: dict[int, dict[str, Any]] = {}
     for status in ACTIVE_STATUSES:
-        response = github_cli.json_call(
-            "api", f"repos/{repo}/actions/runs?status={status}&per_page=100"
-        )
-        runs.extend(response.get("workflow_runs") or [])
-    return runs
+        for page in github_cli.pages(
+            f"repos/{repo}/actions/runs?status={status}&per_page=100"
+        ):
+            for run in page["workflow_runs"]:
+                runs.setdefault(int(run["id"]), run)
+    return list(runs.values())
 
 
 def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[int]]:
-    """The subject numbers active jobs name, for runs whose jobs name one."""
+    """Read batch IDs before expansion, then release completed matrix subjects.
+
+    GitHub's runs API does not expose dispatch inputs. Triage's generated
+    run-name is therefore an explicit wire format, `triage [1,2]`, retained
+    while the workflow waits for its lane and has no jobs. Job names carry
+    the same numeric identity after expansion; issue titles are never keys.
+    A queued batch can legitimately wait days, so it has no age-based expiry.
+    """
     subjects: dict[int, set[int]] = {}
     for run in runs:
-        if run.get("path") != SUBJECT_JOBS_WORKFLOW:
+        if run.get("path") not in SUBJECT_JOBS_WORKFLOWS:
             continue
-        jobs = (
-            github_cli.json_call(
-                "api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100"
-            ).get("jobs")
-            or []
-        )
-        subjects[int(run["id"])] = {
-            int(match.group(1))
-            for job in jobs
-            if job.get("status") != "completed"
-            and (match := SUBJECT_JOB_RE.search(str(job.get("name") or "")))
-        }
+        selected: set[int] = set()
+        if run["path"] == TRIAGE_WORKFLOW:
+            title = str(run["display_title"])
+            if not title.startswith("triage "):
+                continue
+            try:
+                numbers = json.loads(title.removeprefix("triage "))
+            except json.JSONDecodeError:
+                # Invalid dispatches fail validation before creating workers.
+                subjects[int(run["id"])] = set()
+                continue
+            if not isinstance(numbers, list) or any(
+                type(number) is not int or number < 1 for number in numbers
+            ):
+                subjects[int(run["id"])] = set()
+                continue
+            selected.update(numbers)
+        for page in github_cli.pages(
+            f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100"
+        ):
+            for job in page["jobs"]:
+                if match := SUBJECT_JOB_RE.search(str(job.get("name") or "")):
+                    number = int(match.group(1))
+                    if job["status"] == "completed":
+                        selected.discard(number)
+                    else:
+                        selected.add(number)
+        subjects[int(run["id"])] = selected
     return subjects
 
 

@@ -19,16 +19,17 @@ assert:
       work until the control's actual result informs further admission. A
       partial comment does not settle issue201. In healthy-backlog, recover
       all three unowned issues211,212,213 through ordinary triage in this
-      sweep, using the serial workflow queue. Do not stop after one, wait for
-      unrelated issue214 to finish, or defer the remainder to another day.
+      sweep, submitting their IDs together to the serialized batch workflow. Do not
+      stop after one, wait for unrelated issue214 to finish, or defer the remainder
+      to another day.
       A successful investigation without a repair is still engineering work;
       an empty inbox or bot authorship does not erase the live backlog.
       In established-dispositions, preserve PR303's repair ownership and
       issue204's unchanged specific approval requirement without dispatching
       redundant verification workers, repeating diagnosis or posting again.
       In queued-worker, skip issue205 because its own worker is queued, but
-      enqueue unowned issue210 despite unrelated issue209 running. In
-      provider-reset, defer206 until access changes rather than probe the
+      enqueue a batch containing unowned issue210 despite unrelated issue209 running.
+      In provider-reset, defer206 until access changes rather than probe the
       known unavailable account. In foreign-notification, address only the
       authorized remote clarification, without dispatching or mutating
       same-number local issue201 or inventing remote dispatch authority.

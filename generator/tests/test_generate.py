@@ -707,7 +707,7 @@ def test_custom_prompt(tmp_path: Path) -> None:
 # override rather than accepting a key that renders nowhere.
 _PROMPT_WORKFLOWS = {
     "review": ("{pr_number}", "${{ github.event.pull_request.number }}"),
-    "triage": ("{issue_number}", "${{ github.event.issue.number || inputs.issue }}"),
+    "triage": ("{issue_number}", "${{ matrix.issue }}"),
     "nightly": ("", ""),
     "weekly": ("", ""),
     "review-runs": ("", ""),
@@ -1141,23 +1141,62 @@ def test_ci_failures_reporting_is_independent_of_triage(
     assert ("tend-triage.yaml" in workflows) == triage
 
 
-def test_triage_serializes_new_and_recovered_issues(tmp_path: Path) -> None:
-    """Event and dispatched issue work share the ordinary triage worker."""
-    cfg = Config.load(_minimal_config(tmp_path))
+@pytest.mark.parametrize("limit", [None, 1, 10, 256])
+def test_triage_serializes_batches_and_limits_real_issue_jobs(
+    tmp_path: Path, limit
+) -> None:
+    extra = (
+        "" if limit is None else f"workflows:\n  triage:\n    max_parallel: {limit}\n"
+    )
+    cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     doc = yaml.safe_load(workflows["tend-triage.yaml"].content)
     job = doc["jobs"]["triage"]
-    assert job["concurrency"] == {
+    # All event and recovery batches hold this lane through their last job.
+    assert doc["concurrency"] == {
         "group": "tend-triage",
         "cancel-in-progress": False,
         "queue": "max",
     }
-    assert "concurrency" not in doc
-    assert set(doc["jobs"]) == {"triage"}
+    assert "concurrency" not in job
+    assert job["strategy"] == {
+        "fail-fast": False,
+        "max-parallel": limit or 5,
+        "matrix": {"issue": "${{ fromJSON(needs.select.outputs.issues) }}"},
+    }
+    select = doc["jobs"]["select"]
+    assert (
+        select["steps"][0]["uses"] == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
+    )
+    assert select["steps"][-1]["run"].strip() == (
+        '"$TEND_RUNTIME_PYTHON" -I -m tend runtime triage-batch select'
+    )
+    assert job["needs"] == "select"
+    assert job["if"] == "needs.select.outputs.issues != '[]'"
+    assert job["env"]["TEND_ISSUE_NUMBER"] == "${{ matrix.issue }}"
+    assert job["name"] == "triage #${{ matrix.issue }}"
+    assert set(doc["jobs"]) == {"select", "triage"}
     assert doc["on"]["issues"]["types"] == ["opened", "reopened"]
-    assert set(doc["on"]["workflow_dispatch"]["inputs"]) == {"issue", "title"}
-    # The notifications poll finds a live run by its subject's title.
-    assert doc["run-name"] == "${{ inputs.title || github.event.issue.title }}"
+    assert set(doc["on"]["workflow_dispatch"]["inputs"]) == {"issues"}
+    # This wire format names ownership before matrix jobs exist.
+    assert doc["run-name"] == (
+        "triage ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}"
+    )
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "257", "true", "1.5", "null", "'5'"])
+def test_triage_rejects_invalid_parallel_limit(tmp_path: Path, value: str) -> None:
+    path = _minimal_config(
+        tmp_path, f"workflows:\n  triage:\n    max_parallel: {value}\n"
+    )
+    with pytest.raises(click.ClickException, match="max_parallel must be an integer"):
+        Config.load(path)
+
+
+def test_parallel_limit_is_only_a_triage_option(tmp_path: Path) -> None:
+    path = _minimal_config(tmp_path, "workflows:\n  review:\n    max_parallel: 5\n")
+    with pytest.raises(click.ClickException, match="only supported for triage"):
+        Config.load(path)
 
 
 def test_cli_init_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1276,9 +1315,7 @@ def test_issue_and_pr_acknowledged_with_eyes(tmp_path: Path) -> None:
 
     triage = yaml.safe_load(workflows["tend-triage.yaml"].content)
     react = _eyes_steps(triage["jobs"]["triage"]["steps"])[0]
-    assert react["env"]["TARGET"] == (
-        "issues/${{ github.event.issue.number || inputs.issue }}"
-    )
+    assert react["env"]["TARGET"] == ("issues/${{ matrix.issue }}")
     assert "if" not in react
 
     review = yaml.safe_load(workflows["tend-review.yaml"].content)
@@ -1686,10 +1723,10 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "workflow_name,job_name,user_if,extra_workflow_keys",
     [
-        # Triage: clobbering drops the fork guard and the bookkeeping-label skip.
+        # Triage selection: clobbering drops the fork guard and bookkeeping skip.
         (
             "triage",
-            "triage",
+            "select",
             (
                 f"{TEND_ENABLED_CONDITION} && "
                 "github.event.issue.author_association != 'NONE'"
@@ -1743,9 +1780,9 @@ def test_user_job_if_extra_replaces_fork_guard(
 @pytest.mark.parametrize(
     "wf_block",
     [
-        {"jobs": {"triage": {"if": "github.actor == 'tend-agent'"}}},
-        {"jobs": {"triage": {"if": None}}},
-        {"workflow_extra": {"jobs": {"triage": {"if": "github.actor == 'x'"}}}},
+        {"jobs": {"select": {"if": "github.actor == 'tend-agent'"}}},
+        {"jobs": {"select": {"if": None}}},
+        {"workflow_extra": {"jobs": {"select": {"if": "github.actor == 'x'"}}}},
     ],
 )
 def test_if_override_must_keep_the_pause_check(tmp_path: Path, wf_block: dict) -> None:

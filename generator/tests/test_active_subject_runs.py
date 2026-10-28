@@ -319,3 +319,135 @@ def test_a_long_queued_run_that_started_remains_a_candidate(
         ),
     )
     assert [run["id"] for run in _subject_runs(env)] == [110]
+
+
+def test_a_queued_batch_owns_its_issues_before_jobs_exist(
+    env: dict[str, str],
+) -> None:
+    """A batch can wait behind several long batches for more than a day.
+
+    Its matrix has not expanded yet, so the submitted IDs are its ownership
+    record; an age cutoff would admit a duplicate worker.
+    """
+    _stage(
+        env,
+        "pending",
+        _run(
+            201,
+            "tend-triage",
+            "pending",
+            title="triage [77,4082]",
+            created_ago_hours=72,
+        ),
+    )
+    assert [run["id"] for run in _subject_runs(env)] == [201]
+
+
+def test_batch_ownership_uses_issue_numbers_not_issue_titles(
+    env: dict[str, str],
+) -> None:
+    """An issue title can itself look like another batch's run name."""
+    Path(env["SUBJECT_JSON"]).write_text(
+        json.dumps({"title": "triage [77]", "number": 4082})
+    )
+    _stage(
+        env,
+        "queued",
+        _run(201, "tend-triage", "queued", title="triage [4082]"),
+        _run(202, "tend-triage", "queued", title="triage [77]"),
+    )
+    assert [run["id"] for run in _subject_runs(env)] == [201]
+
+
+def test_invalid_batches_do_not_hide_valid_or_legacy_subject_owners(
+    env: dict[str, str],
+) -> None:
+    """A malformed dispatch fails selection, not every later ownership read.
+
+    Runs created before the batch rollout still carry the issue title and
+    retain ownership until they finish.
+    """
+    _stage(
+        env,
+        "queued",
+        _run(201, "tend-triage", "queued", title="triage oops"),
+        _run(202, "tend-triage", "queued", title="triage [true]"),
+        _run(203, "tend-triage", "queued", title="triage [4082]"),
+        _run(204, "tend-triage", "queued", title=TITLE),
+    )
+    assert [run["id"] for run in _subject_runs(env)] == [203, 204]
+
+
+def test_batch_releases_completed_subjects_while_other_legs_continue(
+    env: dict[str, str],
+) -> None:
+    _stage(
+        env,
+        "in_progress",
+        _run(201, "tend-triage", "in_progress", title="triage [4082,77]"),
+        _run(202, "tend-triage", "in_progress", title="triage [78,4082]"),
+    )
+    for rid, jobs in {
+        201: [
+            {"name": "triage #4082", "status": "completed"},
+            {"name": "triage #77", "status": "in_progress"},
+        ],
+        202: [
+            {"name": "select", "status": "completed"},
+            {"name": "triage #78", "status": "in_progress"},
+            {"name": "triage #4082", "status": "queued"},
+        ],
+    }.items():
+        (Path(env["RUNS_DIR"]) / f"jobs-{rid}.json").write_text(
+            json.dumps({"jobs": jobs})
+        )
+    assert [run["id"] for run in _subject_runs(env)] == [202]
+
+
+@pytest.mark.parametrize("status", ["queued", "completed"])
+def test_batch_ownership_reads_every_run_and_job_page(
+    env: dict[str, str], status: str
+) -> None:
+    """The owner and its subject leg both fall beyond the first API page.
+
+    The fake models gh's paginated object responses. Reading just one page
+    either misses the owner entirely or keeps an already completed subject.
+    """
+    pages = [
+        {
+            "workflow_runs": [
+                _run(i, "tend-mention", "in_progress", title="another subject")
+                for i in range(100, 200)
+            ]
+        },
+        {
+            "workflow_runs": [
+                _run(
+                    201,
+                    "tend-triage",
+                    "in_progress",
+                    title=f"triage {json.dumps([*range(100, 200), 4082])}",
+                )
+            ]
+        },
+    ]
+    runs_dir = Path(env["RUNS_DIR"])
+    (runs_dir / "in_progress.json").write_text(
+        "\n".join(json.dumps(page) for page in pages)
+    )
+    job_pages = [
+        {
+            "jobs": [
+                {"name": f"triage #{i}", "status": "completed"} for i in range(100, 200)
+            ]
+        },
+        {"jobs": [{"name": "triage #4082", "status": status}]},
+    ]
+    (runs_dir / "jobs-201.json").write_text(
+        "\n".join(json.dumps(page) for page in job_pages)
+    )
+    expected = [201] if status == "queued" else []
+    assert [run["id"] for run in _subject_runs(env)] == expected
+    calls = Path(env["GH_CALLS"]).read_text().splitlines()
+    listings = [call for call in calls if "/actions/runs" in call]
+    assert all("--paginate" in call and "--slurp" in call for call in listings)

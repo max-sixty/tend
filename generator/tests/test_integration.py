@@ -142,7 +142,8 @@ def test_init_workflows_have_required_permissions(
             # requests only the contents: write its dispatch POST needs — no
             # secrets, no agent.
             if not any(
-                s.get("uses", "").startswith("max-sixty/tend/")
+                s.get("uses", "").split("@", 1)[0]
+                in {"max-sixty/tend/claude", "max-sixty/tend/codex"}
                 for s in job.get("steps", [])
             ):
                 continue
