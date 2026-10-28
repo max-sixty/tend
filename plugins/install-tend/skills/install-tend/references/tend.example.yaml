@@ -414,9 +414,9 @@ bot_name: my-project-bot
 # agent. A failed run opens a CI failure report, an issue per workflow, branch
 # and triggering event, or comments on the open one. The bot token makes a new
 # report trigger ordinary triage; later comments retain evidence for daily review.
-# The next passing run closes the report. Triage files every distinct cause as
-# a sub-issue and fixes each one there. A
-# cancelled run reports nothing, and GitHub ends a job that exceeds its time
+# The next passing run closes the report. Triage links a separate issue for each
+# distinct cause and fixes each one there. A cancelled run reports nothing,
+# and GitHub ends a job that exceeds its time
 # limit as cancelled; a step that exceeds its own `timeout-minutes` fails
 # instead, so a hang bounded there is reported.
 #
