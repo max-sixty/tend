@@ -29,7 +29,7 @@ gh issue view $ARGUMENTS --json title,body,labels,author,state,comments
 gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
 ```
 
-Read the live conversation and linked repairs before acting; the issue may have changed while this run queued. If it is closed, or the current work is covered by a completed disposition, repair owner, or unchanged access/product decision from its owner, finish without another diagnosis or post. A prior bot reply or successful run alone does not settle unfinished engineering work; apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`.
+Read the live conversation and linked repairs before acting; the issue may have changed while this run queued. If it is closed, or the current work is covered by a completed disposition or repair owner, finish without another diagnosis or post. A prior bot reply or successful run alone does not settle unfinished engineering work; apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`.
 
 An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on. The system prompt's self-loop guard covers the bot's own *comments*, not unfinished work in its issues.
 
