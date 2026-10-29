@@ -836,6 +836,90 @@ def test_a_late_api_blip_does_not_end_the_wait(env: dict[str, str]) -> None:
     assert result.returncode == 0, result.stdout
 
 
+@pytest.mark.parametrize("kind", ["status", "app"])
+@pytest.mark.parametrize("command", ["poll", "approval"])
+def test_external_failure_returns_while_actions_still_run(
+    env: dict[str, str], kind: str, command: str
+) -> None:
+    external = _status_ctx("codecov/patch", "FAILURE")
+    if kind == "app":
+        external = _check_run("codecov/patch", conclusion="FAILURE", workflow="")
+        external["checkSuite"] = {"app": {"slug": "codecov"}, "workflowRun": None}
+    _serve(env, _resp(external, _check_run("hung-job", status="IN_PROGRESS")))
+
+    result = _invoke(poll_pr_checks, env, [command, "7", HEAD_SHA])
+
+    assert result.returncode == 1
+    assert "codecov/patch" in result.stdout
+    assert "hung-job" in result.stdout
+    assert int(Path(env["GRAPHQL_CALLS"]).read_text()) >= 2
+
+
+@pytest.mark.parametrize("second_state", ["SUCCESS", "PENDING"])
+def test_external_failure_must_survive_confirmation(
+    env: dict[str, str], second_state: str
+) -> None:
+    running = _check_run("tests", status="IN_PROGRESS")
+    _serve(
+        env,
+        _resp(_status_ctx("coverage", "FAILURE"), running),
+        _resp(_status_ctx("coverage", second_state), running),
+        _resp(_status_ctx("coverage", "SUCCESS"), _check_run("tests")),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 0, result.stdout
+    assert int(Path(env["GRAPHQL_CALLS"]).read_text()) == 4
+
+
+@pytest.mark.parametrize("provider", [None, "github-actions"])
+def test_missing_workflow_does_not_establish_an_external_check(
+    env: dict[str, str], provider: str | None
+) -> None:
+    red = _check_run("gate", conclusion="FAILURE", workflow="")
+    red["checkSuite"] = {"app": {"slug": provider}, "workflowRun": None}
+    _serve(env, _resp(red, _check_run("tests", status="IN_PROGRESS")))
+
+    with pytest.raises(WaitNeverEnded):
+        _poll(env)
+
+
+def test_early_external_red_does_not_report_unconfirmed_actions_failure(
+    env: dict[str, str],
+) -> None:
+    _serve(
+        env,
+        _resp(
+            _status_ctx("coverage", "FAILURE"),
+            _check_run("cancelled-run-gate", conclusion="FAILURE"),
+            _check_run("replacement", status="IN_PROGRESS"),
+        ),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 1
+    assert "coverage" in result.stdout
+    assert "replacement" in result.stdout
+    assert "cancelled-run-gate" not in result.stdout
+
+
+def test_skipped_external_red_does_not_end_the_wait(env: dict[str, str]) -> None:
+    _serve(
+        env,
+        _resp(
+            _status_ctx("coverage", "FAILURE"),
+            _check_run("tests", status="IN_PROGRESS"),
+        ),
+        _resp(_status_ctx("coverage", "FAILURE"), _check_run("tests")),
+    )
+
+    result = _poll_args(env, "7", HEAD_SHA, "--skip", "coverage")
+
+    assert result.returncode == 0, result.stdout
+
+
 def test_a_check_that_never_finishes_holds_the_wait(env: dict[str, str]) -> None:
     """The wait has no time bound — a slow suite is waited out however long it
     runs, so a check that never finishes is ended by the session's timeout."""

@@ -53,7 +53,7 @@ query($owner: String!, $name: String!, $oid: GitObjectID!, $endCursor: String) {
               __typename
               ... on CheckRun {
                 name status conclusion startedAt detailsUrl
-                checkSuite { workflowRun { workflow { name } } }
+                checkSuite { app { slug } workflowRun { workflow { name } } }
               }
               ... on StatusContext { context state targetUrl }
             }
@@ -100,6 +100,13 @@ def reduce_rollup(
                 ),
                 "url": str(node.get("detailsUrl") or ""),
                 "started_at": str(node.get("startedAt") or ""),
+                "external": (
+                    "yes"
+                    if _dig(node, "checkSuite", "app", "slug")
+                    not in {None, "", "github-actions"}
+                    and _dig(node, "checkSuite", "workflowRun") is None
+                    else ""
+                ),
             }
         else:
             state = str(node.get("state") or "")
@@ -112,6 +119,7 @@ def reduce_rollup(
                 "workflow": "",
                 "url": str(node.get("targetUrl") or ""),
                 "started_at": "",
+                "external": "yes",
             }
         if own_run and own_run in context["url"]:
             continue
@@ -127,7 +135,7 @@ def reduce_rollup(
 
     if not contexts:
         return (
-            {"pending": [], "failed": [], "unverified": []}
+            {"pending": [], "failed": [], "unverified": [], "external_failed": []}
             if allow_filtered_empty
             else None
         )
@@ -156,6 +164,13 @@ def reduce_rollup(
             f"{context['name']} {context['url']}"
             for context in current
             if context["status"] == "COMPLETED"
+            and context["conclusion"] in RED_CONCLUSIONS
+        ],
+        "external_failed": [
+            f"{context['name']} {context['url']}"
+            for context in current
+            if context["external"]
+            and context["status"] == "COMPLETED"
             and context["conclusion"] in RED_CONCLUSIONS
         ],
         "unverified": [
@@ -246,12 +261,13 @@ def _settle(
     sha: str,
     skip: frozenset[str] = frozenset(),
     sleep: Callable[[float], None],
-) -> tuple[Literal["settled", "moved", "none"], dict[str, list[str]] | None]:
-    """Poll until nothing pends on two reads 30s apart.
+) -> tuple[Literal["settled", "red", "moved", "none"], dict[str, list[str]] | None]:
+    """Poll until checks settle or an external failure survives two reads.
 
     Returns how the wait ended, and the last complete rollup read. The wait has
-    no time bound: a running check ends by its own job's timeout, so the wait
-    ends with the checks however long the consumer's CI takes. Two states have
+    no time bound. An external failure present on two reads returns "red"
+    without waiting for Actions jobs: those jobs cannot supersede it through
+    a concurrency cancellation. Otherwise, two states have
     no such end, and each is ended by the event that shows it:
 
     * checks still pend and the PR's head has moved off *sha* ("moved"). A
@@ -283,7 +299,9 @@ def _settle(
         if current["pending"]:
             if _head(pr=pr, repo=repo) not in {"", sha}:
                 return "moved", last
-            continue
+            if not current["external_failed"]:
+                continue
+        external_failed = set(current["external_failed"])
         sleep(CONFIRM_SEC)
         current = fetch_rollup(
             repo=repo, sha=sha, run_id=run_id, workflow=workflow, skip=skip
@@ -293,6 +311,11 @@ def _settle(
         last = current
         if not current["pending"]:
             return "settled", current
+        confirmed = external_failed.intersection(current["external_failed"])
+        if confirmed:
+            # Only these reds are confirmed. An Actions omnibus beside them
+            # may still be reporting a cancellation cascade.
+            return "red", {**current, "failed": sorted(confirmed)}
 
 
 def _read_once(
@@ -343,6 +366,9 @@ def approval(
     environment's approval, or a conclusion outside the passing set — never
     reached a verdict, so it cannot withhold on its merits. It approves, named
     as unverified so the approval doesn't read as a check that passed.
+
+    A confirmed external failure returns before Actions jobs settle; those
+    jobs cannot supersede it by cancelling and replacing a workflow run.
 
     Without *wait*, a red beside pending checks withholds as it stands, naming
     the checks still running; a replacement that would supersede it is left to
@@ -406,7 +432,7 @@ def poll(
     wait: bool = True,
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
-    """Poll one pinned PR commit until its checks, less those in *skip*, settle.
+    """Poll one pinned commit until its checks settle or an external red confirms.
 
     Without *wait*, report the checks as they stand: checks still pending make
     the result unverified rather than something to wait for.
@@ -455,9 +481,12 @@ def poll(
         head_note(pr=pr, repo=repo, sha=sha)
         return 2
     settled = outcome == "settled"
-    if settled and last["failed"]:
+    if (settled or outcome == "red") and last["failed"]:
         print(f"red on {sha}:")
         print(*last["failed"], sep="\n")
+        if last["pending"]:
+            print("still running, not waited for:")
+            print(*last["pending"], sep="\n")
         _unverified_note(last)
         head_note(pr=pr, repo=repo, sha=sha)
         return 1
