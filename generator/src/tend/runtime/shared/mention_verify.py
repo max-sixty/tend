@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Decide whether a mention event should start an agent session."""
 
 from __future__ import annotations
@@ -9,37 +5,14 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
-from pathlib import Path
 from typing import Any
 
-
-def gh(*args: str, quiet: bool = False) -> str:
-    # `gh` colorizes a piped `--json`/`--jq` response when the job's
-    # environment forces color, and the ANSI codes land inside the body
-    # `gh_json` parses. `CLICOLOR_FORCE=0` is the setting that defeats it:
-    # `gh` ranks a forced value above `NO_COLOR`, so `NO_COLOR` alone loses.
-    env = os.environ.copy()
-    env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
-    result = subprocess.run(
-        ["gh", *args], capture_output=True, text=True, env=env, check=False
-    )
-    if result.returncode:
-        if result.stderr and not quiet:
-            sys.stderr.write(result.stderr)
-        raise subprocess.CalledProcessError(
-            result.returncode, result.args, result.stdout, result.stderr
-        )
-    return result.stdout
-
-
-def gh_json(*args: str, quiet: bool = False) -> Any:
-    return json.loads(gh(*args, quiet=quiet))
+from tend.runtime.shared import _common
 
 
 def gh_paginated(path: str) -> list[dict[str, Any]]:
     # `--slurp` prints one array holding every page.
-    pages = gh_json("api", "--paginate", "--slurp", path)
+    pages = _common.gh_json("api", "--paginate", "--slurp", path)
     if not all(isinstance(page, list) for page in pages):
         raise TypeError("paginated GitHub response was not an array")
     return [item for page in pages for item in page]
@@ -61,8 +34,7 @@ def actor_type(actor: object) -> str:
 
 def output(name: str, value: str | bool) -> None:
     rendered = str(value).lower() if isinstance(value, bool) else value
-    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
-        stream.write(f"{name}={rendered}\n")
+    _common.set_output(name, rendered)
 
 
 def verdict(should_run: bool, reason: str = "") -> int:
@@ -93,7 +65,7 @@ def main() -> int:
             return verdict(False)
         if kind == "pull_request_review":
             try:
-                review = gh_json(
+                review = _common.gh_json(
                     "api", f"repos/{repo}/pulls/{pr}/reviews/{item_id}", quiet=True
                 )
             except (subprocess.CalledProcessError, json.JSONDecodeError):
@@ -107,7 +79,7 @@ def main() -> int:
             output("ts", review.get("submitted_at") or "")
         elif kind == "pull_request_review_comment":
             try:
-                comment = gh_json(
+                comment = _common.gh_json(
                     "api", f"repos/{repo}/pulls/comments/{item_id}", quiet=True
                 )
             except (subprocess.CalledProcessError, json.JSONDecodeError):
@@ -175,7 +147,7 @@ def main() -> int:
     else:
         pr_number = env.get("PAYLOAD_PR", "")
 
-    pr = gh_json("pr", "view", pr_number, "--repo", repo, "--json", "author")
+    pr = _common.gh_json("pr", "view", pr_number, "--repo", repo, "--json", "author")
     pr_author = actor_login(pr.get("author"))
     if pr_author == bot:
         return verdict(True, "participation")
@@ -187,10 +159,3 @@ def main() -> int:
     if any(actor_login(comment.get("user")) == bot for comment in comments):
         return verdict(True, "participation")
     return verdict(False)
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(error.returncode or 1) from None

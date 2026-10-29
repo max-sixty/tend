@@ -1,7 +1,7 @@
 """Helpers shared by the Python step bodies in this directory.
 
 The composite actions install the candidate Tend package and invoke step bodies
-through the isolated CLI, ``python -I -m tend runtime <command>``, with their
+through the isolated ``tend runtime <command>`` launcher, with their
 inputs in the environment. These helpers require only the standard library.
 
 Every GitHub call goes through :func:`gh`, and every step module calls it as
@@ -48,15 +48,15 @@ def require_env(*names: str) -> dict[str, str]:
     return values
 
 
-def gh(*args: str, input: str | None = None) -> str:
+def gh(*args: str, input: str | None = None, quiet: bool = False) -> str:
     """Run ``gh`` with ``args`` and return its stdout.
 
     A non-zero exit raises ``subprocess.CalledProcessError`` with stderr
     attached; a step that can tolerate a particular failure catches that. The
-    stderr is also relayed to this process's stderr first, whether or not the
-    caller tolerates the failure: "Bad credentials" or "Not Found" is the whole
-    diagnosis for a misconfigured install, and the shell bodies had it on the
-    step log for free.
+    stderr is also relayed to this process's stderr first unless the caller
+    requests quiet handling of an expected failure. "Bad credentials" or
+    "Not Found" is the whole diagnosis for a misconfigured install, and the
+    shell bodies had it on the step log for free.
 
     A job environment that forces color makes ``gh`` colorize even a piped
     ``--json``/``--jq`` body, and the ANSI codes land inside what
@@ -75,16 +75,19 @@ def gh(*args: str, input: str | None = None) -> str:
         check=False,
     )
     if result.returncode != 0:
-        sys.stderr.write(result.stderr)
-        sys.stderr.flush()
+        if not quiet:
+            sys.stderr.write(result.stderr)
+            sys.stderr.flush()
         raise subprocess.CalledProcessError(
             result.returncode, ["gh", *args], result.stdout, result.stderr
         )
     return result.stdout
 
 
-def gh_json(*args: str, input: str | None = None) -> Any:
+def gh_json(*args: str, input: str | None = None, quiet: bool = False) -> Any:
     """:func:`gh` whose output is parsed as JSON."""
+    if quiet:
+        return json.loads(gh(*args, input=input, quiet=True))
     return json.loads(gh(*args, input=input))
 
 

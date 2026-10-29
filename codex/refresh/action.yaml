@@ -42,7 +42,7 @@ runs:
         CODEX_REFRESH_PAT: ${{ inputs.refresh_pat }}
         CODEX_CONSUMER_AUTH_CONFIGURED: ${{ inputs.consumer_auth_configured }}
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime codex auth stage-refresh "$RUNNER_TEMP/tend-codex-refresh/auth.json"
+        tend runtime codex auth stage-refresh "$RUNNER_TEMP/tend-codex-refresh/auth.json"
 
     - name: Install Codex CLI
       if: steps.auth.outputs.configured == 'true'
@@ -69,4 +69,4 @@ runs:
         GH_TOKEN: ${{ inputs.refresh_pat }}
         CODEX_OUTCOME: ${{ steps.codex.outcome }}
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime codex auth publish-refresh "$RUNNER_TEMP/tend-codex-refresh/auth.json"
+        tend runtime codex auth publish-refresh "$RUNNER_TEMP/tend-codex-refresh/auth.json"

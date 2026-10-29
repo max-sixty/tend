@@ -37,7 +37,7 @@ jobs:
           ISSUES: ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
           BOOKKEEPING_LABELS: '<<bookkeeping_labels|tojson>>'
         run: |
-          "$TEND_RUNTIME_PYTHON" -I -m tend runtime triage-batch select
+          tend runtime triage-batch select
 
   triage:
     needs: select
@@ -55,6 +55,7 @@ jobs:
     env:
       TEND_ISSUE_NUMBER: ${{ matrix.issue }}
     steps:
+<<setup_tend_runtime()>>
 <<react_eyes('issues/' ~ issue)>>
 
 <<checkout(cfg, ref=cfg.default_branch)>>

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from contextlib import ExitStack
 from itertools import takewhile
 from pathlib import Path
@@ -20,6 +21,7 @@ import pytest
 from click.testing import CliRunner
 from tend.checks import CheckResult, OwnerLookupError
 from tend.cli import main
+from tend.runtime.shared import verify_generation
 from tend.workflows import (
     ACTIONLINT_QUEUE_IGNORE,
     ACTIONLINT_TEND_GLOB,
@@ -27,7 +29,7 @@ from tend.workflows import (
     codeowners_config,
 )
 
-from tests import ACTION_VERSION, BASH, UV, tool_path
+from tests import ACTION_VERSION, BASH, tool_path
 from tests import _yaml as yaml
 
 
@@ -250,7 +252,7 @@ def test_init_writes_only_paths_the_regeneration_checks_stage(
     assert not uncovered, (
         f"`tend init` writes paths neither the nightly regeneration nor the "
         f"install-test drift check stages: {uncovered}. Widen the `git add` "
-        "pathspecs in `nightly_workflow_update.py` and `generate_install_test` "
+        "pathspecs in `nightly_workflow_update.py` and `verify_generation` "
         "so the regeneration PR carries them and the drift check sees them."
     )
 
@@ -1061,13 +1063,9 @@ def test_init_notifications_has_precheck(
     check_index = next(i for i, step in enumerate(steps) if step.get("id") == "check")
     check_step = steps[check_index]
     assert check_step["id"] == "check"
-    assert check_step["env"]["TEND_UV"] == "${{ steps.tend_uv.outputs.uv-path }}"
-    assert '"$TEND_UV" run --script -' in check_step["run"]
-    assert '"--paginate"' in check_step["run"]
-    assert "subscription" in check_step["run"]
-    assert "notifications/threads/" not in check_step["run"]
+    assert check_step["run"].strip() == "tend runtime notifications-check"
     assert any(
-        step.get("uses", "").startswith("astral-sh/setup-uv@")
+        step.get("uses") == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
         for step in steps[:check_index]
     )
 
@@ -1123,12 +1121,10 @@ def test_notifications_precheck_tolerates_transient_non_json(
     output_file = tmp_path / "gh_output"
     output_file.write_text("")
     env = {
-        "PATH": tool_path(bindir, Path(UV).parent),
+        "PATH": tool_path(Path(sys.executable).parent, bindir),
         "HOME": str(tmp_path),
         "GITHUB_OUTPUT": str(output_file),
         "GITHUB_REPOSITORY": "owner/repo",
-        "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
-        "TEND_UV": UV,
     }
     result = subprocess.run(
         [BASH, "-e", "-c", script], env=env, capture_output=True, text=True, check=False
@@ -1340,21 +1336,11 @@ def test_install_test_workflow_shape(
     assert job["permissions"] == {"contents": "read"}
     assert "secrets." not in content
 
-    # Generator-drift step regenerates with the same flag to keep output stable.
-    # Version is pinned from the committed header (not `@latest`) so a release
-    # mid-PR doesn't fail the drift check for an irrelevant reason.
-    assert '"$TEND_UVX" "tend@$TEND_VERSION" init --with-install-test' in content
-    # Version-agnostic: the exact pin is covered by the regtest output, and
-    # weekly bumps shouldn't have to edit two places.
-    assert "astral-sh/setup-uv@" in content
-
-    # Default-branch probe: must not use `git remote set-head origin --auto`,
-    # which errors on the default shallow `actions/checkout` (only the PR
-    # head ref is fetched, so `refs/remotes/origin/<default>` doesn't exist
-    # locally). Query the API and fetch the default branch instead. See #582.
-    assert "git remote set-head" not in content
-    assert "gh api" in content and ".default_branch" in content
-    assert "git symbolic-ref" in content
+    # The setup action pins the installed generator, including its drift check.
+    assert job["steps"][1]["uses"] == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
+    step = job["steps"][-1]
+    assert step["run"].strip() == "tend runtime verify-generation"
+    assert step["env"] == {"GH_TOKEN": "${{ github.token }}"}
 
 
 @pytest.mark.parametrize(
@@ -1362,7 +1348,10 @@ def test_install_test_workflow_shape(
     ["added", "removed", "actionlint", "root-codeowners", "docs-codeowners", "none"],
 )
 def test_install_test_drift_check_sees_every_direction(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+    drift: str,
 ) -> None:
     """The drift check must fail on generator output the PR never committed —
     a workflow or the actionlint ignore — and on a workflow the regen no
@@ -1378,19 +1367,11 @@ def test_install_test_drift_check_sees_every_direction(
     The pathspecs also cover both consumer-owned CODEOWNERS locations that
     yolo `init` can update.
 
-    Runs the check the generated step carries, minus the regen call above it
-    (that needs the network); editing the workflow files is what the regen
-    does."""
+    Runs the same drift check the installed CLI invokes. Editing the workflow
+    files stands in for regeneration; git and its index are real."""
     _write_config(tmp_path, "bot_name: test-bot")
     monkeypatch.chdir(tmp_path)
     _run_init(["--with-install-test"])
-
-    data = yaml.safe_load(
-        (_workflow_dir(tmp_path) / "tend-install-test.yaml").read_text()
-    )
-    script = data["jobs"]["install-test"]["steps"][-1]["run"]
-    _, regen, drift_check = script.partition("init --with-install-test\n")
-    assert regen, "regen call moved: the drift check can no longer be split out"
 
     git = ("git", "-c", "user.email=tend@example.com", "-c", "user.name=tend")
     subprocess.run([*git, "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
@@ -1423,17 +1404,86 @@ def test_install_test_drift_check_sees_every_direction(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("# regenerated control-plane ownership\n")
 
-    result = subprocess.run(
-        [BASH, "-e", "-c", drift_check],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    output = result.stdout + result.stderr
+    result = verify_generation.check_drift()
+    captured = capfd.readouterr()
+    output = captured.out + captured.err
 
     if expected is None:
-        assert result.returncode == 0, f"drift check failed on a clean tree:\n{output}"
+        assert result == 0, f"drift check failed on a clean tree:\n{output}"
     else:
-        assert result.returncode != 0, f"drift check passed on the {drift} case"
+        assert result != 0, f"drift check passed on the {drift} case"
         assert expected in output
+
+
+def test_install_test_fetches_non_main_default_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_gh,
+) -> None:
+    remote = tmp_path / "upstream"
+    remote.mkdir()
+    git = ("git", "-c", "user.email=tend@example.com", "-c", "user.name=tend")
+    subprocess.run([*git, "init", "-q", "-b", "trunk"], cwd=remote, check=True)
+    (remote / "README").write_text("upstream\n")
+    subprocess.run([*git, "add", "."], cwd=remote, check=True)
+    subprocess.run([*git, "commit", "-qm", "initial"], cwd=remote, check=True)
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    subprocess.run([*git, "init", "-q", "-b", "topic"], cwd=checkout, check=True)
+    subprocess.run(
+        [*git, "remote", "add", "origin", str(remote)], cwd=checkout, check=True
+    )
+    monkeypatch.chdir(checkout)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    fake_gh.respond("api", "repos/owner/repo", with_={"default_branch": "trunk"})
+
+    verify_generation.prepare_default_branch()
+
+    assert (
+        subprocess.check_output(
+            ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+            text=True,
+        ).strip()
+        == "refs/remotes/origin/trunk"
+    )
+    assert (
+        subprocess.check_output(
+            ["git", "show", "origin/HEAD:README"],
+            text=True,
+        )
+        == "upstream\n"
+    )
+
+
+def test_install_test_regenerates_with_the_installed_python(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+    monkeypatch.setattr(
+        verify_generation, "prepare_default_branch", lambda: calls.append("prepare")
+    )
+
+    def run(command, **kwargs):
+        assert kwargs == {"check": True}
+        calls.append(command)
+
+    monkeypatch.setattr(verify_generation.subprocess, "run", run)
+
+    def drift():
+        calls.append("drift")
+        return 1
+
+    monkeypatch.setattr(verify_generation, "check_drift", drift)
+    assert verify_generation.main() == 1
+    assert calls == [
+        "prepare",
+        [
+            verify_generation.sys.executable,
+            "-I",
+            "-m",
+            "tend",
+            "init",
+            "--with-install-test",
+        ],
+        "drift",
+    ]

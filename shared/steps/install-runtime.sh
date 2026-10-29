@@ -8,6 +8,7 @@ set -euo pipefail
 : "${UV_INSTALL_DIR:?UV_INSTALL_DIR is required}"
 : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
 : "${GITHUB_ENV:?GITHUB_ENV is required}"
+: "${GITHUB_PATH:?GITHUB_PATH is required}"
 
 # A fresh job-local cache avoids reusing consumer-controlled runner caches.
 runtime_cache=$(mktemp -d "${TEND_PRIVATE_DIR:-$RUNNER_TEMP}/tend-runtime-cache.XXXXXX")
@@ -19,9 +20,13 @@ install_package() {
     "$UV_INSTALL_DIR/uv" sync --no-config --no-python-downloads \
       --python /usr/bin/python3 --project "$ACTION_PATH" --package tend \
       --frozen --no-dev --no-editable --link-mode copy
+  mkdir -p "$runtime_env/commands"
+  install -m 755 "$ACTION_PATH/shared/steps/tend" "$runtime_env/commands/tend"
   chmod -R a+rX "$runtime_env"
 }
 install_package "$RUNNER_TEMP/tend-python"
+# Expose Tend alone; the consumer keeps its own Python and other tools.
+printf '%s/commands\n' "$RUNNER_TEMP/tend-python" >> "$GITHUB_PATH"
 # Later always() steps can diagnose and dispose a failed sandbox installation.
 printf 'TEND_RUNTIME_PYTHON=%s/bin/python\n' "$RUNNER_TEMP/tend-python" >> "$GITHUB_ENV"
 if [[ -n "${TEND_RUNTIME_ROOT:-}" ]]; then

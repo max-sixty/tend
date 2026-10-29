@@ -1,27 +1,26 @@
-"""Tests for shell step bodies and inlined generated-workflow scripts.
+"""Tests for shell step bodies and workflow runtime operations.
 
 The composite actions' remaining shell steps under shared/steps/ and the
 generator's preflight scripts are all exercised at their runtime boundary.
 Shellcheck cannot catch runtime behavior, so shell steps run as commands;
-inlined Python runs against a fake `gh` and an injected clock. Shared Python
+runtime Python runs against a fake `gh` and an injected clock. Shared Python
 step bodies live in tend.runtime.shared and are tested in shared/steps/.
 """
 
 from __future__ import annotations
 
 import contextlib
-import importlib
 import io
 import json
 import os
 import shutil
 import subprocess
-import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from tend.runtime.shared import notifications_check
 
 from tests import BASH, GH_PREAMBLE, fake_bin, tool_path
 
@@ -346,12 +345,6 @@ def _output(env: dict[str, str], key: str) -> str:
 # notifications_check.py — the tend-notifications pre-check
 # ---------------------------------------------------------------------------
 
-NOTIFICATIONS_CHECK = (
-    REPO_ROOT / "generator" / "src" / "tend" / "templates" / "notifications_check.py"
-)
-sys.path.insert(0, str(NOTIFICATIONS_CHECK.parent))
-notifications_check = importlib.import_module("notifications_check")
-
 # `gh` stand-in for the notifications pre-check. The real notifications call
 # uses `--paginate --slurp`, so the fake puts each fixture item on its own page.
 # Counting more than one item therefore exercises the page flattening too.
@@ -448,7 +441,7 @@ def _run_check(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
                 now=datetime(2026, 1, 2, 12, tzinfo=UTC)
             )
     return subprocess.CompletedProcess(
-        [str(NOTIFICATIONS_CHECK)],
+        ["tend runtime notifications-check"],
         returncode,
         stdout.getvalue(),
         stderr.getvalue(),

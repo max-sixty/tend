@@ -41,27 +41,15 @@ jobs:
       name: tend
       deployment: false
     permissions:
+      contents: read
       issues: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - env:
           GH_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
-        run: |
-          MONTH=$(date -u +%Y-%m)
-          LABEL="review-reviewers-tracking"
-          NUM=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --label "$LABEL" \
-            --json number,title \
-            --jq "[.[] | select(.title | contains(\"$MONTH\"))] | sort_by(.number) | .[0].number // empty")
-          if [ -n "$NUM" ]; then
-            echo "Tracking issue for $MONTH exists: #$NUM"
-            exit 0
-          fi
-          cat > /tmp/body.md <<'EOF'
-          Monthly tracking issue for `review-reviewers`. Per-target evidence lives in secret gists owned by the bot. A comment below is posted when each target's gist is first created.
-
-          **Do not close manually** — a new issue is created each month.
-          EOF
-          gh issue create -R "$GITHUB_REPOSITORY" \
-            --title "$LABEL: $MONTH" --label "$LABEL" -F /tmp/body.md
+        run: python3 -I scripts/init_review_tracking.py
 
   review-reviewers:
     needs: init-tracking
