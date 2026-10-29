@@ -116,7 +116,7 @@ With working access, collect the distinct actionable issue numbers oldest first 
 
 ```bash
 # Example: the actual selection, not a fixed set of worker slots.
-"$TEND_RUNTIME_PYTHON" -I -m tend runtime triage-batch dispatch '[211,212,213]'
+tend runtime triage-batch dispatch '[211,212,213]'
 ```
 
 Dispatch through the current workflow and live issue, never by rerunning a historical payload. A dispatch hands work to a worker; it does not establish that the issue is resolved.

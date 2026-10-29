@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Decide whether the notifications workflow has work for an agent."""
 
 from __future__ import annotations
@@ -9,10 +5,10 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
+
+from tend.runtime.shared import _common
 
 GRAPHQL_QUERY = """
 query($q: String!) {
@@ -26,44 +22,16 @@ query($q: String!) {
 """
 
 
-def _gh(*args: str, quiet: bool = False) -> str:
-    # `gh` colorizes a piped `--json`/`--jq` response when the job's
-    # environment forces color, and the ANSI codes land inside the body
-    # `_json` parses. `CLICOLOR_FORCE=0` is the setting that defeats it:
-    # `gh` ranks a forced value above `NO_COLOR`, so `NO_COLOR` alone loses.
-    env = os.environ.copy()
-    env.update(NO_COLOR="1", CLICOLOR_FORCE="0")
-    result = subprocess.run(
-        ["gh", *args],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
-    if result.returncode:
-        if result.stderr and not quiet:
-            sys.stderr.write(result.stderr)
-        raise subprocess.CalledProcessError(
-            result.returncode, result.args, result.stdout, result.stderr
-        )
-    return result.stdout
-
-
-def _json(*args: str, quiet: bool = False) -> Any:
-    return json.loads(_gh(*args, quiet=quiet))
-
-
 def _paginated(path: str) -> list[Any]:
     # `--slurp` prints one array holding every page.
-    pages = _json("api", "--paginate", "--slurp", path, quiet=True)
+    pages = _common.gh_json("api", "--paginate", "--slurp", path, quiet=True)
     if not all(isinstance(page, list) for page in pages):
         raise TypeError("paginated GitHub response was not an array")
     return [item for page in pages for item in page]
 
 
 def _output(name: str, value: str | int) -> None:
-    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
-        stream.write(f"{name}={value}\n")
+    _common.set_output(name, str(value))
 
 
 def _notifications(cutoff: str) -> int:
@@ -94,10 +62,10 @@ def _is_deferred(pr: dict[str, Any], bot: str) -> bool:
 
 def _conflicts(repo: str) -> int:
     try:
-        bot = _gh("api", "user", "--jq", ".login", quiet=True).strip()
+        bot = _common.gh("api", "user", "--jq", ".login", quiet=True).strip()
         if not bot:
             raise ValueError("authenticated GitHub login was empty")
-        response = _json(
+        response = _common.gh_json(
             "api",
             "graphql",
             "-f",
@@ -143,7 +111,7 @@ def main(*, now: datetime | None = None) -> int:
     _output("cutoff", cutoff)
 
     try:
-        _gh(
+        _common.gh(
             "api",
             f"repos/{repo}/subscription",
             "-X",
@@ -171,7 +139,3 @@ def main(*, now: datetime | None = None) -> int:
         if conflict_count:
             print(f"{conflict_count} possible conflicted bot PR(s) — proceeding")
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

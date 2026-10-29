@@ -12,18 +12,13 @@ jobs:
       contents: read
       actions: read
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Require successful Codex smoke on the release commit
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh run list --repo "$GITHUB_REPOSITORY" \
-            --workflow codex-model-smoke.yaml --branch main --commit "$GITHUB_SHA" \
-            --event workflow_dispatch --json headSha,status,conclusion \
-            | jq -e --arg sha "$GITHUB_SHA" \
-                'any(.[]; .headSha == $sha and .status == "completed" and .conclusion == "success")'
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        run: python3 -I scripts/check_release_smoke.py
 
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -39,12 +34,7 @@ jobs:
         run: uv build --package tend
 
       - name: Check artifacts
-        run: |
-          uv tool run --from twine twine check dist/*
-          if [ -f dist/tend-0.0.0.tar.gz ]; then
-            echo "Invalid version number"
-            exit 1
-          fi
+        run: python3 -I scripts/check_release_artifacts.py
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -77,17 +67,4 @@ jobs:
       - name: Create GitHub Release from CHANGELOG section
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Publish the tag's CHANGELOG section verbatim as the release notes.
-          # Exact header match so 0.1.1 doesn't capture 0.1.10's section.
-          awk -v ver="$GITHUB_REF_NAME" '
-            $0 == "## " ver {flag=1; next}
-            flag && /^## / {exit}
-            flag {print}
-          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
-          if [ ! -s "$RUNNER_TEMP/notes.md" ]; then
-            echo "::error::No CHANGELOG.md section for $GITHUB_REF_NAME in the tagged commit. The tag is immutable, so re-running cannot fix this — add the section on main and run 'gh release create $GITHUB_REF_NAME' manually with the extracted notes."
-            exit 1
-          fi
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+        run: python3 -I scripts/publish_release.py

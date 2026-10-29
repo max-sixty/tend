@@ -127,7 +127,7 @@ runs:
       id: security
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime security-preflight
+        tend runtime security-preflight
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MERGE: ${{ inputs.merge }}
@@ -139,7 +139,7 @@ runs:
       id: bot
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime bot-identity
+        tend runtime bot-identity
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
@@ -154,7 +154,7 @@ runs:
         OPENAI_API_KEY: ${{ inputs.openai_api_key }}
         CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime codex auth prepare "$RUNNER_TEMP/tend-codex-auth.json"
+        tend runtime codex auth prepare "$RUNNER_TEMP/tend-codex-auth.json"
 
     # Install the pinned CLI and proxy into this run's runtime container.
     - name: Install Codex and Responses proxy
@@ -214,32 +214,7 @@ runs:
       env:
         PROXY_API_KEY: ${{ inputs.openai_api_key }}
       run: |
-        set +x
-        SERVER_INFO_FILE="$TEND_PRIVATE_DIR/tend-codex-proxy.json"
-        PROXY_LOG_FILE="$TEND_PRIVATE_DIR/tend-codex-proxy.log"
-        (
-          exec env -i \
-            PATH="$PATH" \
-            NODE_OPTIONS=--disable-sigusr1 \
-            node "$CODEX_PROXY_BIN" \
-            --http-shutdown \
-            --server-info "$SERVER_INFO_FILE" <<< "$PROXY_API_KEY"
-        ) > "$PROXY_LOG_FILE" 2>&1 &
-        for _ in {1..10}; do
-          [ -s "$SERVER_INFO_FILE" ] && break
-          sleep 1
-        done
-        if [ ! -s "$SERVER_INFO_FILE" ]; then
-          cat "$PROXY_LOG_FILE" >&2 || true
-          echo "::error::OpenAI Responses proxy did not start"
-          exit 1
-        fi
-        PROXY_PORT=$(python3 -E -s -c \
-          'import json,sys; print(json.load(open(sys.argv[1]))["port"])' \
-          "$SERVER_INFO_FILE")
-        sudo chmod 444 "$SERVER_INFO_FILE"
-        sudo chown root:root "$SERVER_INFO_FILE"
-        echo "CODEX_PROXY_URL=http://127.0.0.1:$PROXY_PORT" >> "$GITHUB_ENV"
+        tend runtime codex responses-proxy start
 
     # Subscription consumers intentionally receive an expiring access token,
     # never the rotating refresh token. Stage it only after the sandbox exists.
@@ -281,7 +256,7 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime codex install-plugin
+        tend runtime codex install-plugin
 
     # Shared memory stays outside the disposable sandbox resources.
     - name: Restore experimental memory Gist
@@ -290,7 +265,7 @@ runs:
       continue-on-error: true
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory restore
+        tend runtime gist-memory restore
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
@@ -304,7 +279,7 @@ runs:
         BOT_NAME: ${{ steps.bot.outputs.login }}
         TEND_MERGE: ${{ inputs.merge }}
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime codex stage-agents
+        tend runtime codex stage-agents
 
     - name: Run Codex
       id: codex
@@ -326,21 +301,19 @@ runs:
       # Base64 keeps arbitrary agent output in one GITHUB_OUTPUT line; consumers
       # decode it with `base64 -d`.
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime launch-agent
+        tend runtime launch-agent
 
     - name: Stop OpenAI Responses proxy
       if: always()
       shell: bash
       run: |
-        if [ -n "${CODEX_PROXY_URL:-}" ]; then
-          curl --fail --silent --show-error --max-time 10 "$CODEX_PROXY_URL/shutdown" || true
-        fi
+        tend runtime codex responses-proxy stop
 
     - name: Dispose sandbox resources
       if: always()
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime dispose-sandbox-resources
+        tend runtime dispose-sandbox-resources
 
     # The supervisor reaps every sandbox process before the trusted save.
     - name: Save experimental memory Gist
@@ -348,7 +321,7 @@ runs:
       continue-on-error: true
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory save
+        tend runtime gist-memory save
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
@@ -359,7 +332,7 @@ runs:
       continue-on-error: true
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory cleanup
+        tend runtime gist-memory cleanup
 
     # Codex writes rollouts under the sandbox user's ~/.codex/sessions. The
     # step consolidates them into a runner-owned directory only after reaping
@@ -379,13 +352,13 @@ runs:
         MODEL: ${{ inputs.model }}
         SANDBOX_REAPED: ${{ steps.codex.outputs.sandbox_reaped }}
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime token-usage --harness codex
+        tend runtime token-usage --harness codex
 
     - name: Mark event notification read
       if: success()
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime mark-notification-read
+        tend runtime mark-notification-read
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
@@ -400,7 +373,7 @@ runs:
       if: failure() && steps.security.outcome != 'failure'
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime report-failure
+        tend runtime report-failure
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         # Passed through `env:` because they resolve nowhere else — see the

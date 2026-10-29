@@ -159,8 +159,9 @@ tend/
 Python runtime modules live in the published `tend` package under
 `generator/src/tend/runtime/{shared,claude,codex}` and use normal package imports.
 The actions install their exact source with the frozen workspace lock, non-editably,
-and invoke the `tend runtime` commands through `python -I -m tend` so consumer
-files cannot shadow imports. `uv run tend runtime --help` lists the runtime commands.
+and expose an isolated `tend` command on PATH so consumer Python settings and
+files cannot shadow imports. Only Tend is added; consumer Python keeps its own
+interpreter. `uv run tend runtime --help` lists the runtime commands.
 The runner installation survives result processing; a separate installation under
 `TEND_RUNTIME_ROOT/venv` runs read-only inside the sandbox and is disposed with it.
 Shell assets and tests stay beside the owning action; `shared/steps/` holds common
@@ -551,10 +552,12 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
   each skipping one rare event shape, is machinery that costs more than
   the boots it saves.
 
-Keep the actions' Bash as linear installation and plumbing, not a second
-implementation layer. Do not add branches, retries, caches, or state for rare
-event shapes or small runner-time savings; put substantial behavior in a skill
-or tested Python.
+Keep workflow and composite-action manifests declarative: triggers, permissions,
+concurrency, steps, and input/output wiring. Put material selection, parsing,
+state transitions, and process lifecycle in tested code, invoked through
+`tend runtime` for shipped behavior or an owning repository script for Tend-only
+maintenance. Test the same command or function the manifest invokes. Shell stays
+linear installation and external-command plumbing.
 
 ### What waste is worth fixing
 

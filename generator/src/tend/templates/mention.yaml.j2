@@ -75,16 +75,13 @@ jobs:
       url: ${{ steps.check.outputs.url }}
       ts: ${{ steps.check.outputs.ts }}
     steps:
-<<setup_tend_uv()>>
+<<setup_tend_runtime()>>
       - name: Verify bot engagement
         id: check
         run: |
-          "$TEND_UV" run --script - <<heredoc>>'TEND_PY'
-<<check_script|indent(10, first=True)>>
-          TEND_PY
+          tend runtime mention-verify
         env:
           GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}
-          TEND_UV: ${{ steps.tend_uv.outputs.uv-path }}
           BOT_NAME: <<cfg.bot_name>>
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
@@ -109,6 +106,9 @@ jobs:
     permissions:
 <<permissions()>>
     steps:
+      - name: Record job start
+        run: echo "TEND_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+<<setup_tend_runtime()>>
       # Both halves of the reaction belong to this job, so the eyes can only
       # go on once the job that takes them off has started. Put them in
       # `verify` and `handle` respectively and the routine burst case strands
@@ -122,17 +122,12 @@ jobs:
       # carries `should_run`.
 <<react_eyes(reaction_target, if_condition=summoned(cfg.bot_name, 'needs.verify.outputs.reason'))>>
 
-      # Before checkout and `setup:`, so the delay measures the wait for this
-      # job to start rather than the time its setup takes.
+      # The first step captured job start, before runtime installation,
+      # checkout and consumer setup.
       - name: Compute queue delay
         id: delay
         run: |
-          if [ -z "$EVENT_TS" ]; then
-            echo "seconds=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          event_epoch=$(date -d "$EVENT_TS" +%s)
-          echo "seconds=$(( $(date +%s) - event_epoch ))" >> "$GITHUB_OUTPUT"
+          tend runtime queue-delay
         env:
           # A relayed event's timestamp comes from verify, which read it off
           # the API record — the dispatch payload never carries one to spoof.

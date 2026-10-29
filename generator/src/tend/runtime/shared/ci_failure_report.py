@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """File, update or close the CI failure report a finished watched run calls for.
 
 `tend-ci-failures` runs this, with no agent, when a watched workflow finishes
@@ -30,10 +26,11 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
+
+from tend.runtime.shared import _common
 
 LABEL = "tend-ci-failure"
 LABEL_DESCRIPTION = "A watched CI workflow is failing; Tend tracks its causes here"
@@ -49,26 +46,11 @@ RECENT_RUNS = 30
 
 def api(path: str, *, method: str = "GET", body: dict | None = None) -> Any:
     """One `gh api` call; a failure raises, and fails the job with gh's error."""
-    args = ["gh", "api", "--method", method, path]
+    args = ["api", "--method", method, path]
     if body is not None:
         args += ["--input", "-"]
-    # `gh` colorizes a piped response when the job's environment forces color;
-    # `CLICOLOR_FORCE=0` outranks a forced value where `NO_COLOR` alone loses.
-    env = {**os.environ, "NO_COLOR": "1", "CLICOLOR_FORCE": "0"}
-    result = subprocess.run(
-        args,
-        input=json.dumps(body) if body is not None else None,
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
-    if result.returncode:
-        sys.stderr.write(result.stderr)
-        raise subprocess.CalledProcessError(
-            result.returncode, args, result.stdout, result.stderr
-        )
-    return json.loads(result.stdout) if result.stdout.strip() else None
+    result = _common.gh(*args, input=json.dumps(body) if body is not None else None)
+    return json.loads(result) if result.strip() else None
 
 
 def paginated(path: str) -> list[dict[str, Any]]:
@@ -178,7 +160,3 @@ def main() -> int:
             body={"state": "closed", "state_reason": "completed"},
         )
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

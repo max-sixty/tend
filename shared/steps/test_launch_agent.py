@@ -235,6 +235,8 @@ def test_runtime_bundle_is_staged_outside_the_private_action(
     entries = launched.environment.decode().splitlines()
     assert f'ACTION_PATH="{bundle}"' in entries
     assert f'TEND_RUNTIME_PYTHON="{tmp_path / "runtime/venv/bin/python"}"' in entries
+    path = next(entry for entry in reversed(entries) if entry.startswith("PATH="))
+    assert path.startswith(f'PATH="{tmp_path / "runtime/venv/commands"}:')
     assert (bundle / "shared/steps/lib/pin-instruction-paths.sh").read_text() == (
         "lib/pin-instruction-paths.sh\n"
     )

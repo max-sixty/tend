@@ -16,9 +16,7 @@ CI settled red on this PR's head ${{ needs.check.outputs.sha }} after its review
           PR: ${{ matrix.pr }}
           SHA: ${{ needs.check.outputs.sha }}
         run: |
-          head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .head.sha)
-          if [ "$head" = "$SHA" ]; then current=true; else current=false; fi
-          echo "current=$current" >> "$GITHUB_OUTPUT"
+          tend runtime current-head
 {%- endmacro -%}
 <<header>>
 name: tend-land
@@ -107,6 +105,7 @@ jobs:
     permissions:
 <<permissions()>>
     steps:
+<<setup_tend_runtime()>>
 <<still_current()>>
 <<checkout(cfg, ref=cfg.default_branch, if_condition=current)>>
 <<agent_step(cfg, block_input('prompt', land_prompt), if_condition=current)>>
@@ -130,6 +129,7 @@ jobs:
     permissions:
 <<permissions()>>
     steps:
+<<setup_tend_runtime()>>
 <<still_current()>>
 <<checkout(cfg, ref=cfg.default_branch, if_condition=current)>>
 <<setup_current>>

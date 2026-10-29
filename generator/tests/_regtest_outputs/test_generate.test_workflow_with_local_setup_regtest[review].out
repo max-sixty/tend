@@ -33,10 +33,10 @@ jobs:
       actions: read
       issues: write
     steps:
+      - uses: max-sixty/tend/setup-runtime@X.Y.Z
       - name: React with eyes
         run: |
-          gh api "repos/$REPO/$TARGET/reactions" -f content=eyes --silent \
-            || echo "::warning::could not add the eyes reaction"
+          tend runtime reaction add
         env:
           REPO: ${{ github.repository }}
           TARGET: issues/${{ github.event.pull_request.number }}
@@ -68,13 +68,7 @@ jobs:
       - name: Remove the eyes reaction
         if: always()
         run: |
-          REACTION_ID=$(gh api --paginate \
-            "repos/$REPO/$TARGET/reactions?content=eyes&per_page=100" \
-            --jq ".[] | select(.user.login == \"$BOT_NAME\") | .id" | head -n1)
-          if [ -n "$REACTION_ID" ]; then
-            gh api -X DELETE "repos/$REPO/$TARGET/reactions/$REACTION_ID" --silent \
-              || echo "::warning::could not remove the eyes reaction"
-          fi
+          tend runtime reaction remove
         env:
           REPO: ${{ github.repository }}
           TARGET: issues/${{ github.event.pull_request.number }}
