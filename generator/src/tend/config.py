@@ -53,10 +53,6 @@ KNOWN_TOP_LEVEL = {
     "protected_branches",
     "secrets",
     "setup",
-    # Deprecated; see `_migrated_sandbox_steps`.
-    "sandbox_env",
-    "sandbox_path",
-    "sandbox_setup",
     "workflows",
 }
 KNOWN_HARNESSES = {"claude", "codex"}
@@ -100,7 +96,6 @@ REMOVED_SECRETS_KEYS = {
 }
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 # POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
-_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 ALLOWED_STEP_FIELDS = {
     "uses",
@@ -154,131 +149,6 @@ MERGE_POLICIES = {
         requires_control_plane_review=True,
     ),
 }
-
-
-def _deprecated_list(raw: dict, key: str) -> list[str]:
-    values = raw.get(key) or []
-    if not isinstance(values, list) or not all(
-        isinstance(value, str) and value.strip() for value in values
-    ):
-        raise click.ClickException(f"{key} must be a list of non-empty strings")
-    return values
-
-
-def _deprecated_env(raw: dict) -> dict[str, str]:
-    values = raw.get("sandbox_env") or {}
-    if not isinstance(values, dict):
-        raise click.ClickException(
-            "sandbox_env must be a mapping of NAME: VALUE "
-            '(e.g. sandbox_env: {RUST_BACKTRACE: "1"})'
-        )
-    env: dict[str, str] = {}
-    for name, value in values.items():
-        if not isinstance(name, str) or not _ENV_NAME.match(name):
-            raise click.ClickException(
-                f"sandbox_env key '{name}' is not a valid environment "
-                "variable name (letters, digits, underscore; not starting "
-                "with a digit)"
-            )
-        # `bool` is an `int` subclass, so it is tested first, and written as
-        # the shell's `true`/`false` rather than Python's `True`/`False`.
-        if isinstance(value, bool):
-            env[name] = "true" if value else "false"
-        elif isinstance(value, (str, int, float)):
-            env[name] = str(value)
-        else:
-            raise click.ClickException(
-                f"sandbox_env value for '{name}' must be a scalar "
-                "(string, number, or boolean)"
-            )
-        # `$GITHUB_ENV` reads one NAME=VALUE per line, so a second line
-        # would set a variable of its own.
-        if "\n" in env[name]:
-            raise click.ClickException(
-                f"sandbox_env value for '{name}' must be a single line"
-            )
-    return env
-
-
-def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
-    """`setup:` steps doing what the deprecated `sandbox_*` keys did.
-
-    All three existed to reach an agent with its own environment, home and
-    checkout. Under the copy-on-write view it runs with the job's environment
-    and PATH and sees what `setup:` built, so their documented migration is to
-    move the entries into `setup:`, and this performs it: one step per key,
-    appended after the consumer's own steps, so those still do not see a
-    `sandbox_env` value. Variables and paths come first, since `sandbox_setup`
-    ran with both. A variable's value stays in the step's `env:`, where an
-    Actions expression still evaluates, rather than in its script. A leading
-    `~` named the sandbox's home, which under the view is the job's `$HOME`.
-    The runner puts a later `$GITHUB_PATH` line ahead of an earlier one, so the
-    directories are written last-first to keep the first entry first. The
-    commands share one `-eo pipefail` bash, as they did, so a `cd`, `export` or
-    `source` still reaches the ones after it.
-
-    Warned about rather than refused, at the maintainer's call and against the
-    no-backward-compatibility rule in AGENTS.md, so that nothing breaks in a
-    consumer before it migrates; a warning that dropped the entries would
-    silently stop installing what its agent relies on.
-    TODO(2026-10-21): refuse all three keys, with these messages as the
-    migration, once the consumers that set them have moved their entries into
-    `setup:`.
-    """
-    steps: list[SetupStep] = []
-    env = _deprecated_env(raw)
-    if env:
-        click.echo(
-            "Warning: `sandbox_env` is deprecated and will be refused in a "
-            "later release. The agent now runs with the job's own "
-            "environment, so a variable a `setup:` step exports to "
-            "`$GITHUB_ENV` reaches it; its entries are exported from a "
-            "`setup:` step after yours for now. Export them yourself from "
-            'the last `setup:` step (e.g. `- run: echo "MY_TOKEN=$MY_TOKEN" '
-            '>> "$GITHUB_ENV"`, with the value under the step\'s `env:` as '
-            "`MY_TOKEN:`, where an expression still works), since every step "
-            "after the export sees the value, and delete the key.",
-            err=True,
-        )
-        run = "\n".join(f'echo "{name}=${name}" >> "$GITHUB_ENV"' for name in env)
-        steps.append(SetupStep(fields={"run": run, "env": env}))
-    paths = _deprecated_list(raw, "sandbox_path")
-    if paths:
-        click.echo(
-            "Warning: `sandbox_path` is deprecated and will be refused in a "
-            "later release. The agent now runs with the job's own PATH, so "
-            "a directory a `setup:` step adds reaches it; its entries are "
-            "added from a `setup:` step after yours for now. Add each "
-            "directory yourself (e.g. "
-            '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`) and delete '
-            "the key.",
-            err=True,
-        )
-        directories = [
-            "$HOME" + d[1:] if d == "~" or d.startswith("~/") else d for d in paths
-        ]
-        run = "\n".join(f'echo "{d}" >> "$GITHUB_PATH"' for d in reversed(directories))
-        steps.append(SetupStep(fields={"run": run}))
-    commands = _deprecated_list(raw, "sandbox_setup")
-    if commands:
-        click.echo(
-            "Warning: `sandbox_setup` is deprecated and will be refused in a "
-            "later release. The agent now works in the job's own checkout "
-            "and home, so what `setup:` builds reaches it; its commands run "
-            "in one `setup:` step after yours for now. That is an ordinary "
-            "workflow step, and tend puts nothing on its PATH, so a command "
-            "that calls `uv` needs a step that installs it, such as "
-            "`astral-sh/setup-uv`, earlier in your `setup:`. Move the "
-            "commands into `setup:` as `run:` steps (e.g. "
-            "`- run: rustup component add clippy`) and delete the key; a "
-            "`cd`, `export` or `source` reaches only the rest of its own "
-            "step. `setup:` runs on the default or PR base tree; what a pull "
-            "request itself changes, such as a new dependency in its "
-            "lockfile, the agent installs in the session.",
-            err=True,
-        )
-        steps.append(SetupStep(fields={"run": "\n".join(commands), "shell": "bash"}))
-    return steps
 
 
 @dataclass
@@ -391,14 +261,16 @@ class Config:
     def load(cls, path: Path | None = None) -> Config:
         if path is None:
             path = Path(".config/tend.yaml")
+        if path.suffix == ".toml":
+            raise click.ClickException(
+                f"Unsupported config format: {path}. Convert it to YAML."
+            )
         if not path.exists():
             legacy = Path(".config/tend.toml")
             if path == Path(".config/tend.yaml") and legacy.exists():
                 raise click.ClickException(
-                    f"Found {legacy} but tend now reads {path}. "
-                    "Run `uvx tend@latest init` to migrate "
-                    "(verifies the parsed config is equivalent, swaps the file, "
-                    "and regenerates workflows in one step)."
+                    f"Unsupported config format: {legacy}. "
+                    f"Convert it to YAML at {path}."
                 )
             raise click.ClickException(f"Config not found: {path}")
         try:
@@ -408,6 +280,14 @@ class Config:
         if not isinstance(raw, dict):
             raise click.ClickException(
                 f"{path} must contain a YAML mapping at the top level"
+            )
+
+        retired = sorted(set(raw) & {"sandbox_env", "sandbox_path", "sandbox_setup"})
+        if retired:
+            raise click.ClickException(
+                f"Unsupported config keys: {', '.join(retired)}. "
+                "Move commands into setup: run: steps; export environment variables "
+                "to $GITHUB_ENV and add PATH entries to $GITHUB_PATH in those steps."
             )
 
         if "bot_name" not in raw:
@@ -559,7 +439,6 @@ class Config:
                     )
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
-        setup.extend(_migrated_sandbox_steps(raw))
 
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in (raw.get("workflows") or {}).items():

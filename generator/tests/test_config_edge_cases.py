@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from textwrap import dedent
 
@@ -282,21 +281,6 @@ def test_yolo_accepts_runner_setup(tmp_path: Path, step: str) -> None:
 
     cfg = Config.load(path)
     assert len(cfg.setup) == 1
-
-
-def test_yolo_migrates_deprecated_sandbox_setup(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-            bot_name: my-bot
-            merge: yolo
-            sandbox_setup:
-              - make bootstrap
-            """),
-    )
-
-    cfg = Config.load(path)
-    assert [step.fields["run"] for step in cfg.setup] == ["make bootstrap"]
 
 
 @pytest.mark.parametrize(
@@ -1080,7 +1064,9 @@ def test_legacy_toml_file_errors_clearly(
     (tmp_path / ".config" / "tend.toml").write_text('bot_name = "my-bot"\n')
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(ClickException, match="tend now reads .*tend\\.yaml"):
+    with pytest.raises(
+        ClickException, match="Unsupported config format: .*tend\\.toml"
+    ):
         Config.load()
 
 
@@ -1162,150 +1148,13 @@ def test_workflow_extra_delete_with_null(tmp_path: Path) -> None:
     assert perms["contents"] == "write"
 
 
-# ---------------------------------------------------------------------------
-# Deprecated sandbox_* keys
-# ---------------------------------------------------------------------------
-
-
-def _migrated_env(tmp_path: Path, entries: str) -> dict[str, str]:
-    """The `env:` of the one `setup:` step a `sandbox_env` block migrates to."""
-    path = _write_config(tmp_path, f"bot_name: my-bot\nsandbox_env:\n{entries}")
-    (step,) = Config.load(path).setup
-    return step.fields["env"]
-
-
-def test_sandbox_env_coerces_scalars_to_strings(tmp_path: Path) -> None:
-    # `bool` is an `int` subclass; emit shell-conventional lowercase, not
-    # Python's `True`/`False`.
-    assert _migrated_env(
-        tmp_path, "  RUST_BACKTRACE: 1\n  DEBUG: true\n  QUIET: false\n"
-    ) == {"RUST_BACKTRACE": "1", "DEBUG": "true", "QUIET": "false"}
-
-
 @pytest.mark.parametrize(
-    ("entries", "message"),
-    [
-        ('  FOO: "a\\nb"\n', "must be a single line"),
-        ("  FOO: [a, b]\n", "must be a scalar"),
-        ('  "1BAD": x\n', "not a valid environment"),
-    ],
+    ("key", "value"),
+    [("sandbox_env", "{}"), ("sandbox_path", "[]"), ("sandbox_setup", "null")],
 )
-def test_sandbox_env_rejects_what_cannot_be_exported(
-    tmp_path: Path, entries: str, message: str
+def test_retired_sandbox_keys_require_setup(
+    tmp_path: Path, key: str, value: str
 ) -> None:
-    with pytest.raises(ClickException, match=message):
-        _migrated_env(tmp_path, entries)
-
-
-def test_migrated_sandbox_env_exports_each_value_verbatim(tmp_path: Path) -> None:
-    """The step writes one `NAME=VALUE` line per entry into `$GITHUB_ENV`, run
-    as GitHub runs a `run:` step with no `shell:`, and the shell expands
-    nothing inside a value."""
-    path = _write_config(
-        tmp_path,
-        dedent(r"""
-        bot_name: my-bot
-        sandbox_env:
-          RUST_BACKTRACE: 1
-          ODD: 'a "b" $HOME \n -e'
-    """),
-    )
-    (step,) = Config.load(path).setup
-    github_env = tmp_path / "github-env"
-    subprocess.run(
-        ["bash", "--noprofile", "--norc", "-e", "-c", step.fields["run"]],
-        env={**step.fields["env"], "GITHUB_ENV": str(github_env)},
-        check=True,
-    )
-    assert github_env.read_text() == 'RUST_BACKTRACE=1\nODD=a "b" $HOME \\n -e\n'
-
-
-def test_deprecated_sandbox_keys_warn_and_become_setup_steps(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A deprecated key keeps working, as the `setup:` steps it migrates to.
-
-    Nightly regeneration reads the warning inside an agent session, so it has
-    to carry the whole migration; and dropping the entries instead would stop
-    installing what the consumer's agent relies on, or hand it no credential.
-    """
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        setup:
-          - run: echo consumer
-        sandbox_setup:
-          - rustup component add clippy
-          - export TOOLCHAIN=stable
-        sandbox_path:
-          - ~/.cargo/bin
-          - /opt/tools/bin
-        sandbox_env:
-          MY_TOKEN: "${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}"
-    """),
-    )
-    cfg = Config.load(path)
-
-    # Variables and paths ahead of the commands, which ran with both. The
-    # runner puts a later `$GITHUB_PATH` line ahead of an earlier one, so
-    # last-first keeps `~/.cargo/bin` first on PATH, as `sandbox_path` had it.
-    # The expression stays in `env:`, where Actions evaluates it.
-    assert [step.fields for step in cfg.setup] == [
-        {"run": "echo consumer"},
-        {
-            "run": 'echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"',
-            "env": {
-                "MY_TOKEN": "${{ github.event_name == 'schedule' "
-                "&& secrets.MY_TOKEN || '' }}"
-            },
-        },
-        {
-            "run": 'echo "/opt/tools/bin" >> "$GITHUB_PATH"\n'
-            'echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"'
-        },
-        {
-            "run": "rustup component add clippy\nexport TOOLCHAIN=stable",
-            "shell": "bash",
-        },
-    ]
-    warned = capsys.readouterr().err
-    assert "`sandbox_env` is deprecated" in warned
-    assert '`- run: echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"`' in warned
-    assert "`sandbox_setup` is deprecated" in warned
-    assert "`- run: rustup component add clippy`" in warned
-    assert "`sandbox_path` is deprecated" in warned
-    assert '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`' in warned
-    assert "unknown config key" not in warned
-
-
-def test_migrated_sandbox_setup_commands_share_one_shell(tmp_path: Path) -> None:
-    """`sandbox_setup` ran its entries in one `-eo pipefail` bash, so an
-    `export` reached the entries after it and a failure stopped the rest. The
-    migrated step keeps both, run as GitHub runs a `shell: bash` step."""
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        sandbox_setup:
-          - export GREETING=hi
-          - test "$GREETING" = hi
-          - echo reached
-          - "false"
-          - echo unreachable
-    """),
-    )
-    (step,) = Config.load(path).setup
-    result = subprocess.run(
-        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step.fields["run"]],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert (result.returncode, result.stdout) == (1, "reached\n")
-
-
-def test_deprecated_sandbox_setup_must_be_a_list(tmp_path: Path) -> None:
-    path = _write_config(tmp_path, "bot_name: my-bot\nsandbox_setup: echo hi\n")
-    with pytest.raises(ClickException, match="sandbox_setup must be a list"):
+    path = _write_config(tmp_path, f"bot_name: my-bot\n{key}: {value}\n")
+    with pytest.raises(ClickException, match=f"Unsupported config keys: {key}.*setup:"):
         Config.load(path)

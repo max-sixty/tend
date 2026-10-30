@@ -39,12 +39,6 @@ def configure(
     runtime_root.mkdir()
     private = runtime_root / "private"
     private.mkdir(mode=0o700)
-    action = tmp_path / "private/action"
-    steps = action / "shared/steps"
-    steps.mkdir(parents=True)
-    for name in launch.RUNTIME_SHELL_FILES:
-        (steps / name).parent.mkdir(parents=True, exist_ok=True)
-        (steps / name).write_text(f"{name}\n")
     python = runtime_root / "venv/bin/python"
     python.parent.mkdir(parents=True)
     python.touch()
@@ -78,7 +72,6 @@ def configure(
         "GITHUB_STEP_SUMMARY": str(summary),
         "TEND_RUNTIME_ROOT": str(runtime_root),
         "TEND_PRIVATE_DIR": str(private),
-        "ACTION_PATH": str(action),
     }
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
@@ -215,7 +208,7 @@ def test_codex_base64_encodes_the_fixed_final_message(
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_runtime_bundle_is_staged_outside_the_private_action(
+def test_runtime_uses_the_installed_interpreter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, harness: str
 ) -> None:
     run_dir, _output, _summary = configure(tmp_path, monkeypatch, harness=harness)
@@ -223,7 +216,6 @@ def test_runtime_bundle_is_staged_outside_the_private_action(
 
     assert launch.main() == 0
 
-    bundle = tmp_path / "runtime/action"
     assert launched.unit[-6:] == [
         str(tmp_path / "runtime/venv/bin/python"),
         "-I",
@@ -233,15 +225,10 @@ def test_runtime_bundle_is_staged_outside_the_private_action(
         "agent-lifecycle",
     ]
     entries = launched.environment.decode().splitlines()
-    assert f'ACTION_PATH="{bundle}"' in entries
+    assert not (tmp_path / "runtime/action").exists()
     assert f'TEND_RUNTIME_PYTHON="{tmp_path / "runtime/venv/bin/python"}"' in entries
     path = next(entry for entry in reversed(entries) if entry.startswith("PATH="))
     assert path.startswith(f'PATH="{tmp_path / "runtime/venv/commands"}:')
-    assert (bundle / "shared/steps/lib/pin-instruction-paths.sh").read_text() == (
-        "lib/pin-instruction-paths.sh\n"
-    )
-    assert (bundle / "shared/steps").stat().st_mode & 0o777 == 0o755
-    assert (bundle / "shared/steps/lib").stat().st_mode & 0o777 == 0o755
 
 
 def test_the_unit_binds_the_view_over_the_home_and_hides_the_runner(
