@@ -6,6 +6,15 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.22
+
+### Fixed
+
+- Issue workers are instructed to execute available diagnostic experiments and retain unfinished work until completion, an active handoff, or a specific blocker. Recording a next action on an issue does not count as a handoff. ([#1618](https://github.com/max-sixty/tend/pull/1618))
+- Triage and daily recovery follow replacement PRs to landed repairs and close issues when evidence establishes full resolution. Partial repairs, intermittent failures, active workers, and maintainer holds retain their existing safeguards. ([#1618](https://github.com/max-sixty/tend/pull/1618))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.21
 
 ### Improved
