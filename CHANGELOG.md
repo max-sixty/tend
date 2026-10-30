@@ -6,7 +6,7 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
-## 0.3.20
+## 0.3.21
 
 ### Improved
 
@@ -20,6 +20,8 @@ https://github.com/max-sixty/tend/compare for their history.
 - Startup configuration restoration handles wildcard, newline, and non-UTF-8 filenames literally while preserving trusted-base instruction pinning. ([#1610](https://github.com/max-sixty/tend/pull/1610))
 
 ### Internal
+
+- Release artifact validation checks only built distributions, excluding build-directory metadata. ([#1614](https://github.com/max-sixty/tend/pull/1614))
 
 - Workflow operations and CI helpers run through the installed, isolated `tend runtime` CLI. Runner setup has one owner, and instruction restoration uses the packaged Python runtime instead of staged shell assets. ([#1607](https://github.com/max-sixty/tend/pull/1607), [#1608](https://github.com/max-sixty/tend/pull/1608), [#1610](https://github.com/max-sixty/tend/pull/1610))
 
