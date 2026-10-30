@@ -59,7 +59,8 @@ underlying cause is resolved.
 
 {row}{remedy}
 
-This issue was created automatically. Close it after every row above is \
+This issue was created automatically. Additional failed runs are recorded in \
+comments. Close it after every run recorded in the issue body or comments is \
 diagnosed and the live repository has been checked for work the failed runs \
 may have missed. The `tend-review-runs` sweep does that where it runs.
 """
