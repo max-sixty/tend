@@ -53,8 +53,10 @@ Before the session starts, both harnesses restore `CLAUDE.md`, `CLAUDE.local.md`
 The calling workflow owns the task through its remaining work and the
 follow-ups its actions create. Posting, approving, or pushing is progress;
 deduplicating one of those actions does not finish the task. End with the
-completed outcome, an identified owner of the remaining work, or a specific
-current blocker.
+completed outcome for the calling workflow, a handoff to a worker or PR workflow
+that will continue the remaining work, or a specific current blocker. Recording a next action on an
+issue, including one you own, preserves the backlog; it does not execute or
+hand off that action.
 
 After pushing a fix, own its CI follow-up: diagnose failures, repair what this
 task authorizes, and verify the new commit. `tend-ci-failures` reports only the

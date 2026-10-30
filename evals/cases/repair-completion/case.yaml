@@ -1,0 +1,35 @@
+description: Reconcile superseded repairs at triage and nightly recovery entrypoints.
+vars:
+  task: |
+    Act as Tend at each independent stop point in observations.json. Use the
+    workflow named in that snapshot and load its active guidance. Where two
+    workflows are listed, assess the same snapshot independently at each
+    entrypoint. Decide what to do next and what, if anything, remains for
+    another session or person. Save decisions and proposed issue dispositions
+    in captured.md.
+
+    This is an offline next-decision case. GitHub and the original repositories
+    are unavailable. The observations supply current-state reads. Propose
+    actions without claiming to have executed diagnostics, fixes, comments,
+    dispatches or issue changes.
+assert:
+  - type: llm-rubric
+    value: >-
+      In superseded-repair, at both triage and review-runs entrypoints, follow
+      the old PR's replacement to the merged repair and propose closing
+      issue703 as completed with that repair and affected-path verification
+      as evidence. Do not stop at the old closed PR, silently skip the open
+      issue as a completed disposition, create a competing repair, or dispatch
+      another diagnosis of an already verified resolution. No actual closure
+      should be claimed.
+  - type: llm-rubric
+    value: >-
+      In partial-intermittent, keep issue706 open: the merged export fix
+      covers only part, and an isolated passing synchronization rerun does
+      not establish resolution of an intermittent defect. Preserve its
+      unchanged, specific access blocker without repeating a request or
+      launching an identical incapable worker. In live-owner, let the
+      accepted active repair709 continue without duplicating investigation,
+      comments or closure; the issue remains open until resolution is
+      established. Do not convert these legitimate waits into mandatory
+      repeated diagnostics or invented proof of completion.

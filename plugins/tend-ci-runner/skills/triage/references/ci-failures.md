@@ -57,6 +57,6 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
 A cause issue is labeled `tend-ci-cause`, and its body names its report. It is a bug report whose reproduction starts from its runs, and triage's steps 3 to 6 apply with these specifics.
 
 - **An existing fix.** Follow **Share ownership of a proven cause** in `/tend-ci-runner:fix-a-bug` when evidence connects this issue to other reports or an existing repair.
-- **Reproduce** with the test commands from the project's instruction files. Close a cause when evidence establishes its resolution on the default branch, verifying the affected path against the repair or recovered incident. A passing rerun alone does not settle an intermittent failure.
+- **Reproduce** with the test commands from the project's instruction files. Apply **Reconcile existing work** in `/tend-ci-runner:triage` to evidence of resolution.
 - **Fix** per `/tend-ci-runner:fix-a-bug`, at the level the cause lives, after searching for the same pattern elsewhere. Before `gh pr create`, follow **Dedup recheck immediately before `gh pr create`** in `/tend-ci-runner:open-pr`. Use **Closing keywords** there so a partial repair leaves its unfinished cause open.
 - **Unfinished diagnosis or verification.** Follow **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`.
