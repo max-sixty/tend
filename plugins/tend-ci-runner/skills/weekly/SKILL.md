@@ -10,6 +10,7 @@ metadata:
 ## Step 0: Load required skills
 
 - Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay for Step 3.
+- Read `/tend-ci-runner:review-runs`'s `references/parallel-maintenance.md` to divide the sweep's work.
 - Load `/tend-ci-runner:post-to-github` before composing comments or reviews.
 - Read `/tend-ci-runner:review`'s `references/approving.md` before approving.
 - Load `/tend-ci-runner:dismiss-approval` if an earlier bot approval must be withdrawn.

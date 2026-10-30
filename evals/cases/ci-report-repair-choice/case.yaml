@@ -26,6 +26,10 @@ assert:
       mixture. Direct repair entails investigation, verification and a repair
       PR; any work left unfinished must have an issue or PR owner linked from
       report 200. Do not duplicate PR 220 or claim the failures resolved.
-      Independent investigations may run in parallel. Do not leave durable
-      failures solely in the report's comments, because the report closes
-      automatically when the lane passes.
+      Independent investigations may run in parallel. A completed handoff must
+      not leave durable failures solely in the report's comments, because the
+      report closes automatically when the lane passes. If issue or PR creation
+      is explicitly refused or unavailable, recording the remaining unowned
+      cause on the existing report is a valid temporary step, provided the
+      plan keeps the work unfinished for recovery and does not present that
+      comment or a passing run as a durable owner or resolution.

@@ -1,0 +1,35 @@
+description: Parallel maintenance delegates independent work without duplicating repair owners.
+vars:
+  task: |
+    Act as Tend's maintenance session for each independent situation in
+    observations.json. Load the applicable daily or weekly skill and the
+    guidance it references. Decide the remaining work and how to carry it
+    out, recording your plan and any draft public output in captured.md.
+    GitHub and the original run artifacts are unavailable in this offline
+    exercise. Do not perform outward actions or claim proposed work succeeded.
+assert:
+  - type: llm-rubric
+    value: >-
+      Judge proposed actions in this offline task. For daily-broad-scan,
+      delegate substantial independent in-process investigations to concurrent
+      subagents, with distinct scopes such as run groups or PRs, and reconcile
+      their results. Do not plan to inspect every independent session and PR
+      serially in the parent, or treat subagents as only an optional afterthought.
+      No particular number of agents or grouping is required.
+  - type: llm-rubric
+    value: >-
+      For weekly-atomic-repairs, route the unowned encoding defect through an
+      issue and ordinary triage, recover existing issue 210 through its normal
+      worker path, and preserve PR 330's active repair ownership. Do not open a
+      duplicate issue for 210 or start a competing repair for PR 330. Use
+      subagents for independent dependency compatibility investigations that
+      the weekly scan handles in-process, preserving normal review and landing
+      gates. Delegating an investigation does not establish its success.
+  - type: llm-rubric
+    value: >-
+      For small-overlapping-scan, recognize that the repeated failures share
+      active ownership and that only the summary remains. Do not create new
+      issues, dispatch duplicate repair workers, or invent additional work
+      merely to fill subagent slots. Preserve the open issue and active PR
+      until repair evidence establishes resolution. Proposed actions in every
+      scenario must remain distinct from completed actions.
