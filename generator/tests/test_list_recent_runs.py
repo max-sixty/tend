@@ -1,4 +1,4 @@
-"""Tests for plugins/tend-ci-runner/scripts/list_recent_runs.py.
+"""Tests for tend.runtime.ci.list_recent_runs.py.
 
 The window logic is the behaviour under test: the completion window resumes
 at the previous successful run's start, clamps at the cap with a stderr
@@ -12,25 +12,18 @@ deterministic.
 from __future__ import annotations
 
 import contextlib
-import importlib
 import io
 import json
 import os
 import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from tend.runtime.ci import list_recent_runs
+from tend.runtime.shared import _common
 
 from tests import GH_PREAMBLE, fake_bin, tool_path
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts"
-SCRIPT = SCRIPTS / "list_recent_runs.py"
-sys.path.insert(0, str(SCRIPTS))
-github_cli = importlib.import_module("github_cli")
-list_recent_runs = importlib.import_module("list_recent_runs")
 
 # The fixed clock: 2023-11-14T22:13:20Z.
 NOW = 1700000000
@@ -39,7 +32,7 @@ NOW = 1700000000
 def test_shared_json_output_preserves_unicode(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    github_cli.dump({"name": "café"})
+    _common.dump({"name": "café"})
 
     assert '"café"' in capsys.readouterr().out
 
@@ -146,7 +139,8 @@ def _run(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             try:
                 returncode = list_recent_runs.main(
-                    ["review-reviewers", *args],
+                    "review-reviewers",
+                    tuple(args),
                     now=datetime.fromtimestamp(NOW, tz=UTC),
                 )
             except subprocess.CalledProcessError as error:
@@ -458,7 +452,7 @@ def test_review_runs_profile_persists_its_wider_completion_window(
         monkeypatch.setattr(os, "environ", env.copy())
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             result = list_recent_runs.main(
-                ["review-runs"], now=datetime.fromtimestamp(NOW, tz=UTC)
+                "review-runs", now=datetime.fromtimestamp(NOW, tz=UTC)
             )
 
     assert result == 0, stderr.getvalue()

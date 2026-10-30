@@ -1,25 +1,20 @@
 """Tests for ci_failure_report.py — tend-ci-failures' report writer.
 
 Every case is an outward write a maintainer sees: a report filed, a comment
-posted, an issue closed. The script is inlined into its
-workflow, so these load it from the templates directory and swap its one
-GitHub call, `api`, for an in-memory repository.
+posted, an issue closed. The runtime module swaps its GitHub boundary, `api`, for an in-memory
+repository.
 """
 
 from __future__ import annotations
 
-import importlib.resources
 import json
 import re
-import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
 import pytest
-
-sys.path.insert(0, str(importlib.resources.files("tend") / "templates"))
-import ci_failure_report as report
+from tend.runtime.shared import ci_failure_report as report
 
 REPO = "owner/repo"
 BOT = "test-bot"

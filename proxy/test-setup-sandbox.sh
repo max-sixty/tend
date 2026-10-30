@@ -173,7 +173,7 @@ verify_lifecycle() {
     exit 1
   fi
 
-  # Where the Claude binary installs, first on the sandbox PATH.
+  # Where the Claude binary installs on the sandbox PATH.
   stub_bin=/home/tend-sandbox/.local/bin
   sudo -u "$SANDBOX" mkdir -p "$stub_bin"
   claude_stub="$stub_bin/claude"
@@ -258,6 +258,8 @@ PY
     'test "$(cat "$TEND_WARM_CACHE/registry/warm")" = warm-cache' \
     'test "$(cat "$TEND_WARM_TREE/artifact")" = built' \
     'test "$(tend-seeded)" = runner-seed' \
+    'tend runtime triage-batch dispatch "[]"' \
+    'test ! -w "$(command -v tend)"' \
     '# Nobody else'"'"'s processes, no new namespaces, and no DNS: resolving' \
     '# needs systemd-resolved'"'"'s socket, and AF_UNIX is refused.' \
     'test -z "$(ps -e -o uid= | tr -d " " | grep -vx "$(id -u)")"' \
@@ -325,7 +327,7 @@ PY
     TEND_JOB_ONLY=tend-job-env-marker \
     GITHUB_OUTPUT="$github_output" \
     GITHUB_STEP_SUMMARY="$runner_summary" \
-    "$TEND_RUNTIME_PYTHON" -I -m tend runtime launch-agent || rc=$?
+    tend runtime launch-agent || rc=$?
   mv "$RUNNER_TEMP/tend-claude-aside" "$GITHUB_WORKSPACE/.claude"
   test "$rc" -eq 0
   grep -qx 'sandbox_reaped=true' "$github_output"
@@ -412,7 +414,7 @@ PY
     GITHUB_TOKEN=runner-token-must-not-cross \
     GITHUB_OUTPUT="$github_output" \
     GITHUB_STEP_SUMMARY="$runner_summary" \
-    "$TEND_RUNTIME_PYTHON" -I -m tend runtime launch-agent || rc=$?
+    tend runtime launch-agent || rc=$?
   rm -rf "$private_action"
   kill "$probe_pid" 2>/dev/null || true
   wait "$probe_pid" 2>/dev/null || true
@@ -441,7 +443,7 @@ PY
 }
 
 verify_dispose() {
-  "$TEND_RUNTIME_PYTHON" -I -m tend runtime dispose-sandbox-resources
+  tend runtime dispose-sandbox-resources
   test ! -e "$TEND_RUNTIME_ROOT"
   test -f "/tmp/tend-runner-owned-$GITHUB_RUN_ID"
   echo "[test-setup-sandbox] runtime container disposed, runner entries kept"

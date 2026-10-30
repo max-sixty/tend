@@ -405,8 +405,19 @@ bot_name: my-project-bot
 # ### triage
 #
 # Triggers on new and reopened issues. Classifies, checks for duplicates,
-# reproduces bugs and attempts conservative fixes. One worker runs at a time;
-# pending issue labels retain failed attempts for recovery.
+# reproduces bugs and attempts conservative fixes. New/reopened issue events
+# create one-job batches; notifications and daily recovery submit selected issues
+# together. Whole batches serialize, with at most five issue jobs running at once.
+# New arrivals wait for the current batch's slowest job. Failed or cancelled work
+# stays on the open issues for recovery; independent jobs continue on failure.
+# Recovery dispatches split at GitHub's matrix and run-name limits; the latter
+# keeps all selected issue IDs visible while a batch waits in the queue.
+# To change the concurrent issue-job limit (1–256):
+#
+# workflows:
+#   triage:
+#     max_parallel: 10
+#
 # Under `yolo` with review enabled and `await_ci: false`, opening a repair PR
 # hands CI follow-up to the review and `tend-land`, releasing the issue worker.
 

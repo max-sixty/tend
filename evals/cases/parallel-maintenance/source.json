@@ -1,0 +1,12 @@
+{
+  "kind": "focused",
+  "historical_ref": "a82ad4c387301e401b228c2c91e50f12a66175ee",
+  "bot": "tend-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "32a63e8c2a9c438ebe6b70b3cf1770de94a71e9d5a1f65e8999148bc72e9ee4a"
+  },
+  "origin": {
+    "construction": "Synthetic maintenance-planning contrasts: a broad daily investigation, weekly independent repairs and reviews, and a small scan whose failures already share an active repair owner. Evaluates proposed delegation decisions, not live execution or throughput."
+  }
+}

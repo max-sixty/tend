@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib.resources
 import json
 import re
-import sys
 from pathlib import Path
 from textwrap import dedent
 
@@ -25,13 +24,13 @@ from tend.config import (
     STANDARD_WORKFLOWS,
     Config,
 )
+from tend.runtime.shared import ci_failure_report
 from tend.workflows import (
     CODEOWNERS_BEGIN,
     CODEOWNERS_END,
     GENERATORS,
     TEND_ENABLED_CONDITION,
     _deep_merge,
-    _inline_script,
     codeowners_config,
     control_plane_block,
     generate_all,
@@ -43,11 +42,6 @@ from tend.workflows import (
 
 from tests import ACTION_VERSION, agent_prompt, without_relay
 from tests import _yaml as yaml
-
-# The report script is inlined into its workflow rather than imported by the
-# package, so it is loaded from where `_inline_script` reads it.
-sys.path.insert(0, str(importlib.resources.files("tend") / "templates"))
-import ci_failure_report
 
 
 def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
@@ -160,25 +154,31 @@ def test_restricted_mode_leaves_an_unmanaged_codeowners_file_byte_stable() -> No
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_generated_runner_uv_does_not_restore_dependency_caches(
+def test_generated_runtime_calls_have_a_pinned_bootstrap(
     tmp_path: Path, harness: str
 ) -> None:
-    """Runner-side helpers must not reuse dependencies cached by consumer setup."""
     cfg = Config.load(
         _minimal_config(
             tmp_path,
-            f"harness: {harness}\nworkflows:\n  ci-failures:\n    watched_workflows: [ci]\n",
+            f"harness: {harness}\nworkflows:\n  review:\n    await_ci: false\n"
+            "  ci-failures:\n    watched_workflows: [ci]\n",
         )
     )
-    setup_steps = [
-        step
-        for workflow in generate_all(cfg, with_install_test=True)
-        for job in yaml.safe_load(workflow.content)["jobs"].values()
-        for step in job.get("steps", [])
-        if step.get("uses", "").startswith("astral-sh/setup-uv@")
-    ]
-    assert setup_steps
-    assert all(step["with"].get("enable-cache") is False for step in setup_steps)
+    for workflow in generate_all(cfg, with_install_test=True):
+        for job in yaml.safe_load(workflow.content)["jobs"].values():
+            steps = job.get("steps", [])
+            for index, step in enumerate(steps):
+                uses = step.get("uses", "")
+                needs_runtime = step.get("run", "").startswith("tend runtime ") or (
+                    uses.startswith("max-sixty/tend/")
+                    and not uses.startswith("max-sixty/tend/setup-runtime@")
+                )
+                if needs_runtime:
+                    assert any(
+                        earlier.get("uses")
+                        == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
+                        for earlier in steps[:index]
+                    ), (workflow.filename, step)
 
 
 def test_minimal_config_generates_eight_workflows(tmp_path: Path) -> None:
@@ -263,7 +263,7 @@ def test_setup_steps_rendered(tmp_path: Path, merge: str) -> None:
 
 def _eyes_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:
     """The steps that put the eyes reaction on and take it off, in order."""
-    return [s for s in steps if "content=eyes" in str(s.get("run", ""))]
+    return [s for s in steps if "runtime reaction " in str(s.get("run", ""))]
 
 
 @pytest.mark.parametrize(("name", "job"), [("review", "review"), ("mention", "handle")])
@@ -284,7 +284,9 @@ def test_local_setup_action_keeps_runner_checkout_stable(
     agent = next(
         step
         for step in steps
-        if str(step.get("uses", "")).startswith("max-sixty/tend/")
+        if str(step.get("uses", "")).startswith(
+            ("max-sixty/tend/claude@", "max-sixty/tend/codex@")
+        )
     )
     assert agent["with"]["checkout_mode"] == name
 
@@ -551,23 +553,7 @@ def test_setup_step_env_must_be_table(tmp_path: Path) -> None:
 def test_empty_setup_no_blank_lines(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     for wf in generate_all(cfg):
-        # Python formatters require two blank lines between top-level
-        # definitions. Ignore the inlined script while retaining this guard
-        # against empty setup macros adding whitespace to the workflow itself.
-        structural = re.sub(
-            r"(?ms)^ {10}# /// script\n.*?^ {10}TEND_PY\n",
-            "",
-            wf.content,
-        )
-        assert "\n\n\n" not in structural, f"{wf.filename} has triple blank lines"
-
-
-def test_inline_script_preserves_python_source() -> None:
-    source = (
-        importlib.resources.files("tend") / "templates" / "mention_verify.py"
-    ).read_text()
-
-    assert _inline_script("mention_verify.py") == source.rstrip("\n")
+        assert "\n\n\n" not in wf.content, f"{wf.filename} has triple blank lines"
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
@@ -707,7 +693,7 @@ def test_custom_prompt(tmp_path: Path) -> None:
 # override rather than accepting a key that renders nowhere.
 _PROMPT_WORKFLOWS = {
     "review": ("{pr_number}", "${{ github.event.pull_request.number }}"),
-    "triage": ("{issue_number}", "${{ github.event.issue.number || inputs.issue }}"),
+    "triage": ("{issue_number}", "${{ matrix.issue }}"),
     "nightly": ("", ""),
     "weekly": ("", ""),
     "review-runs": ("", ""),
@@ -902,11 +888,12 @@ def test_tend_land_starts_a_session_per_pr_in_the_reviews_group(
     # `setup:` or the agent costs anything.
     for job in ("land", "repair"):
         steps = data["jobs"][job]["steps"]
-        assert steps[0]["id"] == "current"
+        assert steps[0]["uses"] == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
+        assert steps[1]["id"] == "current"
         assert all(
             step.get("if") == "steps.current.outputs.current == 'true'"
             or "steps.current.outputs.current == 'true'" in str(step.get("if"))
-            for step in steps[1:]
+            for step in steps[2:]
         )
     prompts = _land_prompts(generated["tend-land.yaml"].content)
     assert prompts["land"].startswith("/tend-ci-runner:merge-pr ${{ matrix.pr }}")
@@ -1141,23 +1128,60 @@ def test_ci_failures_reporting_is_independent_of_triage(
     assert ("tend-triage.yaml" in workflows) == triage
 
 
-def test_triage_serializes_new_and_recovered_issues(tmp_path: Path) -> None:
-    """Event and dispatched issue work share the ordinary triage worker."""
-    cfg = Config.load(_minimal_config(tmp_path))
+@pytest.mark.parametrize("limit", [None, 1, 10, 256])
+def test_triage_serializes_batches_and_limits_real_issue_jobs(
+    tmp_path: Path, limit
+) -> None:
+    extra = (
+        "" if limit is None else f"workflows:\n  triage:\n    max_parallel: {limit}\n"
+    )
+    cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     doc = yaml.safe_load(workflows["tend-triage.yaml"].content)
     job = doc["jobs"]["triage"]
-    assert job["concurrency"] == {
+    # All event and recovery batches hold this lane through their last job.
+    assert doc["concurrency"] == {
         "group": "tend-triage",
         "cancel-in-progress": False,
         "queue": "max",
     }
-    assert "concurrency" not in doc
-    assert set(doc["jobs"]) == {"triage"}
+    assert "concurrency" not in job
+    assert job["strategy"] == {
+        "fail-fast": False,
+        "max-parallel": limit or 5,
+        "matrix": {"issue": "${{ fromJSON(needs.select.outputs.issues) }}"},
+    }
+    select = doc["jobs"]["select"]
+    assert (
+        select["steps"][0]["uses"] == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
+    )
+    assert select["steps"][-1]["run"].strip() == ("tend runtime triage-batch select")
+    assert job["needs"] == "select"
+    assert job["if"] == "needs.select.outputs.issues != '[]'"
+    assert job["env"]["TEND_ISSUE_NUMBER"] == "${{ matrix.issue }}"
+    assert job["name"] == "triage #${{ matrix.issue }}"
+    assert set(doc["jobs"]) == {"select", "triage"}
     assert doc["on"]["issues"]["types"] == ["opened", "reopened"]
-    assert set(doc["on"]["workflow_dispatch"]["inputs"]) == {"issue", "title"}
-    # The notifications poll finds a live run by its subject's title.
-    assert doc["run-name"] == "${{ inputs.title || github.event.issue.title }}"
+    assert set(doc["on"]["workflow_dispatch"]["inputs"]) == {"issues"}
+    # This wire format names ownership before matrix jobs exist.
+    assert doc["run-name"] == (
+        "triage ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}"
+    )
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "257", "true", "1.5", "null", "'5'"])
+def test_triage_rejects_invalid_parallel_limit(tmp_path: Path, value: str) -> None:
+    path = _minimal_config(
+        tmp_path, f"workflows:\n  triage:\n    max_parallel: {value}\n"
+    )
+    with pytest.raises(click.ClickException, match="max_parallel must be an integer"):
+        Config.load(path)
+
+
+def test_parallel_limit_is_only_a_triage_option(tmp_path: Path) -> None:
+    path = _minimal_config(tmp_path, "workflows:\n  review:\n    max_parallel: 5\n")
+    with pytest.raises(click.ClickException, match="only supported for triage"):
+        Config.load(path)
 
 
 def test_cli_init_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1193,7 +1217,11 @@ def test_review_delegates_pr_topology_to_the_sandbox(tmp_path: Path) -> None:
     )
     assert all(s.get("id") != "pr_ref" for s in steps)
     agent = next(
-        s for s in steps if str(s.get("uses", "")).startswith("max-sixty/tend/")
+        s
+        for s in steps
+        if str(s.get("uses", "")).startswith(
+            ("max-sixty/tend/claude@", "max-sixty/tend/codex@")
+        )
     )
     assert agent["with"]["checkout_mode"] == "review"
     assert agent["with"]["base_branch"] == "${{ github.event.pull_request.base.ref }}"
@@ -1217,7 +1245,9 @@ def test_setup_runs_on_stable_base_tree_in_review(tmp_path: Path) -> None:
     agent_idx = next(
         i
         for i, s in enumerate(steps)
-        if str(s.get("uses", "")).startswith("max-sixty/tend/")
+        if str(s.get("uses", "")).startswith(
+            ("max-sixty/tend/claude@", "max-sixty/tend/codex@")
+        )
     )
 
     assert base_idx < setup_idx < agent_idx
@@ -1276,9 +1306,7 @@ def test_issue_and_pr_acknowledged_with_eyes(tmp_path: Path) -> None:
 
     triage = yaml.safe_load(workflows["tend-triage.yaml"].content)
     react = _eyes_steps(triage["jobs"]["triage"]["steps"])[0]
-    assert react["env"]["TARGET"] == (
-        "issues/${{ github.event.issue.number || inputs.issue }}"
-    )
+    assert react["env"]["TARGET"] == ("issues/${{ matrix.issue }}")
     assert "if" not in react
 
     review = yaml.safe_load(workflows["tend-review.yaml"].content)
@@ -1320,18 +1348,12 @@ def test_eyes_come_off_when_the_session_ends(
 
     eyes = _eyes_steps(jobs[job]["steps"])
     react, unreact = eyes[0], eyes[-1]
-    assert "-X DELETE" in unreact["run"], f"{name}: nothing removes the reaction"
+    assert "runtime reaction remove" in unreact["run"]
     assert unreact["if"].startswith("always()"), (
         f"{name}: a failed session has to release the reaction too"
     )
     assert unreact["env"]["TARGET"] == react["env"]["TARGET"]
-    # The bot's own reaction only — a human's 👀 on the same issue stays put.
-    assert 'select(.user.login == \\"$BOT_NAME\\")' in unreact["run"]
-    # The bot's 👀 is one of many on a busy thread, and page 1 is 30 of them:
-    # unpaginated, the lookup misses its own reaction and silently keeps it.
-    assert "--paginate" in unreact["run"], (
-        f"{name}: the reaction lookup only reads the first page"
-    )
+    assert unreact["env"]["BOT_NAME"] == "test-bot"
 
 
 def test_setup_raw_rejected_with_migration_hint(tmp_path: Path) -> None:
@@ -1440,7 +1462,7 @@ def test_mention_review_comment_listens_only_for_edits(tmp_path: Path) -> None:
 def test_mention_verify_wires_every_variable_the_gate_reads(tmp_path: Path) -> None:
     """The gate's own decisions are exercised by running it (test_mention_verify);
     what generation owns is the wiring, and an unwired variable is invisible
-    there. The script is inlined verbatim, so a name the workflow forgets is
+    there. A name the workflow forgets is
     simply empty at runtime: the gate then answers on a blank — a missing
     COMMENT_AUTHOR reads as "not the bot", a missing PR_URL as "an issue, not a
     PR" — silently, on a green job."""
@@ -1469,14 +1491,12 @@ def test_mention_verify_wires_every_variable_the_gate_reads(tmp_path: Path) -> N
         "PAYLOAD_KIND": "${{ github.event.client_payload.kind }}",
         "PAYLOAD_PR": "${{ github.event.client_payload.pr }}",
         "PAYLOAD_ID": "${{ github.event.client_payload.id }}",
-        # The uv that runs the script, not an input it reads.
-        "TEND_UV": "${{ steps.tend_uv.outputs.uv-path }}",
     }
 
     # And the mapping is complete: every name the script reads without first
     # assigning it is either wired above or supplied by the runner.
     source = (
-        importlib.resources.files("tend") / "templates" / "mention_verify.py"
+        importlib.resources.files("tend") / "runtime" / "shared" / "mention_verify.py"
     ).read_text()
     read = set(re.findall(r'env\.get\("([A-Z][A-Z0-9_]*)"', source))
     read |= set(re.findall(r'os\.environ\["([A-Z][A-Z0-9_]*)"\]', source))
@@ -1551,21 +1571,15 @@ def test_mention_handle_has_queue_delay(tmp_path: Path) -> None:
     assert delay_idx < setup_idx, "delay step must precede setup"
 
 
-def test_mention_queue_delay_guards_empty_event_ts(tmp_path: Path) -> None:
-    """date -d "" silently returns now on GNU; guard against empty EVENT_TS."""
+def test_mention_queue_delay_captures_job_start_before_bootstrap(
+    tmp_path: Path,
+) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
-    wf = generate_mention(cfg)
-    data = yaml.safe_load(wf.content)
-    delay_step = next(
-        s for s in data["jobs"]["handle"]["steps"] if s.get("id") == "delay"
-    )
-    script = delay_step["run"]
-    # Must bail before date -d when EVENT_TS is empty
-    assert 'if [ -z "$EVENT_TS" ]' in script
-    # date -d must only run after the guard
-    guard_pos = script.index('-z "$EVENT_TS"')
-    date_pos = script.index("date -d")
-    assert guard_pos < date_pos, "empty guard must precede date -d call"
+    steps = yaml.safe_load(generate_mention(cfg).content)["jobs"]["handle"]["steps"]
+    assert steps[0]["run"] == 'echo "TEND_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"'
+    assert steps[1]["uses"] == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
+    delay = next(step for step in steps if step.get("id") == "delay")
+    assert delay["run"].strip() == "tend runtime queue-delay"
 
 
 def test_mention_prompt_omits_delay_when_empty(tmp_path: Path) -> None:
@@ -1686,10 +1700,10 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "workflow_name,job_name,user_if,extra_workflow_keys",
     [
-        # Triage: clobbering drops the fork guard and the bookkeeping-label skip.
+        # Triage selection: clobbering drops the fork guard and bookkeeping skip.
         (
             "triage",
-            "triage",
+            "select",
             (
                 f"{TEND_ENABLED_CONDITION} && "
                 "github.event.issue.author_association != 'NONE'"
@@ -1743,9 +1757,9 @@ def test_user_job_if_extra_replaces_fork_guard(
 @pytest.mark.parametrize(
     "wf_block",
     [
-        {"jobs": {"triage": {"if": "github.actor == 'tend-agent'"}}},
-        {"jobs": {"triage": {"if": None}}},
-        {"workflow_extra": {"jobs": {"triage": {"if": "github.actor == 'x'"}}}},
+        {"jobs": {"select": {"if": "github.actor == 'tend-agent'"}}},
+        {"jobs": {"select": {"if": None}}},
+        {"workflow_extra": {"jobs": {"select": {"if": "github.actor == 'x'"}}}},
     ],
 )
 def test_if_override_must_keep_the_pause_check(tmp_path: Path, wf_block: dict) -> None:
@@ -2231,7 +2245,7 @@ def test_codex_generates_one_serialized_weekly_auth_refresher(tmp_path: Path) ->
         "group": "tend-codex-auth-refresh",
         "cancel-in-progress": False,
     }
-    step = refresh["jobs"]["refresh"]["steps"][0]
+    step = refresh["jobs"]["refresh"]["steps"][-1]
     assert refresh["jobs"]["refresh"]["environment"] == {
         "name": "tend-codex-refresh",
         "deployment": False,

@@ -26,6 +26,7 @@ jobs:
       actions: read
       issues: write
     steps:
+      - uses: max-sixty/tend/setup-runtime@X.Y.Z
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
@@ -38,7 +39,6 @@ jobs:
           merge: restricted
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
-          bot_name: test-bot
           model: gpt-6.1-sol
           checkout_mode: base
           base_branch: ${{ github.event.repository.default_branch }}

@@ -14,6 +14,7 @@ This skill runs **in the consumer repo**, not in tend. Improvements target `.cla
 ## Load required skills
 
 - Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay.
+- Read `references/parallel-maintenance.md` to divide the sweep's work.
 - Load `/tend-ci-runner:post-to-github` and `/tend-ci-runner:open-pr` before composing posts or opening PRs.
 - Load `/tend-ci-runner:read-session-logs` before Step 3.
 - Load `/tend-ci-runner:act-in-other-repos` before filing a bundled-skill defect upstream, or `/tend-ci-runner:propose-instructions` before editing repo-local skills.
@@ -31,8 +32,7 @@ Each run contributes to a monthly `review-runs-tracking` issue. Prepare the
 current tracker and read the current and previous month's evidence:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" prepare-evidence \
+tend runtime review-runs prepare-evidence \
   > "$TMPDIR/evidence.json"
 jq -r '.current_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-current.md"
 jq -r '.previous_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-previous.md"
@@ -54,8 +54,7 @@ to `$TMPDIR/findings.md`. Include a literal `## Run $GITHUB_RUN_ID` heading.
 Then append them:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" append-evidence
+tend runtime review-runs append-evidence
 ```
 
 The command refuses a findings file that does not name this run. It appends to
@@ -67,8 +66,7 @@ then starts a new comment. Prior entries are never replaced.
 List tend CI runs that completed since the previous `review-runs` run (nominally 24 hours — the cron runs daily):
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/list_recent_runs.py" review-runs
+tend runtime list-recent-runs review-runs
 ```
 
 If no runs are found, report "no runs to review", complete **Reconcile live work** below, then exit.
@@ -108,11 +106,10 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 
 - an open PR whose live head has no bot review, or whose latest comment, review, or inline review comment directed at the bot has no response; this includes replies to the bot's review on a fork PR;
 - unfinished configured-bot PRs, regardless of notification or review state. List the bot's open PRs (`gh pr list --state open --author "$BOT_NAME" --limit 200 --json number`) and continue each per `/tend-ci-runner:continue-pr`. A green proposal awaiting a maintainer in restricted mode, an explicit maintainer hold, or an unchanged external blocker needs no repeated post;
-- failing default-branch CI with no bot fix in progress. Another live-state check: scoped neither to the workflows `tend-ci-failures` reports — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window. A failure an open CI failure report (labeled `tend-ci-failure`) tracks is in progress only where the bot has triaged the report since its newest run and a cause issue covers the failure, whose ownership the open-issue check above verifies. Otherwise hand the report to ordinary triage through **Recover issue work** in `/tend-ci-runner:notifications`, including its access and admission checks, rather than working it here.
+- failing default-branch CI with no bot fix in progress. Another live-state check: scoped neither to the workflows `tend-ci-failures` reports — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window. A failure an open CI failure report (labeled `tend-ci-failure`) tracks is in progress only where the bot has triaged the report since its newest run and a cause issue or repair PR covers the failure, whose ownership the live issue and PR checks above verify. Otherwise hand the report to ordinary triage through **Recover issue work** in `/tend-ci-runner:notifications`, including its access and admission checks, rather than working it here.
 
   ```bash
-  uv run --script \
-    "${CLAUDE_PLUGIN_ROOT}/scripts/red_default_branch_runs.py"
+  tend runtime red-default-branch-runs
   ```
 
   `candidates` contains returned failures without a later observed green of the same subject. Committed workflow paths match by path, including Tend-generated YAML under `.github/workflows/`. Only GitHub-generated run paths starting with `dynamic/` match by both path and name. `observed_green_by_path` records the newest returned green per path; on a `dynamic/` path it may have closed a different name. `reached_back_to` is the newest oldest-row timestamp among pages that filled their limit. A null floor means no returned page filled its limit, not that the branch's entire history is current or complete.
@@ -151,8 +148,7 @@ body carries the first, comments the rest. Fail the sweep if the script exits
 non-zero; that is different from it returning no trackers:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" outage-trackers \
+tend runtime review-runs outage-trackers \
   > "$TMPDIR/review-runs-outage.json"
 ```
 
@@ -181,8 +177,7 @@ Run the token report script to get per-run token counts:
 # the script fetches with a cushion and admits a run on completion, the way
 # Step 1 does. A window in hours would drop a run that started before the
 # anchor and finished inside it — the longest and costliest runs there are.
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/token_report.py" \
+tend runtime token-report \
   --since "$(cat "$TMPDIR/review-runs-since")" \
   > "$TMPDIR/token-report.json"
 ```
@@ -211,8 +206,7 @@ mention, notifications, and weekly runs get the same treatment: find the bot's o
 Dispositions — merged, closed, relabeled, reverted — are only half the signal. A maintainer replying in-thread that a bot claim was wrong, or requesting changes on a bot PR, leaves labels and state untouched and is equally a correction; where the bot authors most of the PRs, a review body is the *first* place a maintainer writes. The script collects all three — dispositions, thread comments, review bodies — for the window:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs_corrections.py" \
+tend runtime review-runs-corrections \
   "$(cat "$TMPDIR/review-runs-since")"
 ```
 
@@ -241,15 +235,14 @@ Your workflows call a pinned action ref, so a skill fix merged upstream stays do
 
 ## Step 6: Act on findings
 
-Improvements target **repo-local** files by default:
+Delegate independent product repairs per `references/parallel-maintenance.md`.
+The behavioral and workflow improvements below target **repo-local** files by default:
 
 - **`.claude/skills/`** — update or create skill overlays with instructions that prevent the identified problem. Prefer updating existing skill files over creating new ones.
 - **`.config/tend.yaml`** — adjust workflow configuration if the problem is structural (e.g., wrong cron schedule, missing setup step).
 - **Project instruction file (`CLAUDE.md` or `AGENTS.md`)** — add project-specific instructions if the problem is about code conventions or patterns the bot keeps getting wrong.
 
 **Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per `/tend-ci-runner:act-in-other-repos`. Signal: the fix reads as generic instructions that would apply to any consumer.
-
-**Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
 Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `/tend-ci-runner:propose-instructions`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place). Choose a topic slug for each theme so separate PRs from the same run have distinct branches:
 
@@ -278,7 +271,7 @@ git worktree add "$TMPDIR/review-runs-fix" -b "daily/review-runs-$GITHUB_RUN_ID-
 `.config/tend.yaml` and project instruction files are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.
 
 - **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID-<topic-slug>`, fix, commit, push, create with label `review-runs`. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. Link the tracking issue where it holds prior observations of the same behavior, and carry the evidence that justified promoting this finding — the run IDs, the log excerpt, and the causal assessment — in the body or a `<details>` block.
-- **Issue** (fallback): Only for problems too large or ambiguous to fix directly.
+- **Issue**: Delegate or preserve unfinished work per **Filing issues in this repo** in `/tend-ci-runner:open-pr`.
 
 Group related findings by theme and complete the supported repairs. Record unresolved findings in the tracking issue.
 

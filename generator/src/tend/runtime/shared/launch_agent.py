@@ -443,9 +443,12 @@ def main() -> int:
 
     masks = view_masks(runner_home)
     environment = _sandbox.launch_env(required("AGENT_ENV_FILE"))
+    effective = dict(entry.split("=", 1) for entry in environment)
     # Appended last, so they win over the agent env file.
     overrides = {
         "ACTION_PATH": str(bundle_root),
+        "TEND_RUNTIME_PYTHON": str(python),
+        "PATH": f"{python.parent.parent / 'commands'}{os.pathsep}{effective['PATH']}",
         "TEND_VIEW_MASKS": os.pathsep.join(str(path) for path in masks),
         # Read back after the reap, so outside the view.
         "GITHUB_STEP_SUMMARY": str(step_summary),

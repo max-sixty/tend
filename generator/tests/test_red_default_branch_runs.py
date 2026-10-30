@@ -12,15 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
+from tests import GH_PREAMBLE, fake_bin, runtime_command, tool_path
 
-SCRIPT = (
-    Path(__file__).resolve().parents[2]
-    / "plugins"
-    / "tend-ci-runner"
-    / "scripts"
-    / "red_default_branch_runs.py"
-)
+SCRIPT = "red-default-branch-runs"
 CI = ".github/workflows/ci.yaml"
 DEPENDABOT = "dynamic/dependabot/dependabot-updates"
 CODE_SCANNING = "dynamic/github-code-scanning/codeql"
@@ -179,7 +173,7 @@ def _generated_green(
 
 def _sweep(env: dict[str, str]) -> dict:
     result = subprocess.run(
-        uv_script(SCRIPT),
+        runtime_command(SCRIPT),
         env=env,
         capture_output=True,
         text=True,

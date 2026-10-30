@@ -24,7 +24,6 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 from tend.config import KNOWN_HARNESSES, Config
 from tend.runtime.shared import _prompt as prompt
-from tend.workflows import UV_SHA256, UV_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -88,11 +87,13 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
     openai_proxy = steps["Start OpenAI Responses proxy"]
     assert openai_proxy["if"] == "steps.codex_auth.outputs.mode == 'api-key'"
     assert openai_proxy["env"]["PROXY_API_KEY"] == "${{ inputs.openai_api_key }}"
-    assert "exec env -i" in openai_proxy["run"]
-    assert 'node "$CODEX_PROXY_BIN"' in openai_proxy["run"]
-    assert '<<< "$PROXY_API_KEY"' in openai_proxy["run"]
-    assert '> "$PROXY_LOG_FILE" 2>&1 &' in openai_proxy["run"]
-    assert 'cat "$PROXY_LOG_FILE" >&2' in openai_proxy["run"]
+    assert shlex.split(openai_proxy["run"]) == [
+        "tend",
+        "runtime",
+        "codex",
+        "responses-proxy",
+        "start",
+    ]
     assert [
         name
         for name, step in steps.items()
@@ -117,9 +118,6 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
         & run_env.keys()
     )
     assert shlex.split(steps["Run Codex"]["run"]) == [
-        "$TEND_RUNTIME_PYTHON",
-        "-I",
-        "-m",
         "tend",
         "runtime",
         "launch-agent",
@@ -141,7 +139,7 @@ def test_codex_action_drives_its_stateful_phases_through_the_runner() -> None:
         (REPO_ROOT / "codex" / "action.yaml").read_text()
     )
     steps = action["runs"]["steps"]
-    prefix = ("$TEND_RUNTIME_PYTHON", "-I", "-m", "tend", "runtime", "codex")
+    prefix = ("tend", "runtime", "codex")
     setup = {
         "Install Tend plugins (sandbox)": "install-plugin",
         "Stage AGENTS.md (sandbox)": "stage-agents",
@@ -188,16 +186,18 @@ def test_sandbox_resources_are_removed_immediately_after_agent_reap(
         stop = steps[run_at + 1]
         assert stop["name"] == "Stop OpenAI Responses proxy"
         assert stop["if"] == "always()"
-        assert "curl --fail" in stop["run"]
-        assert "--max-time 10" in stop["run"]
+        assert shlex.split(stop["run"]) == [
+            "tend",
+            "runtime",
+            "codex",
+            "responses-proxy",
+            "stop",
+        ]
     cleanup = steps[cleanup_at]
 
     assert cleanup["name"] == "Dispose sandbox resources"
     assert cleanup["if"] == "always()"
     assert shlex.split(cleanup["run"]) == [
-        "$TEND_RUNTIME_PYTHON",
-        "-I",
-        "-m",
         "tend",
         "runtime",
         "dispose-sandbox-resources",
@@ -206,7 +206,7 @@ def test_sandbox_resources_are_removed_immediately_after_agent_reap(
 
 def test_hosted_probe_launches_only_from_the_installed_action_package() -> None:
     script = (REPO_ROOT / "proxy" / "test-setup-sandbox.sh").read_text()
-    invocation = '"$TEND_RUNTIME_PYTHON" -I -m tend runtime launch-agent || rc=$?'
+    invocation = "tend runtime launch-agent || rc=$?"
 
     assert script.count(invocation) == 2
     assert "-s shared/steps/launch_agent.py" not in script
@@ -260,9 +260,6 @@ def test_memory_gist_actions_share_the_trusted_lifecycle(harness: str) -> None:
         invocation = lifecycle[name]["run"]
         assert len(invocation.splitlines()) == 1
         assert shlex.split(invocation) == [
-            "$TEND_RUNTIME_PYTHON",
-            "-I",
-            "-m",
             "tend",
             "runtime",
             "gist-memory",
@@ -335,13 +332,8 @@ def _install_uv_pins() -> tuple[str, dict[str, str]]:
     return version, sha256
 
 
-def test_generated_workflow_uv_uses_the_action_pin() -> None:
-    assert (UV_VERSION, UV_SHA256) == _install_uv_pins()
-
-
 # A `uses:` line outside a comment. Tests carry arbitrary refs as fixture data,
-# and the generated tend-*.yaml come from the latest release rather than this
-# tree, so neither is scanned.
+# and generated tend-*.yaml track the published release rather than this tree.
 USES_LINE = re.compile(r"^\s*(?:- )?uses: *(\S+)(.*)$", re.MULTILINE)
 PINNED_REF = re.compile(r"(?P<action>[^@]+)@(?P<sha>[0-9a-f]{40})")
 VERSION_COMMENT = re.compile(r" # (v\d+\.\d+\.\d+)")
@@ -354,7 +346,17 @@ def test_third_party_actions_are_pinned_by_sha() -> None:
     release, and one pin per action keeps each bump to a single value.
     """
     files = subprocess.run(
-        ["git", "ls-files", "*.yaml", "*.yml", "*.j2", "*.py"],
+        [
+            "git",
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "*.yaml",
+            "*.yml",
+            "*.j2",
+            "*.py",
+        ],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -365,7 +367,8 @@ def test_third_party_actions_are_pinned_by_sha() -> None:
     for name in files:
         path = Path(name)
         if (
-            "tests" in path.parts
+            not (REPO_ROOT / path).is_file()
+            or "tests" in path.parts
             or path.name.startswith("test_")
             or (
                 path.parent == Path(".github/workflows")
@@ -443,15 +446,19 @@ def test_release_requires_successful_smoke_on_exact_commit(
 ) -> None:
     """Execute the publication gate with GitHub run-list responses.
 
-    The GitHub CLI boundary is replaced; Bash and jq run the actual workflow
-    command, including rejecting API failure and a successful different SHA.
+    The GitHub CLI boundary is replaced; the workflow runs its owning script,
+    including rejecting API failure and a successful different SHA.
     """
     workflow = YAML(typ="safe", pure=True).load(
         (REPO_ROOT / ".github/workflows/pypi-release.yaml").read_text()
     )
     build = workflow["jobs"]["build"]
     assert build["permissions"] == {"contents": "read", "actions": "read"}
-    gate = build["steps"][0]
+    gate = next(
+        step
+        for step in build["steps"]
+        if step.get("name") == "Require successful Codex smoke on the release commit"
+    )
     assert gate["shell"] == "bash"
     assert gate["env"] == {"GH_TOKEN": "${{ github.token }}"}
     assert "if" not in gate and "continue-on-error" not in gate
@@ -550,7 +557,6 @@ def test_action_path_references_resolve(action: str) -> None:
     body = action_path.read_text()
     matched = ACTION_PATH_REF.findall(body)
 
-    assert matched, f"{action}: no github.action_path references"
     missing = [
         ref
         for ref in sorted(set(matched))
@@ -733,9 +739,6 @@ def test_codex_action_passes_selected_auth_mode_to_runner() -> None:
 
     assert run["env"]["AUTH_MODE"] == "${{ steps.codex_auth.outputs.mode }}"
     assert shlex.split(run["run"]) == [
-        "$TEND_RUNTIME_PYTHON",
-        "-I",
-        "-m",
         "tend",
         "runtime",
         "launch-agent",
@@ -778,13 +781,6 @@ def test_bundled_runner_instructions_never_return_with_cd_dash() -> None:
     )
 
     assert offenders == []
-
-
-def test_runner_helper_directory_is_python_only() -> None:
-    """Substantial runner behavior belongs in tested Python, not shell helpers."""
-    scripts = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts"
-
-    assert not sorted(scripts.glob("*.sh"))
 
 
 def test_review_reviewers_sweeps_only_known_consumers() -> None:

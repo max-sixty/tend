@@ -1,7 +1,7 @@
 """Helpers shared by the Python step bodies in this directory.
 
 The composite actions install the candidate Tend package and invoke step bodies
-through the isolated CLI, ``python -I -m tend runtime <command>``, with their
+through the isolated ``tend runtime <command>`` launcher, with their
 inputs in the environment. These helpers require only the standard library.
 
 Every GitHub call goes through :func:`gh`, and every step module calls it as
@@ -26,7 +26,7 @@ import secrets
 import signal
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import FrameType
 from typing import Any
@@ -48,15 +48,15 @@ def require_env(*names: str) -> dict[str, str]:
     return values
 
 
-def gh(*args: str, input: str | None = None) -> str:
+def gh(*args: str, input: str | None = None, quiet: bool = False) -> str:
     """Run ``gh`` with ``args`` and return its stdout.
 
     A non-zero exit raises ``subprocess.CalledProcessError`` with stderr
     attached; a step that can tolerate a particular failure catches that. The
-    stderr is also relayed to this process's stderr first, whether or not the
-    caller tolerates the failure: "Bad credentials" or "Not Found" is the whole
-    diagnosis for a misconfigured install, and the shell bodies had it on the
-    step log for free.
+    stderr is also relayed to this process's stderr first unless the caller
+    requests quiet handling of an expected failure. "Bad credentials" or
+    "Not Found" is the whole diagnosis for a misconfigured install, and the
+    shell bodies had it on the step log for free.
 
     A job environment that forces color makes ``gh`` colorize even a piped
     ``--json``/``--jq`` body, and the ANSI codes land inside what
@@ -75,16 +75,19 @@ def gh(*args: str, input: str | None = None) -> str:
         check=False,
     )
     if result.returncode != 0:
-        sys.stderr.write(result.stderr)
-        sys.stderr.flush()
+        if not quiet:
+            sys.stderr.write(result.stderr)
+            sys.stderr.flush()
         raise subprocess.CalledProcessError(
             result.returncode, ["gh", *args], result.stdout, result.stderr
         )
     return result.stdout
 
 
-def gh_json(*args: str, input: str | None = None) -> Any:
+def gh_json(*args: str, input: str | None = None, quiet: bool = False) -> Any:
     """:func:`gh` whose output is parsed as JSON."""
+    if quiet:
+        return json.loads(gh(*args, input=input, quiet=True))
     return json.loads(gh(*args, input=input))
 
 
@@ -101,20 +104,57 @@ class UnexpectedShape(Exception):
 GH_READ_FAILED = (subprocess.CalledProcessError, json.JSONDecodeError, UnexpectedShape)
 
 
-def gh_paginated(path: str) -> list[Any]:
-    """Every item a paginated ``gh api`` array endpoint serves, in page order.
+def gh_pages(*args: str, quiet: bool = False) -> list[Any]:
+    """Read every REST or GraphQL page as one JSON document."""
+    pages = (
+        gh_json("api", "--paginate", "--slurp", *args, quiet=True)
+        if quiet
+        else gh_json("api", "--paginate", "--slurp", *args)
+    )
+    if not isinstance(pages, list):
+        raise UnexpectedShape("paginated GitHub response was not an array of pages")
+    return pages
 
-    ``--paginate`` alone prints one JSON document per page, which is not a
-    document; ``--slurp`` makes it the array of pages, flattened here. It also
-    refuses ``--jq``, which is the point — the filtering stays in Python, where
-    a test sees the predicate rather than a jq string. Anything but an array of
-    pages raises :class:`UnexpectedShape`: a short listing would read as an
-    answer.
-    """
-    pages = gh_json("api", "--paginate", "--slurp", path)
-    if not isinstance(pages, list) or not all(isinstance(p, list) for p in pages):
+
+def gh_paginated(path: str, quiet: bool = False) -> list[Any]:
+    """Read every item from an array endpoint, refusing incomplete shapes."""
+    pages = gh_pages(path, quiet=quiet)
+    if not all(isinstance(page, list) for page in pages):
         raise UnexpectedShape(f"{path}: not an array of pages")
     return [item for page in pages for item in page]
+
+
+def repository() -> str:
+    """Return the explicitly selected repository or the checkout's remote."""
+    selected = os.environ.get("GITHUB_REPOSITORY")
+    if selected:
+        return selected
+    response = gh_json("repo", "view", "--json", "nameWithOwner")
+    return str(response["nameWithOwner"])
+
+
+def dump(value: Any) -> None:
+    """Write a stable JSON document to stdout."""
+    json.dump(
+        value,
+        sys.stdout,
+        indent=2,
+        separators=(",", ": "),
+        ensure_ascii=False,
+    )
+    sys.stdout.write("\n")
+
+
+def actor_login(actor: object) -> str:
+    """Return a GitHub actor login, including for deleted-account records."""
+    if not isinstance(actor, dict):
+        return ""
+    return str(actor.get("login") or "")
+
+
+def unique(values: Iterable[str]) -> list[str]:
+    """Deduplicate strings without changing their order."""
+    return list(dict.fromkeys(values))
 
 
 # Where each event keeps the number of the issue or PR it is about.
@@ -128,8 +168,6 @@ _SUBJECT_NUMBER_KEYS = {
     "issues": ("issue", "number"),
     "issue_comment": ("issue", "number"),
     "repository_dispatch": ("client_payload", "pr"),
-    # tend-triage's dispatched runs; a scheduled workflow's has no `issue`.
-    "workflow_dispatch": ("inputs", "issue"),
 }
 # Where each event keeps its own commit. Only the pull-request events and
 # `workflow_run` carry one; see :func:`subject_sha` for what the rest report.
@@ -193,12 +231,16 @@ def as_int(value: Any) -> int | None:
 
 
 def subject_number() -> int | None:
-    """The issue or PR number the triggering event is about, if it has one.
+    """The matrix job's issue, or the triggering event's issue/PR number.
+
+    Generated triage jobs supply validated matrix IDs as ``TEND_ISSUE_NUMBER``.
 
     ``None`` for an event with no thread of its own (``schedule``,
     ``workflow_dispatch``, ``workflow_run``) and for a payload whose shape is
     not the one its event promises.
     """
+    if issue := os.environ.get("TEND_ISSUE_NUMBER"):
+        return int(issue)
     keys = _SUBJECT_NUMBER_KEYS.get(os.environ.get("GITHUB_EVENT_NAME", ""))
     return as_int(dig(event_payload(), *keys)) if keys else None
 

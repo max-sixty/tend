@@ -42,6 +42,7 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: max-sixty/tend/setup-runtime@X.Y.Z
       - uses: max-sixty/tend/codex/refresh@X.Y.Z
         with:
           consumer_auth_configured: ${{ needs.subscription.outputs.configured }}

@@ -7,6 +7,7 @@ description: >-
   credential live only in the proxy, never in the agent's environment. The
   proxy machinery lives under the top-level `proxy/` and the cross-harness
   Python step bodies in the installed `tend.runtime` package.
+  Requires setup-runtime at the same ref earlier in the job.
 
 inputs:
   github_token:
@@ -29,13 +30,6 @@ inputs:
       Anthropic API key from console.anthropic.com (billed per token).
       One of claude_code_oauth_token or anthropic_api_key must be set;
       claude_code_oauth_token takes precedence when both are present.
-  bot_name:
-    required: true
-    description: |
-      GitHub username of the bot account. Rendered into the workflows so a
-      consumer can see which account tend runs as; the steps themselves read
-      the identity off the token rather than from here, since a name left
-      stale by a rename fails open.
   prompt:
     required: true
     description: The prompt to send to Claude
@@ -121,19 +115,13 @@ runs:
   steps:
     # Shared Python steps run from this action's installed Tend package.
     # Inputs cross through environment variables; imports ignore consumer files.
-    - name: Install runtime uv
-      shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
-      env:
-        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
-
     - name: Create the sandbox runtime container
       shell: bash
       run: bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
 
-    - name: Install Tend runtime package
+    - name: Install sandbox Tend runtime package
       shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-runtime.sh"
+      run: bash "${{ github.action_path }}/../shared/steps/install-runtime.sh" sandbox
       env:
         ACTION_PATH: ${{ github.action_path }}/..
         UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
@@ -142,7 +130,7 @@ runs:
       id: security
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime security-preflight
+        tend runtime security-preflight
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MERGE: ${{ inputs.merge }}
@@ -154,7 +142,7 @@ runs:
       id: bot
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime bot-identity
+        tend runtime bot-identity
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
@@ -175,7 +163,7 @@ runs:
       id: prompt
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime claude compose-system-prompt
+        tend runtime claude compose-system-prompt
       env:
         SYSTEM_PROMPT_FILE: ${{ github.action_path }}/../shared/system-prompt.md
         BOT_NAME: ${{ steps.bot.outputs.login }}
@@ -268,7 +256,7 @@ runs:
       continue-on-error: true
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory restore
+        tend runtime gist-memory restore
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
@@ -324,13 +312,13 @@ runs:
         TEND_CHECKOUT_MODE: ${{ inputs.checkout_mode }}
         TEND_BASE_BRANCH: ${{ inputs.base_branch }}
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime launch-agent
+        tend runtime launch-agent
 
     - name: Dispose sandbox resources
       if: always()
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime dispose-sandbox-resources
+        tend runtime dispose-sandbox-resources
 
     # The supervisor reaps every sandbox process before the trusted save.
     - name: Save experimental memory Gist
@@ -338,7 +326,7 @@ runs:
       continue-on-error: true
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory save
+        tend runtime gist-memory save
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         TEND_MEMORY_GIST_ID: ${{ inputs.memory_gist_id }}
@@ -349,13 +337,13 @@ runs:
       continue-on-error: true
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime gist-memory cleanup
+        tend runtime gist-memory cleanup
 
     - name: Mark event notification read
       if: success()
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime mark-notification-read
+        tend runtime mark-notification-read
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
@@ -376,7 +364,7 @@ runs:
         # only once the supervisor has reaped the sandbox uid.
         SANDBOX_REAPED: ${{ steps.claude.outputs.sandbox_reaped }}
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime token-usage --harness claude
+        tend runtime token-usage --harness claude
 
     # Gate on the job being red, not on the agent step specifically. A dozen
     # steps run before the agent — identity resolution, auth validation,
@@ -401,7 +389,7 @@ runs:
       if: failure() && steps.security.outcome != 'failure'
       shell: bash
       run: |
-        "$TEND_RUNTIME_PYTHON" -I -m tend runtime report-failure
+        tend runtime report-failure
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         # Which version is running, so the reporter can name a stale pin as
@@ -419,7 +407,7 @@ runs:
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: ${{ steps.tokens.outputs.artifact_name || 'claude-session-logs' }}
+        name: ${{ steps.tokens.outputs.artifact_name || (env.TEND_ISSUE_NUMBER && format('claude-session-logs-n{0}', env.TEND_ISSUE_NUMBER)) || 'claude-session-logs' }}
         # The Token usage step consolidates the sandbox user's session JSONL,
         # token-usage.json, and the stderr log into this runner-owned dir.
         path: ${{ runner.temp }}/tend-logs/

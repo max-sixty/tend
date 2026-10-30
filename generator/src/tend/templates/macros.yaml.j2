@@ -38,7 +38,6 @@
           memory_gist: "true"
           memory_gist_id: ${{ secrets.<<memory_gist_secret>> }}
 {% endif %}
-          bot_name: <<cfg.bot_name>>
           model: <<cfg.model>>
           checkout_mode: <<checkout_mode>>
           base_branch: <<base_branch>>
@@ -51,22 +50,9 @@
           <<prompt_body>>
 {%- endmacro %}
 
-{# The uv that tend's own script steps run. It stays off PATH, and those steps
-   call it by the path setup-uv outputs: on PATH it would shadow a uv the
-   consumer's setup or runner image provides, for the setup steps and the agent
-   alike. Its cache stays off because the post-job save would store the job's
-   later uv downloads under this step's key and restore them on every run.
-   `checksum` holds the download to the pinned archive for the runner's arch. #}
-{% macro setup_tend_uv() %}
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        id: tend_uv
-        env:
-          UV_NO_MODIFY_PATH: "1"
-        with:
-          version: "<<uv_version>>"
-          checksum: ${{ runner.arch == 'ARM64' && '<<uv_sha256['ARM64']>>' || '<<uv_sha256['X64']>>' }}
-          enable-cache: false
-          ignore-empty-workdir: true
+{# Lightweight jobs use the same locked, isolated package as the harnesses. #}
+{% macro setup_tend_runtime() %}
+      - uses: max-sixty/tend/setup-runtime@<<tend_version>>
 {%- endmacro %}
 
 {# Environment block at column 4. The environment is a secret scope, not a
@@ -172,8 +158,7 @@
 <<step_if(if_condition)>>
 {% endif %}
         run: |
-          gh api "repos/$REPO/$TARGET/reactions" -f content=eyes --silent \
-            || echo "::warning::could not add the eyes reaction"
+          tend runtime reaction add
         env:
           REPO: ${{ github.repository }}
           TARGET: <<target>>
@@ -186,13 +171,7 @@
 <<step_if(if_condition)>>
 {% endif %}
         run: |
-          REACTION_ID=$(gh api --paginate \
-            "repos/$REPO/$TARGET/reactions?content=eyes&per_page=100" \
-            --jq ".[] | select(.user.login == \"$BOT_NAME\") | .id" | head -n1)
-          if [ -n "$REACTION_ID" ]; then
-            gh api -X DELETE "repos/$REPO/$TARGET/reactions/$REACTION_ID" --silent \
-              || echo "::warning::could not remove the eyes reaction"
-          fi
+          tend runtime reaction remove
         env:
           REPO: ${{ github.repository }}
           TARGET: <<target>>

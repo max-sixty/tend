@@ -2,19 +2,42 @@
 
 from __future__ import annotations
 
-import importlib
 import json
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
+from tend.cli import main
+from tend.runtime.ci import review_reviewers, review_runs
 
-SCRIPTS = Path(__file__).resolve().parents[2] / "plugins" / "tend-ci-runner" / "scripts"
-sys.path.insert(0, str(SCRIPTS))
-review_runs = importlib.import_module("review_runs")
-review_reviewers = importlib.import_module("review_reviewers")
 NOW = datetime(2026, 9, 6, tzinfo=UTC)
+
+
+def test_evidence_cli_rejects_invalid_target_before_creating_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_prepare(target: str) -> int:
+        pytest.fail(f"invalid target reached evidence creation: {target}")
+
+    monkeypatch.setattr(review_reviewers, "prepare", unexpected_prepare)
+    result = CliRunner().invoke(
+        main, ["runtime", "review-reviewers", "prepare-evidence", "garbage"]
+    )
+    assert result.exit_code == 2
+    assert "expected owner/repo" in result.stderr
+
+
+@pytest.mark.parametrize("command", ["review-runs", "review-reviewers"])
+def test_evidence_cli_reports_missing_state(
+    command: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = tmp_path / "missing-state.json"
+    monkeypatch.setenv(f"{command.upper().replace('-', '_')}_STATE", str(state))
+    result = CliRunner().invoke(main, ["runtime", command, "append-evidence"])
+    assert result.exit_code == 2
+    assert str(state) in result.stderr
+    assert not result.stdout
 
 
 def test_review_runs_prepare_persists_the_current_tracker_and_closes_stale_ones(
@@ -40,10 +63,10 @@ def test_review_runs_prepare_persists_the_current_tracker_and_closes_stale_ones(
             }
         raise AssertionError(args)
 
-    monkeypatch.setattr(review_runs.github_cli, "json_call", json_call)
+    monkeypatch.setattr(review_runs._common, "gh_json", json_call)
     monkeypatch.setattr(
-        review_runs.github_cli,
-        "run",
+        review_runs._common,
+        "gh",
         lambda *args, **kwargs: calls.append(args) or "",
     )
 
@@ -84,8 +107,8 @@ def test_review_runs_prepare_creates_the_monthly_tracker(
             return "https://github.com/owner/repo/issues/12\n"
         return ""
 
-    monkeypatch.setattr(review_runs.github_cli, "json_call", json_call)
-    monkeypatch.setattr(review_runs.github_cli, "run", run)
+    monkeypatch.setattr(review_runs._common, "gh_json", json_call)
+    monkeypatch.setattr(review_runs._common, "gh", run)
 
     assert review_runs.prepare(now=NOW) == 0
 
@@ -108,13 +131,11 @@ def test_review_runs_append_updates_the_latest_evidence_comment(
     monkeypatch.setenv("REVIEW_RUNS_STATE", str(state))
     monkeypatch.setenv("REVIEW_RUNS_FINDINGS", str(findings))
     monkeypatch.setenv("GITHUB_RUN_ID", "42")
-    monkeypatch.setattr(review_runs.github_cli, "repository", lambda: "owner/repo")
+    monkeypatch.setattr(review_runs._common, "repository", lambda: "owner/repo")
+    monkeypatch.setattr(review_runs._common, "gh_json", lambda *args: {"login": "bot"})
     monkeypatch.setattr(
-        review_runs.github_cli, "json_call", lambda *args: {"login": "bot"}
-    )
-    monkeypatch.setattr(
-        review_runs.github_cli,
-        "paginated",
+        review_runs._common,
+        "gh_paginated",
         lambda *args: [
             {"id": 7, "user": {"login": "bot"}, "body": "\n## Run 41\nold\n"},
             {"id": 8, "user": {"login": "human"}, "body": "\n## Run 1\nnoise\n"},
@@ -122,8 +143,8 @@ def test_review_runs_append_updates_the_latest_evidence_comment(
     )
     writes: list[tuple[tuple[str, ...], str | None]] = []
     monkeypatch.setattr(
-        review_runs.github_cli,
-        "run",
+        review_runs._common,
+        "gh",
         lambda *args, input=None: writes.append((args, input)) or "",
     )
 
@@ -156,14 +177,14 @@ def test_review_reviewers_prepare_persists_gist_and_returns_both_windows(
         "description": "review-reviewers evidence: owner/target 2026-08",
     }
     monkeypatch.setattr(
-        review_reviewers.github_cli,
-        "json_call",
+        review_reviewers._common,
+        "gh_json",
         lambda *args, **kwargs: [
             {"number": 9, "title": "review-reviewers-tracking: 2026-09"}
         ],
     )
     monkeypatch.setattr(
-        review_reviewers.github_cli, "paginated", lambda *args: [current, previous]
+        review_reviewers._common, "gh_paginated", lambda *args: [current, previous]
     )
     monkeypatch.setattr(
         review_reviewers,
@@ -216,12 +237,12 @@ def test_review_reviewers_prepare_creates_and_indexes_a_secret_gist(
             return "https://github.com/owner/repo/issues/9\n"
         return ""
 
-    monkeypatch.setattr(review_reviewers.github_cli, "json_call", json_call)
+    monkeypatch.setattr(review_reviewers._common, "gh_json", json_call)
     monkeypatch.setattr(
-        review_reviewers.github_cli, "paginated", lambda *args: [previous]
+        review_reviewers._common, "gh_paginated", lambda *args: [previous]
     )
-    monkeypatch.setattr(review_reviewers.github_cli, "run", run)
-    monkeypatch.setattr(review_reviewers.github_cli, "repository", lambda: "owner/repo")
+    monkeypatch.setattr(review_reviewers._common, "gh", run)
+    monkeypatch.setattr(review_reviewers._common, "repository", lambda: "owner/repo")
     monkeypatch.setattr(
         review_reviewers,
         "_gist_content",
@@ -274,8 +295,8 @@ def test_review_reviewers_append_refetches_before_patching(
     monkeypatch.setattr(review_reviewers, "_gist_content", lambda _: "old\n")
     writes: list[str] = []
     monkeypatch.setattr(
-        review_reviewers.github_cli,
-        "run",
+        review_reviewers._common,
+        "gh",
         lambda *args, input=None: writes.append(input or "") or "",
     )
 
@@ -295,7 +316,7 @@ def test_review_runs_outage_trackers_reads_a_maintainer_closed_tracker(
     since = tmp_path / "since"
     since.write_text("2026-09-17T19:39:09Z\n")
     monkeypatch.setenv("REVIEW_RUNS_SINCE_FILE", str(since))
-    monkeypatch.setattr(review_runs.github_cli, "repository", lambda: "owner/repo")
+    monkeypatch.setattr(review_runs._common, "repository", lambda: "owner/repo")
     issues = [
         # A maintainer closed it mid-window, so its rows were never drained.
         {
@@ -348,7 +369,7 @@ def test_review_runs_outage_trackers_reads_a_maintainer_closed_tracker(
             return {"closed_by": {"login": closer}}
         raise AssertionError(args)
 
-    monkeypatch.setattr(review_runs.github_cli, "json_call", json_call)
+    monkeypatch.setattr(review_runs._common, "gh_json", json_call)
 
     assert review_runs.outage_trackers() == 0
 

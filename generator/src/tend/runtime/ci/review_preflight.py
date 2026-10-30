@@ -1,0 +1,307 @@
+"""Bind a review post to the open PR head the session actually reviewed.
+
+The command prints ``post:`` when the outward action may proceed and ``skip:``
+when it must stop. If a compatible push moved the head, it also writes the
+incremental diff to a persistent temporary file and prints its path. Passing a
+command after ``--`` makes the check the final posting boundary; that form
+never retargets and propagates the command's exit status.
+
+``start`` records one consistent initial snapshot and prepares the prior-review
+incremental, while ``post`` protects the final outward action. Keeping both in
+one review-domain command makes the state passed between them explicit without
+turning unrelated runner helpers into a single application.
+
+The installed Tend launcher preserves closed stdout, so failed status delivery
+cannot advance the reviewed-head pin.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from tend.runtime.ci import bot_review_state
+from tend.runtime.shared import _common
+
+SHA_RE = re.compile(r"[0-9a-f]{40}")
+TEMP_DIR = Path(tempfile.gettempdir())
+
+
+def _error(message: str) -> int:
+    print(f"review-preflight: {message}", file=sys.stderr)
+    return 1
+
+
+def _skip(message: str) -> int:
+    print(f"skip: {message}")
+    return 0
+
+
+def _pr_view(pr: str, repo: str, fields: str) -> dict[str, Any] | None:
+    try:
+        result = _common.gh_json("pr", "view", pr, "--repo", repo, "--json", fields)
+    except (json.JSONDecodeError, subprocess.CalledProcessError):
+        return None
+    return result if isinstance(result, dict) else None
+
+
+def _event_forces_review() -> bool:
+    path = os.environ.get("GITHUB_EVENT_PATH")
+    if not path:
+        return False
+    try:
+        event = json.loads(Path(path).read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(event, dict) and event.get("action") == "ready_for_review"
+
+
+def _write_delta(reviewed: str, current_head: str, base_sha: str) -> tuple[int, str]:
+    commands = (
+        (
+            "log",
+            "-p",
+            "--numstat",
+            "--no-merges",
+            "--format=%h %s",
+            f"{reviewed}..{current_head}",
+            "--not",
+            base_sha,
+        ),
+        (
+            "log",
+            "--format=base merge: %h %s",
+            "--merges",
+            f"{reviewed}..{current_head}",
+            "--not",
+            base_sha,
+        ),
+    )
+    with tempfile.NamedTemporaryFile(mode="w", delete=False) as delta:
+        path = delta.name
+        for command in commands:
+            result = subprocess.run(
+                ["git", *command], stdout=delta, text=True, check=False
+            )
+            if result.returncode:
+                return result.returncode, path
+    return 0, path
+
+
+def _emit_json(value: dict[str, Any]) -> bool:
+    try:
+        json.dump(value, sys.stdout, indent=2, separators=(",", ": "))
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    except OSError:
+        return False
+    return True
+
+
+def start(pr: str) -> int:
+    repo = _common.repository()
+    initial = _pr_view(
+        pr, repo, "headRefOid,state,baseRefOid,author,isDraft,baseRefName"
+    )
+    if not initial or not all(
+        initial.get(key) is not None
+        for key in ("headRefOid", "state", "baseRefOid", "author", "isDraft")
+    ):
+        return _error(f"could not read PR #{pr}")
+
+    head_sha = str(initial["headRefOid"])
+    state = str(initial["state"])
+    if state != "OPEN":
+        return _skip(f"PR is {state}")
+    base_sha = str(initial["baseRefOid"])
+    author = initial["author"]
+    if not isinstance(author, dict) or not author.get("login"):
+        return _error(f"could not read PR #{pr} author")
+
+    review_state = bot_review_state.fetch_review_state(pr, repo=repo)
+    if review_state.get("head_sha") != head_sha:
+        return _error(
+            f"PR #{pr} head moved during the initial snapshot; run start again"
+        )
+
+    force_full_review = _event_forces_review()
+    force_pushed = bool(review_state.get("force_pushed_since"))
+    last_substantive = review_state.get("last_substantive") or {}
+    last_review_sha = str(last_substantive.get("sha") or "")
+    # A draft-mode review was the lighter pass, so once the PR is ready it is no
+    # base for an incremental: the push after it still gets the full review.
+    lighter_base = bool(last_substantive.get("draft_mode")) and not initial["isDraft"]
+    # `at_head`, not `last_review_sha == head_sha`: a force push re-points an
+    # earlier review's `.commit_id` at the rewritten head, so the raw comparison
+    # reports a commit as reviewed that nothing read.
+    already_reviewed = review_state.get("at_head") is not None and not force_full_review
+    incremental_path: str | None = None
+    if (
+        last_review_sha
+        and last_review_sha != head_sha
+        and not force_full_review
+        and not force_pushed
+        and not lighter_base
+    ):
+        subprocess.run(
+            ["git", "fetch", "--no-tags", "--quiet", "origin", f"refs/pull/{pr}/head"],
+            check=False,
+        )
+        subprocess.run(
+            ["git", "fetch", "--no-tags", "--quiet", "origin", base_sha],
+            check=False,
+        )
+        status, incremental_path = _write_delta(last_review_sha, head_sha, base_sha)
+        if status:
+            return status
+
+    # Who acts on the review's findings. `self` and `bot` PRs have no human
+    # author, so the review session applies its findings itself; only `self`
+    # also rules out an APPROVE, which GitHub rejects from a PR's author.
+    if str(author["login"]) == str(review_state["bot_login"]):
+        author_kind = "self"
+    elif author["is_bot"]:
+        author_kind = "bot"
+    else:
+        author_kind = "human"
+    context = {
+        "head_sha": head_sha,
+        "author": author_kind,
+        "is_draft": bool(initial["isDraft"]),
+        "already_reviewed": already_reviewed,
+        "incremental_path": incremental_path,
+    }
+    if not _emit_json(context):
+        return 1
+    Path(
+        os.environ.get("REVIEWED_HEAD_FILE", str(TEMP_DIR / "reviewed-head"))
+    ).write_text(f"{head_sha}\n")
+    # The base this review judges the head against, which a landing record
+    # names so a retarget after the review can't land on another base.
+    if initial.get("baseRefName"):
+        Path(
+            os.environ.get("REVIEWED_BASE_FILE", str(TEMP_DIR / "reviewed-base"))
+        ).write_text(f"{initial['baseRefName']}\n")
+    return 0
+
+
+def post(
+    pr: str, *, edit_review: str | None = None, command: tuple[str, ...] = ()
+) -> int:
+    repo = _common.repository()
+    pin_file = Path(
+        os.environ.get("REVIEWED_HEAD_FILE", str(TEMP_DIR / "reviewed-head"))
+    )
+    try:
+        reviewed = pin_file.read_text().strip()
+    except OSError:
+        reviewed = ""
+    if not SHA_RE.fullmatch(reviewed):
+        return _error(f"{pin_file} does not hold a commit sha")
+
+    initial = _pr_view(pr, repo, "headRefOid,state,baseRefOid")
+    if not initial or not all(
+        initial.get(key) for key in ("headRefOid", "state", "baseRefOid")
+    ):
+        return _error(f"could not read PR #{pr}")
+    current_head = str(initial["headRefOid"])
+    state = str(initial["state"])
+    base_sha = str(initial["baseRefOid"])
+    if state != "OPEN":
+        return _skip(f"PR is {state}")
+
+    retargeted = current_head != reviewed
+    delta_file: str | None = None
+    if retargeted:
+        if command:
+            return _skip(f"HEAD moved to {current_head} before the outward action")
+        subprocess.run(
+            ["git", "fetch", "--no-tags", "--quiet", "origin", f"refs/pull/{pr}/head"],
+            check=False,
+        )
+        subprocess.run(
+            ["git", "fetch", "--no-tags", "--quiet", "origin", base_sha],
+            check=False,
+        )
+        ancestor = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", reviewed, current_head],
+            check=False,
+        )
+        if ancestor.returncode == 1:
+            return _skip(
+                f"cannot re-target onto {current_head} — {reviewed} is no longer "
+                "an ancestor; leaving it to the queued review"
+            )
+        if ancestor.returncode:
+            print(
+                f"review-preflight: git merge-base failed with status "
+                f"{ancestor.returncode}",
+                file=sys.stderr,
+            )
+            return ancestor.returncode
+        status, delta_file = _write_delta(reviewed, current_head, base_sha)
+        if status:
+            return status
+        reviewed = current_head
+
+    review_state = bot_review_state.fetch_review_state(pr, repo=repo)
+    if review_state.get("head_sha") != reviewed:
+        return _skip(
+            "HEAD moved to "
+            f"{review_state.get('head_sha') or 'an unreadable value'} during the preflight"
+        )
+
+    at_head = review_state.get("at_head")
+    if edit_review is not None:
+        editable = (
+            isinstance(at_head, dict)
+            and str(at_head.get("id")) == edit_review
+            and str(review_state.get("orphan_id")) == edit_review
+        )
+        already = (
+            "" if editable else f"cannot edit requested orphan review {edit_review}"
+        )
+    elif at_head is None or (
+        _event_forces_review()
+        and isinstance(at_head, dict)
+        and at_head.get("draft_mode") is True
+    ):
+        already = ""
+    else:
+        already = f"already carries a {at_head['state']} review {at_head['id']}"
+    if already:
+        return _skip(f"{reviewed} {already}")
+
+    final = _pr_view(pr, repo, "headRefOid,state")
+    if not final or not all(final.get(key) for key in ("headRefOid", "state")):
+        return _error(f"could not re-read PR #{pr}")
+    final_head = str(final["headRefOid"])
+    final_state = str(final["state"])
+    if final_state != "OPEN":
+        return _skip(f"PR is {final_state}")
+    if final_head != reviewed:
+        return _skip(f"HEAD moved to {final_head} during the preflight")
+
+    if retargeted:
+        output = (
+            f"post: re-targeted onto {reviewed} — read the delta before posting\n"
+            f"delta: {delta_file}\n"
+        )
+    else:
+        output = f"post: {reviewed} is still the head you reviewed\n"
+    try:
+        sys.stdout.write(output)
+        sys.stdout.flush()
+    except OSError:
+        return 1
+    if retargeted:
+        pin_file.write_text(f"{reviewed}\n")
+    if command:
+        return subprocess.run(command, check=False).returncode
+    return 0
