@@ -17,7 +17,6 @@ https://github.com/max-sixty/tend/compare for their history.
 
 ### Fixed
 
-- Install verification regenerates workflows with the action's installed package and detects newly generated files and staged deletions. ([#1607](https://github.com/max-sixty/tend/pull/1607))
 - Startup configuration restoration handles wildcard, newline, and non-UTF-8 filenames literally while preserving trusted-base instruction pinning. ([#1610](https://github.com/max-sixty/tend/pull/1610))
 
 ### Internal
