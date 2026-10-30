@@ -6,6 +6,25 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.20
+
+### Improved
+
+- Triage processes issue batches with configurable `workflows.triage.max_parallel` (default five). Batches remain serialized, and recovery splits large selections to fit GitHub limits. Manual dispatch now accepts `issues`, a JSON array, in place of `issue` and `title`. ([#1603](https://github.com/max-sixty/tend/pull/1603))
+- Daily and weekly maintenance delegate independent repairs through issues and investigate work with subagents. Codex sessions can exceed the default four-agent limit. ([#1609](https://github.com/max-sixty/tend/pull/1609))
+- **Action callers:** Run `setup-runtime` at the same release ref before `claude`, `codex`, `land`, or `codex/refresh`. The harness `bot_name` input and Codex's unused `allowed_bots` and `allowed_non_write_users` inputs are removed; config `bot_name` remains supported. Generated workflows include these changes. ([#1608](https://github.com/max-sixty/tend/pull/1608))
+- **Config:** TOML configurations and `sandbox_env`, `sandbox_path`, and `sandbox_setup` are rejected with migration guidance. Convert to YAML and use `setup:` steps with `$GITHUB_ENV` and `$GITHUB_PATH`. ([#1610](https://github.com/max-sixty/tend/pull/1610))
+
+### Fixed
+
+- Startup configuration restoration handles wildcard, newline, and non-UTF-8 filenames literally while preserving trusted-base instruction pinning. ([#1610](https://github.com/max-sixty/tend/pull/1610))
+
+### Internal
+
+- Workflow operations and CI helpers run through the installed, isolated `tend runtime` CLI. Runner setup has one owner, and instruction restoration uses the packaged Python runtime instead of staged shell assets. ([#1607](https://github.com/max-sixty/tend/pull/1607), [#1608](https://github.com/max-sixty/tend/pull/1608), [#1610](https://github.com/max-sixty/tend/pull/1610))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.19
 
 ### Improved
