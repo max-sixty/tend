@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
 """Expose a PR's canonical bot review state and discussion context.
 
 Feedback retains authors and discussion context for threads the bot participates in.
@@ -11,13 +7,12 @@ Consumers derive unresolved bot-started findings from that same thread snapshot.
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
-import github_cli
+from tend.runtime.shared import _common
 
 DRAFT_REVIEW_MARKER = "<!-- tend:draft-review -->"
 LEGACY_DRAFT_REVIEW_PREFIX = "Reviewing as a draft —"
@@ -62,7 +57,7 @@ def review_state(
     mine = [
         review
         for review in reviews
-        if github_cli.actor_login(review.get("user")) == bot
+        if _common.actor_login(review.get("user")) == bot
         and review.get("submitted_at") is not None
     ]
     substantive = [
@@ -166,25 +161,25 @@ def review_state(
 
 def fetch_review_state(pr: str, *, repo: str | None = None) -> dict[str, Any]:
     """Fetch and reduce the review state for *pr*."""
-    repo = repo or github_cli.repository()
-    bot = str(github_cli.json_call("api", "user")["login"])
-    head = github_cli.json_call(
-        "pr", "view", pr, "--repo", repo, "--json", "headRefOid"
-    )["headRefOid"]
-    comments = github_cli.paginated(f"repos/{repo}/pulls/{pr}/comments")
+    repo = repo or _common.repository()
+    bot = str(_common.gh_json("api", "user")["login"])
+    head = _common.gh_json("pr", "view", pr, "--repo", repo, "--json", "headRefOid")[
+        "headRefOid"
+    ]
+    comments = _common.gh_paginated(f"repos/{repo}/pulls/{pr}/comments")
     substantive_ids = {
         int(comment["pull_request_review_id"])
         for comment in comments
         if comment.get("in_reply_to_id") is None
         and comment.get("pull_request_review_id") is not None
     }
-    timeline = github_cli.paginated(f"repos/{repo}/issues/{pr}/timeline")
+    timeline = _common.gh_paginated(f"repos/{repo}/issues/{pr}/timeline")
     force_push_times = [
         event["created_at"]
         for event in timeline
         if event.get("event") == "head_ref_force_pushed"
     ]
-    reviews = github_cli.paginated(f"repos/{repo}/pulls/{pr}/reviews")
+    reviews = _common.gh_paginated(f"repos/{repo}/pulls/{pr}/reviews")
     return review_state(
         head_sha=head,
         bot=bot,
@@ -196,11 +191,11 @@ def fetch_review_state(pr: str, *, repo: str | None = None) -> dict[str, Any]:
 
 def dismiss_standing_approval(pr: str, message: str) -> None:
     """Dismiss the bot approval currently deciding *pr*, when one exists."""
-    repo = github_cli.repository()
+    repo = _common.repository()
     state = fetch_review_state(pr, repo=repo)
     review_id = state["standing_approval_id"]
     if review_id:
-        github_cli.run(
+        _common.gh(
             "api",
             f"repos/{repo}/pulls/{pr}/reviews/{review_id}/dismissals",
             "-X",
@@ -220,7 +215,7 @@ def prepare_approval(pr: str) -> dict[str, Any]:
     pin.unlink(missing_ok=True)
     already_approved = state.get("fresh_approval_sha") == head_sha
     result = {"head_sha": head_sha, "already_approved": already_approved}
-    github_cli.dump(result)
+    _common.dump(result)
     sys.stdout.flush()
     if not already_approved:
         pin.write_text(f"{head_sha}\n")
@@ -229,11 +224,11 @@ def prepare_approval(pr: str) -> dict[str, Any]:
 
 def dismiss_stale_approval(pr: str, message: str) -> None:
     """Dismiss the approval that predates the PR's newest force push, if any."""
-    repo = github_cli.repository()
+    repo = _common.repository()
     state = fetch_review_state(pr, repo=repo)
     review_id = state["stale_approval_id"]
     if review_id:
-        github_cli.run(
+        _common.gh(
             "api",
             f"repos/{repo}/pulls/{pr}/reviews/{review_id}/dismissals",
             "-X",
@@ -245,7 +240,7 @@ def dismiss_stale_approval(pr: str, message: str) -> None:
 
 def _review_threads(pr: str, repo: str) -> list[dict[str, Any]]:
     owner, name = repo.split("/", 1)
-    pages = github_cli.pages(
+    pages = _common.gh_pages(
         "graphql",
         "-f",
         f"query={THREADS_QUERY}",
@@ -267,17 +262,15 @@ def _review_threads(pr: str, repo: str) -> list[dict[str, Any]]:
 
 def feedback(pr: str) -> dict[str, Any]:
     """Return canonical review state with conversation and contextual bot findings."""
-    repo = github_cli.repository()
+    repo = _common.repository()
     state = fetch_review_state(pr, repo=repo)
     bot = state["bot_login"]
-    pr_view = github_cli.json_call(
-        "pr", "view", pr, "--repo", repo, "--json", "comments"
-    )
+    pr_view = _common.gh_json("pr", "view", pr, "--repo", repo, "--json", "comments")
     return {
         "review_state": state,
         "conversation": [
             {
-                "author": github_cli.actor_login(comment.get("author")),
+                "author": _common.actor_login(comment.get("author")),
                 "created_at": comment.get("createdAt"),
                 "body": comment.get("body"),
             }
@@ -290,7 +283,7 @@ def feedback(pr: str) -> dict[str, Any]:
                 "is_outdated": thread["isOutdated"],
                 "comments": [
                     {
-                        "author": github_cli.actor_login(comment.get("author")),
+                        "author": _common.actor_login(comment.get("author")),
                         "sha": comment["commit"]["oid"] if comment["commit"] else None,
                         "path": comment["path"],
                         "line": comment["line"],
@@ -302,7 +295,7 @@ def feedback(pr: str) -> dict[str, Any]:
             }
             for thread in _review_threads(pr, repo)
             if any(
-                github_cli.actor_login(comment.get("author")) == bot
+                _common.actor_login(comment.get("author")) == bot
                 for comment in thread["comments"]["nodes"]
             )
         ],
@@ -311,7 +304,7 @@ def feedback(pr: str) -> dict[str, Any]:
 
 def resolve_thread(thread_id: str) -> None:
     """Resolve one review thread by its GraphQL node id."""
-    github_cli.run(
+    _common.gh(
         "api",
         "graphql",
         "-f",
@@ -319,38 +312,3 @@ def resolve_thread(thread_id: str) -> None:
         "-f",
         f"threadId={thread_id}",
     )
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) == 2 and args[0] == "state" and args[1].isdigit():
-        github_cli.dump(fetch_review_state(args[1]))
-        return 0
-    if len(args) == 3 and args[0] == "dismiss" and args[1].isdigit() and args[2]:
-        dismiss_standing_approval(args[1], args[2])
-        return 0
-    if len(args) == 2 and args[0] == "prepare-approval" and args[1].isdigit():
-        prepare_approval(args[1])
-        return 0
-    if len(args) == 3 and args[0] == "dismiss-stale" and args[1].isdigit() and args[2]:
-        dismiss_stale_approval(args[1], args[2])
-        return 0
-    if len(args) == 2 and args[0] == "feedback" and args[1].isdigit():
-        github_cli.dump(feedback(args[1]))
-        return 0
-    if len(args) == 2 and args[0] == "resolve-thread" and args[1]:
-        resolve_thread(args[1])
-        return 0
-    print(
-        f"usage: {sys.argv[0]} state|feedback|prepare-approval <pr-number> | "
-        "dismiss|dismiss-stale <pr-number> <message> | resolve-thread <thread-id>",
-        file=sys.stderr,
-    )
-    return 2
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

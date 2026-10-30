@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Prepare and ship the nightly Tend workflow regeneration.
 
 The two commands bracket the one agent-authored artifact, the PR body. All git
@@ -23,7 +19,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import github_cli
+from tend.runtime.shared import _common
 
 BRANCH = "tend/update-workflows"
 CODEOWNERS_PATHS = ("CODEOWNERS", "docs/CODEOWNERS")
@@ -72,7 +68,7 @@ def _paths() -> tuple[Path, Path, Path, Path]:
     )
 
 
-def _version(worktree: Path) -> str:
+def version(worktree: Path) -> str:
     versions = {
         match.group(1)
         for path in (worktree / ".github/workflows").glob("tend-*.yaml")
@@ -114,13 +110,13 @@ def _stage_generated(worktree: Path) -> None:
             _run("git", "add", "-A", "--", path, cwd=worktree)
 
 
-def _prepare() -> int:
+def prepare() -> int:
     worktree, state_path, body_path, sha_path = _paths()
     for artifact in (state_path, body_path, sha_path):
         artifact.unlink(missing_ok=True)
     _run("git", "worktree", "remove", str(worktree), "--force", check=False)
-    repo = github_cli.repository()
-    open_prs = github_cli.json_call(
+    repo = _common.repository()
+    open_prs = _common.gh_json(
         "pr",
         "list",
         "--repo",
@@ -137,26 +133,26 @@ def _prepare() -> int:
         base = _run("git", "rev-parse", f"origin/{BRANCH}").stdout.strip()
     else:
         _run("git", "push", "origin", "--delete", BRANCH, check=False)
-        default = github_cli.json_call("api", f"repos/{repo}")["default_branch"]
+        default = _common.gh_json("api", f"repos/{repo}")["default_branch"]
         _run("git", "fetch", "origin", default)
         base = _run("git", "rev-parse", "FETCH_HEAD").stdout.strip()
 
     _run("git", "worktree", "add", str(worktree), "-B", BRANCH, base)
-    old_version = _version(worktree)
+    old_version = version(worktree)
     _run("uv", "tool", "run", "tend@latest", "init", cwd=worktree)
     _stage_generated(worktree)
     if not _staged_change(worktree):
         _run("git", "worktree", "remove", str(worktree), "--force")
-        github_cli.dump({"changed": False})
+        _common.dump({"changed": False})
         return 0
 
-    new_version = _version(worktree)
+    new_version = version(worktree)
     title = "chore: update tend workflows"
     upstream_commits: list[str] = []
     if old_version and new_version and old_version != new_version:
         title += f" ({old_version} → {new_version})"
         try:
-            compare = github_cli.json_call(
+            compare = _common.gh_json(
                 "api",
                 f"repos/max-sixty/tend/compare/{old_version}...{new_version}",
                 quiet=True,
@@ -184,11 +180,11 @@ def _prepare() -> int:
         "existing_pr": open_prs[0] if open_prs else None,
     }
     state_path.write_text(json.dumps(state, indent=2) + "\n")
-    github_cli.dump(state)
+    _common.dump(state)
     return 0
 
 
-def _ship() -> int:
+def ship() -> int:
     worktree, state_path, body_path, sha_path = _paths()
     state = json.loads(state_path.read_text())
     if state.get("changed") is not True or Path(state.get("worktree", "")) != worktree:
@@ -205,7 +201,7 @@ def _ship() -> int:
     existing_pr = state.get("existing_pr")
     if existing_pr:
         number = str(existing_pr["number"])
-        github_cli.run(
+        _common.gh(
             "pr",
             "edit",
             number,
@@ -218,7 +214,7 @@ def _ship() -> int:
         )
         url = str(existing_pr["url"])
     else:
-        url = github_cli.run(
+        url = _common.gh(
             "pr",
             "create",
             "--repo",
@@ -234,25 +230,5 @@ def _ship() -> int:
     sha = _run("git", "rev-parse", "HEAD", cwd=worktree).stdout.strip()
     sha_path.write_text(f"{sha}\n")
     _run("git", "worktree", "remove", str(worktree), "--force")
-    github_cli.dump({"url": url, "number": number, "sha": sha})
+    _common.dump({"url": url, "number": number, "sha": sha})
     return 0
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if args == ["prepare"]:
-        return _prepare()
-    if args == ["ship"]:
-        return _ship()
-    if args == ["version"]:
-        print(_version(Path.cwd()))
-        return 0
-    print(f"usage: {sys.argv[0]} prepare|ship|version", file=sys.stderr)
-    return 2
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

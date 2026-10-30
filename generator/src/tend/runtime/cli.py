@@ -17,6 +17,7 @@ from pathlib import Path
 
 import click
 
+from tend.runtime.ci.cli import register
 from tend.runtime.codex import codex_model_smoke, codex_subscription_auth
 from tend.runtime.shared import _common
 
@@ -366,3 +367,6 @@ def stop_responses_proxy_command() -> None:
     from tend.runtime.codex import responses_proxy
 
     _common.run(responses_proxy.stop)
+
+
+register(runtime)

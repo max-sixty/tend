@@ -479,11 +479,8 @@ def test_init_custom_config_path(
     result = runner.invoke(main, ["init", "-c", str(custom)])
     assert result.exit_code == 0
 
-    for path in _workflow_dir(tmp_path).glob("tend-*.yaml"):
-        if path.name != "tend-mention-relay.yaml":
-            assert "custom-bot" in path.read_text(), (
-                f"{path.name} missing custom bot name"
-            )
+    mention = (_workflow_dir(tmp_path) / "tend-mention.yaml").read_text()
+    assert "@custom-bot" in mention
 
 
 # ---------------------------------------------------------------------------
@@ -1145,25 +1142,11 @@ def test_notifications_precheck_tolerates_transient_non_json(
 def test_init_bot_name_in_workflow_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The bot_name from config appears in generated workflow files (in the
-    tend action's bot_name input and mention filters)."""
+    """Configured identity filters engagement; the action resolves its token identity."""
     _write_config(tmp_path, "bot_name: my-custom-bot")
     monkeypatch.chdir(tmp_path)
     _run_init()
 
-    checked = 0
-    for path in _workflow_dir(tmp_path).glob("tend-*.yaml"):
-        data = yaml.safe_load(path.read_text())
-        for job in data["jobs"].values():
-            for step in job.get("steps", []):
-                if not step.get("uses", "").startswith("max-sixty/tend/claude@"):
-                    continue
-                checked += 1
-                assert step["with"]["bot_name"] == "my-custom-bot"
-    assert checked, "no agent step matched: the action ref or its path moved"
-
-    # The other half of the claim above: mention gates on the name textually,
-    # in the verify job's `if:`, not through an action input.
     mention = yaml.safe_load(
         (_workflow_dir(tmp_path) / "tend-mention.yaml").read_text()
     )

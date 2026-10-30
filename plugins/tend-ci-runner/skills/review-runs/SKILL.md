@@ -31,8 +31,7 @@ Each run contributes to a monthly `review-runs-tracking` issue. Prepare the
 current tracker and read the current and previous month's evidence:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" prepare-evidence \
+tend runtime review-runs prepare-evidence \
   > "$TMPDIR/evidence.json"
 jq -r '.current_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-current.md"
 jq -r '.previous_comments[].body' "$TMPDIR/evidence.json" > "$TMPDIR/evidence-previous.md"
@@ -54,8 +53,7 @@ to `$TMPDIR/findings.md`. Include a literal `## Run $GITHUB_RUN_ID` heading.
 Then append them:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" append-evidence
+tend runtime review-runs append-evidence
 ```
 
 The command refuses a findings file that does not name this run. It appends to
@@ -67,8 +65,7 @@ then starts a new comment. Prior entries are never replaced.
 List tend CI runs that completed since the previous `review-runs` run (nominally 24 hours — the cron runs daily):
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/list_recent_runs.py" review-runs
+tend runtime list-recent-runs review-runs
 ```
 
 If no runs are found, report "no runs to review", complete **Reconcile live work** below, then exit.
@@ -111,8 +108,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 - failing default-branch CI with no bot fix in progress. Another live-state check: scoped neither to the workflows `tend-ci-failures` reports — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window. A failure an open CI failure report (labeled `tend-ci-failure`) tracks is in progress only where the bot has triaged the report since its newest run and a cause issue or repair PR covers the failure, whose ownership the live issue and PR checks above verify. Otherwise hand the report to ordinary triage through **Recover issue work** in `/tend-ci-runner:notifications`, including its access and admission checks, rather than working it here.
 
   ```bash
-  uv run --script \
-    "${CLAUDE_PLUGIN_ROOT}/scripts/red_default_branch_runs.py"
+  tend runtime red-default-branch-runs
   ```
 
   `candidates` contains returned failures without a later observed green of the same subject. Committed workflow paths match by path, including Tend-generated YAML under `.github/workflows/`. Only GitHub-generated run paths starting with `dynamic/` match by both path and name. `observed_green_by_path` records the newest returned green per path; on a `dynamic/` path it may have closed a different name. `reached_back_to` is the newest oldest-row timestamp among pages that filled their limit. A null floor means no returned page filled its limit, not that the branch's entire history is current or complete.
@@ -151,8 +147,7 @@ body carries the first, comments the rest. Fail the sweep if the script exits
 non-zero; that is different from it returning no trackers:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs.py" outage-trackers \
+tend runtime review-runs outage-trackers \
   > "$TMPDIR/review-runs-outage.json"
 ```
 
@@ -181,8 +176,7 @@ Run the token report script to get per-run token counts:
 # the script fetches with a cushion and admits a run on completion, the way
 # Step 1 does. A window in hours would drop a run that started before the
 # anchor and finished inside it — the longest and costliest runs there are.
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/token_report.py" \
+tend runtime token-report \
   --since "$(cat "$TMPDIR/review-runs-since")" \
   > "$TMPDIR/token-report.json"
 ```
@@ -211,8 +205,7 @@ mention, notifications, and weekly runs get the same treatment: find the bot's o
 Dispositions — merged, closed, relabeled, reverted — are only half the signal. A maintainer replying in-thread that a bot claim was wrong, or requesting changes on a bot PR, leaves labels and state untouched and is equally a correction; where the bot authors most of the PRs, a review body is the *first* place a maintainer writes. The script collects all three — dispositions, thread comments, review bodies — for the window:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_runs_corrections.py" \
+tend runtime review-runs-corrections \
   "$(cat "$TMPDIR/review-runs-since")"
 ```
 

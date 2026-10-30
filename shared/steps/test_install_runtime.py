@@ -7,11 +7,14 @@ import shlex
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize("sandbox_exit", [0, 42])
 def test_installer_exposes_isolated_tend_only(
-    installed_runtime: tuple[Path, Path], tmp_path: Path
+    installed_runtime: tuple[Path, Path], tmp_path: Path, sandbox_exit: int
 ) -> None:
     python, _ = installed_runtime
     # Replace only uv's already-tested installation. The production shell
@@ -19,8 +22,11 @@ def test_installer_exposes_isolated_tend_only(
     uv_dir = tmp_path / "uv"
     uv_dir.mkdir()
     uv = uv_dir / "uv"
+    installations = tmp_path / "installations"
     uv.write_text(
         "#!/bin/sh\n"
+        f'printf "%s\\n" "$UV_PROJECT_ENVIRONMENT" >> {shlex.quote(str(installations))}\n'
+        f'case "$UV_PROJECT_ENVIRONMENT" in */venv) test {sandbox_exit} -eq 0 || exit {sandbox_exit} ;; esac\n'
         f'ln -s {shlex.quote(str(python.parent.parent))} "$UV_PROJECT_ENVIRONMENT"\n'
     )
     uv.chmod(0o755)
@@ -28,23 +34,60 @@ def test_installer_exposes_isolated_tend_only(
     temporary.mkdir()
     github_env = tmp_path / "github-env"
     github_path = tmp_path / "github-path"
+    runtime_root = tmp_path / "sandbox"
+    runtime_root.mkdir()
+    install = ["/bin/bash", str(ROOT / "shared/steps/install-runtime.sh")]
+    setup_env = {
+        **os.environ,
+        "ACTION_PATH": str(ROOT),
+        "UV_INSTALL_DIR": str(uv_dir),
+        "RUNNER_TEMP": str(temporary),
+        "GITHUB_ENV": str(github_env),
+        "GITHUB_PATH": str(github_path),
+        "TEND_RUNTIME_ROOT": str(runtime_root),
+        "TEND_PRIVATE_DIR": "",
+        "TEND_RUNTIME_PYTHON": "",
+    }
+    missing = subprocess.run(
+        [*install, "sandbox"],
+        env=setup_env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert missing.returncode != 0
+    assert "Run max-sixty/tend/setup-runtime" in missing.stderr
+    assert not installations.exists()
     subprocess.run(
-        ["/bin/bash", str(ROOT / "shared/steps/install-runtime.sh")],
+        [*install, "runner"], env=setup_env, check=True, capture_output=True, text=True
+    )
+    assert not (runtime_root / "venv").exists()
+    consumer = tmp_path / "consumer-bin"
+    consumer.mkdir()
+    for name, body in {"python": "echo consumer-python", "tend": "exit 98"}.items():
+        path = consumer / name
+        path.write_text(f"#!/bin/sh\n{body}\n")
+        path.chmod(0o755)
+    consumer_path = f"{consumer}:{github_path.read_text().strip()}:/usr/bin:/bin"
+    sandbox = subprocess.run(
+        [*install, "sandbox"],
         env={
-            **os.environ,
-            "ACTION_PATH": str(ROOT),
-            "UV_INSTALL_DIR": str(uv_dir),
-            "RUNNER_TEMP": str(temporary),
-            "GITHUB_ENV": str(github_env),
-            "GITHUB_PATH": str(github_path),
-            "TEND_RUNTIME_ROOT": "",
-            "TEND_PRIVATE_DIR": "",
+            **setup_env,
+            "PATH": consumer_path,
+            "TEND_RUNTIME_PYTHON": str(temporary / "tend-python/bin/python"),
         },
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
-    commands = Path(github_path.read_text().strip())
+    assert sandbox.returncode == sandbox_exit, sandbox.stderr
+    assert installations.read_text().splitlines() == [
+        str(temporary / "tend-python"),
+        str(runtime_root / "venv"),
+    ]
+    additions = github_path.read_text().splitlines()
+    assert additions == [str(temporary / "tend-python/commands")] * 2
+    commands = Path(additions[-1])
     assert [path.name for path in commands.iterdir()] == ["tend"]
     assert (
         github_env.read_text()
@@ -62,15 +105,9 @@ def test_installer_exposes_isolated_tend_only(
     )
     startup = hostile / "startup.sh"
     startup.write_text('echo "consumer shell startup ran" >&2; exit 99\n')
-    consumer = tmp_path / "consumer-bin"
-    consumer.mkdir()
-    for name, body in {"python": "echo consumer-python", "tend": "exit 98"}.items():
-        path = consumer / name
-        path.write_text(f"#!/bin/sh\n{body}\n")
-        path.chmod(0o755)
     env = {
         **os.environ,
-        "PATH": f"{commands}:{consumer}:/usr/bin:/bin",
+        "PATH": f"{commands}:{consumer_path}",
         "PYTHONPATH": str(hostile),
         "PYTHONHOME": str(hostile),
         "PYTHONUSERBASE": str(hostile),

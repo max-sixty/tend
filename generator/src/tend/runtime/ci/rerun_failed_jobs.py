@@ -1,41 +1,28 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Rerun one workflow run's failed jobs and report the new conclusions."""
 
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 import time
 from collections.abc import Callable
 from typing import Any
 
-import github_cli
+from tend.runtime.shared import _common
 
 
 def _run_attempt(path: str) -> int:
-    return int(github_cli.json_call("api", path)["run_attempt"])
+    return int(_common.gh_json("api", path)["run_attempt"])
 
 
 def _job(path: str, job_id: int) -> dict[str, Any]:
-    return github_cli.json_call("api", f"{path.rsplit('/runs/', 1)[0]}/jobs/{job_id}")
+    return _common.gh_json("api", f"{path.rsplit('/runs/', 1)[0]}/jobs/{job_id}")
 
 
-def main(
-    argv: list[str] | None = None, *, sleep: Callable[[float], None] = time.sleep
-) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) != 1 or not args[0].isdigit():
-        print(f"usage: {sys.argv[0]} <run-id>", file=sys.stderr)
-        return 2
-    run_id = args[0]
+def main(run_id: str, *, sleep: Callable[[float], None] = time.sleep) -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
     run_api = f"repos/{repo}/actions/runs/{run_id}"
     base_attempt = _run_attempt(run_api)
-    github_cli.run("run", "rerun", run_id, "--failed", "--repo", repo)
+    _common.gh("run", "rerun", run_id, "--failed", "--repo", repo)
 
     attempt = base_attempt
     for _ in range(6):
@@ -52,7 +39,7 @@ def main(
 
     # `filter=latest` lists every job in the run, the ones the rerun left alone
     # too, so on a wide matrix a re-run job can sit past the first page.
-    pages = github_cli.pages(f"{run_api}/jobs?filter=latest&per_page=100")
+    pages = _common.gh_pages(f"{run_api}/jobs?filter=latest&per_page=100")
     job_ids = [
         int(job["id"])
         for page in pages
@@ -72,10 +59,3 @@ def main(
                 print(f"{job.get('conclusion') or ''}\t{job['name']}")
             return 0
         sleep(60)
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

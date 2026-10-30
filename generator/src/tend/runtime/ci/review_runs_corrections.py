@@ -1,17 +1,12 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Collect maintainer corrections made during a review-runs window."""
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from typing import Any
 from urllib.parse import quote
 
-import github_cli
+from tend.runtime.shared import _common
 
 #: GitHub search returns at most 1000 results, so both searches below read to
 #: the API's own ceiling rather than a guessed count.
@@ -42,7 +37,7 @@ def correction_report(
                 "body": (comment.get("body") or "")[:300],
             }
             for comment in comments
-            if (author := github_cli.actor_login(comment.get("user"))) != bot
+            if (author := _common.actor_login(comment.get("user"))) != bot
         ],
         "reviews": [
             {
@@ -53,30 +48,21 @@ def correction_report(
                 "body": review["body"][:300],
             }
             for review in reviews
-            if (author := github_cli.actor_login(review.get("user"))) != bot
+            if (author := _common.actor_login(review.get("user"))) != bot
             and review.get("submitted_at", "") >= since
             and review.get("body")
         ],
     }
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) != 1 or not args[0]:
-        print(
-            f"usage: {sys.argv[0]} <since>   # RFC3339, e.g. "
-            '$(cat "$TMPDIR/review-runs-since")',
-            file=sys.stderr,
-        )
-        return 2
-    since = args[0]
-    repo = github_cli.repository()
-    bot = str(github_cli.json_call("api", "user").get("login") or "")
+def main(since: str) -> int:
+    repo = _common.repository()
+    bot = str(_common.gh_json("api", "user").get("login") or "")
     if not bot:
         print("could not resolve the bot login from `gh api user`", file=sys.stderr)
         return 2
 
-    bot_prs = github_cli.json_call(
+    bot_prs = _common.gh_json(
         "pr",
         "list",
         "--repo",
@@ -98,12 +84,12 @@ def main(argv: list[str] | None = None) -> int:
     comments = [
         comment
         for endpoint in ("issues", "pulls")
-        for comment in github_cli.paginated(
+        for comment in _common.gh_paginated(
             f"repos/{repo}/{endpoint}/comments?since={encoded_since}&per_page=100",
         )
     ]
 
-    candidates = github_cli.json_call(
+    candidates = _common.gh_json(
         "pr",
         "list",
         "--repo",
@@ -120,12 +106,12 @@ def main(argv: list[str] | None = None) -> int:
     reviews = [
         review
         for candidate in candidates
-        for review in github_cli.paginated(
+        for review in _common.gh_paginated(
             f"repos/{repo}/pulls/{candidate['number']}/reviews?per_page=100",
         )
     ]
 
-    github_cli.dump(
+    _common.dump(
         correction_report(
             since=since,
             bot=bot,
@@ -135,10 +121,3 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     return 0
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

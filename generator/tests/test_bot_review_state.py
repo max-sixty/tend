@@ -15,15 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
+from tests import GH_PREAMBLE, fake_bin, runtime_command, tool_path
 
-BOT_REVIEW_STATE = (
-    Path(__file__).resolve().parents[2]
-    / "plugins"
-    / "tend-ci-runner"
-    / "scripts"
-    / "bot_review_state.py"
-)
+BOT_REVIEW_STATE = "bot-review-state"
 BOT = "tend-bot"
 HEAD = "head000"
 DRAFT_REVIEW_MARKER = "<!-- tend:draft-review -->"
@@ -85,7 +79,7 @@ def env(tmp_path: Path) -> dict[str, str]:
 
 def _state(env: dict[str, str]) -> dict:
     result = subprocess.run(
-        uv_script(BOT_REVIEW_STATE, "state", "7"),
+        runtime_command(BOT_REVIEW_STATE, "state", "7"),
         env=env,
         capture_output=True,
         text=True,
@@ -97,7 +91,7 @@ def _state(env: dict[str, str]) -> dict:
 
 def _run_cli(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        uv_script(BOT_REVIEW_STATE, *args),
+        runtime_command(BOT_REVIEW_STATE, *args),
         env=env,
         capture_output=True,
         text=True,

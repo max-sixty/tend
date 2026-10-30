@@ -17,12 +17,12 @@ complete the gates below and attempt the ordinary pinned merge.
 ## Reviewed head
 
 `PINNED_SHA` must be the current head with a standing bot approval
-(`fresh_approval_sha == PINNED_SHA` from `bot_review_state.py state <number>`),
+(`fresh_approval_sha == PINNED_SHA` from `tend runtime bot-review-state state <number>`),
 or, on the bot's own PR, a review of that head by this session warranting
 approval, including a trivial-increment close-out. GitHub forbids self-approval.
 A landing session tend-land started stands on the review that recorded the
 head: a `tend/land/<number>` status the bot created on `PINNED_SHA`
-(`land_pr.py`), whose description names the base the review judged and the
+(`tend runtime land-pr`), whose description names the base the review judged and the
 checks it skipped. Read it (`gh api repos/{owner}/{repo}/commits/<sha>/statuses`),
 leave the PR open if the base has changed since, and apply the CI policy with
 those skips, reading CI once without waiting. If checks are running again (a
@@ -52,8 +52,7 @@ leaves the verified PR open.
 Check for another dedicated owner:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py" \
+tend runtime active-subject-runs \
   "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/<number>"
 ```
 

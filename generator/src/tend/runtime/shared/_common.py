@@ -26,7 +26,7 @@ import secrets
 import signal
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import FrameType
 from typing import Any
@@ -104,20 +104,57 @@ class UnexpectedShape(Exception):
 GH_READ_FAILED = (subprocess.CalledProcessError, json.JSONDecodeError, UnexpectedShape)
 
 
-def gh_paginated(path: str) -> list[Any]:
-    """Every item a paginated ``gh api`` array endpoint serves, in page order.
+def gh_pages(*args: str, quiet: bool = False) -> list[Any]:
+    """Read every REST or GraphQL page as one JSON document."""
+    pages = (
+        gh_json("api", "--paginate", "--slurp", *args, quiet=True)
+        if quiet
+        else gh_json("api", "--paginate", "--slurp", *args)
+    )
+    if not isinstance(pages, list):
+        raise UnexpectedShape("paginated GitHub response was not an array of pages")
+    return pages
 
-    ``--paginate`` alone prints one JSON document per page, which is not a
-    document; ``--slurp`` makes it the array of pages, flattened here. It also
-    refuses ``--jq``, which is the point — the filtering stays in Python, where
-    a test sees the predicate rather than a jq string. Anything but an array of
-    pages raises :class:`UnexpectedShape`: a short listing would read as an
-    answer.
-    """
-    pages = gh_json("api", "--paginate", "--slurp", path)
-    if not isinstance(pages, list) or not all(isinstance(p, list) for p in pages):
+
+def gh_paginated(path: str, quiet: bool = False) -> list[Any]:
+    """Read every item from an array endpoint, refusing incomplete shapes."""
+    pages = gh_pages(path, quiet=quiet)
+    if not all(isinstance(page, list) for page in pages):
         raise UnexpectedShape(f"{path}: not an array of pages")
     return [item for page in pages for item in page]
+
+
+def repository() -> str:
+    """Return the explicitly selected repository or the checkout's remote."""
+    selected = os.environ.get("GITHUB_REPOSITORY")
+    if selected:
+        return selected
+    response = gh_json("repo", "view", "--json", "nameWithOwner")
+    return str(response["nameWithOwner"])
+
+
+def dump(value: Any) -> None:
+    """Write a stable JSON document to stdout."""
+    json.dump(
+        value,
+        sys.stdout,
+        indent=2,
+        separators=(",", ": "),
+        ensure_ascii=False,
+    )
+    sys.stdout.write("\n")
+
+
+def actor_login(actor: object) -> str:
+    """Return a GitHub actor login, including for deleted-account records."""
+    if not isinstance(actor, dict):
+        return ""
+    return str(actor.get("login") or "")
+
+
+def unique(values: Iterable[str]) -> list[str]:
+    """Deduplicate strings without changing their order."""
+    return list(dict.fromkeys(values))
 
 
 # Where each event keeps the number of the issue or PR it is about.

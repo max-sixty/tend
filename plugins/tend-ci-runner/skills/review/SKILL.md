@@ -29,14 +29,13 @@ Follow these steps in order.
 Before reading the diff, run the initial snapshot. It pins the open head, resolves the bot's review state, and prepares the accurate incremental when one applies:
 
 ```bash
-/usr/bin/python3 -E -s \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" start <number>
+tend runtime review-preflight start <number>
 ```
 
 On `skip`, finish. Otherwise read every previous bot review and the conversation:
 
 ```bash
-uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+tend runtime bot-review-state \
   feedback <number>
 ```
 
@@ -134,7 +133,7 @@ What counts as core is repo-specific; let the project's own instruction files, a
 # missing file substitutes the empty string and the POST still runs, which is
 # the unpinned review this pins against.
 REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0
-/usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> -- \
+tend runtime review-preflight post <number> -- \
   gh api "repos/{owner}/{repo}/pulls/<number>/reviews" --method POST \
     -f event=APPROVE -f commit_id="$REVIEWED" -f body=""
 ```
@@ -169,7 +168,7 @@ The failure message still names the removed local path, so it directs users to a
 ```bash
 # Re-read rather than reusing the pre-flight blob — a whole review has passed since.
 # The script no-ops once a dismissal or later CHANGES_REQUESTED has cleared it.
-uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+tend runtime bot-review-state \
   dismiss <number> "Superseded by the review on a later commit."
 ```
 
@@ -193,8 +192,7 @@ gh api "repos/{owner}/{repo}/issues/<number>/reactions" -f content="+1"
 Before composing the final payload, run the preflight without a command. It checks the PR is open, re-targets onto a newer descendant head, and stops duplicate reviews:
 
 ```bash
-/usr/bin/python3 -E -s \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number>
+tend runtime review-preflight post <number>
 ```
 
 On `skip`, post nothing. If the pinned head already carries a review, continue to **Resolve handled suggestions** and the remaining workflow; a closed PR or a moved head ends this pass. A re-targeted result prints `delta: <path>` and updates `$TMPDIR/reviewed-head`: follow `references/re-targeting.md` before posting, then run the preflight again. Do not post from the re-targeting pass.
@@ -228,11 +226,11 @@ After submitting the review, check if any unresolved bot threads have been addre
 **Self-authored PRs are especially risky.** When the bot is both author and reviewer, there is a bias toward accepting the code's own claims. Treat self-authored thread resolution with extra skepticism — read the code and verify the claim independently rather than trusting the doc comment or commit message.
 
 ```bash
-uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+tend runtime bot-review-state \
   feedback <number> | jq '.review_state.bot_login as $bot |
     [.review_threads[] | select(.is_resolved == false and .comments[0].author == $bot)]'
 # Read each thread's discussion; resolve only after verifying its substance:
-uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+tend runtime bot-review-state \
   resolve-thread <thread-id>
 ```
 

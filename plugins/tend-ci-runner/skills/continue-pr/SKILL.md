@@ -27,8 +27,7 @@ still unfinished.
 ```bash
 BOT_LOGIN=$(gh api user --jq .login)
 gh pr view <number> --json author,state,isDraft,headRefOid,headRefName,headRepository,baseRefName,commits,body,comments,reviews,statusCheckRollup
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py" \
+tend runtime active-subject-runs \
   "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/<number>"
 ```
 

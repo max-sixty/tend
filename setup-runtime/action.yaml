@@ -10,7 +10,7 @@ runs:
         UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
     - name: Install Tend runtime package
       shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-runtime.sh"
+      run: bash "${{ github.action_path }}/../shared/steps/install-runtime.sh" runner
       env:
         ACTION_PATH: ${{ github.action_path }}/..
         UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv

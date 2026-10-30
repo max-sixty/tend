@@ -13,7 +13,6 @@ import functools
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 from tend.runtime.shared import _prompt, _sandbox
@@ -42,11 +41,6 @@ def _required_path(name: str) -> Path:
     return Path(value)
 
 
-def _append_agent_environment(name: str, value: str) -> None:
-    with _required_path("AGENT_ENV_FILE").open("a", encoding="utf-8") as stream:
-        stream.write(f"{name}={value}\n")
-
-
 def _sandbox_command(*args: str) -> list[str]:
     """Run a preparation command as the agent uid before the launch."""
     environment = _sandbox.agent_env(_required_path("AGENT_ENV_FILE"))
@@ -61,7 +55,7 @@ def _sandbox_command(*args: str) -> list[str]:
 
 
 def install_plugin() -> int:
-    """Install Tend's plugins and export the runner root for skill scripts."""
+    """Register Tend's marketplace and install its plugins as the sandbox user."""
     sandbox = os.environ.get("SANDBOX", "")
     if not sandbox:
         raise ValueError("SANDBOX is unset")
@@ -93,31 +87,7 @@ def install_plugin() -> int:
     codex = str(_required_path("CODEX_BIN"))
     _run(_sandbox_command(codex, "plugin", "marketplace", "add", str(marketplace_root)))
     _run(_sandbox_command(codex, "plugin", "add", "install-tend@tend"))
-    installed = _run(
-        _sandbox_command(codex, "plugin", "add", "--json", "tend-ci-runner@tend"),
-        capture=True,
-    )
-    stdout = installed.stdout or ""
-    sys.stdout.write(stdout)
-    try:
-        root = Path(json.loads(stdout)["installedPath"]).resolve()
-    except (ValueError, KeyError, TypeError):
-        root = None
-    if (
-        root is None
-        or not root.is_relative_to(agent_home)
-        or _run(
-            ["/usr/bin/sudo", "-u", sandbox, "/usr/bin/test", "-d", str(root)],
-            check=False,
-        ).returncode
-        != 0
-    ):
-        print(
-            "::error::codex plugin add --json did not report a sandbox-owned "
-            "installedPath directory"
-        )
-        return 1
-    _append_agent_environment("CLAUDE_PLUGIN_ROOT", str(root))
+    _run(_sandbox_command(codex, "plugin", "add", "tend-ci-runner@tend"))
     return 0
 
 

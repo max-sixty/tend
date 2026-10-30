@@ -56,7 +56,6 @@ jobs:
           merge: restricted
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
-          bot_name: test-bot
           model: gpt-6.1-sol
           checkout_mode: review
           base_branch: ${{ github.event.pull_request.base.ref }}

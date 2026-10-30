@@ -1,15 +1,8 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Report whether the authenticated bot's classic PAT has Tend's scopes."""
 
 from __future__ import annotations
 
-import subprocess
-import sys
-
-import github_cli
+from tend.runtime.shared import _common
 
 REQUIRED = ("repo", "workflow", "notifications", "write:discussion", "gist", "user")
 
@@ -38,19 +31,8 @@ def audit(headers: str) -> dict[str, str]:
     return result
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if args:
-        print(f"usage: {sys.argv[0]}", file=sys.stderr)
-        return 2
-    result = audit(github_cli.run("api", "-i", "user"))
+def main() -> int:
+    result = audit(_common.gh("api", "-i", "user"))
     for key, value in result.items():
         print(f"{key}={value}")
     return 0
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

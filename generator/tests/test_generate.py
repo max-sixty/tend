@@ -160,14 +160,20 @@ def test_generated_runtime_calls_have_a_pinned_bootstrap(
     cfg = Config.load(
         _minimal_config(
             tmp_path,
-            f"harness: {harness}\nworkflows:\n  ci-failures:\n    watched_workflows: [ci]\n",
+            f"harness: {harness}\nworkflows:\n  review:\n    await_ci: false\n"
+            "  ci-failures:\n    watched_workflows: [ci]\n",
         )
     )
     for workflow in generate_all(cfg, with_install_test=True):
         for job in yaml.safe_load(workflow.content)["jobs"].values():
             steps = job.get("steps", [])
             for index, step in enumerate(steps):
-                if step.get("run", "").startswith("tend runtime "):
+                uses = step.get("uses", "")
+                needs_runtime = step.get("run", "").startswith("tend runtime ") or (
+                    uses.startswith("max-sixty/tend/")
+                    and not uses.startswith("max-sixty/tend/setup-runtime@")
+                )
+                if needs_runtime:
                     assert any(
                         earlier.get("uses")
                         == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
@@ -2239,7 +2245,7 @@ def test_codex_generates_one_serialized_weekly_auth_refresher(tmp_path: Path) ->
         "group": "tend-codex-auth-refresh",
         "cancel-in-progress": False,
     }
-    step = refresh["jobs"]["refresh"]["steps"][0]
+    step = refresh["jobs"]["refresh"]["steps"][-1]
     assert refresh["jobs"]["refresh"]["environment"] == {
         "name": "tend-codex-refresh",
         "deployment": False,

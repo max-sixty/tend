@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Validate GitHub source links in a composed body before publication.
 
 Line anchors must use a full commit SHA, and each full SHA must resolve in the
@@ -13,10 +9,9 @@ from __future__ import annotations
 
 import re
 import subprocess
-import sys
 from pathlib import Path
 
-import github_cli
+from tend.runtime.shared import _common
 
 URL_RE = re.compile(
     r"https?://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/"
@@ -45,9 +40,7 @@ def check_links(body: str) -> list[str]:
 
     for slug, sha in sorted(commits):
         try:
-            github_cli.run(
-                "api", f"repos/{slug}/commits/{sha}", "--jq", ".sha", quiet=True
-            )
+            _common.gh("api", f"repos/{slug}/commits/{sha}", "--jq", ".sha", quiet=True)
         except subprocess.CalledProcessError:
             problems.append(
                 f"unresolvable SHA {sha} in {slug} — the commit does not exist "
@@ -57,22 +50,9 @@ def check_links(body: str) -> list[str]:
     return problems
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) != 1:
-        print(f"usage: {sys.argv[0]} <body-file>", file=sys.stderr)
-        return 2
-    body_path = Path(args[0])
-    if not body_path.is_file():
-        print(f"{Path(sys.argv[0]).name}: no such file: {body_path}", file=sys.stderr)
-        return 2
-
+def main(body_path: Path) -> int:
     problems = check_links(body_path.read_text())
     if problems:
         print(*problems, sep="\n")
         return 1
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

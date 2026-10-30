@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
-
-SCRIPTS = Path(__file__).resolve().parents[2] / "plugins" / "tend-ci-runner" / "scripts"
-sys.path.insert(0, str(SCRIPTS))
-nightly = importlib.import_module("nightly_workflow_update")
+from click.testing import CliRunner
+from tend.runtime.ci import nightly_workflow_update as nightly
+from tend.runtime.cli import runtime
 
 
 def _result(
@@ -109,10 +106,10 @@ def test_prepare_persists_every_value_the_agent_and_ship_need(
         raise AssertionError(args)
 
     monkeypatch.setattr(nightly, "_run", run)
-    monkeypatch.setattr(nightly.github_cli, "json_call", json_call)
-    monkeypatch.setattr(nightly.github_cli, "repository", lambda: "owner/repo")
+    monkeypatch.setattr(nightly._common, "gh_json", json_call)
+    monkeypatch.setattr(nightly._common, "repository", lambda: "owner/repo")
 
-    assert nightly.main(["prepare"]) == 0
+    assert nightly.prepare() == 0
 
     output = json.loads(capsys.readouterr().out)
     assert output == json.loads(paths["TEND_WORKFLOW_STATE"].read_text())
@@ -185,16 +182,16 @@ def test_prepare_notices_a_codeowners_only_change(
         return _result(args)
 
     monkeypatch.setattr(nightly, "_run", run)
-    monkeypatch.setattr(nightly.github_cli, "repository", lambda: "owner/repo")
+    monkeypatch.setattr(nightly._common, "repository", lambda: "owner/repo")
     monkeypatch.setattr(
-        nightly.github_cli,
-        "json_call",
+        nightly._common,
+        "gh_json",
         lambda *args, **kwargs: (
             [] if args[:2] == ("pr", "list") else {"default_branch": "main"}
         ),
     )
 
-    assert nightly.main(["prepare"]) == 0
+    assert nightly.prepare() == 0
     assert json.loads(capsys.readouterr().out)["changed"] is True
     assert ("git", "add", "-A", "--", "CODEOWNERS") in calls
     assert ("git", "add", "-A", "--", "docs/CODEOWNERS") not in calls
@@ -264,7 +261,7 @@ def test_ship_uses_the_prepared_worktree_and_records_its_sha_before_cleanup(
 
     monkeypatch.setattr(nightly, "_run", run)
     monkeypatch.setattr(
-        nightly.github_cli, "json_call", lambda *args: {"login": "bot", "id": 42}
+        nightly._common, "gh_json", lambda *args: {"login": "bot", "id": 42}
     )
     gh_calls: list[tuple[str, ...]] = []
 
@@ -272,8 +269,8 @@ def test_ship_uses_the_prepared_worktree_and_records_its_sha_before_cleanup(
         gh_calls.append(args)
         return "https://github.com/owner/repo/pull/17\n"
 
-    monkeypatch.setattr(nightly.github_cli, "run", gh_run)
-    assert nightly.main(["ship"]) == 0
+    monkeypatch.setattr(nightly._common, "gh", gh_run)
+    assert nightly.ship() == 0
 
     assert paths["TEND_WORKFLOW_SHA"].read_text() == f"{sha}\n"
     assert json.loads(capsys.readouterr().out) == {
@@ -344,16 +341,16 @@ def test_ship_updates_the_existing_open_pr(
 
     monkeypatch.setattr(nightly, "_run", run)
     monkeypatch.setattr(
-        nightly.github_cli, "json_call", lambda *args: {"login": "bot", "id": 42}
+        nightly._common, "gh_json", lambda *args: {"login": "bot", "id": 42}
     )
     gh_calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(
-        nightly.github_cli,
-        "run",
+        nightly._common,
+        "gh",
         lambda *args: gh_calls.append(args) or "",
     )
 
-    assert nightly.main(["ship"]) == 0
+    assert nightly.ship() == 0
 
     assert gh_calls == [
         (
@@ -424,10 +421,10 @@ def test_prepare_bases_a_fresh_branch_on_the_fetched_default_branch(
         raise AssertionError(args)
 
     monkeypatch.setattr(nightly, "_run", run)
-    monkeypatch.setattr(nightly.github_cli, "json_call", json_call)
-    monkeypatch.setattr(nightly.github_cli, "repository", lambda: "owner/repo")
+    monkeypatch.setattr(nightly._common, "gh_json", json_call)
+    monkeypatch.setattr(nightly._common, "repository", lambda: "owner/repo")
 
-    assert nightly.main(["prepare"]) == 0
+    assert nightly.prepare() == 0
     assert json.loads(capsys.readouterr().out)["changed"] is True
 
     assert ("git", "fetch", "origin", "trunk") in [args for args, _ in calls]
@@ -448,8 +445,9 @@ def test_version_prints_the_oldest_stamp_numerically(
         )
     monkeypatch.chdir(tmp_path)
 
-    assert nightly.main(["version"]) == 0
-    assert capsys.readouterr().out == "0.9.2\n"
+    result = CliRunner().invoke(runtime, ["nightly-workflow-update", "version"])
+    assert result.exit_code == 0
+    assert result.output == "0.9.2\n"
 
 
 def test_version_is_empty_without_stamped_workflows(
@@ -459,5 +457,6 @@ def test_version_is_empty_without_stamped_workflows(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    assert nightly.main(["version"]) == 0
-    assert capsys.readouterr().out == "\n"
+    result = CliRunner().invoke(runtime, ["nightly-workflow-update", "version"])
+    assert result.exit_code == 0
+    assert result.output == "\n"
