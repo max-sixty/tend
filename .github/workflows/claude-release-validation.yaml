@@ -35,7 +35,9 @@ jobs:
           timeout_seconds: "1200"
           show_full_output: "true"
           prompt: |
-            Use /tend-ci-runner:run-tend. Validate Tend 0.3.21's CLI and workflow migration on this
+            /tend-ci-runner:run-tend
+
+            Validate Tend 0.3.21's CLI and workflow migration on this
             main revision. This is a read-only release check: do not edit files,
             push commits, dispatch workflows, or post comments, reviews, issues,
             or PRs. Report your findings in your final response.
