@@ -168,7 +168,8 @@ verify_lifecycle() {
   private_action=$(mktemp -d "$RUNNER_TEMP/tend-private-runtime.XXXXXX")
   mkdir -p "$private_action/shared" "$private_action/claude" "$private_action/codex"
   cp -R "$TEND_TEST_ACTION_PATH/shared/steps" "$private_action/shared/"
-  if sudo -u "$SANDBOX" test -r "$private_action/shared/steps/restore-sensitive-config.sh"; then
+  test -f "$private_action/shared/steps/install-runtime.sh"
+  if sudo -u "$SANDBOX" test -r "$private_action/shared/steps/install-runtime.sh"; then
     echo "::error::private runtime fixture is readable by the sandbox user"
     exit 1
   fi

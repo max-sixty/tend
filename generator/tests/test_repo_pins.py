@@ -1086,15 +1086,14 @@ def test_run_tend_names_every_pinned_instruction_path() -> None:
     The dangerous direction is a pinned path the skill omits: the session reads
     the worktree as the PR's own version, and the "never stage one of these"
     rule doesn't reach it, so a `git add` commits the base content back over
-    the PR's edit. Nothing else pairs the two — the restore is shell, the rule
+    the PR's edit. Nothing else pairs the two — the restore is code, the rule
     is prose.
     """
-    script = (REPO_ROOT / "shared/steps/lib/pin-instruction-paths.sh").read_text()
-    declaration = re.search(r"^INSTRUCTION_PATHSPECS=\((.*)\)$", script, re.MULTILINE)
-    assert declaration, "INSTRUCTION_PATHSPECS is no longer one array literal"
+    from tend.runtime.shared.event_checkout import INSTRUCTION_PATHSPECS
+
     pinned = {
-        spec.strip("'").removeprefix(":(glob)**/").removesuffix("/**")
-        for spec in declaration.group(1).split()
+        spec.removeprefix(":(glob)**/").removesuffix("/**")
+        for spec in INSTRUCTION_PATHSPECS
     }
 
     skill = (REPO_ROOT / "plugins/tend-ci-runner/skills/run-tend/SKILL.md").read_text()
@@ -1108,6 +1107,6 @@ def test_run_tend_names_every_pinned_instruction_path() -> None:
         if f"`{name}`" not in section and f"`{name}/`" not in section
     )
     assert not missing, (
-        "pinned by restore-sensitive-config.sh but absent from the skill's "
+        "pinned by event_checkout but absent from the skill's "
         f"list, so a session stages the base version over the PR's: {missing}"
     )

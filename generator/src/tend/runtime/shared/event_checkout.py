@@ -21,7 +21,22 @@ from typing import Any
 
 STEP = "event-checkout"
 OBJECT_ID = re.compile(r"[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?\Z")
-BASH = "/usr/bin/bash"
+# Both CLIs discover instructions and skills at any depth. Bare directory
+# pathspecs also catch symlinks planted at .claude or .agents themselves.
+INSTRUCTION_PATHSPECS = tuple(
+    f":(glob)**/{name}"
+    for name in (
+        "CLAUDE.md",
+        "CLAUDE.local.md",
+        "AGENTS.md",
+        "AGENTS.override.md",
+        ".claude",
+        ".claude/**",
+        ".agents",
+        ".agents/**",
+    )
+)
+SENSITIVE_PATHS = (".mcp.json", ".claude.json", ".gitmodules", ".ripgreprc", ".husky")
 MODES = frozenset({"base", "review", "mention"})
 
 
@@ -187,20 +202,46 @@ def restore_sensitive_config(workspace: Path, base_sha: str) -> None:
     """Pin startup configuration the PR head must not choose for itself."""
     if not base_sha:
         return
-    subprocess.run(
+    # NUL separation preserves newlines in filenames. Disabling renames keeps
+    # both ends of moved instructions; submodule policy from the PR must not
+    # hide a gitlink planted at an instruction path.
+    changed = subprocess.run(
         [
-            BASH,
-            "--noprofile",
-            "--norc",
-            str(
-                Path(required("ACTION_PATH"))
-                / "shared/steps/restore-sensitive-config.sh"
-            ),
+            "/usr/bin/git",
+            "diff",
+            "--no-renames",
+            "--ignore-submodules=none",
+            "--name-only",
+            "-z",
+            base_sha,
+            "--",
+            *SENSITIVE_PATHS,
+            *INSTRUCTION_PATHSPECS,
         ],
         cwd=workspace,
-        env={**os.environ, "BASH_ENV": "", "TEND_CONFIG_BASE_SHA": base_sha},
         check=True,
-    )
+        stdout=subprocess.PIPE,
+    ).stdout
+    paths = [os.fsdecode(path) for path in changed.split(b"\0")[:-1]]
+    # Restore topmost changes so Git replaces file/directory and symlink
+    # boundaries before considering children. --worktree keeps the index at
+    # HEAD, so pinning does not ride into the agent's later commits.
+    restore_paths = [
+        path
+        for path in paths
+        if not any(path.startswith(parent + "/") for parent in paths if parent != path)
+    ]
+    if restore_paths:
+        git(
+            "--literal-pathspecs",
+            "restore",
+            f"--source={base_sha}",
+            "--worktree",
+            "--",
+            *restore_paths,
+            cwd=workspace,
+        )
+    log(f"Pinned {len(paths)} path(s) to {base_sha}")
 
 
 def main() -> int:

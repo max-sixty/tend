@@ -17,7 +17,7 @@ token names, protected environments) in its own
 the docs name. Not a `docs/agent-notes.md` of its own: PR instruction
 pinning covers `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`,
 `AGENTS.override.md`, `.claude/`, and `.agents/` at any depth under both
-harnesses (`shared/steps/restore-sensitive-config.sh`), so notes parked outside those
+harnesses (`tend.runtime.shared.event_checkout`), so notes parked outside those
 paths are read from the PR's own tree.
 
 ## Threats

@@ -32,8 +32,7 @@ directory, which the sandbox cannot read. On the command line it would be in
 ``sudo``'s log and readable from ``/proc`` by any process on the host, and it
 carries the job's whole environment.
 
-The supervisor stays outside both units: it stages the bundle, composes the
-environment, reaps the sandbox uid however the run ends, and exports what the
+The supervisor stays outside both units: it composes the environment, reaps the sandbox uid however the run ends, and exports what the
 later steps read. Root runs only system binaries, from a fixed argv.
 
 Floors: kernel 5.19 and util-linux 2.39 (``X-mount.idmap``), systemd 247.
@@ -57,15 +56,9 @@ from tend.runtime.shared._safe_files import read_regular_nofollow
 MAX_FIXED_EXPORT = 64 * 1024 * 1024
 MAX_FINAL_MESSAGE = 256 * 1024
 MAX_STEP_SUMMARY = 512 * 1024
-MAX_RUNTIME_FILE = 2 * 1024 * 1024
 #: How long the reap waits for the killed UID to leave the process table.
 REAP_DEADLINE_SEC = 10.0
 REAP_POLL_SEC = 0.1
-#: Shell assets used by event checkout; Python is installed as the Tend package.
-RUNTIME_SHELL_FILES = (
-    "restore-sensitive-config.sh",
-    "lib/pin-instruction-paths.sh",
-)
 UNIT = "tend-agent"
 BRIDGE = "tend-proxy"
 ID_CEILING = 65536
@@ -129,11 +122,6 @@ def write_trusted(path: Path, body: bytes, *, mode: int = 0o600) -> None:
         os.close(descriptor)
 
 
-def mkdir_traversable(path: Path) -> None:
-    path.mkdir(mode=0o755)
-    path.chmod(0o755)
-
-
 def runner_install_directory() -> Path:
     """The Actions runner's installation, read off this step's ancestry."""
     pid = os.getpid()
@@ -166,36 +154,6 @@ def view_masks(home: Path) -> list[Path]:
     ]
     masks.append(Path(required("GITHUB_ENV")).parent.resolve())
     return [path for path in masks if path.is_relative_to(home)]
-
-
-def stage_runtime_bundle(runtime_root: Path) -> tuple[Path, Path]:
-    """Stage shell assets; run Python from the installed sandbox environment.
-
-    install-runtime.sh installs the exact action source non-editably with its
-    frozen lock. No Python file manifest or checkout import path crosses into
-    the sandbox, whose working directory remains the event workspace.
-    """
-    source_root = Path(required("ACTION_PATH")).resolve(strict=True)
-    bundle_root = runtime_root / "action"
-    for directory in (
-        bundle_root,
-        bundle_root / "shared",
-        bundle_root / "shared/steps",
-    ):
-        mkdir_traversable(directory)
-    for name in RUNTIME_SHELL_FILES:
-        relative = f"shared/steps/{name}"
-        body = read_regular_nofollow(source_root / relative, max_bytes=MAX_RUNTIME_FILE)
-        if body is None:
-            raise ValueError(f"runtime bundle source is missing: {relative}")
-        destination = bundle_root / relative
-        if not destination.parent.exists():
-            mkdir_traversable(destination.parent)
-        write_trusted(destination, body, mode=0o644)
-    python = runtime_root / "venv/bin/python"
-    if not python.is_file():
-        raise ValueError(f"Tend runtime package is not installed: {python}")
-    return bundle_root, python
 
 
 def identity_map(kind: str, low: int, high: int) -> list[str]:
@@ -439,14 +397,15 @@ def main() -> int:
     run_dir = Path(required("TEND_RUN_DIR"))
     step_summary = Path(required("TEND_AGENT_TMP_DIR")) / "step-summary.md"
     runtime_root = Path(required("TEND_RUNTIME_ROOT")).resolve(strict=True)
-    bundle_root, python = stage_runtime_bundle(runtime_root)
+    python = runtime_root / "venv/bin/python"
+    if not python.is_file():
+        raise ValueError(f"Tend runtime package is not installed: {python}")
 
     masks = view_masks(runner_home)
     environment = _sandbox.launch_env(required("AGENT_ENV_FILE"))
     effective = dict(entry.split("=", 1) for entry in environment)
     # Appended last, so they win over the agent env file.
     overrides = {
-        "ACTION_PATH": str(bundle_root),
         "TEND_RUNTIME_PYTHON": str(python),
         "PATH": f"{python.parent.parent / 'commands'}{os.pathsep}{effective['PATH']}",
         "TEND_VIEW_MASKS": os.pathsep.join(str(path) for path in masks),

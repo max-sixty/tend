@@ -1185,14 +1185,52 @@ def test_parallel_limit_is_only_a_triage_option(tmp_path: Path) -> None:
 
 
 def test_cli_init_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _minimal_config(tmp_path)
+    _minimal_config(tmp_path, "setup:\n  - run: echo setup\n")
+    workflow_dir = tmp_path / ".github" / "workflows"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "tend-review.yaml").write_text("existing workflow\n")
     monkeypatch.chdir(tmp_path)
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     runner = CliRunner()
     result = runner.invoke(main, ["init", "--dry-run"])
     assert result.exit_code == 0
     assert "tend-review.yaml" in result.output
-    # Dry run should not create files
-    assert not (tmp_path / ".github" / "workflows").exists()
+    assert "echo setup" in result.output
+    assert {
+        path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
+    } == before
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["init"],
+        ["init", "--dry-run"],
+        ["check"],
+        ["init", "--config", ".config/tend.toml"],
+    ],
+)
+def test_cli_refuses_toml_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> None:
+    config_dir = tmp_path / ".config"
+    config_dir.mkdir()
+    legacy = config_dir / "tend.toml"
+    legacy.write_text('bot_name = "test-bot"\n')
+    if "--config" in args:
+        (config_dir / "tend.yaml").write_text("bot_name: existing-bot\n")
+    workflow_dir = tmp_path / ".github" / "workflows"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "tend-review.yaml").write_text("existing workflow\n")
+    monkeypatch.chdir(tmp_path)
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code != 0
+    assert "Unsupported config format" in result.output
+    assert "YAML" in result.output
+    assert {
+        path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
+    } == before
 
 
 def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2078,26 +2116,6 @@ def test_workflow_with_local_setup_regtest(
     extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = GENERATORS[name](cfg)
-    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
-
-
-def test_deprecated_sandbox_keys_regtest(regtest: object, tmp_path: Path) -> None:
-    """Snapshot the `setup:` steps the deprecated keys migrate to, after the
-    consumer's own, in the workflow whose pre-check guards every setup step."""
-    extra = dedent("""\
-        setup:
-          - uses: astral-sh/setup-uv@v10.1.0
-        sandbox_env:
-          MY_TOKEN: "${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}"
-        sandbox_path:
-          - ~/.cargo/bin
-          - /opt/tools/bin
-        sandbox_setup:
-          - uv sync --frozen
-          - curl -LsSf https://example.invalid/install.sh | sh
-    """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    wf = GENERATORS["notifications"](cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
