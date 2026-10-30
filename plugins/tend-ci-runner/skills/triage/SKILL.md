@@ -29,13 +29,19 @@ gh issue view $ARGUMENTS --json title,body,labels,author,state,comments
 gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
 ```
 
-Read the live conversation and linked repairs before acting; the issue may have changed while this run queued. If it is closed, or the current work is covered by a completed disposition or repair owner, finish without another diagnosis or post. A prior bot reply or successful run alone does not settle unfinished engineering work; apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`.
+Read the live conversation and linked repairs before acting; the issue may have changed while this run queued. Reconcile existing work below before deciding whether another investigation is needed.
 
 An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on. The system prompt's self-loop guard covers the bot's own *comments*, not unfinished work in its issues.
 
 One exception: a tracker the bot maintains for its own evidence — its body says **Do not close manually**, and later runs append to it — carries no report. End the run without commenting.
 
 A CI failure report, labeled `tend-ci-failure`, follows **A report** in `references/ci-failures.md` instead of steps 3 to 7. A linked cause issue, labeled `tend-ci-cause`, is a bug report; read **A cause issue** there before step 3.
+
+### Reconcile existing work
+
+A closed issue needs no action; respect explicit maintainer holds on open work. For an open issue, follow linked repairs through any replacement PRs and check what reached the default branch. Close it with supporting evidence when the whole issue is resolved, verifying the affected path against the repair or recovered incident. A merged partial repair or a passing rerun of an intermittent failure does not establish full resolution. CI failure reports and evidence trackers keep the lifecycle described above.
+
+Another queued or running worker, or a PR whose repair, review or landing workflow will continue the work, can take the next action; an issue naming an owner cannot. Preserve genuine handoffs without another diagnosis or post. A prior bot reply or successful investigation alone does not settle unfinished engineering work; apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`.
 
 Classify into:
 

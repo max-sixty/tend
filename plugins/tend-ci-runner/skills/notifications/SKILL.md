@@ -107,7 +107,7 @@ current PR heads before changing a branch.
 
 ## 6. Recover issue work
 
-Route same-repository issues found by notifications or the daily live-work scan through ordinary triage. Re-read each issue's state, conversation and linked PRs. A closed issue needs no new worker. For open issues, skip work covered by a completed disposition or current repair owner. Apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` to unfinished or blocked work; a bot reply or successful run alone does not complete it.
+Route same-repository issues found by notifications or the daily live-work scan through ordinary triage. Apply **Reconcile existing work** in `/tend-ci-runner:triage` to their live state, conversation and linked repairs. Perform supported closures here; send remaining investigation or verification to a worker. Apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` to unfinished or blocked work.
 
 Before dispatching an issue, check its live runs per **Give each thread a current outcome**. Skip a subject already active or queued. Check recent worker outcomes and current access or outage records. Respect an outstanding approval gate or provider reset. When access is uncertain, dispatch one ordinary worker as a control and inspect its actual result before admitting more. Tend's creation allowance governs new issues and PRs; apply **Creation allowance** in `/tend-ci-runner:open-pr` when that is the remaining work.
 

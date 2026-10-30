@@ -97,7 +97,7 @@ The failed-run census and the `tend-outage` issue diagnose availability. Open is
 
 As a daily backstop for delayed notifications, retention, edited activity, and repaired subscriptions, inspect the live repository for:
 
-- an open issue with unanswered activity or unfinished engineering work and no current repair owner. Include bot-authored reports, reopened issues and partial investigations, regardless of the last run's conclusion or whether a human has replied. Apply **Recover issue work** in `/tend-ci-runner:notifications` to determine which still need a worker. List every page, rather than only a recent window or CI causes:
+- open issues whose state needs reconciling: unanswered activity, unfinished engineering work, or a completed repair whose issue remains open. Include bot-authored reports, reopened issues and partial investigations, regardless of the last run's conclusion or whether a human has replied. Apply **Recover issue work** in `/tend-ci-runner:notifications` to close resolved issues and determine which still need a worker. List every page, rather than only a recent window or CI causes:
 
   ```bash
   gh api "repos/$GITHUB_REPOSITORY/issues?state=open&sort=created&direction=asc&per_page=100" \

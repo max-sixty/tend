@@ -1,0 +1,13 @@
+{
+  "issue": {
+    "number": 801,
+    "state": "OPEN",
+    "labels": [
+      "tend-ci-cause"
+    ],
+    "report": "A panel can jump back toward its former position after it is replaced while placement is still in progress. Expected: the replacement determines its position."
+  },
+  "prior_comment": "Ordinary placement, early cancellation and completed-placement replacement pass. The issue retains diagnosis ownership. The next experiment is to capture writes while an earlier measurement remains pending across replacement; this would separate stale placement from an independent geometry change. No patch or overlap capture exists.",
+  "current_state": "This worker has read the prior comment and rerun the three existing controls successfully. There is no active or queued sibling worker, PR, external access dependency or unresolved product decision.",
+  "environment": "placement.mjs and controls.test.mjs are a reduced executable model of the placement boundary. Node is available. The real browser and GitHub are unavailable, so findings in this model cannot prove production resolution."
+}

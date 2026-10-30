@@ -31,7 +31,7 @@ Generally, have a failing test before writing a fix. A passing attempt does not 
 
 ## Retain engineering ownership
 
-A failed attempt, uncertain diagnosis, or unavailable local reproduction calls for further investigation. Keep ownership of the next diagnostic step; a question about the mechanism is engineering work. For verification the current environment cannot perform, follow **Who to ask when you can't do it yourself** in `/tend-ci-runner:ground-claims`.
+A failed attempt, uncertain diagnosis, or unavailable local reproduction calls for further investigation. Use the evidence to choose and perform the next experiment that can distinguish the remaining explanations. Resume from earlier findings rather than repeating passing checks and leaving the same experiment for another session. A question about the mechanism is engineering work. For verification the current environment cannot perform, follow **Who to ask when you can't do it yourself** in `/tend-ci-runner:ground-claims`.
 
 Scope a blocker you cannot clear, such as missing access, an external dependency or a product decision with no defensible default, to the work it prevents. Re-check a recorded blocker against current state. Continue separable investigation, and take an independently useful repair through a PR when it meets **The local bar**, even if it resolves only part of the issue. Keep unresolved work open with the evidence, the next diagnostic action, and what would enable it. Ask a person only for the specific access, external action, or product decision they own; address that request to the responsible person in this repository.
 

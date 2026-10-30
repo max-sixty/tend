@@ -1,0 +1,19 @@
+{
+  "kind": "focused",
+  "historical_ref": "5a80aa4e4a47f3e0c9a3dbad4cff0e8671869502",
+  "bot": "repair-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "7d2930462f05b41b52438aeaebc05559383582097d33d9f81b12f66621714796",
+    "placement.mjs": "15e824e518b6efcce1b843c871381cf9ef79090e03b0f1114e78628b48e06b45",
+    "controls.test.mjs": "817c55e7e8fb4746ad0d3dc6ca7515d7dac07c45f1a5759cf062bd7e4ed987d4"
+  },
+  "origin": {
+    "kind": "executable synthetic continuation contrast",
+    "construction": "Derived from the stopping pattern in Leaf4230 run40838764958: controls passed, a feasible next overlap diagnostic was named but not attempted. This small lifecycle model deliberately contains a stale write after an awaited measurement; it is not extracted Leaf code and does not assert that this mechanism caused the production failure. The task resumes triage generally instead of instructing the specific experiment.",
+    "references": [
+      "https://github.com/max-sixty/leaf/actions/runs/40838764958"
+    ]
+  },
+  "limits": "Focused rubric judges the saved result. Validate actual execution by inspecting response.raw command_execution items: outcome prose alone cannot prove the diagnostic ran. This model establishes continuation behavior, not browser fidelity or production resolution."
+}
