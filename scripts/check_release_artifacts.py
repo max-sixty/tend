@@ -7,6 +7,9 @@ from pathlib import Path
 
 
 def main() -> None:
+    artifacts = sorted(
+        path for pattern in ("*.whl", "*.tar.gz") for path in Path("dist").glob(pattern)
+    )
     subprocess.run(
         [
             "uv",
@@ -16,7 +19,7 @@ def main() -> None:
             "twine",
             "twine",
             "check",
-            *map(str, sorted(Path("dist").glob("*"))),
+            *map(str, artifacts),
         ],
         check=True,
     )

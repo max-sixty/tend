@@ -235,6 +235,9 @@ def test_release_artifacts_are_checked_and_placeholder_version_refused(
     dist.mkdir()
     name = "tend-0.0.0.tar.gz" if placeholder else "tend-1.2.3.tar.gz"
     (dist / name).touch()
+    wheel = name.removesuffix(".tar.gz") + "-py3-none-any.whl"
+    (dist / wheel).touch()
+    (dist / ".gitignore").write_text("*\n")
     processes.respond("uv", with_="")
     if placeholder:
         with pytest.raises(SystemExit, match="Invalid version number"):
@@ -242,7 +245,17 @@ def test_release_artifacts_are_checked_and_placeholder_version_refused(
     else:
         check_release_artifacts.main()
     assert processes.calls == [
-        ("uv", "tool", "run", "--from", "twine", "twine", "check", f"dist/{name}")
+        (
+            "uv",
+            "tool",
+            "run",
+            "--from",
+            "twine",
+            "twine",
+            "check",
+            f"dist/{wheel}",
+            f"dist/{name}",
+        )
     ]
 
 
