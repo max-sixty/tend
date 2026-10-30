@@ -225,7 +225,7 @@ def test_runtime_uses_the_installed_interpreter(
         "agent-lifecycle",
     ]
     entries = launched.environment.decode().splitlines()
-    assert not any(entry.startswith("ACTION_PATH=") for entry in entries)
+    assert not (tmp_path / "runtime/action").exists()
     assert f'TEND_RUNTIME_PYTHON="{tmp_path / "runtime/venv/bin/python"}"' in entries
     path = next(entry for entry in reversed(entries) if entry.startswith("PATH="))
     assert path.startswith(f'PATH="{tmp_path / "runtime/venv/commands"}:')
