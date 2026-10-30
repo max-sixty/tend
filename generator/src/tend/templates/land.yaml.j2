@@ -72,6 +72,7 @@ jobs:
       land_prs: ${{ steps.check.outputs.land_prs }}
       red_prs: ${{ steps.check.outputs.red_prs }}
     steps:
+<<setup_tend_runtime()>>
       - name: Read the event's commit
         id: event
         env:

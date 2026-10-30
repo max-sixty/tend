@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Hand a reviewed PR's landing to the completion of its CI.
 
 Under `merge: yolo` with the review's CI wait off, no session waits ~an hour
@@ -47,12 +43,11 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 from typing import Any, Literal
 
-import github_cli
-import poll_pr_checks
+from tend.runtime.ci import poll_pr_checks
+from tend.runtime.shared import _common
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PUSHED_CONTEXT = f"{poll_pr_checks.LAND_CONTEXT}/pushed"
@@ -84,7 +79,7 @@ def _standing(
             continue
         if (
             status.get("state") == "success"
-            and github_cli.actor_login(status.get("creator")) == bot
+            and _common.actor_login(status.get("creator")) == bot
         ):
             return status
         return None
@@ -113,7 +108,7 @@ def record(
 def no_human_author(pr: dict[str, Any], bot: str) -> bool:
     """True for this bot's PR or another bot's (Dependabot, Renovate)."""
     user = pr.get("user")
-    return github_cli.actor_login(user) == bot or (
+    return _common.actor_login(user) == bot or (
         isinstance(user, dict) and user.get("type") == "Bot"
     )
 
@@ -166,12 +161,12 @@ def _status(repo: str, sha: str, name: str, description: str) -> None:
     if run_id:
         server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
         fields += ["-f", f"target_url={server}/{repo}/actions/runs/{run_id}"]
-    github_cli.run("api", f"repos/{repo}/statuses/{sha}", "-X", "POST", *fields)
+    _common.gh("api", f"repos/{repo}/statuses/{sha}", "-X", "POST", *fields)
 
 
 def pushed(sha: str) -> int:
     """Record that this bot pushed *sha*, so its review may record a landing."""
-    repo = github_cli.repository()
+    repo = _common.repository()
     _status(repo, sha, PUSHED_CONTEXT, "Pushed by this bot")
     print(f"recorded {sha} as this bot's push")
     return 0
@@ -184,9 +179,9 @@ def intend(pr: str, sha: str, base: str, *, skip: frozenset[str] = frozenset()) 
     isn't the bot's push, the PR moved off *sha* or *base*, or *skip* doesn't
     fit the record.
     """
-    repo = github_cli.repository()
-    bot = str(github_cli.json_call("api", "user")["login"])
-    view = github_cli.json_call(
+    repo = _common.repository()
+    bot = str(_common.gh_json("api", "user")["login"])
+    view = _common.gh_json(
         "pr", "view", pr, "--repo", repo, "--json", "headRefOid,state,baseRefName"
     )
     if (
@@ -199,7 +194,7 @@ def intend(pr: str, sha: str, base: str, *, skip: frozenset[str] = frozenset()) 
             file=sys.stderr,
         )
         return 3
-    statuses = github_cli.paginated(f"repos/{repo}/commits/{sha}/statuses")
+    statuses = _common.gh_paginated(f"repos/{repo}/commits/{sha}/statuses")
     if _standing(statuses, PUSHED_CONTEXT, bot) is None:
         print(
             f"{sha} carries no record of this bot's push; "
@@ -228,15 +223,15 @@ def intend(pr: str, sha: str, base: str, *, skip: frozenset[str] = frozenset()) 
 def check(sha: str) -> int:
     """Name every PR at *sha* whose landing or repair its state now starts."""
     repo = os.environ["GITHUB_REPOSITORY"]
-    bot = str(github_cli.json_call("api", "user")["login"])
+    bot = str(_common.gh_json("api", "user")["login"])
     pulls = [
         pr
-        for pr in github_cli.paginated(f"repos/{repo}/pulls?state=open&per_page=100")
+        for pr in _common.gh_paginated(f"repos/{repo}/pulls?state=open&per_page=100")
         if pr["head"]["sha"] == sha
     ]
     started: dict[str, list[int]] = {"land": [], "red": []}
     statuses = (
-        github_cli.paginated(f"repos/{repo}/commits/{sha}/statuses") if pulls else []
+        _common.gh_paginated(f"repos/{repo}/commits/{sha}/statuses") if pulls else []
     )
     repair_started = _standing(statuses, REPAIR_CONTEXT, bot) is not None
     for pr in pulls:
@@ -272,40 +267,3 @@ def check(sha: str) -> int:
                 f"{key}_prs={json.dumps(numbers)}\n" for key, numbers in started.items()
             )
     return 0
-
-
-USAGE = (
-    "usage: land_pr.py pushed <sha> | "
-    "intend <pr-number> <sha> <base> [--skip <check>]... | "
-    "check <sha>"
-)
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    skip: set[str] = set()
-    while len(args) > 4 and args[-2] == "--skip":
-        skip.add(args[-1])
-        args = args[:-2]
-    command = args[0] if args else ""
-    if command == "pushed" and len(args) == 2 and SHA_RE.fullmatch(args[1]):
-        return pushed(args[1])
-    if (
-        command == "intend"
-        and len(args) == 4
-        and args[1].isdigit()
-        and SHA_RE.fullmatch(args[2])
-        and args[3]
-    ):
-        return intend(args[1], args[2], args[3], skip=frozenset(skip))
-    if command == "check" and len(args) == 2 and SHA_RE.fullmatch(args[1]):
-        return check(args[1])
-    print(USAGE, file=sys.stderr)
-    return 2
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

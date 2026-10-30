@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Report active dedicated Tend run candidates for a notification subject.
 
 The report preserves each workflow's path and run status without classifying
@@ -16,13 +12,11 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
-import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 from typing import Any
 
-import github_cli
+from tend.runtime.shared import _common
 
 # Every run status the Actions API accepts that is not `completed`. The API
 # takes one status per request and answers an unknown one with an empty list
@@ -124,7 +118,7 @@ def fetch_active_runs(repo: str) -> list[dict[str, Any]]:
     """Fetch every page per non-terminal status, including long-queued batches."""
     runs: dict[int, dict[str, Any]] = {}
     for status in ACTIVE_STATUSES:
-        for page in github_cli.pages(
+        for page in _common.gh_pages(
             f"repos/{repo}/actions/runs?status={status}&per_page=100"
         ):
             for run in page["workflow_runs"]:
@@ -162,7 +156,7 @@ def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[i
                 subjects[int(run["id"])] = set()
                 continue
             selected.update(numbers)
-        for page in github_cli.pages(
+        for page in _common.gh_pages(
             f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100"
         ):
             for job in page["jobs"]:
@@ -176,15 +170,11 @@ def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[i
     return subjects
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) != 1 or not args[0]:
-        print(f"usage: {sys.argv[0]} <subject-url>", file=sys.stderr)
-        return 2
-    repo = github_cli.repository()
-    subject = github_cli.json_call("api", args[0])
+def main(subject_url: str) -> int:
+    repo = _common.repository()
+    subject = _common.gh_json("api", subject_url)
     runs = fetch_active_runs(repo)
-    github_cli.dump(
+    _common.dump(
         subject_runs(
             runs,
             subject_title=subject["title"],
@@ -195,10 +185,3 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     return 0
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

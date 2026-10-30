@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
 """Bind a review post to the open PR head the session actually reviewed.
 
 The command prints ``post:`` when the outward action may proceed and ``skip:``
@@ -15,12 +11,8 @@ incremental, while ``post`` protects the final outward action. Keeping both in
 one review-domain command makes the state passed between them explicit without
 turning unrelated runner helpers into a single application.
 
-Run this script directly with ``/usr/bin/python3 -E -s``, not through ``uv``.
-The reviewed-head pin advances only after the status reaches stdout; ``uv run``
-reopens a closed stdout for its child and would hide a failed delivery. The
-action's system interpreter is the same isolated standard-library runtime used
-by its shared step bodies, so this module and its imports stay Python 3.10+
-compatible for supported runner overrides.
+The installed Tend launcher preserves closed stdout, so failed status delivery
+cannot advance the reviewed-head pin.
 """
 
 from __future__ import annotations
@@ -34,8 +26,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import bot_review_state
-import github_cli
+from tend.runtime.ci import bot_review_state
+from tend.runtime.shared import _common
 
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 TEMP_DIR = Path(tempfile.gettempdir())
@@ -53,9 +45,7 @@ def _skip(message: str) -> int:
 
 def _pr_view(pr: str, repo: str, fields: str) -> dict[str, Any] | None:
     try:
-        result = github_cli.json_call(
-            "pr", "view", pr, "--repo", repo, "--json", fields
-        )
+        result = _common.gh_json("pr", "view", pr, "--repo", repo, "--json", fields)
     except (json.JSONDecodeError, subprocess.CalledProcessError):
         return None
     return result if isinstance(result, dict) else None
@@ -114,8 +104,8 @@ def _emit_json(value: dict[str, Any]) -> bool:
     return True
 
 
-def _start(pr: str) -> int:
-    repo = github_cli.repository()
+def start(pr: str) -> int:
+    repo = _common.repository()
     initial = _pr_view(
         pr, repo, "headRefOid,state,baseRefOid,author,isDraft,baseRefName"
     )
@@ -201,44 +191,10 @@ def _start(pr: str) -> int:
     return 0
 
 
-def _parse_args(args: list[str]) -> tuple[str, str | None, list[str]] | None:
-    if not args or not args[0].isdigit():
-        return None
-    pr = args[0]
-    rest = args[1:]
-    edit_review: str | None = None
-    if rest[:1] == ["--edit-review"]:
-        if len(rest) < 2 or not rest[1].isdigit():
-            _error("--edit-review needs a numeric review id")
-            return None
-        edit_review = rest[1]
-        rest = rest[2:]
-    if rest[:1] == ["--"]:
-        command = rest[1:]
-        if not command:
-            _error("-- needs a command")
-            return None
-    elif rest:
-        _error(f"unexpected arguments: {' '.join(rest)}")
-        return None
-    else:
-        command = []
-    return pr, edit_review, command
-
-
-def _post(args: list[str]) -> int:
-    parsed = _parse_args(args)
-    if parsed is None:
-        if not args or not args[0].isdigit():
-            print(
-                f"usage: {sys.argv[0]} post <pr-number> "
-                "[--edit-review <id>] [-- command ...]",
-                file=sys.stderr,
-            )
-        return 1
-    pr, edit_review, command = parsed
-
-    repo = github_cli.repository()
+def post(
+    pr: str, *, edit_review: str | None = None, command: tuple[str, ...] = ()
+) -> int:
+    repo = _common.repository()
     pin_file = Path(
         os.environ.get("REVIEWED_HEAD_FILE", str(TEMP_DIR / "reviewed-head"))
     )
@@ -349,24 +305,3 @@ def _post(args: list[str]) -> int:
     if command:
         return subprocess.run(command, check=False).returncode
     return 0
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) == 2 and args[0] == "start" and args[1].isdigit():
-        return _start(args[1])
-    if args[:1] == ["post"]:
-        return _post(args[1:])
-    print(
-        f"usage: {sys.argv[0]} start <pr-number> | "
-        "post <pr-number> [--edit-review <id>] [-- command ...]",
-        file=sys.stderr,
-    )
-    return 1
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

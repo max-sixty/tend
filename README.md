@@ -118,7 +118,12 @@ files into `.github/workflows/`. Each workflow handles triggers, skip
 conditions, concurrency, and permissions — then calls the composite action
 for the configured harness, pinned to the released generator version
 (`max-sixty/tend/claude@X.Y.Z` for Claude, `max-sixty/tend/codex@X.Y.Z` for Codex).
-The nightly regen restamps a newer tag when a new tend version ships.
+Each job first calls `max-sixty/tend/setup-runtime@X.Y.Z` at that same ref.
+This installs the isolated `tend` command used by workflow checks and the action;
+the harness installs only its separate, disposable sandbox copy. Hand-written
+workflows using the Claude, Codex, landing, or credential-refresh action need
+this setup step too. The nightly regen restamps a newer tag when a new tend
+version ships.
 
 When the review workflow is generated, `init` also merges one ignore into
 `.github/actionlint.yaml`: the workflow's `concurrency.queue` is valid GitHub

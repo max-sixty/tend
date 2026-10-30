@@ -3,6 +3,7 @@ description: >-
   Experimental Codex harness for Tend, an autonomous junior maintainer for
   GitHub repos, powered by OpenAI Codex. Authenticate via an OpenAI API key
   or an access-only ChatGPT subscription bundle.
+  Requires setup-runtime at the same ref earlier in the job.
 
 inputs:
   github_token:
@@ -25,13 +26,6 @@ inputs:
       Access-only auth.json published by the configured Plus or Pro
       subscription refresher. It must use auth_mode chatgptAuthTokens and contain
       no refresh token, so concurrent jobs cannot rotate shared auth state.
-  bot_name:
-    required: true
-    description: |
-      GitHub username of the bot account. Rendered into the workflows so a
-      consumer can see which account tend runs as; the steps themselves read
-      the identity off the token rather than from here, since a name left
-      stale by a rename fails open.
   prompt:
     required: true
     description: >-
@@ -78,12 +72,6 @@ inputs:
   base_branch:
     default: "main"
     description: Base branch the agent checks out when the event names no pull request.
-  allowed_bots:
-    default: "*"
-    description: Bots allowed to trigger workflows (engagement gate, not used yet)
-  allowed_non_write_users:
-    default: "*"
-    description: Non-write users allowed to trigger workflows (engagement gate, not used yet)
 
 outputs:
   token_usage:
@@ -106,19 +94,13 @@ runs:
   using: composite
   steps:
     # Harness-specific modules and shared plumbing use the installed Tend package.
-    - name: Install runtime uv
-      shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
-      env:
-        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
-
     - name: Create the sandbox runtime container
       shell: bash
       run: bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
 
-    - name: Install Tend runtime package
+    - name: Install sandbox Tend runtime package
       shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-runtime.sh"
+      run: bash "${{ github.action_path }}/../shared/steps/install-runtime.sh" sandbox
       env:
         ACTION_PATH: ${{ github.action_path }}/..
         UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
@@ -244,13 +226,6 @@ runs:
     # into the sandbox home so the sandbox UID can read them, register that
     # marketplace, then `codex plugin add` installs the plugins so their skills
     # become discoverable by `codex exec`.
-    #
-    # We export `CLAUDE_PLUGIN_ROOT` to the install location so skills can
-    # resolve `${CLAUDE_PLUGIN_ROOT}/scripts/...` paths. Claude Code reaches the
-    # same place by a different route — it text-substitutes the variable into
-    # bundled plugin skill markdown at load time rather than setting it in the
-    # shell, so under Claude the literal resolves only inside a bundled skill.
-    # One variable name across harnesses — skills stay harness-agnostic.
     - name: Install Tend plugins (sandbox)
       shell: bash
       env:

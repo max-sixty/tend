@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Select today's deterministic slice of tracked files for the nightly survey."""
 
 from __future__ import annotations
@@ -23,11 +19,7 @@ def survey_files(files: list[str], *, unix_day: int) -> tuple[int, list[str]]:
     return bucket, selected
 
 
-def main(argv: list[str] | None = None, *, now: float | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if args:
-        print(f"usage: {sys.argv[0]}", file=sys.stderr)
-        return 2
+def main(*, now: float | None = None) -> int:
     tracked = subprocess.run(
         ["git", "ls-files"], capture_output=True, text=True, check=True
     ).stdout.splitlines()
@@ -38,10 +30,3 @@ def main(argv: list[str] | None = None, *, now: float | None = None) -> int:
         print(*selected, sep="\n")
     print(f"# bucket={bucket}/{CYCLE_LENGTH} files={len(selected)}", file=sys.stderr)
     return 0
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(error.returncode or 1) from None

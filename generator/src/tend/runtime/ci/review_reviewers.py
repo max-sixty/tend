@@ -1,21 +1,16 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Own gist-backed evidence for the cross-repository reviewer survey."""
 
 from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import github_cli
+from tend.runtime.shared import _common
 
 LABEL = "review-reviewers-tracking"
 TRACKING_BODY = """Monthly tracking issue for `review-reviewers`. Per-target evidence lives in secret gists owned by the bot. A comment below is posted when each target's gist is first created.
@@ -44,7 +39,7 @@ def _issue_number(url: str) -> int:
 
 
 def _gist_content(gist_id: str) -> str:
-    return github_cli.run("gist", "view", gist_id, "-f", "findings.md", "--raw")
+    return _common.gh("gist", "view", gist_id, "-f", "findings.md", "--raw")
 
 
 def _create_gist(target: str, month: str, description: str) -> dict[str, Any]:
@@ -53,7 +48,7 @@ def _create_gist(target: str, month: str, description: str) -> dict[str, Any]:
         "Secret gist. Append-only log of observations and diagnoses used for "
         "causal assessment.\n"
     )
-    response = github_cli.json_call(
+    response = _common.gh_json(
         "api",
         "gists",
         "-X",
@@ -76,7 +71,7 @@ def prepare(target: str, *, now: datetime | None = None) -> int:
     now = now or datetime.now(UTC)
     month = now.strftime("%Y-%m")
     previous_month = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-    issues = github_cli.json_call(
+    issues = _common.gh_json(
         "issue",
         "list",
         "--state",
@@ -97,7 +92,7 @@ def prepare(target: str, *, now: datetime | None = None) -> int:
         tracking_number = matches[0]
     else:
         tracking_number = _issue_number(
-            github_cli.run(
+            _common.gh(
                 "issue",
                 "create",
                 "--title",
@@ -109,7 +104,7 @@ def prepare(target: str, *, now: datetime | None = None) -> int:
             )
         )
 
-    gists = github_cli.paginated("gists?per_page=100")
+    gists = _common.gh_paginated("gists?per_page=100")
     description = f"review-reviewers evidence: {target} {month}"
     gist = next(
         (gist for gist in gists if gist.get("description") == description), None
@@ -117,9 +112,9 @@ def prepare(target: str, *, now: datetime | None = None) -> int:
     if gist is None:
         gist = _create_gist(target, month, description)
         gist_url = str(gist["html_url"])
-        github_cli.run(
+        _common.gh(
             "api",
-            f"repos/{github_cli.repository()}/issues/{tracking_number}/comments",
+            f"repos/{_common.repository()}/issues/{tracking_number}/comments",
             "-X",
             "POST",
             "--input",
@@ -142,7 +137,7 @@ def prepare(target: str, *, now: datetime | None = None) -> int:
         "gist_url": gist_url,
     }
     _state_path().write_text(json.dumps(state, indent=2) + "\n")
-    github_cli.dump(
+    _common.dump(
         {
             **state,
             "current_evidence": _gist_content(gist_id),
@@ -167,7 +162,7 @@ def append() -> int:
         return 2
     gist_id = str(state["gist_id"])
     combined = _gist_content(gist_id) + findings
-    github_cli.run(
+    _common.gh(
         "api",
         f"gists/{gist_id}",
         "-X",
@@ -176,28 +171,5 @@ def append() -> int:
         "-",
         input=json.dumps({"files": {"findings.md": {"content": combined}}}),
     )
-    github_cli.dump({"gist_url": state["gist_url"], "action": "appended"})
+    _common.dump({"gist_url": state["gist_url"], "action": "appended"})
     return 0
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) == 2 and args[0] == "prepare-evidence" and "/" in args[1]:
-        return prepare(args[1])
-    if args == ["append-evidence"]:
-        return append()
-    print(
-        f"usage: {sys.argv[0]} prepare-evidence <owner/repo> | append-evidence",
-        file=sys.stderr,
-    )
-    return 2
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (KeyError, OSError, ValueError) as error:
-        print(error, file=sys.stderr)
-        raise SystemExit(2) from None
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

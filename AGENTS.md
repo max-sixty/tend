@@ -67,6 +67,10 @@ Four pieces:
      Shares the cross-harness workspace, sandbox lifecycle, preflight, and
      runtime modules under `tend.runtime.shared`.
 
+   Call `max-sixty/tend/setup-runtime@X.Y.Z` once per job before Tend operations,
+   using the same release as the harness, landing, or refresh action. It installs
+   the runner's isolated CLI; harnesses install only their sandbox copy.
+
    Both harness runners resolve the bot's numeric ID at runtime, run security
    preflight, then select the event's topology and run the
    complete agent turn in one systemd unit over a copy-on-write view of the
@@ -80,7 +84,7 @@ Four pieces:
    workflow calls it when a CI workflow completes, and it names the PR at that
    commit whose review recorded it for landing and whose checks are all green,
    or one with no human author whose CI went red, for the workflow's landing
-   or repair session (`plugins/tend-ci-runner/scripts/land_pr.py`). Inputs in
+   or repair session (`tend runtime land-pr`). Inputs in
    `land/action.yaml`.
 
    `max-sixty/tend/codex/refresh@X.Y.Z` is the Codex support action. A generated
@@ -125,8 +129,7 @@ tend/
 ├── plugins/
 │   ├── install-tend/     # User-facing plugin (setup skill)
 │   └── tend-ci-runner/   # CI plugin (review, triage, nightly, etc.)
-│       ├── .codex-plugin/  # Codex plugin manifest
-│       └── scripts/      # Helper scripts (survey, run listing)
+│       └── .codex-plugin/  # Codex plugin manifest
 ├── claude/              # Claude action, installation shell scripts, and tests
 │   └── action.yaml       # Claude harness composite action (default, headless)
 ├── codex/               # Codex actions, prompt assets, and tests
@@ -144,7 +147,7 @@ tend/
 │   │   ├── workflows.py  # Generates workflow YAML
 │   │   ├── checks.py     # Security checks (branch protection, secrets)
 │   │   ├── cli.py        # Click CLI (init, check)
-│   │   └── runtime/      # Installed action runtime: shared/, claude/, codex/
+│   │   └── runtime/      # Installed runtime: shared/, claude/, codex/, ci/
 │   └── tests/
 ├── site/                 # Astro marketing site (tend-src.com)
 ├── worker/               # Cloudflare Worker — serves the 2 site data streams
@@ -157,7 +160,7 @@ tend/
 ## Key details
 
 Python runtime modules live in the published `tend` package under
-`generator/src/tend/runtime/{shared,claude,codex}` and use normal package imports.
+`generator/src/tend/runtime/{shared,claude,codex,ci}` and use normal package imports.
 The actions install their exact source with the frozen workspace lock, non-editably,
 and expose an isolated `tend` command on PATH so consumer Python settings and
 files cannot shadow imports. Only Tend is added; consumer Python keeps its own
@@ -541,8 +544,8 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 ## Agent-driven vs deterministic steps
 
 - **The agent drives diagnostics and remediation.** Once the action is
-  running, put logic into the relevant skill (or a script the skill calls —
-  see `plugins/tend-ci-runner/scripts/`).
+  running, put judgment into the relevant skill and deterministic helpers into
+  `generator/src/tend/runtime/ci/`, invoked through `tend runtime`.
 - **Actions gate whether the agent runs at all.** Agent invocations cost
   tokens; gating them in YAML is cheap. Pre-check steps that early-exit
   the job (e.g. `tend-notifications`'s notification and PR conflict check)

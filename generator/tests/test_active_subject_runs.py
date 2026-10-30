@@ -15,15 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
+from tests import GH_PREAMBLE, fake_bin, runtime_command, tool_path
 
-ACTIVE_SUBJECT_RUNS = (
-    Path(__file__).resolve().parents[2]
-    / "plugins"
-    / "tend-ci-runner"
-    / "scripts"
-    / "active_subject_runs.py"
-)
+ACTIVE_SUBJECT_RUNS = "active-subject-runs"
 SUBJECT_URL = "https://api.github.com/repos/owner/repo/pulls/4082"
 TITLE = "fix: keep the resolved workspace root across retries"
 OWN_RUN_ID = 999
@@ -113,7 +107,7 @@ def _stage(env: dict[str, str], status: str, *runs: dict) -> None:
 
 def _subject_runs(env: dict[str, str]) -> list[dict]:
     result = subprocess.run(
-        uv_script(ACTIVE_SUBJECT_RUNS, SUBJECT_URL),
+        runtime_command(ACTIVE_SUBJECT_RUNS, SUBJECT_URL),
         env=env,
         capture_output=True,
         text=True,

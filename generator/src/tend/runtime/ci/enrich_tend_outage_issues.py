@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Add completed workflow failure details to open Tend outage issues.
 
 Annotations carry precise agent failures. Ordinary non-zero exits only produce
@@ -19,7 +15,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import github_cli
+from tend.runtime.shared import _common
 
 LABEL = "tend-outage"
 RUN_LINK = re.compile(r"/actions/runs/([0-9]+)")
@@ -98,7 +94,7 @@ def run_jobs(repo: str, run_id: str) -> list[dict[str, Any]]:
     section and no marker because its failed row sat past the cap.
     """
     try:
-        pages = github_cli.pages(
+        pages = _common.gh_pages(
             f"repos/{repo}/actions/runs/{run_id}/jobs?filter=all&per_page=100",
             quiet=True,
         )
@@ -151,7 +147,7 @@ def annotation_details(repo: str, jobs: list[dict[str, Any]]) -> list[str]:
             details.append(OMITTED_JOBS)
             break
         try:
-            annotations = github_cli.json_call(
+            annotations = _common.gh_json(
                 "api", f"repos/{repo}/check-runs/{job['id']}/annotations", quiet=True
             )
         except (subprocess.CalledProcessError, ValueError):
@@ -198,7 +194,7 @@ def log_details(repo: str, run_id: str, attempt: int | None) -> list[str]:
     if attempt is not None:
         args += ["--attempt", str(attempt)]
     try:
-        output = github_cli.run(*args, quiet=True)
+        output = _common.gh(*args, quiet=True)
     except subprocess.CalledProcessError:
         return []
 
@@ -264,13 +260,13 @@ def render_batch(repo: str, run_ids: list[str]) -> str:
 
 
 def main() -> int:
-    repo = github_cli.repository()
-    issues = github_cli.json_call(
+    repo = _common.repository()
+    issues = _common.gh_json(
         "issue", "list", "--label", LABEL, "--state", "open", "--json", "number"
     )
     for row in issues:
         issue_number = str(row["number"])
-        issue = github_cli.json_call(
+        issue = _common.gh_json(
             "issue", "view", issue_number, "--repo", repo, "--json", "body,comments"
         )
         run_ids = pending_run_ids(issue)
@@ -282,7 +278,7 @@ def main() -> int:
         with tempfile.TemporaryDirectory() as directory:
             body_file = Path(directory) / "enrichment.md"
             body_file.write_text(body, encoding="utf-8")
-            github_cli.run(
+            _common.gh(
                 "issue",
                 "comment",
                 issue_number,
@@ -292,10 +288,3 @@ def main() -> int:
                 str(body_file),
             )
     return 0
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

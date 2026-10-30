@@ -1,12 +1,7 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Report token use and spend across recent Tend workflow runs."""
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import subprocess
@@ -16,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import github_cli
+from tend.runtime.shared import _common
 
 RUN_LIMIT = 1000
 # A run is priced when it *completed* in the window, matching how
@@ -277,43 +272,14 @@ def _parse_time(value: str) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    parser = argparse.ArgumentParser(description=__doc__)
-    window = parser.add_mutually_exclusive_group()
-    window.add_argument(
-        "--since",
-        metavar="ISO",
-        help="price runs that completed at or after this timestamp — pass "
-        "review-runs' own anchor so the spend covers the censused band",
-    )
-    window.add_argument(
-        "--hours", type=int, default=168, help="price the last N hours (default 168)"
-    )
-    parser.add_argument(
-        "prefixes",
-        nargs="*",
-        metavar="PREFIX",
-        help="extra workflow-name prefixes beyond 'tend-'",
-    )
-    options = parser.parse_args(args)
-    if hours := next((p for p in options.prefixes if p.isdigit()), None):
-        parser.error(f"PREFIX {hours!r} is an hour count — pass --hours {hours}")
-    if options.since is not None:
-        try:
-            completed_after = _parse_time(options.since.strip())
-        except ValueError:
-            parser.error(f"--since: not an ISO timestamp: {options.since!r}")
-    else:
-        completed_after = datetime.now(UTC) - timedelta(hours=options.hours)
+def main(completed_after: datetime, extra_prefixes: tuple[str, ...] = ()) -> int:
     since = _stamp(completed_after)
     created_since = _stamp(completed_after - CREATION_CUSHION)
-    extra_prefixes = options.prefixes
     repo_args = (
         ["-R", os.environ["TARGET_REPO"]] if os.environ.get("TARGET_REPO") else []
     )
 
-    workflow_rows = github_cli.json_call(
+    workflow_rows = _common.gh_json(
         "workflow", "list", *repo_args, "--limit", str(WORKFLOW_LIMIT), "--json", "name"
     )
     if len(workflow_rows) >= WORKFLOW_LIMIT:
@@ -324,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
     prefixes = ["tend-", *extra_prefixes]
-    workflows = github_cli.unique(
+    workflows = _common.unique(
         row["name"]
         for row in workflow_rows
         if any(row["name"].startswith(prefix) for prefix in prefixes)
@@ -333,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     runs_by_id: dict[int, dict[str, Any]] = {}
     for workflow in workflows:
         try:
-            rows = github_cli.json_call(
+            rows = _common.gh_json(
                 "run",
                 "list",
                 *repo_args,
@@ -376,7 +342,7 @@ def main(argv: list[str] | None = None) -> int:
         for run_id, run in runs_by_id.items():
             run_dir = root / str(run_id)
             try:
-                github_cli.run(
+                _common.gh(
                     "run",
                     "download",
                     str(run_id),
@@ -420,13 +386,6 @@ def main(argv: list[str] | None = None) -> int:
             jobs.extend({**record, **stamp} for record in run_jobs)
 
     output = _report(jobs, skipped=skipped, since=since)
-    github_cli.dump(output["report"])
+    _common.dump(output["report"])
     sys.stderr.write(output["summary"])
     return 0
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

@@ -7,6 +7,7 @@ description: >-
   credential live only in the proxy, never in the agent's environment. The
   proxy machinery lives under the top-level `proxy/` and the cross-harness
   Python step bodies in the installed `tend.runtime` package.
+  Requires setup-runtime at the same ref earlier in the job.
 
 inputs:
   github_token:
@@ -29,13 +30,6 @@ inputs:
       Anthropic API key from console.anthropic.com (billed per token).
       One of claude_code_oauth_token or anthropic_api_key must be set;
       claude_code_oauth_token takes precedence when both are present.
-  bot_name:
-    required: true
-    description: |
-      GitHub username of the bot account. Rendered into the workflows so a
-      consumer can see which account tend runs as; the steps themselves read
-      the identity off the token rather than from here, since a name left
-      stale by a rename fails open.
   prompt:
     required: true
     description: The prompt to send to Claude
@@ -121,19 +115,13 @@ runs:
   steps:
     # Shared Python steps run from this action's installed Tend package.
     # Inputs cross through environment variables; imports ignore consumer files.
-    - name: Install runtime uv
-      shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
-      env:
-        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
-
     - name: Create the sandbox runtime container
       shell: bash
       run: bash "${{ github.action_path }}/../shared/steps/create-runtime-root.sh"
 
-    - name: Install Tend runtime package
+    - name: Install sandbox Tend runtime package
       shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-runtime.sh"
+      run: bash "${{ github.action_path }}/../shared/steps/install-runtime.sh" sandbox
       env:
         ACTION_PATH: ${{ github.action_path }}/..
         UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv

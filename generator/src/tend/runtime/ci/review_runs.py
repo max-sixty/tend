@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Own the review-runs workflow's persisted records.
 
 Two of them: the monthly evidence tracker, and the lookup that
@@ -13,14 +9,13 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import github_cli
+from tend.runtime.shared import _common
 
 LABEL = "review-runs-tracking"
 BODY = """Monthly tracking issue for observations and diagnoses. Each run appends findings as a comment. Future runs read these to build cumulative evidence.
@@ -57,10 +52,10 @@ def _issue_number(url: str) -> int:
 
 
 def _comments(number: int) -> list[dict[str, Any]]:
-    response = github_cli.json_call("issue", "view", str(number), "--json", "comments")
+    response = _common.gh_json("issue", "view", str(number), "--json", "comments")
     return [
         {
-            "author": github_cli.actor_login(comment.get("author")),
+            "author": _common.actor_login(comment.get("author")),
             "body": comment.get("body"),
         }
         for comment in response["comments"]
@@ -72,7 +67,7 @@ def prepare(*, now: datetime | None = None) -> int:
     now = now or datetime.now(UTC)
     month = now.strftime("%Y-%m")
     previous_month = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-    issues = github_cli.json_call(
+    issues = _common.gh_json(
         "issue",
         "list",
         "--state",
@@ -92,7 +87,7 @@ def prepare(*, now: datetime | None = None) -> int:
     if current:
         number = current[0]
     else:
-        url = github_cli.run(
+        url = _common.gh(
             "issue",
             "create",
             "--title",
@@ -110,7 +105,7 @@ def prepare(*, now: datetime | None = None) -> int:
         if issue.get("state") == "OPEN" and month not in str(issue.get("title") or "")
     )
     for old in stale:
-        github_cli.run(
+        _common.gh(
             "issue",
             "close",
             str(old),
@@ -125,7 +120,7 @@ def prepare(*, now: datetime | None = None) -> int:
     )
     state = {"tracking_number": number, "month": month}
     _state_path().write_text(json.dumps(state, indent=2) + "\n")
-    github_cli.dump(
+    _common.dump(
         {
             **state,
             "current_comments": _comments(number),
@@ -137,9 +132,7 @@ def prepare(*, now: datetime | None = None) -> int:
 
 def _rows(number: int) -> list[str]:
     """Return a tracker's run rows: the body holds the first, comments the rest."""
-    issue = github_cli.json_call(
-        "issue", "view", str(number), "--json", "body,comments"
-    )
+    issue = _common.gh_json("issue", "view", str(number), "--json", "body,comments")
     return [
         str(issue.get("body") or ""),
         *(str(comment.get("body") or "") for comment in issue["comments"]),
@@ -158,12 +151,13 @@ def outage_trackers() -> int:
     since = _since_path().read_text().strip()
     if not since:
         print(
-            f"{_since_path()} is empty; run list_recent_runs.py first", file=sys.stderr
+            f"{_since_path()} is empty; run tend runtime list-recent-runs first",
+            file=sys.stderr,
         )
         return 2
-    repo = github_cli.repository()
-    bot = str(github_cli.json_call("api", "user")["login"])
-    issues = github_cli.json_call(
+    repo = _common.repository()
+    bot = str(_common.gh_json("api", "user")["login"])
+    issues = _common.gh_json(
         "issue",
         "list",
         "--state",
@@ -190,8 +184,8 @@ def outage_trackers() -> int:
                 continue
             # `closed_by` is on the single-issue REST response only; the list
             # endpoint and `gh issue list --json` both omit it.
-            closed = github_cli.json_call("api", f"repos/{repo}/issues/{number}")
-            closed_by = github_cli.actor_login(closed.get("closed_by"))
+            closed = _common.gh_json("api", f"repos/{repo}/issues/{number}")
+            closed_by = _common.actor_login(closed.get("closed_by"))
             if closed_by == bot:
                 continue
         trackers.append(
@@ -202,12 +196,12 @@ def outage_trackers() -> int:
                 "rows": _rows(number),
             }
         )
-    github_cli.dump({"since": since, "trackers": trackers})
+    _common.dump({"since": since, "trackers": trackers})
     return 0
 
 
 def _post_comment(repo: str, number: int, body: str) -> None:
-    github_cli.run(
+    _common.gh(
         "api",
         f"repos/{repo}/issues/{number}/comments",
         "-X",
@@ -231,20 +225,20 @@ def append() -> int:
         )
         return 2
 
-    repo = github_cli.repository()
-    bot = str(github_cli.json_call("api", "user")["login"])
-    comments = github_cli.paginated(
+    repo = _common.repository()
+    bot = str(_common.gh_json("api", "user")["login"])
+    comments = _common.gh_paginated(
         f"repos/{repo}/issues/{number}/comments?per_page=100"
     )
     existing = [
         comment
         for comment in comments
-        if github_cli.actor_login(comment.get("user")) == bot
+        if _common.actor_login(comment.get("user")) == bot
         and EVIDENCE_HEADING.search(str(comment.get("body") or ""))
     ]
     if not existing:
         _post_comment(repo, number, findings)
-        github_cli.dump({"tracking_number": number, "action": "created"})
+        _common.dump({"tracking_number": number, "action": "created"})
         return 0
 
     prior = str(existing[-1].get("body") or "")
@@ -253,7 +247,7 @@ def append() -> int:
         _post_comment(repo, number, findings)
         action = "created"
     else:
-        github_cli.run(
+        _common.gh(
             "api",
             f"repos/{repo}/issues/comments/{existing[-1]['id']}",
             "-X",
@@ -263,30 +257,5 @@ def append() -> int:
             input=json.dumps({"body": combined}),
         )
         action = "appended"
-    github_cli.dump({"tracking_number": number, "action": action})
+    _common.dump({"tracking_number": number, "action": action})
     return 0
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if args == ["prepare-evidence"]:
-        return prepare()
-    if args == ["append-evidence"]:
-        return append()
-    if args == ["outage-trackers"]:
-        return outage_trackers()
-    print(
-        f"usage: {sys.argv[0]} prepare-evidence|append-evidence|outage-trackers",
-        file=sys.stderr,
-    )
-    return 2
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (KeyError, OSError, ValueError) as error:
-        print(error, file=sys.stderr)
-        raise SystemExit(2) from None
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

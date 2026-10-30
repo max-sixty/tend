@@ -1,5 +1,7 @@
 name: Refresh Tend Codex subscription auth
-description: Rotate the full auth bundle and publish its access-only consumer view.
+description: >-
+  Rotate the full auth bundle and publish its access-only consumer view.
+  Requires setup-runtime at the same ref earlier in the job.
 
 inputs:
   consumer_auth_configured:
@@ -21,19 +23,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install runtime uv
-      shell: bash
-      run: bash "${{ github.action_path }}/../../shared/steps/install-uv.sh"
-      env:
-        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
-
-    - name: Install Tend runtime package
-      shell: bash
-      run: bash "${{ github.action_path }}/../../shared/steps/install-runtime.sh"
-      env:
-        ACTION_PATH: ${{ github.action_path }}/../..
-        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
-
     - name: Stage refreshable auth
       id: auth
       shell: bash
@@ -42,6 +31,7 @@ runs:
         CODEX_REFRESH_PAT: ${{ inputs.refresh_pat }}
         CODEX_CONSUMER_AUTH_CONFIGURED: ${{ inputs.consumer_auth_configured }}
       run: |
+        : "${TEND_RUNTIME_PYTHON:?Run max-sixty/tend/setup-runtime at the same ref before this action}"
         tend runtime codex auth stage-refresh "$RUNNER_TEMP/tend-codex-refresh/auth.json"
 
     - name: Install Codex CLI

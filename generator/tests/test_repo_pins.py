@@ -557,7 +557,6 @@ def test_action_path_references_resolve(action: str) -> None:
     body = action_path.read_text()
     matched = ACTION_PATH_REF.findall(body)
 
-    assert matched, f"{action}: no github.action_path references"
     missing = [
         ref
         for ref in sorted(set(matched))
@@ -782,13 +781,6 @@ def test_bundled_runner_instructions_never_return_with_cd_dash() -> None:
     )
 
     assert offenders == []
-
-
-def test_runner_helper_directory_is_python_only() -> None:
-    """Substantial runner behavior belongs in tested Python, not shell helpers."""
-    scripts = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts"
-
-    assert not sorted(scripts.glob("*.sh"))
 
 
 def test_review_reviewers_sweeps_only_known_consumers() -> None:

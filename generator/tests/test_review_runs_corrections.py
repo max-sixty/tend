@@ -1,4 +1,4 @@
-"""Tests for plugins/tend-ci-runner/scripts/review_runs_corrections.py.
+"""Tests for tend.runtime.ci.review_runs_corrections.py.
 
 Step 4 of review-runs decides whether the tracking issue records "no
 maintainer corrections", which later runs read as historical evidence.
@@ -19,15 +19,9 @@ from pathlib import Path
 
 import pytest
 
-from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
+from tests import GH_PREAMBLE, fake_bin, runtime_command, tool_path
 
-SCRIPT = (
-    Path(__file__).resolve().parents[2]
-    / "plugins"
-    / "tend-ci-runner"
-    / "scripts"
-    / "review_runs_corrections.py"
-)
+SCRIPT = "review-runs-corrections"
 
 BOT = "tend-bot"
 HUMAN = "maintainer"
@@ -97,7 +91,11 @@ def env(tmp_path: Path) -> dict[str, str]:
 
 def _run(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        uv_script(SCRIPT, *args), env=env, capture_output=True, text=True, check=False
+        runtime_command(SCRIPT, *args),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
@@ -143,7 +141,7 @@ def test_a_missing_anchor_is_an_error_not_an_empty_window(env: dict[str, str]) -
     result = _run(env)
 
     assert result.returncode == 2
-    assert "usage" in result.stderr
+    assert "Usage:" in result.stderr
     assert not Path(env["GH_CALLS"]).exists()
 
 

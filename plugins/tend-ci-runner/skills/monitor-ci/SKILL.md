@@ -23,8 +23,7 @@ PINNED_SHA=$(git rev-parse HEAD)
 # When the push happened in a $TMPDIR worktree the recipe then removes, capture
 # the OID there — `git rev-parse HEAD > "$TMPDIR/<name>-sha"` — before the removal.
 # Back in the main checkout HEAD is the default branch, not what you pushed.
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" poll <number> "$PINNED_SHA"
+tend runtime poll-pr-checks poll <number> "$PINNED_SHA"
 ```
 
 Run this command in the foreground with the longest command timeout the harness allows. It has no fixed time limit: it waits until every check settles, however long the repo's CI takes. It returns sooner only when no check registers, or when checks still pend and the PR head moves.
@@ -49,8 +48,7 @@ If you cannot verify, say "I haven't confirmed whether these failures are pre-ex
 To rerun a run's failed jobs and wait for the outcome, use the bundled script — it reruns, finds the new attempt's jobs (the parent run's `.status` and the commit rollup stay pending on unrelated siblings, so neither is a usable signal), and polls them to terminal:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/rerun_failed_jobs.py" <run-id>
+tend runtime rerun-failed-jobs <run-id>
 ```
 
 Same foreground invocation as above; it waits until the re-run jobs finish. Exit 0 prints each job's conclusion — `completed` is not `success`; the follow-up turns on the conclusions. Any other exit means the rerun never took: report the jobs as unverified.

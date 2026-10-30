@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
 """Find candidate unfixed default-branch failures in GitHub's returned pages.
 
 Each listing is read once. Its rows are observations, not a freshness guarantee:
@@ -13,10 +9,9 @@ are candidates for investigation before any outward action.
 from __future__ import annotations
 
 import subprocess
-import sys
 from typing import Any
 
-import github_cli
+from tend.runtime.shared import _common
 
 # One server-side filter per red conclusion, to reach past a busy repo's green
 # runs. `cancelled` is left out: concurrency cancels dominate it.
@@ -50,7 +45,7 @@ def _rows(response: Any) -> list[dict[str, Any]]:
 
 def read_listing(url: str, *, quiet: bool = False) -> list[dict[str, Any]]:
     """Read one API page without claiming that its snapshot is current."""
-    return _rows(github_cli.json_call("api", url, quiet=quiet))
+    return _rows(_common.gh_json("api", url, quiet=quiet))
 
 
 def green_url(repo: str, branch: str, path: str) -> str:
@@ -109,14 +104,10 @@ def generated_greens(repo: str, branch: str, workflow_id: int) -> dict[str, str]
     return newest
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if args:
-        print(f"usage: {sys.argv[0]}", file=sys.stderr)
-        return 2
+def main() -> int:
 
-    repo = github_cli.repository()
-    branch = github_cli.json_call("repo", "view", repo, "--json", "defaultBranchRef")[
+    repo = _common.repository()
+    branch = _common.gh_json("repo", "view", repo, "--json", "defaultBranchRef")[
         "defaultBranchRef"
     ]["name"]
 
@@ -164,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
         if green and green > green_by_path.get(path, ""):
             green_by_path[path] = green
 
-    github_cli.dump(
+    _common.dump(
         {
             "branch": branch,
             # The newest floor among the truncated listings. Null means none of the returned
@@ -177,10 +168,3 @@ def main(argv: list[str] | None = None) -> int:
         }
     )
     return 0
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

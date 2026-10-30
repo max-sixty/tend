@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = []
-# ///
 """Poll one commit's status-check rollup to a fail-closed verdict."""
 
 from __future__ import annotations
@@ -14,7 +10,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Literal
 
-import github_cli
+from tend.runtime.shared import _common
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 RED_CONCLUSIONS = {
@@ -180,7 +176,7 @@ def fetch_rollup(
     """Fetch every rollup page; return ``None`` when no complete view exists."""
     owner, name = repo.split("/", 1)
     try:
-        pages = github_cli.pages(
+        pages = _common.gh_pages(
             "graphql",
             "-f",
             f"owner={owner}",
@@ -221,7 +217,7 @@ def fetch_rollup(
 def _head(*, pr: str, repo: str) -> str:
     """The PR's current head, or "" when it can't be read."""
     try:
-        response = github_cli.json_call(
+        response = _common.gh_json(
             "pr", "view", pr, "--repo", repo, "--json", "headRefOid", quiet=True
         )
         return response.get("headRefOid") or ""
@@ -413,11 +409,11 @@ def poll(
     """
     repo = os.environ["GITHUB_REPOSITORY"]
     try:
-        github_cli.run("api", f"repos/{repo}/commits/{sha}", "--silent", quiet=True)
+        _common.gh("api", f"repos/{repo}/commits/{sha}", "--silent", quiet=True)
     except subprocess.CalledProcessError:
         sleep(10)
         try:
-            github_cli.run("api", f"repos/{repo}/commits/{sha}", "--silent", quiet=True)
+            _common.gh("api", f"repos/{repo}/commits/{sha}", "--silent", quiet=True)
         except subprocess.CalledProcessError:
             print(
                 f"could not resolve {sha} as a commit in {repo} — UNVERIFIED, not green"
@@ -492,36 +488,14 @@ VERDICTS = {
 
 
 def main(
-    argv: list[str] | None = None, *, sleep: Callable[[float], None] = time.sleep
+    command: str,
+    pr: str,
+    sha: str,
+    *,
+    wait: bool = True,
+    skip: frozenset[str] = frozenset(),
+    sleep: Callable[[float], None] = time.sleep,
 ) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    command = args[0] if args else ""
-    args = args[1:]
-    wait = "--no-wait" not in args
-    args = [arg for arg in args if arg != "--no-wait"]
-    skip: set[str] = set()
-    while len(args) > 3 and args[-2] == "--skip":
-        skip.add(args.pop())
-        args.pop()
-    pr = args[0] if args else ""
-    sha = args[1] if len(args) > 1 else ""
-    if len(args) != 2:
-        print(
-            "usage: poll_pr_checks.py poll|approval <pr-number> <sha> "
-            "[--no-wait] [--skip <check>]... — UNVERIFIED, not green",
-            file=sys.stderr,
-        )
-        return 2
-    if not SHA_RE.fullmatch(sha):
-        print(
-            "poll_pr_checks.py: <sha> must be a full 40-char lowercase commit OID, "
-            f"got '{sha}' — UNVERIFIED, not green",
-            file=sys.stderr,
-        )
-        return 2
-    if command not in VERDICTS:
-        print(f"unknown command: {command or '<none>'}", file=sys.stderr)
-        return 2
     if command == "approval":
         code = approval(pr, sha, skip=frozenset(skip), wait=wait, sleep=sleep)
     else:
@@ -530,10 +504,3 @@ def main(
     # behind a long check list, so the last line restates it.
     print(f"verdict: {VERDICTS[command][code]} on {sha} (exit {code})")
     return code
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except subprocess.CalledProcessError as error:
-        raise SystemExit(github_cli.exit_code(error)) from None

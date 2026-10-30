@@ -66,8 +66,7 @@ Judge deduplication from current state, including bot reviews and bot-authored P
 For a same-repository item, check which dedicated runs are still handling its subject. Any run the script lists means defer; an empty list means this poll owns the thread.
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py" "$SUBJECT_URL"
+tend runtime active-subject-runs "$SUBJECT_URL"
 ```
 
 It counts a run that has not started yet. `queued` is a status of its own in the Actions API, and a `tend-mention` run created for a maintainer's comment can sit unstarted for hours — that run owns its subject as much as a running one, and answering it here posts the bot's reply twice. Triage batches identify their queued and running issues by number, including matrix jobs waiting for a slot. They retain ownership until their job or run finishes, however long they wait. For other workflows it stops counting a run whose state has not moved in over a day: GitHub strands runs that never start, and an owner that never finishes would defer its thread forever.

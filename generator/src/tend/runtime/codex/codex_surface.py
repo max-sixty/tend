@@ -2,7 +2,7 @@
 
 This credential-free CI probe covers the undocumented surfaces that can break
 all Codex jobs during a version bump: access-only ChatGPT auth, ``codex exec``
-flags and config, and plugin installation output and contents. Live model
+flags and config, and installed plugin skills. Live model
 behavior needs a separate authenticated integration test.
 """
 
@@ -102,8 +102,8 @@ def _probe_exec_flags(codex: str, env: dict[str, str]) -> None:
 
 def _probe_plugin(codex: str, repository: Path, env: dict[str, str]) -> None:
     _run(codex, "plugin", "marketplace", "add", str(repository), env=env)
-    # Codex warns on stderr (a CODEX_HOME under /tmp, say), which would land in
-    # front of the JSON; it goes to the log instead, as in the runner.
+    # The probe uses the JSON report to inspect the installed skills. Codex's
+    # warnings go to the log without contaminating that report.
     output = _run(
         codex, "plugin", "add", "--json", "tend-ci-runner@tend", env=env, stderr=None
     ).stdout
@@ -114,11 +114,7 @@ def _probe_plugin(codex: str, repository: Path, env: dict[str, str]) -> None:
         raise SurfaceError(
             "codex plugin add --json no longer reports installedPath"
         ) from error
-    required = (
-        root / "skills" / "triage" / "SKILL.md",
-        root / "scripts" / "list_recent_runs.py",
-    )
-    if not root.is_dir() or not all(path.is_file() for path in required):
+    if not (root / "skills" / "triage" / "SKILL.md").is_file():
         raise SurfaceError("the installed tend-ci-runner plugin is incomplete")
 
 

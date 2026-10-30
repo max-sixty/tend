@@ -58,14 +58,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - uses: ./setup-runtime
       - name: Create the sandbox runtime container
         run: bash shared/steps/create-runtime-root.sh
-      - name: Install runtime uv
-        run: bash shared/steps/install-uv.sh
-        env:
-          UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
-      - name: Install Tend runtime package
-        run: bash shared/steps/install-runtime.sh
+      - name: Install sandbox Tend runtime package
+        run: bash shared/steps/install-runtime.sh sandbox
         env:
           ACTION_PATH: ${{ github.workspace }}
           UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv

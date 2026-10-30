@@ -15,18 +15,6 @@ def _result(args: list[str], *, stdout: str = "", returncode: int = 0):
     return subprocess.CompletedProcess(args, returncode, stdout, "")
 
 
-PLUGIN_ADD = ["plugin", "add", "--json", "tend-ci-runner@tend"]
-
-
-def _plugin_add_output(args: list[str], installed: Path) -> str:
-    """What `codex plugin add --json` prints for tend-ci-runner; nothing else."""
-    if args[-4:] != PLUGIN_ADD:
-        return ""
-    return (
-        json.dumps({"name": "tend-ci-runner", "installedPath": str(installed)}) + "\n"
-    )
-
-
 def _set_sandbox_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[Path, Path, Path]:
@@ -57,24 +45,19 @@ def _set_sandbox_env(
     return action, agent_home, agent_env
 
 
-def test_install_plugin_exports_the_single_sandbox_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_install_plugins_in_the_sandbox_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _, agent_home, agent_env = _set_sandbox_env(tmp_path, monkeypatch)
-    plugin = agent_home / ".codex/plugins/tend-ci-runner"
-    plugin.mkdir(parents=True)
+    _, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
     calls: list[tuple[list[str], dict[str, object]]] = []
 
     def run(args: list[str], **kwargs: object):
         calls.append((args, kwargs))
-        stdout = _plugin_add_output(args, plugin)
-        return _result(args, stdout=stdout)
+        return _result(args)
 
     monkeypatch.setattr(codex_runner, "_run", run)
 
     assert codex_runner.install_plugin() == 0
-    assert agent_env.read_text().endswith(f"CLAUDE_PLUGIN_ROOT={plugin}\n")
-    assert capsys.readouterr().out == _plugin_add_output(PLUGIN_ADD, plugin)
     marketplace = agent_home / "tend-marketplace"
     assert calls[0][0] == [
         "/usr/bin/sudo",
@@ -98,42 +81,7 @@ def test_install_plugin_exports_the_single_sandbox_root(
         str(marketplace),
     ]
     assert codex_calls[1][-3:] == ["plugin", "add", "install-tend@tend"]
-    assert codex_calls[2][-4:] == PLUGIN_ADD
-
-
-def test_install_plugin_rejects_a_root_outside_the_sandbox_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _set_sandbox_env(tmp_path, monkeypatch)
-    outside = tmp_path / "runner-owned/plugin"
-    outside.mkdir(parents=True)
-
-    def run(args: list[str], **kwargs: object):
-        return _result(args, stdout=_plugin_add_output(args, outside))
-
-    monkeypatch.setattr(codex_runner, "_run", run)
-
-    assert codex_runner.install_plugin() == 1
-
-
-def test_install_plugin_rejects_output_that_is_not_the_json_report(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
-    plugin = agent_home / ".codex/plugins/tend-ci-runner"
-    plugin.mkdir(parents=True)
-
-    def run(args: list[str], **kwargs: object):
-        return _result(
-            args,
-            stdout=(
-                f"Installed plugin root: {plugin}\n" if args[-4:] == PLUGIN_ADD else ""
-            ),
-        )
-
-    monkeypatch.setattr(codex_runner, "_run", run)
-
-    assert codex_runner.install_plugin() == 1
+    assert codex_calls[2][-3:] == ["plugin", "add", "tend-ci-runner@tend"]
 
 
 @pytest.mark.parametrize("memory_enabled", [False, True])

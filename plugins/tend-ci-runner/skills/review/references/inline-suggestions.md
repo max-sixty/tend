@@ -26,7 +26,7 @@ REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0
 jq --arg body "$BODY" --arg sha "$REVIEWED" \
   '.body = $body | .commit_id = $sha' "$TMPDIR/review-payload.json" > "$TMPDIR/review-final.json"
 
-/usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> -- \
+tend runtime review-preflight post <number> -- \
   gh api "repos/{owner}/{repo}/pulls/<number>/reviews" \
     --method POST \
     --input "$TMPDIR/review-final.json"
@@ -60,8 +60,7 @@ GitHub returns `422 Unprocessable Entity` with "Line could not be resolved" when
 # rewrite is excluded too — it reports `.commit_id == head_sha`, so without
 # that filter the PUT destroys a published review, leaving this run's findings
 # over the old review's inline comments on code that no longer exists.
-ORPHAN_ID=$(uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" state <number> \
+ORPHAN_ID=$(tend runtime bot-review-state state <number> \
   | jq -r '.orphan_id // empty')
 ```
 
@@ -72,7 +71,7 @@ preserving the hidden marker when this is a draft review, and:
 
 - **If `ORPHAN_ID` is non-empty (case a)**: edit the existing review instead of creating a duplicate.
   ```bash
-  /usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> \
+  tend runtime review-preflight post <number> \
     --edit-review <orphan-id> -- \
     gh api "repos/{owner}/{repo}/pulls/<number>/reviews/<orphan-id>" \
       -X PUT -F body=@"$TMPDIR/updated-review-body.md"
@@ -82,7 +81,7 @@ preserving the hidden marker when this is a draft review, and:
 - **If `ORPHAN_ID` is empty (case b)**: retry the `POST` with `comments` omitted (body-only), since no duplicate is possible.
   ```bash
   jq 'del(.comments)' "$TMPDIR/review-final.json" > "$TMPDIR/review-body-only.json"
-  /usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> -- \
+  tend runtime review-preflight post <number> -- \
     gh api "repos/{owner}/{repo}/pulls/<number>/reviews" \
       --method POST --input "$TMPDIR/review-body-only.json"
   ```
