@@ -14,6 +14,7 @@ This skill runs **in the consumer repo**, not in tend. Improvements target `.cla
 ## Load required skills
 
 - Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay.
+- Read `references/parallel-maintenance.md` to divide the sweep's work.
 - Load `/tend-ci-runner:post-to-github` and `/tend-ci-runner:open-pr` before composing posts or opening PRs.
 - Load `/tend-ci-runner:read-session-logs` before Step 3.
 - Load `/tend-ci-runner:act-in-other-repos` before filing a bundled-skill defect upstream, or `/tend-ci-runner:propose-instructions` before editing repo-local skills.
@@ -234,15 +235,14 @@ Your workflows call a pinned action ref, so a skill fix merged upstream stays do
 
 ## Step 6: Act on findings
 
-Improvements target **repo-local** files by default:
+Delegate independent product repairs per `references/parallel-maintenance.md`.
+The behavioral and workflow improvements below target **repo-local** files by default:
 
 - **`.claude/skills/`** — update or create skill overlays with instructions that prevent the identified problem. Prefer updating existing skill files over creating new ones.
 - **`.config/tend.yaml`** — adjust workflow configuration if the problem is structural (e.g., wrong cron schedule, missing setup step).
 - **Project instruction file (`CLAUDE.md` or `AGENTS.md`)** — add project-specific instructions if the problem is about code conventions or patterns the bot keeps getting wrong.
 
 **Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per `/tend-ci-runner:act-in-other-repos`. Signal: the fix reads as generic instructions that would apply to any consumer.
-
-**Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
 Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `/tend-ci-runner:propose-instructions`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place). Choose a topic slug for each theme so separate PRs from the same run have distinct branches:
 
@@ -271,7 +271,7 @@ git worktree add "$TMPDIR/review-runs-fix" -b "daily/review-runs-$GITHUB_RUN_ID-
 `.config/tend.yaml` and project instruction files are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.
 
 - **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID-<topic-slug>`, fix, commit, push, create with label `review-runs`. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. Link the tracking issue where it holds prior observations of the same behavior, and carry the evidence that justified promoting this finding — the run IDs, the log excerpt, and the causal assessment — in the body or a `<details>` block.
-- **Issue** (fallback): Only for problems too large or ambiguous to fix directly.
+- **Issue**: Delegate or preserve unfinished work per **Filing issues in this repo** in `/tend-ci-runner:open-pr`.
 
 Group related findings by theme and complete the supported repairs. Record unresolved findings in the tracking issue.
 

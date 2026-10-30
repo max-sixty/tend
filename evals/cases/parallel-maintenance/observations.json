@@ -1,0 +1,46 @@
+[
+  {
+    "name": "daily-broad-scan",
+    "workflow": "review-runs",
+    "state": {
+      "census": "184 concluded runs; 18 failed or unexpectedly long sessions span three unrelated workflows. Their session artifacts are available.",
+      "pull_requests": "Six stalled bot PRs have independent diffs and check histories; none has an active review or repair run.",
+      "maintenance": "The scan must investigate the run failures, evaluate the stalled PRs and reconcile the current issue backlog. The findings have not yet been diagnosed.",
+      "capacity": "Subagent tools are available. The runner is healthy and can support concurrent repository reads. No provider outage is active."
+    }
+  },
+  {
+    "name": "weekly-atomic-repairs",
+    "workflow": "weekly",
+    "state": {
+      "overlay": "The repository asks weekly maintenance to inspect failing tests and review open dependency updates.",
+      "tests": [
+        {
+          "name": "test_encoder_roundtrip",
+          "observation": "Reproduces independently and has no issue or PR owner; needs an encoding repair."
+        },
+        {
+          "name": "test_key_navigation",
+          "observation": "A separate reproducible keyboard defect, already owned by open issue 210, with no queued or active worker."
+        },
+        {
+          "name": "test_upload_headers",
+          "observation": "Matches active repair PR 330; its worker is running."
+        }
+      ],
+      "dependencies": "Five dependency PRs have unrelated affected modules and green CI but require compatibility review. None has an active review worker.",
+      "capacity": "Issue creation and workflow dispatch are available; no provider outage or approval gate is active. Subagent tools and isolated worktrees are available."
+    }
+  },
+  {
+    "name": "small-overlapping-scan",
+    "workflow": "review-runs",
+    "state": {
+      "census": "The only new failure is the same test and trace repeated in three runs.",
+      "ownership": "One open cause issue 410 links active repair PR 420 and a running worker; the latest run evidence is already in the issue.",
+      "pull_requests": "PR 420 is the only open PR and is being repaired.",
+      "remaining_work": "The live-state checks are complete; only the scan summary remains.",
+      "capacity": "Subagent tools are available."
+    }
+  }
+]

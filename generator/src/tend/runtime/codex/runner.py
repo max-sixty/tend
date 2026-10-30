@@ -184,6 +184,10 @@ def run_codex() -> int:
         *auth_args,
         "--config",
         'cli_auth_credentials_store="file"',
+        # Codex has no unlimited setting; the largest TOML integer removes
+        # its default four-agent ceiling for practical workloads.
+        "--config",
+        "agents.max_concurrent_threads_per_session=9223372036854775807",
         # How long one empty `write_stdin` may wait on a running command; it
         # returns as soon as the command exits. Codex's 5-minute default turns
         # a long foreground wait — a CI poll — into a model turn every five
