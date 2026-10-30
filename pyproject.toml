@@ -32,7 +32,7 @@ testpaths = ["."]
 # holding the real PAT and model credential runs — not only what tests see.
 proxy = [
     "graphql-core>=3.2.6,<4",
-    "mitmproxy==12.3.0",
+    "mitmproxy==12.3.1",
 ]
 dev = [
   "tend",
