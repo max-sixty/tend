@@ -12,7 +12,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import inject_credentials
@@ -541,8 +541,6 @@ def test_creation_reservations_cover_inflight_requests_and_reconcile_receipts(
 def test_slow_admission_reserves_at_forwarding_time(
     injector: CredentialInjector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tend.runtime.shared.creation_limit import balance
-
     class Clock(datetime):
         current = datetime(2026, 10, 27, 23, 59, 59, tzinfo=UTC)
 
@@ -553,16 +551,16 @@ def test_slow_admission_reserves_at_forwarding_time(
     monkeypatch.setattr(inject_credentials, "datetime", Clock)
 
     async def budget(payload):
-        # GitHub's read completes on the next day. The proxy must charge
-        # the creation to that day, when it actually forwards the request.
+        # Admission can cross midnight. Reservations use forwarding time so
+        # they remain counted for a full rolling 24 hours.
         Clock.current = datetime(2026, 10, 28, 0, 0, 1, tzinfo=UTC)
-        tokens = balance(
-            [datetime.fromisoformat(row["created_at"]) for row in payload["pending"]],
-            Clock.current,
-            capacity=10,
-            per_day=10,
+        used = sum(
+            Clock.current - timedelta(days=1)
+            < datetime.fromisoformat(row["created_at"])
+            <= Clock.current
+            for row in payload["pending"]
         )
-        return {"allowed": tokens >= 1, "in_scope": True, "message": "Full"}
+        return {"allowed": used < 10, "in_scope": True, "message": "Full"}
 
     monkeypatch.setattr(injector, "_check_budget", budget)
     for _ in range(10):
@@ -739,7 +737,7 @@ elif args[:3] == ["api", "--paginate", "--slurp"] and "issues?" in args[3]:
 elif args[:3] == ["api", "--paginate", "--slurp"] and "/events?" in args[3]:
     result = [[]]
 elif args[:2] == ["issue", "list"]:
-    result = [{"number": 42, "title": "Bot rate limit reached"}]
+    result = [{"number": 42, "title": "Creation allowance reached"}]
 elif args[:2] in [["issue", "reopen"], ["issue", "comment"]]:
     print("tracker updated")
     sys.exit(0)
