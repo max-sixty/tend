@@ -125,7 +125,7 @@ For each of these issues, check whether recent commits or the current codebase s
 
 Otherwise, leave it open for a maintainer to close.
 
-For a `tend-rate-limit` tracker, reconcile blocked work through **Recover issue work** in `/tend-ci-runner:notifications`. Close it with the recovery evidence only when an agent's issue or PR creation succeeded through the proxy after the latest refusal, and the blocked work is resolved or accounted for on existing issues or PRs with current owners or recovery dispositions. Elapsed refill time, UTC rollover and trusted runner reports do not establish restored agent creation; restored creation alone does not settle missed work. A bot close records recovery and grants no capacity. Leave a still-exhausted or unreconciled tracker open.
+For a `tend-rate-limit` tracker, reconcile blocked work through **Recover issue work** in `/tend-ci-runner:notifications`. Close it with the recovery evidence only when an agent's issue or PR creation succeeded through the proxy after the latest refusal, and the blocked work is resolved or accounted for on existing issues or PRs with current owners or recovery dispositions. An elapsed retry time, UTC rollover and trusted runner reports do not establish restored agent creation; restored creation alone does not settle missed work. A bot close records recovery and grants no capacity. Leave a still-exhausted or unreconciled tracker open.
 
 ### Enrich tend-outage issues
 

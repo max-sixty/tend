@@ -242,10 +242,10 @@ can still edit an immutable release's notes. `tend check` requires the setting a
 repository admin, so a run as the bot checks the newest release's own
 `immutable` flag instead.
 
-**Rate limiting** — One replenishing creation allowance covers issues and PRs
-in the workflow's repository. Exhausting it pauses new creations while reviews,
-existing repairs and issue closure continue. A maintainer can approve more
-capacity by closing the bot's rate-limit issue.
+**Rate limiting** — One rolling 24-hour allowance covers issues and PRs in the
+workflow's repository, scaled to its recent creation volume. Exhausting it pauses
+new creations while reviews, existing repairs and issue closure continue. A
+maintainer can close the rate-limit issue to set an approval floor for seven days.
 
 **Fixed prompts** — Workflow prompts come from the action, not from
 attacker-controlled input like PR descriptions or comments.

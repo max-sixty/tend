@@ -578,42 +578,37 @@ job and `tend check` accepts access-only auth without refresh credentials.
 The external owner must wait for existing refresh runs to finish and retain
 the full login in its own credential store; unused refresh secrets must be removed.
 
-**Rate limiting.** The credential proxy checks each agent request to create an
-issue or PR in the workflow's repository. Both consume one replenishing
-allowance, including CI cause issues. The allowance permits a burst and refills
-at a rate based on the bot's creation volume over the preceding six UTC days.
-The bucket starts full at UTC midnight; replaying today's creations determines
-its current balance. Both the bucket and any approved increase reset at the
-next UTC midnight.
-Creations made under an approval still contribute to the following six days'
-baseline. The refill rate adapts to observed volume, so this guards sudden
-spikes rather than imposing a fixed ceiling on sustained output. The daily
-reset also permits another full burst immediately after midnight.
-An exhausted allowance refuses the creation, with a refill time and recovery
-tracker, while reviews, comments, existing branch updates and issue closure
-continue. An unavailable history refuses creation without stopping the agent.
+**Rate limiting.** The credential proxy counts agent issue and PR creations in
+one rolling 24-hour window for the workflow's repository, including CI cause
+issues. The normal allowance is twice the average daily creation count over the
+previous seven complete UTC days, rounded up, with a minimum of ten. A batch may
+use the whole allowance; midnight does not clear the preceding 24 hours' usage.
+This guards sudden increases in volume, not sustained growth or a fixed cost.
 
-GitHub's creation timestamps provide the shared history. Each proxy also counts
-its own successful creations until the listing includes them. This prevents
-sequential requests in a session from spending the same allowance twice;
-separate runners can still admit concurrent creations against the same history.
-The limit is a spike guard, not an atomic reservation across runners.
-Trusted runner-side failure reports and the limiter's own tracker remain
-operational and count toward later history. Requests to other repositories are
-outside this repository's allowance.
+Closing the bot's `Creation allowance reached` tracker approves a seven-day
+floor: twice the greater of the normal allowance and the preceding 24 hours'
+creation count at that close. The creation count approximates the limit that
+was hit without trusting mutable tracker text or replaying chains of earlier
+approvals. The approved number stays fixed until expiry; the effective limit
+is the greater of the current normal allowance and every active floor. A later
+close after exhausting a raised limit can raise it again. Approvals on older
+`Bot rate limit reached` trackers retain their original policy and do not
+create these seven-day floors.
 
-The proxy files or reopens one `tend-rate-limit` issue on refusal. A maintainer
-closing it doubles both the burst allowance and refill rate for the rest of the
-UTC day; further closes double them again. Approval comes from GitHub close
-events after the label was applied, excluding the bot's own numeric ID and
-GitHub Apps. The sandbox cannot change that privileged check. Concrete limits
-live in `generator/src/tend/runtime/shared/creation_limit.py`.
+GitHub creation timestamps and human close events provide the evidence. The
+proxy counts its own successful and in-flight creations until the listing
+includes them, avoiding duplicate admission within a session. Separate runners
+can still admit concurrent requests against the same history; this is not an
+atomic reservation across runners. Trusted runner reports and the tracker count
+toward volume. Creations in other repositories are outside this allowance.
 
-The refusal leaves unfinished work with its existing issue or PR. Notifications
-and the daily live-work sweep recover it through their ordinary ownership and
-access checks; closing the rate-limit issue does not replay historical runs.
-Nightly applies its recovery rule before closing an obsolete tracker as the
-bot; that close grants no additional allowance.
+Bot closes and GitHub Apps cannot approve capacity. A missing or malformed
+history refuses creation without stopping the agent. Refusal reports usage,
+the limit and the next usage expiry; that expiry is a time to recheck, not a
+promise that capacity will then be available. Reviews, comments, existing branch
+updates and issue closure continue. Notifications and the daily live-work sweep
+recover unfinished work through their ordinary ownership and access checks.
+Nightly requires recovery evidence before closing a tracker as the bot.
 
 **Fixed prompts and marketplace skills.** The prompt and skill set come from
 the composite action and the tend marketplace, not from the PR. PR changes
