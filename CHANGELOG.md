@@ -6,6 +6,27 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.23
+
+### Improved
+
+- Issue and PR creations share a rolling 24-hour allowance scaled to recent traffic, with a minimum of ten. Closing the new tracker sets a seven-day floor based on twice the greater of normal capacity and recent usage; the floor survives a falling baseline. Closes of old-policy trackers do not grant the new floor. ([#1626](https://github.com/max-sixty/tend/pull/1626))
+
+### Fixed
+
+- Rolling workflow-update PRs describe the full change from the default branch, including earlier unmerged updates already on their branch. ([#1596](https://github.com/max-sixty/tend/pull/1596))
+- Update credential-proxy dependencies to mitmproxy 12.3.1, Brotli 1.2.1 and pyasn1 0.6.5. ([#1593](https://github.com/max-sixty/tend/pull/1593), [#1625](https://github.com/max-sixty/tend/pull/1625))
+
+### Documentation
+
+- Remove stale harness-version and plugin-script details from setup and maintenance guidance. ([#1611](https://github.com/max-sixty/tend/pull/1611))
+
+### Internal
+
+- Update evaluation and activity-worker dependencies. ([#1574](https://github.com/max-sixty/tend/pull/1574), [#1575](https://github.com/max-sixty/tend/pull/1575), [#1589](https://github.com/max-sixty/tend/pull/1589), [#1590](https://github.com/max-sixty/tend/pull/1590), [#1604](https://github.com/max-sixty/tend/pull/1604))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.22
 
 ### Fixed
