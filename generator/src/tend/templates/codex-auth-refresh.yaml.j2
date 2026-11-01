@@ -30,6 +30,7 @@ jobs:
     permissions:
       contents: read
     steps:
+<<setup_tend_runtime()>>
       - uses: max-sixty/tend/codex/refresh@<<tend_version>>
         with:
           consumer_auth_configured: ${{ needs.subscription.outputs.configured }}

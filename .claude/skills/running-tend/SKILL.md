@@ -26,9 +26,9 @@ agent signals.
 tend, which is this repo, so the rule lands here as a PR rather than an issue.
 That PR follows that skill's **Mechanics**, with the file under `plugins/` as
 step 2's dedup target and without step 3's read-only-mount workaround, which
-only `.claude/skills/` needs. A bundled
-skill's scripts go in `plugins/tend-ci-runner/scripts/`, where the generator
-test suite exercises them.
+only `.claude/skills/` needs. A bundled skill's deterministic helpers live in
+`generator/src/tend/runtime/ci/` and run through `tend runtime`; the generator
+test suite exercises those commands.
 
 ## Non-standard workflows
 
@@ -41,7 +41,7 @@ Tend has agent workflows beyond the generated `tend-*` set:
 `review-reviewers` sweeps only the consumers nobody here maintains; the
 workflow file's header says why, and the matrix is the list. A run's window
 opens at the **previous successful `review-reviewers` run**, so a daily tick
-covers the day. `list_recent_runs.py` caps it at 49h, wide enough to absorb a
+covers the day. `tend runtime list-recent-runs` caps it at 49h, wide enough to absorb a
 missed tick; past that it warns on stderr and the run records a coverage gap
 rather than an all-clear.
 
@@ -53,14 +53,12 @@ default. `uvx tend@latest init` doesn't rewrite them either, so their
 ### Usage analysis
 
 Pass extra prefixes when running token reports or listing runs so these
-workflows are included:
+workflows are included. Run these repo-owned helpers from the Tend checkout
+with `uv run --package tend --no-dev`, so they follow this overlay's revision:
 
 ```bash
-# Claude leaves this unset in the shell; Codex exports it.
-SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
-uv run --script "$SCRIPTS/token_report.py" --hours "${HOURS:-24}" "review-"
-TARGET_REPO=max-sixty/tend uv run --script \
-  "$SCRIPTS/list_recent_runs.py" review-reviewers "tend-" "review-"
+uv run --package tend --no-dev tend runtime token-report --hours "${HOURS:-24}" "review-"
+TARGET_REPO=max-sixty/tend uv run --package tend --no-dev tend runtime list-recent-runs review-reviewers "tend-" "review-"
 ```
 
 `--hours` is for an ad-hoc look; `review-runs` passes `--since` with its own
@@ -152,6 +150,13 @@ through `sed 's/.*@//' | sort -u` and expect exactly one. Two or more, restamp
 the hand-maintained files onto the generated files' ref and fold it into the
 regen PR — same worktree, same commit.
 
+Each job using `claude`, `codex`, `codex/refresh`, or `land` needs
+`max-sixty/tend/setup-runtime@X.Y.Z` before its first Tend operation, pinned to
+the same release. Include that prerequisite when restamping a hand-maintained
+job. Remove obsolete action inputs (`bot_name`, `allowed_bots`, and
+`allowed_non_write_users`); `bot_name` in `.config/tend.yaml` still identifies
+the bot for event filtering.
+
 How many lines the listing prints follows from the harnesses
 `.config/tend.yaml` selects, so read it against the current config rather than
 a remembered count. Whether a hand-maintained file names the right *harness* is a
@@ -212,8 +217,8 @@ Changes that have required Tend work include:
 
 - Claude Code ignored `defaultMode: bypassPermissions` in project settings, so
   Tend had to pass `--permission-mode` on argv.
-- Codex added non-interactive plugin installation. Tend's action reads the
-  `installedPath` of `codex plugin add --json` to locate plugin scripts.
+- Codex added non-interactive plugin installation, which Tend uses to install
+  its skills before starting headless sessions.
 
 For any similarly relevant note, search the code, issues, and PRs first. Open a
 PR when the change is small enough to make and verify in this run; reserve an
@@ -298,7 +303,7 @@ swamped run finishes nothing.
 |---|---|---|
 | `claude_version` | `claude/action.yaml` | npm's `latest` dist-tag, not `stable` |
 | `mitmproxy` | root `pyproject.toml` `proxy` group | `uv lock --upgrade-package mitmproxy` after the `==` move; the rest of the group's closure moves with `uv lock --upgrade` |
-| `UV_VERSION` | `shared/steps/install-uv.sh`, `generator/src/tend/workflows.py` | move both with `mitmproxy`, and each arch's `sha256` with them (`UV_SHA256` in `workflows.py`), read from the release's `uv-<target>.tar.gz.sha256` assets; the pinned uv must read the `uv.lock` the dev uv writes |
+| `UV_VERSION` | `shared/steps/install-uv.sh` | move it with `mitmproxy`, and each arch's `sha256` with it, read from the release's `uv-<target>.tar.gz.sha256` assets; the pinned uv must read the `uv.lock` the dev uv writes |
 | `codex_version` | `codex/action.yaml`, `codex/refresh/action.yaml` | move both defaults together; `alpha` only for a fix not yet released |
 | `uv_build` | `generator/pyproject.toml` | its range must contain the uv doing the build; a stale one only warns during `uv build`, so only this sweep catches it |
 | `WORKTRUNK_VERSION` | `.config/codex-cloud/environment.sh` | nothing in CI runs the script, and it dies under `set -euo pipefail` — confirm the release still ships `worktrunk-installer.sh` and that `wt config approvals add --yes` still records approvals without a TTY |

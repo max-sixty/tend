@@ -1,0 +1,16 @@
+{
+  "kind": "focused",
+  "historical_ref": "ed0f7a311b9d5fbe702599f8e7bc9b177024ed29",
+  "bot": "widget-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "663bcee84522e8f99494146f025530e7960237f5d7106ca8d398d2278bf91fc5"
+  },
+  "origin": {
+    "kind": "synthetic contrasts from observed decision",
+    "motivating_run": "https://github.com/max-sixty/leaf/actions/runs/40629048014",
+    "session_artifact_id": 12790364474,
+    "transcript": "rollout-2026-10-28T03-54-22-01a180a5-0a65-7e11-a2bc-7ecc32f14343.jsonl",
+    "construction": "Hook-startup preserves the original import evidence, missing real harness and lack of a verified startup optimization. Export-and-sync and atomic-contract contrast an independent repair with an unsafe half of a shared contract. Names and issue numbers are synthetic. The original run loaded older guidance without Retain engineering ownership; the historical arm deliberately uses the pre-edit current guidance to measure only this change. This is a reduced next-decision case, not an execution replay."
+  }
+}

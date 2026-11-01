@@ -1,0 +1,195 @@
+"""List recently completed Tend workflow runs without leaving coverage gaps."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from tend.runtime.shared import _common
+
+# Both profiles are daily crons resuming from their own previous run, so one
+# set of window constants serves them. The cap is a little over two days:
+# enough to absorb a missed tick, short of letting a sustained outage grow the
+# window without bound.
+WINDOW_CAP = timedelta(hours=49)
+DEFAULT_WINDOW = timedelta(hours=25)
+AD_HOC_WINDOW = timedelta(hours=1)
+CREATION_CUSHION = timedelta(hours=24)
+# The ceiling on a `--created`-filtered run listing — the filtered query stops
+# at 1000 however many runs `total_count` reports, while an unfiltered listing
+# pages past it. `token_report.py` fetches to the same limit, for the same
+# reason. The fetch spans the window plus the creation cushion — three
+# days at the cap — so a repo running one workflow every few minutes puts
+# several hundred runs inside it. Any limit below the ceiling binds there
+# first, and truncation drops the window's *oldest* runs.
+RUN_LIMIT = 1000
+# GitHub can answer one run-listing URL from a snapshot weeks old, and a cached
+# entry answers every read of that URL alike. Each `--limit` is a different URL,
+# so the anchor is the newest start across reads at several: one fresh read is
+# enough to win, and a stale one can only lose. A past-cap anchor is re-read at
+# further limits before it widens the window.
+ANCHOR_LIMITS = (5, 4)
+RECHECK_LIMITS = (3, 6)
+# `gh workflow list` fetches 50 without one, and says nothing when it truncates.
+WORKFLOW_LIMIT = 200
+
+
+def _parse_time(value: str) -> datetime:
+    return datetime.fromisoformat(value)
+
+
+def _stamp(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _newest_success(
+    repo: str,
+    workflow: str,
+    current_run: int,
+    limits: tuple[int, ...],
+    best: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """The newest successful run of *workflow* other than *current_run*,
+    across one read per limit in *limits* and the prior *best*."""
+    for limit in limits:
+        rows = _common.gh_json(
+            "run",
+            "list",
+            "--repo",
+            repo,
+            "--workflow",
+            workflow,
+            "--status",
+            "success",
+            "--limit",
+            str(limit),
+            "--json",
+            "databaseId,createdAt",
+        )
+        for row in rows:
+            if int(row["databaseId"]) == current_run:
+                continue
+            if best is None or _parse_time(row["createdAt"]) > _parse_time(
+                best["createdAt"]
+            ):
+                best = row
+    return best
+
+
+def main(
+    profile: str, prefixes: tuple[str, ...] = (), *, now: datetime | None = None
+) -> int:
+    prefixes = prefixes or ("tend-",)
+    now = now or datetime.now(UTC)
+    repo_args = (
+        ["-R", os.environ["TARGET_REPO"]] if os.environ.get("TARGET_REPO") else []
+    )
+
+    workflow_rows = _common.gh_json(
+        "workflow", "list", *repo_args, "--limit", str(WORKFLOW_LIMIT), "--json", "name"
+    )
+    if len(workflow_rows) >= WORKFLOW_LIMIT:
+        print(
+            f"WARNING: the repository has at least {WORKFLOW_LIMIT} workflows, the "
+            "fetch limit — a Tend workflow beyond it is missing from this list "
+            "entirely. Record a coverage gap, not an all-clear.",
+            file=sys.stderr,
+        )
+    workflows = _common.unique(
+        row["name"]
+        for prefix in prefixes
+        for row in workflow_rows
+        if row["name"].startswith(prefix)
+    )
+
+    floor_cap = now - WINDOW_CAP
+    current_workflow = os.environ.get("GITHUB_WORKFLOW")
+    if current_workflow:
+        repo = os.environ["GITHUB_REPOSITORY"]
+        current_run = int(os.environ.get("GITHUB_RUN_ID", "0"))
+        previous = _newest_success(repo, current_workflow, current_run, ANCHOR_LIMITS)
+        if previous is not None and _parse_time(previous["createdAt"]) < floor_cap:
+            # The warning is the visible symptom of a stale read, so confirm it
+            # at further URLs before widening the window.
+            previous = _newest_success(
+                repo, current_workflow, current_run, RECHECK_LIMITS, previous
+            )
+        if previous is None:
+            completed_after = now - DEFAULT_WINDOW
+            print(
+                f"WARNING: no successful '{current_workflow}' run found. Window "
+                f"floored at {_stamp(completed_after)}; anything earlier is NOT in this "
+                "list. Record a coverage gap, not an all-clear.",
+                file=sys.stderr,
+            )
+        else:
+            completed_after = _parse_time(previous["createdAt"])
+            if completed_after < floor_cap:
+                print(
+                    f"WARNING: the last successful '{current_workflow}' run started "
+                    f"{previous['createdAt']}, more than "
+                    f"{WINDOW_CAP.total_seconds() / 3600:g}h back. Window floored at "
+                    f"{_stamp(floor_cap)}; runs that completed before it are NOT in "
+                    "this list. Record a coverage gap, not an all-clear.",
+                    file=sys.stderr,
+                )
+                completed_after = floor_cap
+    else:
+        completed_after = now - AD_HOC_WINDOW
+
+    created_since = (completed_after - CREATION_CUSHION).strftime("%Y-%m-%dT%H:%M:%S")
+    if profile == "review-runs":
+        Path(
+            os.environ.get(
+                "REVIEW_RUNS_SINCE_FILE",
+                str(Path(tempfile.gettempdir()) / "review-runs-since"),
+            )
+        ).write_text(f"{_stamp(completed_after)}\n")
+    runs_by_id: dict[int, dict[str, Any]] = {}
+    for workflow in workflows:
+        rows = _common.gh_json(
+            "run",
+            "list",
+            *repo_args,
+            "--workflow",
+            workflow,
+            "--created",
+            f">={created_since}",
+            "--json",
+            "attempt,databaseId,conclusion,createdAt,updatedAt,workflowName",
+            "--limit",
+            str(RUN_LIMIT),
+        )
+        if len(rows) >= RUN_LIMIT:
+            print(
+                f"WARNING: '{workflow}' returned {RUN_LIMIT} runs, the Actions "
+                "API's pagination ceiling — older runs in this window are "
+                "unreachable and missing from the list. Record a coverage gap, "
+                "not an all-clear.",
+                file=sys.stderr,
+            )
+        for row in rows:
+            conclusion = row.get("conclusion")
+            if conclusion and _parse_time(row["updatedAt"]) >= completed_after:
+                runs_by_id[int(row["databaseId"])] = row
+
+    reruns = sorted(run_id for run_id, row in runs_by_id.items() if row["attempt"] > 1)
+    if reruns:
+        print(
+            f"WARNING: {len(reruns)} run(s) in this list were re-run — "
+            f"{', '.join(str(run_id) for run_id in reruns)}. Each row's conclusion "
+            "is the latest attempt's, so no earlier attempt has a row here. Read "
+            "every earlier `attempts/N` log before counting the window's failures; "
+            f"one that finished before {_stamp(completed_after)} was already counted "
+            "by the previous sweep.",
+            file=sys.stderr,
+        )
+
+    json.dump(list(runs_by_id.values()), sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0

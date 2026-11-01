@@ -1,4 +1,4 @@
-"""Tests for plugins/tend-ci-runner/scripts/token_report.py.
+"""Tests for tend.runtime.ci.token_report.py.
 
 The report exists to answer "what did the spend go to?", so what is pinned
 here is the grouping and the ranking: subjects come off the record each run
@@ -23,10 +23,10 @@ from typing import Any
 
 import pytest
 
-from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
+from tests import GH_PREAMBLE, fake_bin, runtime_command, tool_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts" / "token_report.py"
+SCRIPT = "token-report"
 # Before every fixture timestamp below, so a case that isn't about the window
 # sees all of its runs.
 ANCHOR = "2026-08-01T00:00:00Z"
@@ -184,7 +184,7 @@ class Report:
         )
         Path(self._env["RUNS_JSON"]).write_text(json.dumps(self._runs))
         return subprocess.run(
-            uv_script(SCRIPT, *args),
+            runtime_command(SCRIPT, *args),
             env=self._env,
             capture_output=True,
             text=True,

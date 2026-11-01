@@ -8,7 +8,7 @@ metadata:
 
 # Issue Triage
 
-Triage a newly opened GitHub issue.
+Triage a GitHub issue.
 
 **Issue to triage:** $ARGUMENTS
 
@@ -24,16 +24,24 @@ Reproduce before fixing, find evidence before speculating, and test before commi
 ## Step 2: Read and classify the issue
 
 ```bash
-gh issue view $ARGUMENTS --json title,body,labels,author
+gh issue view $ARGUMENTS --json title,body,labels,author,state,comments
 # The reporter's relationship to the repository, read by steps 6 and 7
 gh api "repos/$GITHUB_REPOSITORY/issues/$ARGUMENTS" --jq '.author_association'
 ```
 
-An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on, not a self-conversation: the system prompt's self-loop guard covers the bot's own *comments*, and triage runs on these normally while no bot comment answers them yet.
+Read the live conversation and linked repairs before acting; the issue may have changed while this run queued. Reconcile existing work below before deciding whether another investigation is needed.
+
+An issue the bot itself opened — a nightly failure, a CI report, a code-quality finding — is a report to act on. The system prompt's self-loop guard covers the bot's own *comments*, not unfinished work in its issues.
 
 One exception: a tracker the bot maintains for its own evidence — its body says **Do not close manually**, and later runs append to it — carries no report. End the run without commenting.
 
-A CI failure report, labeled `tend-ci-failure`, follows **A report** in `references/ci-failures.md` instead of steps 3 to 7. A cause issue filed under one, labeled `tend-ci-cause`, is a bug report; read **A cause issue** there before step 3.
+A CI failure report, labeled `tend-ci-failure`, follows **A report** in `references/ci-failures.md` instead of steps 3 to 7. A linked cause issue, labeled `tend-ci-cause`, is a bug report; read **A cause issue** there before step 3.
+
+### Reconcile existing work
+
+A closed issue needs no action; respect explicit maintainer holds on open work. For an open issue, follow linked repairs through any replacement PRs and check what reached the default branch. Close it with supporting evidence when the whole issue is resolved, verifying the affected path against the repair or recovered incident. A merged partial repair or a passing rerun of an intermittent failure does not establish full resolution. CI failure reports and evidence trackers keep the lifecycle described above.
+
+Another queued or running worker, or a PR whose repair, review or landing workflow will continue the work, can take the next action; an issue naming an owner cannot. Preserve genuine handoffs without another diagnosis or post. A prior bot reply or successful investigation alone does not settle unfinished engineering work; apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`.
 
 Classify into:
 
@@ -79,7 +87,7 @@ Record what you found (or didn't find) for use in steps 6 and 7.
 
 Follow **Reproduce first** in `/tend-ci-runner:fix-a-bug`.
 
-If you cannot reproduce the bug (unclear steps, environment-specific, etc.), note what you tried and skip to step 7. If the test passes, the bug may already be fixed — note that for the comment.
+When reproduction or diagnosis remains incomplete, follow **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` before reporting the disposition in step 7.
 
 ## Step 6: Fix (conservative)
 
@@ -92,7 +100,7 @@ Open a PR when a maintainer is reasonably likely to merge it; otherwise report t
 
 The change must also be verifiable. For a feature, a test of the new behavior that fails before the change, or a check the repository already runs over the edited files, stands in for the reproduction in `/tend-ci-runner:fix-a-bug`'s gates. Title a feature's commit and PR `feat:` rather than `fix:`.
 
-`/tend-ci-runner:fix-a-bug` carries the gates: the reproduction gate, the conditions a fix attempt needs, skill-text fixes, the shapes of bad fix, and the local bar before pushing. Read it before writing any fix. Where a gate fails, go to Step 7 and report the outcome you established.
+`/tend-ci-runner:fix-a-bug` carries the reproduction and verification gates and how to continue when they are not yet met. Read it before writing any fix.
 
 ### If fixing
 
@@ -147,7 +155,7 @@ The change must also be verifiable. For a feature, a test of the new behavior th
    ```bash
    gh pr create --title "fix: <description>" --body-file "$TMPDIR/pr-body.md"
    ```
-3. Wait for CI per `/tend-ci-runner:monitor-ci`.
+3. Follow **CI and landing** in `/tend-ci-runner:continue-pr`, which also governs the reproduction-only PR below.
 
 ### If reproduction test works but fix is not confident
 
@@ -172,7 +180,7 @@ Note the PR number for the comment.
 
 Re-fetch before posting, per **Recheck before posting** in `/tend-ci-runner:post-to-github` — triage can take minutes, so re-fetch the issue and skip any point a new human comment or a sibling tend workflow already covered.
 
-Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`; do not restate the report or narrate the investigation. Report the fix's verified CI and landing disposition; opening a fix alone does not establish resolution. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
+Always comment via `gh issue comment`. Write for the issue author: lead with the current disposition, then give the causal finding and the action taken or the one concrete input or decision still needed. Link any fix, reproduction, or duplicate. Follow **Reader-facing prose** in `/tend-ci-runner:run-tend`; do not restate the report or narrate the investigation. Report the fix's current verification and owner, including review and CI still pending after a handoff; opening a fix alone does not establish resolution. Acknowledge the reporter when the situation calls for it, but do not use thanks or maintainer deferrals as fixed openers and closers. Do not present the bot's judgment as a maintainer decision.
 
 **Stay within what you verified.** State facts you found in the codebase — don't characterize something as "known" unless you find prior issues or documentation about it. Don't speculate beyond the code you read.
 

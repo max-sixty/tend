@@ -1,0 +1,17 @@
+{
+  "kind": "focused",
+  "historical_ref": "d965fe6e27975267cc3321c602b01530a04a8baa",
+  "bot": "leaf-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "5e40d215e4bb73676495629d32df0eeff7e43b5d6e50511f7134a027c709126a"
+  },
+  "origin": {
+    "repository": "max-sixty/leaf",
+    "runs": [
+      "40623173984",
+      "40626642565"
+    ],
+    "construction": "Reduced next-action contrast from two consecutive report-triage sessions. The first inspected runs 40605052307 and 40610988525 then posted nothing because owners existed; the next inspected both again plus a new run. Diagnostic details are summarized to isolate the completion decision. The second situation is a counterfactual duplicate after a public diagnosis."
+  }
+}

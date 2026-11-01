@@ -23,8 +23,8 @@ Decisions this encodes:
   ``pull_request`` field is what tells the two apart.
 - Review events reach tend-mention re-posted by tend-mention-relay as
   ``repository_dispatch``, whose ``client_payload.pr`` names the PR.
-- A dispatched ``tend-triage`` run names its issue in ``inputs.issue``; a
-  scheduled workflow's manual run names none.
+- A ``tend-triage`` matrix job supplies its issue in ``TEND_ISSUE_NUMBER``;
+  a scheduled workflow's manual run names none.
 
 Inputs (env): ``GITHUB_EVENT_NAME``, ``GITHUB_EVENT_PATH``,
 ``GITHUB_REPOSITORY``, ``GITHUB_RUN_ID`` (from Actions), plus the bot's

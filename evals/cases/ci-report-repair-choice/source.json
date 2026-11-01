@@ -1,0 +1,12 @@
+{
+  "kind": "focused",
+  "historical_ref": "ed0f7a311b9d5fbe702599f8e7bc9b177024ed29",
+  "bot": "tend-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "f0242c8b3eebddae83b455206b7a5957ba6c08e80cfbef8f81002ea269f95de1"
+  },
+  "origin": {
+    "construction": "Synthetic next-action contrasts for the maintainer-approved direct-repair-or-fanout policy. A prepared verified repair contrasts with independent investigations and an existing active repair owner. These are offline decision cases, not production-session replays."
+  }
+}

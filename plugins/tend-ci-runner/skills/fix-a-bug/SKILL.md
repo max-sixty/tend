@@ -21,13 +21,19 @@ The gates every fix attempt clears, whichever workflow you are running.
 3. **Write a failing test** — Add a regression test that demonstrates the bug, following the repository's test organization.
 4. **Run the test** to confirm it fails. Use the test commands from the project's instruction files.
 
-Generally, have a failing test before writing a fix. A fix without reproduction evidence is not a conservative fix: report what you established instead. If the test passes, the bug may already be fixed — say so.
+Generally, have a failing test before writing a fix. A passing attempt does not establish that an intermittent failure is resolved; compare the failing conditions and continue the investigation.
 
 **Only attempt a fix if all of these hold:**
 
 - Bug is clearly reproducible (usually, the test written above fails)
 - Root cause is understood
 - Confident the fix is correct
+
+## Retain engineering ownership
+
+A failed attempt, uncertain diagnosis, or unavailable local reproduction calls for further investigation. Use the evidence to choose and perform the next experiment that can distinguish the remaining explanations. Resume from earlier findings rather than repeating passing checks and leaving the same experiment for another session. A question about the mechanism is engineering work. For verification the current environment cannot perform, follow **Who to ask when you can't do it yourself** in `/tend-ci-runner:ground-claims`.
+
+Scope a blocker you cannot clear, such as missing access, an external dependency or a product decision with no defensible default, to the work it prevents. Re-check a recorded blocker against current state. Continue separable investigation, and take an independently useful repair through a PR when it meets **The local bar**, even if it resolves only part of the issue. Keep unresolved work open with the evidence, the next diagnostic action, and what would enable it. Ask a person only for the specific access, external action, or product decision they own; address that request to the responsible person in this repository.
 
 ## Skill text fixes
 
@@ -57,9 +63,9 @@ If the proposed change removes coverage for the failing scenario instead of rest
 
 When a doc claim and the code disagree and which of the two is wrong is still an open question, the finding *is* that question. A test asserting the current output settles it without the authority to — it turns unspecified behavior into a pinned contract, so the eventual fix arrives looking like a regression. Report the discrepancy and let a maintainer say which side moves; write the test after that.
 
-## Defer to in-flight same-root-cause PRs
+## Share ownership of a proven cause
 
-A duplicate search catches identical fixes. It misses the *same root cause class, different surface* pattern: several failing tests share one underlying cause, and an outstanding PR fixes some of them but not the one in front of you. When your own analysis names an existing PR as same-root-cause, that's the signal to wait for it to merge and re-run, or to mirror its approach for the remaining sites — not to open a parallel narrow workaround.
+Failure groups can remain provisional while the mechanism is unknown. When reproduction or a shared repair establishes that several reports have one cause, consolidate their diagnostics under the existing repair owner and link the affected issues to that work. Verify each affected path before treating it as resolved. Similar error text or overlapping files alone do not establish shared ownership; a partial repair can leave a distinct cause to fix. Continue an unowned bot PR per `/tend-ci-runner:continue-pr`; give an active owner the new evidence rather than starting a parallel repair.
 
 ## The local bar
 

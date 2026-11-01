@@ -1,0 +1,76 @@
+{
+  "repository": "example/widget",
+  "snapshots": [
+    {
+      "id": "superseded-repair",
+      "workflow": [
+        "triage",
+        "review-runs"
+      ],
+      "issue": {
+        "number": 703,
+        "state": "OPEN",
+        "labels": [
+          "tend-ci-cause"
+        ]
+      },
+      "conversation": "The last issue comment names PR704 as the repair owner and says it is waiting to land.",
+      "linked_repairs": [
+        {
+          "number": 704,
+          "state": "CLOSED",
+          "merged": false,
+          "closing_comment": "Superseded by PR705, which merged the same heading readiness fix."
+        },
+        {
+          "number": 705,
+          "state": "MERGED",
+          "body": "Wait for heading widget definition and its update completion before the navigation click.",
+          "verification": "The regression fails on the parent of PR705 and passes on its merged commit. The current default branch retains that exact repair, and its focused affected-path regression passes. The issue reports only this heading readiness failure."
+        }
+      ],
+      "ownership": "No newer failure, partial scope, maintainer hold or active worker is recorded."
+    },
+    {
+      "id": "partial-intermittent",
+      "workflow": "review-runs",
+      "issue": {
+        "number": 706,
+        "state": "OPEN",
+        "labels": [
+          "tend-ci-cause"
+        ]
+      },
+      "conversation": "The issue covers a reproducible export directory omission and an intermittent remote permission loss.",
+      "linked_repairs": [
+        {
+          "number": 707,
+          "state": "MERGED",
+          "body": "Preserve empty export directories. Refs #706. Remote permission loss remains uninvestigated.",
+          "verification": "Export regression fails before and passes after the fix. One unchanged-code rerun of synchronization passed, but earlier failures remain unexplained."
+        }
+      ],
+      "ownership": "The test service needed to reproduce permission loss is currently inaccessible. The service owner has an acknowledged restoration request; no alternative permitted verification route exists and the condition is unchanged."
+    },
+    {
+      "id": "live-owner",
+      "workflow": "triage",
+      "issue": {
+        "number": 708,
+        "state": "OPEN",
+        "labels": [
+          "tend-ci-cause"
+        ]
+      },
+      "conversation": "A related cause was proven to share the same shutdown-order mechanism and was linked to PR709.",
+      "linked_repairs": [
+        {
+          "number": 709,
+          "state": "OPEN",
+          "verification": "A current repair worker is running against the PR head and collecting the failing shutdown trace. The issue has no evidence that worker lacks."
+        }
+      ],
+      "ownership": "The active worker has accepted the issue as part of its repair scope; this triage job started from an older queued event."
+    }
+  ]
+}

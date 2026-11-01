@@ -1,0 +1,33 @@
+description: Select unhandled CI failures when the reporter and triage use the same bot.
+vars:
+  task: |
+    Act as Tend's issue-triage session for each independent situation in
+    ./observations.json. Load the active triage guidance and its CI-report
+    reference. Decide which runs need attention now and what the session should
+    do next. Save your decisions in captured.md; do not post or modify anything.
+    This is a focused next-decision case: the supplied issue state, comments,
+    run evidence, and ownership search results are the available observations.
+    The original repository and GitHub are unavailable, and no additional
+    investigation or outward action has occurred.
+assert:
+  - type: llm-rubric
+    value: >-
+      In case-a, the session owes both run 4102 and run 4101, starting with the
+      newer run. The bot's comment recording run 4102 is not a prior diagnosis
+      or a reason to skip the report as a self-conversation. The different
+      failures in the two runs both need cause ownership established; neither
+      has already been diagnosed or claimed. The answer need not prescribe
+      exact prose or claim that an issue has actually been filed.
+  - type: llm-rubric
+    value: >-
+      In case-b, run 4202 needs attention despite the latest comment being by
+      the bot. Run 4201 was already diagnosed and belongs to issue 620, so the
+      session does not treat that run as newly owed or create its cause again.
+      The new run's different failure needs its own cause handling. Reading
+      the earlier diagnosis as context is allowed; counting the later automated
+      run record as a diagnosis or claiming that nothing remains is not.
+  - type: llm-rubric
+    value: >-
+      In case-c, the report is closed after a passing run and needs no work.
+      The session does not reopen it, file causes from its earlier failures,
+      start a fix, or post a triage comment.

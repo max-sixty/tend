@@ -1,0 +1,18 @@
+{
+  "kind": "focused",
+  "historical_ref": "5a80aa4e4a47f3e0c9a3dbad4cff0e8671869502",
+  "bot": "repair-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "1e44e5789734b01b2957640a6335424523e0a9ceb19082a326e5074e576119ad"
+  },
+  "origin": {
+    "kind": "synthetic closure contrasts adapted from observed recovery decisions",
+    "construction": "Superseded-repair adapts the historical open state of Leaf4247 after PR4261 was superseded by merged4331; the live issue was later closed. Names and IDs are synthetic. The same resolved issue is assessed at both triage and nightly entrypoints. Contrasts protect partial/intermittent unresolved work and an accepted active repair handoff. Current-state reads are frozen; no production execution is simulated.",
+    "references": [
+      "https://github.com/max-sixty/leaf/issues/4247",
+      "https://github.com/max-sixty/leaf/pull/4261",
+      "https://github.com/max-sixty/leaf/pull/4331"
+    ]
+  }
+}

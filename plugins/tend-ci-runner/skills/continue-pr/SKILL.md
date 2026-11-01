@@ -27,8 +27,7 @@ still unfinished.
 ```bash
 BOT_LOGIN=$(gh api user --jq .login)
 gh pr view <number> --json author,state,isDraft,headRefOid,headRefName,headRepository,baseRefName,commits,body,comments,reviews,statusCheckRollup
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py" \
+tend runtime active-subject-runs \
   "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/<number>"
 ```
 
@@ -49,12 +48,8 @@ evidence. Apply a safe fix, verify it, and push to this PR's branch. Use an
 isolated `$TMPDIR` worktree when the caller is also handling other subjects;
 retain the original checkout for its remaining work.
 
-A previous failed attempt or uncertain diagnosis calls for further diagnostic
-work; it does not by itself transfer the repair to a maintainer. Stop for a
-current blocker you cannot clear, such as inaccessible evidence or tooling, an
-external dependency, or a semantic decision with no defensible default. State
-what is blocked and what would unblock it. Re-check a recorded blocker against
-current state before relying on it.
+Follow **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` when
+diagnosis or verification remains incomplete.
 
 When prior attempts failed to clear the same failure, another push needs new
 evidence or a materially different approach. Continue diagnosis; if neither
@@ -66,6 +61,8 @@ Re-check head and state before expensive verification and before pushing per
 in `/tend-ci-runner:push-commits`. Preserve any sibling's commits. A review that
 arrives while this run works remains with its reviewer per
 **Reviews arriving during verification** in `/tend-ci-runner:push-commits`.
+
+## CI and landing
 
 Once the remaining findings are addressed, poll the pinned head per
 `/tend-ci-runner:monitor-ci`, including a head this run did not push. Handle

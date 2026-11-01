@@ -1,4 +1,4 @@
-"""Tests for the CI-poll scripts in plugins/tend-ci-runner/scripts/.
+"""Tests for the CI-poll scripts in tend.runtime.ci..
 
 poll_pr_checks.py queries a *commit's* rollup, never the PR's — the false
 green this design exists to prevent is a poll silently retargeting a head
@@ -10,28 +10,18 @@ poll loop runs without waiting between reads.
 
 from __future__ import annotations
 
-import contextlib
-import importlib
-import io
 import json
-import os
 import re
 import subprocess
-import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from tend.runtime.ci import poll_pr_checks, rerun_failed_jobs
 
 from tests import GH_PREAMBLE, fake_bin, tool_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts"
-POLL_PR_CHECKS = SCRIPTS / "poll_pr_checks.py"
-RERUN_FAILED_JOBS = SCRIPTS / "rerun_failed_jobs.py"
-sys.path.insert(0, str(SCRIPTS))
-poll_pr_checks = importlib.import_module("poll_pr_checks")
-rerun_failed_jobs = importlib.import_module("rerun_failed_jobs")
 
 HEAD_SHA = "aaaa111122223333aaaa111122223333aaaa1111"
 
@@ -233,16 +223,22 @@ def _invoke(
     sleep: Callable[[float], None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     sleep = sleep or _clock()
-    stdout, stderr = io.StringIO(), io.StringIO()
+    from functools import partial
+
+    from click.testing import CliRunner
+    from tend.runtime.cli import runtime
+
     with pytest.MonkeyPatch.context() as monkeypatch:
-        monkeypatch.setattr(os, "environ", env.copy())
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            try:
-                returncode = module.main(args, sleep=sleep)
-            except subprocess.CalledProcessError as error:
-                returncode = error.returncode
+        monkeypatch.setattr(module, "main", partial(module.main, sleep=sleep))
+        result = CliRunner().invoke(
+            runtime,
+            [module.__name__.rsplit(".", 1)[-1].replace("_", "-"), *args],
+            env=env,
+        )
+    if result.exception and not isinstance(result.exception, SystemExit):
+        raise result.exception
     return subprocess.CompletedProcess(
-        args, returncode, stdout.getvalue(), stderr.getvalue()
+        args, result.exit_code, result.stdout, result.stderr
     )
 
 
@@ -962,7 +958,7 @@ def test_omitted_sha_is_rejected_not_reported_red(env: dict[str, str]) -> None:
     out = result.stdout + result.stderr
 
     assert result.returncode == 2, out
-    assert "UNVERIFIED, not green" in out
+    assert "Missing argument 'SHA'" in out
     assert "unbound variable" not in out
     assert not Path(env["GH_CALLS"]).exists(), "the short call reached the API"
 
