@@ -372,7 +372,7 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
         cfg=eff,
         setup=_setup_yaml(eff),
         prompt=prompt,
-        max_parallel=wf.max_parallel,
+        lanes=wf.max_parallel,
     )
     return GeneratedWorkflow(filename="tend-triage.yaml", content=content)
 

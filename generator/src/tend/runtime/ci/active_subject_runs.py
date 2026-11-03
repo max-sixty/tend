@@ -130,10 +130,10 @@ def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[i
     """Read batch IDs before expansion, then release completed matrix subjects.
 
     GitHub's runs API does not expose dispatch inputs. Triage's generated
-    run-name is therefore an explicit wire format, `triage [1,2]`, retained
-    while the workflow waits for its lane and has no jobs. Job names carry
-    the same numeric identity after expansion; issue titles are never keys.
-    A queued batch can legitimately wait days, so it has no age-based expiry.
+    run-name is therefore an explicit wire format, `triage [1,2]`, which names
+    the batch before its matrix expands. Job names carry the same numeric
+    identity after expansion; issue titles are never keys. An issue job can
+    legitimately wait days for its lane, so a batch has no age-based expiry.
     """
     subjects: dict[int, set[int]] = {}
     for run in runs:

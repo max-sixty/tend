@@ -16,6 +16,11 @@ from _fakes import FakeGh, GithubFiles
 def batch_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("BOOKKEEPING_LABELS", '["tend-outage"]')
+    monkeypatch.setenv("LANES", "3")
+
+
+def legs(numbers: list[int]) -> list[dict[str, int]]:
+    return [{"issue": number, "lane": number % 3} for number in numbers]
 
 
 @pytest.mark.parametrize("numbers", [[], [7], [7, 7, 8], list(range(1, 101))])
@@ -32,7 +37,7 @@ def test_selector_expands_exact_issue_ids(
     )
     assert result.exit_code == 0, result.output
     expected = list(dict.fromkeys(numbers))
-    assert json.loads(github_files.outputs()["issues"]) == expected
+    assert json.loads(github_files.outputs()["legs"]) == legs(expected)
     assert fake_gh.calls == [("api", f"repos/owner/repo/issues/{n}") for n in expected]
 
 
@@ -74,7 +79,7 @@ def test_selector_rejects_raw_input_that_would_truncate(
     assert github_files.outputs() == {}
 
 
-def test_queued_selection_rechecks_live_issues(
+def test_selection_drops_closed_pull_request_and_bookkeeping_issues(
     fake_gh: FakeGh,
     github_files: GithubFiles,
 ) -> None:
@@ -92,7 +97,7 @@ def test_queued_selection_rechecks_live_issues(
         env={"ISSUES": "[1,2,3,4]"},
     )
     assert result.exit_code == 0, result.output
-    assert github_files.outputs() == {"issues": "[4]"}
+    assert github_files.outputs() == {"legs": '[{"issue":4,"lane":1}]'}
 
 
 def test_unreadable_issue_fails_without_partial_matrix(
@@ -177,7 +182,7 @@ def test_dispatch_boundary_and_oversized_number(
         env={"ISSUES": raw},
     )
     assert result.exit_code == 0, result.output
-    assert json.loads(github_files.outputs()["issues"]) == [fits]
+    assert json.loads(github_files.outputs()["legs"]) == legs([fits])
 
 
 def test_dispatch_stops_on_first_failed_request(fake_gh: FakeGh) -> None:

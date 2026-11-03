@@ -173,7 +173,8 @@ class WorkflowConfig:
     args: list[str] | None = None
     # Review only: whether the review waits for the reviewed commit's CI.
     await_ci: bool = True
-    # Triage only: simultaneous issue jobs within the serialized batch.
+    # Triage only: the number of issue lanes, each running one session at a
+    # time, so the most triage sessions that run at once across all runs.
     max_parallel: int = 5
 
 

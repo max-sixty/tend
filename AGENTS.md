@@ -337,7 +337,7 @@ Concurrency groups:
 | mention-relay | none | stateless — secretless job that re-posts review events to mention as a `repository_dispatch` |
 | mention/verify | none | stateless |
 | mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
-| triage | `tend-triage` | **no** — one whole batch at a time; its matrix runs up to `workflows.triage.max_parallel` issue jobs (default five); `queue: max` holds pending batches; the daily sweep recovers unfinished open issues outside GitHub's finite queue |
+| triage/triage | `tend-triage-<issue % max_parallel>` | **no** — `workflows.triage.max_parallel` lanes (default five), each running one issue job at a time, so event runs and dispatched batches together never exceed that many sessions; an issue always takes the same lane, so two runs for one issue never overlap; `queue: max` holds up to 100 pending jobs per lane, and the daily sweep recovers unfinished open issues outside GitHub's finite queue |
 | notifications | `tend-notifications` | **no** — one poll drains notifications and repairs bot PRs at a time |
 | ci-failures | `workflow-<watched workflow>-<event>-<branch>` | **no** — one writer per CI failure report, so a lane's verdicts apply in turn and never file two |
 | land/check | none | stateless — reads records and checks, starts nothing itself |
@@ -372,17 +372,18 @@ another session. The agent work runs through the issue path:
 triage diagnoses the report, fixing causes directly or filing cause issues for
 separate triage sessions. Its diagnosis links each repair's issue or PR; an
 unresolved durable cause keeps that owner when a passing run closes the report.
-Sessions recheck existing owners before starting work. All triage batches share
-one workflow concurrency group. The bot gets no notification for its own writes.
+Sessions recheck existing owners before starting work. The bot gets no
+notification for its own writes.
 The daily `review-runs` sweep inspects all open issues for unfinished work,
 including bot-authored reports and partial investigations after successful turns.
 It routes unowned work through ordinary triage using
 **Recover issue work** in `/tend-ci-runner:notifications`. With working access,
 the sweep can queue the actionable backlog within provider access and queue
-bounds; each batch runs a bounded matrix of the selected issue IDs. Each worker
-checks the live issue and repair ownership again when it starts. The runtime's
-`triage-batch dispatch` command splits selections at GitHub's matrix and run-name
-limits; `select` refuses payloads whose queued ownership would be truncated.
+bounds; each batch runs one job per selected issue ID, in that issue's lane.
+Each worker checks the live issue and repair ownership again when it starts.
+The runtime's `triage-batch dispatch` command splits selections at GitHub's
+matrix and run-name limits; `select` refuses payloads whose queued ownership
+would be truncated.
 
 **GHA queue depth.** Review, triage and land set `queue: max`, so pending events within
 GitHub's queue limit wait: a later push cannot replace `ready_for_review`, and

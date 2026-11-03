@@ -2,9 +2,12 @@
 
 Selection judgment belongs to notifications/recovery. Dispatch preserves its
 order while deduplicating and splitting at GitHub's run-name and matrix limits.
-The selector rejects inputs whose run name would truncate, then rechecks live
-issues after the batch acquires its workflow lane. Open issues remain the
-recovery backlog after a cancelled or failed run.
+The selector rejects inputs whose run name would truncate, drops issues that
+are closed, pull requests or bookkeeping, and assigns each remaining issue its
+lane, ``issue % LANES``. It runs as the run starts, before any issue job waits
+for its lane, so an issue closed during that wait still starts a worker, which
+reads the live issue and stops. Open issues remain the recovery backlog after a
+cancelled or failed run.
 """
 
 from __future__ import annotations
@@ -27,8 +30,8 @@ def issue_numbers(raw: str) -> list[int]:
     return list(dict.fromkeys(numbers))
 
 
-def compact(numbers: list[int]) -> str:
-    return json.dumps(numbers, separators=(",", ":"))
+def compact(value: object) -> str:
+    return json.dumps(value, separators=(",", ":"))
 
 
 def dispatch_batches(raw: str) -> list[str]:
@@ -71,7 +74,7 @@ def dispatch(raw: str) -> int:
 
 def select() -> int:
     env = _common.require_env(
-        "GITHUB_REPOSITORY", "BOOKKEEPING_LABELS", "ISSUES", "GITHUB_OUTPUT"
+        "GITHUB_REPOSITORY", "BOOKKEEPING_LABELS", "ISSUES", "LANES", "GITHUB_OUTPUT"
     )
     raw = env["ISSUES"]
     if len(RUN_NAME_PREFIX + raw) > RUN_NAME_LIMIT:
@@ -83,7 +86,8 @@ def select() -> int:
     if len(numbers) > MATRIX_LIMIT:
         raise ValueError("a triage batch cannot exceed GitHub's 256-job matrix limit")
     bookkeeping = set(json.loads(env["BOOKKEEPING_LABELS"]))
-    selected = []
+    lanes = int(env["LANES"])
+    legs = []
     for number in numbers:
         issue = _common.gh_json(
             "api", f"repos/{env['GITHUB_REPOSITORY']}/issues/{number}"
@@ -93,6 +97,6 @@ def select() -> int:
             and "pull_request" not in issue
             and not bookkeeping.intersection(label["name"] for label in issue["labels"])
         ):
-            selected.append(number)
-    _common.set_output("issues", compact(selected))
+            legs.append({"issue": number, "lane": number % lanes})
+    _common.set_output("legs", compact(legs))
     return 0

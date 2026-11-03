@@ -1,7 +1,7 @@
 {%- set issue = '${{ matrix.issue }}' -%}
 <<header>>
 name: tend-triage
-# Keep the selected IDs visible before matrix jobs exist, including while queued.
+# Keep the selected IDs visible before matrix jobs exist.
 run-name: triage ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
 on:
   issues:
@@ -13,12 +13,6 @@ on:
         type: string
         required: true
 
-# The whole batch holds the lane: overlapping events cannot multiply the cap.
-concurrency:
-  group: tend-triage
-  cancel-in-progress: false
-  queue: max
-
 jobs:
   select:
     if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && <<not_bookkeeping()>>
@@ -27,7 +21,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      issues: ${{ steps.select.outputs.issues }}
+      legs: ${{ steps.select.outputs.legs }}
     steps:
 <<setup_tend_runtime()>>
       - name: Select current issues
@@ -36,18 +30,29 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}
           ISSUES: ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
           BOOKKEEPING_LABELS: '<<bookkeeping_labels|tojson>>'
+          LANES: <<lanes>>
         run: |
           tend runtime triage-batch select
 
   triage:
     needs: select
-    if: needs.select.outputs.issues != '[]'
+    if: needs.select.outputs.legs != '[]'
     name: "triage #${{ matrix.issue }}"
     strategy:
       fail-fast: false
-      max-parallel: <<max_parallel>>
       matrix:
-        issue: ${{ fromJSON(needs.select.outputs.issues) }}
+        include: ${{ fromJSON(needs.select.outputs.legs) }}
+    # Each issue job waits in lane `issue % <<lanes>>`, which runs one job at a
+    # time, so at most <<lanes>> sessions run at once across event runs and
+    # dispatched batches. An issue always takes the same lane, so two runs for
+    # one issue never overlap. Lanes are fixed by issue number, so two issues in
+    # one lane wait for each other even while another lane is idle. GitHub
+    # cancels a job beyond a lane's 100 pending ones; its open issue stays for
+    # the daily sweep.
+    concurrency:
+      group: tend-triage-${{ matrix.lane }}
+      cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-24.04
 <<environment()>>
     permissions:

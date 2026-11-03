@@ -8,7 +8,7 @@
 # happen upstream in the tend-ci-runner plugin.
 
 name: tend-triage
-# Keep the selected IDs visible before matrix jobs exist, including while queued.
+# Keep the selected IDs visible before matrix jobs exist.
 run-name: triage ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
 on:
   issues:
@@ -20,12 +20,6 @@ on:
         type: string
         required: true
 
-# The whole batch holds the lane: overlapping events cannot multiply the cap.
-concurrency:
-  group: tend-triage
-  cancel-in-progress: false
-  queue: max
-
 jobs:
   select:
     if: github.repository_owner == 'test-owner' && vars.TEND_ENABLED != 'false' && contains(github.event.issue.labels.*.name, 'tend-outage') == false && contains(github.event.issue.labels.*.name, 'tend-rate-limit') == false
@@ -36,7 +30,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      issues: ${{ steps.select.outputs.issues }}
+      legs: ${{ steps.select.outputs.legs }}
     steps:
       - uses: max-sixty/tend/setup-runtime@X.Y.Z
       - name: Select current issues
@@ -45,18 +39,29 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
           ISSUES: ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
           BOOKKEEPING_LABELS: '["tend-outage", "tend-rate-limit"]'
+          LANES: 5
         run: |
           tend runtime triage-batch select
 
   triage:
     needs: select
-    if: needs.select.outputs.issues != '[]'
+    if: needs.select.outputs.legs != '[]'
     name: "triage #${{ matrix.issue }}"
     strategy:
       fail-fast: false
-      max-parallel: 5
       matrix:
-        issue: ${{ fromJSON(needs.select.outputs.issues) }}
+        include: ${{ fromJSON(needs.select.outputs.legs) }}
+    # Each issue job waits in lane `issue % 5`, which runs one job at a
+    # time, so at most 5 sessions run at once across event runs and
+    # dispatched batches. An issue always takes the same lane, so two runs for
+    # one issue never overlap. Lanes are fixed by issue number, so two issues in
+    # one lane wait for each other even while another lane is idle. GitHub
+    # cancels a job beyond a lane's 100 pending ones; its open issue stays for
+    # the daily sweep.
+    concurrency:
+      group: tend-triage-${{ matrix.lane }}
+      cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-24.04
     environment:
       name: tend
