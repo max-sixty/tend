@@ -1714,6 +1714,60 @@ def test_fix_tag_protection_creates_admin_gated_all_tags_ruleset() -> None:
     assert body["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
 
 
+@pytest.mark.parametrize(
+    "conditions",
+    [
+        {"ref_name": {"include": ["~ALL"], "exclude": ["refs/tags/hosted/**"]}},
+        {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
+        {},
+    ],
+)
+def test_fix_tag_protection_refuses_custom_selection(conditions: dict) -> None:
+    current = {"target": "tag", "conditions": conditions}
+    with (
+        patch("tend.checks._repository_rulesets", return_value={"Tag operations": 7}),
+        patch("tend.checks._fetch_ruleset", return_value=current),
+        patch("tend.checks._reconcile_ruleset", return_value=None) as reconcile,
+    ):
+        result = fix_tag_protection("owner/repo")
+
+    assert result.passed is False
+    assert "No rulesets changed" in result.message
+    assert "customized tag selection" in result.message
+    reconcile.assert_not_called()
+
+
+def test_fix_tag_protection_replaces_canonical_selection() -> None:
+    current = {
+        "target": "tag",
+        "conditions": {"ref_name": {"include": ["~ALL"], "exclude": []}},
+    }
+    with (
+        patch("tend.checks._repository_rulesets", return_value={"Tag operations": 7}),
+        patch("tend.checks._fetch_ruleset", return_value=current),
+        patch("tend.checks._reconcile_ruleset", return_value=None) as reconcile,
+    ):
+        result = fix_tag_protection("owner/repo")
+
+    assert result.passed is True
+    body = json.loads(reconcile.call_args.args[3])
+    assert body["conditions"] == current["conditions"]
+    assert {rule["type"] for rule in body["rules"]} == {"creation", "update"}
+    assert body["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
+
+
+def test_fix_tag_protection_unreadable_existing_ruleset_is_unknown() -> None:
+    with (
+        patch("tend.checks._repository_rulesets", return_value={"Tag operations": 7}),
+        patch("tend.checks._fetch_ruleset", return_value=None),
+        patch("tend.checks._reconcile_ruleset", return_value=None) as reconcile,
+    ):
+        result = fix_tag_protection("owner/repo")
+
+    assert result.passed is None
+    reconcile.assert_not_called()
+
+
 def test_fix_branch_protection_splits_rulesets_and_enables_yolo_last() -> None:
     writes: list[tuple[str, str, dict]] = []
 
