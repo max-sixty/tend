@@ -881,6 +881,17 @@ def test_missing_workflow_does_not_establish_an_external_check(
         _poll(env)
 
 
+def test_a_status_posted_by_actions_does_not_end_the_wait(
+    env: dict[str, str],
+) -> None:
+    gate = _status_ctx("ci/gate", "FAILURE")
+    gate["targetUrl"] = "https://github.com/o/r/actions/runs/99"
+    _serve(env, _resp(gate, _check_run("replacement", status="IN_PROGRESS")))
+
+    with pytest.raises(WaitNeverEnded):
+        _poll(env)
+
+
 def test_early_external_red_does_not_report_unconfirmed_actions_failure(
     env: dict[str, str],
 ) -> None:

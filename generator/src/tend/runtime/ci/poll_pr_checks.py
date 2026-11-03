@@ -115,8 +115,12 @@ def reduce_rollup(
                 "workflow": "",
                 "url": str(node.get("targetUrl") or ""),
                 "started_at": "",
-                "external": "yes",
+                "external": "",
             }
+            # An Actions run can post statuses too, and a cancelled one can
+            # only post failure or error: statuses have no cancelled state.
+            if "/actions/runs/" not in context["url"]:
+                context["external"] = "yes"
         if own_run and own_run in context["url"]:
             continue
         if workflow and context["workflow"] == workflow:
