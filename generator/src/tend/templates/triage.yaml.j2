@@ -17,19 +17,16 @@ jobs:
   select:
     if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && <<not_bookkeeping()>>
     runs-on: ubuntu-24.04
-<<environment()>>
     permissions:
       contents: read
     outputs:
       legs: ${{ steps.select.outputs.legs }}
     steps:
 <<setup_tend_runtime()>>
-      - name: Select current issues
+      - name: Route issues to lanes
         id: select
         env:
-          GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}
           ISSUES: ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
-          BOOKKEEPING_LABELS: '<<bookkeeping_labels|tojson>>'
           LANES: <<lanes>>
         run: |
           tend runtime triage-batch select
@@ -61,10 +58,19 @@ jobs:
       TEND_ISSUE_NUMBER: ${{ matrix.issue }}
     steps:
 <<setup_tend_runtime()>>
-<<react_eyes('issues/' ~ issue)>>
+      # The job may have waited hours for its lane. An issue closed meanwhile,
+      # a pull request or a bookkeeping issue ends it before setup and the agent.
+      - name: Check the issue is still open triage work
+        id: eligible
+        env:
+          GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}
+          BOOKKEEPING_LABELS: '<<bookkeeping_labels|tojson>>'
+        run: |
+          tend runtime triage-batch eligible
+<<react_eyes('issues/' ~ issue, if_condition=eligible)>>
 
-<<checkout(cfg, ref=cfg.default_branch)>>
+<<checkout(cfg, ref=cfg.default_branch, if_condition=eligible)>>
 <<setup>>
-<<agent_step(cfg, block_input('prompt', prompt))>>
+<<agent_step(cfg, block_input('prompt', prompt), if_condition=eligible)>>
 
-<<unreact_eyes(cfg, 'issues/' ~ issue, if_condition='always()')>>
+<<unreact_eyes(cfg, 'issues/' ~ issue, if_condition='always() && ' ~ eligible)>>

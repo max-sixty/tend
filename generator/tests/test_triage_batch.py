@@ -1,4 +1,4 @@
-"""Exercise triage transport and live selection through the runtime CLI."""
+"""Exercise triage transport, lanes and live checks through the runtime CLI."""
 
 from __future__ import annotations
 
@@ -24,12 +24,11 @@ def legs(numbers: list[int]) -> list[dict[str, int]]:
 
 
 @pytest.mark.parametrize("numbers", [[], [7], [7, 7, 8], list(range(1, 101))])
-def test_selector_expands_exact_issue_ids(
+def test_selector_routes_exact_issue_ids_to_lanes(
     numbers: list[int],
     fake_gh: FakeGh,
     github_files: GithubFiles,
 ) -> None:
-    fake_gh.respond("api", with_={"state": "open", "labels": []})
     result = CliRunner().invoke(
         main,
         ["runtime", "triage-batch", "select"],
@@ -38,7 +37,8 @@ def test_selector_expands_exact_issue_ids(
     assert result.exit_code == 0, result.output
     expected = list(dict.fromkeys(numbers))
     assert json.loads(github_files.outputs()["legs"]) == legs(expected)
-    assert fake_gh.calls == [("api", f"repos/owner/repo/issues/{n}") for n in expected]
+    # Live state is read once a job holds its lane, not on arrival.
+    assert fake_gh.calls == []
 
 
 @pytest.mark.parametrize(
@@ -79,37 +79,40 @@ def test_selector_rejects_raw_input_that_would_truncate(
     assert github_files.outputs() == {}
 
 
-def test_selection_drops_closed_pull_request_and_bookkeeping_issues(
+@pytest.mark.parametrize(
+    ("record", "eligible"),
+    [
+        ({"state": "closed", "labels": []}, "false"),
+        ({"state": "open", "labels": [], "pull_request": {}}, "false"),
+        ({"state": "open", "labels": [{"name": "tend-outage"}]}, "false"),
+        ({"state": "open", "labels": [{"name": "tend-ci-failure"}]}, "true"),
+    ],
+)
+def test_issue_job_reads_live_eligibility(
+    record: dict,
+    eligible: str,
     fake_gh: FakeGh,
     github_files: GithubFiles,
 ) -> None:
-    records = {
-        1: {"state": "closed", "labels": []},
-        2: {"state": "open", "labels": [], "pull_request": {}},
-        3: {"state": "open", "labels": [{"name": "tend-outage"}]},
-        4: {"state": "open", "labels": [{"name": "tend-ci-failure"}]},
-    }
-    for number, record in records.items():
-        fake_gh.respond("api", f"repos/owner/repo/issues/{number}", with_=record)
+    fake_gh.respond("api", "repos/owner/repo/issues/4", with_=record)
     result = CliRunner().invoke(
         main,
-        ["runtime", "triage-batch", "select"],
-        env={"ISSUES": "[1,2,3,4]"},
+        ["runtime", "triage-batch", "eligible"],
+        env={"TEND_ISSUE_NUMBER": "4"},
     )
     assert result.exit_code == 0, result.output
-    assert github_files.outputs() == {"legs": '[{"issue":4,"lane":1}]'}
+    assert github_files.outputs() == {"eligible": eligible}
 
 
-def test_unreadable_issue_fails_without_partial_matrix(
+def test_unreadable_issue_fails_the_job_without_a_verdict(
     fake_gh: FakeGh,
     github_files: GithubFiles,
 ) -> None:
-    fake_gh.respond("api", with_={"state": "open", "labels": []})
     fake_gh.respond("api", "repos/owner/repo/issues/8", with_=9)
     result = CliRunner().invoke(
         main,
-        ["runtime", "triage-batch", "select"],
-        env={"ISSUES": "[7,8]"},
+        ["runtime", "triage-batch", "eligible"],
+        env={"TEND_ISSUE_NUMBER": "8"},
     )
     assert result.exit_code == 1
     assert "failed (exit 9)" in result.output
@@ -175,7 +178,6 @@ def test_dispatch_boundary_and_oversized_number(
     assert result.exit_code == 1
     assert "run-name limit" in result.output
     assert fake_gh.calls == []
-    fake_gh.respond("api", with_={"state": "open", "labels": []})
     result = CliRunner().invoke(
         main,
         ["runtime", "triage-batch", "select"],

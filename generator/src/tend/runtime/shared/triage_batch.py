@@ -1,12 +1,12 @@
-"""Transport selected issue IDs through triage dispatch and matrix expansion.
+"""Carry selected issue IDs through triage dispatch, lanes and live checks.
 
 Selection judgment belongs to notifications/recovery. Dispatch preserves its
 order while deduplicating and splitting at GitHub's run-name and matrix limits.
-The selector rejects inputs whose run name would truncate, drops issues that
-are closed, pull requests or bookkeeping, and assigns each remaining issue its
-lane, ``issue % LANES``. It runs as the run starts, before any issue job waits
-for its lane, so an issue closed during that wait still starts a worker, which
-reads the live issue and stops. Open issues remain the recovery backlog after a
+The selector rejects inputs whose run name would truncate and routes each issue
+to its lane, ``issue % LANES``, without reading GitHub. Each issue job checks
+its live issue once it holds its lane, since the job may have waited hours for
+it: a closed issue, a pull request or a bookkeeping issue ends the job before
+setup and the agent run. Open issues remain the recovery backlog after a
 cancelled or failed run.
 """
 
@@ -73,9 +73,7 @@ def dispatch(raw: str) -> int:
 
 
 def select() -> int:
-    env = _common.require_env(
-        "GITHUB_REPOSITORY", "BOOKKEEPING_LABELS", "ISSUES", "LANES", "GITHUB_OUTPUT"
-    )
+    env = _common.require_env("ISSUES", "LANES", "GITHUB_OUTPUT")
     raw = env["ISSUES"]
     if len(RUN_NAME_PREFIX + raw) > RUN_NAME_LIMIT:
         raise ValueError(
@@ -85,18 +83,25 @@ def select() -> int:
     numbers = issue_numbers(raw)
     if len(numbers) > MATRIX_LIMIT:
         raise ValueError("a triage batch cannot exceed GitHub's 256-job matrix limit")
-    bookkeeping = set(json.loads(env["BOOKKEEPING_LABELS"]))
     lanes = int(env["LANES"])
-    legs = []
-    for number in numbers:
-        issue = _common.gh_json(
-            "api", f"repos/{env['GITHUB_REPOSITORY']}/issues/{number}"
-        )
-        if (
-            issue["state"] == "open"
-            and "pull_request" not in issue
-            and not bookkeeping.intersection(label["name"] for label in issue["labels"])
-        ):
-            legs.append({"issue": number, "lane": number % lanes})
+    legs = [{"issue": number, "lane": number % lanes} for number in numbers]
     _common.set_output("legs", compact(legs))
+    return 0
+
+
+def eligible() -> int:
+    env = _common.require_env(
+        "GITHUB_REPOSITORY", "BOOKKEEPING_LABELS", "TEND_ISSUE_NUMBER", "GITHUB_OUTPUT"
+    )
+    number = env["TEND_ISSUE_NUMBER"]
+    issue = _common.gh_json("api", f"repos/{env['GITHUB_REPOSITORY']}/issues/{number}")
+    bookkeeping = set(json.loads(env["BOOKKEEPING_LABELS"]))
+    ok = (
+        issue["state"] == "open"
+        and "pull_request" not in issue
+        and not bookkeeping.intersection(label["name"] for label in issue["labels"])
+    )
+    if not ok:
+        print(f"#{number} is closed, a pull request or bookkeeping; no session")
+    _common.set_output("eligible", str(ok).lower())
     return 0

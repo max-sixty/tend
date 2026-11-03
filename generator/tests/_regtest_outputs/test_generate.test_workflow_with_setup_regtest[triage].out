@@ -24,21 +24,16 @@ jobs:
   select:
     if: vars.TEND_ENABLED != 'false' && contains(github.event.issue.labels.*.name, 'tend-outage') == false && contains(github.event.issue.labels.*.name, 'tend-rate-limit') == false
     runs-on: ubuntu-24.04
-    environment:
-      name: tend
-      deployment: false
     permissions:
       contents: read
     outputs:
       legs: ${{ steps.select.outputs.legs }}
     steps:
       - uses: max-sixty/tend/setup-runtime@X.Y.Z
-      - name: Select current issues
+      - name: Route issues to lanes
         id: select
         env:
-          GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
           ISSUES: ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
-          BOOKKEEPING_LABELS: '["tend-outage", "tend-rate-limit"]'
           LANES: 5
         run: |
           tend runtime triage-batch select
@@ -75,7 +70,17 @@ jobs:
       TEND_ISSUE_NUMBER: ${{ matrix.issue }}
     steps:
       - uses: max-sixty/tend/setup-runtime@X.Y.Z
+      # The job may have waited hours for its lane. An issue closed meanwhile,
+      # a pull request or a bookkeeping issue ends it before setup and the agent.
+      - name: Check the issue is still open triage work
+        id: eligible
+        env:
+          GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
+          BOOKKEEPING_LABELS: '["tend-outage", "tend-rate-limit"]'
+        run: |
+          tend runtime triage-batch eligible
       - name: React with eyes
+        if: steps.eligible.outputs.eligible == 'true'
         run: |
           tend runtime reaction add
         env:
@@ -84,14 +89,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.eligible.outputs.eligible == 'true'
         with:
           ref: main
           fetch-depth: 0
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: astral-sh/setup-uv@v6
+        if: steps.eligible.outputs.eligible == 'true'
 
       - uses: max-sixty/tend/claude@X.Y.Z
+        if: steps.eligible.outputs.eligible == 'true'
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           merge: restricted
@@ -104,7 +112,7 @@ jobs:
             /tend-ci-runner:triage ${{ matrix.issue }}
 
       - name: Remove the eyes reaction
-        if: always()
+        if: always() && steps.eligible.outputs.eligible == 'true'
         run: |
           tend runtime reaction remove
         env:

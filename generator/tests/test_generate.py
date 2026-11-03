@@ -1130,7 +1130,7 @@ def test_ci_failures_reporting_is_independent_of_triage(
 
 @pytest.mark.parametrize("limit", [None, 1, 10, 256])
 def test_triage_runs_each_issue_job_in_its_lane(tmp_path: Path, limit) -> None:
-    extra = (
+    extra = "setup:\n  - run: echo setup\n" + (
         "" if limit is None else f"workflows:\n  triage:\n    max_parallel: {limit}\n"
     )
     cfg = Config.load(_minimal_config(tmp_path, extra))
@@ -1145,6 +1145,17 @@ def test_triage_runs_each_issue_job_in_its_lane(tmp_path: Path, limit) -> None:
         "cancel-in-progress": False,
         "queue": "max",
     }
+    # The lane wait can outlast the issue, so the live check runs once the lane
+    # is held and guards every later step, the consumer's setup included.
+    steps = job["steps"]
+    [gate] = [i for i, step in enumerate(steps) if step.get("id") == "eligible"]
+    assert steps[gate]["run"].strip() == "tend runtime triage-batch eligible"
+    later = steps[gate + 1 :]
+    assert any(step.get("run", "").strip() == "echo setup" for step in later)
+    assert all(
+        "steps.eligible.outputs.eligible == 'true'" in step.get("if", "")
+        for step in later
+    )
     assert job["strategy"] == {
         "fail-fast": False,
         "matrix": {"include": "${{ fromJSON(needs.select.outputs.legs) }}"},
@@ -1344,7 +1355,8 @@ def test_issue_and_pr_acknowledged_with_eyes(tmp_path: Path) -> None:
     triage = yaml.safe_load(workflows["tend-triage.yaml"].content)
     react = _eyes_steps(triage["jobs"]["triage"]["steps"])[0]
     assert react["env"]["TARGET"] == ("issues/${{ matrix.issue }}")
-    assert "if" not in react
+    # An issue job boots a session exactly when its live check passes.
+    assert react["if"] == "steps.eligible.outputs.eligible == 'true'"
 
     review = yaml.safe_load(workflows["tend-review.yaml"].content)
     react = _eyes_steps(review["jobs"]["review"]["steps"])[0]

@@ -323,7 +323,8 @@ Events pass through three layers before the bot does work:
    A false condition skips the job entirely (never enters the concurrency
    group, never queues).
 2. **Custom `should_run` pre-checks** — cheap deterministic steps that decide
-   whether the agent boots: mention's verify job checks engagement, and
+   whether the agent boots: mention's verify job checks engagement, each
+   triage issue job rechecks its live issue once it holds its lane, and
    notifications' check repairs repository watching, captures a paginated
    cutoff snapshot, and finds configured-bot PR conflicts whose current heads
    have not already been deferred for manual resolution.

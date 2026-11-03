@@ -420,6 +420,12 @@ bot_name: my-project-bot
 #   triage:
 #     max_parallel: 10
 #
+# A triage run keeps the lanes of the workflow it started under. Until runs
+# started before a `max_parallel` change finish, one issue can run in two lanes
+# at once and more sessions than the new limit can run. Let those runs finish,
+# or cancel them, before merging the change; the daily sweep re-dispatches
+# their open issues.
+#
 # Under `yolo` with review enabled and `await_ci: false`, opening a repair PR
 # hands CI follow-up to the review and `tend-land`, releasing the issue worker.
 

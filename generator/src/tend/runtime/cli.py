@@ -98,10 +98,18 @@ def _run_triage_batch(operation: Callable[[], int]) -> None:
 
 @triage_batch_group.command("select")
 def select_triage_batch_command() -> None:
-    """Recheck selected issues before expanding the workflow matrix."""
+    """Validate selected issues and route each to its lane."""
     from tend.runtime.shared import triage_batch
 
     _run_triage_batch(triage_batch.select)
+
+
+@triage_batch_group.command("eligible")
+def eligible_triage_batch_command() -> None:
+    """Check that the job's issue is still open triage work."""
+    from tend.runtime.shared import triage_batch
+
+    _run_triage_batch(triage_batch.eligible)
 
 
 @triage_batch_group.command("dispatch")

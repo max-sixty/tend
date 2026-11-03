@@ -368,9 +368,11 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
     if lands_on_ci(cfg):
         prompt += "\n\nThe review's CI wait is off (`await_ci: false`)."
 
+    eligible = "steps.eligible.outputs.eligible == 'true'"
     content = _TRIAGE_TMPL.render(
         cfg=eff,
-        setup=_setup_yaml(eff),
+        eligible=eligible,
+        setup=_setup_yaml(eff, condition=eligible),
         prompt=prompt,
         lanes=wf.max_parallel,
     )
