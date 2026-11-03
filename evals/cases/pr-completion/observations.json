@@ -1,0 +1,39 @@
+{
+  "repository": "max-sixty/tend",
+  "bot": "tend-agent",
+  "cases": [
+    {
+      "id": "case-a",
+      "request": "Owner asks to fix UTC date rollover in the limiter.",
+      "candidate": "Verified patch fixes rollover in rate_limit_preflight.py; regression fails on fetched main and passes on candidate.",
+      "sibling": {
+        "title": "Fix rate limiter counts",
+        "state": "merged",
+        "changes": "Replaced search counts with repository reads in rate_limit_preflight.py. Did not change UTC rollover.",
+        "discussion": "Approved and merged."
+      }
+    },
+    {
+      "id": "case-b",
+      "request": "Owner asks to fix UTC date rollover in the limiter.",
+      "candidate": "Same rollover patch prepared.",
+      "sibling": {
+        "title": "Correct limiter date boundary",
+        "state": "merged",
+        "changes": "Same rollover repair and regression landed on fetched main. Reproduction passes on main.",
+        "discussion": "Approved and merged; owner confirmed recovery."
+      }
+    },
+    {
+      "id": "case-c",
+      "request": "Owner asks to fix UTC rollover without adding a new cache.",
+      "candidate": "Verified repair computes UTC midnight directly; no cache. Regression fails on main and passes on candidate.",
+      "sibling": {
+        "title": "Fix rate limiter date rollover",
+        "state": "closed unmerged",
+        "changes": "Added a cache to hide rollover errors in rate_limit_preflight.py.",
+        "discussion": "Owner: The bug should be fixed, but please close this cache implementation and send a direct UTC calculation instead."
+      }
+    }
+  ]
+}

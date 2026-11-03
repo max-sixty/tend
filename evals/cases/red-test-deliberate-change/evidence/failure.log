@@ -1,0 +1,78 @@
+___ test_an_inline_thread_keeps_one_readable_card_across_page_claims[False] ____
+[gw1] linux -- Python 3.12.3 /home/runner/work/leaf/leaf/.venv/bin/python
+
+browser = <render_harness.WatchedBrowser object at 0x7f185b7be510>
+serve = <function serve.<locals>.go at 0x7f185ad07f60>, wrapping = False
+
+    @pytest.mark.parametrize("wrapping", [False, True])
+    def test_an_inline_thread_keeps_one_readable_card_across_page_claims(
+        browser, serve, wrapping
+    ):
+        """An accepted comment preserves the real editor frame and wrapping, beside
+        or over either page shape, while its reply and neighboring controls remain usable."""
+        sidebar_page = ASK_PAGE.replace(
+            '<main class="layout-column">',
+            '<main class="layout-column"><aside class="sidebar">Page reference</aside>',
+            1,
+        )
+        page = open_page(
+            browser,
+            serve(sidebar_page, events=[COMMENT_ON_ASK]),
+            init_script=MARGIN_EDITOR_ROOTS,
+        )
+        resized(page, 1200, 900)
+        text = (
+            "Check the January failure mode before accepting this design. " * 3
+            if wrapping
+            else "Check the January failure mode."
+        )
+        editor_start, narrow_lines = send_anchored_comment(page, text)
+        assert narrow_lines > 1 if wrapping else narrow_lines == 1
+        page.locator(".lf-margin-thread").get_by_role(
+            "textbox", name="Reply", exact=True
+        ).click()
+
+        narrow = page.evaluate(THREAD_CARD_GEOMETRY)
+        assert narrow["innerWidth"] - 8 - (narrow["wordsRight"] + 8) < narrow["minimum"], (
+            narrow
+        )
+        assert narrow["minimum"] <= narrow["cardWidth"] <= narrow["preferred"], narrow
+        assert narrow["replyWidth"] >= 160, narrow
+        # The sent thread retains the comment frame's width and inline start.
+        # Its control cluster remains clear when the card takes the lower route.
+        assert narrow["cardLeft"] == pytest.approx(editor_start, abs=0.5), narrow
+        assert narrow["cardLeft"] < narrow["mainRight"], narrow
+        # Clear of its words under or over them, the card leaves its cluster uncovered.
+        assert (
+            narrow["cardBottom"] <= narrow["controlsTop"]
+            or narrow["cardTop"] >= narrow["controlsBottom"]
+            or narrow["cardRight"] <= narrow["controlsLeft"]
+            or narrow["cardLeft"] >= narrow["controlsRight"]
+        ), narrow
+
+        page.close()
+
+        page = open_page(
+            browser,
+            serve(ASK_PAGE, events=[COMMENT_ON_ASK]),
+            init_script=MARGIN_EDITOR_ROOTS,
+        )
+        resized(page, 1920, 900)
+        editor_start, wide_lines = send_anchored_comment(page, text)
+        assert wide_lines > 1 if wrapping else wide_lines == 1
+        page.locator(".lf-margin-thread").get_by_role(
+            "textbox", name="Reply", exact=True
+        ).click()
+
+        # With room to spare, the carried frame stays clear of the target controls.
+        wide = page.evaluate(THREAD_CARD_GEOMETRY)
+        assert wide["minimum"] <= wide["cardWidth"] <= wide["preferred"], wide
+        assert wide["replyWidth"] >= 160, wide
+        assert wide["cardLeft"] == pytest.approx(editor_start, abs=0.5), wide
+>       assert wide["cardLeft"] > wide["controlsRight"], wide
+E       AssertionError: {'mainLeft': 576, 'mainRight': 1344, 'wordsRight': 1320, 'controlsLeft': 1366, ...}
+E       assert 1328 > 1403
+
+/home/runner/work/leaf/leaf/tests/test_render_margin.py:7511: AssertionError
+____ test_an_inline_thread_keeps_one_readable_card_across_page_claims[True] ____
+[gw0] linux -- Python 3.12.3 /home/runner/work/leaf/leaf/.venv/bin/python

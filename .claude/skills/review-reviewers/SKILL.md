@@ -18,7 +18,7 @@ Load `/tend-ci-runner:run-tend` first — it contains CI security rules, the per
 
 The bot's job is to produce useful outputs: reviews, triage comments, fix commits, issue responses. Judge them first by whether they were **accepted** (merged, kept, acted on) or **rejected** (reverted, closed, corrected, disagreed with). Escalate to session-log inspection only when an outcome signal points at a problem to diagnose.
 
-Log parsing and outcome checking produce bulk text; run them in a subagent so the context that makes the judgments — evaluating findings against the gates, deciding whether to act, drafting PRs — holds the conclusions rather than the transcripts.
+Log parsing and outcome checking produce bulk text; run them in a subagent so the context that makes the judgments — assessing findings and remedies, deciding whether to act, drafting PRs — holds the conclusions rather than the transcripts.
 
 Expected behavior that looks suspicious — designed no-ops, designed silence, re-review after a fix commit — is listed under **Non-issues** in `review-gates.md`. Read it before a finding becomes a PR.
 
@@ -38,27 +38,24 @@ Evidence lives in one secret gist per target repo and month, indexed by the
 monthly `review-reviewers-tracking` issue on Tend. Prepare it and read the
 current and previous month's evidence:
 
-This skill lives in tend's own `.claude/skills/`, so the bundled plugin's
-scripts are reached through `$SCRIPTS` — Claude leaves `CLAUDE_PLUGIN_ROOT`
-unset in the shell, Codex exports it. Each block below sets it.
+Run these repo-owned helpers from the Tend checkout with `uv run --package tend
+--no-dev`; they follow this skill's source revision.
 
 ```bash
-SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
-uv run --script "$SCRIPTS/review_reviewers.py" prepare-evidence "$ARGUMENTS"
+uv run --package tend --no-dev tend runtime review-reviewers prepare-evidence "$ARGUMENTS"
 ```
 
 The command finds or creates both index and gist, announces a new gist once,
 persists their ids, and prints both evidence windows and the gist's
 `gist_url`, which the PR bodies and summary below link.
 
-After applying the gates, write this run's findings in the format from
+After assessing findings, write this run's findings in the format from
 `@review-gates.md` to `$TMPDIR/findings.md`. Append a `## Run
 $GITHUB_RUN_ID` heading every run, including an all-clear window; the heading
 is the audit trail future runs use. Then append it:
 
 ```bash
-SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
-uv run --script "$SCRIPTS/review_reviewers.py" append-evidence
+uv run --package tend --no-dev tend runtime review-reviewers append-evidence
 ```
 
 The command refuses a findings file that does not name this run, fetches the
@@ -108,9 +105,7 @@ pushes, not a decision. Note either and carry on.
 Then list recently completed tend CI runs on the target repo:
 
 ```bash
-SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
-TARGET_REPO=$ARGUMENTS uv run --script \
-  "$SCRIPTS/list_recent_runs.py" review-reviewers
+TARGET_REPO=$ARGUMENTS uv run --package tend --no-dev tend runtime list-recent-runs review-reviewers
 ```
 
 The script discovers `tend-*` workflows by default. Prefix arguments replace that default rather than adding to it, so a call that widens the set names `tend-` too.
@@ -183,7 +178,7 @@ Check outcomes across all runs from Step 1: map runs to PRs and issues, and chec
 >   gh -R $ARGUMENTS run view <run-id> --log | grep -E '^verify.*PAYLOAD_(KIND|PR|ID):'
 >   ```
 >   Each line carries a `verify<TAB><step><TAB><timestamp>` prefix; the value follows the key. `PAYLOAD_PR` is the issue/PR number and `PAYLOAD_KIND` is the relayed event (`pull_request_review`, `pull_request_review_comment`). Read the gate's verdict off the `handle` job, which is gated on `should_run`: `handle` with conclusion `skipped` means the engagement gate declined and no agent booted — expected silence, not missing output. Do not read it off `React to mention`, which is skipped on every relayed `pull_request_review` regardless of the verdict (a review submission has no single comment to react to) and on a comment relay admitted for participation rather than a mention.
-> - `tend-ci-fix`: map run → PR via `headBranch`, check for bot commits
+> - `tend-ci-failures`: the report it files or closes is its output; follow the report's `tend-triage` runs for diagnosis and cause issues
 >
 > **Negative outcome signals** — report any sign the bot's output was rejected, corrected, or ignored. Common shapes (use judgment for signals not listed):
 > - Human reviewer posted CHANGES_REQUESTED after bot approved
@@ -290,7 +285,7 @@ Brief the investigation with a prompt like:
 >
 > Focus narrowly: what decision did the bot make that led to this bad outcome? Trace the decision
 > chain in the JSONL for the specific problematic action. Don't parse the entire session.
-> CI polling (`poll_pr_checks.py`, or sleep loops over `gh pr checks`) in session logs is expected bot behavior — do
+> CI polling (`tend runtime poll-pr-checks`, or sleep loops over `gh pr checks`) in session logs is expected bot behavior — do
 > not flag it.
 >
 > Report: what the bot decided, what evidence it used, and what went wrong.
@@ -316,14 +311,14 @@ Then read the bodies of the candidates (`gh pr view <n> --json body`). Only comm
 
 **Prefer PRs over issues.** A PR with a clear description is immediately actionable.
 
-- **PR** (default): Branch `review-reviewers/$GITHUB_RUN_ID-<target-repo-name>-<topic-slug>`, fix, commit, push, create with label `claude-behavior`. `$GITHUB_RUN_ID` alone is not a unique branch name: every matrix leg of a run carries the same one, and a single leg may open more than one PR (see the limit below). The target's repo name (the part after the `/`) keeps two legs from racing the same ref; the topic slug keeps one leg's own PRs from doing the same. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. The evidence gist already carries the run history, outcome evidence, and gate assessment; link it and include only what the reader needs to understand this change. Don't also create a separate issue.
+- **PR** (default): Branch `review-reviewers/$GITHUB_RUN_ID-<target-repo-name>-<topic-slug>`, fix, commit, push, create with label `claude-behavior`. `$GITHUB_RUN_ID` alone is not a unique branch name: every matrix leg of a run carries the same one, and a single leg may open more than one PR. The target's repo name (the part after the `/`) keeps two legs from racing the same ref; the topic slug keeps one leg's own PRs from doing the same. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. The evidence gist already carries the run history, outcome evidence, and causal assessment; link it and include only what the reader needs to understand this change. Don't also create a separate issue.
 - **Issue** (fallback): Only for problems too large or ambiguous to fix directly. Include run ID, outcome evidence, root cause analysis.
 
-Group multiple findings by broad theme. **Limit to a couple of PRs per run** — if you have more findings, pick the highest-confidence ones and record the rest in the evidence gist.
+Group related findings by theme and complete the supported repairs. Record unresolved findings in the evidence gist.
 
 PR/issue bodies should link to the evidence gist (`gist_url`) so reviewers can see the accumulated history behind the finding.
 
-**Do not poll CI** after creating a PR. The `tend-review` and `tend-ci-fix` workflows handle PRs independently. Exit after pushing and creating the PR.
+**Do not poll CI** after creating a PR. The `tend-review` workflow handles PRs independently. Exit after pushing and creating the PR.
 
 ## Step 6: Summary
 
@@ -339,4 +334,4 @@ Report results in the conversation log and save a markdown summary to `$GITHUB_S
 #   ...
 ```
 
-If no problems found (or none passed the gates), report "all clear" with: runs analyzed, outcomes checked, brief quality assessment, and a link to the evidence gist for any below-threshold findings recorded this run.
+Summarize runs analyzed, outcomes checked, supported repairs, and unresolved findings, linking to the evidence gist. Report "all clear" only when no problems remain.

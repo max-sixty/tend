@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from textwrap import dedent
 
@@ -151,7 +150,6 @@ def test_memory_gist_ignores_a_disabled_top_level_harness(
             "review",
             "mention",
             "triage",
-            "ci-fix",
             "nightly",
             "weekly",
             "notifications",
@@ -283,21 +281,6 @@ def test_yolo_accepts_runner_setup(tmp_path: Path, step: str) -> None:
 
     cfg = Config.load(path)
     assert len(cfg.setup) == 1
-
-
-def test_yolo_migrates_deprecated_sandbox_setup(tmp_path: Path) -> None:
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-            bot_name: my-bot
-            merge: yolo
-            sandbox_setup:
-              - make bootstrap
-            """),
-    )
-
-    cfg = Config.load(path)
-    assert [step.fields["run"] for step in cfg.setup] == ["make bootstrap"]
 
 
 @pytest.mark.parametrize(
@@ -550,7 +533,10 @@ def test_prompt_punctuation_reaches_the_agent_verbatim(
     assert isinstance(yaml.safe_load(content), dict)
     prompt = _agent_prompt(content)
     assert "format(" not in prompt
-    assert prompt.startswith("Don't touch {0} or {1}; fix ${{ github.event.")
+    expression = (
+        "github.event.pull_request.number" if workflow == "review" else "matrix.issue"
+    )
+    assert prompt == f"Don't touch {{0}} or {{1}}; fix ${{{{ {expression} }}}}\n"
 
 
 # ---------------------------------------------------------------------------
@@ -637,7 +623,7 @@ def test_watched_workflows_empty_list_rejected(tmp_path: Path) -> None:
         dedent("""\
         bot_name: my-bot
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: []
     """),
     )
@@ -672,10 +658,10 @@ def test_workflow_list_fields_reject_non_list_of_strings(
     body = "".join(f"    {k}: {v}\n" for k, v in keys.items())
     path = _write_config(
         tmp_path,
-        f"bot_name: my-bot\nworkflows:\n  ci-fix:\n{body}",
+        f"bot_name: my-bot\nworkflows:\n  ci-failures:\n{body}",
     )
     with pytest.raises(
-        ClickException, match=rf"workflows\.ci-fix\.{key} must be a list"
+        ClickException, match=rf"workflows\.ci-failures\.{key} must be a list"
     ):
         Config.load(path)
 
@@ -687,7 +673,7 @@ def test_branches_empty_list_rejected(tmp_path: Path) -> None:
         dedent("""\
         bot_name: my-bot
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["ci"]
             branches: []
     """),
@@ -703,14 +689,14 @@ def test_branches_explicit_value(tmp_path: Path) -> None:
         dedent("""\
         bot_name: my-bot
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["ci"]
             branches: ["main", "release"]
     """),
     )
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    assert 'branches: ["main", "release"]' in workflows["tend-ci-fix.yaml"].content
+    assert 'branches: ["main", "release"]' in workflows["tend-ci-failures.yaml"].content
 
 
 def test_watched_workflows_explicit_value(tmp_path: Path) -> None:
@@ -720,38 +706,42 @@ def test_watched_workflows_explicit_value(tmp_path: Path) -> None:
         dedent("""\
         bot_name: my-bot
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["build"]
     """),
     )
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    ci_fix = workflows["tend-ci-fix.yaml"]
-    assert '"build"' in ci_fix.content
-    assert '"ci"' not in ci_fix.content
+    ci_failures = workflows["tend-ci-failures.yaml"]
+    assert '"build"' in ci_failures.content
+    assert '"ci"' not in ci_failures.content
 
 
-def test_watched_workflows_missing_raises_on_direct_call(tmp_path: Path) -> None:
-    """generate_ci_fix errors when watched_workflows is not configured."""
-    from tend.workflows import generate_ci_fix
-
-    path = _write_config(tmp_path, "bot_name: my-bot")
-    cfg = Config.load(path)
-    with pytest.raises(ClickException, match="ci-fix requires watched_workflows"):
-        generate_ci_fix(cfg)
-
-
-def test_watched_workflows_missing_skips_ci_fix(
+def test_watched_workflows_missing_skips_ci_failures(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """ci-fix is skipped with a warning when watched_workflows is not configured."""
+    """ci-failures is skipped with a warning when watched_workflows is unset."""
     path = _write_config(tmp_path, "bot_name: my-bot")
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    assert "tend-ci-fix.yaml" not in workflows
+    assert "tend-ci-failures.yaml" not in workflows
     captured = capsys.readouterr()
-    assert "Skipping ci-fix" in captured.err
+    assert "Skipping ci-failures" in captured.err
     assert "watched_workflows" in captured.err
+
+
+def test_ci_fix_is_refused_with_its_replacement(tmp_path: Path) -> None:
+    """`ci-fix` was an agent workflow; `ci-failures` files issues instead.
+
+    Warning past the old key would drop the consumer's CI repair on the next
+    regeneration with nothing but a line in a nightly log.
+    """
+    path = _write_config(
+        tmp_path,
+        'bot_name: my-bot\nworkflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n',
+    )
+    with pytest.raises(ClickException, match="replaced by workflows.ci-failures"):
+        Config.load(path)
 
 
 # ---------------------------------------------------------------------------
@@ -1074,7 +1064,9 @@ def test_legacy_toml_file_errors_clearly(
     (tmp_path / ".config" / "tend.toml").write_text('bot_name = "my-bot"\n')
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(ClickException, match="tend now reads .*tend\\.yaml"):
+    with pytest.raises(
+        ClickException, match="Unsupported config format: .*tend\\.toml"
+    ):
         Config.load()
 
 
@@ -1156,150 +1148,13 @@ def test_workflow_extra_delete_with_null(tmp_path: Path) -> None:
     assert perms["contents"] == "write"
 
 
-# ---------------------------------------------------------------------------
-# Deprecated sandbox_* keys
-# ---------------------------------------------------------------------------
-
-
-def _migrated_env(tmp_path: Path, entries: str) -> dict[str, str]:
-    """The `env:` of the one `setup:` step a `sandbox_env` block migrates to."""
-    path = _write_config(tmp_path, f"bot_name: my-bot\nsandbox_env:\n{entries}")
-    (step,) = Config.load(path).setup
-    return step.fields["env"]
-
-
-def test_sandbox_env_coerces_scalars_to_strings(tmp_path: Path) -> None:
-    # `bool` is an `int` subclass; emit shell-conventional lowercase, not
-    # Python's `True`/`False`.
-    assert _migrated_env(
-        tmp_path, "  RUST_BACKTRACE: 1\n  DEBUG: true\n  QUIET: false\n"
-    ) == {"RUST_BACKTRACE": "1", "DEBUG": "true", "QUIET": "false"}
-
-
 @pytest.mark.parametrize(
-    ("entries", "message"),
-    [
-        ('  FOO: "a\\nb"\n', "must be a single line"),
-        ("  FOO: [a, b]\n", "must be a scalar"),
-        ('  "1BAD": x\n', "not a valid environment"),
-    ],
+    ("key", "value"),
+    [("sandbox_env", "{}"), ("sandbox_path", "[]"), ("sandbox_setup", "null")],
 )
-def test_sandbox_env_rejects_what_cannot_be_exported(
-    tmp_path: Path, entries: str, message: str
+def test_retired_sandbox_keys_require_setup(
+    tmp_path: Path, key: str, value: str
 ) -> None:
-    with pytest.raises(ClickException, match=message):
-        _migrated_env(tmp_path, entries)
-
-
-def test_migrated_sandbox_env_exports_each_value_verbatim(tmp_path: Path) -> None:
-    """The step writes one `NAME=VALUE` line per entry into `$GITHUB_ENV`, run
-    as GitHub runs a `run:` step with no `shell:`, and the shell expands
-    nothing inside a value."""
-    path = _write_config(
-        tmp_path,
-        dedent(r"""
-        bot_name: my-bot
-        sandbox_env:
-          RUST_BACKTRACE: 1
-          ODD: 'a "b" $HOME \n -e'
-    """),
-    )
-    (step,) = Config.load(path).setup
-    github_env = tmp_path / "github-env"
-    subprocess.run(
-        ["bash", "--noprofile", "--norc", "-e", "-c", step.fields["run"]],
-        env={**step.fields["env"], "GITHUB_ENV": str(github_env)},
-        check=True,
-    )
-    assert github_env.read_text() == 'RUST_BACKTRACE=1\nODD=a "b" $HOME \\n -e\n'
-
-
-def test_deprecated_sandbox_keys_warn_and_become_setup_steps(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A deprecated key keeps working, as the `setup:` steps it migrates to.
-
-    Nightly regeneration reads the warning inside an agent session, so it has
-    to carry the whole migration; and dropping the entries instead would stop
-    installing what the consumer's agent relies on, or hand it no credential.
-    """
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        setup:
-          - run: echo consumer
-        sandbox_setup:
-          - rustup component add clippy
-          - export TOOLCHAIN=stable
-        sandbox_path:
-          - ~/.cargo/bin
-          - /opt/tools/bin
-        sandbox_env:
-          MY_TOKEN: "${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}"
-    """),
-    )
-    cfg = Config.load(path)
-
-    # Variables and paths ahead of the commands, which ran with both. The
-    # runner puts a later `$GITHUB_PATH` line ahead of an earlier one, so
-    # last-first keeps `~/.cargo/bin` first on PATH, as `sandbox_path` had it.
-    # The expression stays in `env:`, where Actions evaluates it.
-    assert [step.fields for step in cfg.setup] == [
-        {"run": "echo consumer"},
-        {
-            "run": 'echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"',
-            "env": {
-                "MY_TOKEN": "${{ github.event_name == 'schedule' "
-                "&& secrets.MY_TOKEN || '' }}"
-            },
-        },
-        {
-            "run": 'echo "/opt/tools/bin" >> "$GITHUB_PATH"\n'
-            'echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"'
-        },
-        {
-            "run": "rustup component add clippy\nexport TOOLCHAIN=stable",
-            "shell": "bash",
-        },
-    ]
-    warned = capsys.readouterr().err
-    assert "`sandbox_env` is deprecated" in warned
-    assert '`- run: echo "MY_TOKEN=$MY_TOKEN" >> "$GITHUB_ENV"`' in warned
-    assert "`sandbox_setup` is deprecated" in warned
-    assert "`- run: rustup component add clippy`" in warned
-    assert "`sandbox_path` is deprecated" in warned
-    assert '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`' in warned
-    assert "unknown config key" not in warned
-
-
-def test_migrated_sandbox_setup_commands_share_one_shell(tmp_path: Path) -> None:
-    """`sandbox_setup` ran its entries in one `-eo pipefail` bash, so an
-    `export` reached the entries after it and a failure stopped the rest. The
-    migrated step keeps both, run as GitHub runs a `shell: bash` step."""
-    path = _write_config(
-        tmp_path,
-        dedent("""\
-        bot_name: my-bot
-        sandbox_setup:
-          - export GREETING=hi
-          - test "$GREETING" = hi
-          - echo reached
-          - "false"
-          - echo unreachable
-    """),
-    )
-    (step,) = Config.load(path).setup
-    result = subprocess.run(
-        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step.fields["run"]],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert (result.returncode, result.stdout) == (1, "reached\n")
-
-
-def test_deprecated_sandbox_setup_must_be_a_list(tmp_path: Path) -> None:
-    path = _write_config(tmp_path, "bot_name: my-bot\nsandbox_setup: echo hi\n")
-    with pytest.raises(ClickException, match="sandbox_setup must be a list"):
+    path = _write_config(tmp_path, f"bot_name: my-bot\n{key}: {value}\n")
+    with pytest.raises(ClickException, match=f"Unsupported config keys: {key}.*setup:"):
         Config.load(path)

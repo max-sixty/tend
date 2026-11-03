@@ -24,7 +24,6 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 from tend.config import KNOWN_HARNESSES, Config
 from tend.runtime.shared import _prompt as prompt
-from tend.workflows import UV_SHA256, UV_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -88,11 +87,13 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
     openai_proxy = steps["Start OpenAI Responses proxy"]
     assert openai_proxy["if"] == "steps.codex_auth.outputs.mode == 'api-key'"
     assert openai_proxy["env"]["PROXY_API_KEY"] == "${{ inputs.openai_api_key }}"
-    assert "exec env -i" in openai_proxy["run"]
-    assert 'node "$CODEX_PROXY_BIN"' in openai_proxy["run"]
-    assert '<<< "$PROXY_API_KEY"' in openai_proxy["run"]
-    assert '> "$PROXY_LOG_FILE" 2>&1 &' in openai_proxy["run"]
-    assert 'cat "$PROXY_LOG_FILE" >&2' in openai_proxy["run"]
+    assert shlex.split(openai_proxy["run"]) == [
+        "tend",
+        "runtime",
+        "codex",
+        "responses-proxy",
+        "start",
+    ]
     assert [
         name
         for name, step in steps.items()
@@ -117,9 +118,6 @@ def test_codex_agent_never_receives_the_pat_or_api_key() -> None:
         & run_env.keys()
     )
     assert shlex.split(steps["Run Codex"]["run"]) == [
-        "$TEND_RUNTIME_PYTHON",
-        "-I",
-        "-m",
         "tend",
         "runtime",
         "launch-agent",
@@ -141,7 +139,7 @@ def test_codex_action_drives_its_stateful_phases_through_the_runner() -> None:
         (REPO_ROOT / "codex" / "action.yaml").read_text()
     )
     steps = action["runs"]["steps"]
-    prefix = ("$TEND_RUNTIME_PYTHON", "-I", "-m", "tend", "runtime", "codex")
+    prefix = ("tend", "runtime", "codex")
     setup = {
         "Install Tend plugins (sandbox)": "install-plugin",
         "Stage AGENTS.md (sandbox)": "stage-agents",
@@ -188,16 +186,18 @@ def test_sandbox_resources_are_removed_immediately_after_agent_reap(
         stop = steps[run_at + 1]
         assert stop["name"] == "Stop OpenAI Responses proxy"
         assert stop["if"] == "always()"
-        assert "curl --fail" in stop["run"]
-        assert "--max-time 10" in stop["run"]
+        assert shlex.split(stop["run"]) == [
+            "tend",
+            "runtime",
+            "codex",
+            "responses-proxy",
+            "stop",
+        ]
     cleanup = steps[cleanup_at]
 
     assert cleanup["name"] == "Dispose sandbox resources"
     assert cleanup["if"] == "always()"
     assert shlex.split(cleanup["run"]) == [
-        "$TEND_RUNTIME_PYTHON",
-        "-I",
-        "-m",
         "tend",
         "runtime",
         "dispose-sandbox-resources",
@@ -206,7 +206,7 @@ def test_sandbox_resources_are_removed_immediately_after_agent_reap(
 
 def test_hosted_probe_launches_only_from_the_installed_action_package() -> None:
     script = (REPO_ROOT / "proxy" / "test-setup-sandbox.sh").read_text()
-    invocation = '"$TEND_RUNTIME_PYTHON" -I -m tend runtime launch-agent || rc=$?'
+    invocation = "tend runtime launch-agent || rc=$?"
 
     assert script.count(invocation) == 2
     assert "-s shared/steps/launch_agent.py" not in script
@@ -260,9 +260,6 @@ def test_memory_gist_actions_share_the_trusted_lifecycle(harness: str) -> None:
         invocation = lifecycle[name]["run"]
         assert len(invocation.splitlines()) == 1
         assert shlex.split(invocation) == [
-            "$TEND_RUNTIME_PYTHON",
-            "-I",
-            "-m",
             "tend",
             "runtime",
             "gist-memory",
@@ -335,13 +332,8 @@ def _install_uv_pins() -> tuple[str, dict[str, str]]:
     return version, sha256
 
 
-def test_generated_workflow_uv_uses_the_action_pin() -> None:
-    assert (UV_VERSION, UV_SHA256) == _install_uv_pins()
-
-
 # A `uses:` line outside a comment. Tests carry arbitrary refs as fixture data,
-# and the generated tend-*.yaml come from the latest release rather than this
-# tree, so neither is scanned.
+# and generated tend-*.yaml track the published release rather than this tree.
 USES_LINE = re.compile(r"^\s*(?:- )?uses: *(\S+)(.*)$", re.MULTILINE)
 PINNED_REF = re.compile(r"(?P<action>[^@]+)@(?P<sha>[0-9a-f]{40})")
 VERSION_COMMENT = re.compile(r" # (v\d+\.\d+\.\d+)")
@@ -354,7 +346,17 @@ def test_third_party_actions_are_pinned_by_sha() -> None:
     release, and one pin per action keeps each bump to a single value.
     """
     files = subprocess.run(
-        ["git", "ls-files", "*.yaml", "*.yml", "*.j2", "*.py"],
+        [
+            "git",
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "*.yaml",
+            "*.yml",
+            "*.j2",
+            "*.py",
+        ],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -365,7 +367,8 @@ def test_third_party_actions_are_pinned_by_sha() -> None:
     for name in files:
         path = Path(name)
         if (
-            "tests" in path.parts
+            not (REPO_ROOT / path).is_file()
+            or "tests" in path.parts
             or path.name.startswith("test_")
             or (
                 path.parent == Path(".github/workflows")
@@ -443,15 +446,19 @@ def test_release_requires_successful_smoke_on_exact_commit(
 ) -> None:
     """Execute the publication gate with GitHub run-list responses.
 
-    The GitHub CLI boundary is replaced; Bash and jq run the actual workflow
-    command, including rejecting API failure and a successful different SHA.
+    The GitHub CLI boundary is replaced; the workflow runs its owning script,
+    including rejecting API failure and a successful different SHA.
     """
     workflow = YAML(typ="safe", pure=True).load(
         (REPO_ROOT / ".github/workflows/pypi-release.yaml").read_text()
     )
     build = workflow["jobs"]["build"]
     assert build["permissions"] == {"contents": "read", "actions": "read"}
-    gate = build["steps"][0]
+    gate = next(
+        step
+        for step in build["steps"]
+        if step.get("name") == "Require successful Codex smoke on the release commit"
+    )
     assert gate["shell"] == "bash"
     assert gate["env"] == {"GH_TOKEN": "${{ github.token }}"}
     assert "if" not in gate and "continue-on-error" not in gate
@@ -517,16 +524,21 @@ def test_release_requires_successful_smoke_on_exact_commit(
 ACTION_PATH_REF = re.compile(r"\$\{\{\s*github\.action_path\s*\}\}/?([^\s\"')]*)")
 
 
-COMPOSITE_ACTIONS = (
-    "claude/action.yaml",
-    "codex/action.yaml",
-    "codex/refresh/action.yaml",
+# Every composite action a consumer's workflow can name. Each ships at the
+# release tag under its own path, so a new one is covered with no edit here.
+COMPOSITE_ACTIONS = tuple(
+    str(path.relative_to(REPO_ROOT))
+    for path in sorted(REPO_ROOT.glob("**/action.yaml"))
+    if not {"node_modules", ".tmp", ".venv"} & set(path.parts)
 )
 
 
 @pytest.mark.parametrize("action", COMPOSITE_ACTIONS)
 def test_credential_actions_cache_only_in_restricted_mode(action: str) -> None:
-    """Only restricted mode trusts main-branch code that can publish caches."""
+    """Only restricted mode trusts main-branch code that can publish caches.
+
+    The harness actions, which take the merge mode, keep their cache for it.
+    """
     data = YAML(typ="safe").load((REPO_ROOT / action).read_text())
     restores = [
         step
@@ -534,11 +546,9 @@ def test_credential_actions_cache_only_in_restricted_mode(action: str) -> None:
         if step.get("uses", "").split("@", 1)[0].casefold()
         in {"actions/cache", "actions/cache/restore"}
     ]
-    if action != "codex/refresh/action.yaml":
+    if "merge" in (data.get("inputs") or {}):
         assert restores, f"{action} must retain caching in restricted mode"
-        assert all(
-            step.get("if") == "inputs.merge == 'restricted'" for step in restores
-        )
+    assert all(step.get("if") == "inputs.merge == 'restricted'" for step in restores)
 
 
 @pytest.mark.parametrize("action", COMPOSITE_ACTIONS)
@@ -547,7 +557,6 @@ def test_action_path_references_resolve(action: str) -> None:
     body = action_path.read_text()
     matched = ACTION_PATH_REF.findall(body)
 
-    assert matched, f"{action}: no github.action_path references"
     missing = [
         ref
         for ref in sorted(set(matched))
@@ -730,9 +739,6 @@ def test_codex_action_passes_selected_auth_mode_to_runner() -> None:
 
     assert run["env"]["AUTH_MODE"] == "${{ steps.codex_auth.outputs.mode }}"
     assert shlex.split(run["run"]) == [
-        "$TEND_RUNTIME_PYTHON",
-        "-I",
-        "-m",
         "tend",
         "runtime",
         "launch-agent",
@@ -775,13 +781,6 @@ def test_bundled_runner_instructions_never_return_with_cd_dash() -> None:
     )
 
     assert offenders == []
-
-
-def test_runner_helper_directory_is_python_only() -> None:
-    """Substantial runner behavior belongs in tested Python, not shell helpers."""
-    scripts = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts"
-
-    assert not sorted(scripts.glob("*.sh"))
 
 
 def test_review_reviewers_sweeps_only_known_consumers() -> None:
@@ -870,10 +869,11 @@ def test_plugin_skill_citations_resolve() -> None:
 
 
 # A conservative description cap for crowded Codex skill listings. Re-measured
-# with Codex 0.160.0 and both plugins at SKILLS_MEASURED_AT: every description
-# appeared intact, including an 839-character probe. Keep the shorter cap for
-# consumer installations that also carry other skills. The count spans both
-# plugins; adding a skill still calls for checking the installed listing.
+# with Codex 0.160.0 and both plugins at SKILLS_MEASURED_AT: every shipped
+# description appeared intact. Keep this cap for consumer installations that
+# also carry other skills. The count spans both plugins; a listing with fewer
+# skills shares the same budget among fewer, so only adding a skill past the
+# count calls for checking the installed listing.
 #
 # To re-measure, install both plugins from this checkout into a throwaway Codex
 # home and run any prompt:
@@ -885,9 +885,10 @@ def test_plugin_skill_citations_resolve() -> None:
 #     codex exec --skip-git-repo-check -s read-only "Quote your skills listing."
 #     rm -rf "$CODEX_HOME"
 #
-# Log in afresh rather than copying `~/.codex/auth.json` in: a token refresh
-# inside the throwaway home would rotate the refresh-token chain your own login
-# depends on.
+# Log in afresh or derive access-only auth with
+# `tend.runtime.codex.codex_subscription_auth.consumer_auth`. Copying the full
+# `~/.codex/auth.json` lets a refresh inside the throwaway home rotate the
+# refresh-token chain your own login depends on.
 #
 # Codex does not say when it shortens a description: 0.156.0 removed the
 # "Skill descriptions were shortened to fit the skills context budget" warning,
@@ -898,7 +899,7 @@ def test_plugin_skill_citations_resolve() -> None:
 # left out of the listing entirely, which is the budget exhausted rather than
 # shared thin.
 DESCRIPTION_BUDGET = 130
-SKILLS_MEASURED_AT = 26
+SKILLS_MEASURED_AT = 27
 
 
 def test_skill_frontmatter_is_loadable() -> None:
@@ -913,8 +914,8 @@ def test_skill_frontmatter_is_loadable() -> None:
     yaml = YAML(typ="safe", pure=True)
     broken = []
     installed = sorted((REPO_ROOT / "plugins").glob("*/skills/*/SKILL.md"))
-    assert len(installed) == SKILLS_MEASURED_AT, (
-        f"{len(installed)} skills across both plugins, not the "
+    assert len(installed) <= SKILLS_MEASURED_AT, (
+        f"{len(installed)} skills across both plugins, more than the "
         f"{SKILLS_MEASURED_AT} the budget was measured at — re-measure the "
         "installed listing before updating the count and description cap"
     )
@@ -1085,15 +1086,14 @@ def test_run_tend_names_every_pinned_instruction_path() -> None:
     The dangerous direction is a pinned path the skill omits: the session reads
     the worktree as the PR's own version, and the "never stage one of these"
     rule doesn't reach it, so a `git add` commits the base content back over
-    the PR's edit. Nothing else pairs the two — the restore is shell, the rule
+    the PR's edit. Nothing else pairs the two — the restore is code, the rule
     is prose.
     """
-    script = (REPO_ROOT / "shared/steps/lib/pin-instruction-paths.sh").read_text()
-    declaration = re.search(r"^INSTRUCTION_PATHSPECS=\((.*)\)$", script, re.MULTILINE)
-    assert declaration, "INSTRUCTION_PATHSPECS is no longer one array literal"
+    from tend.runtime.shared.event_checkout import INSTRUCTION_PATHSPECS
+
     pinned = {
-        spec.strip("'").removeprefix(":(glob)**/").removesuffix("/**")
-        for spec in declaration.group(1).split()
+        spec.removeprefix(":(glob)**/").removesuffix("/**")
+        for spec in INSTRUCTION_PATHSPECS
     }
 
     skill = (REPO_ROOT / "plugins/tend-ci-runner/skills/run-tend/SKILL.md").read_text()
@@ -1107,6 +1107,6 @@ def test_run_tend_names_every_pinned_instruction_path() -> None:
         if f"`{name}`" not in section and f"`{name}/`" not in section
     )
     assert not missing, (
-        "pinned by restore-sensitive-config.sh but absent from the skill's "
+        "pinned by event_checkout but absent from the skill's "
         f"list, so a session stages the base version over the PR's: {missing}"
     )

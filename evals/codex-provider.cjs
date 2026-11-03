@@ -7,13 +7,6 @@
  * An explicit permission profile confines commands to staged evidence and
  * minimal runtime paths, with network access disabled. Historical evidence
  * is retained data, not a GitHub API.
- *
- * TODO(2026-10-04): once a Promptfoo release after 0.123.1 ships `copy_working_dir`
- * (promptfoo#11063), replace this adapter with the native openai:codex-sdk
- * provider: `working_dir: <arm>/{{case}}/workspace` with `copy_working_dir: copy`,
- * a static isolated HOME/CODEX_HOME through `cli_env`, and a transform that reads
- * captured.md and the observed Git state from `metadata.workingDir`. Check first
- * that copy mode keeps the relative `.agents/skills` links and nested repository/.git.
  */
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -86,22 +79,10 @@ module.exports = class CodexProvider {
       await fs.mkdir(codexHome, { recursive: true });
       await fs.writeFile(path.join(codexHome, "auth.json"), auth, { mode: 0o600 });
       const codexPath = await this.codexPath();
-      // SDK config overrides flatten TOML keys, which cannot represent these
-      // quoted path selectors. Keep the complete profile in its isolated home.
-      await fs.writeFile(path.join(codexHome, "config.toml"), `default_permissions = "eval"
-[permissions.eval.filesystem]
-":root" = "deny"
-":minimal" = "read"
-${JSON.stringify(codexPath)} = "read"
-":tmpdir" = "deny"
-":slash_tmp" = "deny"
-[permissions.eval.filesystem.":workspace_roots"]
-"." = "${this.config.judge ? "read" : "write"}"
-[permissions.eval.network]
-enabled = false
-`);
+      const metadata = this.config.judge ? {} : context.test.metadata;
+      let readPaths = [];
       const config = {
-        model: this.config.model,
+        model: metadata.executor_model ?? this.config.model,
         codex_path_override: codexPath,
         model_reasoning_effort: "medium",
         working_dir: workspace,
@@ -127,10 +108,17 @@ enabled = false
           recursive: true,
           verbatimSymlinks: true,
         });
+        const setupPath = path.join(path.dirname(originalWorkspace), "setup.cjs");
+        if (await exists(setupPath)) {
+          const setup = await require(setupPath)(workspace);
+          Object.assign(config.cli_env, setup.env);
+          readPaths = setup.readPaths;
+        }
         const rebase = (text) => text.replaceAll(originalWorkspace, workspace);
         const instructions = rebase(await fs.readFile(path.join(workspace, "AGENTS.md"), "utf8"));
         await fs.writeFile(path.join(workspace, "AGENTS.md"), instructions);
         config.cli_config = { developer_instructions: instructions };
+        if (metadata.repository_instructions) config.working_dir = repository;
         if (trajectory) {
           if (!await exists(path.join(repository, ".git"))) throw new Error("Trajectory eval requires a Git checkout at repository/");
           // Observe object/ref data through a separate Git directory. Actor
@@ -143,6 +131,20 @@ enabled = false
           initialCommit = git(["rev-parse", "HEAD"]).trim();
         }
       }
+      // SDK config overrides flatten TOML keys, which cannot represent these
+      // quoted path selectors. Keep the complete profile in its isolated home.
+      await fs.writeFile(path.join(codexHome, "config.toml"), `default_permissions = "eval"
+[permissions.eval.filesystem]
+":root" = "deny"
+":minimal" = "read"
+${JSON.stringify(codexPath)} = "read"
+${readPaths.map((readPath) => `${JSON.stringify(readPath)} = "read"`).join("\n")}
+":tmpdir" = "deny"
+":slash_tmp" = "deny"
+${JSON.stringify(workspace)} = "${this.config.judge ? "read" : "write"}"
+[permissions.eval.network]
+enabled = false
+`);
       provider = await this.loadProvider(config);
       const response = await provider.callApi(prompt, context, callOptions);
       if (response.error || this.config.judge) return response;

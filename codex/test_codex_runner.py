@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -12,18 +13,6 @@ from tend.runtime.codex import runner as codex_runner
 
 def _result(args: list[str], *, stdout: str = "", returncode: int = 0):
     return subprocess.CompletedProcess(args, returncode, stdout, "")
-
-
-PLUGIN_ADD = ["plugin", "add", "--json", "tend-ci-runner@tend"]
-
-
-def _plugin_add_output(args: list[str], installed: Path) -> str:
-    """What `codex plugin add --json` prints for tend-ci-runner; nothing else."""
-    if args[-4:] != PLUGIN_ADD:
-        return ""
-    return (
-        json.dumps({"name": "tend-ci-runner", "installedPath": str(installed)}) + "\n"
-    )
 
 
 def _set_sandbox_env(
@@ -56,24 +45,19 @@ def _set_sandbox_env(
     return action, agent_home, agent_env
 
 
-def test_install_plugin_exports_the_single_sandbox_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_install_plugins_in_the_sandbox_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _, agent_home, agent_env = _set_sandbox_env(tmp_path, monkeypatch)
-    plugin = agent_home / ".codex/plugins/tend-ci-runner"
-    plugin.mkdir(parents=True)
+    _, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
     calls: list[tuple[list[str], dict[str, object]]] = []
 
     def run(args: list[str], **kwargs: object):
         calls.append((args, kwargs))
-        stdout = _plugin_add_output(args, plugin)
-        return _result(args, stdout=stdout)
+        return _result(args)
 
     monkeypatch.setattr(codex_runner, "_run", run)
 
     assert codex_runner.install_plugin() == 0
-    assert agent_env.read_text().endswith(f"CLAUDE_PLUGIN_ROOT={plugin}\n")
-    assert capsys.readouterr().out == _plugin_add_output(PLUGIN_ADD, plugin)
     marketplace = agent_home / "tend-marketplace"
     assert calls[0][0] == [
         "/usr/bin/sudo",
@@ -97,42 +81,7 @@ def test_install_plugin_exports_the_single_sandbox_root(
         str(marketplace),
     ]
     assert codex_calls[1][-3:] == ["plugin", "add", "install-tend@tend"]
-    assert codex_calls[2][-4:] == PLUGIN_ADD
-
-
-def test_install_plugin_rejects_a_root_outside_the_sandbox_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _set_sandbox_env(tmp_path, monkeypatch)
-    outside = tmp_path / "runner-owned/plugin"
-    outside.mkdir(parents=True)
-
-    def run(args: list[str], **kwargs: object):
-        return _result(args, stdout=_plugin_add_output(args, outside))
-
-    monkeypatch.setattr(codex_runner, "_run", run)
-
-    assert codex_runner.install_plugin() == 1
-
-
-def test_install_plugin_rejects_output_that_is_not_the_json_report(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
-    plugin = agent_home / ".codex/plugins/tend-ci-runner"
-    plugin.mkdir(parents=True)
-
-    def run(args: list[str], **kwargs: object):
-        return _result(
-            args,
-            stdout=(
-                f"Installed plugin root: {plugin}\n" if args[-4:] == PLUGIN_ADD else ""
-            ),
-        )
-
-    monkeypatch.setattr(codex_runner, "_run", run)
-
-    assert codex_runner.install_plugin() == 1
+    assert codex_calls[2][-3:] == ["plugin", "add", "tend-ci-runner@tend"]
 
 
 @pytest.mark.parametrize("memory_enabled", [False, True])
@@ -187,8 +136,12 @@ def test_stage_agents_writes_as_the_sandbox_user(
 
 
 @pytest.mark.parametrize("memory_enabled", [False, True])
+@pytest.mark.parametrize("effort", ["none", 'future"level', "future-𝚡"])
 def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, memory_enabled: bool
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    memory_enabled: bool,
+    effort: str,
 ) -> None:
     _, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
     run_dir = agent_home / "run"
@@ -200,7 +153,7 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
     monkeypatch.setenv("TEND_RUN_DIR", str(run_dir))
     monkeypatch.setenv("CODEX_PROXY_URL", "http://127.0.0.1:1234")
     monkeypatch.setenv("MODEL", "gpt-test")
-    monkeypatch.setenv("EFFORT", "high")
+    monkeypatch.setenv("EFFORT", effort)
     monkeypatch.setenv(
         "EXTRA_ARGS", "--skip-git-repo-check\n--config\nproject_doc_max_bytes=8192"
     )
@@ -242,6 +195,10 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
     assert "NO_PROXY=" in launch
     assert "no_proxy=" in launch
     codex_at = launch.index("/opt/codex/bin/codex")
+    effort_config = next(
+        arg for arg in launch[codex_at:] if arg.startswith("model_reasoning_effort=")
+    )
+    assert tomllib.loads(effort_config)["model_reasoning_effort"] == effort
     assert launch[codex_at:] == [
         "/opt/codex/bin/codex",
         "exec",
@@ -267,10 +224,12 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
         "--config",
         'cli_auth_credentials_store="file"',
         "--config",
+        "agents.max_concurrent_threads_per_session=9223372036854775807",
+        "--config",
         "background_terminal_max_timeout=21600000",
         *(["--config", "features.memories=false"] if memory_enabled else []),
         "--config",
-        'model_reasoning_effort="high"',
+        f"model_reasoning_effort={json.dumps(effort, ensure_ascii=False)}",
         "Review this",
     ]
 
@@ -321,6 +280,8 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
         str(run_dir / "codex-final-message.md"),
         "--config",
         'cli_auth_credentials_store="file"',
+        "--config",
+        "agents.max_concurrent_threads_per_session=9223372036854775807",
         "--config",
         "background_terminal_max_timeout=21600000",
         *(["--config", "features.memories=false"] if memory_enabled else []),

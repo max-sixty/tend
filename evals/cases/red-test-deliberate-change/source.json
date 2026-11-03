@@ -1,0 +1,26 @@
+{
+  "kind": "focused",
+  "historical_ref": "0.3.13",
+  "bot": "leaf-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "evidence/failure.log": "7e8e19d33799b45fe32a45bd2c6bc87c6e69de7da041ca5b999b572ddb6d3f5a",
+    "evidence/merged-before-run.txt": "c21ed9ddcf1fe00fe2e215afb670866d9ce9ffdcad5dc8ae7ca630e488b4a8fa",
+    "evidence/pr-1781.md": "83985b5e185aae557bf12db1b0466d3d9222011d9f8f40c315e45ec4547284a8"
+  },
+  "origin": {
+    "repository": "max-sixty/leaf",
+    "ci_run": "https://github.com/max-sixty/leaf/actions/runs/37268441936",
+    "head": "318d72b9f5c60d20e04536285b5baa420e142f76",
+    "repair": "https://github.com/max-sixty/leaf/pull/1810",
+    "restored_by": "https://github.com/max-sixty/leaf/pull/2330",
+    "harness": "codex",
+    "evidence_normalization": {
+      "failure.log": "the [False] traceback from the run's failed-job log, timestamps and step prefixes removed",
+      "trailing_whitespace_stripped": [
+        "evidence/failure.log",
+        "evidence/pr-1781.md"
+      ]
+    }
+  }
+}

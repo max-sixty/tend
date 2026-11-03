@@ -1,4 +1,4 @@
-"""Tests for the CI-poll scripts in plugins/tend-ci-runner/scripts/.
+"""Tests for the CI-poll scripts in tend.runtime.ci..
 
 poll_pr_checks.py queries a *commit's* rollup, never the PR's — the false
 green this design exists to prevent is a poll silently retargeting a head
@@ -10,28 +10,18 @@ poll loop runs without waiting between reads.
 
 from __future__ import annotations
 
-import contextlib
-import importlib
-import io
 import json
-import os
 import re
 import subprocess
-import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from tend.runtime.ci import poll_pr_checks, rerun_failed_jobs
 
 from tests import GH_PREAMBLE, fake_bin, tool_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts"
-POLL_PR_CHECKS = SCRIPTS / "poll_pr_checks.py"
-RERUN_FAILED_JOBS = SCRIPTS / "rerun_failed_jobs.py"
-sys.path.insert(0, str(SCRIPTS))
-poll_pr_checks = importlib.import_module("poll_pr_checks")
-rerun_failed_jobs = importlib.import_module("rerun_failed_jobs")
 
 HEAD_SHA = "aaaa111122223333aaaa111122223333aaaa1111"
 
@@ -239,16 +229,22 @@ def _invoke(
     sleep: Callable[[float], None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     sleep = sleep or _clock()
-    stdout, stderr = io.StringIO(), io.StringIO()
+    from functools import partial
+
+    from click.testing import CliRunner
+    from tend.runtime.cli import runtime
+
     with pytest.MonkeyPatch.context() as monkeypatch:
-        monkeypatch.setattr(os, "environ", env.copy())
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            try:
-                returncode = module.main(args, sleep=sleep)
-            except subprocess.CalledProcessError as error:
-                returncode = error.returncode
+        monkeypatch.setattr(module, "main", partial(module.main, sleep=sleep))
+        result = CliRunner().invoke(
+            runtime,
+            [module.__name__.rsplit(".", 1)[-1].replace("_", "-"), *args],
+            env=env,
+        )
+    if result.exception and not isinstance(result.exception, SystemExit):
+        raise result.exception
     return subprocess.CompletedProcess(
-        args, returncode, stdout.getvalue(), stderr.getvalue()
+        args, result.exit_code, result.stdout, result.stderr
     )
 
 
@@ -368,6 +364,96 @@ def test_approval_is_undecided_when_the_head_moves_while_it_waits(
 
     assert result.returncode == 2, result.stdout + result.stderr
     assert "moved" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("response", "code", "named"),
+    [
+        # A red beside a running check withholds as it stands, naming both.
+        (_resp(OMNIBUS_RED, MATRIX_RUNNING), 1, "not waited for:\nmatrix"),
+        # Nothing failing approves beside a running check, as with the wait.
+        (_resp(_check_run("tests"), MATRIX_RUNNING), 0, ""),
+        # A red with nothing pending withholds, as with the wait.
+        (_resp(OMNIBUS_RED, _check_run("matrix")), 1, "check-ok-to-merge"),
+    ],
+)
+def test_approval_without_the_wait_reads_once(
+    env: dict[str, str], response: str, code: int, named: str
+) -> None:
+    _serve(env, response)
+
+    result = _invoke(poll_pr_checks, env, ["approval", "7", HEAD_SHA, "--no-wait"])
+
+    assert result.returncode == code, result.stdout + result.stderr
+    assert named in result.stdout + result.stderr
+    assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "1"
+
+
+def test_no_wait_combines_with_skip(env: dict[str, str]) -> None:
+    """The flag parses beside `--skip`, which still drops the skipped red."""
+    _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING))
+
+    result = _invoke(
+        poll_pr_checks,
+        env,
+        ["approval", "7", HEAD_SHA, "--no-wait", "--skip", "check-ok-to-merge"],
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.startswith("approve:")
+
+
+@pytest.mark.parametrize(
+    ("responses", "code", "named", "reads"),
+    [
+        # Pending checks are reported, not waited for.
+        (
+            (_resp(_check_run("tests"), MATRIX_RUNNING),),
+            2,
+            "still pending",
+            "1",
+        ),
+        # A red beside pending checks is final for that check: it is
+        # reported red now, naming what still runs.
+        (
+            (_resp(_check_run("lint", conclusion="FAILURE"), MATRIX_RUNNING),),
+            1,
+            "not waited for:\nmatrix",
+            "1",
+        ),
+        # A settled read is confirmed once, then judged as the wait judges it.
+        ((_resp(_check_run("tests")),), 0, "green", "2"),
+        (
+            (_resp(_check_run("lint", conclusion="FAILURE")),),
+            1,
+            "red on",
+            "2",
+        ),
+        # No complete reading is unverified, not waited out.
+        ((NULL_ROLLUP,), 2, "no complete check rollup", "1"),
+        # A check that registers before the confirming read keeps it pending.
+        (
+            (_resp(_check_run("tests")), _resp(_check_run("tests"), MATRIX_RUNNING)),
+            2,
+            "matrix",
+            "2",
+        ),
+    ],
+)
+def test_poll_without_the_wait_reads_once(
+    env: dict[str, str],
+    responses: tuple[str, ...],
+    code: int,
+    named: str,
+    reads: str,
+) -> None:
+    _serve(env, *responses)
+
+    result = _poll_args(env, "7", HEAD_SHA, "--no-wait")
+
+    assert result.returncode == code, result.stdout + result.stderr
+    assert named in result.stdout
+    assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == reads
 
 
 def test_red_names_the_failing_check_with_its_url(env: dict[str, str]) -> None:
@@ -964,7 +1050,7 @@ def test_omitted_sha_is_rejected_not_reported_red(env: dict[str, str]) -> None:
     out = result.stdout + result.stderr
 
     assert result.returncode == 2, out
-    assert "UNVERIFIED, not green" in out
+    assert "Missing argument 'SHA'" in out
     assert "unbound variable" not in out
     assert not Path(env["GH_CALLS"]).exists(), "the short call reached the API"
 

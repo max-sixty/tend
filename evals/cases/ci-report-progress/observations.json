@@ -1,0 +1,30 @@
+{
+  "repository": "max-sixty/leaf",
+  "bot": "leaf-agent",
+  "cases": [
+    {
+      "id": "newly-compared-runs",
+      "report": {
+        "number": 3985,
+        "state": "OPEN",
+        "labels": ["tend-ci-failure"],
+        "last_diagnosis": "Run 40600745001 adds causes #4526 through #4530; its other failures match #4401, #4315 and the existing investigations.",
+        "later_comments": [
+          "Failed again: https://github.com/max-sixty/leaf/actions/runs/40605052307 on fb71279dcdb7.",
+          "Failed again: https://github.com/max-sixty/leaf/actions/runs/40610988525 on 6c6393360faa."
+        ]
+      },
+      "completed_investigation": "Both later runs were read and their deciding diagnostics compared with existing issues and repair commits. Every failure has an existing owner already linked from this report. Open issues #4401 and #4315 retain unresolved failures; their threads already contain the observed evidence. Run 40605052307 also predates the merged repairs for #4526 through #4530. Run 40610988525 no longer reports those repaired cases. No new cause, recurrence requiring reopening, transient diagnosis, or additional evidence for a cause thread was found. The report has not received a comment from this session."
+    },
+    {
+      "id": "already-compared-runs",
+      "report": {
+        "number": 3985,
+        "state": "OPEN",
+        "labels": ["tend-ci-failure"],
+        "last_comment": "Compared runs 40605052307 and 40610988525. Their remaining failures belong to the already linked #4401 and #4315; the first run predates the repairs for #4526 through #4530, which are absent in the second run. No new causes."
+      },
+      "completed_investigation": "A queued duplicate session rechecked the report. The latest recorded run is still 40610988525. The quoted diagnosis covers every recorded failure. No newer run or new evidence exists, and the cause repairs remain unresolved."
+    }
+  ]
+}

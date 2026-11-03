@@ -41,9 +41,8 @@ Claude's accounting has three paths, tried in order:
    ``usage.*`` and ``num_turns`` are per-event while ``total_cost_usd`` is
    cumulative, so the per-event fields are summed and cost taken from the last.
 2. No result event: the session JSONL this step has just consolidated. A
-   cancelled session never emits a result, and ``tend-triage`` runs with
-   ``cancel-in-progress: true``, so this is routine rather than exotic — the
-   run may have done dozens of turns and already posted its comment.
+   cancelled session never emits a result; it may still have done dozens of
+   turns and already posted its comment.
 3. Neither: the agent never ran (a preflight failure, say). That run genuinely
    cost nothing, so it reports a real zero rather than flagging an unknown.
 
@@ -264,12 +263,11 @@ def artifact_name(harness: str) -> str:
     A run whose event is about an issue or PR takes a constant ``-n<number>``,
     which a later run on the same thread resolves with one
     ``GET /actions/artifacts?name=…`` (``/tend-ci-runner:read-session-logs``).
-    The thread workflows are single-job, and the repo's shared issue/PR number
-    space means one number keys the thread across every event that reaches it,
-    a relayed review among them. Everything else — ``schedule``,
-    ``workflow_run``, a dispatch with no thread — takes the per-job
-    ``INVOCATION_ID``, so matrix legs don't collide. Matrixing a thread
-    workflow would collide two legs on the constant name and fail at upload.
+    Triage matrix jobs supply their issue number through ``TEND_ISSUE_NUMBER``;
+    each batch deduplicates its issue IDs, so these names stay unique per run.
+    The repo's shared issue/PR number space keys a thread across event types.
+    Everything else — ``schedule``, ``workflow_run``, a dispatch with no thread —
+    takes the per-job ``INVOCATION_ID``.
     """
     number = _common.subject_number()
     if number is not None:

@@ -1,15 +1,16 @@
 """Shared machinery for the issues the actions file about their own runs.
 
 ``tend-outage`` (``report_failure.py``) and ``tend-rate-limit``
-(``rate_limit_preflight.py``) both name the run and the trigger it stranded in
+(``creation_limit.py``) both name the run and the trigger it stranded in
 one table format, and both race with sibling jobs failing or tripping at the
 same instant.
 
 Callers keep their own policy about a closed issue, because the two differ and
 the difference is deliberate: an outage issue closed as resolved must not
 swallow the next incident, so ``report_failure`` files a fresh one; the
-rate-limit issue is a single long-lived record whose closes *are* the
-approvals, so the preflight reopens it.
+rate-limit issue is a single long-lived record whose maintainer closes are
+approvals and whose bot closes record recovery, so the creation limiter
+reopens it on another refusal.
 
 Inputs (env, from Actions): ``GITHUB_SERVER_URL``, ``GITHUB_REPOSITORY``,
 ``GITHUB_RUN_ID``, ``GITHUB_EVENT_NAME``, ``GITHUB_EVENT_PATH``.
@@ -39,12 +40,12 @@ def ref() -> str:
     caller renders that as ``N/A``.
     """
     if os.environ["GITHUB_EVENT_NAME"] == "workflow_run":
-        # Link the run being fixed — without its id there is no way back to
-        # the failure the ci-fix job was dispatched to handle.
+        # Link the finished run that started this one: without its id there
+        # is no way back to what the session was started for.
         run_id = _common.dig(_common.event_payload(), "workflow_run", "id")
         if not run_id:
-            return "CI fix for workflow run"
-        return f"CI fix for [run {run_id}]({_run_url(run_id)})"
+            return "Finished workflow run"
+        return f"Finished [run {run_id}]({_run_url(run_id)})"
     number = _common.subject_number()
     return f"#{number}" if number else ""
 
@@ -82,27 +83,47 @@ def row() -> str:
 def matching(label: str, state: str, title: str) -> list[int]:
     """Every issue this bot filed under *title* carrying *label*, lowest first.
 
-    A label no repo has yet returns an empty list rather than an error.
+    A failed, malformed, or truncated listing cannot establish that no tracker
+    exists. Let it fail before a caller creates a duplicate or loses approvals.
     """
     issues = _common.gh_json(
         "issue",
         "list",
+        "--repo",
+        os.environ["GITHUB_REPOSITORY"],
+        "--author",
+        "@me",
         "--label",
         label,
         "--state",
         state,
-        "--author",
-        "@me",
         "--limit",
         "100",
         "--json",
         "number,title",
     )
-    return sorted(issue["number"] for issue in issues if issue.get("title") == title)
+    if not isinstance(issues, list):
+        raise _common.UnexpectedShape("tracker issue listing is not an array")
+    if len(issues) >= 100:
+        raise _common.UnexpectedShape(
+            "tracker issue listing reached its 100-item limit"
+        )
+    numbers = []
+    for issue in issues:
+        if (
+            not isinstance(issue, dict)
+            or not isinstance(issue.get("title"), str)
+            or type(issue.get("number")) is not int
+            or issue["number"] <= 0
+        ):
+            raise _common.UnexpectedShape("invalid tracker issue")
+        if issue["title"] == title:
+            numbers.append(issue["number"])
+    return sorted(numbers)
 
 
 def canonical(label: str, state: str, title: str) -> int | None:
-    """The one that counts: lowest-numbered, ``None`` when there is none.
+    """The write destination: lowest-numbered, ``None`` when there is none.
 
     Lowest rather than newest, because a race can leave a duplicate the
     reconcile then closes and the lowest is the one every leg computes alike.
@@ -168,7 +189,8 @@ def is_ours(issue: dict[str, Any], *, title: str, label: str, login: str) -> boo
     keeper, and on the rate-limit record a close is read as an approval.
     """
     return (
-        issue.get("state") == "open"
+        "pull_request" not in issue
+        and issue.get("state") == "open"
         and issue.get("title") == title
         and (issue.get("user") or {}).get("login") == login
         and any(entry.get("name") == label for entry in issue.get("labels") or [])
@@ -190,20 +212,9 @@ def create_and_reconcile(label: str, title: str, row: str, body: str) -> int | N
     preserve.
 
     Callers sleep a jittered interval before their check-then-act, which
-    narrows the window when sibling jobs trip at near-identical times but
-    cannot close it: two legs can still both read the list as empty within the
-    few seconds the index takes to reflect a fresh create, and each files its
-    own.
-
-    The probe goes downwards rather than re-listing, because a settle-then-list
-    reconcile reads the same lagging index that lost the race in the first
-    place: observed in practice, a sibling created 3 s earlier was still absent
-    from the list while one created 6 s earlier was present, so two legs whose
-    creates landed in the same second each read back only their own issue and
-    closed nothing. ``GET /issues/{n}`` is a primary-key read and returns a
-    sibling the instant it exists. Deferring to the *lowest* match rather than
-    the nearest is what makes it converge: every leg computes the same keeper
-    from its own vantage point, and only higher-numbered legs stand down.
+    narrows but cannot close the race between reading and creating. Probe
+    lower issue numbers directly for racing siblings; every leg defers to the
+    lowest match it can see, and only higher-numbered legs stand down.
 
     Self-close-only is a deliberate narrowing: closing every higher duplicate
     a leg could see only ever worked when the lagging list happened to be

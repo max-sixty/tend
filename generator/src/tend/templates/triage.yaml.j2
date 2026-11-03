@@ -1,25 +1,65 @@
+{%- set issue = '${{ matrix.issue }}' -%}
 <<header>>
 name: tend-triage
+# Keep the selected IDs visible before matrix jobs exist, including while queued.
+run-name: triage ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
 on:
   issues:
-    types: [opened]
+    types: [opened, reopened]
+  workflow_dispatch:
+    inputs:
+      issues:
+        description: JSON array of issue numbers; use the triage-batch dispatch command to split large selections
+        type: string
+        required: true
 
+# The whole batch holds the lane: overlapping events cannot multiply the cap.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  group: tend-triage
+  cancel-in-progress: false
+  queue: max
 
 jobs:
-  triage:
+  select:
     if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && <<not_bookkeeping()>>
     runs-on: ubuntu-24.04
 <<environment()>>
     permissions:
-<<permissions()>>
+      contents: read
+    outputs:
+      issues: ${{ steps.select.outputs.issues }}
     steps:
-<<react_eyes('issues/${{ github.event.issue.number }}')>>
+<<setup_tend_runtime()>>
+      - name: Select current issues
+        id: select
+        env:
+          GITHUB_TOKEN: ${{ secrets.<<bot_token_secret>> }}
+          ISSUES: ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}
+          BOOKKEEPING_LABELS: '<<bookkeeping_labels|tojson>>'
+        run: |
+          tend runtime triage-batch select
+
+  triage:
+    needs: select
+    if: needs.select.outputs.issues != '[]'
+    name: "triage #${{ matrix.issue }}"
+    strategy:
+      fail-fast: false
+      max-parallel: <<max_parallel>>
+      matrix:
+        issue: ${{ fromJSON(needs.select.outputs.issues) }}
+    runs-on: ubuntu-24.04
+<<environment()>>
+    permissions:
+<<permissions()>>
+    env:
+      TEND_ISSUE_NUMBER: ${{ matrix.issue }}
+    steps:
+<<setup_tend_runtime()>>
+<<react_eyes('issues/' ~ issue)>>
 
 <<checkout(cfg, ref=cfg.default_branch)>>
 <<setup>>
 <<agent_step(cfg, block_input('prompt', prompt))>>
 
-<<unreact_eyes(cfg, 'issues/${{ github.event.issue.number }}', if_condition='always()')>>
+<<unreact_eyes(cfg, 'issues/' ~ issue, if_condition='always()')>>

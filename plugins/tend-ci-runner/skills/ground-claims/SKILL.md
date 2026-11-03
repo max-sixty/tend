@@ -270,19 +270,17 @@ Good: Same flake → `curl /api/v2/incidents/unresolved.json` returns an active 
 
 ## Who to ask when you can't do it yourself
 
-Some checks need hardware or an environment CI doesn't have (Windows, a GPU, a
-physical terminal). Escalate in this order and stop at the first rung that works:
+Some checks need hardware or an environment the current session lacks. Identify
+the required capability and inspect the repository's supported verification
+routes, including existing CI jobs. Use a suitable route within its existing
+permissions and collect the result for the relevant revision and failing path.
+Repeating the same incapable environment supplies no new evidence. Preserve
+sandbox and credential boundaries; missing capability does not authorize
+exposing a host service or changing privileged workflow policy.
 
-1. **Do it yourself.** Exhaust what's reachable from CI — install the tool,
-   clone and read the source, stand up the missing surface in a container.
-2. **Offer to make it doable yourself.** Propose adding the capability to *your
-   own* repo — a Windows CI job that exercises the path — so no future run
-   needs a person to run the check by hand.
-3. **Ask a contributor of your own repo**, and only for something that follows
-   from what they're already doing (a PR author testing their own change).
-4. **Escalate to your own repo's maintainer** that you're blocked.
-
-Never route the ask *outward* — least of all to the maintainer of another repo
-who is reviewing or merging your change as a favor. State the gap honestly
-there ("verified by source inspection, not on hardware") and make rung 2's offer
-in your own repo.
+If no available route can perform the check, keep the verification requirement
+explicit and propose the narrowly scoped capability or access needed in this
+repository. Ask its responsible contributor or maintainer for that specific
+blocker, retaining the engineering work. A contributor already testing the same
+change may supply the result. State unverified claims honestly; do not send the
+verification request to another repository's maintainer reviewing your change.

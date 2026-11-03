@@ -1,0 +1,282 @@
+[
+ {
+  "id": "main-shares-red",
+  "repository": "owner/repo",
+  "merge": "yolo",
+  "review_prompt": "$review 4201",
+  "ci_landing_policy": "The repository overlay states no CI landing policy, so merge-pr's default applies: landing requires the poll's exit 0.",
+  "pr": {
+   "number": 4201,
+   "state": "OPEN",
+   "draft": false,
+   "author": "contributor-bob",
+   "head_sha": "1111111111111111111111111111111111111111",
+   "changed_files": [
+    "docs/guide.md"
+   ],
+   "human_hold": null,
+   "unresolved_actionable_findings": []
+  },
+  "session_so_far": [
+   "Pre-flight start: author human, not draft, not already reviewed.",
+   "Review of a docs-only change and second pass: no findings.",
+   "Approval check printed `approve: no failing check on 1111111111111111111111111111111111111111` (exit 0).",
+   "Posted an empty-body APPROVE pinned to 1111111111111111111111111111111111111111.",
+   "No unresolved bot threads; no fixes to push.",
+   "Polled 1111111111111111111111111111111111111111 to a terminal result in the foreground per monitor-ci."
+  ],
+  "observed_commands": [
+   {
+    "command": "uv run --script plugin/scripts/poll_pr_checks.py poll 4201 1111111111111111111111111111111111111111",
+    "exit_code": 1,
+    "output": "red on 1111111111111111111111111111111111111111:\ntest (ubuntu) https://github.com/owner/repo/actions/runs/9300/job/1\nverdict: RED on 1111111111111111111111111111111111111111 (exit 1)\n"
+   },
+   {
+    "command": "gh run view 9300 --log-failed",
+    "exit_code": 0,
+    "output": "test (ubuntu)  FAILED tests/test_cache.py::test_eviction_order - AssertionError: expected [3, 1] got [1, 3]\n"
+   },
+   {
+    "command": "gh run view 9300 --json jobs --jq '.jobs[] | select(.conclusion == \"failure\") | [.name, .startedAt, .completedAt] | @tsv'",
+    "exit_code": 0,
+    "output": "test (ubuntu)\t2026-10-11T11:00:00Z\t2026-10-11T11:48:00Z\n"
+   },
+   {
+    "command": "gh run list --branch main --workflow ci --status completed --limit 5 --json conclusion,createdAt,url",
+    "exit_code": 0,
+    "output": "[{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T08:02:11Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9288\"},{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T05:40:52Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9276\"},{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T02:13:07Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9263\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-10T22:51:30Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9250\"}]\n"
+   },
+   {
+    "command": "gh run view 9288 --log-failed",
+    "exit_code": 0,
+    "output": "test (ubuntu)  FAILED tests/test_cache.py::test_eviction_order - AssertionError: expected [3, 1] got [1, 3]\n"
+   },
+   {
+    "command": "gh run view 9276 --log-failed",
+    "exit_code": 0,
+    "output": "test (ubuntu)  FAILED tests/test_cache.py::test_eviction_order - AssertionError: expected [3, 1] got [1, 3]\n"
+   },
+   {
+    "command": "gh run view 9263 --log-failed",
+    "exit_code": 0,
+    "output": "test (ubuntu)  FAILED tests/test_cache.py::test_eviction_order - AssertionError: expected [3, 1] got [1, 3]\n"
+   }
+  ]
+ },
+ {
+  "id": "policy-lets-it-land",
+  "repository": "owner/repo",
+  "merge": "yolo",
+  "review_prompt": "$review 4202",
+  "ci_landing_policy": "The repository overlay's CI landing policy: a terminal failure the PR doesn't cause does not block landing when the failing test is outside the PR's changed files and a default-branch run shows the same failure; name that run in the merge's closing summary.",
+  "pr": {
+   "number": 4202,
+   "state": "OPEN",
+   "draft": false,
+   "author": "contributor-carol",
+   "head_sha": "2222222222222222222222222222222222222222",
+   "changed_files": [
+    "README.md"
+   ],
+   "human_hold": null,
+   "unresolved_actionable_findings": []
+  },
+  "session_so_far": [
+   "Pre-flight start: author human, not draft, not already reviewed.",
+   "Review of a README wording change and second pass: no findings.",
+   "Approval check printed `approve: no failing check on 2222222222222222222222222222222222222222` (exit 0).",
+   "Posted an empty-body APPROVE pinned to 2222222222222222222222222222222222222222.",
+   "No unresolved bot threads; no fixes to push.",
+   "Polled 2222222222222222222222222222222222222222 to a terminal result in the foreground per monitor-ci."
+  ],
+  "observed_commands": [
+   {
+    "command": "uv run --script plugin/scripts/poll_pr_checks.py poll 4202 2222222222222222222222222222222222222222",
+    "exit_code": 1,
+    "output": "red on 2222222222222222222222222222222222222222:\ntest (ubuntu) https://github.com/owner/repo/actions/runs/9310/job/1\nverdict: RED on 2222222222222222222222222222222222222222 (exit 1)\n"
+   },
+   {
+    "command": "gh run view 9310 --log-failed",
+    "exit_code": 0,
+    "output": "test (ubuntu)  FAILED tests/test_cache.py::test_eviction_order - AssertionError: expected [3, 1] got [1, 3]\n"
+   },
+   {
+    "command": "gh run view 9310 --json jobs --jq '.jobs[] | select(.conclusion == \"failure\") | [.name, .startedAt, .completedAt] | @tsv'",
+    "exit_code": 0,
+    "output": "test (ubuntu)\t2026-10-11T11:00:00Z\t2026-10-11T11:48:00Z\n"
+   },
+   {
+    "command": "gh run list --branch main --workflow ci --status completed --limit 5 --json conclusion,createdAt,url",
+    "exit_code": 0,
+    "output": "[{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T09:12:40Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9298\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T08:30:02Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9291\"},{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T08:02:11Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9288\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T05:40:52Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9276\"}]\n"
+   },
+   {
+    "command": "gh run view 9298 --log-failed",
+    "exit_code": 0,
+    "output": "test (ubuntu)  FAILED tests/test_cache.py::test_eviction_order - AssertionError: expected [3, 1] got [1, 3]\n"
+   }
+  ]
+ },
+ {
+  "id": "main-passes-red",
+  "repository": "owner/repo",
+  "merge": "yolo",
+  "review_prompt": "$review 4203",
+  "ci_landing_policy": "The repository overlay states no CI landing policy, so merge-pr's default applies: landing requires the poll's exit 0.",
+  "pr": {
+   "number": 4203,
+   "state": "OPEN",
+   "draft": false,
+   "author": "contributor-dana",
+   "head_sha": "3333333333333333333333333333333333333333",
+   "changed_files": [
+    "src/cli.py"
+   ],
+   "human_hold": null,
+   "unresolved_actionable_findings": []
+  },
+  "session_so_far": [
+   "Pre-flight start: author human, not draft, not already reviewed.",
+   "Review of a CLI flag rename and second pass: no findings.",
+   "Approval check printed `approve: no failing check on 3333333333333333333333333333333333333333` (exit 0).",
+   "Posted an empty-body APPROVE pinned to 3333333333333333333333333333333333333333.",
+   "No unresolved bot threads; no fixes to push.",
+   "Polled 3333333333333333333333333333333333333333 to a terminal result in the foreground per monitor-ci."
+  ],
+  "observed_commands": [
+   {
+    "command": "uv run --script plugin/scripts/poll_pr_checks.py poll 4203 3333333333333333333333333333333333333333",
+    "exit_code": 1,
+    "output": "red on 3333333333333333333333333333333333333333:\ntest (macos) https://github.com/owner/repo/actions/runs/9320/job/1\nverdict: RED on 3333333333333333333333333333333333333333 (exit 1)\n"
+   },
+   {
+    "command": "gh run view 9320 --log-failed",
+    "exit_code": 0,
+    "output": "test (macos)  FAILED tests/test_scheduler.py::test_timeout_fires - AssertionError: timer fired after 2.31s, expected < 2.0s\n"
+   },
+   {
+    "command": "gh run view 9320 --json jobs --jq '.jobs[] | select(.conclusion == \"failure\") | [.name, .startedAt, .completedAt] | @tsv'",
+    "exit_code": 0,
+    "output": "test (macos)\t2026-10-11T11:00:00Z\t2026-10-11T11:22:00Z\n"
+   },
+   {
+    "command": "gh run list --branch main --workflow ci --status completed --limit 5 --json conclusion,createdAt,url",
+    "exit_code": 0,
+    "output": "[{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T10:01:44Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9318\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T09:20:13Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9311\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T09:12:40Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9298\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T08:30:02Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9291\"}]\n"
+   },
+   {
+    "command": "gh issue list --state open --search \"test_timeout_fires in:title,body\" --json number,title",
+    "exit_code": 0,
+    "output": "[]\n"
+   }
+  ]
+ },
+ {
+  "id": "infrastructure-red",
+  "repository": "owner/repo",
+  "merge": "yolo",
+  "review_prompt": "$review 4204",
+  "ci_landing_policy": "The repository overlay states no CI landing policy, so merge-pr's default applies: landing requires the poll's exit 0.",
+  "pr": {
+   "number": 4204,
+   "state": "OPEN",
+   "draft": false,
+   "author": "contributor-erin",
+   "head_sha": "4444444444444444444444444444444444444444",
+   "changed_files": [
+    "src/report.py"
+   ],
+   "human_hold": null,
+   "unresolved_actionable_findings": []
+  },
+  "session_so_far": [
+   "Pre-flight start: author human, not draft, not already reviewed.",
+   "Review of a report formatting fix and second pass: no findings.",
+   "Approval check printed `approve: no failing check on 4444444444444444444444444444444444444444` (exit 0).",
+   "Posted an empty-body APPROVE pinned to 4444444444444444444444444444444444444444.",
+   "No unresolved bot threads; no fixes to push.",
+   "Polled 4444444444444444444444444444444444444444 to a terminal result in the foreground per monitor-ci."
+  ],
+  "observed_commands": [
+   {
+    "command": "uv run --script plugin/scripts/poll_pr_checks.py poll 4204 4444444444444444444444444444444444444444",
+    "exit_code": 1,
+    "output": "red on 4444444444444444444444444444444444444444:\nbuild-site https://github.com/owner/repo/actions/runs/9330/job/1\nverdict: RED on 4444444444444444444444444444444444444444 (exit 1)\n"
+   },
+   {
+    "command": "gh run view 9330 --log-failed",
+    "exit_code": 0,
+    "output": "build-site  Run actions/setup-node@v4\nbuild-site  Error: ENOSPC: no space left on device, write\n"
+   },
+   {
+    "command": "gh run view 9330 --json jobs --jq '.jobs[] | select(.conclusion == \"failure\") | [.name, .startedAt, .completedAt] | @tsv'",
+    "exit_code": 0,
+    "output": "build-site\t2026-10-11T11:00:00Z\t2026-10-11T11:01:00Z\n"
+   },
+   {
+    "command": "gh run list --branch main --workflow ci --status completed --limit 5 --json conclusion,createdAt,url",
+    "exit_code": 0,
+    "output": "[{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T10:01:44Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9318\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T09:20:13Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9311\"}]\n"
+   }
+  ]
+ },
+ {
+  "id": "main-intermittent-cheap",
+  "repository": "owner/repo",
+  "merge": "yolo",
+  "review_prompt": "$review 4205",
+  "ci_landing_policy": "The repository overlay states no CI landing policy, so merge-pr's default applies: landing requires the poll's exit 0.",
+  "pr": {
+   "number": 4205,
+   "state": "OPEN",
+   "draft": false,
+   "author": "contributor-finn",
+   "head_sha": "5555555555555555555555555555555555555555",
+   "changed_files": [
+    "docs/api.md"
+   ],
+   "human_hold": null,
+   "unresolved_actionable_findings": []
+  },
+  "session_so_far": [
+   "Pre-flight start: author human, not draft, not already reviewed.",
+   "Review of an API docs fix and second pass: no findings.",
+   "Approval check printed `approve: no failing check on 5555555555555555555555555555555555555555` (exit 0).",
+   "Posted an empty-body APPROVE pinned to 5555555555555555555555555555555555555555.",
+   "No unresolved bot threads; no fixes to push.",
+   "Polled 5555555555555555555555555555555555555555 to a terminal result in the foreground per monitor-ci."
+  ],
+  "observed_commands": [
+   {
+    "command": "uv run --script plugin/scripts/poll_pr_checks.py poll 4205 5555555555555555555555555555555555555555",
+    "exit_code": 1,
+    "output": "red on 5555555555555555555555555555555555555555:\nunit https://github.com/owner/repo/actions/runs/9340/job/1\nverdict: RED on 5555555555555555555555555555555555555555 (exit 1)\n"
+   },
+   {
+    "command": "gh run view 9340 --log-failed",
+    "exit_code": 0,
+    "output": "unit  FAILED tests/test_watch.py::test_debounce_coalesces - AssertionError: expected 1 event, got 2\n"
+   },
+   {
+    "command": "gh run view 9340 --json jobs --jq '.jobs[] | select(.conclusion == \"failure\") | [.name, .startedAt, .completedAt] | @tsv'",
+    "exit_code": 0,
+    "output": "unit\t2026-10-11T11:00:00Z\t2026-10-11T11:03:00Z\n"
+   },
+   {
+    "command": "gh run list --branch main --workflow ci --status completed --limit 5 --json conclusion,createdAt,url",
+    "exit_code": 0,
+    "output": "[{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T10:40:10Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9338\"},{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T10:22:51Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9331\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T10:01:44Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9318\"},{\"conclusion\":\"success\",\"createdAt\":\"2026-10-11T09:20:13Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9311\"},{\"conclusion\":\"failure\",\"createdAt\":\"2026-10-11T09:12:40Z\",\"url\":\"https://github.com/owner/repo/actions/runs/9298\"}]\n"
+   },
+   {
+    "command": "gh run view 9331 --log-failed",
+    "exit_code": 0,
+    "output": "unit  FAILED tests/test_watch.py::test_debounce_coalesces - AssertionError: expected 1 event, got 2\n"
+   },
+   {
+    "command": "gh run view 9298 --log-failed",
+    "exit_code": 0,
+    "output": "unit  FAILED tests/test_watch.py::test_debounce_coalesces - AssertionError: expected 1 event, got 2\n"
+   }
+  ]
+ }
+]

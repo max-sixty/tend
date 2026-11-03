@@ -1,10 +1,10 @@
 [build-system]
-requires = ["uv_build>=0.12,<0.13"]
+requires = ["uv_build>=0.12,<0.14"]
 build-backend = "uv_build"
 
 [project]
 name = "tend"
-version = "0.3.10"
+version = "0.3.23"
 description = "An autonomous junior maintainer for GitHub repos, powered by Claude or OpenAI Codex — reviews PRs, triages issues, fixes CI"
 license = "MIT"
 requires-python = ">=3.11"

@@ -1,0 +1,36 @@
+{
+  "kind": "focused",
+  "historical_ref": "1e9b6a7d824b19c0b49a2b05c1cc4e37825ffaee",
+  "bot": "leaf-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "43db34a6d818a77ef508b3c24141bcd907d88ea1a6007ba23195b7cfa491c5b5",
+    "evidence/new-head.patch": "19f308831652051c0bdda7bb650c2bfe5baa37298ff94e03bb87e558c5d234d3"
+  },
+  "origin": {
+    "repository": "max-sixty/leaf",
+    "pr": "https://github.com/max-sixty/leaf/pull/2257",
+    "runs": [
+      "https://github.com/max-sixty/leaf/actions/runs/38047904551",
+      "https://github.com/max-sixty/leaf/actions/runs/38048434679"
+    ],
+    "artifacts": [
+      "11669701518",
+      "11670280029"
+    ],
+    "reviewed_head": "379abf9337bea119613136ee597cd5d7f5ad58a8",
+    "review_id": 5478908373,
+    "previous_review": {
+      "id": 5478758917,
+      "commit_id": "915816684aed7a187f30fbc45e6537968c2d05ac",
+      "state": "COMMENTED"
+    },
+    "harness": "codex",
+    "observed_at": [
+      "2026-10-10T12:19:31Z",
+      "2026-10-10T12:21:11.526Z",
+      "2026-10-10T12:28:23.066Z"
+    ],
+    "evidence_selection": "CommandExecution records for approval POST, terminal pinned CI poll, active subject runs, and final queued preflight. Review POST projected to id, author, state, body, submitted_at and commit_id. The dedup snapshot combines those chronological records at their common unchanged head; readiness fields and absence of remaining active runs are supplied offline snapshot assumptions. Synthetic contrasts vary trivial-increment completion, changed head, genuinely concurrent work and human readiness. Additional synthetic contrasts cover withheld confidence without approval and a clean self-review on the configured bot's own PR. An approved head with a human merge hold and related red CI tests approval follow-up independently of landing readiness. Trivial increments contrast a human PR with only an older approval and a self-authored PR whose finding the current session verified fixed."
+  }
+}

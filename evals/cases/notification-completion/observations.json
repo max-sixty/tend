@@ -1,0 +1,101 @@
+{
+  "running_repository": "max-sixty/tend",
+  "bot": "tend-agent",
+  "snapshot": [
+    {
+      "id": "thread-a",
+      "repository": "max-sixty/leaf",
+      "number": 3560,
+      "state": "closed",
+      "labels": [
+        "tend-rate-limit"
+      ],
+      "author": "leaf-agent",
+      "body": "Bot rate limit reached. Closing this issue approves the volume and doubles the ceiling for the rest of the UTC day.",
+      "comments": [
+        {
+          "author": "max-sixty",
+          "association": "OWNER",
+          "body": "@tend-agent one feature that would be good in there is to list the items and specify the limit; can we add a PR which does this?"
+        },
+        {
+          "author": "max-sixty",
+          "association": "OWNER",
+          "body": "@tend-agent diagnose and fix the underlying behavior re the bot reopening the issue; something is happening which isn't redoubling the limits"
+        }
+      ],
+      "events": [
+        "maintainer closed to approve volume"
+      ],
+      "linked_changes": [],
+      "dedicated_runs": []
+    },
+    {
+      "id": "thread-b",
+      "repository": "max-sixty/tend",
+      "number": 72,
+      "state": "closed",
+      "body": "Add JSON output for tend check.",
+      "comments": [
+        {
+          "author": "max-sixty",
+          "association": "OWNER",
+          "created_at": "2026-10-22T12:00:00Z",
+          "body": "@tend-agent please also document how to consume the JSON in the install guide."
+        }
+      ],
+      "linked_changes": [
+        {
+          "number": 73,
+          "merged_at": "2026-10-22T12:05:00Z",
+          "changes": "Added JSON output and tests. No documentation changes."
+        }
+      ],
+      "dedicated_runs": []
+    },
+    {
+      "id": "thread-c",
+      "repository": "max-sixty/tend",
+      "number": 80,
+      "state": "closed",
+      "body": "JSON output documentation",
+      "comments": [
+        {
+          "author": "max-sixty",
+          "association": "OWNER",
+          "created_at": "2026-10-22T12:00:00Z",
+          "body": "@tend-agent document how to consume JSON in the install guide."
+        }
+      ],
+      "linked_changes": [
+        {
+          "number": 81,
+          "merged_at": "2026-10-22T12:05:00Z",
+          "changes": "Install guide now includes the JSON command, its schema, and a jq example. Tests verify the shown command."
+        }
+      ],
+      "dedicated_runs": []
+    },
+    {
+      "id": "thread-d",
+      "repository": "max-sixty/tend",
+      "number": 90,
+      "state": "closed",
+      "body": "Add CSV output",
+      "comments": [
+        {
+          "author": "max-sixty",
+          "association": "OWNER",
+          "body": "@tend-agent add CSV output."
+        },
+        {
+          "author": "max-sixty",
+          "association": "OWNER",
+          "body": "I no longer need CSV; withdrawing this request."
+        }
+      ],
+      "linked_changes": [],
+      "dedicated_runs": []
+    }
+  ]
+}

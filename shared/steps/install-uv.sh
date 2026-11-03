@@ -2,19 +2,19 @@
 # Install pinned uv into a caller-owned directory without changing PATH.
 # The release archive is checked against a sha256 committed here, so nothing
 # fetched at job time — an installer script, a re-uploaded asset — decides what
-# runs. `UV_SHA256` in generator/src/tend/workflows.py carries the same pair.
+# runs.
 # Inputs (env): UV_INSTALL_DIR.
 set -euo pipefail
 
-UV_VERSION=0.12.23
+UV_VERSION=0.13.6
 case "$(uname -m)" in
   x86_64)
     target=x86_64-unknown-linux-gnu
-    sha256=9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6
+    sha256=f29c3e94ffabd7e6f3ba521dba169a9b7ec12100bf3257087f0f24f6123f3645
     ;;
   aarch64)
     target=aarch64-unknown-linux-gnu
-    sha256=6524bd338177ed50d035d39354e12545e993bbeba2ecbddf0480c5b3a81d313f
+    sha256=229e194255c7958d86d56e8790d969a6f74736592133f0dfd0076f754c642c1d
     ;;
   *)
     echo "::error::no pinned uv archive for $(uname -m)" >&2

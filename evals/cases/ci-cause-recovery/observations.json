@@ -1,0 +1,20 @@
+{
+  "snapshots": [
+    {
+      "id": "first-day-corrupt-image",
+      "current_failure": "Runner setup cannot unpack the toolchain image: downloaded archive checksum mismatch. Tests never start. The same project checkout passed when a retry downloaded from a different mirror shard.",
+      "prior_diagnoses": "Four trackers created earlier today classify matching failures as transient because retries passed. Their logs were read: all failing downloads have the same wrong digest from the same shard; retries with a different shard get the expected digest. No occurrence on an earlier day is known.",
+      "current_cause_evidence": "An upstream investigation confirms that the active setup release references a corrupt image on one mirror shard. Fresh clean runners still reproduce the bad digest when that shard is selected. The upstream incident is open and the corrupt source remains available. Project code does not select or modify the image.",
+      "mitigation_evidence": "The upstream setup maintainer released a fixed version that references a new verified image on every shard and documents upgrading as the workaround. The old setup version fails its existing checksum integration test with the frozen bad-download fixture; the fixed release passes that test and the project's setup smoke test. No test coverage is removed.",
+      "existing_work": "No fix PR, matching open durable issue, or rejected mitigation exists. A workflow dependency version update is within the bot's ordinary CI repair authority."
+    },
+    {
+      "id": "resolved-service-incident",
+      "current_failure": "The triggering CI run failed to download dependencies during a network timeout at the external registry.",
+      "prior_diagnoses": "Two matching transient trackers were created on two earlier days within the last week. Their original logs and the current run show the same registry endpoint unavailable during one multi-day upstream outage, not separate project regressions.",
+      "recovery_evidence": "The registry's incident record now confirms recovery. Independent probes of the exact failed endpoint succeed, and a fresh CI execution on the unchanged triggering commit completed dependency setup and the full test job successfully after that recovery. All matching failed runs predate recovery.",
+      "current_cause_evidence": "No project configuration changed during the outage or recovery. There is no remaining reproduced project defect, and upstream has restored the failed service. No code mitigation is indicated by the logs.",
+      "existing_work": "No existing tracker records this triggering run. No fix PR or open durable issue covers the incident."
+    }
+  ]
+}

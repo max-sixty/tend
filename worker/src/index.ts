@@ -160,7 +160,7 @@ const ISSUE_LABEL_FILTER = qualify("-label", BOOKKEEPING_LABELS);
 
 // Why primitive buckets, not a job taxonomy: GitHub records mechanical facts
 // (PR opened, review submitted, comment created), but tend's jobs (review /
-// triage / ci-fix / nightly / weekly) don't map onto them cleanly — a PR on
+// triage / nightly / weekly) don't map onto them cleanly — a PR on
 // `fix/ci-*` vs `fix/issue-*` vs `tend/update-workflows` is the same event
 // type, and a nightly survey that finds nothing leaves no trace. An earlier
 // cut reverse-engineered a `kind` enum from branch names and still

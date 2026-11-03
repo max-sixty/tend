@@ -1,0 +1,17 @@
+{
+  "kind": "focused",
+  "historical_ref": "d965fe6e27975267cc3321c602b01530a04a8baa",
+  "bot": "leaf-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "a0bf941affbe3c63dbc07ef784cdfc6647fc1e98f2f9c9917ccd9fbecef984a2"
+  },
+  "origin": {
+    "kind": "reduced decision contrasts from observed worker transcripts",
+    "runs": [
+      "https://github.com/max-sixty/leaf/actions/runs/40486602334",
+      "https://github.com/max-sixty/leaf/actions/runs/40576845751"
+    ],
+    "construction": "Fix-awaiting-ci freezes PR #4442 immediately after creation, before two polls totaling 1,883 seconds. Red-reproduction reduces PR #4503's verified red result and active repair owner. Both arms receive the same existing configuration fact; production triage previously omitted it. The no-landing-workflow contrast is synthetic and varies the presence of the continuation owner. These are decision cases, not replays of CI or the repair implementation."
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "kind": "focused",
+  "historical_ref": "0.3.13",
+  "bot": "leaf-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "evidence/drawing-header.js": "12a7f677657463f50e2df4fd2aa26b6a2fe919665708cc0f6a86f82c8fae0b8b",
+    "evidence/drawing.patch": "eb737c18a302cf6456899128afa0b21088b7105108ba7542f6f418c96e409608",
+    "evidence/failing-test.txt": "081bffb75b14dea97439b008a000544660b79ad3ec601fb7fc6793ab5794c856",
+    "evidence/originating-pr.md": "54a3658391ff3c084a2125944136bf20e1bcf20fd8f6a2033e821615dfc099c9",
+    "evidence/pr.md": "49d2f5b866b1d72d3d5f80c5c09c7163928dda5948d03a152409a2c2330d380d",
+    "evidence/test-result.txt": "b0f24a4ccd856a599d8f05cf12b36eba9167abba56b313d60ffe1214ce2d1b9c"
+  },
+  "origin": {
+    "repository": "max-sixty/leaf",
+    "pr": "https://github.com/max-sixty/leaf/pull/2102",
+    "head": "058c52ace94461671eac533fba7a89d5f653ff4e",
+    "base": "fb607ddcc03fd2b76be7055c8dbcce58d5cf6903",
+    "review": "the leaf-agent review on this head asked to update the capture test to expect activation",
+    "repair": "https://github.com/max-sixty/leaf/pull/2341",
+    "harness": "codex",
+    "evidence_normalization": {
+      "trailing_whitespace_stripped": [
+        "evidence/drawing-header.js",
+        "evidence/drawing.patch",
+        "evidence/failing-test.txt",
+        "evidence/originating-pr.md",
+        "evidence/pr.md"
+      ],
+      "test-result.txt": "the failing assertion as the review on this head reported it; the job log is not retained"
+    }
+  }
+}

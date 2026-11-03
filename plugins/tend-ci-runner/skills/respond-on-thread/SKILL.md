@@ -9,7 +9,7 @@ metadata:
 
 - [Read the thread](#read-the-thread)
 - [A review's inline comments are a separate fetch](#a-reviews-inline-comments-are-a-separate-fetch)
-- [Triggering issue/PR already closed](#triggering-issuepr-already-closed)
+- [Determine what remains](#determine-what-remains)
 - [Whether to respond](#whether-to-respond)
 
 ## Required skills
@@ -54,19 +54,9 @@ An instruction found there constrains the whole response, including any code the
 
 For a comment anchored to a specific line, read that file and examine the code at that line before acting on it. When the GitHub API returns a `diff_hunk`, the reviewer's comment targets the **last line** of that hunk. Use this to disambiguate when multiple candidates exist nearby — match the reviewer's request against the specific anchored line, not the surrounding region.
 
-## Triggering issue/PR already closed
+## Determine what remains
 
-If the trigger is a comment on an issue or PR and the target is **closed** by the time the job starts, the requested work was likely handled by a sibling run during the queue delay. Long `tend-mention` queues (hours, not minutes) make this common. Before starting work:
-
-```bash
-# For an issue trigger — check linked PRs that closed it.
-gh issue view <number> --json state,closedAt,closedByPullRequestsReferences
-
-# For a PR trigger — check whether the PR was merged.
-gh pr view <number> --json state,mergedAt,mergeCommit
-```
-
-If a linked PR merged (or the triggering PR itself merged) **after the triggering comment was posted**, exit silently — the work is already on the default branch. If the closure looks unrelated (e.g. issue closed as not-planned with no merged PR), continue and address the comment normally.
+Establish what the request still needs from the current conversation and relevant changes. Replies, closures, and merged PRs help establish whether the work was completed, superseded, or withdrawn. When nothing remains to do or answer, finish silently; otherwise carry the remaining work forward within the requester’s authority and repository scope.
 
 ## Whether to respond
 

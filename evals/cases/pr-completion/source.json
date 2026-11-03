@@ -1,0 +1,13 @@
+{
+  "kind": "focused",
+  "historical_ref": "db67e386f26bc838877df498e24cc9f9dac78cb6",
+  "bot": "tend-agent",
+  "merge": "restricted",
+  "fixtures": {
+    "observations.json": "4d7e5d92993d82b8f9de46443705f7e1473c83f671f6b110f7cf8ca8c912ce3f"
+  },
+  "origin": {
+    "kind": "synthetic contrasts",
+    "construction": "Review found pre-create overlap exit contradicted the permitted reimplementation of rejected code. Contrasts same-file different repair, identical delivered repair, and explicitly invited replacement implementation."
+  }
+}

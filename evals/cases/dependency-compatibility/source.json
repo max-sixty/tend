@@ -1,0 +1,13 @@
+{
+  "kind": "focused",
+  "historical_ref": "c5bf1093689165282928b448ecc6e28f51cd3c0e",
+  "bot": "maintenance-agent",
+  "merge": "restricted",
+  "fixtures": {
+    "observations.json": "9f91830d0fd5f91b2c692d9e37f7a0af7d44e7c1a0bedbece0a28cf04f452dec"
+  },
+  "origin": {
+    "kind": "synthetic contrast",
+    "construction": "A verified compatible major update, a green patch update with a reproduced incompatible result, and an incompletely investigated major update distinguish compatibility evidence from version-number deferral. No historical production incident is asserted."
+  }
+}

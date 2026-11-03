@@ -24,13 +24,13 @@ from tend.config import (
     STANDARD_WORKFLOWS,
     Config,
 )
+from tend.runtime.shared import ci_failure_report
 from tend.workflows import (
     CODEOWNERS_BEGIN,
     CODEOWNERS_END,
     GENERATORS,
     TEND_ENABLED_CONDITION,
     _deep_merge,
-    _inline_script,
     codeowners_config,
     control_plane_block,
     generate_all,
@@ -154,29 +154,35 @@ def test_restricted_mode_leaves_an_unmanaged_codeowners_file_byte_stable() -> No
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_generated_runner_uv_does_not_restore_dependency_caches(
+def test_generated_runtime_calls_have_a_pinned_bootstrap(
     tmp_path: Path, harness: str
 ) -> None:
-    """Runner-side helpers must not reuse dependencies cached by consumer setup."""
     cfg = Config.load(
         _minimal_config(
             tmp_path,
-            f"harness: {harness}\nworkflows:\n  ci-fix:\n    watched_workflows: [ci]\n",
+            f"harness: {harness}\nworkflows:\n  review:\n    await_ci: false\n"
+            "  ci-failures:\n    watched_workflows: [ci]\n",
         )
     )
-    setup_steps = [
-        step
-        for workflow in generate_all(cfg, with_install_test=True)
-        for job in yaml.safe_load(workflow.content)["jobs"].values()
-        for step in job.get("steps", [])
-        if step.get("uses", "").startswith("astral-sh/setup-uv@")
-    ]
-    assert setup_steps
-    assert all(step["with"].get("enable-cache") is False for step in setup_steps)
+    for workflow in generate_all(cfg, with_install_test=True):
+        for job in yaml.safe_load(workflow.content)["jobs"].values():
+            steps = job.get("steps", [])
+            for index, step in enumerate(steps):
+                uses = step.get("uses", "")
+                needs_runtime = step.get("run", "").startswith("tend runtime ") or (
+                    uses.startswith("max-sixty/tend/")
+                    and not uses.startswith("max-sixty/tend/setup-runtime@")
+                )
+                if needs_runtime:
+                    assert any(
+                        earlier.get("uses")
+                        == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
+                        for earlier in steps[:index]
+                    ), (workflow.filename, step)
 
 
 def test_minimal_config_generates_eight_workflows(tmp_path: Path) -> None:
-    """ci-fix requires watched_workflows, so minimal config produces eight."""
+    """ci-failures requires watched_workflows, so minimal config produces eight."""
     cfg = Config.load(_minimal_config(tmp_path))
     workflows = generate_all(cfg)
     assert len(workflows) == 8
@@ -257,7 +263,7 @@ def test_setup_steps_rendered(tmp_path: Path, merge: str) -> None:
 
 def _eyes_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:
     """The steps that put the eyes reaction on and take it off, in order."""
-    return [s for s in steps if "content=eyes" in str(s.get("run", ""))]
+    return [s for s in steps if "runtime reaction " in str(s.get("run", ""))]
 
 
 @pytest.mark.parametrize(("name", "job"), [("review", "review"), ("mention", "handle")])
@@ -278,7 +284,9 @@ def test_local_setup_action_keeps_runner_checkout_stable(
     agent = next(
         step
         for step in steps
-        if str(step.get("uses", "")).startswith("max-sixty/tend/")
+        if str(step.get("uses", "")).startswith(
+            ("max-sixty/tend/claude@", "max-sixty/tend/codex@")
+        )
     )
     assert agent["with"]["checkout_mode"] == name
 
@@ -304,17 +312,17 @@ def test_generated_workflows_survive_the_whitespace_hooks(
     extra += (
         f"harness: {harness}\n"
         "workflows:\n"
-        "  ci-fix:\n"
+        "  ci-failures:\n"
         '    watched_workflows: ["ci"]\n'
         "  nightly:\n"
         '    prompt: "\\n\\nsweep the repo\\n\\nthen stop\\n\\n   \\n"\n'
     )
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = generate_all(cfg, with_install_test=True)
-    # ci-fix and install-test are both opt-in, and neither renders without the
+    # ci-failures and install-test are both opt-in, and neither renders without the
     # config above; assert they are present so the coverage can't silently lapse.
     assert {wf.filename for wf in workflows} >= {
-        "tend-ci-fix.yaml",
+        "tend-ci-failures.yaml",
         "tend-install-test.yaml",
         "tend-nightly.yaml",
     }
@@ -349,7 +357,7 @@ def test_memory_gist_is_an_explicit_agent_input(
 ) -> None:
     harness_config = (
         f"harness: {harness}\nmodel: {model}\n"
-        "workflows:\n  ci-fix:\n    watched_workflows: [ci]\n"
+        "workflows:\n  ci-failures:\n    watched_workflows: [ci]\n"
     )
     disabled = Config.load(_minimal_config(tmp_path, harness_config))
     for wf in generate_all(disabled):
@@ -385,7 +393,6 @@ def test_memory_gist_is_an_explicit_agent_input(
         "tend-review.yaml",
         "tend-mention.yaml",
         "tend-triage.yaml",
-        "tend-ci-fix.yaml",
         "tend-nightly.yaml",
         "tend-weekly.yaml",
         "tend-notifications.yaml",
@@ -546,23 +553,7 @@ def test_setup_step_env_must_be_table(tmp_path: Path) -> None:
 def test_empty_setup_no_blank_lines(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     for wf in generate_all(cfg):
-        # Python formatters require two blank lines between top-level
-        # definitions. Ignore the inlined script while retaining this guard
-        # against empty setup macros adding whitespace to the workflow itself.
-        structural = re.sub(
-            r"(?ms)^ {10}# /// script\n.*?^ {10}TEND_PY\n",
-            "",
-            wf.content,
-        )
-        assert "\n\n\n" not in structural, f"{wf.filename} has triple blank lines"
-
-
-def test_inline_script_preserves_python_source() -> None:
-    source = (
-        importlib.resources.files("tend") / "templates" / "mention_verify.py"
-    ).read_text()
-
-    assert _inline_script("mention_verify.py") == source.rstrip("\n")
+        assert "\n\n\n" not in wf.content, f"{wf.filename} has triple blank lines"
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
@@ -630,7 +621,7 @@ def test_operational_secrets_imply_environment(tmp_path: Path) -> None:
     whole point. `secrets.GITHUB_TOKEN` is workflow-scoped, not stored, so it
     doesn't count. install-test is included: it runs on `pull_request`, whose
     merge ref the policy refuses, so it may neither read a secret nor name
-    the environment. ci-fix is enabled here so the corpus is every workflow:
+    the environment. ci-failures is enabled here so the corpus is every workflow:
     without `watched_workflows` the generator skips it, and a skipped
     workflow is one this invariant silently stops covering."""
 
@@ -645,16 +636,20 @@ def test_operational_secrets_imply_environment(tmp_path: Path) -> None:
 
     cfg = Config.load(
         _minimal_config(
-            tmp_path, 'workflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n'
+            tmp_path, 'workflows:\n  ci-failures:\n    watched_workflows: ["ci"]\n'
         )
     )
     generated = generate_all(cfg, with_install_test=True)
     # Assert the corpus is *every* workflow, not that one name is present:
     # the next generator with a config precondition would otherwise drop out
-    # of this invariant as silently as ci-fix did.
+    # of this invariant as silently as ci-failures would.
     assert {wf.filename for wf in generated} == {
         f"tend-{name}.yaml" for name in GENERATORS
-    } | {"tend-mention-relay.yaml", "tend-install-test.yaml"}
+    } | {
+        "tend-mention-relay.yaml",
+        "tend-install-test.yaml",
+        "tend-ci-failures.yaml",
+    }
     for wf in generated:
         data = yaml.safe_load(wf.content)
         for job_name, job in data["jobs"].items():
@@ -698,8 +693,7 @@ def test_custom_prompt(tmp_path: Path) -> None:
 # override rather than accepting a key that renders nowhere.
 _PROMPT_WORKFLOWS = {
     "review": ("{pr_number}", "${{ github.event.pull_request.number }}"),
-    "triage": ("{issue_number}", "${{ github.event.issue.number }}"),
-    "ci-fix": ("{run_id}", "${{ github.event.workflow_run.id }}"),
+    "triage": ("{issue_number}", "${{ matrix.issue }}"),
     "nightly": ("", ""),
     "weekly": ("", ""),
     "review-runs": ("", ""),
@@ -731,6 +725,216 @@ def test_non_string_prompt_is_rejected(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("extra", "told"),
+    [
+        ("", False),
+        ("workflows:\n  review:\n    await_ci: true\n", False),
+        ("workflows:\n  review:\n    await_ci: false\n", True),
+        # A custom prompt is told too, after the consumer's own text.
+        (
+            (
+                "merge: yolo\nworkflows:\n  review:\n"
+                '    await_ci: false\n    prompt: "/my-review {pr_number}"\n'
+                "  ci-failures:\n    watched_workflows: [ci]\n"
+            ),
+            True,
+        ),
+    ],
+)
+def test_review_prompt_says_when_the_ci_wait_is_off(
+    tmp_path: Path, extra: str, told: bool
+) -> None:
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    review = {wf.filename: wf for wf in generate_all(cfg)}["tend-review.yaml"]
+
+    prompt = agent_prompt(review.content)
+
+    assert (
+        prompt.rstrip().endswith("The review's CI wait is off (`await_ci: false`).")
+        is told
+    )
+    assert "${{ github.event.pull_request.number }}" in prompt
+
+
+_WATCHED = "  ci-failures:\n    watched_workflows: [ci, lint]\n"
+
+
+@pytest.mark.parametrize(
+    ("extra", "lands"),
+    [
+        (f"merge: yolo\nworkflows:\n{_WATCHED}", False),
+        (f"merge: yolo\nworkflows:\n  review:\n    await_ci: true\n{_WATCHED}", False),
+        (f"workflows:\n  review:\n    await_ci: false\n{_WATCHED}", False),
+        (
+            (
+                "merge: yolo\nworkflows:\n  review:\n    enabled: false\n"
+                f"    await_ci: false\n{_WATCHED}"
+            ),
+            False,
+        ),
+        (f"merge: yolo\nworkflows:\n  review:\n    await_ci: false\n{_WATCHED}", True),
+    ],
+)
+def test_tend_land_exists_where_a_review_leaves_landing_to_it(
+    tmp_path: Path, extra: str, lands: bool
+) -> None:
+    """Only a yolo review with its CI wait off ends before CI and records the
+    head; everywhere else a review or a maintainer lands, and tend-land would
+    find no record to act on."""
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    assert ("tend-land.yaml" in workflows) is lands
+    # Triage can release its serialized lane only when that continuation exists.
+    prompt = agent_prompt(workflows["tend-triage.yaml"].content)
+    assert ("The review's CI wait is off (`await_ci: false`)." in prompt) is lands
+
+
+def _land_prompts(content: str) -> dict[str, str]:
+    """Each agent job's prompt in tend-land, by job."""
+    jobs = yaml.safe_load(content)["jobs"]
+    return {
+        name: step["with"]["prompt"]
+        for name, job in jobs.items()
+        for step in job["steps"]
+        if "prompt" in step.get("with", {})
+    }
+
+
+def test_tend_land_wakes_on_whatever_its_gate_reads(tmp_path: Path) -> None:
+    """The check waits on every check on the commit, so anything that can
+    finish one wakes it: every workflow but Tend's own, a commit status, and
+    another app's check suite. A gate wider than its wake-up strands a
+    recorded head whose last check comes from outside it."""
+    extra = "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
+    data = yaml.safe_load(land.content)
+
+    assert data["on"]["workflow_run"] == {
+        "workflows": ["**", "!tend-*"],
+        "types": ["completed"],
+    }
+    assert "status" in data["on"]
+    assert data["on"]["check_suite"] == {"types": ["completed"]}
+    check = data["jobs"]["check"]
+    # Near-free wake-up: events that can't land or repair anything are
+    # filtered before a runner is allocated, and one check runs per commit.
+    for skipped in (
+        "github.event.state != 'pending'",
+        "github.event.context != 'tend/land/pushed'",
+        "github.event.context != 'tend/land/repair'",
+        "github.event.workflow_run.pull_requests[0] != null",
+        "github.event.check_suite.pull_requests[0] != null",
+    ):
+        assert skipped in check["if"]
+    assert check["concurrency"]["cancel-in-progress"] is False
+    assert "head_sha" in check["concurrency"]["group"]
+    assert check["steps"][-1]["uses"] == f"max-sixty/tend/land@{ACTION_VERSION}"
+    assert check["permissions"] == {"contents": "read"}
+    # A fork's PR run lists no PR, so a run from another repository passes;
+    # only a run in this one with no PR behind it is skipped.
+    assert (
+        "github.event.workflow_run.head_repository.full_name != github.repository"
+        in check["if"]
+    )
+
+
+def test_tend_lands_check_reads_outputs_the_action_and_script_produce(
+    tmp_path: Path,
+) -> None:
+    """The workflow reads the check's outputs through the composite action,
+    which maps the ones `land_pr.py check` writes (`test_land_pr.py` pins
+    those); a name either drops leaves both sessions unstarted with every
+    check green."""
+    extra = "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
+    read = set(re.findall(r"steps\.check\.outputs\.(\w+)", land.content))
+    repo = Path(__file__).resolve().parents[2]
+    action = yaml.safe_load((repo / "land" / "action.yaml").read_text())
+    assert read == set(action["outputs"]) == {"land_prs", "red_prs"}
+    for name in action["outputs"]:
+        assert action["outputs"][name]["value"] == (
+            f"${{{{ steps.check.outputs.{name} }}}}"
+        )
+
+
+def test_tend_land_starts_a_session_per_pr_in_the_reviews_group(
+    tmp_path: Path,
+) -> None:
+    """Every PR the check names gets its own session, named for the PR so
+    ownership lookups find it, and queued in the review's group for that PR
+    so it never runs beside a review of the same PR."""
+    extra = "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    generated = {wf.filename: wf for wf in generate_all(cfg)}
+    data = yaml.safe_load(generated["tend-land.yaml"].content)
+    review = yaml.safe_load(generated["tend-review.yaml"].content)
+
+    review_group = review["jobs"]["review"]["concurrency"]["group"]
+    assert review_group.startswith("${{ github.workflow }}-")
+    for job, output in (("land", "land_prs"), ("repair", "red_prs")):
+        spec = data["jobs"][job]
+        assert spec["strategy"]["matrix"]["pr"] == (
+            f"${{{{ fromJSON(needs.check.outputs.{output}) }}}}"
+        )
+        assert spec["name"] == f"{job} #${{{{ matrix.pr }}}}"
+        assert spec["concurrency"] == {
+            "group": "tend-review-${{ matrix.pr }}",
+            "queue": "max",
+            "cancel-in-progress": False,
+        }
+    # A session queued behind one that already moved the head ends before
+    # `setup:` or the agent costs anything.
+    for job in ("land", "repair"):
+        steps = data["jobs"][job]["steps"]
+        assert steps[0]["uses"] == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
+        assert steps[1]["id"] == "current"
+        assert all(
+            step.get("if") == "steps.current.outputs.current == 'true'"
+            or "steps.current.outputs.current == 'true'" in str(step.get("if"))
+            for step in steps[2:]
+        )
+    prompts = _land_prompts(generated["tend-land.yaml"].content)
+    assert prompts["land"].startswith("/tend-ci-runner:merge-pr ${{ matrix.pr }}")
+    assert prompts["repair"].startswith("/tend-ci-runner:continue-pr ${{ matrix.pr }}")
+    for prompt in prompts.values():
+        assert prompt.rstrip().endswith(
+            "The review's CI wait is off (`await_ci: false`)."
+        )
+
+
+def test_tend_lands_sessions_run_on_the_reviews_harness(tmp_path: Path) -> None:
+    """Landing and repair continue the review, and the install provisions
+    credentials for the harnesses its enabled workflows use, not for the
+    top-level one."""
+    extra = (
+        "merge: yolo\nworkflows:\n  review:\n    await_ci: false\n"
+        "    harness: codex\n"
+        "  ci-failures:\n    enabled: false\n    watched_workflows: [ci]\n"
+    )
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    land = {wf.filename: wf for wf in generate_all(cfg)}["tend-land.yaml"]
+    assert f"max-sixty/tend/codex@{ACTION_VERSION}" in land.content
+    assert "max-sixty/tend/claude@" not in land.content
+    prompts = _land_prompts(land.content)
+    assert prompts["land"].startswith("$merge-pr ")
+    assert prompts["repair"].startswith("$continue-pr ")
+
+
+@pytest.mark.parametrize(
+    ("extra", "match"),
+    [
+        ("workflows:\n  review:\n    await_ci: no\n", "must be true or false"),
+        ("workflows:\n  mention:\n    await_ci: false\n", "only the review"),
+    ],
+)
+def test_await_ci_is_a_review_boolean(tmp_path: Path, extra: str, match: str) -> None:
+    with pytest.raises(click.ClickException, match=match):
+        Config.load(_minimal_config(tmp_path, extra))
+
+
+@pytest.mark.parametrize(
     "workflow,placeholder,expression",
     [(name, *pair) for name, pair in sorted(_PROMPT_WORKFLOWS.items())],
 )
@@ -741,8 +945,8 @@ def test_multi_line_prompt_generates_parseable_yaml(
     """A prompt spanning lines is a documented knob, and `init` never parses what
     it writes — so nothing but this catches a prompt shape that can only hold
     one line. Three shapes could not: review's was a `format('...')` expression,
-    where a newline ended the GitHub Actions string literal; ci-fix's was a
-    block scalar the template indented by hand, which only indented the first
+    where a newline ended the GitHub Actions string literal; another was a
+    block scalar a template indented by hand, which only indented the first
     line; and the shared block-scalar macro itself let YAML infer the block's
     indent from the first line, so an indented first line made every later line
     look like the end of the scalar. Each wrote a file GitHub rejects from a
@@ -754,14 +958,10 @@ def test_multi_line_prompt_generates_parseable_yaml(
     to the one expression that names this workflow's event.
     """
     body = f"  Do the thing for {placeholder}.\n\nSkip files matching {{generated}}.\n"
-    # ci-fix is the one workflow that needs a key of its own to render at all,
-    # so it is always configured and gains the prompt when it is the subject.
     extra = (
-        f'harness: {harness}\nworkflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n'
+        f"harness: {harness}\nworkflows:\n  {workflow}:\n"
+        f"    prompt: {json.dumps(body)}\n"
     )
-    if workflow != "ci-fix":
-        extra += f"  {workflow}:\n"
-    extra += f"    prompt: {json.dumps(body)}\n"
     content = {
         wf.filename: wf.content
         for wf in generate_all(Config.load(_minimal_config(tmp_path, extra)))
@@ -815,86 +1015,222 @@ def test_blank_prompt_is_rejected(tmp_path: Path, blank: str) -> None:
 def test_watched_workflows(tmp_path: Path) -> None:
     extra = dedent("""\
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["build", "test", "lint"]
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    ci_fix = workflows["tend-ci-fix.yaml"]
-    assert '"build"' in ci_fix.content
-    assert '"test"' in ci_fix.content
-    assert '"lint"' in ci_fix.content
-    assert 'branches: ["main"]' in ci_fix.content
+    report = workflows["tend-ci-failures.yaml"]
+    assert '"build"' in report.content
+    assert '"test"' in report.content
+    assert '"lint"' in report.content
+    assert 'branches: ["main"]' in report.content
 
 
-def test_ci_fix_custom_branches(tmp_path: Path) -> None:
+def test_ci_failures_custom_branches(tmp_path: Path) -> None:
     extra = dedent("""\
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["ci"]
             branches: ["main", "release"]
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    ci_fix = workflows["tend-ci-fix.yaml"]
-    assert 'branches: ["main", "release"]' in ci_fix.content
+    report = workflows["tend-ci-failures.yaml"]
+    assert 'branches: ["main", "release"]' in report.content
 
 
-def test_ci_fix_runs_for_failures_and_cancellations(tmp_path: Path) -> None:
-    cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-fix")))
+def test_ci_failures_admits_exactly_the_reports_verdicts(tmp_path: Path) -> None:
+    """The job's `if:` and the report script name the same verdicts.
+
+    A conclusion the `if:` admits but the script doesn't count would read as a
+    failure; one the script counts but the `if:` skips would never reach it.
+    """
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-failures")))
     generated = next(
-        wf for wf in generate_all(cfg) if wf.filename == "tend-ci-fix.yaml"
+        wf for wf in generate_all(cfg) if wf.filename == "tend-ci-failures.yaml"
     )
-    workflow = yaml.safe_load(generated.content)
-    assert workflow["jobs"]["fix-ci"]["if"] == (
-        f"{TEND_ENABLED_CONDITION} && "
-        'contains(fromJSON(\'["failure", "cancelled"]\'), '
-        "github.event.workflow_run.conclusion)"
+    condition = yaml.safe_load(generated.content)["jobs"]["report"]["if"]
+    admitted = re.findall(
+        r"github\.event\.workflow_run\.conclusion == '(\w+)'", condition
     )
-    assert "- Conclusion: ${{ github.event.workflow_run.conclusion }}" in agent_prompt(
-        generated.content
+    assert admitted == list(ci_failure_report.VERDICTS)
+    assert condition.startswith(f"{TEND_ENABLED_CONDITION} && ")
+
+
+def test_ci_failures_skips_fork_runs(tmp_path: Path) -> None:
+    """A fork PR from the fork's own `main` reports `head_branch: main`.
+
+    It passes the `workflow_run` branch filter, so only the head repository
+    tells it from this repository's `main`; without the check it would file and
+    close this lane's report, from a run the fork's author controls.
+    """
+    cfg = Config.load(_minimal_config(tmp_path, _extra_for("ci-failures")))
+    cfg.repo_owner = "test-owner"
+    generated = next(
+        wf for wf in generate_all(cfg) if wf.filename == "tend-ci-failures.yaml"
+    )
+    condition = yaml.safe_load(generated.content)["jobs"]["report"]["if"]
+    clauses = [clause.strip() for clause in condition.split(" && ")]
+    assert (
+        "github.event.workflow_run.head_repository.full_name == github.repository"
+        in clauses
     )
 
 
-def test_ci_fix_serializes_per_branch_and_watched_workflow(tmp_path: Path) -> None:
-    """One session per red branch, not per red commit.
+def test_ci_failures_serializes_per_lane(tmp_path: Path) -> None:
+    """One writer per report, which is one lane: workflow, event and branch.
 
-    A branch stays red across the pushes that follow, each failing on its own
-    commit, so a commit-keyed group would let every one of them boot its own
-    agent against the same breakage. The watched workflow is keyed in as well
-    so a red `publish-site` is not starved by a stream of red `ci`.
+    Two writers on one lane could each find no open report and file two. The
+    watched workflow and the run's event are lanes of their own, since each has
+    its own report: a scheduled suite can fail on tests push CI never runs.
     """
     extra = dedent("""\
         workflows:
-          ci-fix:
+          ci-failures:
             watched_workflows: ["ci", "publish-site"]
     """)
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    doc = yaml.safe_load(workflows["tend-ci-fix.yaml"].content)
-    job = doc["jobs"]["fix-ci"]
+    doc = yaml.safe_load(workflows["tend-ci-failures.yaml"].content)
+    job = doc["jobs"]["report"]
 
     assert job["concurrency"]["group"] == (
         "${{ github.workflow }}-${{ github.event.workflow_run.name }}"
+        "-${{ github.event.workflow_run.event }}"
         "-${{ github.event.workflow_run.head_branch }}"
     )
-    # Cancelling mid-session strands outward actions already taken — a pushed
-    # branch, a half-written PR.
+    # Cancelling a writer midway can leave a report filed and its row unposted.
     assert job["concurrency"]["cancel-in-progress"] is False
-    # Job-level, not workflow-level: the `if` filters the green runs that make
-    # up most workflow_run events, and a skipped job never enters the group.
+    # Job-level, not workflow-level: the `if` skips the cancelled runs that make
+    # up most completions on a busy branch, and a skipped job never enters the
+    # group, so it never replaces a pending verdict.
     assert "concurrency" not in doc
+    # The bot token makes a new report trigger the normal issues workflow.
+    [step] = [s for s in job["steps"] if "GH_TOKEN" in s.get("env", {})]
+    assert step["env"]["GH_TOKEN"] == "${{ secrets." + BOT_TOKEN_SECRET + " }}"
+    assert job["environment"] == {"name": "tend", "deployment": False}
+    assert job["permissions"] == {}
+
+
+@pytest.mark.parametrize("triage", [True, False])
+def test_ci_failures_reporting_is_independent_of_triage(
+    tmp_path: Path, triage: bool
+) -> None:
+    """Report creation uses issue events; it never dispatches a workflow."""
+    extra = _extra_for("ci-failures") + ("" if triage else "  triage: false\n")
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    job = yaml.safe_load(workflows["tend-ci-failures.yaml"].content)["jobs"]["report"]
+    [step] = [s for s in job["steps"] if "GH_TOKEN" in s.get("env", {})]
+    assert "TRIAGE_WORKFLOW" not in step["env"]
+    assert "/dispatches" not in step["run"]
+    assert ("tend-triage.yaml" in workflows) == triage
+
+
+@pytest.mark.parametrize("limit", [None, 1, 10, 256])
+def test_triage_serializes_batches_and_limits_real_issue_jobs(
+    tmp_path: Path, limit
+) -> None:
+    extra = (
+        "" if limit is None else f"workflows:\n  triage:\n    max_parallel: {limit}\n"
+    )
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: wf for wf in generate_all(cfg)}
+    doc = yaml.safe_load(workflows["tend-triage.yaml"].content)
+    job = doc["jobs"]["triage"]
+    # All event and recovery batches hold this lane through their last job.
+    assert doc["concurrency"] == {
+        "group": "tend-triage",
+        "cancel-in-progress": False,
+        "queue": "max",
+    }
+    assert "concurrency" not in job
+    assert job["strategy"] == {
+        "fail-fast": False,
+        "max-parallel": limit or 5,
+        "matrix": {"issue": "${{ fromJSON(needs.select.outputs.issues) }}"},
+    }
+    select = doc["jobs"]["select"]
+    assert (
+        select["steps"][0]["uses"] == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
+    )
+    assert select["steps"][-1]["run"].strip() == ("tend runtime triage-batch select")
+    assert job["needs"] == "select"
+    assert job["if"] == "needs.select.outputs.issues != '[]'"
+    assert job["env"]["TEND_ISSUE_NUMBER"] == "${{ matrix.issue }}"
+    assert job["name"] == "triage #${{ matrix.issue }}"
+    assert set(doc["jobs"]) == {"select", "triage"}
+    assert doc["on"]["issues"]["types"] == ["opened", "reopened"]
+    assert set(doc["on"]["workflow_dispatch"]["inputs"]) == {"issues"}
+    # This wire format names ownership before matrix jobs exist.
+    assert doc["run-name"] == (
+        "triage ${{ inputs.issues || format('[{0}]', github.event.issue.number) }}"
+    )
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "257", "true", "1.5", "null", "'5'"])
+def test_triage_rejects_invalid_parallel_limit(tmp_path: Path, value: str) -> None:
+    path = _minimal_config(
+        tmp_path, f"workflows:\n  triage:\n    max_parallel: {value}\n"
+    )
+    with pytest.raises(click.ClickException, match="max_parallel must be an integer"):
+        Config.load(path)
+
+
+def test_parallel_limit_is_only_a_triage_option(tmp_path: Path) -> None:
+    path = _minimal_config(tmp_path, "workflows:\n  review:\n    max_parallel: 5\n")
+    with pytest.raises(click.ClickException, match="only supported for triage"):
+        Config.load(path)
 
 
 def test_cli_init_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _minimal_config(tmp_path)
+    _minimal_config(tmp_path, "setup:\n  - run: echo setup\n")
+    workflow_dir = tmp_path / ".github" / "workflows"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "tend-review.yaml").write_text("existing workflow\n")
     monkeypatch.chdir(tmp_path)
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     runner = CliRunner()
     result = runner.invoke(main, ["init", "--dry-run"])
     assert result.exit_code == 0
     assert "tend-review.yaml" in result.output
-    # Dry run should not create files
-    assert not (tmp_path / ".github" / "workflows").exists()
+    assert "echo setup" in result.output
+    assert {
+        path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
+    } == before
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["init"],
+        ["init", "--dry-run"],
+        ["check"],
+        ["init", "--config", ".config/tend.toml"],
+    ],
+)
+def test_cli_refuses_toml_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> None:
+    config_dir = tmp_path / ".config"
+    config_dir.mkdir()
+    legacy = config_dir / "tend.toml"
+    legacy.write_text('bot_name = "test-bot"\n')
+    if "--config" in args:
+        (config_dir / "tend.yaml").write_text("bot_name: existing-bot\n")
+    workflow_dir = tmp_path / ".github" / "workflows"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "tend-review.yaml").write_text("existing workflow\n")
+    monkeypatch.chdir(tmp_path)
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code != 0
+    assert "Unsupported config format" in result.output
+    assert "YAML" in result.output
+    assert {
+        path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
+    } == before
 
 
 def test_cli_init_writes_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -919,7 +1255,11 @@ def test_review_delegates_pr_topology_to_the_sandbox(tmp_path: Path) -> None:
     )
     assert all(s.get("id") != "pr_ref" for s in steps)
     agent = next(
-        s for s in steps if str(s.get("uses", "")).startswith("max-sixty/tend/")
+        s
+        for s in steps
+        if str(s.get("uses", "")).startswith(
+            ("max-sixty/tend/claude@", "max-sixty/tend/codex@")
+        )
     )
     assert agent["with"]["checkout_mode"] == "review"
     assert agent["with"]["base_branch"] == "${{ github.event.pull_request.base.ref }}"
@@ -943,7 +1283,9 @@ def test_setup_runs_on_stable_base_tree_in_review(tmp_path: Path) -> None:
     agent_idx = next(
         i
         for i, s in enumerate(steps)
-        if str(s.get("uses", "")).startswith("max-sixty/tend/")
+        if str(s.get("uses", "")).startswith(
+            ("max-sixty/tend/claude@", "max-sixty/tend/codex@")
+        )
     )
 
     assert base_idx < setup_idx < agent_idx
@@ -1002,8 +1344,7 @@ def test_issue_and_pr_acknowledged_with_eyes(tmp_path: Path) -> None:
 
     triage = yaml.safe_load(workflows["tend-triage.yaml"].content)
     react = _eyes_steps(triage["jobs"]["triage"]["steps"])[0]
-    assert react["env"]["TARGET"] == "issues/${{ github.event.issue.number }}"
-    # Every issues:opened event the job-level `if` admits is the bot's to take.
+    assert react["env"]["TARGET"] == ("issues/${{ matrix.issue }}")
     assert "if" not in react
 
     review = yaml.safe_load(workflows["tend-review.yaml"].content)
@@ -1045,18 +1386,12 @@ def test_eyes_come_off_when_the_session_ends(
 
     eyes = _eyes_steps(jobs[job]["steps"])
     react, unreact = eyes[0], eyes[-1]
-    assert "-X DELETE" in unreact["run"], f"{name}: nothing removes the reaction"
+    assert "runtime reaction remove" in unreact["run"]
     assert unreact["if"].startswith("always()"), (
         f"{name}: a failed session has to release the reaction too"
     )
     assert unreact["env"]["TARGET"] == react["env"]["TARGET"]
-    # The bot's own reaction only — a human's 👀 on the same issue stays put.
-    assert 'select(.user.login == \\"$BOT_NAME\\")' in unreact["run"]
-    # The bot's 👀 is one of many on a busy thread, and page 1 is 30 of them:
-    # unpaginated, the lookup misses its own reaction and silently keeps it.
-    assert "--paginate" in unreact["run"], (
-        f"{name}: the reaction lookup only reads the first page"
-    )
+    assert unreact["env"]["BOT_NAME"] == "test-bot"
 
 
 def test_setup_raw_rejected_with_migration_hint(tmp_path: Path) -> None:
@@ -1165,7 +1500,7 @@ def test_mention_review_comment_listens_only_for_edits(tmp_path: Path) -> None:
 def test_mention_verify_wires_every_variable_the_gate_reads(tmp_path: Path) -> None:
     """The gate's own decisions are exercised by running it (test_mention_verify);
     what generation owns is the wiring, and an unwired variable is invisible
-    there. The script is inlined verbatim, so a name the workflow forgets is
+    there. A name the workflow forgets is
     simply empty at runtime: the gate then answers on a blank — a missing
     COMMENT_AUTHOR reads as "not the bot", a missing PR_URL as "an issue, not a
     PR" — silently, on a green job."""
@@ -1194,14 +1529,12 @@ def test_mention_verify_wires_every_variable_the_gate_reads(tmp_path: Path) -> N
         "PAYLOAD_KIND": "${{ github.event.client_payload.kind }}",
         "PAYLOAD_PR": "${{ github.event.client_payload.pr }}",
         "PAYLOAD_ID": "${{ github.event.client_payload.id }}",
-        # The uv that runs the script, not an input it reads.
-        "TEND_UV": "${{ steps.tend_uv.outputs.uv-path }}",
     }
 
     # And the mapping is complete: every name the script reads without first
     # assigning it is either wired above or supplied by the runner.
     source = (
-        importlib.resources.files("tend") / "templates" / "mention_verify.py"
+        importlib.resources.files("tend") / "runtime" / "shared" / "mention_verify.py"
     ).read_text()
     read = set(re.findall(r'env\.get\("([A-Z][A-Z0-9_]*)"', source))
     read |= set(re.findall(r'os\.environ\["([A-Z][A-Z0-9_]*)"\]', source))
@@ -1276,21 +1609,15 @@ def test_mention_handle_has_queue_delay(tmp_path: Path) -> None:
     assert delay_idx < setup_idx, "delay step must precede setup"
 
 
-def test_mention_queue_delay_guards_empty_event_ts(tmp_path: Path) -> None:
-    """date -d "" silently returns now on GNU; guard against empty EVENT_TS."""
+def test_mention_queue_delay_captures_job_start_before_bootstrap(
+    tmp_path: Path,
+) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
-    wf = generate_mention(cfg)
-    data = yaml.safe_load(wf.content)
-    delay_step = next(
-        s for s in data["jobs"]["handle"]["steps"] if s.get("id") == "delay"
-    )
-    script = delay_step["run"]
-    # Must bail before date -d when EVENT_TS is empty
-    assert 'if [ -z "$EVENT_TS" ]' in script
-    # date -d must only run after the guard
-    guard_pos = script.index('-z "$EVENT_TS"')
-    date_pos = script.index("date -d")
-    assert guard_pos < date_pos, "empty guard must precede date -d call"
+    steps = yaml.safe_load(generate_mention(cfg).content)["jobs"]["handle"]["steps"]
+    assert steps[0]["run"] == 'echo "TEND_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"'
+    assert steps[1]["uses"] == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
+    delay = next(step for step in steps if step.get("id") == "delay")
+    assert delay["run"].strip() == "tend runtime queue-delay"
 
 
 def test_mention_prompt_omits_delay_when_empty(tmp_path: Path) -> None:
@@ -1334,7 +1661,7 @@ def test_mention_invokes_its_workflow_skill(tmp_path: Path, harness: str) -> Non
 # noisily because the bot/Claude secrets are empty in the fork's secret store.
 _GUARDED_WORKFLOWS = [
     "tend-codex-auth-refresh.yaml",
-    "tend-ci-fix.yaml",
+    "tend-ci-failures.yaml",
     "tend-nightly.yaml",
     "tend-weekly.yaml",
     "tend-review-runs.yaml",
@@ -1390,7 +1717,7 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
     """When auto-detection fails (non-github remote, no remote, etc.), no
     guard is rendered and workflows behave as they did pre-change."""
     cfg = Config.load(
-        _minimal_config(tmp_path, _extra_for("ci-fix") + "harness: codex\n")
+        _minimal_config(tmp_path, _extra_for("ci-failures") + "harness: codex\n")
     )
     # cfg.repo_owner is "" by default — Config.load does not auto-detect.
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
@@ -1401,36 +1728,33 @@ def test_fork_guard_omitted_when_repo_owner_empty(tmp_path: Path) -> None:
                 f"{filename} job '{job_name}' must not contain the guard "
                 "when repo_owner is unset"
             )
-    # ci-fix's conclusion check must survive even without the guard.
-    ci_fix = yaml.safe_load(workflows["tend-ci-fix.yaml"].content)
-    assert ci_fix["jobs"]["fix-ci"]["if"] == (
-        f"{TEND_ENABLED_CONDITION} && "
-        'contains(fromJSON(\'["failure", "cancelled"]\'), '
-        "github.event.workflow_run.conclusion)"
-    )
+    # ci-failures' conclusion check must survive even without the guard.
+    report = yaml.safe_load(workflows["tend-ci-failures.yaml"].content)
+    condition = report["jobs"]["report"]["if"]
+    assert condition.startswith(f"{TEND_ENABLED_CONDITION} && ")
+    assert "github.event.workflow_run.conclusion == 'failure'" in condition
 
 
 @pytest.mark.parametrize(
     "workflow_name,job_name,user_if,extra_workflow_keys",
     [
-        # Triage: clobbering drops the fork guard and the bookkeeping-label skip.
+        # Triage selection: clobbering drops the fork guard and bookkeeping skip.
         (
             "triage",
-            "triage",
+            "select",
             (
                 f"{TEND_ENABLED_CONDITION} && "
                 "github.event.issue.author_association != 'NONE'"
             ),
             {},
         ),
-        # ci-fix: the rendered if is `<guard> && <pause> && <conclusion-check>`.
-        # Clobbering removes the guard and the conclusion check — so the
-        # workflow would also lose its "only run on failure" gate. More
-        # interesting than triage because runtime semantics change beyond just
-        # the fork guard.
+        # ci-failures: the rendered if is `<guard> && <pause> && <verdicts>`.
+        # Clobbering removes the guard and the verdict check — so a cancelled
+        # run would also take the lane's pending slot. More interesting than
+        # triage because runtime semantics change beyond just the fork guard.
         (
-            "ci-fix",
-            "fix-ci",
+            "ci-failures",
+            "report",
             f"{TEND_ENABLED_CONDITION} && github.actor == 'tend-agent'",
             {"watched_workflows": ["ci"]},
         ),
@@ -1445,7 +1769,7 @@ def test_user_job_if_extra_replaces_fork_guard(
 ) -> None:
     """A user-supplied job-level `if:` replaces the rendered job-level if via
     RFC 7396 scalar replacement — this includes the fork guard *and* any other
-    conditions tend composed with it (ci-fix's conclusion check, future
+    conditions tend composed with it (ci-failures' verdict check, future
     combined ifs).
 
     Pins current behavior so a future merge-strategy change is a deliberate
@@ -1471,9 +1795,9 @@ def test_user_job_if_extra_replaces_fork_guard(
 @pytest.mark.parametrize(
     "wf_block",
     [
-        {"jobs": {"triage": {"if": "github.actor == 'tend-agent'"}}},
-        {"jobs": {"triage": {"if": None}}},
-        {"workflow_extra": {"jobs": {"triage": {"if": "github.actor == 'x'"}}}},
+        {"jobs": {"select": {"if": "github.actor == 'tend-agent'"}}},
+        {"jobs": {"select": {"if": None}}},
+        {"workflow_extra": {"jobs": {"select": {"if": "github.actor == 'x'"}}}},
     ],
 )
 def test_if_override_must_keep_the_pause_check(tmp_path: Path, wf_block: dict) -> None:
@@ -1503,11 +1827,11 @@ def test_fork_guard_rendered_shape_regtest(
 
 def test_tend_enabled_variable_guards_every_agent_job(tmp_path: Path) -> None:
     """Every job that can boot the agent checks the TEND_ENABLED variable
-    before a runner starts, itself or through a job it `needs`, as does the
-    relay that only feeds one; the other workflows that run no agent carry
-    none."""
+    before a runner starts, itself or through a job it `needs`, as do the
+    relay that only feeds one and the CI failure reporter, so a paused tend
+    files nothing; the other workflows that run no agent carry none."""
     cfg = Config.load(
-        _minimal_config(tmp_path, _extra_for("ci-fix") + "harness: codex\n")
+        _minimal_config(tmp_path, _extra_for("ci-failures") + "harness: codex\n")
     )
     cfg.repo_owner = "test-owner"
     no_agent = {
@@ -1651,10 +1975,7 @@ def test_no_extras_output_unchanged(tmp_path: Path) -> None:
     cfg = Config.load(_minimal_config(tmp_path))
     via_all = {wf.filename: wf.content for wf in generate_all(cfg)}
     for gen_fn in GENERATORS.values():
-        try:
-            wf = gen_fn(cfg)
-        except click.ClickException:
-            continue  # ci-fix requires watched_workflows
+        wf = gen_fn(cfg)
         if wf.filename in via_all:
             assert via_all[wf.filename] == wf.content, (
                 f"{wf.filename}: generate_all() changed output without extras"
@@ -1757,11 +2078,11 @@ def test_unknown_job_warns(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
 
 
 def _extra_for(name: str) -> str:
-    """Return extra config needed for a specific generator (e.g. ci-fix)."""
+    """Return extra config needed for a specific workflow (e.g. ci-failures)."""
     if name == "codex-auth-refresh":
         return "harness: codex\n"
-    if name == "ci-fix":
-        return 'workflows:\n  ci-fix:\n    watched_workflows: ["ci"]\n'
+    if name == "ci-failures":
+        return 'workflows:\n  ci-failures:\n    watched_workflows: ["ci"]\n'
     return ""
 
 
@@ -1795,26 +2116,6 @@ def test_workflow_with_local_setup_regtest(
     extra = "setup:\n  - uses: ./.github/actions/tend-setup\n"
     cfg = Config.load(_minimal_config(tmp_path, extra))
     wf = GENERATORS[name](cfg)
-    print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
-
-
-def test_deprecated_sandbox_keys_regtest(regtest: object, tmp_path: Path) -> None:
-    """Snapshot the `setup:` steps the deprecated keys migrate to, after the
-    consumer's own, in the workflow whose pre-check guards every setup step."""
-    extra = dedent("""\
-        setup:
-          - uses: astral-sh/setup-uv@v10.1.0
-        sandbox_env:
-          MY_TOKEN: "${{ github.event_name == 'schedule' && secrets.MY_TOKEN || '' }}"
-        sandbox_path:
-          - ~/.cargo/bin
-          - /opt/tools/bin
-        sandbox_setup:
-          - uv sync --frozen
-          - curl -LsSf https://example.invalid/install.sh | sh
-    """)
-    cfg = Config.load(_minimal_config(tmp_path, extra))
-    wf = GENERATORS["notifications"](cfg)
     print(wf.content, end="", file=regtest)  # type: ignore[arg-type]
 
 
@@ -1962,7 +2263,7 @@ def test_codex_generates_one_serialized_weekly_auth_refresher(tmp_path: Path) ->
         "group": "tend-codex-auth-refresh",
         "cancel-in-progress": False,
     }
-    step = refresh["jobs"]["refresh"]["steps"][0]
+    step = refresh["jobs"]["refresh"]["steps"][-1]
     assert refresh["jobs"]["refresh"]["environment"] == {
         "name": "tend-codex-refresh",
         "deployment": False,
@@ -2047,18 +2348,23 @@ def test_codex_auth_refresher_follows_a_per_workflow_override(tmp_path: Path) ->
 HARNESS_ACTIONS = {"max-sixty/tend/claude", "max-sixty/tend/codex"}
 
 
+@pytest.mark.parametrize("harness", ["claude", "codex"])
 @pytest.mark.parametrize(
-    ("config", "expected"),
+    ("yaml_effort", "effort"),
     [
-        ("effort: max", "max"),
-        ("harness: codex\neffort: high", "high"),
+        ('"none"', "none"),
+        ('"null"', "null"),
+        ('"high # extra"', "high # extra"),
+        ('"future\\nlevel"', "future\nlevel"),
+        ('"future-𝚡\\N"', "future-𝚡\x85"),
     ],
-    ids=["claude", "codex"],
 )
 def test_effort_renders_for_both_harnesses(
-    tmp_path: Path, config: str, expected: str
+    tmp_path: Path, harness: str, yaml_effort: str, effort: str
 ) -> None:
-    cfg = Config.load(_minimal_config(tmp_path, config))
+    cfg = Config.load(
+        _minimal_config(tmp_path, f"harness: {harness}\neffort: {yaml_effort}")
+    )
     for wf in generate_all(cfg):
         inputs = [
             step["with"]
@@ -2067,7 +2373,7 @@ def test_effort_renders_for_both_harnesses(
             if step.get("uses", "").partition("@")[0] in HARNESS_ACTIONS
         ]
         for action_inputs in inputs:
-            assert action_inputs["effort"] == expected
+            assert action_inputs["effort"] == effort
 
 
 def test_effort_is_omitted_at_the_harness_default(tmp_path: Path) -> None:
@@ -2266,39 +2572,24 @@ def test_model_unrestricted(tmp_path: Path, config: str, model: str) -> None:
 
 @pytest.mark.parametrize(
     "config",
-    ["effort: turbo", "harness: codex\neffort: max", "effort: [high]"],
+    ["effort: [high]", "effort: 1", "effort: null", "effort: true"],
 )
-def test_effort_rejected_when_unsupported_or_malformed(
-    tmp_path: Path, config: str
-) -> None:
-    with pytest.raises(click.ClickException, match="effort .* is not recognized"):
+def test_effort_rejected_unless_a_string(tmp_path: Path, config: str) -> None:
+    with pytest.raises(click.ClickException, match="effort must be a string"):
         Config.load(_minimal_config(tmp_path, config))
 
 
 def test_effort_is_not_validated_against_the_model(tmp_path: Path) -> None:
     """Which models read `--effort` is the CLI's to know, so the pair renders."""
     cfg = Config.load(_minimal_config(tmp_path, "model: haiku\neffort: low"))
-    workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    review = workflows["tend-review.yaml"].content
-    assert "model: haiku" in review
-    assert "effort: low" in review
-
-
-def test_inherited_effort_rejected_when_a_workflow_switches_harness(
-    tmp_path: Path,
-) -> None:
-    """`max` is Claude-only, so a codex workflow cannot inherit it."""
-    extra = dedent("""\
-        effort: max
-        workflows:
-          nightly:
-            harness: codex
-    """)
-    with pytest.raises(
-        click.ClickException,
-        match=r"effort \(inherited by workflows\.nightly\) 'max' is not recognized",
-    ):
-        Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: yaml.safe_load(wf.content) for wf in generate_all(cfg)}
+    review = next(
+        step
+        for step in workflows["tend-review.yaml"]["jobs"]["review"]["steps"]
+        if "/claude@" in step.get("uses", "")
+    )
+    assert review["with"]["model"] == "haiku"
+    assert review["with"]["effort"] == "low"
 
 
 @pytest.mark.parametrize(
@@ -2343,21 +2634,41 @@ def test_per_workflow_effort_and_args_override_the_top_level(tmp_path: Path) -> 
     assert weekly["with"]["args"] == "--max-turns\n40\n"
 
 
-def test_cross_harness_workflow_validates_inherited_effort(tmp_path: Path) -> None:
+@pytest.mark.parametrize("override", [None, "minimal", ""])
+def test_cross_harness_effort_inheritance_and_override(
+    tmp_path: Path, override: str | None
+) -> None:
+    extra = dedent("""\
+        effort: future-level
+        workflows:
+          nightly:
+            harness: codex
+    """)
+    if override is not None:
+        extra += f'    effort: "{override}"\n'
+    cfg = Config.load(_minimal_config(tmp_path, extra))
+    workflows = {wf.filename: yaml.safe_load(wf.content) for wf in generate_all(cfg)}
+    nightly = next(
+        step
+        for step in workflows["tend-nightly.yaml"]["jobs"]["nightly"]["steps"]
+        if "/codex@" in step.get("uses", "")
+    )
+    expected = "future-level" if override is None else override
+    assert nightly["with"].get("effort", "") == expected
+
+
+def test_per_workflow_effort_rejects_malformed_value(tmp_path: Path) -> None:
     with pytest.raises(
-        click.ClickException,
-        match=r"effort \(inherited by workflows\.nightly\) 'max' is not recognized "
-        r"for harness 'codex'",
+        click.ClickException, match=r"workflows\.nightly\.effort must be a string"
     ):
         Config.load(
             _minimal_config(
                 tmp_path,
                 dedent("""\
-                    effort: max
                     workflows:
                       nightly:
                         harness: codex
-                        model: gpt-5.5
+                        effort: [high]
                 """),
             )
         )

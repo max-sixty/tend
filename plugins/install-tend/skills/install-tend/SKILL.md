@@ -184,7 +184,7 @@ bot_name: <bot-name>
 # harness: codex
 # model: gpt-6.1-sol
 # Both harnesses optionally accept:
-# effort: medium   # low | medium | high | xhigh; Claude also accepts max
+# effort: medium   # passed to the selected harness CLI
 ```
 
 Write the Codex model into the config. It is the installation's reviewed pin;
@@ -310,22 +310,22 @@ place. Classify each remaining secret and act now — don't defer:
   out of their password manager and re-paste it — issuing a fresh token
   and revoking the old one is part of the migration's point.
 
-Discover existing CI workflows so tend-ci-fix can watch them:
+Discover existing CI workflows so tend-ci-failures can watch them:
 
 ```bash
 grep -l 'push:\|pull_request' .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null
 ```
 
 For each match, extract the workflow `name:` field. These are the workflows
-that run tests, linting, or builds — tend-ci-fix should watch them. Configure:
+that run tests, linting, or builds — tend-ci-failures should watch them. Configure:
 
 ```yaml
 workflows:
-  ci-fix:
+  ci-failures:
     watched_workflows: ["ci", "lint"]  # names of workflows to watch
 ```
 
-If no CI workflows exist, either skip ci-fix (`enabled: false`) or help the
+If no CI workflows exist, either skip ci-failures (`enabled: false`) or help the
 user create one first.
 
 If the user picked workflow config at Kickoff, ask which overrides to set in
@@ -584,7 +584,7 @@ frontmatter needs it added in place.
 
 **Do not create a second independent copy of project instructions** and **do
 not invent project conventions.** Claude Code 2.1.281 and later reads
-`AGENTS.md` when the repo has no `CLAUDE.md`; tend pins 2.1.283. If the
+`AGENTS.md` when the repo has no `CLAUDE.md`. If the
 repo has only `CLAUDE.md`, link `AGENTS.md` to it so Codex reads the same
 instructions. Preserve both when both already exist, and create neither when
 neither exists:

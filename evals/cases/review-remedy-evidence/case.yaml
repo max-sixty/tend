@@ -1,0 +1,41 @@
+description: Choose review-run remedies from causal evidence rather than quotas
+vars:
+  task: |
+    Tend is analyzing the independent review-runs snapshots in
+    observations.json. Each snapshot supplies the investigation completed so
+    far. Read /tend-ci-runner:review-runs and its shared review-gates.md, plus
+    any guidance needed for the proposed actions. Decide what to do next in
+    each snapshot: what findings support a repair, what repair if any to
+    propose, and what evidence or verification is still needed. Save the
+    decisions to captured.md.
+
+    This is a focused decision case. The repositories, session artifacts and
+    GitHub are unavailable. Use the frozen observations without claiming to
+    run tests, read unavailable files, or perform outward actions. Proposed
+    next actions suffice.
+assert:
+  - type: llm-rubric
+    value: >-
+      For empty-evidence-month, propose the understood formatter repair and
+      its existing regression test. The single observed crash is reproduced
+      and its null-iteration cause is established; lack of an earlier run or
+      a wrong outward action is not a reason to wait for more incidents.
+      Verify empty and populated evidence rendering with the existing tests.
+      Do not invent a second failure or defer the repair for a count threshold.
+  - type: llm-rubric
+    value: >-
+      For reported-check-omissions, investigate the original sessions and
+      actual posted outcomes before proposing an instruction edit. Five
+      unverified summaries do not establish five independent omissions, a
+      shared cause, or inadequate guidance. The loaded rule in the one
+      available excerpt already asks for the check. Retaining the observations
+      and seeking missing logs is appropriate; adding or duplicating a rule
+      solely because the report count reaches five is not.
+  - type: llm-rubric
+    value: >-
+      For independent-validated-repairs, plan to complete all three supported
+      repairs, with appropriate regression verification and thematic grouping.
+      Each has independent reproduction, a confirmed cause and an understood
+      fix; the snapshot supplies enough prior verified incidents even under
+      a recurring-pattern standard. Do not defer one solely to keep the run
+      to a couple of PRs, or combine unrelated changes solely to evade a quota.

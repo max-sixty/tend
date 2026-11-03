@@ -1,0 +1,34 @@
+description: Notification completion from conversation and delivered work
+vars:
+  task: |
+    Process the notification snapshot in observations.json under
+    /tend-ci-runner:notifications. Read the active skills and give each thread
+    its current outcome, next action, and acknowledgment decision in captured.md.
+    The snapshot includes the available live-thread and related-change evidence.
+    This is an offline decision case; do not contact GitHub, post, or claim to
+    implement changes. Describe the actions you would take.
+assert:
+  - type: llm-rubric
+    value: >-
+      This is a decision-only case: proposed actions suffice; no actual GitHub
+      action or implementation is expected.
+      For thread-a, carry forward the owner's direct requests about Tend's
+      rate limiter, including diagnosing the reopening/approval behavior and
+      the requested item/limit reporting. Working in Tend or answering with a
+      substantive investigation is appropriate; do not dismiss the requests
+      because the Leaf tracker is closed, bot-authored, or in another repository.
+      Do not claim they are already resolved or acknowledge as no action.
+  - type: llm-rubric
+    value: >-
+      This is a decision-only case: proposed actions suffice; no actual GitHub
+      action or implementation is expected.
+      For thread-b, carry forward the requested install-guide documentation.
+      The later merged PR only implemented JSON output, so its merge does not
+      complete this request. Do not exit silently or acknowledge it as no action.
+  - type: llm-rubric
+    value: >-
+      This is a decision-only case: proposed actions suffice; no actual GitHub
+      action or implementation is expected.
+      For thread-c and thread-d, remain silent and acknowledge the threads.
+      The requested work is respectively delivered and withdrawn. Do not create
+      replacement work or post redundant acknowledgments to GitHub.

@@ -1575,30 +1575,39 @@ def check_yolo_workflows(repo: str, cfg: Config) -> CheckResult:
     unread = sorted(filename for filename, content in files.items() if content is None)
     if mismatched or extra_holders or unresolved or external_calls:
         details = []
+        remedies = []
         if mismatched:
             details.append(f"not current generated output: {', '.join(mismatched)}")
+            remedies.append("Run `tend init` and merge its control-plane changes.")
         if extra_holders:
             details.append(
                 "non-generated files use a Tend credential environment: "
                 f"{', '.join(extra_holders)}"
             )
+            remedies.append(
+                "Move non-generated jobs to a separate environment that satisfies "
+                "`credential-environments`."
+            )
         if unresolved:
             details.append(
                 f"environment use could not be resolved in: {', '.join(unresolved)}"
             )
+            remedies.append("Resolve unreadable or dynamic environment use.")
         if external_calls:
             details.append(
                 "external or ref-qualified reusable workflows may use the "
                 "tend environment: "
                 f"{', '.join(external_calls)}"
             )
+            remedies.append(
+                "Use same-tree reusable workflow calls "
+                "(`./.github/workflows/...`) so their environment use can be audited."
+            )
         return CheckResult(
             name,
             False,
             "Yolo requires Tend's secrets to reach only the audited "
-            f"generated workflows ({'; '.join(details)}). Run `tend init`, "
-            "merge its control-plane changes, and move any other job to a "
-            "separate reviewer-gated environment.",
+            f"generated workflows ({'; '.join(details)}). {' '.join(remedies)}",
         )
     if unread:
         return CheckResult(
@@ -2567,13 +2576,27 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
     evaluate mode, or edited to let the bot bypass it. Replace rules and bypass
     actors, union branch includes, and preserve exclusions: existing protected
     branches may admit credentials, while excluded branches may host bot work.
-    Return the verdict plus the actual target selection or an error.
+    Refuse to overwrite customized tag conditions. Return the verdict plus
+    the actual target selection or an error.
     """
     intended = json.loads(body)
     name = intended["name"]
     existing = _repository_rulesets(repo)
     if existing is None:
         return None, "Could not list repository rulesets"
+    if name in existing and intended["target"] == "tag":
+        current = _fetch_ruleset(repo, existing[name])
+        if current is None:
+            return None, "Could not read the existing tag ruleset from GitHub"
+        if (
+            current.get("target") != "tag"
+            or current.get("conditions") != intended["conditions"]
+        ):
+            return False, (
+                "Cannot safely replace a customized tag selection. "
+                "No rulesets changed. Review the existing ruleset and its "
+                "coverage manually; --fix requires all tags with no exclusions."
+            )
     if name in existing and intended["target"] == "branch":
         current = _fetch_ruleset(repo, existing[name])
         if current is None:

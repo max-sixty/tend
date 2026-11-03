@@ -155,7 +155,7 @@ def test_subject_number_is_none_when_the_event_names_no_thread(
     [
         # The events that carry their own commit, for which GITHUB_SHA is the
         # default branch's tip rather than the PR head the workflow checks out
-        # or the run the ci-fix job was dispatched to fix.
+        # or the finished run a `workflow_run` session was started for.
         ("pull_request_target", {"pull_request": {"head": {"sha": "head0"}}}, "head0"),
         ("workflow_run", {"workflow_run": {"head_sha": "failed0"}}, "failed0"),
         # An event whose subject is a thread reports no commit. GITHUB_SHA is

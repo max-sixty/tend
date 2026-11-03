@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from collections.abc import Iterable
 from importlib.metadata import version
 from pathlib import Path
@@ -45,6 +46,11 @@ assert UV, "uv is required for these tests"
 def uv_script(path: Path, *args: str) -> list[str]:
     """Command for the same PEP 723 script surface production invokes."""
     return [UV, "run", "--script", str(path), *args]
+
+
+def runtime_command(command: str, *args: str) -> list[str]:
+    """Exercise the installed package CLI with isolated Python imports."""
+    return [sys.executable, "-I", "-m", "tend", "runtime", command, *args]
 
 
 def tool_path(*fakes: Path | str) -> str:

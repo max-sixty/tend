@@ -11,7 +11,7 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Tend CI Runner",
-    "shortDescription": "Tend's CI skills (review, triage, ci-fix, etc.)",
+    "shortDescription": "Tend's CI skills (review, triage, nightly, etc.)",
     "category": "Engineering",
     "capabilities": ["Write"]
   }

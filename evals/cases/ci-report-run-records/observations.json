@@ -1,0 +1,81 @@
+{
+  "repository": "example/widget",
+  "bot": "widget-agent",
+  "cases": [
+    {
+      "id": "case-a",
+      "issue": {
+        "number": 510,
+        "title": "CI failure: CI on main (push)",
+        "state": "OPEN",
+        "labels": ["tend-ci-failure"],
+        "author": "widget-agent",
+        "body": "CI failed on main. Run: https://github.com/example/widget/actions/runs/4101",
+        "comments": [
+          {
+            "author": "widget-agent",
+            "created_at": "2026-10-20T11:00:00Z",
+            "body": "Failed again: https://github.com/example/widget/actions/runs/4102 (commit bbbb222, attempt 1)."
+          }
+        ],
+        "sub_issues": []
+      },
+      "runs": [
+        {"id": 4101, "conclusion": "failure", "failed_job": "unit", "diagnostic": "test_parse_empty: IndexError at parser.py:18; parser indexes tokens[0] for empty input."},
+        {"id": 4102, "conclusion": "failure", "failed_job": "docs", "diagnostic": "Docs link check fails: generated navigation points to the deleted installation.html page. Unit tests, including test_parse_empty, passed."}
+      ],
+      "ownership_search": "No open or closed cause issues, matching PRs, or earlier reports for either failure."
+    },
+    {
+      "id": "case-b",
+      "issue": {
+        "number": 520,
+        "title": "CI failure: CI on main (push)",
+        "state": "OPEN",
+        "labels": ["tend-ci-failure"],
+        "author": "widget-agent",
+        "body": "CI failed on main. Run: https://github.com/example/widget/actions/runs/4201",
+        "comments": [
+          {
+            "author": "widget-agent",
+            "created_at": "2026-10-20T10:30:00Z",
+            "body": "Run 4201 fails because the timestamp decoder treats a UTC value as local time. Cause tracked in #620, which owns the decoder repair."
+          },
+          {
+            "author": "widget-agent",
+            "created_at": "2026-10-20T11:00:00Z",
+            "body": "Failed again: https://github.com/example/widget/actions/runs/4202 (commit dddd444, attempt 1)."
+          }
+        ],
+        "sub_issues": [{"number": 620, "state": "OPEN", "title": "Timestamp decoder interprets UTC as local time", "evidence": "Run 4201; repair session active."}]
+      },
+      "runs": [
+        {"id": 4201, "conclusion": "failure", "failed_job": "unit", "diagnostic": "test_decode_utc: expected 12:00Z, got 19:00Z because decode_timestamp applies the local timezone."},
+        {"id": 4202, "conclusion": "failure", "failed_job": "package", "diagnostic": "Wheel smoke test: FileNotFoundError for widget/schema.json; the packaging manifest excludes the required schema. Unit tests passed."}
+      ],
+      "ownership_search": "Issue 620 owns the timestamp decoder failure. No issue, PR, or prior report owns the missing packaged schema."
+    },
+    {
+      "id": "case-c",
+      "issue": {
+        "number": 530,
+        "title": "CI failure: CI on main (push)",
+        "state": "CLOSED",
+        "labels": ["tend-ci-failure"],
+        "author": "widget-agent",
+        "body": "CI failed on main. Run: https://github.com/example/widget/actions/runs/4301",
+        "comments": [
+          {"author": "widget-agent", "created_at": "2026-10-20T11:00:00Z", "body": "Failed again: https://github.com/example/widget/actions/runs/4302 (commit ffff666, attempt 1)."},
+          {"author": "widget-agent", "created_at": "2026-10-20T12:00:00Z", "body": "CI passed: https://github.com/example/widget/actions/runs/4303. Closing this report."}
+        ],
+        "sub_issues": []
+      },
+      "runs": [
+        {"id": 4301, "conclusion": "failure", "failed_job": "unit", "diagnostic": "test_sort_keys: expected ascending keys, got descending keys."},
+        {"id": 4302, "conclusion": "failure", "failed_job": "unit", "diagnostic": "test_sort_keys: expected ascending keys, got descending keys."},
+        {"id": 4303, "conclusion": "success", "diagnostic": "All CI jobs passed, including test_sort_keys."}
+      ],
+      "ownership_search": "No cause issues or matching PRs."
+    }
+  ]
+}

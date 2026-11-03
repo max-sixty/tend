@@ -1,0 +1,33 @@
+{
+  "merge_mode": "restricted",
+  "review_state": "No bot approval exists on any supplied head. No draft, author hold, overlapping owner, or additional repository policy blocks these reviews.",
+  "pull_requests": [
+    {
+      "id": "formatter-major",
+      "number": 41,
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "update": "Development-only formatter from 4.9.2 to 5.0.0.",
+      "checks": "Every check is terminal and green on this head.",
+      "compatibility_evidence": "Release notes were read: v5 removes its Node 18 support and a legacy configuration switch. Every supported CI and developer environment uses Node 22. The repository never uses the removed switch. The PR contains only dependency and lockfile updates. Running the formatter against the whole repository and its formatting check on this head produced the same tracked output; the documented invocation and configuration still work.",
+      "open_questions": "None found in the affected behavior review."
+    },
+    {
+      "id": "parser-patch",
+      "number": 42,
+      "head_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "update": "Production JSON parser from 2.1.1 to 2.1.2.",
+      "checks": "Existing CI is terminal and green on this head. The old suite does not exercise long numeric IDs.",
+      "compatibility_evidence": "The application treats incoming integer IDs as exact arbitrary-precision integers. Its documented API and downstream storage require preserving every digit. A contract probe run against the pinned old and new dependencies returns 9007199254740993 with 2.1.1, but 9007199254740992 with 2.1.2 for the same input. Release notes describe a switch through floating-point parsing. The application calls the affected parser path.",
+      "open_questions": "No compatible adaptation has been established."
+    },
+    {
+      "id": "client-major",
+      "number": 43,
+      "head_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "update": "Production HTTP client from 3.6.0 to 4.0.0.",
+      "checks": "Existing CI is terminal and green on this head. It does not simulate a response timeout after server-side commit.",
+      "compatibility_evidence": "Release notes say the new default retries POST requests on response timeout. The application submits create-operation requests through this client. The service idempotency contract and whether the call sites supply stable idempotency keys have not been inspected.",
+      "open_questions": "Whether replay can duplicate a committed operation is unknown."
+    }
+  ]
+}

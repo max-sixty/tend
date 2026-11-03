@@ -9,19 +9,19 @@ repos:
   # only meant that each new Python directory arrived unlinted and stayed that
   # way until someone noticed.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: f12be1ebaa5351c1fc76472de98db2c3446c8253  # frozen: v0.16.10
+    rev: 25bcf95026b96e2dd3c0aec3090c3d6ef6ca2e6c  # frozen: v0.17.3
     hooks:
       - id: ruff-check
         args: ["--fix"]
       - id: ruff-format
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: a1785f8e81fe9936d828bef574e6db07e8c8c374  # frozen: 0.12.23
+    rev: 46787482b9fb2003c56e0f7592e312ef381829d9  # frozen: 0.13.6
     hooks:
       # One lockfile at the workspace root covers the generator member too.
       - id: uv-lock
         files: ^(generator/)?(pyproject\.toml|uv\.lock)$
   - repo: https://github.com/adhtruong/mirrors-typos
-    rev: 3eb3b00ab99fd9a875b2ca1e580651d33cef2ace  # frozen: v1.50.3
+    rev: becd063d63e29765b8d07e15567044e5497809ce  # frozen: v1.51.1
     hooks:
       - id: typos
   - repo: https://github.com/rhysd/actionlint

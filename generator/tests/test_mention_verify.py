@@ -3,28 +3,20 @@
 The gate decides whether a comment or review summons an agent session, so
 every case here is an outward behaviour: a false negative leaves someone
 un-answered, and a false positive burns a session that can only exit silently.
-The script is inlined into the generated workflow (env in, GITHUB_OUTPUT out),
-which is what lets these run it directly against a fake `gh`.
+The tests invoke the same isolated runtime CLI as the generated workflow,
+against a fake `gh`.
 """
 
 from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
-
-MENTION_VERIFY = (
-    Path(__file__).resolve().parents[2]
-    / "generator"
-    / "src"
-    / "tend"
-    / "templates"
-    / "mention_verify.py"
-)
+from tests import GH_PREAMBLE, fake_bin, tool_path
 
 BOT = "test-bot"
 
@@ -134,7 +126,7 @@ def env(tmp_path: Path) -> dict[str, str]:
 
 def _run(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        uv_script(MENTION_VERIFY),
+        [sys.executable, "-I", "-m", "tend", "runtime", "mention-verify"],
         env=env,
         capture_output=True,
         text=True,
@@ -333,15 +325,25 @@ def test_a_mention_wins_over_the_bot_review_gate(env: dict[str, str]) -> None:
     assert _verdict(env) == ("true", "mention")
 
 
-def test_the_bots_own_comment_never_summons_it_even_quoting_a_mention(
-    env: dict[str, str],
+@pytest.mark.parametrize(
+    "author,expected", [(BOT, ("false", "")), ("human", ("true", "mention"))]
+)
+def test_own_issue_comments_distinguish_the_bot_from_a_human(
+    env: dict[str, str], author: str, expected: tuple[str, str]
 ) -> None:
     """The bot's PAT-based User account is invisible to the Bot-type skip, and
     the self-guard has to precede the mention check: a bot comment quoting a
-    prior @-mention would otherwise re-match it."""
-    _issue_comment(env, COMMENT_AUTHOR=BOT, COMMENT_BODY=f"you said: @{BOT} do X")
+    prior @-mention would otherwise re-match it. Health-report replies from a
+    human still summon it before any participation lookup is needed."""
+    _issue_comment(
+        env,
+        ISSUE_AUTHOR=BOT,
+        COMMENT_AUTHOR=author,
+        COMMENT_BODY=f"you said: @{BOT} do X",
+    )
 
-    assert _verdict(env) == ("false", "")
+    assert _verdict(env) == expected
+    assert _calls(env) == []
 
 
 def test_the_bots_own_relayed_inline_comment_never_summons_it(

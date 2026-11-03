@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -39,9 +38,9 @@ def _trigger(
         (
             "workflow_run",
             {"workflow_run": {"id": 555}},
-            "CI fix for [run 555](https://github.com/owner/repo/actions/runs/555)",
+            "Finished [run 555](https://github.com/owner/repo/actions/runs/555)",
         ),
-        ("workflow_run", {}, "CI fix for workflow run"),
+        ("workflow_run", {}, "Finished workflow run"),
         # An event with no thread of its own, and payloads whose shape is not
         # the one the event promises.
         ("schedule", {}, ""),
@@ -98,38 +97,65 @@ def test_row_reads_n_a_when_the_event_payload_cannot_be_read(
     assert _issue.row().endswith(f"| {RUN_LINK} | N/A |")
 
 
-def test_matching_keeps_this_records_title_lowest_first(fake_gh: FakeGh) -> None:
-    """The label alone pins neither author nor title, and the bot can label
-    anything — so all three constraints run, and the order is by number."""
-    fake_gh.respond(
+def test_matching_keeps_this_records_title_lowest_first(
+    fake_gh: FakeGh, actions_env: Path
+) -> None:
+    """Author/repo/label/state scope the read; title selects this record."""
+    listing = (
         "issue",
         "list",
+        "--repo",
+        "owner/repo",
+        "--author",
+        "@me",
+        "--label",
+        "tend-outage",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "number,title",
+    )
+    fake_gh.respond(
+        *listing,
         with_=[
             {"number": 42, "title": OUTAGE_TITLE},
             {"number": 8, "title": OUTAGE_TITLE},
             {"number": 3, "title": "Something a maintainer labelled"},
         ],
     )
-
     assert _issue.matching(OUTAGE_LABEL, "open", OUTAGE_TITLE) == [8, 42]
     assert _issue.canonical(OUTAGE_LABEL, "open", OUTAGE_TITLE) == 8
-    call = fake_gh.called("issue", "list")[0]
-    assert call[call.index("--author") + 1] == "@me"
-    assert call[call.index("--label") + 1] == OUTAGE_LABEL
-    assert call[call.index("--limit") + 1] == "100"
+    assert fake_gh.called(*listing)
 
 
+@pytest.mark.parametrize(
+    "response",
+    [
+        1,
+        "",
+        {"message": "unavailable"},
+        [{"number": 1}],
+        [{"number": True, "title": OUTAGE_TITLE}],
+        [{"number": 0, "title": OUTAGE_TITLE}],
+        [None],
+        [{"number": n + 1, "title": OUTAGE_TITLE} for n in range(100)],
+    ],
+)
 def test_canonical_raises_rather_than_reading_a_failed_list_as_none(
-    fake_gh: FakeGh,
+    fake_gh: FakeGh, actions_env: Path, response: object
 ) -> None:
-    """ "The read failed" and "there is none" are different facts.
-
-    A caller that conflates them files a fresh record while one is already
-    open, and the downward probe will not merge that duplicate away.
-    """
-    fake_gh.respond("issue", "list", with_=1)
-    with pytest.raises(subprocess.CalledProcessError):
+    fake_gh.respond("issue", "list", with_=response)
+    with pytest.raises(_common.GH_READ_FAILED):
         _issue.canonical(OUTAGE_LABEL, "open", OUTAGE_TITLE)
+
+
+def test_canonical_accepts_a_valid_empty_listing(
+    fake_gh: FakeGh, actions_env: Path
+) -> None:
+    fake_gh.respond("issue", "list", with_=[])
+    assert _issue.canonical(OUTAGE_LABEL, "open", OUTAGE_TITLE) is None
 
 
 @pytest.mark.parametrize(

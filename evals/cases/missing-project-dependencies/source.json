@@ -1,0 +1,45 @@
+{
+  "kind": "trajectory",
+  "historical_ref": "0.3.10",
+  "bot": "leaf-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "48a8aea37d3116d2874947a6f42f6763f73f4f854c74e9699e6af3a920c6edb5"
+  },
+  "origin": {
+    "repository": "max-sixty/leaf",
+    "run_url": "https://github.com/max-sixty/leaf/actions/runs/38059329008",
+    "issue_url": "https://github.com/max-sixty/leaf/issues/2262",
+    "head_sha": "a67d8f1f903531355c93a41daf498549a8be30c6",
+    "transcript": "codex-session-logs-n2262/sessions/2026/10/10/rollout-2026-10-10T14-24-00-01a12633-05ba-7900-b9fc-3ebbfead0644.jsonl",
+    "transcript_sha256": "fe7bf837d3295c5b2304d4fdc4f406e6be11b58534ec1a76ddefa90fe33e97bf",
+    "original_model": "gpt-6-sol",
+    "before": "2026-10-10T14:25:01.925Z",
+    "selected_command_lines": [
+      74,
+      87
+    ],
+    "issue_observation_line": 26,
+    "repository_paths": [
+      "package.json",
+      "package-lock.json",
+      ".config/tend.yaml"
+    ],
+    "normalization": "Issue and failed commands extracted from completed tool events. No repository excerpts or synthesized registry, writability or available-command observations are supplied. The full pinned repository preserves manifests, setup and repository instructions.",
+    "recovery_control": {
+      "run_url": "https://github.com/max-sixty/leaf/actions/runs/38053124718",
+      "transcript_sha256": "54cda2fa4b095fa7d3d617eff55c058d36e7422279e5e9c0a52b17ee76aa7fe6",
+      "command_line": 1033,
+      "observation": "An earlier session encountered the same missing import, successfully ran npm ci without sudo and continued testing. The recovery action is provenance only; it is not actor input."
+    },
+    "synthetic_context": "An empty related-setup-issue snapshot isolates the durable follow-through choice; it is synthetic, not evidence of the original repository issue state. The executable Node runtime and offline package cache are provisions of this eval environment."
+  },
+  "limits": "Fresh executable recovery case, not a resumed production session. The real pinned Leaf checkout starts without node_modules. Preparation supplies an isolated offline npm cache; Node runs locally with the executor runtime version, not the original Linux Node 22.23.3. Python, browsers, sockets and original accumulated reasoning are not recreated. Actual Node harness loading and runtime tests can establish recovery of the missing-import boundary; they cannot establish reproduction or repair of the browser race. GitHub actions are captured as drafts. No instruction improvement is established without a failing historical control.",
+  "executor_model": "gpt-6-sol",
+  "checkout": {
+    "repository": "https://github.com/max-sixty/leaf.git",
+    "base": "a67d8f1f903531355c93a41daf498549a8be30c6",
+    "head": "a67d8f1f903531355c93a41daf498549a8be30c6"
+  },
+  "repository_instructions": true
+}

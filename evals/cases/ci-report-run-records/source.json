@@ -1,0 +1,13 @@
+{
+  "kind": "focused",
+  "historical_ref": "2619b48c6fdecc845aa0cbdca51498fd103345f5",
+  "bot": "widget-agent",
+  "merge": "yolo",
+  "fixtures": {
+    "observations.json": "8cd730b6ba4b184709e600e2762d5068dc8757c8ea14f14cc16adf7da430c95b"
+  },
+  "origin": {
+    "kind": "synthetic contrast",
+    "construction": "Three CI reports with all issue and comment authors equal to the configured bot: an undiagnosed report with two distinct failures; a diagnosed failure with an existing owner followed by a new failure record; and an undiagnosed report closed by a passing run. The evidence separates automated run records from triage decisions without author identity as a proxy."
+  }
+}

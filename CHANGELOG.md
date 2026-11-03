@@ -6,6 +6,193 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.23
+
+### Improved
+
+- Issue and PR creations share a rolling 24-hour allowance scaled to recent traffic, with a minimum of ten. Closing the new tracker sets a seven-day floor based on twice the greater of normal capacity and recent usage; the floor survives a falling baseline. Closes of old-policy trackers do not grant the new floor. ([#1626](https://github.com/max-sixty/tend/pull/1626))
+
+### Fixed
+
+- Rolling workflow-update PRs describe the full change from the default branch, including earlier unmerged updates already on their branch. ([#1596](https://github.com/max-sixty/tend/pull/1596))
+- Update credential-proxy dependencies to mitmproxy 12.3.1, Brotli 1.2.1 and pyasn1 0.6.5. ([#1593](https://github.com/max-sixty/tend/pull/1593), [#1625](https://github.com/max-sixty/tend/pull/1625))
+
+### Documentation
+
+- Remove stale harness-version and plugin-script details from setup and maintenance guidance. ([#1611](https://github.com/max-sixty/tend/pull/1611))
+
+### Internal
+
+- Update evaluation and activity-worker dependencies. ([#1574](https://github.com/max-sixty/tend/pull/1574), [#1575](https://github.com/max-sixty/tend/pull/1575), [#1589](https://github.com/max-sixty/tend/pull/1589), [#1590](https://github.com/max-sixty/tend/pull/1590), [#1604](https://github.com/max-sixty/tend/pull/1604))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.22
+
+### Fixed
+
+- Issue workers are instructed to execute available diagnostic experiments and retain unfinished work until completion, an active handoff, or a specific blocker. Recording a next action on an issue does not count as a handoff. ([#1618](https://github.com/max-sixty/tend/pull/1618))
+- Triage and daily recovery follow replacement PRs to landed repairs and close issues when evidence establishes full resolution. Partial repairs, intermittent failures, active workers, and maintainer holds retain their existing safeguards. ([#1618](https://github.com/max-sixty/tend/pull/1618))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.21
+
+### Improved
+
+- Triage processes issue batches with configurable `workflows.triage.max_parallel` (default five). Batches remain serialized, and recovery splits large selections to fit GitHub limits. Manual dispatch now accepts `issues`, a JSON array, in place of `issue` and `title`. ([#1603](https://github.com/max-sixty/tend/pull/1603))
+- Daily and weekly maintenance delegate independent repairs through issues and investigate work with subagents. Codex sessions can exceed the default four-agent limit. ([#1609](https://github.com/max-sixty/tend/pull/1609))
+- **Action callers:** Run `setup-runtime` at the same release ref before `claude`, `codex`, `land`, or `codex/refresh`. The harness `bot_name` input and Codex's unused `allowed_bots` and `allowed_non_write_users` inputs are removed; config `bot_name` remains supported. Generated workflows include these changes. ([#1608](https://github.com/max-sixty/tend/pull/1608))
+- **Config:** TOML configurations and `sandbox_env`, `sandbox_path`, and `sandbox_setup` are rejected with migration guidance. Convert to YAML and use `setup:` steps with `$GITHUB_ENV` and `$GITHUB_PATH`. ([#1610](https://github.com/max-sixty/tend/pull/1610))
+
+### Fixed
+
+- Startup configuration restoration handles wildcard, newline, and non-UTF-8 filenames literally while preserving trusted-base instruction pinning. ([#1610](https://github.com/max-sixty/tend/pull/1610))
+
+### Internal
+
+- Release artifact validation checks only built distributions, excluding build-directory metadata. ([#1614](https://github.com/max-sixty/tend/pull/1614))
+
+- Workflow operations and CI helpers run through the installed, isolated `tend runtime` CLI. Runner setup has one owner, and instruction restoration uses the packaged Python runtime instead of staged shell assets. ([#1607](https://github.com/max-sixty/tend/pull/1607), [#1608](https://github.com/max-sixty/tend/pull/1608), [#1610](https://github.com/max-sixty/tend/pull/1610))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.19
+
+### Improved
+
+- CI report triagers can repair a cause directly or fan out independent causes into issues. Reports and recovery recognize either an issue or repair PR as the durable owner. ([#1601](https://github.com/max-sixty/tend/pull/1601))
+- A blocker applies only to the work it prevents: triagers continue separable investigation and make independently useful, verified partial repairs while keeping unresolved work open. ([#1601](https://github.com/max-sixty/tend/pull/1601))
+
+### Fixed
+
+- New issues and PRs share one adaptive creation allowance enforced by the credential proxy. Exhaustion leaves reviews, existing repairs, comments and issue cleanup running; maintainer approval increases the allowance until UTC midnight. ([#1594](https://github.com/max-sixty/tend/pull/1594))
+- Nightly cleanup can close a recovered creation-limit tracker once creation has resumed and blocked work is accounted for; a bot closing it grants no additional capacity. ([#1594](https://github.com/max-sixty/tend/pull/1594))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.18
+
+### Improved
+
+- CI reports link ordinary cause issues, so a long-running failure report can track causes beyond GitHub's sub-issue limit. Ownership searches include closed issues so recurring failures can reopen their existing cause. ([#1585](https://github.com/max-sixty/tend/pull/1585))
+- Triage hands CI follow-up to the existing review and landing owner when automatic continuation is configured, freeing the issue worker for the next investigation. Configurations without that continuation retain triage's verification responsibility. ([#1586](https://github.com/max-sixty/tend/pull/1586))
+
+### Fixed
+
+- Report triage records the runs it diagnosed even when all causes already have owners, allowing the next session to identify new work. Already-recorded evidence produces no duplicate diagnosis. ([#1587](https://github.com/max-sixty/tend/pull/1587))
+
+### Internal
+
+- Outcome reviews follow CI reports' triage runs for diagnosis and cause issues. ([#1576](https://github.com/max-sixty/tend/pull/1576))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.17
+
+### Improved
+
+- The daily open-work sweep inspects all open issues, including bot-authored reports and unfinished investigations after successful turns. With working access, it queues the actionable backlog within existing rate and queue limits; one triage worker runs at a time and rechecks live repair ownership when it starts. Recovery needs no separate pending marker or one-issue-per-day limit. ([#1580](https://github.com/max-sixty/tend/pull/1580), [#1581](https://github.com/max-sixty/tend/pull/1581))
+- Rate-limit preflight fetches activity counts in one GraphQL request, and CI triage reuses its issue and PR inventory when checking repair ownership. ([#1578](https://github.com/max-sixty/tend/pull/1578))
+- The Claude harness defaults to Claude Code 2.1.310. ([#1564](https://github.com/max-sixty/tend/pull/1564))
+
+### Fixed
+
+- CI failure reports use the bot token, so opening or reopening a report starts ordinary issue triage without an explicit dispatch. Later failure comments add evidence for the daily sweep. Report and cause workers share the triage queue, and unfinished work remains discoverable through open issues. ([#1580](https://github.com/max-sixty/tend/pull/1580), [#1581](https://github.com/max-sixty/tend/pull/1581))
+
+### Internal
+
+- Update development, deployment and evaluation dependencies. ([#1552](https://github.com/max-sixty/tend/pull/1552), [#1555](https://github.com/max-sixty/tend/pull/1555), [#1562](https://github.com/max-sixty/tend/pull/1562), [#1567](https://github.com/max-sixty/tend/pull/1567), [#1568](https://github.com/max-sixty/tend/pull/1568))
+- Scale behavioral evaluation requirements to uncertainty in the change. ([#1579](https://github.com/max-sixty/tend/pull/1579))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.16
+
+### Improved
+
+- CI failures on a watched branch now go through issues and triage, replacing `ci-fix` sessions. A new agentless `tend-ci-failures` workflow keeps one report issue per workflow, branch and event: a failed run opens or comments on it and dispatches triage, and a passing run closes it. Report triage files one `tend-ci-cause` sub-issue for each cause nothing already covers, and each cause issue gets its own triage run, which fixes it with a PR that closes it. Daily, review-runs re-dispatches open causes that have no PR and no active run. The issue burst limit skips `tend-ci-cause` issues; the PR burst and spike limits still count them. ([#1566](https://github.com/max-sixty/tend/pull/1566))
+- **Config:** `workflows.ci-fix` is now `workflows.ci-failures`, keeping `branches`, `watched_workflows` and `enabled`. `tend init` refuses the old key with a message naming the new one, and removes the generated `tend-ci-fix.yaml`. The `ci-fix` skill is removed; put CI-specific instructions in the repo's `running-tend` overlay. ([#1566](https://github.com/max-sixty/tend/pull/1566))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
+## 0.3.15
+
+### Improved
+
+- Notification and PR handling determines what remains from the request, conversation, and delivered changes. Closed threads and overlapping PRs can still carry outstanding work, and human replies on Tend health issues reach engagement verification. ([#1559](https://github.com/max-sixty/tend/pull/1559))
+- Maintenance decisions use causal evidence, compatibility, and consequences rather than fixed file, recurrence, or PR-count gates. Independent repairs can proceed on separate topic branches. ([#1554](https://github.com/max-sixty/tend/pull/1554))
+- Effort names pass through to the selected harness CLI, preserving their literal values in generated workflows and runner configuration. ([#1554](https://github.com/max-sixty/tend/pull/1554))
+- The Claude harness defaults to Claude Code 2.1.302. ([#1553](https://github.com/max-sixty/tend/pull/1553))
+
+### Fixed
+
+- Rate-limit checks report failed, malformed, or incomplete reads instead of treating them as zero activity or missing trackers. Search queries scope counts to the bot, repository, creation window, and item type; approval closes across duplicate trackers count together, and pause notices show the calculation and link to the counted activity. ([#1559](https://github.com/max-sixty/tend/pull/1559), [#1560](https://github.com/max-sixty/tend/pull/1560))
+- `tend check` gives fault-specific remedies for workflow drift, credential environment use, and external reusable workflows. ([#1554](https://github.com/max-sixty/tend/pull/1554))
+
+### Internal
+
+- Update mitmproxy to 12.3.0 and uv to 0.13.5. ([#1556](https://github.com/max-sixty/tend/pull/1556))
+- Simplify Tend's own development guidance about skills and deterministic steps. ([#1551](https://github.com/max-sixty/tend/pull/1551))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.14
+
+### Improved
+
+- Under `merge: yolo` with `workflows.review.await_ci: false`, a review no longer waits for CI on a head the bot pushed. It records the head for landing and ends, and a new generated `tend-land` workflow, woken when a check on that commit completes, starts a short `merge-pr` session to land it once every check is green. A red check on a PR with no human author starts a `continue-pr` repair session, which now covers Dependabot and Renovate PRs. The new `max-sixty/tend/land@X.Y.Z` action runs the agentless check. ([#1544](https://github.com/max-sixty/tend/pull/1544))
+- When a change turns a test red, the repair weighs the change's intent against the interface the test protects, prefers a fix that keeps both, and files an issue to the change's author when it reverts the change or gives up intent. ([#1546](https://github.com/max-sixty/tend/pull/1546))
+- `tend-ci-fix` keys its concurrency group on the triggering run's event, so a pending scheduled failure is no longer replaced by the next push failure on the same branch. A push failure and a scheduled failure can now run concurrently. ([#1547](https://github.com/max-sixty/tend/pull/1547))
+
+### Documentation
+
+- The example config notes that a job exceeding its time limit ends cancelled and starts no `ci-fix` session, while a step exceeding its own `timeout-minutes` fails and is diagnosed. ([#1548](https://github.com/max-sixty/tend/pull/1548))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
+## 0.3.13
+
+### Improved
+
+- When a check the PR didn't cause fails after a review approves, the review reads what the default branch shows before rerunning it, and weighs the rerun's cost (a full suite on a long CI) against whether a repeat could change the landing or the attribution. A failure the default branch shows on every recent run goes to `ci-fix` without a rerun; a race issue is filed only once a chosen rerun has been weighed. ([#1541](https://github.com/max-sixty/tend/pull/1541))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
+## 0.3.12
+
+### Improved
+
+- `workflows.review.await_ci: false` ends a review once its own work is done instead of waiting for the reviewed commit's CI. The review acts on checks that have already finished: a failure the PR caused is analyzed and the approval dismissed, an unrelated one is routed without a rerun, and a settled green lands as before. Checks still running end the review and are named in its summary. Under `yolo`, a review still waits on a head the bot pushed, since it lands those. The default, `true`, keeps the wait. ([#1538](https://github.com/max-sixty/tend/pull/1538))
+- An approved PR is landed by the review that approved it, through one merge action shared with continuation sessions, rather than deferred to later runs that skipped the already-reviewed head. Landing policy moves from `monitor-ci` into `merge-pr`. ([#1534](https://github.com/max-sixty/tend/pull/1534))
+- `tend-ci-fix` starts only on failed runs. A cancelled run no longer replaces a failed run's pending trigger. ([#1535](https://github.com/max-sixty/tend/pull/1535))
+- The Claude harness default moves to Claude Code 2.1.296. ([#1536](https://github.com/max-sixty/tend/pull/1536))
+
+### Documentation
+
+- The site describes Codex and the current security boundaries, including optional `yolo` merging. ([#1527](https://github.com/max-sixty/tend/pull/1527))
+
+### Internal
+
+- Executable dependency-recovery evals with case-owned setup. ([#1533](https://github.com/max-sixty/tend/pull/1533))
+- Dependency and repo-local pin bumps. ([#1531](https://github.com/max-sixty/tend/pull/1531), [#1537](https://github.com/max-sixty/tend/pull/1537))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
+## 0.3.11
+
+### Fixed
+
+- YOLO landing follows the repository's CI policy, including verified repairs with unrelated terminal failures where the repository permits them. The bot attempts an ordinary SHA-pinned merge and uses GitHub's API response as the merge verdict. Requester-access and triage guidance use the same merge authority. ([#1528](https://github.com/max-sixty/tend/pull/1528))
+- `tend init` stops before writing workflows when the canonical repository owner lookup fails, preserving the fork guard. ([#1522](https://github.com/max-sixty/tend/pull/1522))
+
+### Internal
+
+- Add frozen YOLO landing evaluations and refresh eval dependencies. ([#1528](https://github.com/max-sixty/tend/pull/1528), [#1516](https://github.com/max-sixty/tend/pull/1516))
+- Require general behavioral eval coverage for agent improvements. ([#1529](https://github.com/max-sixty/tend/pull/1529))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.10
 
 ### Improved

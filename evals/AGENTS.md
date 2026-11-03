@@ -1,6 +1,6 @@
 # Promptfoo evals
 
-Codex is the default executor and judge. Model settings live in `prepare.py`;
+Codex is the default executor and judge. Default model settings live in `prepare.py`;
 `codex-provider.cjs` sets the reasoning effort. Every attempt starts fresh,
 without original actor history. Run from the repo root with Node 22.22+ and a
 local Codex subscription login:
@@ -47,12 +47,46 @@ judge runs separately without the executor's skills or workspace.
   establish evidence presence and state integrity; the model judge assesses
   relevant investigation, supported claims and other tool actions.
 
-Trajectory cases require their pinned Git commits to be available locally.
-Preparation fetches their ancestry so merge-base and normal three-dot PR diffs
-work even on longer branches.
+Trajectory cases fetch pinned Git commits from this repo unless
+`checkout.repository` names another repository URL or local path. Preparation
+fetches ancestry for comparisons, so merge-base and normal three-dot PR diffs
+work even on longer branches; a single pinned tree needs no ancestry.
 They retain repository evidence, not the original runner's installed
 dependencies, processes or live GitHub state. Neither case type simulates
 GitHub or recreates the original production session.
+
+## Behavior improvements
+
+Scale validation to remaining uncertainty and the consequences of being wrong.
+Use model evals when they can resolve material uncertainty about agent decisions
+or protect consequential behavior. For low-uncertainty mechanical changes,
+review the instructions and verify their commands directly. Use ordinary tests
+for deterministic mechanics.
+
+When using evals, name the general behavior being improved and select existing
+cases that exercise it before editing guidance. Add, adjust or replace cases
+where coverage is missing; an existing case that already measures the claim
+needs no edit.
+
+Choose the smallest set that distinguishes useful general behavior: a
+representative failure, a materially different situation where the same rule
+applies, and a near miss where the right action changes are useful contrasts.
+These can come from existing cases. Vary decision-relevant context rather than
+just names. Prefer focused decisions; use trajectories when investigation or
+accumulated actions matter. Grade outcomes and supported reasoning, allowing
+valid alternative approaches.
+
+Keep exploratory probes in scratch. Retain a case when it adds distinct
+behavioral coverage or protects a consequential regression; consolidate
+redundant cases as the suite evolves. Both-arm passes can protect useful
+behavior. Neither a fixed case quota nor a greener score justifies removing
+coverage of a still-relevant failure.
+
+Follow **Validation** below for before/after comparisons. Report which behavior
+the cases cover, observed results and limits. If model evaluation is warranted
+but runs are unavailable, prepare runnable coverage and report the improvement
+as unvalidated, with the blocker; authoring a case alone does not establish
+improvement.
 
 ## Collector and case authoring
 
@@ -74,8 +108,23 @@ Keep `cases/<name>/case.yaml`, `source.json` and the frozen evidence in Git.
 `captured.md`. Keep expected behavior in assertions rather than the task or
 evidence-selection hints.
 
+Case-specific environment setup belongs in an optional `setup.cjs`. Preparation
+runs it with the staged workspace path as its CLI argument. It also exports
+`configure(workspace)`, returning `{env, readPaths}` for each fresh Codex attempt.
+The runner applies those environment variables and read-only path grants;
+network access stays disabled. The setup file stays outside the actor workspace,
+and its hash is recorded in provenance. See
+`cases/missing-project-dependencies/setup.cjs` for an executable recovery case;
+keep its environment requirements and limits with the case.
+
 `source.json` records `kind: focused | trajectory`, `historical_ref`, `bot`,
 `merge`, and a `fixtures` mapping from case-relative paths to SHA-256 hashes.
+An optional `executor_model` selects the same model for both arms of that case;
+preparation records the selection in test metadata and provenance.
+Repository instructions are evidence by default. Set
+`repository_instructions: true` when they should govern repository work in the
+attempt; the staged plugin still supplies Tend workflow guidance. Preserve the
+same policy in both arms.
 For a trajectory, `checkout` pins `base` and `head`, and may pin
 `previous_review_head` for an incremental review. The base and optional previous
 review head become local Git refs; the pinned head is checked out as detached HEAD.
@@ -93,10 +142,11 @@ still lacking live GitHub and the original runner environment.
 
 ## Validation
 
-Require a failing historical control on the selected executor before claiming
-an instruction improvement. Both arms passing provides coverage, not evidence
-of improvement. Calibrate changed rubrics on known good and bad artifacts or
-trajectories, and inspect saved drafts and tool events alongside verdicts.
+Before claiming an instruction improvement from a before/after eval, require a
+failing historical control on the selected executor. Both arms passing provides
+coverage, not evidence of improvement. Calibrate changed rubrics on known good
+and bad artifacts or trajectories, and inspect saved drafts and tool events
+alongside verdicts.
 Small samples establish observed behavior rather than reliability rates.
 
 Compare arms with identical starting evidence, model and execution settings.

@@ -9,7 +9,7 @@ metadata:
 
 ## Helping vs. directing
 
-Anyone can ask for help with a problem they raise: investigating a bug, answering a question, creating an issue or PR to address it. These are proposals — a maintainer still decides what to merge or act on.
+Anyone can ask for help with a problem they raise: investigating a bug, answering a question, creating an issue or PR to address it. The system prompt's merge mode governs landing the resulting work.
 
 Directing the bot to affect someone else's work — closing, reopening, or locking issues/PRs, dismissing reviews, reverting commits, applying or removing labels, pushing commits to a PR owned by another author — requires Maintainer-tier access. Before complying, check the requester's `author_association`:
 

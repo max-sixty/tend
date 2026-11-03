@@ -1,0 +1,32 @@
+description: PR completion judged against remaining requested work
+vars:
+  task: |
+    You are at the final pre-create check under /tend-ci-runner:open-pr.
+    observations.json contains three independent prepared fixes and the current
+    evidence about sibling PRs. Read active guidance and state the next action
+    for each in captured.md. This is offline: do not post, change GitHub or
+    claim to run the supplied reproductions yourself.
+assert:
+  - type: llm-rubric
+    value: >-
+      This is a decision-only case: proposed actions suffice; no actual GitHub
+      action or implementation is expected.
+      For case-a, proceed with proposing the verified UTC rollover repair.
+      The merged sibling changed the same file but fixed a different cause;
+      overlap alone does not satisfy or withdraw the owner's request. Do not
+      exit or refuse a new PR solely because the sibling exists.
+  - type: llm-rubric
+    value: >-
+      This is a decision-only case: proposed actions suffice; no actual GitHub
+      action or implementation is expected.
+      For case-b, do not open a duplicate PR or reimplement the repair.
+      The requested behavior and regression are already on main. A concise
+      response linking the delivered result is acceptable if needed.
+  - type: llm-rubric
+    value: >-
+      This is a decision-only case: proposed actions suffice; no actual GitHub
+      action or implementation is expected.
+      For case-c, proceed with the verified direct UTC repair requested by the
+      owner. The owner rejected the cache implementation and explicitly asked
+      for this different implementation, not abandonment of the bug fix. Do not
+      treat the closed sibling as a blanket bar on proposing the requested fix.

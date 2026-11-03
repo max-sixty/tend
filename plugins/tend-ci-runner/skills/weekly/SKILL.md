@@ -10,9 +10,11 @@ metadata:
 ## Step 0: Load required skills
 
 - Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay for Step 3.
+- Read `/tend-ci-runner:review-runs`'s `references/parallel-maintenance.md` to divide the sweep's work.
 - Load `/tend-ci-runner:post-to-github` before composing comments or reviews.
 - Read `/tend-ci-runner:review`'s `references/approving.md` before approving.
 - Load `/tend-ci-runner:dismiss-approval` if an earlier bot approval must be withdrawn.
+- Load `/tend-ci-runner:merge-pr` for each safe dependency PR's landing decision.
 
 ## Step 1: Find dependency PRs
 
@@ -28,15 +30,15 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
 ## Step 2: For each dependency PR
 
 1. Check CI status: `gh pr checks <number>`
-2. If CI is passing, review the diff for breaking changes (major version bumps, API changes, deprecation warnings)
-3. If the update is safe (patch/minor with green CI), run the approval check in `/tend-ci-runner:review`'s `references/approving.md`, then check whether the bot has already approved this commit before approving — a dependabot PR open across multiple weekly runs (or already approved by `tend-review` on creation) would otherwise accumulate redundant approvals on the same `commit_id`:
+2. If CI is passing, review the release notes, diff, and affected uses for compatibility. Check relevant behavior that CI does not cover.
+3. If the update is compatible and verified, run the approval check in `/tend-ci-runner:review`'s `references/approving.md`, then check whether the bot has already approved this commit before approving — a dependabot PR open across multiple weekly runs (or already approved by `tend-review` on creation) would otherwise accumulate redundant approvals on the same `commit_id`:
    ```bash
-   uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+   tend runtime bot-review-state \
      prepare-approval <number>
    ```
 
-   **If `already_approved` is true, this PR is done — move to the next one.**
-   Otherwise compose `$TMPDIR/review-body.md` per
+   If `already_approved` is true, skip posting another approval. Otherwise
+   compose `$TMPDIR/review-body.md` per
    `/tend-ci-runner:post-to-github`. Give the
    reviewer the context for the approval: the upgrade's scope and the evidence
    relevant to its safety. Keep it concise and omit the inspection chronology.
@@ -56,11 +58,16 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
    gh api "repos/{owner}/{repo}/pulls/<number>/reviews" --method POST \
      -f event=APPROVE -f commit_id="$CHECKED" -F body=@"$TMPDIR/review-body.md"
    ```
+
+   For either path, follow **After the approval** in
+   `/tend-ci-runner:review`'s `references/approving.md` before the next PR.
+   Pin it to `head_sha` returned by `prepare-approval`; an already-approved
+   head has no `checked-head-<number>` file.
 4. If CI is failing, comment the failure summary per `/tend-ci-runner:post-to-github` and skip
-5. If a major version bump, comment noting it needs manual review and skip
+5. If compatibility remains unresolved, investigate it. Where a required migration or product decision remains, report the specific blocker per `/tend-ci-runner:post-to-github` and skip approval.
 6. On either skip path (4 or 5), dismiss an approval that predates the newest rewrite before you leave, per `/tend-ci-runner:dismiss-approval`. Both paths are reachable *because* a rebase changed something, and neither passes through item 3's guard — so the pre-rewrite approval stays the bot's latest review, re-anchored onto the current head, and the PR still reads as bot-approved while you comment that it isn't mergeable:
    ```bash
-   uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+   tend runtime bot-review-state \
      dismiss-stale <number> \
      "Rebased since this approval; the new head is unreviewed."
    ```

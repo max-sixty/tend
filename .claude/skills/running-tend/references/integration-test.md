@@ -73,7 +73,7 @@ bot_name: tend-agent
 harness: claude
 workflows:
   notifications: false
-  ci-fix: false
+  ci-failures: false
   nightly: false
   review-runs: false
   weekly: false

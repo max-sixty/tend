@@ -104,7 +104,7 @@ claude /install-tend</code></pre>
     <div class="marginalia">
       <div class="margin-note">runtime</div>
       <div class="body">
-        <p>Tend runs Claude Code in GitHub Actions, using your Claude Max subscription.</p>
+        <p>Tend runs Claude Code or Codex in GitHub Actions, funded by your subscription or API key.</p>
       </div>
     </div>
 
@@ -136,7 +136,7 @@ claude plugin install install-tend@tend
 claude /install-tend</code></pre>
 
         <p>The <code>/install-tend</code> Skill walks the rest of the way: config file, workflow generation, bot account, secrets, branch protection. It'll ask before each step that touches your repo.</p>
-        <p class="note">You'll need a GitHub account for the bot (something like <code>@your-project-bot</code>) and a Claude Max subscription. Maintainers of sizeable OSS projects can <a href="https://claude.com/contact-sales/claude-for-oss">get a Max subscription free from Anthropic</a>.</p>
+        <p class="note">You'll need a GitHub account for the bot (something like <code>@your-project-bot</code>) and model access: a Claude subscription or Anthropic API key, an OpenAI API key, or experimental ChatGPT Plus or Pro authentication for Codex. Maintainers of sizeable OSS projects can <a href="https://claude.com/contact-sales/claude-for-oss">get a Max subscription free from Anthropic</a>.</p>
       </div>
     </div>
   </section>
@@ -149,14 +149,14 @@ claude /install-tend</code></pre>
     <div class="marginalia">
       <div class="margin-note">merge</div>
       <div class="body">
-        <p>A hijacked session can't land code. A GitHub ruleset blocks the bot from your protected branches, and tend checks before every run that the bot can't bypass it.</p>
+        <p>By default, a GitHub ruleset prevents the bot from landing code; a maintainer merges each proposal. Optional yolo mode lets the bot merge ordinary PRs, while workflow, config, and agent-instruction changes still require a maintainer's approval.</p>
       </div>
     </div>
 
     <div class="marginalia">
       <div class="margin-note">tokens</div>
       <div class="body">
-        <p>Nor can it take the bot's credentials. The agent runs in a locked-down sandbox, a proxy outside adds the credentials to its requests, and workflows on unprotected branches can't read them.</p>
+        <p>The agent runs in a sandbox. Proxies outside it hold the bot PAT and API credentials, and workflows on unprotected branches can't read Tend's operational secrets. Codex subscription sessions receive an expiring access token, but never the refresh token.</p>
         <p>Until the run ends, it can still act as the bot and send out what the agent can read. <a href="https://github.com/max-sixty/tend/blob/main/docs/security-model.md">Full threat model →</a></p>
       </div>
     </div>

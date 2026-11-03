@@ -1714,6 +1714,60 @@ def test_fix_tag_protection_creates_admin_gated_all_tags_ruleset() -> None:
     assert body["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
 
 
+@pytest.mark.parametrize(
+    "conditions",
+    [
+        {"ref_name": {"include": ["~ALL"], "exclude": ["refs/tags/hosted/**"]}},
+        {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
+        {},
+    ],
+)
+def test_fix_tag_protection_refuses_custom_selection(conditions: dict) -> None:
+    current = {"target": "tag", "conditions": conditions}
+    with (
+        patch("tend.checks._repository_rulesets", return_value={"Tag operations": 7}),
+        patch("tend.checks._fetch_ruleset", return_value=current),
+        patch("tend.checks._reconcile_ruleset", return_value=None) as reconcile,
+    ):
+        result = fix_tag_protection("owner/repo")
+
+    assert result.passed is False
+    assert "No rulesets changed" in result.message
+    assert "customized tag selection" in result.message
+    reconcile.assert_not_called()
+
+
+def test_fix_tag_protection_replaces_canonical_selection() -> None:
+    current = {
+        "target": "tag",
+        "conditions": {"ref_name": {"include": ["~ALL"], "exclude": []}},
+    }
+    with (
+        patch("tend.checks._repository_rulesets", return_value={"Tag operations": 7}),
+        patch("tend.checks._fetch_ruleset", return_value=current),
+        patch("tend.checks._reconcile_ruleset", return_value=None) as reconcile,
+    ):
+        result = fix_tag_protection("owner/repo")
+
+    assert result.passed is True
+    body = json.loads(reconcile.call_args.args[3])
+    assert body["conditions"] == current["conditions"]
+    assert {rule["type"] for rule in body["rules"]} == {"creation", "update"}
+    assert body["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
+
+
+def test_fix_tag_protection_unreadable_existing_ruleset_is_unknown() -> None:
+    with (
+        patch("tend.checks._repository_rulesets", return_value={"Tag operations": 7}),
+        patch("tend.checks._fetch_ruleset", return_value=None),
+        patch("tend.checks._reconcile_ruleset", return_value=None) as reconcile,
+    ):
+        result = fix_tag_protection("owner/repo")
+
+    assert result.passed is None
+    reconcile.assert_not_called()
+
+
 def test_fix_branch_protection_splits_rulesets_and_enables_yolo_last() -> None:
     writes: list[tuple[str, str, dict]] = []
 
@@ -3281,6 +3335,8 @@ def test_yolo_workflows_require_exact_generated_output() -> None:
         result = check_yolo_workflows("owner/repo", cfg)
     assert result.passed is False
     assert "tend-nightly.yaml" in result.message
+    assert "tend init" in result.message
+    assert "credential-environments" not in result.message
 
 
 def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
@@ -3304,9 +3360,14 @@ def test_yolo_workflows_unknown_when_canonical_owner_is_unresolved() -> None:
     assert result.passed is None
 
 
-def test_yolo_workflows_reject_other_users_of_tend_environment() -> None:
+@pytest.mark.parametrize("generated_drift", [False, True])
+def test_yolo_workflows_reject_other_users_of_tend_environment(
+    generated_drift: bool,
+) -> None:
     cfg = _config(merge="yolo")
     files = {workflow.filename: workflow.content for workflow in generate_all(cfg)}
+    if generated_drift:
+        files["tend-nightly.yaml"] += "\n# stale\n"
     files["publish.yaml"] = """\
 on: push
 jobs:
@@ -3321,6 +3382,8 @@ jobs:
 
     assert result.passed is False
     assert "publish.yaml" in result.message
+    assert ("tend init" in result.message) is generated_drift
+    assert "credential-environments" in result.message
 
 
 def test_yolo_workflows_environment_names_are_case_insensitive() -> None:
@@ -3358,6 +3421,8 @@ jobs:
     assert result.passed is False
     assert "external or ref-qualified reusable workflows" in result.message
     assert "publish.yaml" in result.message
+    assert "tend init" not in result.message
+    assert "./.github/workflows/..." in result.message
 
 
 def test_yolo_workflows_reject_ref_qualified_same_repo_workflows() -> None:
@@ -3395,6 +3460,8 @@ jobs:
 
     assert result.passed is False
     assert "environment use could not be resolved" in result.message
+    assert "tend init" not in result.message
+    assert "Resolve unreadable or dynamic environment use" in result.message
 
 
 def test_unverified_protected_branch_is_not_demanded() -> None:

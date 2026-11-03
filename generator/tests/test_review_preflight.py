@@ -5,15 +5,13 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from tests import BASH, GH_PREAMBLE, fake_bin, tool_path
+from tests import BASH, GH_PREAMBLE, fake_bin, runtime_command, tool_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PREFLIGHT = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts" / "review_preflight.py"
 
 BOT = "tend-bot"
 PR = "7"
@@ -130,6 +128,7 @@ class Fixture:
             "headRefOid": sha,
             "state": state,
             "baseRefOid": self.base,
+            "baseRefName": "main",
             "author": {"login": "author", "is_bot": False},
             "isDraft": False,
         }
@@ -161,6 +160,7 @@ class Fixture:
             "GITHUB_REPOSITORY": "owner/repo",
             "BOT_LOGIN": BOT,
             "REVIEWED_HEAD_FILE": str(self.pin),
+            "REVIEWED_BASE_FILE": str(self.tmp_path / "reviewed-base"),
             "PR_JSON": str(self.tmp_path / "pr_json.json"),
             "FINAL_PR_JSON": str(self.tmp_path / "final_pr_json.json"),
             "BOT_HEAD_JSON": str(self.tmp_path / "bot_head_json.json"),
@@ -173,7 +173,7 @@ class Fixture:
 
     def run(self, *args: str, **extra: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, "-E", "-s", str(PREFLIGHT), "post", PR, *args],
+            runtime_command("review-preflight", "post", PR, *args),
             cwd=self.work,
             env=self.env(**extra),
             capture_output=True,
@@ -188,7 +188,7 @@ class Fixture:
 
     def start(self, **extra: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, "-E", "-s", str(PREFLIGHT), "start", PR],
+            runtime_command("review-preflight", "start", PR),
             cwd=self.work,
             env=self.env(**extra),
             capture_output=True,
@@ -261,6 +261,8 @@ def test_start_records_one_snapshot_and_prepares_the_incremental(pr: Fixture) ->
     assert "base-2" not in incremental
     assert "base.txt" not in incremental
     assert pr.pinned() == moved
+    # The base the review judges, which a landing record must name.
+    assert (pr.tmp_path / "reviewed-base").read_text() == "main\n"
 
 
 def test_the_incremental_lists_the_branch_merge_but_not_the_bases_own(
@@ -645,8 +647,16 @@ def test_a_failing_review_state_check_preserves_the_delta_for_retry(
     assert pr.pinned() == moved
 
 
-def test_a_failed_status_write_preserves_the_delta_for_retry(pr: Fixture) -> None:
+def test_a_failed_status_write_preserves_the_delta_for_retry(
+    pr: Fixture, installed_runtime: tuple[Path, Path]
+) -> None:
     moved = pr.push_over_base_merge()
+    python, _ = installed_runtime
+    command_dir = python.parent.parent / "commands"
+    command_dir.mkdir()
+    launcher = command_dir / "tend"
+    shutil.copyfile(REPO_ROOT / "shared/steps/tend", launcher)
+    launcher.chmod(0o755)
 
     result = subprocess.run(
         [
@@ -654,10 +664,9 @@ def test_a_failed_status_write_preserves_the_delta_for_retry(pr: Fixture) -> Non
             "-c",
             'exec 1>&-; exec "$@"',
             "_",
-            sys.executable,
-            "-E",
-            "-s",
-            str(PREFLIGHT),
+            str(launcher),
+            "runtime",
+            "review-preflight",
             "post",
             PR,
         ],

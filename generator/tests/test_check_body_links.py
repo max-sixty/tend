@@ -15,10 +15,10 @@ from pathlib import Path
 
 import pytest
 
-from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
+from tests import GH_PREAMBLE, fake_bin, runtime_command, tool_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "plugins" / "tend-ci-runner" / "scripts" / "check_body_links.py"
+SCRIPT = "check-body-links"
 
 SLUG = "max-sixty/tend"
 REAL = "0123456789abcdef0123456789abcdef01234567"
@@ -56,7 +56,7 @@ class Fixture:
 
     def run_path(self, arg: str, *extra: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            uv_script(SCRIPT, arg, *extra),
+            runtime_command(SCRIPT, arg, *extra),
             capture_output=True,
             text=True,
             check=False,
@@ -161,8 +161,8 @@ def test_body_without_github_links_passes_without_calling_the_api(fx: Fixture) -
 def test_missing_file_and_bad_arity_exit_two(fx: Fixture) -> None:
     missing = fx.run_path(str(fx.tmp_path / "nope.md"))
     assert missing.returncode == 2
-    assert "no such file" in missing.stderr
+    assert "does not exist" in missing.stderr
 
     extra = fx.run_path(str(fx.tmp_path), "second")
     assert extra.returncode == 2
-    assert "usage:" in extra.stderr
+    assert "Usage:" in extra.stderr

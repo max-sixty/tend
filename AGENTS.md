@@ -43,6 +43,9 @@ Inside a tend session the sandbox has no DNS, so the two tests in
 through `uv run --script`, which resolves its dependencies from PyPI. Nothing
 else in the suite reaches the network, so a third failure is a real one.
 
+For changes to Tend's agent behavior, follow **Behavior improvements** in
+[evals/AGENTS.md](evals/AGENTS.md).
+
 ## Architecture
 
 Four pieces:
@@ -51,7 +54,7 @@ Four pieces:
    skills). Both ship from the same marketplace.
 2. **Composite actions** — the stable interface, pinned to an immutable
    release tag (`max-sixty/tend/<action-path>@X.Y.Z`, the generator's own version
-   — no floating `v1`). Every action lives under a harness-named path; there
+   — no floating `v1`). Every action lives under a named path; there
    is no bare-root default. The two harness runners are:
    - `max-sixty/tend/claude@X.Y.Z` (Claude) — runs the official `claude`
      binary headless (`claude -p`) inside the shared sandbox, a hardened
@@ -64,12 +67,25 @@ Four pieces:
      Shares the cross-harness workspace, sandbox lifecycle, preflight, and
      runtime modules under `tend.runtime.shared`.
 
+   Call `max-sixty/tend/setup-runtime@X.Y.Z` once per job before Tend operations,
+   using the same release as the harness, landing, or refresh action. It installs
+   the runner's isolated CLI; harnesses install only their sandbox copy.
+
    Both harness runners resolve the bot's numeric ID at runtime, run security
-   and rate-limit preflight, then select the event's topology and run the
+   preflight, then select the event's topology and run the
    complete agent turn in one systemd unit over a copy-on-write view of the
    runner's home, reap it, and upload bounded session logs. The generated
    workflow's checkout stays on the default or PR base tree for setup and
-   local-action POST chains; nothing the agent writes reaches it.
+   local-action POST chains; nothing the agent writes reaches it. The credential
+   proxy admits new issues and PRs against one creation allowance for the job's
+   repository; exhaustion leaves the agent and its other operations running.
+
+   `max-sixty/tend/land@X.Y.Z` runs no agent: the generated `tend-land`
+   workflow calls it when a CI workflow completes, and it names the PR at that
+   commit whose review recorded it for landing and whose checks are all green,
+   or one with no human author whose CI went red, for the workflow's landing
+   or repair session (`tend runtime land-pr`). Inputs in
+   `land/action.yaml`.
 
    `max-sixty/tend/codex/refresh@X.Y.Z` is the Codex support action. A generated
    serialized workflow runs it weekly to rotate Plus/Pro credentials and
@@ -82,7 +98,7 @@ Four pieces:
    the consumer's `.github/workflows/` from `.config/tend.yaml`. Picks the
    right action ref and secret names per `harness`. Generation is
    idempotent — running `init` again overwrites all files from the
-   current config. When the review workflow is generated, it also merges the
+   current config. When review, triage or land is generated, it also merges the
    `concurrency.queue` ignore into the consumer-owned
    `.github/actionlint.yaml` (see "Concurrency and filtering").
 4. **Config** (`.config/tend.yaml`) — inputs to the generator. Overrides
@@ -112,9 +128,8 @@ tend/
 │   └── marketplace.json  # Codex marketplace — lists both Tend plugins
 ├── plugins/
 │   ├── install-tend/     # User-facing plugin (setup skill)
-│   └── tend-ci-runner/   # CI plugin (review, triage, ci-fix, etc.)
-│       ├── .codex-plugin/  # Codex plugin manifest
-│       └── scripts/      # Helper scripts (survey, run listing)
+│   └── tend-ci-runner/   # CI plugin (review, triage, nightly, etc.)
+│       └── .codex-plugin/  # Codex plugin manifest
 ├── claude/              # Claude action, installation shell scripts, and tests
 │   └── action.yaml       # Claude harness composite action (default, headless)
 ├── codex/               # Codex actions, prompt assets, and tests
@@ -132,7 +147,7 @@ tend/
 │   │   ├── workflows.py  # Generates workflow YAML
 │   │   ├── checks.py     # Security checks (branch protection, secrets)
 │   │   ├── cli.py        # Click CLI (init, check)
-│   │   └── runtime/      # Installed action runtime: shared/, claude/, codex/
+│   │   └── runtime/      # Installed runtime: shared/, claude/, codex/, ci/
 │   └── tests/
 ├── site/                 # Astro marketing site (tend-src.com)
 ├── worker/               # Cloudflare Worker — serves the 2 site data streams
@@ -145,10 +160,11 @@ tend/
 ## Key details
 
 Python runtime modules live in the published `tend` package under
-`generator/src/tend/runtime/{shared,claude,codex}` and use normal package imports.
+`generator/src/tend/runtime/{shared,claude,codex,ci}` and use normal package imports.
 The actions install their exact source with the frozen workspace lock, non-editably,
-and invoke the `tend runtime` commands through `python -I -m tend` so consumer
-files cannot shadow imports. `uv run tend runtime --help` lists the runtime commands.
+and expose an isolated `tend` command on PATH so consumer Python settings and
+files cannot shadow imports. Only Tend is added; consumer Python keeps its own
+interpreter. `uv run tend runtime --help` lists the runtime commands.
 The runner installation survives result processing; a separate installation under
 `TEND_RUNTIME_ROOT/venv` runs read-only inside the sandbox and is disposed with it.
 Shell assets and tests stay beside the owning action; `shared/steps/` holds common
@@ -321,9 +337,11 @@ Concurrency groups:
 | mention-relay | none | stateless — secretless job that re-posts review events to mention as a `repository_dispatch` |
 | mention/verify | none | stateless |
 | mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
-| triage | `workflow-issue#` | yes — latest comment wins |
+| triage | `tend-triage` | **no** — one whole batch at a time; its matrix runs up to `workflows.triage.max_parallel` issue jobs (default five); `queue: max` holds pending batches; the daily sweep recovers unfinished open issues outside GitHub's finite queue |
 | notifications | `tend-notifications` | **no** — one poll drains notifications and repairs bot PRs at a time |
-| ci-fix | `workflow-<watched workflow>-<branch>` | **no** — a session mid-fix may already have pushed a branch or opened a PR |
+| ci-failures | `workflow-<watched workflow>-<event>-<branch>` | **no** — one writer per CI failure report, so a lane's verdicts apply in turn and never file two |
+| land/check | none | stateless — reads records and checks, starts nothing itself |
+| land/land, land/repair | `tend-review-PR#` (the review's group) | **no** — a landing or repair never runs beside a review of the same PR; `queue: max` keeps every pending one, and each reads what the one before it did |
 | nightly / weekly | none | cron-serialized |
 | codex-auth-refresh (codex only) | `tend-codex-auth-refresh` | **no** — only this workflow may rotate the refresh-token chain, so a second refresher must never race it |
 
@@ -340,16 +358,35 @@ repo only) and `tend-mention-relay`, which carries tend-mention's review
 events, already filters forks via `head.repo.full_name ==
 github.repository`, so neither needs the guard.
 
-**Red branches.** A red default branch fails every push that follows it, each
-on its own commit, so ci-fix keys its group on the branch — a commit-keyed
-group collapses nothing, since the burst is distinct commits rather than one
-commit retried. The watched workflow is in the key too, so a red
-`publish-site` isn't starved behind a stream of red `ci`. ci-fix's group is
-job-level, not workflow-level: most `workflow_run` events are green runs the
-job's `if` skips, and a skipped job never enters the group.
+**Red branches.** A red branch fails every push that follows it, each on its
+own commit, and every one of those runs finishes. `tend-ci-failures` runs no
+agent: it turns each verdict into the lane's CI failure report — one issue per
+watched workflow, branch and triggering event, since a scheduled suite can fail
+on tests push CI never runs — filing it on the first failure, commenting on
+each later one, and closing it on the next pass. Its group is keyed on that
+lane and is job-level: a cancelled or skipped run, which the job's `if` skips,
+never enters it, so it never takes the pending slot from a verdict. The report
+is written with the bot token from the `tend` environment, so opening it starts
+ordinary `tend-triage`. Later failure comments add evidence without starting
+another session. The agent work runs through the issue path:
+triage diagnoses the report, fixing causes directly or filing cause issues for
+separate triage sessions. Its diagnosis links each repair's issue or PR; an
+unresolved durable cause keeps that owner when a passing run closes the report.
+Sessions recheck existing owners before starting work. All triage batches share
+one workflow concurrency group. The bot gets no notification for its own writes.
+The daily `review-runs` sweep inspects all open issues for unfinished work,
+including bot-authored reports and partial investigations after successful turns.
+It routes unowned work through ordinary triage using
+**Recover issue work** in `/tend-ci-runner:notifications`. With working access,
+the sweep can queue the actionable backlog within provider access and queue
+bounds; each batch runs a bounded matrix of the selected issue IDs. Each worker
+checks the live issue and repair ownership again when it starts. The runtime's
+`triage-batch dispatch` command splits selections at GitHub's matrix and run-name
+limits; `select` refuses payloads whose queued ownership would be truncated.
 
-**GHA queue depth.** Review sets `queue: max`, so pending PR events within
-GitHub's queue limit wait and a later push cannot replace `ready_for_review`.
+**GHA queue depth.** Review, triage and land set `queue: max`, so pending events within
+GitHub's queue limit wait: a later push cannot replace `ready_for_review`, and
+a new report cannot replace an earlier report's triage.
 GitHub accepts the key; actionlint's schema does not, so `init` merges the
 matching ignore into `.github/actionlint.yaml`, which the binary reads for
 every invocation.
@@ -361,9 +398,8 @@ first). The workflow injects the queue-to-run time delta (seconds between event
 timestamp and job start) into the prompt — over ~40 s indicates the job was
 queued behind another run, making conversation drift more likely.
 Notifications stay unread until a poll records an outcome, so the newest
-pending run covers a replaced poll. ci-fix keeps the default too, and wants
-it: while a session works a red branch, the newest unsuccessful run carries
-that branch's current state, so replacing the pending run loses nothing.
+pending run covers a replaced poll. ci-failures keeps the default too, and
+wants it: the newest pending verdict of a lane supersedes the one it replaces.
 
 ## Shipped instructions and tend's own
 
@@ -455,6 +491,9 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 - **Be brief.** Skills are loaded into every relevant session — extra prose
   is overhead. Lead with the rule or recipe; cut motivation, anecdotes, and
   historical context unless required to apply the rule.
+- **Hard constraints need a requirement or invariant.** Use evidence and
+  judgment for tradeoffs such as scope, effort, and confidence rather than
+  fixed file, PR, or occurrence quotas.
 - **An action more than one workflow takes gets its own skill**, named for
   the action and described by the situation that calls for it
   (`post-to-github`, `push-commits`, `open-pr`). The skill listing every
@@ -504,14 +543,9 @@ When adding to or editing files in `plugins/tend-ci-runner/skills/` or
 
 ## Agent-driven vs deterministic steps
 
-Tend's workflows invoke the agent through the harness-specific composite
-action (`max-sixty/tend/claude@X.Y.Z` for Claude, `max-sixty/tend/codex@X.Y.Z`
-for Codex). When adding new capability, split work along this line:
-
 - **The agent drives diagnostics and remediation.** Once the action is
-  running, put logic into the relevant skill (or a script the skill calls —
-  see `plugins/tend-ci-runner/scripts/`). The agent handles edge cases,
-  interprets output, and writes clearer messages than shell.
+  running, put judgment into the relevant skill and deterministic helpers into
+  `generator/src/tend/runtime/ci/`, invoked through `tend runtime`.
 - **Actions gate whether the agent runs at all.** Agent invocations cost
   tokens; gating them in YAML is cheap. Pre-check steps that early-exit
   the job (e.g. `tend-notifications`'s notification and PR conflict check)
@@ -521,13 +555,12 @@ for Codex). When adding new capability, split work along this line:
   each skipping one rare event shape, is machinery that costs more than
   the boots it saves.
 
-Keep the actions' Bash as linear installation and plumbing, not a second
-implementation layer. Do not add branches, retries, caches, or state for rare
-event shapes or small runner-time savings; put substantial behavior in a skill
-or tested Python.
-
-Don't build deterministic YAML steps for work that happens *inside* an
-agent run. Extend the skill instead.
+Keep workflow and composite-action manifests declarative: triggers, permissions,
+concurrency, steps, and input/output wiring. Put material selection, parsing,
+state transitions, and process lifecycle in tested code, invoked through
+`tend runtime` for shipped behavior or an owning repository script for Tend-only
+maintenance. Test the same command or function the manifest invokes. Shell stays
+linear installation and external-command plumbing.
 
 ### What waste is worth fixing
 

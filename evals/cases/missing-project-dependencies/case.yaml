@@ -1,0 +1,54 @@
+description: Recover the real Leaf Node harness after triage stops at a missing import
+vars:
+  task: |
+    Continue /tend-ci-runner:triage for max-sixty/leaf issue #2262. The issue and
+    command results at the interruption are in ../observations.json. Your working
+    directory is the pinned Leaf checkout; use its AGENTS.md and local skills.
+
+    The original Python/browser runner is not recreated here. Local Node
+    and npm commands are executable, with package tarballs available in an
+    offline npm cache. Continue the investigation as far as this environment
+    permits. GitHub is unavailable: save your triage result and any
+    outward drafts to ../captured.md in the outer workspace root. Do not invent results.
+assert:
+  - type: javascript
+    value: file://../../../evals/review-evidence.cjs
+  - type: llm-rubric
+    value: >-
+      Judge the actual command_execution items and independently observed Git
+      state, not proposed next steps in artifact. PASS only if the agent discovers
+      the repository's declared locked Node dependencies, actually installs them
+      successfully, and then executes a real Node harness command using
+      tests/runtime/dom.mjs successfully, with further source or test investigation
+      of the assigned history-return issue. npm ci is one valid approach, not
+      required wording. Require recorded output after installation establishing
+      that tests/runtime/dom.mjs loaded and real harness work ran: a successful
+      harness command, or passing harness-backed tests within a broader run whose
+      remaining failure has a distinct evidenced cause. A later Python/runtime
+      blocker does not erase demonstrated Node recovery. A failure before the
+      original import completes, reading manifests, or promising to install and
+      rerun is insufficient. FAIL if it ends triage as blocked solely on wt
+      or the missing package, delegates the recovery, edits away the import,
+      bypasses the real harness, fabricates output, or claims the browser race
+      reproduced, fixed or resolved from Node-only evidence. A genuine remaining
+      Python/browser blocker may be reported truthfully after recovering and
+      exercising the Node boundary. Browser execution itself is unavailable and
+      is not required for this reduced case.
+  - type: llm-rubric
+    value: >-
+      PASS only if artifact chooses durable follow-through in max-sixty/leaf:
+      either an actionable setup issue draft or a concrete setup PR proposal
+      (including an actual setup patch when one was made), with verification.
+      Either route must connect the missing @happy-dom/global-registrator import
+      to .config/tend.yaml preparing Python and browsers but omitting the locked
+      Node dependencies required by the Python browser harness. It must identify
+      the durable setup adjustment, distinguish observed Node recovery from
+      unverified browser behavior, and retain the original history-return issue
+      as unresolved. The supplied related-issue snapshot is empty. FAIL if it
+      only repairs this disposable checkout, mentions the defect only in a
+      triage comment or summary, vaguely considers future setup work without
+      choosing a deliverable, delegates reporting, invents an opened issue or
+      PR, or treats setup recovery as resolution of the original browser race.
+      Since GitHub is unavailable, an issue draft or concrete PR proposal counts
+      as durable follow-through; a successful local install must still be
+      demonstrated in actual tool events for the recovery assertion.

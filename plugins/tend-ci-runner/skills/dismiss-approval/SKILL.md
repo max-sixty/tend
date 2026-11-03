@@ -12,7 +12,7 @@ A bot `APPROVED` keeps deciding the PR until a dismissal or a `CHANGES_REQUESTED
 Keying the dismissal to a post is what leaves it standing: **Recheck before posting** in `/tend-ci-runner:post-to-github` rightly suppresses a second deferral comment when one already stands, and a dismissal that rides on that comment is suppressed with it. Dismiss on the conclusion, then say so in the summary — where this session does post a review carrying that conclusion, dismiss after the post lands, so a failed post doesn't leave the PR with neither a verdict nor findings.
 
 ```bash
-uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+tend runtime bot-review-state \
   dismiss <number> "<what invalidated the approval>"
 ```
 
