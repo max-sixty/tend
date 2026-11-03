@@ -2576,13 +2576,27 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
     evaluate mode, or edited to let the bot bypass it. Replace rules and bypass
     actors, union branch includes, and preserve exclusions: existing protected
     branches may admit credentials, while excluded branches may host bot work.
-    Return the verdict plus the actual target selection or an error.
+    Refuse to overwrite customized tag conditions. Return the verdict plus
+    the actual target selection or an error.
     """
     intended = json.loads(body)
     name = intended["name"]
     existing = _repository_rulesets(repo)
     if existing is None:
         return None, "Could not list repository rulesets"
+    if name in existing and intended["target"] == "tag":
+        current = _fetch_ruleset(repo, existing[name])
+        if current is None:
+            return None, "Could not read the existing tag ruleset from GitHub"
+        if (
+            current.get("target") != "tag"
+            or current.get("conditions") != intended["conditions"]
+        ):
+            return False, (
+                "Cannot safely replace a customized tag selection. "
+                "No rulesets changed. Review the existing ruleset and its "
+                "coverage manually; --fix requires all tags with no exclusions."
+            )
     if name in existing and intended["target"] == "branch":
         current = _fetch_ruleset(repo, existing[name])
         if current is None:
