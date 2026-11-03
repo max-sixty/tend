@@ -25,6 +25,7 @@ def test_runtime_help_and_argument_errors() -> None:
         ["runtime", "codex", "check-cli", "--help"],
         ["runtime", "claude", "--help"],
         ["runtime", "gist-memory", "--help"],
+        ["runtime", "triage-batch", "--help"],
     ):
         result = runner.invoke(main, arguments)
         assert result.exit_code == 0, result.output
@@ -34,6 +35,7 @@ def test_runtime_help_and_argument_errors() -> None:
         ["runtime", "token-usage", "--harness", "other"],
         ["runtime", "codex", "auth", "prepare"],
         ["runtime", "copy-session-tree", "source", "dest", "-1", "1"],
+        ["runtime", "triage-batch", "dispatch"],
     ):
         result = runner.invoke(main, arguments)
         assert result.exit_code == 2, result.output
@@ -178,6 +180,16 @@ def test_installed_console_and_isolated_package_entrypoint(
         assert result.returncode == 0, result.stderr
         assert result.stdout == "Codex auth: using api-key\n"
         assert not (tmp_path / "auth.json").exists()
+        result = subprocess.run(
+            [*command, "runtime", "triage-batch", "dispatch", "[]"],
+            cwd=tmp_path,
+            env={"GITHUB_REPOSITORY": "owner/repo"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ""
 
 
 def test_portable_cli_help_does_not_load_linux_runtime_dependencies(

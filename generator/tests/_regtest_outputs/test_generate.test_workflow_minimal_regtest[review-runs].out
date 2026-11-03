@@ -26,6 +26,7 @@ jobs:
       actions: read
       issues: write
     steps:
+      - uses: max-sixty/tend/setup-runtime@X.Y.Z
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
@@ -38,7 +39,6 @@ jobs:
           merge: restricted
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          bot_name: test-bot
           model: opus
           checkout_mode: base
           base_branch: ${{ github.event.repository.default_branch }}

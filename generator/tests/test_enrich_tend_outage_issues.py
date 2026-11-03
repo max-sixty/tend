@@ -8,16 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
+from tests import GH_PREAMBLE, fake_bin, runtime_command, tool_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = (
-    REPO_ROOT
-    / "plugins"
-    / "tend-ci-runner"
-    / "scripts"
-    / "enrich_tend_outage_issues.py"
-)
+SCRIPT = "enrich-tend-outage-issues"
 RUN_ID = "11"
 JOB_ID = "101"
 EXIT_ONLY = [
@@ -123,7 +117,7 @@ def env(tmp_path: Path) -> dict[str, str]:
 
 def _run(env: dict[str, str]) -> str:
     result = subprocess.run(
-        uv_script(SCRIPT), env=env, capture_output=True, text=True, check=False
+        runtime_command(SCRIPT), env=env, capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
     posted = Path(env["POSTED_BODY"])

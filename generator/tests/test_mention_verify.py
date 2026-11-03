@@ -3,28 +3,20 @@
 The gate decides whether a comment or review summons an agent session, so
 every case here is an outward behaviour: a false negative leaves someone
 un-answered, and a false positive burns a session that can only exit silently.
-The script is inlined into the generated workflow (env in, GITHUB_OUTPUT out),
-which is what lets these run it directly against a fake `gh`.
+The tests invoke the same isolated runtime CLI as the generated workflow,
+against a fake `gh`.
 """
 
 from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
-
-MENTION_VERIFY = (
-    Path(__file__).resolve().parents[2]
-    / "generator"
-    / "src"
-    / "tend"
-    / "templates"
-    / "mention_verify.py"
-)
+from tests import GH_PREAMBLE, fake_bin, tool_path
 
 BOT = "test-bot"
 
@@ -134,7 +126,7 @@ def env(tmp_path: Path) -> dict[str, str]:
 
 def _run(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        uv_script(MENTION_VERIFY),
+        [sys.executable, "-I", "-m", "tend", "runtime", "mention-verify"],
         env=env,
         capture_output=True,
         text=True,

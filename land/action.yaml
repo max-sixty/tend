@@ -3,7 +3,8 @@ description: >-
   Decide, with no agent and no checkout of the pull request, whether a finished
   check starts the landing of a pull request whose review recorded its head
   (every check green) or the repair of one with no human author (red). Runs
-  Tend's own pinned script.
+  Tend's pinned runtime command.
+  Requires setup-runtime at the same ref earlier in the job.
 
 inputs:
   github_token:
@@ -24,20 +25,12 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install runtime uv
-      shell: bash
-      run: bash "${{ github.action_path }}/../shared/steps/install-uv.sh"
-      env:
-        UV_INSTALL_DIR: ${{ runner.temp }}/tend-uv
-
     - name: Check
       id: check
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
         HEAD_SHA: ${{ inputs.head_sha }}
-        UV_NO_CACHE: "1"
       run: |
-        "$RUNNER_TEMP/tend-uv/uv" run --script \
-          "${{ github.action_path }}/../plugins/tend-ci-runner/scripts/land_pr.py" \
-          check "$HEAD_SHA"
+        : "${TEND_RUNTIME_PYTHON:?Run max-sixty/tend/setup-runtime at the same ref before this action}"
+        tend runtime land-pr check "$HEAD_SHA"

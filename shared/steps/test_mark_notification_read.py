@@ -111,12 +111,6 @@ def _patch_calls(fake_gh: FakeGh) -> list[str]:
         ),
         pytest.param(
             "workflow_dispatch",
-            {"inputs": {"issue": "7", "report": True}},
-            f"https://api.github.com/repos/{REPO}/issues/7",
-            id="dispatched-triage",
-        ),
-        pytest.param(
-            "workflow_dispatch",
             {"inputs": None},
             None,
             id="scheduled-workflow-run-by-hand",
@@ -307,3 +301,13 @@ def test_refuses_to_run_without_the_actions_env(
     with pytest.raises(SystemExit, match="GITHUB_RUN_ID"):
         mark_notification_read.main()
     assert fake_gh.calls == []
+
+
+@pytest.mark.parametrize("number", [7, 8])
+def test_batch_job_marks_only_its_own_issue(event, monkeypatch, number):
+    event.write_text(json.dumps({"inputs": {"issues": "[7,8]"}}))
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("TEND_ISSUE_NUMBER", str(number))
+    assert mark_notification_read.subject_url(REPO) == (
+        f"https://api.github.com/repos/{REPO}/issues/{number}"
+    )

@@ -17,7 +17,7 @@ token names, protected environments) in its own
 the docs name. Not a `docs/agent-notes.md` of its own: PR instruction
 pinning covers `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`,
 `AGENTS.override.md`, `.claude/`, and `.agents/` at any depth under both
-harnesses (`shared/steps/restore-sensitive-config.sh`), so notes parked outside those
+harnesses (`tend.runtime.shared.event_checkout`), so notes parked outside those
 paths are read from the PR's own tree.
 
 ## Threats
@@ -578,31 +578,37 @@ job and `tend check` accepts access-only auth without refresh credentials.
 The external owner must wait for existing refresh runs to finish and retain
 the full login in its own credential store; unused refresh secrets must be removed.
 
-**Rate limiting.** Burst detection (10 PRs or issues per 20 minutes) and
-spike detection (today's volume vs 6-day baseline, scaled per repo) abort
-the run before the agent starts, catching runaway loops between workflows.
-The burst's issue count leaves out the `tend-ci-cause` issues triage files
-for a CI failure report, one per root cause, since one red run can hold a
-dozen; the PR burst count and the spike limit count them. The bot sets that
-label itself, so a loop that labels what it files escapes only the issue
-burst count, and still meets the spike limit.
-The check runs as its own step in the composite action, so a
-prompt-injection attack inside the agent session cannot skip it. Concrete limits live in
-`generator/src/tend/runtime/shared/rate_limit_preflight.py`.
+**Rate limiting.** The credential proxy counts agent issue and PR creations in
+one rolling 24-hour window for the workflow's repository, including CI cause
+issues. The normal allowance is twice the average daily creation count over the
+previous seven complete UTC days, rounded up, with a minimum of ten. A batch may
+use the whole allowance; midnight does not clear the preceding 24 hours' usage.
+This guards sudden increases in volume, not sustained growth or a fixed cost.
 
-The spike limit is resumable by a maintainer, the burst limit is not. On a
-spike trip the run files or reopens a `tend-rate-limit` issue listing the
-runs it refused; closing that issue doubles the ceiling for the rest of the
-UTC day, and each further close doubles it again, so the limit re-arms
-after use rather than switching off. Approval is a check rather than an
-instruction: the preflight counts only closes whose actor is not the bot,
-and since GitHub admits only the author or a triage/write collaborator to
-close an issue — and the bot is the author — that leaves exactly the
-maintainers. The bot cannot approve itself even if a prompt injection tells
-it to, and there is no allowlist to maintain.
+Closing the bot's `Creation allowance reached` tracker approves a seven-day
+floor: twice the greater of the normal allowance and the preceding 24 hours'
+creation count at that close. The creation count approximates the limit that
+was hit without trusting mutable tracker text or replaying chains of earlier
+approvals. The approved number stays fixed until expiry; the effective limit
+is the greater of the current normal allowance and every active floor. A later
+close after exhausting a raised limit can raise it again. Approvals on older
+`Bot rate limit reached` trackers retain their original policy and do not
+create these seven-day floors.
 
-Refused runs do not retry on their own; the issue's table carries their
-links. Automating that is deferred (see `TODO.md`).
+GitHub creation timestamps and human close events provide the evidence. The
+proxy counts its own successful and in-flight creations until the listing
+includes them, avoiding duplicate admission within a session. Separate runners
+can still admit concurrent requests against the same history; this is not an
+atomic reservation across runners. Trusted runner reports and the tracker count
+toward volume. Creations in other repositories are outside this allowance.
+
+Bot closes and GitHub Apps cannot approve capacity. A missing or malformed
+history refuses creation without stopping the agent. Refusal reports usage,
+the limit and the next usage expiry; that expiry is a time to recheck, not a
+promise that capacity will then be available. Reviews, comments, existing branch
+updates and issue closure continue. Notifications and the daily live-work sweep
+recover unfinished work through their ordinary ownership and access checks.
+Nightly requires recovery evidence before closing a tracker as the bot.
 
 **Fixed prompts and marketplace skills.** The prompt and skill set come from
 the composite action and the tend marketplace, not from the PR. PR changes

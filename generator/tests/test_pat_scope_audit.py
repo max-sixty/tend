@@ -7,15 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from tests import GH_PREAMBLE, fake_bin, tool_path, uv_script
+from tests import GH_PREAMBLE, fake_bin, runtime_command, tool_path
 
-SCRIPT = (
-    Path(__file__).resolve().parents[2]
-    / "plugins"
-    / "tend-ci-runner"
-    / "scripts"
-    / "pat_scope_audit.py"
-)
+SCRIPT = "pat-scope-audit"
 
 FAKE_GH = (
     GH_PREAMBLE
@@ -35,7 +29,7 @@ def _run(tmp_path: Path, headers: str, *args: str, fails: bool = False):
     header_file.write_text(headers)
     bindir = fake_bin(tmp_path, gh=FAKE_GH)
     return subprocess.run(
-        uv_script(SCRIPT, *args),
+        runtime_command(SCRIPT, *args),
         capture_output=True,
         text=True,
         check=False,

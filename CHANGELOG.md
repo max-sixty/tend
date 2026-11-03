@@ -6,6 +6,88 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.23
+
+### Improved
+
+- Issue and PR creations share a rolling 24-hour allowance scaled to recent traffic, with a minimum of ten. Closing the new tracker sets a seven-day floor based on twice the greater of normal capacity and recent usage; the floor survives a falling baseline. Closes of old-policy trackers do not grant the new floor. ([#1626](https://github.com/max-sixty/tend/pull/1626))
+
+### Fixed
+
+- Rolling workflow-update PRs describe the full change from the default branch, including earlier unmerged updates already on their branch. ([#1596](https://github.com/max-sixty/tend/pull/1596))
+- Update credential-proxy dependencies to mitmproxy 12.3.1, Brotli 1.2.1 and pyasn1 0.6.5. ([#1593](https://github.com/max-sixty/tend/pull/1593), [#1625](https://github.com/max-sixty/tend/pull/1625))
+
+### Documentation
+
+- Remove stale harness-version and plugin-script details from setup and maintenance guidance. ([#1611](https://github.com/max-sixty/tend/pull/1611))
+
+### Internal
+
+- Update evaluation and activity-worker dependencies. ([#1574](https://github.com/max-sixty/tend/pull/1574), [#1575](https://github.com/max-sixty/tend/pull/1575), [#1589](https://github.com/max-sixty/tend/pull/1589), [#1590](https://github.com/max-sixty/tend/pull/1590), [#1604](https://github.com/max-sixty/tend/pull/1604))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.22
+
+### Fixed
+
+- Issue workers are instructed to execute available diagnostic experiments and retain unfinished work until completion, an active handoff, or a specific blocker. Recording a next action on an issue does not count as a handoff. ([#1618](https://github.com/max-sixty/tend/pull/1618))
+- Triage and daily recovery follow replacement PRs to landed repairs and close issues when evidence establishes full resolution. Partial repairs, intermittent failures, active workers, and maintainer holds retain their existing safeguards. ([#1618](https://github.com/max-sixty/tend/pull/1618))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.21
+
+### Improved
+
+- Triage processes issue batches with configurable `workflows.triage.max_parallel` (default five). Batches remain serialized, and recovery splits large selections to fit GitHub limits. Manual dispatch now accepts `issues`, a JSON array, in place of `issue` and `title`. ([#1603](https://github.com/max-sixty/tend/pull/1603))
+- Daily and weekly maintenance delegate independent repairs through issues and investigate work with subagents. Codex sessions can exceed the default four-agent limit. ([#1609](https://github.com/max-sixty/tend/pull/1609))
+- **Action callers:** Run `setup-runtime` at the same release ref before `claude`, `codex`, `land`, or `codex/refresh`. The harness `bot_name` input and Codex's unused `allowed_bots` and `allowed_non_write_users` inputs are removed; config `bot_name` remains supported. Generated workflows include these changes. ([#1608](https://github.com/max-sixty/tend/pull/1608))
+- **Config:** TOML configurations and `sandbox_env`, `sandbox_path`, and `sandbox_setup` are rejected with migration guidance. Convert to YAML and use `setup:` steps with `$GITHUB_ENV` and `$GITHUB_PATH`. ([#1610](https://github.com/max-sixty/tend/pull/1610))
+
+### Fixed
+
+- Startup configuration restoration handles wildcard, newline, and non-UTF-8 filenames literally while preserving trusted-base instruction pinning. ([#1610](https://github.com/max-sixty/tend/pull/1610))
+
+### Internal
+
+- Release artifact validation checks only built distributions, excluding build-directory metadata. ([#1614](https://github.com/max-sixty/tend/pull/1614))
+
+- Workflow operations and CI helpers run through the installed, isolated `tend runtime` CLI. Runner setup has one owner, and instruction restoration uses the packaged Python runtime instead of staged shell assets. ([#1607](https://github.com/max-sixty/tend/pull/1607), [#1608](https://github.com/max-sixty/tend/pull/1608), [#1610](https://github.com/max-sixty/tend/pull/1610))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.19
+
+### Improved
+
+- CI report triagers can repair a cause directly or fan out independent causes into issues. Reports and recovery recognize either an issue or repair PR as the durable owner. ([#1601](https://github.com/max-sixty/tend/pull/1601))
+- A blocker applies only to the work it prevents: triagers continue separable investigation and make independently useful, verified partial repairs while keeping unresolved work open. ([#1601](https://github.com/max-sixty/tend/pull/1601))
+
+### Fixed
+
+- New issues and PRs share one adaptive creation allowance enforced by the credential proxy. Exhaustion leaves reviews, existing repairs, comments and issue cleanup running; maintainer approval increases the allowance until UTC midnight. ([#1594](https://github.com/max-sixty/tend/pull/1594))
+- Nightly cleanup can close a recovered creation-limit tracker once creation has resumed and blocked work is accounted for; a bot closing it grants no additional capacity. ([#1594](https://github.com/max-sixty/tend/pull/1594))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.18
+
+### Improved
+
+- CI reports link ordinary cause issues, so a long-running failure report can track causes beyond GitHub's sub-issue limit. Ownership searches include closed issues so recurring failures can reopen their existing cause. ([#1585](https://github.com/max-sixty/tend/pull/1585))
+- Triage hands CI follow-up to the existing review and landing owner when automatic continuation is configured, freeing the issue worker for the next investigation. Configurations without that continuation retain triage's verification responsibility. ([#1586](https://github.com/max-sixty/tend/pull/1586))
+
+### Fixed
+
+- Report triage records the runs it diagnosed even when all causes already have owners, allowing the next session to identify new work. Already-recorded evidence produces no duplicate diagnosis. ([#1587](https://github.com/max-sixty/tend/pull/1587))
+
+### Internal
+
+- Outcome reviews follow CI reports' triage runs for diagnosis and cause issues. ([#1576](https://github.com/max-sixty/tend/pull/1576))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.17
 
 ### Improved

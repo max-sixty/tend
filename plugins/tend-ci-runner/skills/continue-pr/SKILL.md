@@ -27,8 +27,7 @@ still unfinished.
 ```bash
 BOT_LOGIN=$(gh api user --jq .login)
 gh pr view <number> --json author,state,isDraft,headRefOid,headRefName,headRepository,baseRefName,commits,body,comments,reviews,statusCheckRollup
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py" \
+tend runtime active-subject-runs \
   "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/<number>"
 ```
 
@@ -62,6 +61,8 @@ Re-check head and state before expensive verification and before pushing per
 in `/tend-ci-runner:push-commits`. Preserve any sibling's commits. A review that
 arrives while this run works remains with its reviewer per
 **Reviews arriving during verification** in `/tend-ci-runner:push-commits`.
+
+## CI and landing
 
 Once the remaining findings are addressed, poll the pinned head per
 `/tend-ci-runner:monitor-ci`, including a head this run did not push. Handle

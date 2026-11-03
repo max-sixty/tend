@@ -1,0 +1,25 @@
+description: Record completed CI diagnosis without repeating an already handled report.
+vars:
+  task: |
+    Act as Tend's report-triage session for each independent situation in
+    observations.json. Load the active triage guidance and its CI-report
+    reference. The diagnostic comparison and ownership checks described there
+    are complete. Decide the remaining actions and draft any public output
+    in captured.md. GitHub is unavailable; do not perform outward actions or
+    claim that proposed actions have succeeded.
+assert:
+  - type: llm-rubric
+    value: >-
+      For newly-compared-runs, propose a concise comment on report 3985 that
+      records diagnosis of runs 40610988525 and 40605052307 and links their
+      existing cause owners. The report must durably distinguish these handled
+      runs from mere failure notifications, even though no cause is new.
+      A private final answer alone or silence on the report is insufficient.
+      Do not create duplicate issues, close unresolved causes or take over
+      active repairs. Exact wording is not required.
+  - type: llm-rubric
+    value: >-
+      For already-compared-runs, no new diagnosis or outward comment is needed:
+      the report already records the disposition of every run and no newer
+      failure exists. Do not repeat that comment, open another cause or close
+      the unresolved report. Returning that nothing new is owed is correct.

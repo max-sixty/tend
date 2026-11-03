@@ -1,0 +1,35 @@
+description: Choose direct repair or independent cause work from a CI report.
+vars:
+  task: |
+    Act as Tend's report-triage session for the independent situations in
+    observations.json. Load the active triage guidance and its CI-report
+    reference, then decide the remaining actions and draft any public output
+    in captured.md. The observations record the completed investigation and
+    current ownership checks. GitHub is unavailable; do not perform outward
+    actions or claim that proposed actions succeeded.
+assert:
+  - type: llm-rubric
+    value: >-
+      This is an offline decision task: judge proposed actions, not actual
+      publication. In ready-repair, propose taking the completed verified fix
+      to a repair PR and linking
+      it from report 100. Do not require a new cause issue or another triager
+      before submitting this already prepared fix. The PR must describe its
+      reproduction and preserve normal review/CI/landing gates; it is not
+      already merged. Report closure alone is not proof that the repair landed.
+  - type: llm-rubric
+    value: >-
+      This is an offline decision task: judge proposed actions, not actual
+      publication. In independent-causes, preserve the ownership of the socket
+      failure in PR 220, adding only evidence it lacks. For the other two
+      distinct causes, allow direct repairs, independent cause issues, or a
+      mixture. Direct repair entails investigation, verification and a repair
+      PR; any work left unfinished must have an issue or PR owner linked from
+      report 200. Do not duplicate PR 220 or claim the failures resolved.
+      Independent investigations may run in parallel. A completed handoff must
+      not leave durable failures solely in the report's comments, because the
+      report closes automatically when the lane passes. If issue or PR creation
+      is explicitly refused or unavailable, recording the remaining unowned
+      cause on the existing report is a valid temporary step, provided the
+      plan keeps the work unfinished for recovery and does not present that
+      comment or a passing run as a durable owner or resolution.
