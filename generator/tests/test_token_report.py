@@ -164,11 +164,13 @@ class Report:
         (self._usage_dir / f"{run_id}.harness").write_text("claude")
         return self
 
-    def add_run_without_artifact(self, run_id: int) -> Report:
+    def add_run_without_artifact(
+        self, run_id: int, conclusion: str = "cancelled"
+    ) -> Report:
         self._runs.append(
             {
                 "databaseId": run_id,
-                "conclusion": "cancelled",
+                "conclusion": conclusion,
                 "createdAt": "2026-08-25T12:00:00Z",
                 "updatedAt": "2026-08-25T12:00:00Z",
                 "workflowName": "tend-review",
@@ -329,6 +331,16 @@ def test_a_run_with_no_artifact_is_skipped(report: Report) -> None:
     output, _ = report.run()
 
     assert [run["run_id"] for run in output["runs"]] == [1]
+
+
+def test_a_skipped_run_is_never_downloaded(report: Report) -> None:
+    """A job its `if:` skipped ran no session, so it costs no API call."""
+    report.add(1).add_run_without_artifact(2, conclusion="skipped")
+    _, rows = report.run()
+
+    assert "run download 2 " not in report.calls()
+    assert "run download 1 " in report.calls()
+    assert not any("uploaded no" in " ".join(row) for row in rows)
 
 
 def test_codex_artifact_counts_tokens_without_claiming_zero_cost(
