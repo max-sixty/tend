@@ -98,7 +98,7 @@ Four pieces:
    the consumer's `.github/workflows/` from `.config/tend.yaml`. Picks the
    right action ref and secret names per `harness`. Generation is
    idempotent — running `init` again overwrites all files from the
-   current config. When review, triage or land is generated, it also merges the
+   current config. When review or land is generated, it also merges the
    `concurrency.queue` ignore into the consumer-owned
    `.github/actionlint.yaml` (see "Concurrency and filtering").
 4. **Config** (`.config/tend.yaml`) — inputs to the generator. Overrides
