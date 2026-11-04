@@ -58,7 +58,7 @@ If the PR is merged, the work is superseded. Comment if a real gap remains; do n
 
 ### Re-check the head SHA before the expensive verify, not just before the push
 
-A PR another tend session opened keeps that session alive polling its checks, and closing a red gate is exactly the follow-up it stays alive for — so a sibling commit can land on the branch while you edit it. Find that out at `git push` and the suite you just ran was scoped against a stale head, so the whole verify cycle is paid again after the rebase. Record the head before editing and re-check it immediately before each expensive step — full test suite, coverage or snapshot regeneration, a long build:
+Another tend session can push to the branch while you edit it: the session that opened the PR closing a red gate, a review applying its findings, or a repair tend-land started. Find that out at `git push` and the suite you just ran was scoped against a stale head, so the whole verify cycle is paid again after the rebase. Record the head before editing and re-check it immediately before each expensive step — full test suite, coverage or snapshot regeneration, a long build:
 
 ```bash
 HEAD_OID=$(gh pr view <N> --json headRefOid --jq '.headRefOid')

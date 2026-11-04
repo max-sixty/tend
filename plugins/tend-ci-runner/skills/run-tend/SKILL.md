@@ -58,9 +58,10 @@ that will continue the remaining work, or a specific current blocker. Recording 
 issue, including one you own, preserves the backlog; it does not execute or
 hand off that action.
 
-After pushing a fix, own its CI follow-up: diagnose failures, repair what this
+After pushing a fix, own its CI follow-up unless tend-land does (**Which heads
+to poll** in `/tend-ci-runner:monitor-ci`): diagnose failures, repair what this
 task authorizes, and verify the new commit. `tend-ci-failures` reports only the
-branches it watches, so nothing takes over a PR branch's red CI. Once the review and
+branches it watches, so nothing else takes over a PR branch's red CI. Once the review and
 verification work is complete, finish the landing decision per
 `/tend-ci-runner:merge-pr`.
 
