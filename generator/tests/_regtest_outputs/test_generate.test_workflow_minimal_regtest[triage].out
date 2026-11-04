@@ -46,8 +46,8 @@ jobs:
     needs: select
     if: needs.select.outputs.issues != '[]'
     name: "triage #${{ matrix.issue }}"
-    # One group per issue: an issue never runs twice at once, and issues never
-    # wait for each other. max-parallel bounds a batch only.
+    # One group per issue: an issue never runs twice at once, and different
+    # issues share no group. max-parallel bounds a batch only.
     concurrency:
       group: tend-triage-${{ matrix.issue }}
       cancel-in-progress: false
