@@ -160,8 +160,12 @@ def codeowners_text(repo: str, branch: str) -> str | None:
         path = f"{directory}/CODEOWNERS" if directory else "CODEOWNERS"
         fields += [f"{alias}Tree={branch}:{directory}", f"{alias}={branch}:{path}"]
     argv = [arg for field in fields for arg in ("-f", field)]
+    # A failed read is left to raise rather than read as a missing file: a
+    # rate-limited query would otherwise send the maintainer to fix a rule
+    # that is in place.
+    response = _common.gh_json("api", "graphql", *argv)
     try:
-        repository = _common.gh_json("api", "graphql", *argv)["data"]["repository"]
+        repository = response["data"]["repository"]
         for alias in CODEOWNERS_DIRECTORIES:
             entries = (repository[f"{alias}Tree"] or {}).get("entries", [])
             modes = [
@@ -178,7 +182,7 @@ def codeowners_text(repo: str, branch: str) -> str | None:
             ):
                 return None
             return text
-    except (*_common.GH_READ_FAILED, KeyError, TypeError, AttributeError):
+    except (KeyError, TypeError, AttributeError):
         return None
     return None
 
@@ -209,12 +213,9 @@ def has_valid_control_plane_codeowners(repo: str, branch: str, bot_name: str) ->
         ):
             return False
 
-    try:
-        response = _common.gh_json(
-            "api", f"repos/{repo}/codeowners/errors?ref={quote(branch, safe='')}"
-        )
-    except _common.GH_READ_FAILED:
-        return False
+    response = _common.gh_json(
+        "api", f"repos/{repo}/codeowners/errors?ref={quote(branch, safe='')}"
+    )
     if not isinstance(response, dict) or not isinstance(response.get("errors"), list):
         return False
     begin_line = content.splitlines().index(CODEOWNERS_BEGIN) + 1
@@ -234,7 +235,7 @@ def main() -> int:
     if merge not in {"restricted", "yolo"}:
         return _common.fail(f"Unknown Tend merge mode: {merge}")
 
-    # The two reads the gate cannot proceed without are left to raise. A red
+    # The reads the gate cannot proceed without are left to raise. A red
     # gate is the safe direction, and gh's own explanation — "Bad credentials",
     # "Not Found" — is already on stderr from `_common.gh`.
     default_branch = _common.gh_json("api", f"repos/{repo}")["default_branch"]

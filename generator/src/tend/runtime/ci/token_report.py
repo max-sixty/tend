@@ -310,7 +310,7 @@ def main(completed_after: datetime, extra_prefixes: tuple[str, ...] = ()) -> int
                 "--status",
                 "completed",
                 "--json",
-                "databaseId,createdAt,updatedAt,workflowName",
+                "databaseId,conclusion,createdAt,updatedAt,workflowName",
                 "--limit",
                 str(RUN_LIMIT),
                 quiet=True,
@@ -331,6 +331,10 @@ def main(completed_after: datetime, extra_prefixes: tuple[str, ...] = ()) -> int
                 file=sys.stderr,
             )
         for row in rows:
+            # A job its `if:` skipped ran no session; asking for its artifacts
+            # would spend a REST call on every one.
+            if row.get("conclusion") == "skipped":
+                continue
             if _parse_time(row["updatedAt"]) >= completed_after:
                 runs_by_id[int(row["databaseId"])] = row
 
