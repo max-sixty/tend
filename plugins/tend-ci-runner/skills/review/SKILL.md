@@ -100,7 +100,7 @@ The checkout uses `refs/pull/N/merge`, so you read the merged tree (PR head + cu
 
 **Duplication check:**
 
-For anything the diff introduces that answers a question the codebase may already answer — a function or type, a constant, a selector, a style rule, a check written inline inside a new helper — search for that question, not the name. LLM-generated code frequently reinvents internal APIs — this is the highest-value check for externally contributed PRs.
+For anything the diff introduces that answers a question the codebase may already answer — a function or type, a constant, a selector, a style rule, a check written inline inside a new helper — search for that question, not only the name. LLM-generated code frequently reinvents internal APIs — this is the highest-value check for externally contributed PRs.
 
 Two search strategies, both required:
 
