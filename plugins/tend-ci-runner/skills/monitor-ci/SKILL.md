@@ -20,7 +20,7 @@ green, and starts one repair session per failing head on a PR with no human
 author. So after you push to a PR with no human author, record the push per
 **After the push** in `/tend-ci-runner:push-commits`, say in your report that
 tend-land owns its CI from there, and carry on with the rest of your workflow
-without polling. Poll as below where nothing else acts on the result: a PR
+without polling or merging that head. Poll as below where nothing else acts on the result: a PR
 with a human author, a session whose prompt doesn't say the CI wait is off, a
 rerun without a push (tend-land has already started that head's one repair),
 or a check you need before calling a failure pre-existing. A review reads CI
