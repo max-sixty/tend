@@ -13,12 +13,6 @@ on:
         type: string
         required: true
 
-# The whole batch holds the lane: overlapping events cannot multiply the cap.
-concurrency:
-  group: tend-triage
-  cancel-in-progress: false
-  queue: max
-
 jobs:
   select:
     if: <<fork_guard_prefix(cfg)>><<tend_enabled>> && <<not_bookkeeping()>>
@@ -43,6 +37,11 @@ jobs:
     needs: select
     if: needs.select.outputs.issues != '[]'
     name: "triage #${{ matrix.issue }}"
+    # One group per issue: an issue never runs twice at once, and issues never
+    # wait for each other. max-parallel bounds a batch only.
+    concurrency:
+      group: tend-triage-${{ matrix.issue }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       max-parallel: <<max_parallel>>

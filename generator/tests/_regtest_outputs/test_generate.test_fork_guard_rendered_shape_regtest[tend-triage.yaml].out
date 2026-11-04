@@ -20,12 +20,6 @@ on:
         type: string
         required: true
 
-# The whole batch holds the lane: overlapping events cannot multiply the cap.
-concurrency:
-  group: tend-triage
-  cancel-in-progress: false
-  queue: max
-
 jobs:
   select:
     if: github.repository_owner == 'test-owner' && vars.TEND_ENABLED != 'false' && contains(github.event.issue.labels.*.name, 'tend-outage') == false && contains(github.event.issue.labels.*.name, 'tend-rate-limit') == false
@@ -52,6 +46,11 @@ jobs:
     needs: select
     if: needs.select.outputs.issues != '[]'
     name: "triage #${{ matrix.issue }}"
+    # One group per issue: an issue never runs twice at once, and issues never
+    # wait for each other. max-parallel bounds a batch only.
+    concurrency:
+      group: tend-triage-${{ matrix.issue }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       max-parallel: 5
