@@ -499,8 +499,8 @@ def launch(
 def test_launch_steers_the_agent_entirely_through_argv(launch: Launcher) -> None:
     """Nothing on the far side reads the model or the prompts from the env.
 
-    `--permission-mode` restates what settings.local.json already says, so the
-    mode survives a consumer overriding that file.
+    `--permission-mode` is what sets the mode: Claude Code ignores
+    `defaultMode` in settings.local.json.
     """
     argv = launch(stream=_ev_result()).command("claude").argv
 
@@ -699,9 +699,8 @@ def test_supervise_reaps_the_process_group_when_the_runner_cancels_the_job(
 
     SIGTERM's default disposition ends this process where it stands, so the
     reap would be skipped and the agent would run on as an orphan — still
-    writing to the workspace — while the runner tore the job down. `tend-triage`
-    runs with `cancel-in-progress: true`, so this is a routine exit, not an
-    exotic one.
+    writing to the workspace — while the runner tore the job down. Every
+    cancelled run, a maintainer's or a workflow override's, ends this way.
     """
     calls: list[Recorded] = []
     handlers: list[Any] = []
@@ -761,11 +760,10 @@ def test_launch_reports_a_signalled_child_in_shell_convention(
 def test_main_refuses_to_start_without_an_input_it_needs_late(
     monkeypatch: pytest.MonkeyPatch, github_files: GithubFiles
 ) -> None:
-    """A missing input must fail now, not on the run that first reaches it.
+    """A missing input fails up front, naming the variable.
 
-    TEND_TIMEOUT_SEC is read only when naming the bound in a timeout
-    annotation, so dropping it from the step's `env:` would leave every
-    ordinary run green and surface months later, mid-outage, as a bare exit 1.
+    TEND_TIMEOUT_SEC bounds both the agent's Bash calls and the supervisor, so
+    without the check its absence would surface as a bare KeyError.
     """
     for name in (
         "TEND_RUN_DIR",

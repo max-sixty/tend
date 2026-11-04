@@ -24,18 +24,19 @@ BOT = "test-bot"
 # response by rewriting a file. Ordered longest-path-first: the review-comments
 # path is a prefix-extension of the single-review path.
 #
-# PAGES serves the same page N times, so a reader that keeps only one page
-# of a paginated listing sees a different answer from one that reads them all.
+# PAGES serves a paginated listing as N pages with the fixture on the last,
+# each earlier page holding one unrelated human entry, so a reader that keeps
+# only the first page sees a different answer from one that reads them all.
 FAKE_GH = (
     GH_PREAMBLE
     + r"""
 emit_paged() {
-  local i=0 stream=""
+  local i=1 stream=""
   while [ "$i" -lt "${PAGES:-1}" ]; do
-    stream="$stream$1"
+    stream="$stream"'[{"user":{"login":"someone-else"},"id":0,"body":""}]'
     i=$((i + 1))
   done
-  emit "$stream"
+  emit "$stream$1"
 }
 
 case "$*" in
@@ -415,6 +416,9 @@ def test_the_bots_review_on_someone_elses_pr_is_dropped(env: dict[str, str]) -> 
     review warranted. This subsumes the empty-body approval case: GitHub
     rejects self-approvals, so a bot approval only ever exists here."""
     _review(env, user={"login": BOT}, state="APPROVED", body="Looks good, but see #4.")
+    # The review GitHub lists on the PR is engagement, so only the gate on the
+    # review's own author can drop it.
+    _write(env, "PR_REVIEWS_JSON", [{"user": {"login": BOT}, "id": 1}])
 
     assert _verdict(env) == ("false", "")
 
@@ -629,7 +633,7 @@ def test_an_issue_comment_never_reaches_the_review_endpoints(
     calls = _calls(env)
     assert calls, "the engagement lookups never ran"
     assert not any("/reviews/" in call for call in calls), calls
-    assert not any("//" in call.split(" --jq ")[0] for call in calls), calls
+    assert not any("//" in call for call in calls), calls
 
 
 def test_a_pr_comment_with_no_engagement_is_dropped(env: dict[str, str]) -> None:
@@ -658,11 +662,9 @@ def test_deleted_participants_do_not_break_the_engagement_scan(
 
 
 def test_engagement_survives_a_paginated_lookup(env: dict[str, str]) -> None:
-    """`gh api --paginate` applies `--jq` once per page. A reducing filter
-    (`| length`) would leave `100\\n7` in the variable, a numeric test on it
-    errors with `integer expression expected`, and the failed test falls
-    through to should_run=false — the bot going quiet on exactly the threads it
-    has engaged with most, with nothing going red."""
+    """The bot's comment sits on the second page. A lookup that read only the
+    first page would answer should_run=false — the bot going quiet on exactly
+    the threads it has engaged with most, with nothing going red."""
     env["PAGES"] = "2"
     _issue_comment(
         env,
