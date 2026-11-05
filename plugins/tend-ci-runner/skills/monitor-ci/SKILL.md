@@ -10,6 +10,22 @@ metadata:
 Obtain CI evidence for the caller's pinned commit. Return the result to the
 calling workflow; that workflow decides what to repair or do next.
 
+## Which heads to poll
+
+A session polling CI holds its runner while it waits, and on GitHub-hosted
+runners the checks it waits for compete for the same account's job slots.
+When the prompt says the review's CI wait is off, under `yolo`, tend-land acts
+as each check finishes: it lands a head the review recorded once its CI is
+green, and starts one repair session per failing head on a PR with no human
+author. So after you push to a PR with no human author, record the push per
+**After the push** in `/tend-ci-runner:push-commits`, say in your report that
+tend-land owns its CI from there, and carry on with the rest of your workflow
+without polling or merging that head. Poll as below where nothing else acts on the result: a PR
+with a human author, a session whose prompt doesn't say the CI wait is off, a
+rerun without a push (tend-land has already started that head's one repair),
+or a check you need before calling a failure pre-existing. A review reads CI
+for its approval per **Without the CI wait** in `/tend-ci-runner:review`.
+
 ## Poll the pinned commit
 
 Poll with the bundled script, pinned to the commit this session is accountable for — never the PR's current head: another actor can advance the head while the loop sleeps, and a poll that follows it reports *their* commit's results as yours:

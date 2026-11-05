@@ -408,12 +408,13 @@ bot_name: my-project-bot
 # Triggers on new and reopened issues. Classifies, checks for duplicates,
 # reproduces bugs and attempts conservative fixes. New/reopened issue events
 # create one-job batches; notifications and daily recovery submit selected issues
-# together. Whole batches serialize, with at most five issue jobs running at once.
-# New arrivals wait for the current batch's slowest job. Failed or cancelled work
-# stays on the open issues for recovery; independent jobs continue on failure.
+# together. Each issue has its own concurrency group, so an issue never runs twice
+# at once and one issue's session doesn't hold up another's; across runs, GitHub's
+# limit on an account's concurrent jobs is the only cap, and CI shares it. Failed or cancelled
+# work stays on the open issues for recovery; independent jobs continue on failure.
 # Recovery dispatches split at GitHub's matrix and run-name limits; the latter
-# keeps all selected issue IDs visible while a batch waits in the queue.
-# To change the concurrent issue-job limit (1–256):
+# keeps all selected issue IDs visible while a batch waits to start.
+# A batch runs at most five issue jobs at once. To change that limit (1–256):
 #
 # workflows:
 #   triage:

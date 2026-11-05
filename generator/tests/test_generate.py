@@ -1127,7 +1127,7 @@ def test_ci_failures_reporting_is_independent_of_triage(
 
 
 @pytest.mark.parametrize("limit", [None, 1, 10, 256])
-def test_triage_serializes_batches_and_limits_real_issue_jobs(
+def test_triage_gives_each_issue_a_group_and_limits_batch_jobs(
     tmp_path: Path, limit
 ) -> None:
     extra = (
@@ -1137,13 +1137,12 @@ def test_triage_serializes_batches_and_limits_real_issue_jobs(
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     doc = yaml.safe_load(workflows["tend-triage.yaml"].content)
     job = doc["jobs"]["triage"]
-    # All event and recovery batches hold this lane through their last job.
-    assert doc["concurrency"] == {
-        "group": "tend-triage",
+    # An issue runs once at a time, whichever run started it; no run waits on another.
+    assert "concurrency" not in doc
+    assert job["concurrency"] == {
+        "group": "tend-triage-${{ matrix.issue }}",
         "cancel-in-progress": False,
-        "queue": "max",
     }
-    assert "concurrency" not in job
     assert job["strategy"] == {
         "fail-fast": False,
         "max-parallel": limit or 5,
