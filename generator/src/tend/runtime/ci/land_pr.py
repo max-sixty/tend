@@ -10,13 +10,14 @@ session that knows its fact, carry the landing across instead:
   push. A missing record errs safe: that head's landing stays with a
   maintainer.
 * ``intend <pr> <sha> <base>`` — the review that settled everything about a
-  head the bot pushed, except its CI, records the head for landing: a
-  ``tend/land/<pr>`` status whose description names the base the review
-  judged and the checks its CI policy skips. It refuses a head with no
-  ``tend/land/pushed`` record, or whose PR has since moved off that head or
-  base. The record is itself a status, so creating it wakes ``check`` too,
-  and a check that finished between the review's read and the record is
-  not missed.
+  head, except its CI, records the head for landing: a ``tend/land/<pr>``
+  status whose description names the base the review judged and the checks
+  its CI policy skips. The head must carry a ``tend/land/pushed`` record or
+  belong to another bot's PR (Dependabot, Renovate), which no author will
+  land; ``intend`` refuses any other head, and a PR that has since moved off
+  that head or base. The record is itself a status, so creating it wakes
+  ``check`` too, and a check that finished between the review's read and the
+  record is not missed.
 * ``check <sha>`` — tend-land runs this, with no agent, each time something
   that reports on a commit finishes: any of the repository's workflows but
   Tend's own, a commit status, or another app's check suite, so whatever its
@@ -176,13 +177,19 @@ def intend(pr: str, sha: str, base: str, *, skip: frozenset[str] = frozenset()) 
     """Record that the review settled *sha* on *base* and it lands once green.
 
     Exit 3 records nothing and leaves the landing to a maintainer: the head
-    isn't the bot's push, the PR moved off *sha* or *base*, or *skip* doesn't
-    fit the record.
+    isn't the bot's push on a PR with a human or this bot as author, the PR
+    moved off *sha* or *base*, or *skip* doesn't fit the record.
     """
     repo = _common.repository()
     bot = str(_common.gh_json("api", "user")["login"])
     view = _common.gh_json(
-        "pr", "view", pr, "--repo", repo, "--json", "headRefOid,state,baseRefName"
+        "pr",
+        "view",
+        pr,
+        "--repo",
+        repo,
+        "--json",
+        "headRefOid,state,baseRefName,author",
     )
     if (
         view["state"] != "OPEN"
@@ -195,7 +202,10 @@ def intend(pr: str, sha: str, base: str, *, skip: frozenset[str] = frozenset()) 
         )
         return 3
     statuses = _common.gh_paginated(f"repos/{repo}/commits/{sha}/statuses")
-    if _standing(statuses, PUSHED_CONTEXT, bot) is None:
+    if (
+        not view["author"]["is_bot"]
+        and _standing(statuses, PUSHED_CONTEXT, bot) is None
+    ):
         print(
             f"{sha} carries no record of this bot's push; "
             "its landing stays with a maintainer",

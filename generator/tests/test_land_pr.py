@@ -138,7 +138,12 @@ class FakeGitHub:
     """`_common` as `intend` reaches it: canned reads, recorded writes."""
 
     def __init__(self) -> None:
-        self.view = {"headRefOid": SHA, "state": "OPEN", "baseRefName": "main"}
+        self.view: dict[str, Any] = {
+            "headRefOid": SHA,
+            "state": "OPEN",
+            "baseRefName": "main",
+            "author": {"login": "alice", "is_bot": False},
+        }
         self.statuses = [status(context="tend/land/pushed", description="Pushed")]
         self.writes: list[tuple[str, ...]] = []
 
@@ -187,6 +192,17 @@ def test_intend_leaves_a_head_with_no_record_of_the_bots_push(
     github.statuses = [status(context="tend/land/pushed", creator={"login": "eve"})]
     assert land_pr.intend("7", SHA, "main") == 3
     assert github.writes == []
+
+
+def test_intend_needs_no_record_of_a_push_on_another_bots_pr(
+    github: FakeGitHub,
+) -> None:
+    """Dependabot pushes its own heads, and no author will land them."""
+    github.statuses = []
+    github.view["author"] = {"login": "app/dependabot", "is_bot": True}
+    assert land_pr.intend("7", SHA, "main") == 0
+    (write,) = github.writes
+    assert _fields(write)["context"] == "tend/land/7"
 
 
 @pytest.mark.parametrize(

@@ -21,9 +21,10 @@ CI settled red on this PR's head ${{ needs.check.outputs.sha }} after its review
 <<header>>
 name: tend-land
 # Lands a reviewed PR once its CI completes, with no session waiting for it.
-# With the review's CI wait off, a review that settles everything about a head
-# the bot pushed but its CI records the head for landing (a `tend/land/<PR>`
-# commit status naming the base and any skipped checks) and ends. `check`, Tend's
+# With the review's CI wait off, a review that settles everything but the CI of
+# a head the bot pushed, or of a head on another bot's PR, records the head for
+# landing (a `tend/land/<PR>` commit status naming the base and any skipped
+# checks) and ends. `check`, Tend's
 # pinned script with no agent and no checkout of the PR, runs whenever anything
 # that reports on a commit finishes, so whatever its gate waits on also wakes
 # it: every workflow but Tend's own, a commit status, or another app's check

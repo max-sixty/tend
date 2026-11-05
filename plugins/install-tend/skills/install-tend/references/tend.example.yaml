@@ -362,9 +362,10 @@ bot_name: my-project-bot
 #
 # - A check already red withholds the approval.
 # - Under `yolo`, a head the bot pushed itself (the pushing session records
-#   that as a `tend/land/pushed` status), whose review settled everything but
-#   its CI, is recorded for landing (a `tend/land/<PR>` commit status naming
-#   the base and any skipped checks). Whenever something reporting on a
+#   that as a `tend/land/pushed` status) or a head on another bot's PR
+#   (Dependabot, Renovate), whose review settled everything but its CI, is
+#   recorded for landing (a `tend/land/<PR>` commit status naming the base
+#   branch and any skipped checks). Whenever something reporting on a
 #   commit finishes (any workflow but Tend's own, a commit status, another
 #   app's check suite), the generated `tend-land` workflow checks, with no
 #   agent, whether a recorded head on its recorded base has every check
