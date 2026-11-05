@@ -59,10 +59,13 @@ issue, including one you own, preserves the backlog; it does not execute or
 hand off that action.
 
 After pushing a fix, own its CI follow-up: diagnose failures, repair what this
-task authorizes, and verify the new commit. `tend-ci-failures` reports only the
-branches it watches, so nothing takes over a PR branch's red CI. Once the review and
-verification work is complete, finish the landing decision per
-`/tend-ci-runner:merge-pr`.
+task authorizes, and verify the new commit. Once the review and verification
+work is complete, finish the landing decision per `/tend-ci-runner:merge-pr`.
+`tend-ci-failures` reports only the branches it watches, so on a PR branch the
+one other owner is tend-land. When the prompt says the review's CI wait is off,
+under `yolo`, a push to a PR with no human author hands its CI and landing to
+tend-land: record the push and neither poll nor merge (**Which heads to poll**
+in `/tend-ci-runner:monitor-ci`).
 
 Returning the final response ends the CI session — the runner is discarded, and the harness does not reliably resume it when a background task completes. If you return while a background command whose result was going to gate the deliverable is still running, the task either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `$TMPDIR/comment-body.md` — dies with it.
 
