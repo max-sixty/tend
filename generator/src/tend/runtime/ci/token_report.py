@@ -7,13 +7,16 @@ import os
 import subprocess
 import sys
 import tempfile
+import zipfile
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 from tend.runtime.shared import _common
 
 RUN_LIMIT = 1000
+# The most a page of the repository's artifact listing holds.
+ARTIFACT_PAGE = 100
 # A run is priced when it *completed* in the window, matching how
 # `list_recent_runs.py` censuses one — so the fetch has to reach back far
 # enough to see a run that started before the window and finished inside it.
@@ -235,8 +238,7 @@ def summary($since):
 """
 
 
-def _json_documents(path: Path) -> list[dict[str, Any]]:
-    text = path.read_text(encoding="utf-8")
+def _json_documents(text: str) -> list[dict[str, Any]]:
     decoder = json.JSONDecoder()
     documents: list[dict[str, Any]] = []
     position = 0
@@ -247,9 +249,61 @@ def _json_documents(path: Path) -> list[dict[str, Any]]:
             break
         value, position = decoder.raw_decode(text, position)
         if not isinstance(value, dict):
-            raise TypeError(f"{path} contains a non-object JSON value")
+            raise TypeError("token-usage.json holds a non-object JSON value")
         documents.append(value)
     return documents
+
+
+def _session_logs(repo: str, created_after: datetime) -> list[dict[str, Any]]:
+    """The session-log artifacts the repository holds for runs created since
+    *created_after*, read from its artifact listing.
+
+    Each artifact names its run, so a run that uploaded no session log costs
+    nothing, and most runs in a window uploaded none: a landing check, a relay,
+    a mention that was not for the bot. The listing runs newest first, out of
+    order by minutes at most, and no artifact predates its run, so the read
+    ends at the first page that reaches one created before *created_after*, a
+    day before the window opens.
+    """
+    found: dict[int, dict[str, Any]] = {}
+    page = 1
+    while True:
+        artifacts = _common.gh_json(
+            "api",
+            f"repos/{repo}/actions/artifacts?per_page={ARTIFACT_PAGE}&page={page}",
+        )["artifacts"]
+        # Keyed by id: an upload during the read shifts the listing a place,
+        # repeating an artifact at the head of the next page.
+        found.update(
+            (artifact["id"], artifact)
+            for artifact in artifacts
+            if "-session-logs" in artifact["name"]
+        )
+        if len(artifacts) < ARTIFACT_PAGE or any(
+            _parse_time(artifact["created_at"]) < created_after
+            for artifact in artifacts
+        ):
+            return list(found.values())
+        page += 1
+
+
+def _usage_records(repo: str, artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    """The token-usage records in one session-log artifact, with its harness."""
+    harness = "codex" if artifact["name"].startswith("codex-") else "claude"
+    with tempfile.TemporaryFile() as archive:
+        _common.gh(
+            "api",
+            f"repos/{repo}/actions/artifacts/{artifact['id']}/zip",
+            stdout=archive,
+            quiet=True,
+        )
+        with zipfile.ZipFile(archive) as files:
+            return [
+                {**record, "harness": harness}
+                for name in files.namelist()
+                if PurePosixPath(name).name == "token-usage.json"
+                for record in _json_documents(files.read(name).decode())
+            ]
 
 
 def _report(jobs: list[dict[str, Any]], *, skipped: int, since: str) -> dict[str, Any]:
@@ -274,10 +328,9 @@ def _parse_time(value: str) -> datetime:
 
 def main(completed_after: datetime, extra_prefixes: tuple[str, ...] = ()) -> int:
     since = _stamp(completed_after)
-    created_since = _stamp(completed_after - CREATION_CUSHION)
-    repo_args = (
-        ["-R", os.environ["TARGET_REPO"]] if os.environ.get("TARGET_REPO") else []
-    )
+    created_after = completed_after - CREATION_CUSHION
+    repo = os.environ.get("TARGET_REPO") or _common.repository()
+    repo_args = ["-R", repo]
 
     workflow_rows = _common.gh_json(
         "workflow", "list", *repo_args, "--limit", str(WORKFLOW_LIMIT), "--json", "name"
@@ -306,7 +359,7 @@ def main(completed_after: datetime, extra_prefixes: tuple[str, ...] = ()) -> int
                 "--workflow",
                 workflow,
                 "--created",
-                f">={created_since}",
+                f">={_stamp(created_after)}",
                 "--status",
                 "completed",
                 "--json",
@@ -331,63 +384,55 @@ def main(completed_after: datetime, extra_prefixes: tuple[str, ...] = ()) -> int
                 file=sys.stderr,
             )
         for row in rows:
-            # A job its `if:` skipped ran no session; asking for its artifacts
-            # would spend a REST call on every one.
+            # A run whose `if:` skipped every job ran no session, so it has no
+            # upload to miss.
             if row.get("conclusion") == "skipped":
                 continue
             if _parse_time(row["updatedAt"]) >= completed_after:
                 runs_by_id[int(row["databaseId"])] = row
 
-    print(f"Downloading artifacts for {len(runs_by_id)} runs...", file=sys.stderr)
+    logs_by_run: dict[int, list[dict[str, Any]]] = {}
+    for artifact in _session_logs(repo, created_after):
+        run_id = (artifact["workflow_run"] or {}).get("id")
+        if run_id in runs_by_id:
+            logs_by_run.setdefault(run_id, []).append(artifact)
+
+    print(
+        f"Downloading {sum(map(len, logs_by_run.values()))} session logs for "
+        f"{len(logs_by_run)} of {len(runs_by_id)} runs...",
+        file=sys.stderr,
+    )
     jobs: list[dict[str, Any]] = []
     skipped = 0
-    with tempfile.TemporaryDirectory() as workdir:
-        root = Path(workdir)
-        for run_id, run in runs_by_id.items():
-            run_dir = root / str(run_id)
-            try:
-                _common.gh(
-                    "run",
-                    "download",
-                    str(run_id),
-                    *repo_args,
-                    "--pattern",
-                    "*-session-logs*",
-                    "--dir",
-                    str(run_dir),
-                    quiet=True,
-                )
-                usage_files = list(run_dir.rglob("token-usage.json"))
-                run_jobs = [
-                    {
-                        **record,
-                        "harness": (
-                            "codex"
-                            if path.relative_to(run_dir).parts[0].startswith("codex-")
-                            else "claude"
-                        ),
-                    }
-                    for path in usage_files
-                    for record in _json_documents(path)
-                ]
-                if not run_jobs:
-                    raise ValueError("no token usage records")
-            except (
-                subprocess.CalledProcessError,
-                OSError,
-                ValueError,
-                json.JSONDecodeError,
-            ) as error:
-                if not isinstance(error, subprocess.CalledProcessError):
-                    print(f"{run_id}: unreadable token usage: {error}", file=sys.stderr)
-                skipped += 1
-                continue
-            stamp = {
-                "run_id": run_id,
-                "workflow": run["workflowName"],
-                "created_at": run["createdAt"],
-            }
-            jobs.extend({**record, **stamp} for record in run_jobs)
+    for run_id, run in runs_by_id.items():
+        if run_id not in logs_by_run:
+            skipped += 1
+            continue
+        try:
+            run_jobs = [
+                record
+                for artifact in logs_by_run[run_id]
+                for record in _usage_records(repo, artifact)
+            ]
+            if not run_jobs:
+                raise ValueError("no token usage records")
+        except (
+            subprocess.CalledProcessError,
+            OSError,
+            TypeError,
+            ValueError,
+            zipfile.BadZipFile,
+        ) as error:
+            if not isinstance(error, subprocess.CalledProcessError):
+                print(f"{run_id}: unreadable token usage: {error}", file=sys.stderr)
+            skipped += 1
+            continue
+        stamp = {
+            "run_id": run_id,
+            "workflow": run["workflowName"],
+            "created_at": run["createdAt"],
+        }
+        jobs.extend({**record, **stamp} for record in run_jobs)
 
     output = _report(jobs, skipped=skipped, since=since)
     _common.dump(output["report"])

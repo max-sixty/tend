@@ -29,7 +29,7 @@ import sys
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import FrameType
-from typing import Any
+from typing import IO, Any
 
 
 def require_env(*names: str) -> dict[str, str]:
@@ -48,8 +48,16 @@ def require_env(*names: str) -> dict[str, str]:
     return values
 
 
-def gh(*args: str, input: str | None = None, quiet: bool = False) -> str:
+def gh(
+    *args: str,
+    input: str | None = None,
+    quiet: bool = False,
+    stdout: IO[bytes] | None = None,
+) -> str:
     """Run ``gh`` with ``args`` and return its stdout.
+
+    With ``stdout``, ``gh`` writes there instead and this returns ``""``: the
+    way to read a body that isn't text, such as an artifact's zip.
 
     A non-zero exit raises ``subprocess.CalledProcessError`` with stderr
     attached; a step that can tolerate a particular failure catches that. The
@@ -69,7 +77,8 @@ def gh(*args: str, input: str | None = None, quiet: bool = False) -> str:
     result = subprocess.run(
         ["gh", *args],
         input=input,
-        capture_output=True,
+        stdout=subprocess.PIPE if stdout is None else stdout,
+        stderr=subprocess.PIPE,
         text=True,
         env=env,
         check=False,
@@ -81,7 +90,7 @@ def gh(*args: str, input: str | None = None, quiet: bool = False) -> str:
         raise subprocess.CalledProcessError(
             result.returncode, ["gh", *args], result.stdout, result.stderr
         )
-    return result.stdout
+    return result.stdout or ""
 
 
 def gh_json(*args: str, input: str | None = None, quiet: bool = False) -> Any:
