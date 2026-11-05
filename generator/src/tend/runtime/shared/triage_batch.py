@@ -3,8 +3,8 @@
 Selection judgment belongs to notifications/recovery. Dispatch preserves its
 order while deduplicating and splitting at GitHub's run-name and matrix limits.
 The selector rejects inputs whose run name would truncate, then rechecks live
-issues after the batch acquires its workflow lane. Open issues remain the
-recovery backlog after a cancelled or failed run.
+issues as the run starts. Open issues remain the recovery backlog after a
+cancelled or failed run.
 """
 
 from __future__ import annotations
