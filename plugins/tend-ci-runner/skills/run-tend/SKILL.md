@@ -67,7 +67,8 @@ the prompt says the review's CI wait is off, under `yolo`, a push to a PR with n
 human author hands its CI and landing to tend-land: record the push and neither
 poll nor merge (**Which heads to poll** in `/tend-ci-runner:monitor-ci`). A push
 to a PR with a human author stays yours to poll, since no other session repairs
-it.
+it, except a review's own fix, which **Without the CI wait** in
+`/tend-ci-runner:review`'s `references/approving.md` hands to the queued review.
 
 Returning the final response ends the CI session — the runner is discarded, and the harness does not reliably resume it when a background task completes. If you return while a background command whose result was going to gate the deliverable is still running, the task either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `$TMPDIR/comment-body.md` — dies with it.
 
