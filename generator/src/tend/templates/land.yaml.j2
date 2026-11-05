@@ -1,9 +1,9 @@
 {%- set land_prompt %}<<cfg.default_prompt('merge-pr', '${{ matrix.pr }}')>>
 
-tend-land: every check on ${{ needs.check.outputs.sha }} has finished green, the head a review recorded for landing (`tend/land/${{ matrix.pr }}`). Complete the landing decision for that exact head. The review's CI wait is off (`await_ci: false`).{% endset -%}
+tend-land: every check on ${{ needs.check.outputs.sha }} has finished green, the head a review recorded for landing (`tend/land/${{ matrix.pr }}`). Complete the landing decision for that exact head.{% endset -%}
 {%- set repair_prompt %}<<cfg.default_prompt('continue-pr', '${{ matrix.pr }}')>>
 
-CI settled red on this PR's head ${{ needs.check.outputs.sha }} after its review ended. The review's CI wait is off (`await_ci: false`).{% endset -%}
+CI settled red on this PR's head ${{ needs.check.outputs.sha }} after its review ended.{% endset -%}
 {%- set current = "steps.current.outputs.current == 'true'" -%}
 {#- Reads whether the head a session was started for is still the PR's, so a
     session queued behind another that already moved the head ends before

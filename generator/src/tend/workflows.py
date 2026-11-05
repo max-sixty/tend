@@ -313,8 +313,6 @@ def generate_review(cfg: Config) -> GeneratedWorkflow:
     prompt = (wf.prompt or eff.default_prompt("review", "{pr_number}")).replace(
         "{pr_number}", "${{ github.event.pull_request.number }}"
     )
-    if not wf.await_ci:
-        prompt += "\n\nThe review's CI wait is off (`await_ci: false`)."
 
     content = _REVIEW_TMPL.render(
         cfg=eff,
@@ -365,8 +363,6 @@ def generate_triage(cfg: Config) -> GeneratedWorkflow:
     prompt = (wf.prompt or eff.default_prompt("triage", "{issue_number}")).replace(
         "{issue_number}", "${{ matrix.issue }}"
     )
-    if lands_on_ci(cfg):
-        prompt += "\n\nThe review's CI wait is off (`await_ci: false`)."
 
     content = _TRIAGE_TMPL.render(
         cfg=eff,
@@ -415,8 +411,7 @@ def lands_on_ci(cfg: Config) -> bool:
     Only under `yolo`, where the bot lands what it reviews, and only with the
     review's CI wait off: a review that waits lands the head itself.
     """
-    review = cfg.workflows.get("review", WorkflowConfig())
-    return cfg.merge == "yolo" and review.enabled and not review.await_ci
+    return cfg.merge == "yolo" and cfg.review_ci_wait_off
 
 
 def generate_land(cfg: Config) -> GeneratedWorkflow:

@@ -12,6 +12,9 @@ inputs:
   merge:
     default: restricted
     description: Merge mode generated from .config/tend.yaml (restricted or yolo)
+  await_ci:
+    default: "true"
+    description: Whether the review waits for CI, generated from .config/tend.yaml (true or false)
   openai_api_key:
     required: false
     default: ""
@@ -253,6 +256,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         BOT_NAME: ${{ steps.bot.outputs.login }}
         TEND_MERGE: ${{ inputs.merge }}
+        TEND_AWAIT_CI: ${{ inputs.await_ci }}
       run: |
         tend runtime codex stage-agents
 

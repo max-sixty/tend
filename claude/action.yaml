@@ -16,6 +16,9 @@ inputs:
   merge:
     default: restricted
     description: Merge mode generated from .config/tend.yaml (restricted or yolo)
+  await_ci:
+    default: "true"
+    description: Whether the review waits for CI, generated from .config/tend.yaml (true or false)
   claude_code_oauth_token:
     required: false
     default: ""
@@ -168,6 +171,7 @@ runs:
         SYSTEM_PROMPT_FILE: ${{ github.action_path }}/../shared/system-prompt.md
         BOT_NAME: ${{ steps.bot.outputs.login }}
         TEND_MERGE: ${{ inputs.merge }}
+        TEND_AWAIT_CI: ${{ inputs.await_ci }}
         EXTRA: ${{ inputs.system_prompt_append }}
 
     # Credential isolation: run the agent as a separate, non-sudo
