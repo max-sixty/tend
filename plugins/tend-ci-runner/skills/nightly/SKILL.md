@@ -228,9 +228,9 @@ tend runtime nightly-workflow-update ship
 ```
 
 The command commits, pushes, creates or updates the PR, records the pushed OID,
-removes the temporary worktree, and prints the PR number and URL. Poll that
-exact commit per `/tend-ci-runner:monitor-ci` — foreground, with the
-longest command timeout the harness allows:
+removes the temporary worktree, and prints the PR number and URL. Settle that
+exact commit's CI per `/tend-ci-runner:monitor-ci`. Where it has you poll, run this
+in the foreground, with the longest command timeout the harness allows:
 
 ```bash
 tend runtime poll-pr-checks \

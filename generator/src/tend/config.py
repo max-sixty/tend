@@ -237,6 +237,12 @@ class Config:
     merge: str = "restricted"
 
     @property
+    def review_ci_wait_off(self) -> bool:
+        """Whether a review ends before CI, which every session is told."""
+        review = self.workflows.get("review", WorkflowConfig())
+        return review.enabled and not review.await_ci
+
+    @property
     def merge_policy(self) -> MergePolicy:
         return MERGE_POLICIES[self.merge]
 
