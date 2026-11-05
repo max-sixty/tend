@@ -1,0 +1,55 @@
+{
+  "repository": "max-sixty/worktrunk",
+  "request": "Review PR #4699.",
+  "snapshot_at": "2026-11-04T13:38:59.430Z",
+  "pull_request": {
+    "number": 4699,
+    "url": "https://github.com/max-sixty/worktrunk/pull/4699",
+    "title": "feat(list): expose worktree last activity in schema 2 JSON",
+    "body": "Closes #4515.\n\n## Problem\n\nDashboards and cleanup tooling that want a per-worktree last-activity timestamp currently have to re-run `git status` per worktree, because schema 2 list JSON has no such field.\n\n## Change\n\nAdds `worktree.modified_at` to schema 2 list JSON: the later of `head.committed_at` and the newest mtime among the changed or untracked files `git status` reports for that worktree.\n\nNo-value semantics follow the existing `Tri` pattern:\n\n- Branch-only rows have no worktree object, so the field is absent there.\n- `null` when the status is unresolved.\n- A clean worktree reports the commit time without extra filesystem stats.\n\nTo collect the file mtimes reliably, the shared cached status query behind `wt list` moves from `--porcelain --untracked-files=normal` to `--porcelain -z --untracked-files=all`, still one subprocess per worktree. The old text output quoted unusual filenames and collapsed untracked directories, so paths could not be trusted for stat calls; the NUL-delimited form also expands untracked directories into individual files. `parse_working_tree_status`, the conflict checks, and the picker diff state all read the same byte-oriented records now. Missing or deleted files are skipped rather than failing the row, and renames use the destination path.\n\nDocs: the worktree field table in the list command help (source for the generated command page and skill mirrors) gains the `modified_at` row, and `docs/public/schema/list-v2.json` is regenerated.\n\n## Verification\n\nValidated with Rust 1.99 (the pinned 1.98 toolchain install is broken in this environment; no toolchain files were changed):\n\n- `cargo fmt --check` — pass\n- `cargo clippy --all-targets -- -D warnings` — pass\n- `cargo test --lib --bins commands::list` — 300 passed\n- `cargo test --lib --bins` — 2597 passed (run with root's `cap_dac_override` dropped; one permission-based picker test fails under unrestricted root because a read-only directory stays writable there, unrelated to this change)\n- `cargo test --test integration integration_tests::list::` — 103 passed, including a new test proving a clean worktree reports the commit time and a dirty worktree with a nested untracked file (with a newline in its name) reports that file's mtime\n- `cargo test --test integration integration_tests::readme_sync::test_docs_are_in_sync` — pass\n- Six list-JSON snapshots updated; their diffs contain only 33 added `modified_at` lines\n\nNot run: the full `hook pre-merge` gate — `pre-commit` and `cargo-nextest` are unavailable in this environment, so its all-feature, doctest, and documentation checks remain unrun.\n",
+    "author": "zichen0116",
+    "additions": 304,
+    "deletions": 64,
+    "changed_files": 25,
+    "linked_issues": [
+      {
+        "number": 4515,
+        "title": "Expose a per-worktree last-activity timestamp (worktree.modified_at) in the list JSON",
+        "body": "## Motivation\n\n`wt list` is the worktree source of truth for tooling built on wt, but one fact downstream tools keep having to compute for themselves: *when was this worktree last worked on*. The JSON schemas report the HEAD commit time, yet a worktree with fresh uncommitted edits and an old HEAD is active, not stale. Dashboards and cleanup tools built on wt (I maintain [understory](https://github.com/luiul/understory), a live radar over every worktree, and [coppice](https://github.com/luiul/coppice), a path-based CLI) all need this and currently each shell out to `git status` again per worktree, per poll, duplicating a subprocess wt has already run.\n\n## Request\n\nExpose a per-worktree last-activity timestamp in the list JSON, for example `worktree.modified_at` in schema 2, defined as the later of:\n\n- `head.committed_at`, and\n- the newest mtime among the changed or untracked files `git status` reports.\n\nFor schema 2's no-value semantics: absent on branch-only rows, `null` when not determined.\n\n## Cost\n\nEffectively zero. `wt list` already runs `git status` inside every worktree to produce the `changes` counts, so it has already enumerated exactly the files whose mtimes are needed; stat-ing those same records adds no subprocess. The win is measurable on the consumer side: on macOS with endpoint-security process monitoring, one extra `git status` spawn costs ~250 ms of wall time per worktree, and a dashboard polling every 15 s currently pays it once per dirty worktree on top of wt's own work.\n\n## Use cases\n\n- Dashboards sort or dim worktrees by inactivity instead of creation age, and a \"Modified\" column next to \"Created\" answers \"when did someone last work here\".\n- Cleanup tools sweep by inactivity: a worktree nobody has touched for two weeks is a removal candidate even when its directory is young, and vice versa.\n- Sorting support for `wt list` (#3922) could use it as a key.\n\n## Notes\n\nI have this working in two downstream tools (each computing the value locally today, from `git status --porcelain -z --untracked-files=all --no-renames`), and the definition above is the one they converged on. A clean worktree can take the commit time without walking anything, so the common case needs no extra work at all.\n\nWould this fit the schema's direction? I'd be glad to look into a PR if one is welcome.\n",
+        "author": "luiul",
+        "comments": [
+          {
+            "author": "worktrunk-bot",
+            "body": "This fits schema 2's shape. A sibling of [`committed_at`](https://github.com/max-sixty/worktrunk/blob/4cb4267619ae19228507abcf9330467db8ad98e1/src/commands/list/json_v2.rs#L223) on [`JsonWorktreeV2`](https://github.com/max-sixty/worktrunk/blob/4cb4267619ae19228507abcf9330467db8ad98e1/src/commands/list/json_v2.rs#L230) would follow the existing absent/`null` rules. The value could be computed in [`compute_working_tree_diff`](https://github.com/max-sixty/worktrunk/blob/4cb4267619ae19228507abcf9330467db8ad98e1/src/commands/list/collect/tasks.rs#L472), which already holds the status output. One part of the cost claim doesn't hold, though: the status wt runs and the one your tools run don't list the same records.\n\nwt's shared status call ([`status_porcelain_cached`](https://github.com/max-sixty/worktrunk/blob/4cb4267619ae19228507abcf9330467db8ad98e1/src/git/repository/working_tree.rs#L570-L586)) uses `--untracked-files=normal`, not `=all`. Under `normal`, a new untracked directory shows up as a single `d/` entry, and the directory's mtime doesn't change when a file inside it is edited. I checked this in a scratch repo. With `d/sub/x` untracked and every mtime set to 2020, editing `x` left `d`'s mtime at 2020, and `git status --porcelain --untracked-files=normal` still printed only `?? d/`. So reusing wt's records as they are would report a stale time for a worktree whose only activity is inside a new directory, which is the \"fresh edits, old HEAD\" case the field is meant to catch. Getting the definition you converged on would need one of these:\n\n- walk each collapsed untracked directory (extra filesystem I/O, but no extra subprocess), or\n- switch the shared call to `=all`, which makes status slower on worktrees with large untracked trees and affects every `wt list`, not only JSON consumers.\n\nThere are smaller details too. Deleted paths have no mtime. The output isn't `-z`, so quoted paths would need unquoting. A rename entry names two paths. None of these block the feature.\n\nWhether `wt list` should take on this field, and which of the two untracked-directory options is acceptable, is a maintainer decision. A maintainer would be the one to confirm whether a PR is welcome.\n",
+            "created_at": "2026-10-19T16:46:45Z"
+          }
+        ]
+      }
+    ]
+  },
+  "review_preflight_start": {
+    "head_sha": "f9ba4cecca06bc5455b8aafa210ea9442f785850",
+    "author": "human",
+    "is_draft": false,
+    "already_reviewed": false,
+    "incremental_path": null
+  },
+  "bot_review_state_feedback": {
+    "review_state": {
+      "reviews": [],
+      "head_sha": "f9ba4cecca06bc5455b8aafa210ea9442f785850",
+      "bot_login": "worktrunk-bot",
+      "last_force_push_at": "",
+      "last_substantive": null,
+      "force_pushed_since": false,
+      "at_head": null,
+      "orphan_id": null,
+      "fresh_approval_sha": "",
+      "stale_approval_id": "",
+      "standing_approval_id": ""
+    },
+    "conversation": [],
+    "review_threads": []
+  },
+  "approval_check": "(not run: checks were still running when this review was composed; none had failed)"
+}

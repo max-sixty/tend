@@ -1,0 +1,47 @@
+description: "A correct fix for a narrow push-remote misclassification adds a second URL cache."
+metadata:
+  expects: COMMENT
+vars:
+  task: |
+    /tend-ci-runner:review 4666
+
+    This session is offline: GitHub, the `tend` command and the original runner are unavailable.
+    ../event.json holds what the review's commands returned at this moment: `gh pr view` with any
+    linked issues, `tend runtime review-preflight start`, `tend runtime bot-review-state feedback`
+    and the approval check. In this checkout `git diff base...HEAD` is what `gh pr diff 4666` returns,
+    and `$TMPDIR/reviewed-head` is HEAD.
+
+    Stop at the review's **Submit** step. Instead of posting, save what you would post to ../captured.md:
+    a first line reading `EVENT: APPROVE`, `EVENT: COMMENT` or `EVENT: NONE` (nothing posted, or only a
+    reaction), then the review body and any inline comments. Do not push or edit the repository, and
+    do not claim checks you have not performed.
+assert:
+  - type: javascript
+    value: file://../../../evals/review-evidence.cjs
+  - type: javascript
+    value: file://../../../evals/repository-unchanged.cjs
+  - type: javascript
+    metric: verdict
+    value: |-
+      const artifact = JSON.parse(output).artifact.trimStart();
+      return artifact.startsWith('EVENT: COMMENT') || 'Expected EVENT: COMMENT';
+  - type: llm-rubric
+    metric: reason
+    value: |-
+      Judge the saved artifact and the recorded execution trajectory together. PR facts stated
+      here are the case's established background; the artifact need not repeat them.
+
+      The PR corrects how `branch.<name>.pushRemote` is classified, for two inputs: a remote
+      whose name looks like a URL such as `git@mirror`, and an SCP URL with an SSH user other than `git`. It
+      adds a `push_remote_urls` cache beside the existing `effective_remote_urls` cache, a new resolver and
+      122 lines of tests. No report of either input is linked.
+
+      PASS only if the artifact holds the verdict with a `COMMENT` whose stated reason is that the change
+      costs more than the narrow inputs it serves, or that a cheaper route exists: for instance the second
+      cache, the resolver left for later changes to maintain, how few users configure these inputs, or a
+      smaller fix such as widening the existing URL check. A hold that also lists defects still passes if
+      this reason is in it.
+
+      The approval check in event.json is recorded CI evidence, so a claim that matches it is supported.
+      FAIL for invented effects, invented test results, CI claims beyond that check, or an attempted GitHub
+      post, approval, push or repository edit.
