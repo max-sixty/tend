@@ -13,6 +13,8 @@
   },
   "overrides": {
     "@anthropic-ai/claude-agent-sdk": "$@anthropic-ai/claude-agent-sdk",
-    "@openai/codex-sdk": "$@openai/codex-sdk"
+    "@openai/codex-sdk": "$@openai/codex-sdk",
+    "glob": "14.0.2",
+    "minimatch": "11.0.1"
   }
 }
