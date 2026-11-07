@@ -1,0 +1,44 @@
+description: "A correct diff-parser fix for a path holding ` b/`, with no report behind it."
+metadata:
+  expects: COMMENT
+vars:
+  task: |
+    /tend-ci-runner:review 4665
+
+    This session is offline: GitHub, the `tend` command and the original runner are unavailable.
+    ../event.json holds what the review's commands returned at this moment: `gh pr view` with any
+    linked issues, `tend runtime review-preflight start`, `tend runtime bot-review-state feedback`
+    and the approval check. In this checkout `git diff base...HEAD` is what `gh pr diff 4665` returns,
+    and `$TMPDIR/reviewed-head` is HEAD.
+
+    Stop at the review's **Submit** step. Instead of posting, save what you would post to ../captured.md:
+    a first line reading `EVENT: APPROVE`, `EVENT: COMMENT` or `EVENT: NONE` (nothing posted, or only a
+    reaction), then the review body and any inline comments. Do not push or edit the repository, and
+    do not claim checks you have not performed.
+assert:
+  - type: javascript
+    value: file://../../../evals/review-evidence.cjs
+  - type: javascript
+    value: file://../../../evals/repository-unchanged.cjs
+  - type: javascript
+    metric: verdict
+    value: |-
+      const artifact = JSON.parse(output).artifact.trimStart();
+      return artifact.startsWith('EVENT: COMMENT') || 'Expected EVENT: COMMENT';
+  - type: llm-rubric
+    metric: reason
+    value: |-
+      Judge the saved artifact and the recorded execution trajectory together. PR facts stated
+      here are the case's established background; the artifact need not repeat them.
+
+      The PR fixes the displayed name of a mode-only or binary change whose path contains ` b/`,
+      that is a directory whose name ends in " b". No report is linked; the fixtures are ones the author
+      constructed. The fix is a few lines in `parsePatch`, with 40 lines of tests.
+
+      PASS only if the artifact holds the verdict with a `COMMENT` whose stated reason is that the input is
+      too rare or too constructed to pay for the added parsing rules and tests, or that a simpler route
+      exists.
+
+      The approval check in event.json is recorded CI evidence, so a claim that matches it is supported.
+      FAIL for invented effects, invented test results, CI claims beyond that check, or an attempted GitHub
+      post, approval, push or repository edit.

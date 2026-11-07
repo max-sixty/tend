@@ -1,0 +1,72 @@
+{
+  "repository": "max-sixty/worktrunk",
+  "request": "Review PR #4665.",
+  "snapshot_at": "2026-11-02T17:56:31.642Z",
+  "pull_request": {
+    "number": 4665,
+    "url": "https://github.com/max-sixty/worktrunk/pull/4665",
+    "title": "Preserve hunkless diff paths containing the side delimiter",
+    "body": "For an unquoted mode-only or binary diff of a path such as `src b/nested file.bin`, Git writes `diff --git a/src b/nested file.bin b/src b/nested file.bin`. The parser's greedy side-delimiter removal consumes the ` b/` inside the new path and displays only `nested file.bin`. Such changes have no `---`/`+++` headers to recover the full name.\n\nRecognize the exact repeated `a/name b/name` spelling before using the existing fallback. Explicit rename, text-side headers, and quoted-name handling keep their current priority. This fixes the repeated-path case; it does not claim to solve every rename/copy header ambiguity.\n\nValidation: a local Node24 runner stripped TypeScript types from the actual parser and exercised actual Git-generated mode-only/binary patches. Both cases fail upstream and pass with the fix. The existing pure-parser fixture and new canonical regression also pass through an assertion/registration adapter (4 local tests total); the committed regression uses the existing `claude-code/testing` convention.\n\nNative plugin validation at `753fd64b6bd378553e14d210b09fab5562c4c805` with Claude Code 2.1.316: `claude plugin validate plugins/worktrunk` passes with the existing missing-version warning, and `claude plugin test plugins/worktrunk` passes all 9 canonical tests. Restoring only the relevant production file to upstream while retaining the new canonical test gives 8 passes and 1 failure; the unchanged upstream suite passes all 8 tests. The plugin snapshots were checked against every tracked Git blob at the PR head. These local runs use the canonical mocked host events, not a live terminal/provider session. The local Rust pre-merge hook was not run; hosted status is separate from these local plugin results.\n\nAI disclosure: code, regression test, and this description were prepared with Codex and independently reviewed by another Codex agent. No human-authorship or human-review claim is made.",
+    "author": "rudycelekli",
+    "additions": 48,
+    "deletions": 5,
+    "changed_files": 2,
+    "linked_issues": []
+  },
+  "review_preflight_start": {
+    "head_sha": "1682429ff9b52263423125cfa96c6749cb187f86",
+    "author": "human",
+    "is_draft": false,
+    "already_reviewed": false,
+    "incremental_path": null
+  },
+  "bot_review_state_feedback": {
+    "review_state": {
+      "reviews": [
+        {
+          "id": 5738050949,
+          "sha": "753fd64b6bd378553e14d210b09fab5562c4c805",
+          "state": "COMMENTED",
+          "at": "2026-11-02T14:26:15Z",
+          "body": "<!-- tend:draft-review -->",
+          "draft_mode": true
+        }
+      ],
+      "head_sha": "1682429ff9b52263423125cfa96c6749cb187f86",
+      "bot_login": "worktrunk-bot",
+      "last_force_push_at": "",
+      "last_substantive": {
+        "id": 5738050949,
+        "sha": "753fd64b6bd378553e14d210b09fab5562c4c805",
+        "state": "COMMENTED",
+        "at": "2026-11-02T14:26:15Z",
+        "draft_mode": true
+      },
+      "force_pushed_since": false,
+      "at_head": null,
+      "orphan_id": null,
+      "fresh_approval_sha": "",
+      "stale_approval_id": "",
+      "standing_approval_id": ""
+    },
+    "conversation": [],
+    "review_threads": [
+      {
+        "id": "PRRT_kwDOQEkLn86ytVkb",
+        "is_resolved": false,
+        "is_outdated": false,
+        "comments": [
+          {
+            "author": "worktrunk-bot",
+            "sha": "1682429ff9b52263423125cfa96c6749cb187f86",
+            "path": "plugins/worktrunk/hooks/patch.ts",
+            "line": 40,
+            "created_at": "2026-11-02T14:26:15Z",
+            "body": "With `git diff --find-copies-harder`, copying `x b/x b/x` to `x` produces `diff --git a/x b/x b/x b/x` with a `copy to x` header. This match treats it as a same-path change, so `parsePatch` now reports `x b/x` instead of the destination `x` that the previous fallback returned. Skip this shortcut for copy headers.\n\n```suggestion\n    const samePath = has('copy to ') ? undefined : /^diff --git a\\/(.*) b\\/\\1$/.exec(first)?.[1]\n```"
+          }
+        ]
+      }
+    ]
+  },
+  "approval_check": "approve: no failing check on 1682429ff9b52263423125cfa96c6749cb187f86\nverdict: approve on 1682429ff9b52263423125cfa96c6749cb187f86 (exit 0)"
+}
