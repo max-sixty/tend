@@ -46,12 +46,16 @@ RUN_ID=<run-id>
 DEST=${TMPDIR:-/tmp}/session-logs/$RUN_ID
 gh run download "$RUN_ID" -R "$REPO" --pattern '*session-logs*' --dir "$DEST"
 ls "$DEST"  # confirm claude- or codex-
-FILE=$(find "$DEST" -name '*.jsonl' | head -1)
-echo "$FILE"
+find "$DEST" -name '*.jsonl' -not -path '*/subagents/*'
+FILE=<the session's .jsonl from that listing>
 ```
 
-Claude artifacts hold flat JSONL files, one per agent session. Codex
-artifacts store the rollout at `sessions/YYYY/MM/DD/rollout-*.jsonl`
+The download puts each artifact in its own directory, so a matrix run (a
+triage batch) lists one session per job; pick the job you are debugging.
+Claude artifacts hold one `<session-id>.jsonl` per agent session, beside a
+`<session-id>/subagents/` directory with one transcript per `Task` subagent;
+the `find` above leaves those out, so open one only to follow a subagent's
+work. Codex artifacts store the rollout at `sessions/YYYY/MM/DD/rollout-*.jsonl`
 plus `projects/token-usage.json`; one rollout per session.
 
 If no artifacts exist, the run either had no agent session or ended before
