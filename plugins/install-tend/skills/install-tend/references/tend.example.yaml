@@ -123,11 +123,9 @@ bot_name: my-project-bot
 # runs. `user` lets `install-tend` set the bot's profile bio so contributors
 # can see the authorization stance.
 #
-# Fine-grained PAT permissions: `contents:write`, `pull-requests:write`,
-# `issues:write`, `actions:write`, `workflows:write`, `discussions:write`,
-# `notifications:write`, `gists:write`, plus the account-level `Profile:
-# read and write` permission (for the bio). `notifications:write` is
-# required so the action can mark threads read after handling an event.
+# The token must be a classic PAT. GitHub's notifications endpoints accept
+# only classic tokens, and Tend reads the bot's notifications to find work
+# and marks each thread read after handling it.
 #
 # `tend check` flags repo-level secrets not in an explicit allowlist — each
 # entry is a deliberate acceptance that any workflow the repo runs can read
