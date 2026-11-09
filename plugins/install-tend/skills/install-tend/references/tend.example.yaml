@@ -136,6 +136,19 @@ bot_name: my-project-bot
 # secrets:
 #   allowed: ["CODECOV_TOKEN", "DEPLOY_KEY"]
 
+# ## Accepted checks
+#
+# A `tend check` failure the maintainer has reviewed and accepts — a layout the
+# check cannot credit, such as tag rulesets split across several patterns —
+# can be recorded with its reason. `tend check` then prints the reason as
+# `ACCEPTED` instead of `FAIL`, exits 0 for it, and `--fix` leaves it alone.
+# It warns when an accepted check passes again. Not available under
+# `merge: yolo`, whose merge access requires every check to pass:
+#
+# checks:
+#   accepted:
+#     tag-protection: "hosted/** tags are covered by their own rulesets"
+
 # ## Setup steps
 #
 # Build tools, caches, and environment variables that run before the agent in
