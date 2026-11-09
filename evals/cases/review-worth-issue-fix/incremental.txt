@@ -1,0 +1,61 @@
+09076ab8b Update src/commands/picker/mod.rs
+
+1	2	src/commands/picker/mod.rs
+
+diff --git a/src/commands/picker/mod.rs b/src/commands/picker/mod.rs
+--- a/src/commands/picker/mod.rs
++++ b/src/commands/picker/mod.rs
+@@ -4199,52 +4199,51 @@ fn test_apply_drops_morphed_row_when_pre_remove_hook_integrates_branch() {
+             test.path().join(".config/wt.toml"),
+             format!("pre-remove = {command:?}\n"),
+         )
+         .unwrap();
+
+         let pid = repo.project_identifier().unwrap();
+         let approvals_dir = tempfile::tempdir().unwrap();
+         let approvals_path = approvals_dir.path().join("approvals.toml");
+         let mut approvals = Approvals::default();
+         approvals
+             .approve_commands(pid.to_string(), vec![command.to_string()], &approvals_path)
+             .unwrap();
+
+         let reported_path = repo
+             .list_worktrees()
+             .unwrap()
+             .iter()
+             .find(|wt| wt.branch.as_deref() == Some("feature"))
+             .map(|wt| wt.path.clone())
+             .expect("feature worktree is listed");
+         let items = Arc::new(Mutex::new(Vec::new()));
+         let mut remover = test_remover(Arc::clone(&items), repo.clone());
+         remover.approvals = Arc::new(approvals);
+         let (render_tx, _render_rx) = tokio::sync::mpsc::channel(8);
+         remover.render_tx.set(render_tx).unwrap();
+-        let (row, token, _, morphed) =
+-            setup_morphable_row(&remover, "feature", &reported_path);
++        let (row, token, _, morphed) = setup_morphable_row(&remover, "feature", &reported_path);
+         items.lock().unwrap().push(Arc::clone(&row));
+
+         remover.apply(token);
+
+         assert!(
+             morphed.load(std::sync::atomic::Ordering::Relaxed),
+             "the row morphs optimistically before the background removal"
+         );
+         let deadline = Instant::now() + Duration::from_secs(5);
+         while remover.header_flash.current().is_none() && Instant::now() < deadline {
+             std::thread::sleep(Duration::from_millis(20));
+         }
+
+         assert!(!reported_path.exists(), "the worktree is removed");
+         assert!(
+             !repo.branch("feature").exists_locally().unwrap(),
+             "the pre-remove hook integrates the branch so removal deletes it"
+         );
+         assert!(
+             items.lock().unwrap().is_empty(),
+             "the row whose branch was deleted is removed from the picker items"
+         );
+         let flash = remover.header_flash.current();
+         assert!(
+             flash.as_deref().is_some_and(|message| {

@@ -77,7 +77,6 @@ Check the project's instruction files for language-specific review criteria and 
 - Is the code clear and well-structured?
 - Are there simpler ways to express the same logic?
 - Does it avoid unnecessary complexity?
-- Does the change carry its weight? A PR argued well line by line can still leave more behind than it removes — logic a later reader must re-derive, or failure modes of its own — and the review should say so plainly.
 
 **Correctness:**
 
@@ -126,9 +125,11 @@ What counts as core is repo-specific; let the project's own instruction files, a
 
 **For a review that reached the second pass, before submitting, say what that pass returned** — its confirmed findings, or "no findings". That statement is a compliance check: say it in the session, not the review body, so an empty-body `APPROVE` stays empty. The findings themselves still get folded into the review, per **Second pass**. If you can't say, the pass didn't run — go back to **Second pass** and run it. A full review that reaches this point without it is not submittable. The trivial-increment and dedup paths under **Pre-flight checks** skip the second pass and are exempt.
 
-**If there are no issues, approve with an empty body — silence means correct.**
+**An `APPROVE` tells the maintainer the whole PR is worth merging, which takes more than being correct.** Before one, including after a trivial increment, say in the session who loses what if this never merges and how they come to need it (a report, or a case the author constructed), what it adds that later changes must keep working, and the cheapest other way to get that benefit, including changing nothing. Approve with an empty body when the benefit pays for what it adds and no other way costs materially less. Otherwise submit `COMMENT` naming the cost or the cheaper way. A `COMMENT` leaves the decision with the maintainer, and an `APPROVE` tells them none is needed.
 
-**Unless the author withheld merge readiness.** When the PR body — or a later comment from the author or a maintainer — says the change should not merge yet — "should not merge until…", "not ready", design questions the author calls unresolved — the verdict is withheld the same way the draft flag withholds it, and plenty of contributors state it in prose rather than toggling draft. Submit `COMMENT` instead, naming the stated blocker that holds the verdict; name it once, and on a later pass that finds nothing new stay silent rather than restating it — the surrounding dedup rules are keyed on threads, so they don't reach a body-only `COMMENT`. Your own findings being closed out does not clear it: "everything the reviewer raised is fixed" and "the author says this must not merge" are independent conditions, and only whoever stated the blocker retracts it. The asymmetry is why this is worth a condition: withholding a warranted approval costs a re-review on the next push, while an `APPROVE` standing on a PR its author gated is a wrong outward signal that persists until someone notices.
+**Unless the author withheld merge readiness.** When the PR body — or a later comment from the author or a maintainer — says the change should not merge yet — "should not merge until…", "not ready", design questions the author calls unresolved — the verdict is withheld the same way the draft flag withholds it, and plenty of contributors state it in prose rather than toggling draft. Submit `COMMENT` instead, naming the stated blocker that holds the verdict. Your own findings being closed out does not clear it: "everything the reviewer raised is fixed" and "the author says this must not merge" are independent conditions, and only whoever stated the blocker retracts it. The asymmetry is why this is worth a condition: withholding a warranted approval costs a re-review on the next push, while an `APPROVE` standing on a PR its author gated is a wrong outward signal that persists until someone notices.
+
+**A `COMMENT` that holds the verdict names its reason once.** On a later pass that finds nothing new, stay silent rather than restating it. The surrounding dedup rules are keyed on threads, so they don't reach a body-only `COMMENT`.
 
 ```bash
 # Read the sha first and bail if it isn't there: inlined as `$(cat ...)` a
