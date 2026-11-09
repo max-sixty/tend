@@ -2869,13 +2869,21 @@ def test_cli_check_fix_leaves_accepted_failure_alone(
 ) -> None:
     _write_config(tmp_path, _ACCEPTED_CONFIG)
     monkeypatch.chdir(tmp_path)
-    results = [CheckResult("tag-protection", False, "tag gap", accepted="reason")]
+    accepted = CheckResult("tag-protection", False, "tag gap", accepted="reason")
+    before = [accepted, CheckResult("immutable-releases", False, "release gap")]
+    after = [accepted, CheckResult("immutable-releases", True, "protected")]
     with (
-        patch("tend.cli.run_all_checks", return_value=results),
+        patch("tend.cli.run_all_checks", side_effect=[before, after]),
+        patch("tend.cli.detect_default_branch", return_value="main"),
         patch("tend.cli.fix_tag_protection") as fix_tags,
+        patch(
+            "tend.cli.fix_immutable_releases",
+            return_value=CheckResult("immutable-releases", True, "fixed"),
+        ) as fix_releases,
     ):
         result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
     assert result.exit_code == 0, result.output
+    fix_releases.assert_called_once_with("owner/repo")
     fix_tags.assert_not_called()
 
 
