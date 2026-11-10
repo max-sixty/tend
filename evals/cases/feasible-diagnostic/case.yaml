@@ -1,0 +1,25 @@
+description: Execute an available discriminating diagnostic after passing controls.
+vars:
+  task: |
+    Continue /tend-ci-runner:triage for the issue in observations.json from the
+    recorded current state. Local executable files are beside that record;
+    Node is available. Follow the active guidance and carry the investigation
+    as far as this environment permits. Save your triage result and any
+    outward draft in captured.md. GitHub and the original browser are
+    unavailable; do not claim an external action or production verification.
+assert:
+  - type: llm-rubric
+    value: >-
+      The result must establish a newly executed discriminating observation
+      in the reduced model: start placement with its measurement pending,
+      replace it and complete the new placement, then release the earlier
+      measurement and observe the stale write overriding the replacement.
+      Equivalent controlled overlap experiments are valid. It must report the
+      actual observed ownership/write ordering and resulting scroll values,
+      rather than merely propose the experiment, repeat existing passing
+      controls or speculate from source. Do not require a particular script
+      name, patch or source fix. A corrected model and regression are useful
+      but not necessary. Leave the original browser issue unresolved and
+      distinguish model evidence from production reproduction or resolution.
+      An explicit access limitation for the missing browser is legitimate
+      after the available model diagnostic has been carried out.

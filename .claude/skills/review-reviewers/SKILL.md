@@ -38,13 +38,11 @@ Evidence lives in one secret gist per target repo and month, indexed by the
 monthly `review-reviewers-tracking` issue on Tend. Prepare it and read the
 current and previous month's evidence:
 
-This skill lives in tend's own `.claude/skills/`, so the bundled plugin's
-scripts are reached through `$SCRIPTS` — Claude leaves `CLAUDE_PLUGIN_ROOT`
-unset in the shell, Codex exports it. Each block below sets it.
+Run these repo-owned helpers from the Tend checkout with `uv run --package tend
+--no-dev`; they follow this skill's source revision.
 
 ```bash
-SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
-uv run --script "$SCRIPTS/review_reviewers.py" prepare-evidence "$ARGUMENTS"
+uv run --package tend --no-dev tend runtime review-reviewers prepare-evidence "$ARGUMENTS"
 ```
 
 The command finds or creates both index and gist, announces a new gist once,
@@ -57,8 +55,7 @@ $GITHUB_RUN_ID` heading every run, including an all-clear window; the heading
 is the audit trail future runs use. Then append it:
 
 ```bash
-SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
-uv run --script "$SCRIPTS/review_reviewers.py" append-evidence
+uv run --package tend --no-dev tend runtime review-reviewers append-evidence
 ```
 
 The command refuses a findings file that does not name this run, fetches the
@@ -108,9 +105,7 @@ pushes, not a decision. Note either and carry on.
 Then list recently completed tend CI runs on the target repo:
 
 ```bash
-SCRIPTS="${CLAUDE_PLUGIN_ROOT:-/home/tend-sandbox/tend-marketplace/plugins/tend-ci-runner}/scripts"
-TARGET_REPO=$ARGUMENTS uv run --script \
-  "$SCRIPTS/list_recent_runs.py" review-reviewers
+TARGET_REPO=$ARGUMENTS uv run --package tend --no-dev tend runtime list-recent-runs review-reviewers
 ```
 
 The script discovers `tend-*` workflows by default. Prefix arguments replace that default rather than adding to it, so a call that widens the set names `tend-` too.
@@ -290,7 +285,7 @@ Brief the investigation with a prompt like:
 >
 > Focus narrowly: what decision did the bot make that led to this bad outcome? Trace the decision
 > chain in the JSONL for the specific problematic action. Don't parse the entire session.
-> CI polling (`poll_pr_checks.py`, or sleep loops over `gh pr checks`) in session logs is expected bot behavior — do
+> CI polling (`tend runtime poll-pr-checks`, or sleep loops over `gh pr checks`) in session logs is expected bot behavior — do
 > not flag it.
 >
 > Report: what the bot decided, what evidence it used, and what went wrong.

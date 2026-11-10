@@ -43,6 +43,7 @@ KNOWN_WORKFLOWS = {
 }
 KNOWN_TOP_LEVEL = {
     "bot_name",
+    "checks",
     "merge",
     "memory_gist",
     "harness",
@@ -53,10 +54,6 @@ KNOWN_TOP_LEVEL = {
     "protected_branches",
     "secrets",
     "setup",
-    # Deprecated; see `_migrated_sandbox_steps`.
-    "sandbox_env",
-    "sandbox_path",
-    "sandbox_setup",
     "workflows",
 }
 KNOWN_HARNESSES = {"claude", "codex"}
@@ -100,7 +97,6 @@ REMOVED_SECRETS_KEYS = {
 }
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 # POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
-_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 ALLOWED_STEP_FIELDS = {
     "uses",
@@ -156,131 +152,6 @@ MERGE_POLICIES = {
 }
 
 
-def _deprecated_list(raw: dict, key: str) -> list[str]:
-    values = raw.get(key) or []
-    if not isinstance(values, list) or not all(
-        isinstance(value, str) and value.strip() for value in values
-    ):
-        raise click.ClickException(f"{key} must be a list of non-empty strings")
-    return values
-
-
-def _deprecated_env(raw: dict) -> dict[str, str]:
-    values = raw.get("sandbox_env") or {}
-    if not isinstance(values, dict):
-        raise click.ClickException(
-            "sandbox_env must be a mapping of NAME: VALUE "
-            '(e.g. sandbox_env: {RUST_BACKTRACE: "1"})'
-        )
-    env: dict[str, str] = {}
-    for name, value in values.items():
-        if not isinstance(name, str) or not _ENV_NAME.match(name):
-            raise click.ClickException(
-                f"sandbox_env key '{name}' is not a valid environment "
-                "variable name (letters, digits, underscore; not starting "
-                "with a digit)"
-            )
-        # `bool` is an `int` subclass, so it is tested first, and written as
-        # the shell's `true`/`false` rather than Python's `True`/`False`.
-        if isinstance(value, bool):
-            env[name] = "true" if value else "false"
-        elif isinstance(value, (str, int, float)):
-            env[name] = str(value)
-        else:
-            raise click.ClickException(
-                f"sandbox_env value for '{name}' must be a scalar "
-                "(string, number, or boolean)"
-            )
-        # `$GITHUB_ENV` reads one NAME=VALUE per line, so a second line
-        # would set a variable of its own.
-        if "\n" in env[name]:
-            raise click.ClickException(
-                f"sandbox_env value for '{name}' must be a single line"
-            )
-    return env
-
-
-def _migrated_sandbox_steps(raw: dict) -> list[SetupStep]:
-    """`setup:` steps doing what the deprecated `sandbox_*` keys did.
-
-    All three existed to reach an agent with its own environment, home and
-    checkout. Under the copy-on-write view it runs with the job's environment
-    and PATH and sees what `setup:` built, so their documented migration is to
-    move the entries into `setup:`, and this performs it: one step per key,
-    appended after the consumer's own steps, so those still do not see a
-    `sandbox_env` value. Variables and paths come first, since `sandbox_setup`
-    ran with both. A variable's value stays in the step's `env:`, where an
-    Actions expression still evaluates, rather than in its script. A leading
-    `~` named the sandbox's home, which under the view is the job's `$HOME`.
-    The runner puts a later `$GITHUB_PATH` line ahead of an earlier one, so the
-    directories are written last-first to keep the first entry first. The
-    commands share one `-eo pipefail` bash, as they did, so a `cd`, `export` or
-    `source` still reaches the ones after it.
-
-    Warned about rather than refused, at the maintainer's call and against the
-    no-backward-compatibility rule in AGENTS.md, so that nothing breaks in a
-    consumer before it migrates; a warning that dropped the entries would
-    silently stop installing what its agent relies on.
-    TODO(2026-10-21): refuse all three keys, with these messages as the
-    migration, once the consumers that set them have moved their entries into
-    `setup:`.
-    """
-    steps: list[SetupStep] = []
-    env = _deprecated_env(raw)
-    if env:
-        click.echo(
-            "Warning: `sandbox_env` is deprecated and will be refused in a "
-            "later release. The agent now runs with the job's own "
-            "environment, so a variable a `setup:` step exports to "
-            "`$GITHUB_ENV` reaches it; its entries are exported from a "
-            "`setup:` step after yours for now. Export them yourself from "
-            'the last `setup:` step (e.g. `- run: echo "MY_TOKEN=$MY_TOKEN" '
-            '>> "$GITHUB_ENV"`, with the value under the step\'s `env:` as '
-            "`MY_TOKEN:`, where an expression still works), since every step "
-            "after the export sees the value, and delete the key.",
-            err=True,
-        )
-        run = "\n".join(f'echo "{name}=${name}" >> "$GITHUB_ENV"' for name in env)
-        steps.append(SetupStep(fields={"run": run, "env": env}))
-    paths = _deprecated_list(raw, "sandbox_path")
-    if paths:
-        click.echo(
-            "Warning: `sandbox_path` is deprecated and will be refused in a "
-            "later release. The agent now runs with the job's own PATH, so "
-            "a directory a `setup:` step adds reaches it; its entries are "
-            "added from a `setup:` step after yours for now. Add each "
-            "directory yourself (e.g. "
-            '`- run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"`) and delete '
-            "the key.",
-            err=True,
-        )
-        directories = [
-            "$HOME" + d[1:] if d == "~" or d.startswith("~/") else d for d in paths
-        ]
-        run = "\n".join(f'echo "{d}" >> "$GITHUB_PATH"' for d in reversed(directories))
-        steps.append(SetupStep(fields={"run": run}))
-    commands = _deprecated_list(raw, "sandbox_setup")
-    if commands:
-        click.echo(
-            "Warning: `sandbox_setup` is deprecated and will be refused in a "
-            "later release. The agent now works in the job's own checkout "
-            "and home, so what `setup:` builds reaches it; its commands run "
-            "in one `setup:` step after yours for now. That is an ordinary "
-            "workflow step, and tend puts nothing on its PATH, so a command "
-            "that calls `uv` needs a step that installs it, such as "
-            "`astral-sh/setup-uv`, earlier in your `setup:`. Move the "
-            "commands into `setup:` as `run:` steps (e.g. "
-            "`- run: rustup component add clippy`) and delete the key; a "
-            "`cd`, `export` or `source` reaches only the rest of its own "
-            "step. `setup:` runs on the default or PR base tree; what a pull "
-            "request itself changes, such as a new dependency in its "
-            "lockfile, the agent installs in the session.",
-            err=True,
-        )
-        steps.append(SetupStep(fields={"run": "\n".join(commands), "shell": "bash"}))
-    return steps
-
-
 @dataclass
 class WorkflowConfig:
     enabled: bool = True
@@ -303,6 +174,8 @@ class WorkflowConfig:
     args: list[str] | None = None
     # Review only: whether the review waits for the reviewed commit's CI.
     await_ci: bool = True
+    # Triage only: simultaneous issue jobs within one batch.
+    max_parallel: int = 5
 
 
 # Models are not enumerated for either harness. Both catalogs churn, both
@@ -358,11 +231,20 @@ class Config:
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
+    # `tend check` names a maintainer has accepted failing, each with the
+    # reason it prints in place of the FAIL.
+    accepted_checks: dict[str, str] = field(default_factory=dict)
     # Opt-in experiment that persists agent-authored Markdown memory
     # in a bot-owned secret Gist. The Gist ID stays in a fixed environment
     # secret so a public repository does not publish the unlisted URL.
     memory_gist: bool = False
     merge: str = "restricted"
+
+    @property
+    def review_ci_wait_off(self) -> bool:
+        """Whether a review ends before CI, which every session is told."""
+        review = self.workflows.get("review", WorkflowConfig())
+        return review.enabled and not review.await_ci
 
     @property
     def merge_policy(self) -> MergePolicy:
@@ -389,14 +271,16 @@ class Config:
     def load(cls, path: Path | None = None) -> Config:
         if path is None:
             path = Path(".config/tend.yaml")
+        if path.suffix == ".toml":
+            raise click.ClickException(
+                f"Unsupported config format: {path}. Convert it to YAML."
+            )
         if not path.exists():
             legacy = Path(".config/tend.toml")
             if path == Path(".config/tend.yaml") and legacy.exists():
                 raise click.ClickException(
-                    f"Found {legacy} but tend now reads {path}. "
-                    "Run `uvx tend@latest init` to migrate "
-                    "(verifies the parsed config is equivalent, swaps the file, "
-                    "and regenerates workflows in one step)."
+                    f"Unsupported config format: {legacy}. "
+                    f"Convert it to YAML at {path}."
                 )
             raise click.ClickException(f"Config not found: {path}")
         try:
@@ -406,6 +290,14 @@ class Config:
         if not isinstance(raw, dict):
             raise click.ClickException(
                 f"{path} must contain a YAML mapping at the top level"
+            )
+
+        retired = sorted(set(raw) & {"sandbox_env", "sandbox_path", "sandbox_setup"})
+        if retired:
+            raise click.ClickException(
+                f"Unsupported config keys: {', '.join(retired)}. "
+                "Move commands into setup: run: steps; export environment variables "
+                "to $GITHUB_ENV and add PATH entries to $GITHUB_PATH in those steps."
             )
 
         if "bot_name" not in raw:
@@ -504,6 +396,8 @@ class Config:
         for key in sorted(unknown_secrets):
             click.echo(f"Warning: unknown secrets key '{key}'", err=True)
 
+        accepted_checks = _parse_accepted_checks(raw.get("checks", {}) or {}, merge)
+
         setup_raw = raw.get("setup", []) or []
         setup: list[SetupStep] = []
         for i, entry in enumerate(setup_raw):
@@ -557,7 +451,6 @@ class Config:
                     )
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
-        setup.extend(_migrated_sandbox_steps(raw))
 
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in (raw.get("workflows") or {}).items():
@@ -719,6 +612,15 @@ class Config:
                         f"workflows.{name}.prompt is blank. Drop the key to "
                         f"use the default prompt."
                     )
+                max_parallel = wf_raw.get("max_parallel", WorkflowConfig.max_parallel)
+                if "max_parallel" in wf_raw and name != "triage":
+                    raise click.ClickException(
+                        f"workflows.{name}.max_parallel is only supported for triage"
+                    )
+                if type(max_parallel) is not int or not 1 <= max_parallel <= 256:
+                    raise click.ClickException(
+                        f"workflows.{name}.max_parallel must be an integer from 1 to 256"
+                    )
                 await_ci = wf_raw.get("await_ci", True)
                 if "await_ci" in wf_raw and name != "review":
                     raise click.ClickException(
@@ -742,6 +644,7 @@ class Config:
                     effort=wf_effort,
                     args=wf_args,
                     await_ci=await_ci,
+                    max_parallel=max_parallel,
                 )
             else:
                 workflows[name] = WorkflowConfig(enabled=enabled)
@@ -792,7 +695,37 @@ class Config:
             workflows=workflows,
             codex=codex,
             allowed_repo_secrets=allowed,
+            accepted_checks=accepted_checks,
         )
+
+
+def _parse_accepted_checks(checks: object, merge: str) -> dict[str, str]:
+    """Validate `checks.accepted`: check name → the maintainer's reason."""
+    if not isinstance(checks, dict):
+        raise click.ClickException("checks must be a mapping")
+    unknown = set(checks) - {"accepted"}
+    if unknown:
+        raise click.ClickException(
+            f"Unknown checks option(s): {', '.join(sorted(unknown))}"
+        )
+    accepted = checks.get("accepted", {}) or {}
+    if not isinstance(accepted, dict) or not all(
+        isinstance(name, str) and name and isinstance(reason, str) and reason.strip()
+        for name, reason in accepted.items()
+    ):
+        raise click.ClickException(
+            "checks.accepted must map each check name to a non-empty reason, "
+            'e.g. accepted: {tag-protection: "hosted/ tags use their own rulesets"}'
+        )
+    # Yolo grants the bot merge access only once every check holds; an
+    # accepted failure would let `tend check` pass a setup that grant
+    # depends on.
+    if accepted and merge == "yolo":
+        raise click.ClickException(
+            "checks.accepted requires merge: restricted — yolo's merge access "
+            "depends on every check passing"
+        )
+    return {name: reason.strip() for name, reason in accepted.items()}
 
 
 def _parse_args(raw: object, key: str) -> list[str]:

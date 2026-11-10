@@ -20,9 +20,13 @@ metadata:
 
 ## Filing issues in this repo
 
-An issue here is not a note to a maintainer — where `tend-triage` is enabled (the default), it fires on `issues` and does the work. Filing one for a fix you have already scoped hands your own analysis to a second agent run, which re-derives it from your issue body and opens the PR minutes later at full session cost, on a thread nobody needed.
-
-So if you can open the PR in this run, open the PR. Reserve an issue for what you genuinely can't finish here: a problem too large or ambiguous to fix, one that needs a maintainer decision, or one whose verification is out of reach from CI. A CI failure report's causes are the exception, filed as issues per **A report** in `/tend-ci-runner:triage`'s `references/ci-failures.md`.
+Where `tend-triage` is enabled (the default), a new issue starts a worker.
+Choose a direct PR when the repair is ready or keeping it here makes useful
+progress. Delegate independent repairs through issues when that lets a broader
+investigation or maintenance sweep progress in parallel. Give the worker the
+evidence and diagnosis already established, and reuse an existing repair owner.
+An issue also preserves work that needs a maintainer decision or verification
+this session cannot perform.
 
 This governs your own repo only; filing into another repo follows `/tend-ci-runner:act-in-other-repos`.
 
@@ -100,7 +104,7 @@ What you find governs: a PR closed on the **code** leaves the fix available to r
 
 ## Creation allowance
 
-Tend's proxy limits new issues and PRs in this repository through one allowance. When it is exhausted, the refusal names when capacity returns and the tracker a maintainer can close to approve more. A refused creation leaves the session running: keep diagnosis, reviews, comments, existing branch repairs and issue closure moving. Record a refused creation and the remaining work on its existing issue or PR; a CI report still owes any cause whose issue could not be filed. Preserve a prepared fix on its branch when appropriate, and follow the ordinary recovery path in **Recover issue work** in `/tend-ci-runner:notifications`. When an exhausted allowance is the only remaining blocker, defer creation until refill or approval. Changing labels does not change the allowance.
+Tend's proxy limits new issues and PRs in this repository through one allowance. When it is exhausted, the refusal reports usage, the limit, a time to recheck and the tracker a maintainer can close to set an approval floor for seven days. A refused creation leaves the session running: keep diagnosis, reviews, comments, existing branch repairs and issue closure moving. Record a refused creation and the remaining work on its existing issue or PR; a CI report still owes any cause whose issue could not be filed. Preserve a prepared fix on its branch when appropriate, and follow the ordinary recovery path in **Recover issue work** in `/tend-ci-runner:notifications`. When an exhausted allowance is the only remaining blocker, defer creation until usage expires or a maintainer approves more capacity; recheck the live allowance before retrying. Changing labels does not change the allowance.
 
 ## Atomic PRs
 

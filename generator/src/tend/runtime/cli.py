@@ -17,6 +17,7 @@ from pathlib import Path
 
 import click
 
+from tend.runtime.ci.cli import register
 from tend.runtime.codex import codex_model_smoke, codex_subscription_auth
 from tend.runtime.shared import _common
 
@@ -24,6 +25,92 @@ from tend.runtime.shared import _common
 @click.group()
 def runtime() -> None:
     """Run Tend's harness and action operations."""
+
+
+@runtime.command("verify-generation")
+def verify_generation_command() -> None:
+    """Check committed workflow files against this pinned generator."""
+    from tend.runtime.shared import verify_generation
+
+    _common.run(verify_generation.main)
+
+
+@runtime.command("mention-verify")
+def mention_verify_command() -> None:
+    """Decide whether a mention event should start an agent."""
+    from tend.runtime.shared import mention_verify
+
+    _common.run(mention_verify.main)
+
+
+@runtime.command("notifications-check")
+def notifications_check_command() -> None:
+    """Check the notification inbox and conflicted bot PRs."""
+    from tend.runtime.shared import notifications_check
+
+    _common.run(notifications_check.main)
+
+
+@runtime.command("ci-failure-report")
+def ci_failure_report_command() -> None:
+    """Apply a finished run's verdict to its CI failure report."""
+    from tend.runtime.shared import ci_failure_report
+
+    _common.run(ci_failure_report.main)
+
+
+@runtime.command("queue-delay")
+def queue_delay_command() -> None:
+    """Measure the event's wait until this job started."""
+    from tend.runtime.shared import workflow_steps
+
+    _common.run(workflow_steps.queue_delay)
+
+
+@runtime.command("current-head")
+def current_head_command() -> None:
+    """Check whether the queued PR head is still current."""
+    from tend.runtime.shared import workflow_steps
+
+    _common.run(workflow_steps.current_head)
+
+
+@runtime.command("reaction")
+@click.argument("action", type=click.Choice(["add", "remove"]))
+def reaction_command(action: str) -> None:
+    """Add or remove the bot's eyes acknowledgment."""
+    from tend.runtime.shared import workflow_steps
+
+    _common.run(lambda: workflow_steps.reaction(remove=action == "remove"))
+
+
+@runtime.group("triage-batch")
+def triage_batch_group() -> None:
+    """Dispatch and validate selected triage issues."""
+
+
+def _run_triage_batch(operation: Callable[[], int]) -> None:
+    try:
+        _common.run(operation)
+    except ValueError as error:
+        raise click.ClickException(str(error)) from error
+
+
+@triage_batch_group.command("select")
+def select_triage_batch_command() -> None:
+    """Recheck selected issues before expanding the workflow matrix."""
+    from tend.runtime.shared import triage_batch
+
+    _run_triage_batch(triage_batch.select)
+
+
+@triage_batch_group.command("dispatch")
+@click.argument("issues")
+def dispatch_triage_batch_command(issues: str) -> None:
+    """Dispatch a JSON array of issue IDs in batches that fit GitHub's limits."""
+    from tend.runtime.shared import triage_batch
+
+    _run_triage_batch(lambda: triage_batch.dispatch(issues))
 
 
 @runtime.command("security-preflight")
@@ -259,3 +346,27 @@ def cleanup_memory_command() -> None:
     from tend.runtime.shared import gist_memory
 
     click.get_current_context().exit(gist_memory.cleanup_command())
+
+
+@codex.group("responses-proxy")
+def responses_proxy_group() -> None:
+    """Manage the isolated API-key proxy."""
+
+
+@responses_proxy_group.command("start")
+def start_responses_proxy_command() -> None:
+    """Start the proxy and publish its loopback address."""
+    from tend.runtime.codex import responses_proxy
+
+    _common.run(responses_proxy.start)
+
+
+@responses_proxy_group.command("stop")
+def stop_responses_proxy_command() -> None:
+    """Stop the API-key proxy after the agent turn."""
+    from tend.runtime.codex import responses_proxy
+
+    _common.run(responses_proxy.stop)
+
+
+register(runtime)

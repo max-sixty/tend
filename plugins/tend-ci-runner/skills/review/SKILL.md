@@ -29,14 +29,13 @@ Follow these steps in order.
 Before reading the diff, run the initial snapshot. It pins the open head, resolves the bot's review state, and prepares the accurate incremental when one applies:
 
 ```bash
-/usr/bin/python3 -E -s \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" start <number>
+tend runtime review-preflight start <number>
 ```
 
 On `skip`, finish. Otherwise read every previous bot review and the conversation:
 
 ```bash
-uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+tend runtime bot-review-state \
   feedback <number>
 ```
 
@@ -52,6 +51,8 @@ The incremental scopes the *review*, not anything this run writes about the PR a
 If the incremental changes are trivial, skip steps 2–5 and go directly to **Resolve handled suggestions** for bot threads addressed by the new changes. Then use **Submit** for the current-head verdict, including its author-readiness and self-authored exceptions, before **Complete the review**. Rough heuristic: changes under ~20 added+deleted lines that don't introduce new functions, types, or control flow are typically trivial.
 
 **Commit and PR authorship do not affect review behavior.** Apply the same trivial-vs-substantive heuristic regardless of who pushed the new commits. When `tend-notifications` or `tend-triage` pushes a fix to a human-authored PR, reviewing (and re-approving) the updated state is expected — the reviewer role is independent of commit authorship.
+
+**A dismissal on push is not a verdict.** Where the repository's rules dismiss stale approvals, GitHub dismisses the bot's approval on every push and records the pusher as the timeline event's `actor`. That `review_dismissed` event carries `dismissed_review.dismissal_commit_id` and a null `dismissal_message`; a person's dismissal carries their message and no dismissal commit. Review the new head as usual after an automatic one. Only a dismissal with a message is a signal to read.
 
 **Apply the sibling-workflow dedup rule from `/tend-ci-runner:post-to-github`** to both the review body and inline comments. If a prior bot comment in the conversation already covers a point — a previous review on this or an earlier commit, a `tend-mention` reply, a `tend-triage` post, anything from a tend workflow — omit it from this review and stick to diff-grounded findings. If that leaves no new diff-grounded finding on the incremental changes and the only outstanding concern is a still-unresolved thread from an earlier bot review, do not post a new review: that thread already blocks the PR, and restating "the prior thread still applies" on every push is noise. Resolve any bot threads the new commits addressed (**Resolve handled suggestions**), then finish without posting. When no concern remains, follow **Submit** for the current-head verdict. When concurrent runs race (a new push while the first run is still responding), both see the same unanswered question — check whether a bot reply exists after the question's timestamp before answering. Address remaining unanswered questions in the review body (not via `gh pr comment`).
 
@@ -134,7 +135,7 @@ What counts as core is repo-specific; let the project's own instruction files, a
 # missing file substitutes the empty string and the POST still runs, which is
 # the unpinned review this pins against.
 REVIEWED=$(cat "$TMPDIR/reviewed-head") || exit 0
-/usr/bin/python3 -E -s "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number> -- \
+tend runtime review-preflight post <number> -- \
   gh api "repos/{owner}/{repo}/pulls/<number>/reviews" --method POST \
     -f event=APPROVE -f commit_id="$REVIEWED" -f body=""
 ```
@@ -169,7 +170,7 @@ The failure message still names the removed local path, so it directs users to a
 ```bash
 # Re-read rather than reusing the pre-flight blob — a whole review has passed since.
 # The script no-ops once a dismissal or later CHANGES_REQUESTED has cleared it.
-uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+tend runtime bot-review-state \
   dismiss <number> "Superseded by the review on a later commit."
 ```
 
@@ -193,8 +194,7 @@ gh api "repos/{owner}/{repo}/issues/<number>/reactions" -f content="+1"
 Before composing the final payload, run the preflight without a command. It checks the PR is open, re-targets onto a newer descendant head, and stops duplicate reviews:
 
 ```bash
-/usr/bin/python3 -E -s \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/review_preflight.py" post <number>
+tend runtime review-preflight post <number>
 ```
 
 On `skip`, post nothing. If the pinned head already carries a review, continue to **Resolve handled suggestions** and the remaining workflow; a closed PR or a moved head ends this pass. A re-targeted result prints `delta: <path>` and updates `$TMPDIR/reviewed-head`: follow `references/re-targeting.md` before posting, then run the preflight again. Do not post from the re-targeting pass.
@@ -228,11 +228,11 @@ After submitting the review, check if any unresolved bot threads have been addre
 **Self-authored PRs are especially risky.** When the bot is both author and reviewer, there is a bias toward accepting the code's own claims. Treat self-authored thread resolution with extra skepticism — read the code and verify the claim independently rather than trusting the doc comment or commit message.
 
 ```bash
-uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+tend runtime bot-review-state \
   feedback <number> | jq '.review_state.bot_login as $bot |
     [.review_threads[] | select(.is_resolved == false and .comments[0].author == $bot)]'
 # Read each thread's discussion; resolve only after verifying its substance:
-uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+tend runtime bot-review-state \
   resolve-thread <thread-id>
 ```
 

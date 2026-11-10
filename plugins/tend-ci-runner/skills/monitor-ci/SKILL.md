@@ -10,6 +10,22 @@ metadata:
 Obtain CI evidence for the caller's pinned commit. Return the result to the
 calling workflow; that workflow decides what to repair or do next.
 
+## Which heads to poll
+
+A session polling CI holds its runner while it waits, and on GitHub-hosted
+runners the checks it waits for compete for the same account's job slots.
+When the prompt says the review's CI wait is off, under `yolo`, tend-land acts
+as each check finishes: it lands a head the review recorded once its CI is
+green, and starts one repair session per failing head on a PR with no human
+author. So after you push to a PR with no human author, record the push per
+**After the push** in `/tend-ci-runner:push-commits`, say in your report that
+tend-land owns its CI from there, and carry on with the rest of your workflow
+without polling or merging that head. Poll as below where nothing else acts on the result: a PR
+with a human author, a session whose prompt doesn't say the CI wait is off, a
+rerun without a push (tend-land has already started that head's one repair),
+or a check you need before calling a failure pre-existing. A review reads CI
+for its approval per **Without the CI wait** in `/tend-ci-runner:review`.
+
 ## Poll the pinned commit
 
 Poll with the bundled script, pinned to the commit this session is accountable for — never the PR's current head: another actor can advance the head while the loop sleeps, and a poll that follows it reports *their* commit's results as yours:
@@ -23,8 +39,7 @@ PINNED_SHA=$(git rev-parse HEAD)
 # When the push happened in a $TMPDIR worktree the recipe then removes, capture
 # the OID there — `git rev-parse HEAD > "$TMPDIR/<name>-sha"` — before the removal.
 # Back in the main checkout HEAD is the default branch, not what you pushed.
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" poll <number> "$PINNED_SHA"
+tend runtime poll-pr-checks poll <number> "$PINNED_SHA"
 ```
 
 Run this command in the foreground with the longest command timeout the harness allows. It has no fixed time limit: it waits until every check settles, however long the repo's CI takes. It returns sooner only when no check registers, or when checks still pend and the PR head moves.
@@ -49,8 +64,7 @@ If you cannot verify, say "I haven't confirmed whether these failures are pre-ex
 To rerun a run's failed jobs and wait for the outcome, use the bundled script — it reruns, finds the new attempt's jobs (the parent run's `.status` and the commit rollup stay pending on unrelated siblings, so neither is a usable signal), and polls them to terminal:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/rerun_failed_jobs.py" <run-id>
+tend runtime rerun-failed-jobs <run-id>
 ```
 
 Same foreground invocation as above; it waits until the re-run jobs finish. Exit 0 prints each job's conclusion — `completed` is not `success`; the follow-up turns on the conclusions. Any other exit means the rerun never took: report the jobs as unverified.

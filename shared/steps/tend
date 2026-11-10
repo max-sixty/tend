@@ -1,0 +1,3 @@
+#!/bin/sh
+# Resolve the pinned interpreter beside this command, ignoring consumer Python settings.
+exec "${0%/*}/../bin/python" -I -m tend "$@"

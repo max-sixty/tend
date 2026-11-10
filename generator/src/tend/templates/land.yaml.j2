@@ -1,9 +1,9 @@
 {%- set land_prompt %}<<cfg.default_prompt('merge-pr', '${{ matrix.pr }}')>>
 
-tend-land: every check on ${{ needs.check.outputs.sha }} has finished green, the head a review recorded for landing (`tend/land/${{ matrix.pr }}`). Complete the landing decision for that exact head. The review's CI wait is off (`await_ci: false`).{% endset -%}
+tend-land: every check on ${{ needs.check.outputs.sha }} has finished green, the head a review recorded for landing (`tend/land/${{ matrix.pr }}`). Complete the landing decision for that exact head.{% endset -%}
 {%- set repair_prompt %}<<cfg.default_prompt('continue-pr', '${{ matrix.pr }}')>>
 
-CI settled red on this PR's head ${{ needs.check.outputs.sha }} after its review ended. The review's CI wait is off (`await_ci: false`).{% endset -%}
+CI settled red on this PR's head ${{ needs.check.outputs.sha }} after its review ended.{% endset -%}
 {%- set current = "steps.current.outputs.current == 'true'" -%}
 {#- Reads whether the head a session was started for is still the PR's, so a
     session queued behind another that already moved the head ends before
@@ -16,16 +16,15 @@ CI settled red on this PR's head ${{ needs.check.outputs.sha }} after its review
           PR: ${{ matrix.pr }}
           SHA: ${{ needs.check.outputs.sha }}
         run: |
-          head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .head.sha)
-          if [ "$head" = "$SHA" ]; then current=true; else current=false; fi
-          echo "current=$current" >> "$GITHUB_OUTPUT"
+          tend runtime current-head
 {%- endmacro -%}
 <<header>>
 name: tend-land
 # Lands a reviewed PR once its CI completes, with no session waiting for it.
-# With the review's CI wait off, a review that settles everything about a head
-# the bot pushed but its CI records the head for landing (a `tend/land/<PR>`
-# commit status naming the base and any skipped checks) and ends. `check`, Tend's
+# With the review's CI wait off, a review that settles everything but the CI of
+# a head the bot pushed, or of a head on another bot's PR, records the head for
+# landing (a `tend/land/<PR>` commit status naming the base and any skipped
+# checks) and ends. `check`, Tend's
 # pinned script with no agent and no checkout of the PR, runs whenever anything
 # that reports on a commit finishes, so whatever its gate waits on also wakes
 # it: every workflow but Tend's own, a commit status, or another app's check
@@ -74,6 +73,7 @@ jobs:
       land_prs: ${{ steps.check.outputs.land_prs }}
       red_prs: ${{ steps.check.outputs.red_prs }}
     steps:
+<<setup_tend_runtime()>>
       - name: Read the event's commit
         id: event
         env:
@@ -107,6 +107,7 @@ jobs:
     permissions:
 <<permissions()>>
     steps:
+<<setup_tend_runtime()>>
 <<still_current()>>
 <<checkout(cfg, ref=cfg.default_branch, if_condition=current)>>
 <<agent_step(cfg, block_input('prompt', land_prompt), if_condition=current)>>
@@ -130,6 +131,7 @@ jobs:
     permissions:
 <<permissions()>>
     steps:
+<<setup_tend_runtime()>>
 <<still_current()>>
 <<checkout(cfg, ref=cfg.default_branch, if_condition=current)>>
 <<setup_current>>

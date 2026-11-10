@@ -1,0 +1,23 @@
+{
+  "repository": "example/widget",
+  "situations": [
+    {
+      "id": "hook-startup",
+      "issue": {"number": 501, "state": "OPEN", "request": "Reduce the per-tool startup cost of hooks in sessions holding a page."},
+      "investigation": "The maintainer measured substantial interpreter, launcher and import cost on every tool batch, most of which deliver no input. The report proposes both reducing synchronous startup work and replacing per-batch polling with asynchronous wake delivery. Import probing confirms that the hook and harness modules leave two heavy dependencies unloaded, while importing the page transport loads both. It has not been established whether a page-owning hook with no pending input needs those dependencies later in its execution. A synthetic reordered-Stop experiment exposes an ordering prerequisite for the async proposal; it does not prove current synchronous hooks reorder in production. No code changes or regression tests have been made.",
+      "available_work": "Python source, profiling tools, page fixtures and focused hook tests are available locally. The real agent harness executable and any approved CI route for its wake/receipt journey are unavailable. The async redesign needs that journey to establish mid-turn delivery, receipt identity and duplicate-wake behavior. No product choice or active repair owner blocks investigation of startup cost."
+    },
+    {
+      "id": "export-and-sync",
+      "issue": {"number": 502, "state": "OPEN", "request": "Export omits empty folders, and remote synchronization can lose folder permissions."},
+      "investigation": "The local export regression reproduces the empty-folder omission. The exporter filters entries by file count before it writes directories, contrary to its documented directory-preservation contract. The smallest repair is in that filter; it does not alter remote synchronization or its permission representation. The normal export suite covers empty and populated directories. Remote permission loss has not been reproduced because the test service is unavailable. No patch has been written.",
+      "available_work": "The source and export regression are local and runnable. A service administrator must restore the remote test endpoint before synchronization behavior can be reproduced. There is no available substitute for that service, but local export has no dependency on it."
+    },
+    {
+      "id": "atomic-contract",
+      "issue": {"number": 503, "state": "OPEN", "request": "Preserve fractional durations across the client/server protocol."},
+      "investigation": "The current protocol transmits whole seconds and loses fractions. The selected repair changes both endpoints to transmit milliseconds. The client patch and client-only tests are ready, but the deployed server still interprets every duration as seconds. Sending the new value to that server multiplies durations by 1,000. The repository requires both endpoints to change together and has no negotiated protocol version.",
+      "available_work": "The server source and protocol integration test are inaccessible until the service owner restores access. No independently useful client change has been identified; the current patch changes the shared wire contract."
+    }
+  ]
+}

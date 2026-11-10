@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import subprocess
-import tempfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -26,7 +25,6 @@ from tend.checks import (
     update_ruleset_bypass,
 )
 from tend.config import CODEX_REFRESH_ENVIRONMENT, Config
-from tend.migrate import migrate_toml_to_yaml, render_toml_as_yaml
 from tend.runtime.cli import runtime
 from tend.workflows import (
     actionlint_config,
@@ -124,11 +122,35 @@ def _print_check_results(results: list[CheckResult]) -> None:
     for r in results:
         if r.passed is True:
             icon = click.style("PASS", fg="green")
+        elif r.accepted is not None:
+            icon = click.style("ACCEPTED", fg="cyan")
+            click.echo(f"  {icon}  {r.name} — {r.accepted}")
+            click.echo(f"      (check reported: {r.message})")
+            continue
         elif r.passed is False:
             icon = click.style("FAIL", fg="red")
         else:
             icon = click.style("SKIP", fg="yellow")
         click.echo(f"  {icon}  {r.name} — {r.message}")
+
+
+def _warn_unused_acceptances(results: list[CheckResult], cfg: Config) -> None:
+    """Name `checks.accepted` entries that matched no failing check."""
+    by_name = {r.name: r for r in results}
+    for name in sorted(cfg.accepted_checks):
+        result = by_name.get(name)
+        if result is None:
+            click.echo(
+                f"Warning: checks.accepted names '{name}', which tend check "
+                "did not run",
+                err=True,
+            )
+        elif result.passed is True:
+            click.echo(
+                f"Warning: checks.accepted names '{name}', which now passes; "
+                "remove the entry",
+                err=True,
+            )
 
 
 def _yolo_activation_blockers(results: list[CheckResult]) -> list[CheckResult]:
@@ -178,39 +200,7 @@ main.add_command(runtime)
 )
 def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> None:
     """Generate workflow files from config. Idempotent — always overwrites."""
-    # Auto-migrate a legacy .config/tend.toml. One-shot upgrade path for
-    # consumers bumping past the TOML→YAML cutover; the migration verifies
-    # the parsed structures match before swapping, so the no-op case (no
-    # .toml on disk) is the steady state.
-    #
-    # Under --dry-run the migration is rendered and verified but not applied:
-    # the flag's contract is that the command writes nothing, and the one run
-    # a consumer makes to preview the upgrade is exactly the run that would
-    # otherwise perform it — silently, and irreversibly for an uncommitted
-    # config, since the migration deletes the TOML.
-    preview_yaml: str | None = None
-    if config_path is None:
-        default_yaml = Path(".config/tend.yaml")
-        default_toml = Path(".config/tend.toml")
-        if not default_yaml.exists() and default_toml.exists():
-            if dry_run:
-                preview_yaml = render_toml_as_yaml(default_toml, default_yaml)
-                click.echo(f"  would migrate {default_toml} → {default_yaml}")
-            else:
-                migrate_toml_to_yaml(default_toml, default_yaml)
-                click.echo(f"Migrated {default_toml} → {default_yaml}")
-
-    if preview_yaml is None:
-        cfg = Config.load(config_path)
-    else:
-        # `Config.load` reads a path, and the real one must stay unwritten —
-        # so the preview loads from a throwaway copy. Same bytes the migration
-        # would have committed, so the workflows printed below are the ones a
-        # real `init` would produce.
-        with tempfile.TemporaryDirectory() as tmp:
-            preview_path = Path(tmp) / "tend.yaml"
-            preview_path.write_text(preview_yaml, encoding="utf-8")
-            cfg = Config.load(preview_path)
+    cfg = Config.load(config_path)
     cfg.default_branch = _detect_default_branch_local()
     try:
         cfg.repo_owner = detect_canonical_owner() or ""
@@ -248,10 +238,7 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
         path.write_text(wf.content, encoding="utf-8")
         click.echo(f"  wrote {path}")
 
-    if any(
-        wf.filename in {"tend-review.yaml", "tend-triage.yaml", "tend-land.yaml"}
-        for wf in workflows
-    ):
+    if any(wf.filename in {"tend-review.yaml", "tend-land.yaml"} for wf in workflows):
         _update_actionlint_config(dry_run)
     # Remove stale tend-*.yaml files the generator didn't produce this run.
     # Catches: install-test cleanup on regen, disabled workflows leaving
@@ -303,8 +290,9 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
     results = run_all_checks(cfg, repo)
     click.echo("Security checks:")
     _print_check_results(results)
+    _warn_unused_acceptances(results, cfg)
 
-    failures = [r for r in results if r.passed is False]
+    failures = [r for r in results if r.failed]
     activation_blockers = (
         _yolo_activation_blockers(results) if cfg.merge == "yolo" else []
     )
@@ -430,7 +418,7 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
                 else replace(cfg, merge=merge_to_apply)
             )
             results = run_all_checks(applied_cfg, repo)
-            failures = [r for r in results if r.passed is False]
+            failures = [r for r in results if r.failed]
 
     if any(r.name == "actions-event-policy" for r in failures):
         click.echo()
@@ -494,5 +482,5 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
         raise click.ClickException(
             "Yolo security checks are incomplete; resolve the skipped checks."
         )
-    if not fixed_any or any(r.passed is False for r in results):
+    if not fixed_any or any(r.failed for r in results):
         raise SystemExit(1)

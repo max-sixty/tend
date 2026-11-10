@@ -4,10 +4,10 @@
   "bot": "widget-agent",
   "merge": "restricted",
   "fixtures": {
-    "observations.json": "dc8b386c6c65e60539d28e1c8aad094021685d8c9711f941cb0456a251846bf1"
+    "observations.json": "6979bde1bf6a98572e5570832bf641173cc638de2d05c16f37c6daba4c8ef2e7"
   },
   "origin": {
     "kind": "synthetic contrast",
-    "construction": "Independent nightly snapshots contrast recovered agent creation with owned remaining engineering work, elapsed refill/reset with only a trusted runner write, and restored creation with unknown missed work. The historical nightly guidance unconditionally preserves rate-limit trackers; the case distinguishes cleanup from approval and recovery from task completion."
+    "construction": "Independent nightly snapshots contrast recovered agent creation with owned remaining engineering work, elapsed rolling-window retry time with only a trusted runner write, and restored creation with unknown missed work. The historical nightly guidance unconditionally preserves rate-limit trackers; the case distinguishes cleanup from approval and recovery from task completion. Synthetic tracker observations use rolling 24-hour usage and seven-day numeric approval floors; UTC midnight does not reset usage."
   }
 }

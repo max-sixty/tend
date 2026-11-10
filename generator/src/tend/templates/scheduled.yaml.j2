@@ -13,6 +13,7 @@ jobs:
     permissions:
 <<permissions()>>
     steps:
+<<setup_tend_runtime()>>
 <<checkout(cfg, ref=cfg.default_branch)>>
 <<setup>>
 <<agent_step(cfg, block_input('prompt', prompt))>>

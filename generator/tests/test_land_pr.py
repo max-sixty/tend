@@ -9,17 +9,12 @@ heads get a record at all.
 
 from __future__ import annotations
 
-import importlib
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
-
-SCRIPTS = Path(__file__).resolve().parents[2] / "plugins" / "tend-ci-runner" / "scripts"
-sys.path.insert(0, str(SCRIPTS))
-land_pr = importlib.import_module("land_pr")
+from tend.runtime.ci import land_pr
 
 BOT = "tend-bot"
 SHA = "a" * 40
@@ -140,10 +135,15 @@ def test_the_record_carries_the_reviews_skipped_checks() -> None:
 
 
 class FakeGitHub:
-    """`github_cli` as `intend` reaches it: canned reads, recorded writes."""
+    """`_common` as `intend` reaches it: canned reads, recorded writes."""
 
     def __init__(self) -> None:
-        self.view = {"headRefOid": SHA, "state": "OPEN", "baseRefName": "main"}
+        self.view: dict[str, Any] = {
+            "headRefOid": SHA,
+            "state": "OPEN",
+            "baseRefName": "main",
+            "author": {"login": "alice", "is_bot": False},
+        }
         self.statuses = [status(context="tend/land/pushed", description="Pushed")]
         self.writes: list[tuple[str, ...]] = []
 
@@ -162,9 +162,9 @@ class FakeGitHub:
 def github(monkeypatch: pytest.MonkeyPatch) -> FakeGitHub:
     fake = FakeGitHub()
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
-    monkeypatch.setattr(land_pr.github_cli, "json_call", fake.json_call)
-    monkeypatch.setattr(land_pr.github_cli, "paginated", fake.paginated)
-    monkeypatch.setattr(land_pr.github_cli, "run", fake.run)
+    monkeypatch.setattr(land_pr._common, "gh_json", fake.json_call)
+    monkeypatch.setattr(land_pr._common, "gh_paginated", fake.paginated)
+    monkeypatch.setattr(land_pr._common, "gh", fake.run)
     return fake
 
 
@@ -192,6 +192,17 @@ def test_intend_leaves_a_head_with_no_record_of_the_bots_push(
     github.statuses = [status(context="tend/land/pushed", creator={"login": "eve"})]
     assert land_pr.intend("7", SHA, "main") == 3
     assert github.writes == []
+
+
+def test_intend_needs_no_record_of_a_push_on_another_bots_pr(
+    github: FakeGitHub,
+) -> None:
+    """Dependabot pushes its own heads, and no author will land them."""
+    github.statuses = []
+    github.view["author"] = {"login": "app/dependabot", "is_bot": True}
+    assert land_pr.intend("7", SHA, "main") == 0
+    (write,) = github.writes
+    assert _fields(write)["context"] == "tend/land/7"
 
 
 @pytest.mark.parametrize(
@@ -233,8 +244,8 @@ def test_check_names_every_eligible_pr_at_the_commit(
     pulls = [pr(number=7), pr(number=8), pr(number=9, user=OWN)]
     github.statuses = [status("tend/land/7"), status("tend/land/8")]
     monkeypatch.setattr(
-        land_pr.github_cli,
-        "paginated",
+        land_pr._common,
+        "gh_paginated",
         lambda path, **_: pulls if "/pulls" in path else github.statuses,
     )
     monkeypatch.setattr(land_pr.poll_pr_checks, "fetch_rollup", lambda **_: GREEN)
@@ -250,8 +261,8 @@ def test_check_marks_the_repair_it_starts(
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     pulls = [pr(number=9, user=OWN)]
     monkeypatch.setattr(
-        land_pr.github_cli,
-        "paginated",
+        land_pr._common,
+        "gh_paginated",
         lambda path, **_: pulls if "/pulls" in path else github.statuses,
     )
     monkeypatch.setattr(land_pr.poll_pr_checks, "fetch_rollup", lambda **_: RED)

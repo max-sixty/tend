@@ -118,7 +118,12 @@ files into `.github/workflows/`. Each workflow handles triggers, skip
 conditions, concurrency, and permissions — then calls the composite action
 for the configured harness, pinned to the released generator version
 (`max-sixty/tend/claude@X.Y.Z` for Claude, `max-sixty/tend/codex@X.Y.Z` for Codex).
-The nightly regen restamps a newer tag when a new tend version ships.
+Each job first calls `max-sixty/tend/setup-runtime@X.Y.Z` at that same ref.
+This installs the isolated `tend` command used by workflow checks and the action;
+the harness installs only its separate, disposable sandbox copy. Hand-written
+workflows using the Claude, Codex, landing, or credential-refresh action need
+this setup step too. The nightly regen restamps a newer tag when a new tend
+version ships.
 
 When the review workflow is generated, `init` also merges one ignore into
 `.github/actionlint.yaml`: the workflow's `concurrency.queue` is valid GitHub
@@ -237,10 +242,10 @@ can still edit an immutable release's notes. `tend check` requires the setting a
 repository admin, so a run as the bot checks the newest release's own
 `immutable` flag instead.
 
-**Rate limiting** — One replenishing creation allowance covers issues and PRs
-in the workflow's repository. Exhausting it pauses new creations while reviews,
-existing repairs and issue closure continue. A maintainer can approve more
-capacity by closing the bot's rate-limit issue.
+**Rate limiting** — One rolling 24-hour allowance covers issues and PRs in the
+workflow's repository, scaled to its recent creation volume. Exhausting it pauses
+new creations while reviews, existing repairs and issue closure continue. A
+maintainer can close the rate-limit issue to set an approval floor for seven days.
 
 **Fixed prompts** — Workflow prompts come from the action, not from
 attacker-controlled input like PR descriptions or comments.

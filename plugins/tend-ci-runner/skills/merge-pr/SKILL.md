@@ -17,15 +17,16 @@ complete the gates below and attempt the ordinary pinned merge.
 ## Reviewed head
 
 `PINNED_SHA` must be the current head with a standing bot approval
-(`fresh_approval_sha == PINNED_SHA` from `bot_review_state.py state <number>`),
+(`fresh_approval_sha == PINNED_SHA` from `tend runtime bot-review-state state <number>`),
 or, on the bot's own PR, a review of that head by this session warranting
 approval, including a trivial-increment close-out. GitHub forbids self-approval.
 A landing session tend-land started stands on the review that recorded the
 head: a `tend/land/<number>` status the bot created on `PINNED_SHA`
-(`land_pr.py`), whose description names the base the review judged and the
-checks it skipped. Read it (`gh api repos/{owner}/{repo}/commits/<sha>/statuses`),
-leave the PR open if the base has changed since, and apply the CI policy with
-those skips, reading CI once without waiting. If checks are running again (a
+(`tend runtime land-pr`), whose description names the base branch the review judged
+and the checks it skipped. Read it (`gh api repos/{owner}/{repo}/commits/<sha>/statuses`).
+Leave the PR open if it now targets a different branch; commits landing on that
+branch since the review don't change this. Apply the CI policy with those skips,
+reading CI once without waiting. If checks are running again (a
 rerun since tend-land saw green), end: their completion starts another
 landing. Everything below still applies: the record settles nothing that
 happened after it.
@@ -52,8 +53,7 @@ leaves the verified PR open.
 Check for another dedicated owner:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/active_subject_runs.py" \
+tend runtime active-subject-runs \
   "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/<number>"
 ```
 
@@ -73,7 +73,9 @@ the authenticated bot; an aggregate `mergeStateStatus: BLOCKED` or
 `mergeable_state: blocked` is not an API refusal. GitHub enforces the
 preconditions itself — 409 when the head no longer matches `sha`, 405 when the
 PR is closed or not mergeable. On a refusal, leave the PR open and report the
-response. Never use auto-merge or omit `sha`: auto-merge stays enabled across
+response. A 5xx is no verdict: before trying again, re-read the PR per
+**Readiness and ownership**, since a maintainer can comment between attempts.
+Never use auto-merge or omit `sha`: auto-merge stays enabled across
 pushes by anyone with write access, so it can land a head no review read. A
 review whose CI wait is off records the head instead, and tend-land starts a
 landing session that makes this same pinned merge once CI is green

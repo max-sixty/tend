@@ -6,6 +6,98 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.24
+
+### Improved
+
+- Triage jobs share a concurrency group only with jobs for the same issue (`tend-triage-<issue>`), so sessions for different issues run at once, up to the account's job limit. `workflows.triage.max_parallel` bounds one dispatched batch. ([#1648](https://github.com/max-sixty/tend/pull/1648))
+- With the review's CI wait off (`workflows.review.await_ci: false`), every session is told so through the system prompt, and a session that pushes to a PR with no human author hands its CI to tend-land instead of polling. A push to a human's PR stays with the session that made it. `land-pr intend` accepts a head on a PR GitHub marks as bot-authored, such as Dependabot's. ([#1648](https://github.com/max-sixty/tend/pull/1648), [#1652](https://github.com/max-sixty/tend/pull/1652))
+- The nightly token report reads session logs from one paged artifact listing and skips runs whose jobs were all skipped, cutting its GitHub API requests. ([#1644](https://github.com/max-sixty/tend/pull/1644), [#1653](https://github.com/max-sixty/tend/pull/1653))
+- Claude Code 2.1.316 and uv 0.13.6. ([#1633](https://github.com/max-sixty/tend/pull/1633), [#1634](https://github.com/max-sixty/tend/pull/1634))
+
+### Fixed
+
+- Review reads an approval that GitHub dismissed as stale on a push as automatic, and reviews the new head. ([#1650](https://github.com/max-sixty/tend/pull/1650))
+- The yolo security preflight fails on an unreadable CODEOWNERS read with the failed `gh` call, rather than reporting a missing rule. ([#1643](https://github.com/max-sixty/tend/pull/1643))
+- `tend check --fix` refuses to overwrite a tag ruleset whose target or conditions differ from the canonical all-tags selection. ([#1638](https://github.com/max-sixty/tend/pull/1638))
+- Codex sessions waiting on CI set an hour's yield on the `exec` cell and `wait` calls as well as `write_stdin`, so a poll no longer returns every second. ([#1641](https://github.com/max-sixty/tend/pull/1641))
+
+### Documentation
+
+- The bot token must be a classic PAT; GitHub's notifications API accepts no fine-grained token. ([#1656](https://github.com/max-sixty/tend/pull/1656))
+- `debug-tend-run` lists the main session logs of the job being debugged instead of taking the first `.jsonl`. ([#1655](https://github.com/max-sixty/tend/pull/1655))
+
+### Internal
+
+- Tend's own workflows run on Claude, and its monthly reviewer-tracking issues close when the next month's opens. ([#1639](https://github.com/max-sixty/tend/pull/1639), [#1657](https://github.com/max-sixty/tend/pull/1657))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
+## 0.3.23
+
+### Improved
+
+- Issue and PR creations share a rolling 24-hour allowance scaled to recent traffic, with a minimum of ten. Closing the new tracker sets a seven-day floor based on twice the greater of normal capacity and recent usage; the floor survives a falling baseline. Closes of old-policy trackers do not grant the new floor. ([#1626](https://github.com/max-sixty/tend/pull/1626))
+
+### Fixed
+
+- Rolling workflow-update PRs describe the full change from the default branch, including earlier unmerged updates already on their branch. ([#1596](https://github.com/max-sixty/tend/pull/1596))
+- Update credential-proxy dependencies to mitmproxy 12.3.1, Brotli 1.2.1 and pyasn1 0.6.5. ([#1593](https://github.com/max-sixty/tend/pull/1593), [#1625](https://github.com/max-sixty/tend/pull/1625))
+
+### Documentation
+
+- Remove stale harness-version and plugin-script details from setup and maintenance guidance. ([#1611](https://github.com/max-sixty/tend/pull/1611))
+
+### Internal
+
+- Update evaluation and activity-worker dependencies. ([#1574](https://github.com/max-sixty/tend/pull/1574), [#1575](https://github.com/max-sixty/tend/pull/1575), [#1589](https://github.com/max-sixty/tend/pull/1589), [#1590](https://github.com/max-sixty/tend/pull/1590), [#1604](https://github.com/max-sixty/tend/pull/1604))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.22
+
+### Fixed
+
+- Issue workers are instructed to execute available diagnostic experiments and retain unfinished work until completion, an active handoff, or a specific blocker. Recording a next action on an issue does not count as a handoff. ([#1618](https://github.com/max-sixty/tend/pull/1618))
+- Triage and daily recovery follow replacement PRs to landed repairs and close issues when evidence establishes full resolution. Partial repairs, intermittent failures, active workers, and maintainer holds retain their existing safeguards. ([#1618](https://github.com/max-sixty/tend/pull/1618))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.21
+
+### Improved
+
+- Triage processes issue batches with configurable `workflows.triage.max_parallel` (default five). Batches remain serialized, and recovery splits large selections to fit GitHub limits. Manual dispatch now accepts `issues`, a JSON array, in place of `issue` and `title`. ([#1603](https://github.com/max-sixty/tend/pull/1603))
+- Daily and weekly maintenance delegate independent repairs through issues and investigate work with subagents. Codex sessions can exceed the default four-agent limit. ([#1609](https://github.com/max-sixty/tend/pull/1609))
+- **Action callers:** Run `setup-runtime` at the same release ref before `claude`, `codex`, `land`, or `codex/refresh`. The harness `bot_name` input and Codex's unused `allowed_bots` and `allowed_non_write_users` inputs are removed; config `bot_name` remains supported. Generated workflows include these changes. ([#1608](https://github.com/max-sixty/tend/pull/1608))
+- **Config:** TOML configurations and `sandbox_env`, `sandbox_path`, and `sandbox_setup` are rejected with migration guidance. Convert to YAML and use `setup:` steps with `$GITHUB_ENV` and `$GITHUB_PATH`. ([#1610](https://github.com/max-sixty/tend/pull/1610))
+
+### Fixed
+
+- Startup configuration restoration handles wildcard, newline, and non-UTF-8 filenames literally while preserving trusted-base instruction pinning. ([#1610](https://github.com/max-sixty/tend/pull/1610))
+
+### Internal
+
+- Release artifact validation checks only built distributions, excluding build-directory metadata. ([#1614](https://github.com/max-sixty/tend/pull/1614))
+
+- Workflow operations and CI helpers run through the installed, isolated `tend runtime` CLI. Runner setup has one owner, and instruction restoration uses the packaged Python runtime instead of staged shell assets. ([#1607](https://github.com/max-sixty/tend/pull/1607), [#1608](https://github.com/max-sixty/tend/pull/1608), [#1610](https://github.com/max-sixty/tend/pull/1610))
+
+> _This was written by Codex on behalf of max-sixty_
+
+## 0.3.19
+
+### Improved
+
+- CI report triagers can repair a cause directly or fan out independent causes into issues. Reports and recovery recognize either an issue or repair PR as the durable owner. ([#1601](https://github.com/max-sixty/tend/pull/1601))
+- A blocker applies only to the work it prevents: triagers continue separable investigation and make independently useful, verified partial repairs while keeping unresolved work open. ([#1601](https://github.com/max-sixty/tend/pull/1601))
+
+### Fixed
+
+- New issues and PRs share one adaptive creation allowance enforced by the credential proxy. Exhaustion leaves reviews, existing repairs, comments and issue cleanup running; maintainer approval increases the allowance until UTC midnight. ([#1594](https://github.com/max-sixty/tend/pull/1594))
+- Nightly cleanup can close a recovered creation-limit tracker once creation has resumed and blocked work is accounted for; a bot closing it grants no additional capacity. ([#1594](https://github.com/max-sixty/tend/pull/1594))
+
+> _This was written by Codex on behalf of max-sixty_
+
 ## 0.3.18
 
 ### Improved

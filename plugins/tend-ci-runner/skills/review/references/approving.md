@@ -9,7 +9,7 @@
 Run the approval check against the commit this session reviewed, in the foreground with the longest command timeout the harness allows — a failure showing while other checks still run makes it wait for them:
 
 ```bash
-uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \
+tend runtime poll-pr-checks \
   approval <number> "$(cat "$TMPDIR/reviewed-head")"
 ```
 
@@ -31,7 +31,7 @@ Poll the pinned commit to terminal per `/tend-ci-runner:monitor-ci`, then handle
 - **Green** -> the CI verification is complete.
 - **A check failed** and it's related to the PR -> post a follow-up `COMMENT` review with analysis and inline suggestions, then dismiss the bot's approval:
   ```bash
-  uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/bot_review_state.py" \
+  tend runtime bot-review-state \
     dismiss <number> "CI failed — <reason>"
   ```
   On **human-authored PRs**, do not push fixes — post the analysis and offer to fix, then wait for the author to accept. On **PRs with no human author** (this bot's own, Dependabot, renovate), don't stop at analysis: apply the fix per **Push fixes** so the PR can go green, since no author will act on the offer.
@@ -51,19 +51,19 @@ When the prompt says the review's CI wait is off, the repository has chosen to e
 - Run the approval check with `--no-wait`. A failure beside checks still running then withholds as it stands, and the check names the ones still running.
 - In place of the poll, read the pinned commit once, with the same `--skip` arguments:
   ```bash
-  uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/poll_pr_checks.py" \
+  tend runtime poll-pr-checks \
     poll <number> "$(cat "$TMPDIR/reviewed-head")" --no-wait
   ```
   Handle exit 0 or 1 per **After the approval**, except that an unrelated failure is routed without a rerun, since a rerun is a wait. Exit 1 also covers a check that has already failed while others still run: the failure is final, so act on it now, and leave the PR unmerged. Exit 2 (checks still running with none failed, checks that settled without a result, or no complete reading) ends the review: name the checks it lists in the closing summary, and leave the landing decision to a later session or a maintainer, except as below.
 
-Under `yolo`, this review is the lander of a head this bot pushed: a session of this bot that pushes a head hands its landing to the review that follows (**Reviews arriving during verification** in `/tend-ci-runner:push-commits`), so the pushing session's run, even while still going, is not an owner that keeps the head open. That landing doesn't wait on this session either. On exit 2 with checks still running, where everything `/tend-ci-runner:merge-pr` asks of the head but its CI holds — it is the **Reviewed head**, and nothing under **Readiness and ownership** leaves it open — record the head for landing and end:
+Under `yolo`, this review is the lander of a head on another bot's PR (Dependabot, Renovate), which no author will land, and of a head this bot pushed: a session of this bot that pushes a head hands its landing to the review that follows (**Reviews arriving during verification** in `/tend-ci-runner:push-commits`), so the pushing session's run, even while still going, is not an owner that keeps the head open. That landing doesn't wait on this session either. On exit 2 with checks still running, where everything `/tend-ci-runner:merge-pr` asks of the head but its CI holds — it is the **Reviewed head**, and nothing under **Readiness and ownership** leaves it open — record the head for landing and end:
 
 ```bash
-uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/land_pr.py" \
+tend runtime land-pr \
   intend <number> "$(cat "$TMPDIR/reviewed-head")" "$(cat "$TMPDIR/reviewed-base")"
 ```
 
-Add the same `--skip` arguments; the record carries them, with the base this review judged, so the landing judges the same checks against the same base. Exit 3 records nothing: the head carries no record of this bot's push (`tend/land/pushed`, which the pushing session made per `/tend-ci-runner:push-commits`), or the PR has moved off that head or base. Leave that landing to a later session or a maintainer. Exit 0 means the record stands, and tend-land takes it from here; the record's own status wakes tend-land, so a check that finished since the review's read isn't missed.
+Add the same `--skip` arguments; the record carries them, with the base branch this review judged, so the landing judges the same checks against the same branch. Exit 3 records nothing: on a PR that isn't another bot's, the head carries no record of this bot's push (`tend/land/pushed`, which the pushing session made per `/tend-ci-runner:push-commits`), or the PR has moved off that head or branch. Leave that landing to a later session or a maintainer. Exit 0 means the record stands, and tend-land takes it from here; the record's own status wakes tend-land, so a check that finished since the review's read isn't missed.
 
 The record is a `tend/land/<number>` status on that exact commit. When every check on it has finished green, tend-land starts a short landing session that makes the landing decision per `/tend-ci-runner:merge-pr`, reading the PR afresh for holds, findings, the approval and ownership. A red result on a PR with no human author starts a session that continues its repair per `/tend-ci-runner:continue-pr`. Where the review can't record the head (a draft, a hold, an unresolved finding), the landing decision passes to a later session or a maintainer, as it does on a head someone else pushed.
 

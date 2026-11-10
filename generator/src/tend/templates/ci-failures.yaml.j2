@@ -37,12 +37,9 @@ jobs:
 <<environment()>>
     permissions: {}
     steps:
-<<setup_tend_uv()>>
+<<setup_tend_runtime()>>
       - name: File, update or close the CI failure report
         env:
           GH_TOKEN: ${{ secrets.<<bot_token_secret>> }}
-          TEND_UV: ${{ steps.tend_uv.outputs.uv-path }}
         run: |
-          "$TEND_UV" run --script - <<heredoc>>'TEND_PY'
-<<report_script|indent(10, first=True)>>
-          TEND_PY
+          tend runtime ci-failure-report

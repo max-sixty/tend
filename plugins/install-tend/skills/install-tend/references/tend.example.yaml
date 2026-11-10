@@ -123,11 +123,9 @@ bot_name: my-project-bot
 # runs. `user` lets `install-tend` set the bot's profile bio so contributors
 # can see the authorization stance.
 #
-# Fine-grained PAT permissions: `contents:write`, `pull-requests:write`,
-# `issues:write`, `actions:write`, `workflows:write`, `discussions:write`,
-# `notifications:write`, `gists:write`, plus the account-level `Profile:
-# read and write` permission (for the bio). `notifications:write` is
-# required so the action can mark threads read after handling an event.
+# The token must be a classic PAT. GitHub's notifications endpoints accept
+# only classic tokens, and Tend reads the bot's notifications to find work
+# and marks each thread read after handling it.
 #
 # `tend check` flags repo-level secrets not in an explicit allowlist — each
 # entry is a deliberate acceptance that any workflow the repo runs can read
@@ -137,6 +135,19 @@ bot_name: my-project-bot
 #
 # secrets:
 #   allowed: ["CODECOV_TOKEN", "DEPLOY_KEY"]
+
+# ## Accepted checks
+#
+# A `tend check` failure the maintainer has reviewed and accepts — a layout the
+# check cannot credit, such as tag rulesets split across several patterns —
+# can be recorded with its reason. `tend check` then prints the reason as
+# `ACCEPTED` instead of `FAIL`, exits 0 for it, and `--fix` leaves it alone.
+# It warns when an accepted check passes again. Not available under
+# `merge: yolo`, whose merge access requires every check to pass:
+#
+# checks:
+#   accepted:
+#     tag-protection: "hosted/** tags are covered by their own rulesets"
 
 # ## Setup steps
 #
@@ -362,9 +373,10 @@ bot_name: my-project-bot
 #
 # - A check already red withholds the approval.
 # - Under `yolo`, a head the bot pushed itself (the pushing session records
-#   that as a `tend/land/pushed` status), whose review settled everything but
-#   its CI, is recorded for landing (a `tend/land/<PR>` commit status naming
-#   the base and any skipped checks). Whenever something reporting on a
+#   that as a `tend/land/pushed` status) or a head on another bot's PR
+#   (Dependabot, Renovate), whose review settled everything but its CI, is
+#   recorded for landing (a `tend/land/<PR>` commit status naming the base
+#   branch and any skipped checks). Whenever something reporting on a
 #   commit finishes (any workflow but Tend's own, a commit status, another
 #   app's check suite), the generated `tend-land` workflow checks, with no
 #   agent, whether a recorded head on its recorded base has every check
@@ -405,8 +417,20 @@ bot_name: my-project-bot
 # ### triage
 #
 # Triggers on new and reopened issues. Classifies, checks for duplicates,
-# reproduces bugs and attempts conservative fixes. One worker runs at a time;
-# pending issue labels retain failed attempts for recovery.
+# reproduces bugs and attempts conservative fixes. New/reopened issue events
+# create one-job batches; notifications and daily recovery submit selected issues
+# together. Each issue has its own concurrency group, so an issue never runs twice
+# at once and one issue's session doesn't hold up another's; across runs, GitHub's
+# limit on an account's concurrent jobs is the only cap, and CI shares it. Failed or cancelled
+# work stays on the open issues for recovery; independent jobs continue on failure.
+# Recovery dispatches split at GitHub's matrix and run-name limits; the latter
+# keeps all selected issue IDs visible while a batch waits to start.
+# A batch runs at most five issue jobs at once. To change that limit (1–256):
+#
+# workflows:
+#   triage:
+#     max_parallel: 10
+#
 # Under `yolo` with review enabled and `await_ci: false`, opening a repair PR
 # hands CI follow-up to the review and `tend-land`, releasing the issue worker.
 

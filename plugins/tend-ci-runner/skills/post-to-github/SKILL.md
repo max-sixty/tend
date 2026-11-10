@@ -77,8 +77,7 @@ Read the file as its reader will, check it against **Reader-facing prose** in `/
 Run this over every composed body — comment, PR body, issue body — and fix what it names:
 
 ```bash
-uv run --script \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/check_body_links.py" "$TMPDIR/comment-body.md"
+tend runtime check-body-links "$TMPDIR/comment-body.md"
 ```
 
 It resolves every 40-hex SHA in the body against the API and reports any `#L` anchor pinned to a branch or an abbreviation. Resolving is the part a scan by eye cannot do: a hand-typed OID is well-formed whether or not the commit exists, so a fabricated SHA — the model extending an abbreviation it saw in `git log` instead of running `git rev-parse HEAD` — reads as correctly pinned and ships a permalink that 404s. Run it after the push when the body cites a commit from this session; before the push that commit is unreachable and reports as dead, correctly.
