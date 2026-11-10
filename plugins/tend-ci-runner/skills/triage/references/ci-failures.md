@@ -52,15 +52,16 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
      gh issue create --label tend-ci-cause --title "<title>" --body-file "$TMPDIR/cause.md"
      ```
 
-     Report triages of other lanes run concurrently and can file the same cause between step 3 and here. As the last step before `gh issue create`, recheck the open cause issues, matching locally rather than through the search index:
+     Report triages of other lanes run concurrently and can file or repair the same cause between step 3 and here. As the last step before `gh issue create`, recheck the open cause issues and PRs, matching locally rather than through the search index:
 
      ```bash
      # <term>: the complete failing test or job name the cause issue would carry
-     gh issue list --state open --label tend-ci-cause --limit 200 --json number,title,body \
-       | jq --arg t "<term>" '.[] | select((.title + .body) | contains($t)) | {number, title}'
+     match='.[] | select((.title + .body) | contains($t)) | {number, title}'
+     gh issue list --state open --label tend-ci-cause --limit 200 --json number,title,body | jq --arg t "<term>" "$match"
+     gh pr list --state open --limit 200 --json number,title,body | jq --arg t "<term>" "$match"
      ```
 
-     A match is a sibling's filing: treat it as the open owner above instead of filing.
+     A match is a sibling's filing or repair: treat it as the open owner above instead of filing.
 
 5. **Record the diagnosis on the report.** Name the runs diagnosed and link each cause's issue or repair PR, or explain its transient resolution. Leave unfinished diagnosis or repair with a durable owner rather than only in a report that the next pass closes. If creation is refused, follow **Creation allowance** in `/tend-ci-runner:open-pr` and record what remains unowned; do not count it as handled. This comment tells the next session which runs are handled, including when their causes were already linked. When no run or evidence is new, there is nothing to record.
 
