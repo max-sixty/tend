@@ -24,7 +24,10 @@ esac
 
 mkdir -p "$UV_INSTALL_DIR"
 archive="${UV_INSTALL_DIR}/uv-${target}.tar.gz"
-curl -fsSL -o "$archive" \
+# --retry rides out the transient 5xx and timeouts a release download hits.
+# setup-runtime runs this before the harness action, whose failure report a
+# failed step skips, so an unretried blip here loses the run unrecorded.
+curl -fsSL --retry 5 -o "$archive" \
   "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${target}.tar.gz"
 echo "${sha256}  ${archive}" | sha256sum --check --quiet
 tar -xzf "$archive" -C "$UV_INSTALL_DIR" --strip-components=1 --no-same-owner
