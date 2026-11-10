@@ -41,7 +41,7 @@ PINNED=$(tend runtime nightly-workflow-update version)
 uv tool run "tend@${PINNED:-latest}" check 2>&1 | tee "$TMPDIR/tend-check.txt"
 ```
 
-If **every** check line is `PASS` (no `FAIL` *and* no `SKIP`), close any
+If **every** check line is `PASS` or `ACCEPTED` (no `FAIL` *and* no `SKIP`), close any
 open drift issue. A run with only `SKIP` lines (e.g. lost API permission, a
 transient `gh` error) is *not* a pass — leave the issue untouched, neither
 close nor file. Scope to bot-authored issues so a maintainer-filed issue
