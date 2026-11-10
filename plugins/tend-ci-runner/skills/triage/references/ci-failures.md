@@ -31,7 +31,9 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
 
    ```bash
    # <term>: a failing test or job name, or a distinctive phrase from the error;
-   # search matches titles and bodies, so run one per term
+   # search matches titles and bodies, so run one per term. Use a test's complete
+   # name: search matches a snake_case identifier only as a whole word, so a
+   # prefix of it finds nothing
    gh issue list --state all --search "<term>" --json number,title,state,author --limit 100
    gh pr list --state closed --search "<term>" --limit 100 --json number,title,state
    ```
@@ -49,6 +51,16 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
        --description "A root cause of a CI failure report" 2>/dev/null || true
      gh issue create --label tend-ci-cause --title "<title>" --body-file "$TMPDIR/cause.md"
      ```
+
+     Report triages of other lanes run concurrently and can file the same cause between step 3 and here. As the last step before `gh issue create`, recheck the open cause issues, matching locally rather than through the search index:
+
+     ```bash
+     # <term>: the complete failing test or job name the cause issue would carry
+     gh issue list --state open --label tend-ci-cause --limit 200 --json number,title,body \
+       | jq --arg t "<term>" '.[] | select((.title + .body) | contains($t)) | {number, title}'
+     ```
+
+     A match is a sibling's filing: treat it as the open owner above instead of filing.
 
 5. **Record the diagnosis on the report.** Name the runs diagnosed and link each cause's issue or repair PR, or explain its transient resolution. Leave unfinished diagnosis or repair with a durable owner rather than only in a report that the next pass closes. If creation is refused, follow **Creation allowance** in `/tend-ci-runner:open-pr` and record what remains unowned; do not count it as handled. This comment tells the next session which runs are handled, including when their causes were already linked. When no run or evidence is new, there is nothing to record.
 
