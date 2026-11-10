@@ -59,8 +59,14 @@ FAKE_GH = (
     cat "$ARCHIVE_DIR/${id##*/}.zip"
     ;;
   "api "*"/actions/artifacts?"*)
+    [ "${2##*page=}" = "${ARTIFACT_PAGE_FAILS:-}" ] && { echo "unexpected end of JSON input" >&2; exit 1; }
     emit "$(jq -c --argjson page "${2##*page=}" \
       '{artifacts: .[($page - 1) * 100:$page * 100]}' "$ARTIFACTS_JSON")"
+    ;;
+  "api "*"/actions/runs/"*"/artifacts"*)
+    run="${2#*/actions/runs/}"
+    emit "$(jq -c --argjson run "${run%%/*}" \
+      '{artifacts: [.[] | select(.workflow_run.id == $run)]}' "$ARTIFACTS_JSON")"
     ;;
   *)
     exit 1
@@ -405,6 +411,36 @@ def test_the_artifact_listing_reads_back_only_to_the_fetched_runs(
     assert [run["run_id"] for run in output["runs"]] == [1]
     pages = [line for line in report.calls().splitlines() if "artifacts?" in line]
     assert [page.rsplit("=", 1)[1] for page in pages] == ["1", "2"]
+
+
+def test_a_failed_listing_page_falls_back_to_each_unseen_run(
+    report: Report,
+) -> None:
+    """One page of the repository-wide listing failing must not discard the
+    pages that were read, nor every run they did not reach.
+
+    The listing stops at the failed page, and each run whose session log it
+    had not reached yet is asked for its own artifacts, the per-run cost paid
+    only when the listing breaks. Run 1's session log is on page 1; run 2's
+    sits on page 2 behind ninety-nine CI artifacts; run 3 uploaded nothing.
+    """
+    report.add(1, created_at="2026-09-17T08:00:00Z", updated_at="2026-09-17T08:10:00Z")
+    report.add(2, created_at="2026-09-16T08:00:00Z", updated_at="2026-09-16T08:10:00Z")
+    for _ in range(100):
+        report.upload(2, "", name="pytest-results")
+    report.add_run_without_artifact(3, conclusion="success")
+    report._env["ARTIFACT_PAGE_FAILS"] = "2"
+
+    output, _ = report.run_args("--since", "2026-08-01T00:00:00Z")
+
+    assert sorted(run["run_id"] for run in output["runs"]) == [1, 2]
+    assert output["totals"]["skipped_runs"] == 1
+    assert "artifact listing failed at page 2" in report.stderr
+    per_run = [line for line in report.calls().splitlines() if "/runs/" in line]
+    assert sorted(per_run) == [
+        "api repos/owner/repo/actions/runs/2/artifacts?per_page=100",
+        "api repos/owner/repo/actions/runs/3/artifacts?per_page=100",
+    ]
 
 
 def test_codex_artifact_counts_tokens_without_claiming_zero_cost(
