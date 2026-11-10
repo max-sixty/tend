@@ -61,7 +61,7 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
      gh pr list --state open --limit 200 --json number,title,body | jq --arg t "<term>" "$match"
      ```
 
-     A match is a sibling's filing or repair: treat it as the open owner above instead of filing.
+     A match is a candidate, not an owner: one test or job can fail for different causes. Read each matching issue or PR and match its evidence per **Claims of recurrence**, as in step 3. Treat it as the open owner above only when that evidence shows the same cause; otherwise file.
 
 5. **Record the diagnosis on the report.** Name the runs diagnosed and link each cause's issue or repair PR, or explain its transient resolution. Leave unfinished diagnosis or repair with a durable owner rather than only in a report that the next pass closes. If creation is refused, follow **Creation allowance** in `/tend-ci-runner:open-pr` and record what remains unowned; do not count it as handled. This comment tells the next session which runs are handled, including when their causes were already linked. When no run or evidence is new, there is nothing to record.
 
