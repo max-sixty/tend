@@ -65,8 +65,13 @@ FAKE_GH = (
     ;;
   "api "*"/actions/runs/"*"/artifacts"*)
     run="${2#*/actions/runs/}"
+    query="${2#*\?}"
+    per_page=$(printf '%s\n' "${query//&/$'\n'}" | sed -n 's/^per_page=//p')
+    page=$(printf '%s\n' "${query//&/$'\n'}" | sed -n 's/^page=//p')
     emit "$(jq -c --argjson run "${run%%/*}" \
-      '{artifacts: [.[] | select(.workflow_run.id == $run)]}' "$ARTIFACTS_JSON")"
+      --argjson per "${per_page:-30}" --argjson page "${page:-1}" \
+      '{artifacts: [.[] | select(.workflow_run.id == $run)][($page - 1) * $per:$page * $per]}' \
+      "$ARTIFACTS_JSON")"
     ;;
   *)
     exit 1
@@ -421,8 +426,10 @@ def test_a_failed_listing_page_falls_back_to_each_unseen_run(
 
     The listing stops at the failed page, and each run whose session log it
     had not reached yet is asked for its own artifacts, the per-run cost paid
-    only when the listing breaks. Run 1's session log is on page 1; run 2's
-    sits on page 2 behind ninety-nine CI artifacts; run 3 uploaded nothing.
+    only when the listing breaks, across every page of that run's listing.
+    Run 1's session log is on page 1; run 2's sits on page 2 of both the
+    repository listing and its own, behind a hundred CI artifacts; run 3
+    uploaded nothing.
     """
     report.add(1, created_at="2026-09-17T08:00:00Z", updated_at="2026-09-17T08:10:00Z")
     report.add(2, created_at="2026-09-16T08:00:00Z", updated_at="2026-09-16T08:10:00Z")
@@ -438,8 +445,9 @@ def test_a_failed_listing_page_falls_back_to_each_unseen_run(
     assert "artifact listing failed at page 2" in report.stderr
     per_run = [line for line in report.calls().splitlines() if "/runs/" in line]
     assert sorted(per_run) == [
-        "api repos/owner/repo/actions/runs/2/artifacts?per_page=100",
-        "api repos/owner/repo/actions/runs/3/artifacts?per_page=100",
+        "api repos/owner/repo/actions/runs/2/artifacts?per_page=100&page=1",
+        "api repos/owner/repo/actions/runs/2/artifacts?per_page=100&page=2",
+        "api repos/owner/repo/actions/runs/3/artifacts?per_page=100&page=1",
     ]
 
 

@@ -312,6 +312,22 @@ def _session_logs(
         page += 1
 
 
+def _run_session_logs(repo: str, run_id: int) -> list[dict[str, Any]]:
+    """The session-log artifacts of one run, read across every page of its
+    artifact listing."""
+    found: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        artifacts = _artifacts(
+            f"repos/{repo}/actions/runs/{run_id}/artifacts"
+            f"?per_page={ARTIFACT_PAGE}&page={page}"
+        )
+        found.extend(a for a in artifacts if _is_session_log(a))
+        if len(artifacts) < ARTIFACT_PAGE:
+            return found
+        page += 1
+
+
 def _usage_records(repo: str, artifact: dict[str, Any]) -> list[dict[str, Any]]:
     """The token-usage records in one session-log artifact, with its harness."""
     harness = "codex" if artifact["name"].startswith("codex-") else "claude"
@@ -427,13 +443,10 @@ def main(completed_after: datetime, extra_prefixes: tuple[str, ...] = ()) -> int
         # a failed read here costs that run alone, counted as skipped below.
         for run_id in runs_by_id.keys() - logs_by_run.keys():
             try:
-                artifacts = _artifacts(
-                    f"repos/{repo}/actions/runs/{run_id}/artifacts"
-                    f"?per_page={ARTIFACT_PAGE}"
-                )
+                logs = _run_session_logs(repo, run_id)
             except _common.GH_READ_FAILED:
                 continue
-            if logs := [a for a in artifacts if _is_session_log(a)]:
+            if logs:
                 logs_by_run[run_id] = logs
 
     print(
