@@ -438,9 +438,10 @@ bot_name: my-project-bot
 #
 # Triggers when a watched CI workflow finishes on a watched branch, and runs no
 # agent. A failed run opens a CI failure report, an issue per workflow, branch
-# and triggering event, or comments on the open one. The bot token makes a new
-# report trigger ordinary triage; later comments retain evidence for daily review.
-# The next passing run closes the report. Triage links a separate issue for each
+# and triggering event, or comments on the open one. Triage closes the report
+# once it has diagnosed the failures, and the lane's next failed run reopens it;
+# the bot token makes filing or reopening it trigger ordinary triage. A passing
+# run closes an open report. Triage links a separate issue for each
 # distinct cause and fixes each one there. A cancelled run reports nothing,
 # and GitHub ends a job that exceeds its time
 # limit as cancelled; a step that exceeds its own `timeout-minutes` fails

@@ -106,7 +106,7 @@ As a daily backstop for delayed notifications, retention, edited activity, and r
 
 - an open PR whose live head has no bot review, or whose latest comment, review, or inline review comment directed at the bot has no response; this includes replies to the bot's review on a fork PR;
 - unfinished configured-bot PRs, regardless of notification or review state. List the bot's open PRs (`gh pr list --state open --author "$BOT_NAME" --limit 200 --json number`) and continue each per `/tend-ci-runner:continue-pr`. A green proposal awaiting a maintainer in restricted mode, an explicit maintainer hold, or an unchanged external blocker needs no repeated post;
-- failing default-branch CI with no bot fix in progress. Another live-state check: scoped neither to the workflows `tend-ci-failures` reports — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window. A failure an open CI failure report (labeled `tend-ci-failure`) tracks is in progress only where the bot has triaged the report since its newest run and a cause issue or repair PR covers the failure, whose ownership the live issue and PR checks above verify. Otherwise hand the report to ordinary triage through **Recover issue work** in `/tend-ci-runner:notifications`, including its access and admission checks, rather than working it here.
+- failing default-branch CI with no bot fix in progress. Another live-state check: scoped neither to the workflows `tend-ci-failures` reports — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window. An open CI failure report (labeled `tend-ci-failure`) that step 6 of **A report** in `/tend-ci-runner:triage`'s `references/ci-failures.md` would close, judged with the live issue and PR checks above, is finished work its session didn't close: close it, so the lane's next failure reopens it. Otherwise hand the report to ordinary triage through **Recover issue work** in `/tend-ci-runner:notifications`, including its access and admission checks, rather than working it here.
 
   ```bash
   tend runtime red-default-branch-runs
@@ -199,7 +199,7 @@ For each analyzed run, compare what the bot did against what happened next. The 
 - **Review**: did subsequent commits undo something the bot approved? Did human reviewers flag issues it missed?
 - **Triage**: was the classification correct? Did the issue get relabeled?
 - **Nightly**: did the bot's PRs merge, or get closed as unhelpful?
-- **CI failure reports**: did each cause's fix resolve its failure, and did the report close when the lane passed?
+- **CI failure reports**: did each cause's fix resolve its failure, and did each report close once its failures were diagnosed and owned, and reopen on the lane's next failure?
 
 mention, notifications, and weekly runs get the same treatment: find the bot's output and check whether it was accepted.
 

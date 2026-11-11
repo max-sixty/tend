@@ -55,7 +55,7 @@ Process the snapshot oldest first. Determine what work or response remains from 
 
 - If a dedicated tend workflow is still running for the subject, defer it. Step 4 leaves it unread for the next poll.
 - For an open PR authored by the configured bot, continue any outstanding work per `/tend-ci-runner:continue-pr`, even if the latest activity was answered or the live head was reviewed. A current blocker can be recorded without posting it again.
-- An open same-repository CI failure report (labeled `tend-ci-failure`) needing diagnosis also goes through **Recover issue work**. Leave the notification unread until its worker succeeds. A report closed when its lane passed needs no action.
+- An open same-repository CI failure report (labeled `tend-ci-failure`) needing diagnosis also goes through **Recover issue work**. Leave the notification unread until its worker succeeds. A closed report needs no action.
 - If the bot already handled the latest activity and no repair remains, record it as handled without posting again.
 - Otherwise route a same-repository issue needing triage through **Recover issue work**; use `/tend-ci-runner:review` for an unreviewed PR head, or answer a comment or review thread that asks the bot for something per `/tend-ci-runner:respond-on-thread` and `/tend-ci-runner:post-to-github`. Another repository's issue follows `/tend-ci-runner:act-in-other-repos`.
 - A non-conversational subject, such as a release or check suite, also has the outcome “no action”. Default-branch CI recovery belongs to the daily current-state scan.

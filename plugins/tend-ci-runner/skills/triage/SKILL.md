@@ -39,7 +39,7 @@ A CI failure report, labeled `tend-ci-failure`, follows **A report** in `referen
 
 ### Reconcile existing work
 
-A closed issue needs no action; respect explicit maintainer holds on open work. For an open issue, follow linked repairs through any replacement PRs and check what reached the default branch. Close it with supporting evidence when the whole issue is resolved, verifying the affected path against the repair or recovered incident. A merged partial repair or a passing rerun of an intermittent failure does not establish full resolution. CI failure reports and evidence trackers keep the lifecycle described above.
+A closed issue needs no action; respect explicit maintainer holds on open work. For an open issue, follow linked repairs through any replacement PRs and check what reached the default branch. Close it with supporting evidence when the whole issue is resolved, verifying the affected path against the repair or recovered incident. A merged partial repair or a passing rerun of an intermittent failure does not establish full resolution. CI failure reports keep the lifecycle in `references/ci-failures.md`, and evidence trackers the one described above.
 
 Another queued or running worker, or a PR whose repair, review or landing workflow will continue the work, can take the next action; an issue naming an owner cannot. Preserve genuine handoffs without another diagnosis or post. A prior bot reply or successful investigation alone does not settle unfinished engineering work; apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug`.
 
