@@ -42,7 +42,7 @@ PINNED_SHA=$(git rev-parse HEAD)
 tend runtime poll-pr-checks poll <number> "$PINNED_SHA"
 ```
 
-Run this command in the foreground with the longest command timeout the harness allows. It has no fixed time limit: it waits until every check settles, however long the repo's CI takes. It returns sooner only when no check registers, or when checks still pend and the PR head moves.
+Run this command in the foreground with the longest command timeout the harness allows. It has no fixed time limit: it waits until every check settles, however long the repo's CI takes. It returns sooner only when no check registers, when checks still pend and the PR head moves, or when checks still pend near the session's end, where a red already standing is reported as red and otherwise the result is unverified.
 
 The poll waits for every check, advisory ones included. Where the repo's overlay names checks the poll leaves out, pass each as `--skip '<check name>'`, the name `gh pr checks` shows: the poll neither waits for nor reads any check of that name, so a red one doesn't stop the verdict either.
 

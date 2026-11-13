@@ -15,6 +15,7 @@ import os
 import re
 import signal
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -573,6 +574,7 @@ def test_launch_only_adds_harness_names_inside_the_sandbox(
     result = launch(stream=_ev_result())
     argv = result.command("claude").argv
     crossing = argv[1 : argv.index("claude")]
+    deadline = crossing.pop()
 
     assert crossing == [
         "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0",
@@ -581,6 +583,11 @@ def test_launch_only_adds_harness_names_inside_the_sandbox(
         "CI=true",
         "BASH_MAX_TIMEOUT_MS=900000",
     ]
+    # When the supervisor's 900 s bound stops the run, so a CI poll can hand
+    # back before it.
+    name, _, value = deadline.partition("=")
+    assert name == "TEND_DEADLINE"
+    assert -5 <= int(value) - 900 - time.time() <= 1
     assert argv[0] == "/usr/bin/env"
 
 
