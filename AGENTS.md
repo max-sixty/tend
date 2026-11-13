@@ -98,7 +98,7 @@ Four pieces:
    the consumer's `.github/workflows/` from `.config/tend.yaml`. Picks the
    right action ref and secret names per `harness`. Generation is
    idempotent — running `init` again overwrites all files from the
-   current config. When review, triage or land is generated, it also merges the
+   current config. When review or land is generated, it also merges the
    `concurrency.queue` ignore into the consumer-owned
    `.github/actionlint.yaml` (see "Concurrency and filtering").
 4. **Config** (`.config/tend.yaml`) — inputs to the generator. Overrides
@@ -337,7 +337,7 @@ Concurrency groups:
 | mention-relay | none | stateless — secretless job that re-posts review events to mention as a `repository_dispatch` |
 | mention/verify | none | stateless |
 | mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
-| triage | `tend-triage` | **no** — one whole batch at a time; its matrix runs up to `workflows.triage.max_parallel` issue jobs (default five); `queue: max` holds pending batches; the daily sweep recovers unfinished open issues outside GitHub's finite queue |
+| triage | `tend-triage-<issue>` | **no** — one job per issue at a time, and different issues share no group; a batch's matrix runs up to `workflows.triage.max_parallel` issue jobs (default five); a newer event replaces a job pending for its issue, and the new session reads the live issue |
 | notifications | `tend-notifications` | **no** — one poll drains notifications and repairs bot PRs at a time |
 | ci-failures | `workflow-<watched workflow>-<event>-<branch>` | **no** — one writer per CI failure report, so a lane's verdicts apply in turn and never file two |
 | land/check | none | stateless — reads records and checks, starts nothing itself |
@@ -372,8 +372,9 @@ another session. The agent work runs through the issue path:
 triage diagnoses the report, fixing causes directly or filing cause issues for
 separate triage sessions. Its diagnosis links each repair's issue or PR; an
 unresolved durable cause keeps that owner when a passing run closes the report.
-Sessions recheck existing owners before starting work. All triage batches share
-one workflow concurrency group. The bot gets no notification for its own writes.
+Sessions recheck existing owners before starting work. A triage job shares a
+concurrency group only with jobs for its own issue, so two reports can still reach
+one cause at once. The bot gets no notification for its own writes.
 The daily `review-runs` sweep inspects all open issues for unfinished work,
 including bot-authored reports and partial investigations after successful turns.
 It routes unowned work through ordinary triage using
@@ -384,9 +385,10 @@ checks the live issue and repair ownership again when it starts. The runtime's
 `triage-batch dispatch` command splits selections at GitHub's matrix and run-name
 limits; `select` refuses payloads whose queued ownership would be truncated.
 
-**GHA queue depth.** Review, triage and land set `queue: max`, so pending events within
-GitHub's queue limit wait: a later push cannot replace `ready_for_review`, and
-a new report cannot replace an earlier report's triage.
+**GHA queue depth.** Review and land set `queue: max`, so pending events within
+GitHub's queue limit wait: a later push cannot replace `ready_for_review`. Triage
+needs no queue, since a report is its own issue and a newer event for an issue
+replaces a job pending for it.
 GitHub accepts the key; actionlint's schema does not, so `init` merges the
 matching ignore into `.github/actionlint.yaml`, which the binary reads for
 every invocation.

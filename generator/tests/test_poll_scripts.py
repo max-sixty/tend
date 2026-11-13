@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -180,6 +181,9 @@ def env(tmp_path: Path) -> dict[str, str]:
         "GITHUB_REPOSITORY": "owner/repo",
         "GITHUB_RUN_ID": "555",
         "GITHUB_WORKFLOW": "tend-review",
+        # No session deadline unless a test sets one, whatever the session
+        # running this suite exports.
+        "TEND_DEADLINE": "",
     }
 
 
@@ -928,12 +932,93 @@ def test_skipped_external_red_does_not_end_the_wait(env: dict[str, str]) -> None
 
 
 def test_a_check_that_never_finishes_holds_the_wait(env: dict[str, str]) -> None:
-    """The wait has no time bound — a slow suite is waited out however long it
-    runs, so a check that never finishes is ended by the session's timeout."""
+    """The wait has no fixed time bound — a slow suite is waited out however
+    long it runs, while the session's end is still distant."""
+    env["TEND_DEADLINE"] = str(int(time.time()) + 6 * 3600)
     _serve(env, _resp(_check_run("slow-matrix", status="IN_PROGRESS")))
 
     with pytest.raises(WaitNeverEnded):
         _poll(env)
+
+
+def _near_deadline(env: dict[str, str]) -> None:
+    """End the session just inside the poll's margin."""
+    margin = poll_pr_checks.DEADLINE_MARGIN_SEC
+    env["TEND_DEADLINE"] = str(int(time.time()) + margin - 60)
+
+
+def test_a_check_pending_at_the_session_end_is_unverified(
+    env: dict[str, str],
+) -> None:
+    """A check that never concludes — an abandoned app check — hands back
+    before the session is killed, naming what still pends."""
+    _near_deadline(env)
+    _serve(
+        env,
+        _resp(_check_run("tests"), _check_run("codecov/patch", status="IN_PROGRESS")),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "session ends soon — UNVERIFIED, not green" in result.stdout
+    assert "codecov/patch" in result.stdout
+
+
+def test_a_red_beside_a_hung_job_at_the_session_end_is_red(
+    env: dict[str, str],
+) -> None:
+    """A red already standing is reported when a hung job outlasts the session,
+    so a review can still act on it after approving."""
+    _near_deadline(env)
+    _serve(
+        env,
+        _resp(
+            _check_run("codecov/patch", conclusion="FAILURE", run_id=200),
+            _check_run("full-tests", status="IN_PROGRESS"),
+        ),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "codecov/patch" in result.stdout
+    assert "still running, not waited for:\nfull-tests" in result.stdout
+
+
+def test_approval_withholds_a_red_still_pending_at_the_session_end(
+    env: dict[str, str],
+) -> None:
+    """The pre-approval wait stays fail-closed when the session's end cuts it."""
+    _near_deadline(env)
+    _serve(env, _resp(OMNIBUS_RED, _check_run("full-tests", status="IN_PROGRESS")))
+
+    result = _approval(env)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "withhold" in result.stdout
+
+
+def test_approval_is_undecided_when_the_red_clears_but_checks_still_pend_at_the_session_end(
+    env: dict[str, str],
+) -> None:
+    """A red that clears during the wait doesn't approve a head whose checks
+    are still pending when the session's end cuts the wait short."""
+    _near_deadline(env)
+    _serve(
+        env,
+        _resp(OMNIBUS_RED, _check_run("full-tests", status="IN_PROGRESS")),
+        _resp(
+            _check_run("check-ok-to-merge"),
+            _check_run("full-tests", status="IN_PROGRESS"),
+        ),
+    )
+
+    result = _approval(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "undecided" in result.stdout
+    assert "full-tests" in result.stderr
 
 
 def test_a_job_awaiting_environment_approval_is_unverified(

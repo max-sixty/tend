@@ -730,7 +730,8 @@ def test_non_string_prompt_is_rejected(tmp_path: Path) -> None:
         ("", False),
         ("workflows:\n  review:\n    await_ci: true\n", False),
         ("workflows:\n  review:\n    await_ci: false\n", True),
-        # A custom prompt is told too, after the consumer's own text.
+        ("workflows:\n  review:\n    enabled: false\n    await_ci: false\n", False),
+        # A custom review prompt doesn't change who is told.
         (
             (
                 "merge: yolo\nworkflows:\n  review:\n"
@@ -741,19 +742,23 @@ def test_non_string_prompt_is_rejected(tmp_path: Path) -> None:
         ),
     ],
 )
-def test_review_prompt_says_when_the_ci_wait_is_off(
+def test_every_session_is_told_when_the_ci_wait_is_off(
     tmp_path: Path, extra: str, told: bool
 ) -> None:
+    """Any session can push to a PR, so the fact reaches every agent step, by
+    the action input that puts it in the system prompt."""
     cfg = Config.load(_minimal_config(tmp_path, extra))
-    review = {wf.filename: wf for wf in generate_all(cfg)}["tend-review.yaml"]
-
-    prompt = agent_prompt(review.content)
-
-    assert (
-        prompt.rstrip().endswith("The review's CI wait is off (`await_ci: false`).")
-        is told
+    agent_steps = [
+        step
+        for wf in generate_all(cfg)
+        for job in yaml.safe_load(wf.content)["jobs"].values()
+        for step in job.get("steps", [])
+        if str(step.get("uses", "")).startswith("max-sixty/tend/claude@")
+    ]
+    assert agent_steps
+    assert all(
+        (step["with"].get("await_ci") == "false") is told for step in agent_steps
     )
-    assert "${{ github.event.pull_request.number }}" in prompt
 
 
 _WATCHED = "  ci-failures:\n    watched_workflows: [ci, lint]\n"
@@ -784,9 +789,6 @@ def test_tend_land_exists_where_a_review_leaves_landing_to_it(
     cfg = Config.load(_minimal_config(tmp_path, extra))
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     assert ("tend-land.yaml" in workflows) is lands
-    # Triage can release its serialized lane only when that continuation exists.
-    prompt = agent_prompt(workflows["tend-triage.yaml"].content)
-    assert ("The review's CI wait is off (`await_ci: false`)." in prompt) is lands
 
 
 def _land_prompts(content: str) -> dict[str, str]:
@@ -898,10 +900,6 @@ def test_tend_land_starts_a_session_per_pr_in_the_reviews_group(
     prompts = _land_prompts(generated["tend-land.yaml"].content)
     assert prompts["land"].startswith("/tend-ci-runner:merge-pr ${{ matrix.pr }}")
     assert prompts["repair"].startswith("/tend-ci-runner:continue-pr ${{ matrix.pr }}")
-    for prompt in prompts.values():
-        assert prompt.rstrip().endswith(
-            "The review's CI wait is off (`await_ci: false`)."
-        )
 
 
 def test_tend_lands_sessions_run_on_the_reviews_harness(tmp_path: Path) -> None:
@@ -1129,7 +1127,7 @@ def test_ci_failures_reporting_is_independent_of_triage(
 
 
 @pytest.mark.parametrize("limit", [None, 1, 10, 256])
-def test_triage_serializes_batches_and_limits_real_issue_jobs(
+def test_triage_gives_each_issue_a_group_and_limits_batch_jobs(
     tmp_path: Path, limit
 ) -> None:
     extra = (
@@ -1139,13 +1137,12 @@ def test_triage_serializes_batches_and_limits_real_issue_jobs(
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
     doc = yaml.safe_load(workflows["tend-triage.yaml"].content)
     job = doc["jobs"]["triage"]
-    # All event and recovery batches hold this lane through their last job.
-    assert doc["concurrency"] == {
-        "group": "tend-triage",
+    # An issue runs once at a time, whichever run started it; no run waits on another.
+    assert "concurrency" not in doc
+    assert job["concurrency"] == {
+        "group": "tend-triage-${{ matrix.issue }}",
         "cancel-in-progress": False,
-        "queue": "max",
     }
-    assert "concurrency" not in job
     assert job["strategy"] == {
         "fail-fast": False,
         "max-parallel": limit or 5,

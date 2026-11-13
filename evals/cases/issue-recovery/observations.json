@@ -164,7 +164,7 @@
         "conflicted_bot_prs": []
       },
       "live_runs": "An ordinary triage job for issue205 is queued awaiting worker admission. Another issue209 worker is running. Neither owns issue210.",
-      "access_state": "The current worker and a recent completed worker are healthy. No provider outage, reset, rate limit or approval gate. Current allowance has room for all supplied candidates; the serialized triage queue has capacity.",
+      "access_state": "The current worker and a recent completed worker are healthy. No provider outage, reset, rate limit or approval gate. Current allowance has room for all supplied candidates; triage has capacity.",
       "open_issues": [
         {
           "number": 205,

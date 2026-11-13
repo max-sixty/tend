@@ -26,7 +26,7 @@ tend runtime pat-scope-audit
 The script prints `key=value` lines. Act on `STATUS`:
 
 - `STATUS=ok`: all scopes present. Search open issues for a PAT scope audit tracking issue (`gh issue list --state open --search "PAT in:title"`); if found, close it with a comment noting the scopes are now granted.
-- `STATUS=fine-grained`: no `X-OAuth-Scopes` header. Fine-grained PATs have no documented self-introspection endpoint — skip.
+- `STATUS=fine-grained`: no `X-OAuth-Scopes` header, so the token is not a classic PAT. GitHub's notifications endpoints accept only classic tokens. Open or update the tracking issue as for `STATUS=missing`, with a body saying `TEND_BOT_TOKEN` must be replaced with a classic PAT carrying the scopes above.
 - `STATUS=missing`: open or update a tracking issue. Use a title containing "PAT" (e.g. `Bot PAT: missing scopes`) so future runs can dedup by title search. Before creating, run `gh issue list --state open --search "PAT in:title"` and update the existing issue with `gh issue edit` if one is already open. The body lists the values from `MISSING=`, names the secret to update (`TEND_BOT_TOKEN`), and links step 8 of the `install-tend` skill for remediation: https://github.com/max-sixty/tend/blob/main/plugins/install-tend/skills/install-tend/SKILL.md#8-bot-token-and-secret
 
 ## Step 2: Check tend configuration drift
@@ -41,7 +41,7 @@ PINNED=$(tend runtime nightly-workflow-update version)
 uv tool run "tend@${PINNED:-latest}" check 2>&1 | tee "$TMPDIR/tend-check.txt"
 ```
 
-If **every** check line is `PASS` (no `FAIL` *and* no `SKIP`), close any
+If **every** check line is `PASS` or `ACCEPTED` (no `FAIL` *and* no `SKIP`), close any
 open drift issue. A run with only `SKIP` lines (e.g. lost API permission, a
 transient `gh` error) is *not* a pass — leave the issue untouched, neither
 close nor file. Scope to bot-authored issues so a maintainer-filed issue
@@ -228,9 +228,9 @@ tend runtime nightly-workflow-update ship
 ```
 
 The command commits, pushes, creates or updates the PR, records the pushed OID,
-removes the temporary worktree, and prints the PR number and URL. Poll that
-exact commit per `/tend-ci-runner:monitor-ci` — foreground, with the
-longest command timeout the harness allows:
+removes the temporary worktree, and prints the PR number and URL. Settle that
+exact commit's CI per `/tend-ci-runner:monitor-ci`. Where it has you poll, run this
+in the foreground, with the longest command timeout the harness allows:
 
 ```bash
 tend runtime poll-pr-checks \

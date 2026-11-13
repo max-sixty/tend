@@ -15,7 +15,7 @@ from tend.runtime.shared import _common
 LABEL = "review-reviewers-tracking"
 TRACKING_BODY = """Monthly tracking issue for `review-reviewers`. Per-target evidence lives in secret gists owned by the bot. A comment below is posted when each target's gist is first created.
 
-**Do not close manually** — a new issue is created each month.
+**Do not close manually** — a new issue is created each month, and prior months are closed automatically.
 """
 TEMP_DIR = Path(tempfile.gettempdir())
 

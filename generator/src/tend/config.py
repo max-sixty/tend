@@ -43,6 +43,7 @@ KNOWN_WORKFLOWS = {
 }
 KNOWN_TOP_LEVEL = {
     "bot_name",
+    "checks",
     "merge",
     "memory_gist",
     "harness",
@@ -173,7 +174,7 @@ class WorkflowConfig:
     args: list[str] | None = None
     # Review only: whether the review waits for the reviewed commit's CI.
     await_ci: bool = True
-    # Triage only: simultaneous issue jobs within the serialized batch.
+    # Triage only: simultaneous issue jobs within one batch.
     max_parallel: int = 5
 
 
@@ -230,11 +231,20 @@ class Config:
     # (gh unavailable, or no default repo configured).
     repo_owner: str = ""
     allowed_repo_secrets: list[str] = field(default_factory=list)
+    # `tend check` names a maintainer has accepted failing, each with the
+    # reason it prints in place of the FAIL.
+    accepted_checks: dict[str, str] = field(default_factory=dict)
     # Opt-in experiment that persists agent-authored Markdown memory
     # in a bot-owned secret Gist. The Gist ID stays in a fixed environment
     # secret so a public repository does not publish the unlisted URL.
     memory_gist: bool = False
     merge: str = "restricted"
+
+    @property
+    def review_ci_wait_off(self) -> bool:
+        """Whether a review ends before CI, which every session is told."""
+        review = self.workflows.get("review", WorkflowConfig())
+        return review.enabled and not review.await_ci
 
     @property
     def merge_policy(self) -> MergePolicy:
@@ -385,6 +395,8 @@ class Config:
         unknown_secrets = set(secrets) - KNOWN_SECRETS_KEYS
         for key in sorted(unknown_secrets):
             click.echo(f"Warning: unknown secrets key '{key}'", err=True)
+
+        accepted_checks = _parse_accepted_checks(raw.get("checks", {}) or {}, merge)
 
         setup_raw = raw.get("setup", []) or []
         setup: list[SetupStep] = []
@@ -683,7 +695,37 @@ class Config:
             workflows=workflows,
             codex=codex,
             allowed_repo_secrets=allowed,
+            accepted_checks=accepted_checks,
         )
+
+
+def _parse_accepted_checks(checks: object, merge: str) -> dict[str, str]:
+    """Validate `checks.accepted`: check name → the maintainer's reason."""
+    if not isinstance(checks, dict):
+        raise click.ClickException("checks must be a mapping")
+    unknown = set(checks) - {"accepted"}
+    if unknown:
+        raise click.ClickException(
+            f"Unknown checks option(s): {', '.join(sorted(unknown))}"
+        )
+    accepted = checks.get("accepted", {}) or {}
+    if not isinstance(accepted, dict) or not all(
+        isinstance(name, str) and name and isinstance(reason, str) and reason.strip()
+        for name, reason in accepted.items()
+    ):
+        raise click.ClickException(
+            "checks.accepted must map each check name to a non-empty reason, "
+            'e.g. accepted: {tag-protection: "hosted/ tags use their own rulesets"}'
+        )
+    # Yolo grants the bot merge access only once every check holds; an
+    # accepted failure would let `tend check` pass a setup that grant
+    # depends on.
+    if accepted and merge == "yolo":
+        raise click.ClickException(
+            "checks.accepted requires merge: restricted — yolo's merge access "
+            "depends on every check passing"
+        )
+    return {name: reason.strip() for name, reason in accepted.items()}
 
 
 def _parse_args(raw: object, key: str) -> list[str]:

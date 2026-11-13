@@ -1032,6 +1032,63 @@ def test_allowed_secrets_refuses_operational_names(tmp_path: Path) -> None:
         Config.load(path)
 
 
+# ---------------------------------------------------------------------------
+# checks.accepted
+# ---------------------------------------------------------------------------
+
+
+def test_accepted_checks_parsed(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        checks:
+          accepted:
+            tag-protection: "hosted/ tags have their own rulesets"
+    """),
+    )
+    cfg = Config.load(path)
+    assert cfg.accepted_checks == {
+        "tag-protection": "hosted/ tags have their own rulesets"
+    }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'checks:\n  accepted:\n    tag-protection: ""\n',
+        "checks:\n  accepted:\n    tag-protection:\n",
+        "checks:\n  accepted: [tag-protection]\n",
+    ],
+)
+def test_accepted_checks_require_a_reason(tmp_path: Path, body: str) -> None:
+    path = _write_config(tmp_path, "bot_name: my-bot\n" + body)
+    with pytest.raises(ClickException, match="non-empty reason"):
+        Config.load(path)
+
+
+def test_accepted_checks_unknown_option_refused(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, "bot_name: my-bot\nchecks:\n  accept:\n    x: y\n")
+    with pytest.raises(ClickException, match="Unknown checks option"):
+        Config.load(path)
+
+
+def test_accepted_checks_refused_under_yolo(tmp_path: Path) -> None:
+    """Yolo's merge grant rests on every check holding."""
+    path = _write_config(
+        tmp_path,
+        dedent("""\
+        bot_name: my-bot
+        merge: yolo
+        checks:
+          accepted:
+            tag-protection: "reason"
+    """),
+    )
+    with pytest.raises(ClickException, match="requires merge: restricted"):
+        Config.load(path)
+
+
 def test_secret_name_override_refused(tmp_path: Path) -> None:
     """The per-consumer name overrides are gone. Ignoring a leftover one would
     generate workflows reading the fixed name while the consumer's secret still

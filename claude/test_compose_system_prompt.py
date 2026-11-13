@@ -7,18 +7,24 @@ import pytest
 from tend.runtime.claude import compose_system_prompt
 
 
+@pytest.mark.parametrize(
+    ("await_ci", "ci_wait"),
+    [("true", ""), ("false", " The review's CI wait is off (`await_ci: false`).")],
+)
 def test_renders_shared_prompt_in_claude_syntax_and_appends_extra(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, await_ci: str, ci_wait: str
 ) -> None:
     shared = tmp_path / "system-prompt.md"
     output = tmp_path / "github-output"
     shared.write_text(
-        "Act as **${BOT_NAME}** under ${TEND_MERGE}. Keep `$GH_TOKEN` intact.\n"
+        "Act as **${BOT_NAME}** under ${TEND_MERGE}.${TEND_CI_WAIT} "
+        "Keep `$GH_TOKEN` intact.\n"
         "Read `${SKILL:run-tend}` first.\n"
     )
     monkeypatch.setenv("SYSTEM_PROMPT_FILE", str(shared))
     monkeypatch.setenv("BOT_NAME", "tend-bot")
     monkeypatch.setenv("TEND_MERGE", "restricted")
+    monkeypatch.setenv("TEND_AWAIT_CI", await_ci)
     monkeypatch.setenv("EXTRA", "One more rule.")
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
 
@@ -28,7 +34,7 @@ def test_renders_shared_prompt_in_claude_syntax_and_appends_extra(
     match = re.fullmatch(r"value<<(tend-[0-9a-f]+)\n(.*)\n\1\n", written, re.DOTALL)
     assert match
     assert match.group(2) == (
-        "Act as **tend-bot** under restricted. Keep `$GH_TOKEN` intact.\n"
+        f"Act as **tend-bot** under restricted.{ci_wait} Keep `$GH_TOKEN` intact.\n"
         "Read `/tend-ci-runner:run-tend` first.\n\n"
         "One more rule."
     )

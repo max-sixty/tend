@@ -7,17 +7,18 @@ Cache reads are ~97% of the tokens and ~60% of the bill, so a table ranked by
 summed tokens ranks the cheapest work first; the fixtures below make the two
 orders disagree so a regression to token-ranking fails.
 
-The fake `gh` serves a run list and materialises each run's artifact into the
-`--dir` the script passes, which is the whole of what the script needs from
-GitHub. Every case anchors the window with `--since` rather than `--hours`, so
-the fixtures' timestamps stay fixed instead of ageing out of a wall-clock
-window.
+The fake `gh` serves a run list, the repository's artifact listing newest
+first, and each artifact's zip, which is the whole of what the script needs
+from GitHub. Every case anchors the window with `--since` rather than
+`--hours`, so the fixtures' timestamps stay fixed instead of ageing out of a
+wall-clock window.
 """
 
 from __future__ import annotations
 
 import json
 import subprocess
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -53,19 +54,13 @@ FAKE_GH = (
       '[.[] | select(.workflowName == $wf) | select($created == "" or .createdAt >= $created)]' \
       "$RUNS_JSON")"
     ;;
-  "run download")
-    # The artifact the run uploaded, or a non-zero exit for a run that has
-    # none — the script skips those.
-    dir=""
-    prev=""
-    for a in "$@"; do
-      [ "$prev" = "--dir" ] && dir="$a"
-      prev="$a"
-    done
-    [ -f "$USAGE_DIR/$3.json" ] || exit 1
-    harness="$(cat "$USAGE_DIR/$3.harness")"
-    mkdir -p "$dir/$harness-session-logs-1"
-    cp "$USAGE_DIR/$3.json" "$dir/$harness-session-logs-1/token-usage.json"
+  "api "*/actions/artifacts/*/zip)
+    id="${2%/zip}"
+    cat "$ARCHIVE_DIR/${id##*/}.zip"
+    ;;
+  "api "*"/actions/artifacts?"*)
+    emit "$(jq -c --argjson page "${2##*page=}" \
+      '{artifacts: .[($page - 1) * 100:$page * 100]}' "$ARTIFACTS_JSON")"
     ;;
   *)
     exit 1
@@ -120,14 +115,18 @@ class Report:
     def __init__(self, tmp_path: Path) -> None:
         self._tmp = tmp_path
         self._runs: list[dict[str, Any]] = []
-        self._usage_dir = tmp_path / "usage"
-        self._usage_dir.mkdir()
+        # (run_id, artifact name, the token-usage.json it holds), in upload order.
+        self._uploads: list[tuple[int, str, str]] = []
+        self._archive_dir = tmp_path / "archives"
+        self._archive_dir.mkdir()
         self._env = {
             "PATH": tool_path(fake_bin(tmp_path, gh=FAKE_GH)),
             "GH_CALLS": str(tmp_path / "gh-calls.log"),
+            "GITHUB_REPOSITORY": "owner/repo",
             "WF_JSON": str(tmp_path / "wf.json"),
             "RUNS_JSON": str(tmp_path / "runs.json"),
-            "USAGE_DIR": str(self._usage_dir),
+            "ARTIFACTS_JSON": str(tmp_path / "artifacts.json"),
+            "ARCHIVE_DIR": str(self._archive_dir),
         }
 
     def add(
@@ -140,7 +139,7 @@ class Report:
         updated_at: str | None = None,
         **over: Any,
     ) -> Report:
-        """A completed run and the artifact it uploaded."""
+        """A completed run and the session log it uploaded."""
         created_at = created_at or f"2026-08-2{run_id % 10}T12:00:00Z"
         self._runs.append(
             {
@@ -151,24 +150,31 @@ class Report:
                 "workflowName": workflow,
             }
         )
-        (self._usage_dir / f"{run_id}.json").write_text(
-            json.dumps(_record(harness, run_id=run_id, workflow=workflow, **over))
-        )
-        (self._usage_dir / f"{run_id}.harness").write_text(harness)
+        record = _record(harness, run_id=run_id, workflow=workflow, **over)
+        return self.upload(run_id, json.dumps(record), name=f"{harness}-session-logs")
+
+    def upload(
+        self, run_id: int, body: str, *, name: str = "claude-session-logs"
+    ) -> Report:
+        """Another artifact of *run_id*, holding *body* as token-usage.json.
+
+        It is listed as created when the run finished, as a session log is
+        uploaded at the end of its job.
+        """
+        self._uploads.append((run_id, name, body))
         return self
 
     def add_raw(self, run_id: int, body: str) -> Report:
         """A run whose artifact holds *body* verbatim, valid JSON or not."""
-        self.add_run_without_artifact(run_id)
-        (self._usage_dir / f"{run_id}.json").write_text(body)
-        (self._usage_dir / f"{run_id}.harness").write_text("claude")
-        return self
+        return self.add_run_without_artifact(run_id).upload(run_id, body)
 
-    def add_run_without_artifact(self, run_id: int) -> Report:
+    def add_run_without_artifact(
+        self, run_id: int, conclusion: str = "cancelled"
+    ) -> Report:
         self._runs.append(
             {
                 "databaseId": run_id,
-                "conclusion": "cancelled",
+                "conclusion": conclusion,
                 "createdAt": "2026-08-25T12:00:00Z",
                 "updatedAt": "2026-08-25T12:00:00Z",
                 "workflowName": "tend-review",
@@ -183,6 +189,21 @@ class Report:
             json.dumps([{"name": name} for name in workflows])
         )
         Path(self._env["RUNS_JSON"]).write_text(json.dumps(self._runs))
+        finished = {run["databaseId"]: run["updatedAt"] for run in self._runs}
+        artifacts = []
+        for artifact_id, (run_id, name, body) in enumerate(self._uploads, start=1):
+            with zipfile.ZipFile(self._archive_dir / f"{artifact_id}.zip", "w") as zf:
+                zf.writestr("token-usage.json", body)
+            artifacts.append(
+                {
+                    "id": artifact_id,
+                    "name": f"{name}-{artifact_id}",
+                    "created_at": finished[run_id],
+                    "workflow_run": {"id": run_id},
+                }
+            )
+        artifacts.sort(key=lambda a: (a["created_at"], a["id"]), reverse=True)
+        Path(self._env["ARTIFACTS_JSON"]).write_text(json.dumps(artifacts))
         return subprocess.run(
             runtime_command(SCRIPT, *args),
             env=self._env,
@@ -331,6 +352,61 @@ def test_a_run_with_no_artifact_is_skipped(report: Report) -> None:
     assert [run["run_id"] for run in output["runs"]] == [1]
 
 
+def test_a_skipped_run_is_not_counted_as_a_missing_upload(report: Report) -> None:
+    """A run whose `if:` skipped every job ran no session to upload."""
+    report.add(1).add_run_without_artifact(2, conclusion="skipped")
+    output, rows = report.run()
+
+    assert output["totals"]["skipped_runs"] == 0
+    assert not any("uploaded no" in " ".join(row) for row in rows)
+
+
+def test_requests_grow_with_session_logs_not_with_runs(report: Report) -> None:
+    """The report spends the account's REST allowance, which every other Tend
+    workflow shares, so a run that uploaded no session log costs nothing.
+
+    Most runs in a busy repository's window ran no session — a landing check,
+    a relay — and asking each for its artifacts spent a request apiece. Only
+    the session log is downloaded, not another workflow's artifact on the
+    same run.
+    """
+    report.add(1)
+    for run_id in range(2, 7):
+        report.add_run_without_artifact(run_id, conclusion="success")
+    report.upload(1, "", name="pytest-results")
+    report.run()
+
+    api_calls = [line for line in report.calls().splitlines() if line.startswith("api")]
+    assert api_calls == [
+        "api repos/owner/repo/actions/artifacts?per_page=100&page=1",
+        "api repos/owner/repo/actions/artifacts/1/zip",
+    ]
+
+
+def test_the_artifact_listing_reads_back_only_to_the_fetched_runs(
+    report: Report,
+) -> None:
+    """The listing holds every artifact the repository kept, a month of them,
+    so it is read only until it passes the creation bound of the run fetch.
+
+    The window's session log sits on the second page behind a hundred and
+    fifty CI artifacts; an older run's artifacts fill the third, which the
+    report must not read.
+    """
+    report.add(1, created_at="2026-09-17T08:00:00Z", updated_at="2026-09-17T08:10:00Z")
+    for _ in range(150):
+        report.upload(1, "", name="pytest-results")
+    report.add(2, created_at="2026-09-01T08:00:00Z", updated_at="2026-09-01T08:10:00Z")
+    for _ in range(100):
+        report.upload(2, "", name="pytest-results")
+
+    output, _ = report.run_args("--since", "2026-09-17T07:00:00Z")
+
+    assert [run["run_id"] for run in output["runs"]] == [1]
+    pages = [line for line in report.calls().splitlines() if "artifacts?" in line]
+    assert [page.rsplit("=", 1)[1] for page in pages] == ["1", "2"]
+
+
 def test_codex_artifact_counts_tokens_without_claiming_zero_cost(
     report: Report,
 ) -> None:
@@ -338,7 +414,6 @@ def test_codex_artifact_counts_tokens_without_claiming_zero_cost(
     report.add(2, workflow="tend-nightly", cost_usd=2.5)
     output, rows = report.run()
 
-    assert "--pattern *-session-logs*" in report.calls()
     assert output["totals"]["unpriced_runs"] == 1
     assert output["runs"][1]["cost_usd"] is None
     assert _table(report, "WORKFLOW")[1][2] == "n/a"
@@ -415,6 +490,7 @@ def test_the_subject_table_stops_at_the_top_and_says_so(report: Report) -> None:
     [
         ('{"input_tokens": 5,', "cut mid-write"),
         ("   \n", "holding nothing but whitespace"),
+        ("[1]\n", "holding a value that is not a record"),
     ],
 )
 def test_one_unreadable_artifact_costs_its_own_run_and_no_other(
@@ -468,15 +544,12 @@ def test_a_matrix_runs_row_agrees_with_its_rollup_to_the_cent(report: Report) ->
     """Per-job costs are exact to the cent; their float sum is not.
 
     Truncating in the row and rounding in the rollup made one run's own row
-    read a cent below the workflow total it was the whole of.
+    read a cent below the workflow total it was the whole of. Each matrix job
+    uploads its own session log, and the run's row sums all of them.
     """
     report.add(1, cost_usd=5.13)
     for cost in (8.57, 5.31, 8.12, 1.04):
-        (report._usage_dir / "1.json").write_text(
-            (report._usage_dir / "1.json").read_text().rstrip()
-            + "\n"
-            + json.dumps(_record("claude", run_id=1, cost_usd=cost))
-        )
+        report.upload(1, json.dumps(_record("claude", run_id=1, cost_usd=cost)))
     output, _ = report.run()
 
     assert output["totals"]["cost_usd"] == 28.17
@@ -616,6 +689,7 @@ def test_a_run_that_finished_before_the_anchor_stays_out(report: Report) -> None
     output, _ = report.run_args("--since", "2026-09-17T07:00:00Z")
 
     assert [run["run_id"] for run in output["runs"]] == [2]
+    assert "artifacts/1/zip" not in report.calls(), "its session log is not fetched"
 
 
 def test_the_fetch_reaches_a_day_behind_the_anchor(report: Report) -> None:
