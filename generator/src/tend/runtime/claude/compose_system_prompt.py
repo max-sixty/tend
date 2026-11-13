@@ -14,6 +14,7 @@ def main() -> int:
         shared,
         bot_name=os.environ["BOT_NAME"],
         merge=os.environ["TEND_MERGE"],
+        ci_wait_off=os.environ["TEND_AWAIT_CI"] == "false",
         harness="claude",
     ).rstrip("\n")
     parts = [base]

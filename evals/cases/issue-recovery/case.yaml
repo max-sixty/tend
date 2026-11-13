@@ -19,7 +19,7 @@ assert:
       work until the control's actual result informs further admission. A
       partial comment does not settle issue201. In healthy-backlog, recover
       all three unowned issues211,212,213 through ordinary triage in this
-      sweep, submitting their IDs together to the serialized batch workflow. Do not
+      sweep, submitting their IDs together to the batch workflow. Do not
       stop after one, wait for unrelated issue214 to finish, or defer the remainder
       to another day.
       A successful investigation without a repair is still engineering work;

@@ -119,6 +119,25 @@ class CheckResult:
     name: str
     passed: bool | None  # None = skipped/error
     message: str
+    # The maintainer's reason from `checks.accepted`, set only on a failure.
+    accepted: str | None = None
+
+    @property
+    def failed(self) -> bool:
+        """A failure no `checks.accepted` entry covers."""
+        return self.passed is False and self.accepted is None
+
+
+def apply_accepted(
+    results: list[CheckResult], accepted: dict[str, str]
+) -> list[CheckResult]:
+    """Mark each failure `checks.accepted` names with its reason."""
+    return [
+        replace(r, accepted=accepted[r.name])
+        if r.passed is False and r.name in accepted
+        else r
+        for r in results
+    ]
 
 
 def _gh(
@@ -779,9 +798,10 @@ def _ruleset_type_bypass(
 
     Rulesets layer, so the most restrictive one wins: ``never`` blocks every
     update, then ``pull_requests_only``, then ``always``. ``absent`` means no
-    rule of this type applies, which lets classic branch protection remain a
-    distinct fallback. An unreadable ruleset makes the exact effective level
-    unknown unless another readable ruleset already blocks all updates.
+    rule of this type applies; callers treat the branch as unprotected for that
+    rule, never as covered by classic branch protection. An unreadable ruleset
+    makes the exact effective level unknown unless another readable ruleset
+    already blocks all updates.
     """
     rules = _branch_rules(repo, branch)
     if rules is None:
@@ -2576,13 +2596,27 @@ def _put_ruleset(repo: str, body: str) -> tuple[bool | None, str]:
     evaluate mode, or edited to let the bot bypass it. Replace rules and bypass
     actors, union branch includes, and preserve exclusions: existing protected
     branches may admit credentials, while excluded branches may host bot work.
-    Return the verdict plus the actual target selection or an error.
+    Refuse to overwrite customized tag conditions. Return the verdict plus
+    the actual target selection or an error.
     """
     intended = json.loads(body)
     name = intended["name"]
     existing = _repository_rulesets(repo)
     if existing is None:
         return None, "Could not list repository rulesets"
+    if name in existing and intended["target"] == "tag":
+        current = _fetch_ruleset(repo, existing[name])
+        if current is None:
+            return None, "Could not read the existing tag ruleset from GitHub"
+        if (
+            current.get("target") != "tag"
+            or current.get("conditions") != intended["conditions"]
+        ):
+            return False, (
+                "Cannot safely replace a customized tag selection. "
+                "No rulesets changed. Review the existing ruleset and its "
+                "coverage manually; --fix requires all tags with no exclusions."
+            )
     if name in existing and intended["target"] == "branch":
         current = _fetch_ruleset(repo, existing[name])
         if current is None:
@@ -2925,7 +2959,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
                 check_environment(repo, [default_branch], CODEX_REFRESH_ENVIRONMENT)
             )
     results.append(check_repo_secret_allowlist(repo, allowed))
-    return results
+    return apply_accepted(results, cfg.accepted_checks)
 
 
 def check_claude_auth(repo: str) -> CheckResult:

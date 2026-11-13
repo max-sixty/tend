@@ -16,6 +16,9 @@ inputs:
   merge:
     default: restricted
     description: Merge mode generated from .config/tend.yaml (restricted or yolo)
+  await_ci:
+    default: "true"
+    description: Whether the review waits for CI, generated from .config/tend.yaml (true or false)
   claude_code_oauth_token:
     required: false
     default: ""
@@ -61,7 +64,7 @@ inputs:
     default: "false"
     description: Include the rendered Claude transcript in the workflow step summary.
   claude_version:
-    default: "2.1.310"
+    default: "2.1.322"
     description: >-
       Version of the `claude` binary to install via
       `https://claude.ai/install.sh`, pinned to a specific
@@ -168,6 +171,7 @@ runs:
         SYSTEM_PROMPT_FILE: ${{ github.action_path }}/../shared/system-prompt.md
         BOT_NAME: ${{ steps.bot.outputs.login }}
         TEND_MERGE: ${{ inputs.merge }}
+        TEND_AWAIT_CI: ${{ inputs.await_ci }}
         EXTRA: ${{ inputs.system_prompt_append }}
 
     # Credential isolation: run the agent as a separate, non-sudo
@@ -405,7 +409,7 @@ runs:
     # first output: an empty name fails the upload.
     - name: Upload session logs
       if: always()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ steps.tokens.outputs.artifact_name || (env.TEND_ISSUE_NUMBER && format('claude-session-logs-n{0}', env.TEND_ISSUE_NUMBER)) || 'claude-session-logs' }}
         # The Token usage step consolidates the sandbox user's session JSONL,

@@ -30,8 +30,11 @@ you when to read them; read those in full too.
 - The bot's user ID is available via `gh api users/${BOT_NAME} --jq .id`
   if you need it for `author.id` comparisons.
 - A command a skill says to run in the foreground and wait for (a CI poll)
-  gets one wait, not a series of short ones: when `exec_command` yields
-  with it still running, call `write_stdin` with empty input and the
-  largest `yield_time_ms` it accepts — a CI poll can run for an hour. That
-  call returns as soon as the command exits, while each short poll costs a
-  model turn.
+  gets one wait, not a series of short ones — a CI poll can run for an
+  hour, and each short yield costs a model turn. Every layer that can hand
+  control back while it runs needs a long `yield_time_ms`: when
+  `exec_command` yields with it still running, an empty `write_stdin`; and
+  when the call sits inside an `exec` cell, that cell's `// @exec` pragma
+  and each `wait` on the cell. Give each `3600000`. A short value at any
+  one layer returns control early whatever the inner call asked for; each
+  returns as soon as the command exits.

@@ -36,6 +36,15 @@ assert:
       if either ends without recording the head for landing.
   - type: llm-rubric
     value: >-
+      For pending-dependabot, another bot authored the PR, so no author will
+      land it, and the review has settled everything about the head but its
+      still-running CI: record the head for landing (land_pr.py intend with
+      the PR number, its exact head SHA and the base the review read) and end
+      without a waiting poll, leaving the landing to tend-land. FAIL if the
+      session polls the head to a terminal result, merges while checks are
+      still running, or ends without recording the head for landing.
+  - type: llm-rubric
+    value: >-
       For settled-green-human, CI on the exact approved head had already
       settled green when read, so the missing wait does not block landing:
       continue through the ordinary SHA-pinned squash merge attempt on
@@ -87,5 +96,5 @@ assert:
     value: >-
       Every decision keeps exact-head authority: never auto-merge, admin or
       force bypass, an unpinned merge, or a claim that an offline proposal ran.
-      The artifact covers all eight sessions with reasoning grounded in the
+      The artifact covers all nine sessions with reasoning grounded in the
       observations, in any format.

@@ -45,7 +45,7 @@ covers the day. `tend runtime list-recent-runs` caps it at 49h, wide enough to a
 missed tick; past that it warns on stderr and the run records a coverage gap
 rather than an all-clear.
 
-These use the Codex composite action and produce `codex-session-logs*` artifacts,
+These use the Claude composite action and produce `claude-session-logs*` artifacts,
 but their names don't match the `tend-*` prefix that scripts filter on by
 default. `uvx tend@latest init` doesn't rewrite them either, so their
 `max-sixty/tend/<harness>@X.Y.Z` pins move only when someone edits the file.
@@ -70,10 +70,6 @@ Step 1 anchor instead, so its spend covers the same band that step censuses.
 - `review-runs` — findings from `review-runs`
 
 ## Session Log Paths
-
-Codex artifact paths: `sessions/**/rollout-*.jsonl`.
-Historical Claude artifact paths:
-`-var-tmp-tend-agent-workspace-*-checkout/<session-id>.jsonl`.
 
 `review-reviewers` runs produce one session log per matrix repo in
 `.github/workflows/review-reviewers.yaml`.

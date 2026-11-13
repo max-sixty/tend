@@ -6,6 +6,33 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.24
+
+### Improved
+
+- Triage jobs share a concurrency group only with jobs for the same issue (`tend-triage-<issue>`), so sessions for different issues run at once, up to the account's job limit. `workflows.triage.max_parallel` bounds one dispatched batch. ([#1648](https://github.com/max-sixty/tend/pull/1648))
+- With the review's CI wait off (`workflows.review.await_ci: false`), every session is told so through the system prompt, and a session that pushes to a PR with no human author hands its CI to tend-land instead of polling. A push to a human's PR stays with the session that made it. `land-pr intend` accepts a head on a PR GitHub marks as bot-authored, such as Dependabot's. ([#1648](https://github.com/max-sixty/tend/pull/1648), [#1652](https://github.com/max-sixty/tend/pull/1652))
+- The nightly token report reads session logs from one paged artifact listing and skips runs whose jobs were all skipped, cutting its GitHub API requests. ([#1644](https://github.com/max-sixty/tend/pull/1644), [#1653](https://github.com/max-sixty/tend/pull/1653))
+- Claude Code 2.1.316 and uv 0.13.6. ([#1633](https://github.com/max-sixty/tend/pull/1633), [#1634](https://github.com/max-sixty/tend/pull/1634))
+
+### Fixed
+
+- Review reads an approval that GitHub dismissed as stale on a push as automatic, and reviews the new head. ([#1650](https://github.com/max-sixty/tend/pull/1650))
+- The yolo security preflight fails on an unreadable CODEOWNERS read with the failed `gh` call, rather than reporting a missing rule. ([#1643](https://github.com/max-sixty/tend/pull/1643))
+- `tend check --fix` refuses to overwrite a tag ruleset whose target or conditions differ from the canonical all-tags selection. ([#1638](https://github.com/max-sixty/tend/pull/1638))
+- Codex sessions waiting on CI set an hour's yield on the `exec` cell and `wait` calls as well as `write_stdin`, so a poll no longer returns every second. ([#1641](https://github.com/max-sixty/tend/pull/1641))
+
+### Documentation
+
+- The bot token must be a classic PAT; GitHub's notifications API accepts no fine-grained token. ([#1656](https://github.com/max-sixty/tend/pull/1656))
+- `debug-tend-run` lists the main session logs of the job being debugged instead of taking the first `.jsonl`. ([#1655](https://github.com/max-sixty/tend/pull/1655))
+
+### Internal
+
+- Tend's own workflows run on Claude, and its monthly reviewer-tracking issues close when the next month's opens. ([#1639](https://github.com/max-sixty/tend/pull/1639), [#1657](https://github.com/max-sixty/tend/pull/1657))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
 ## 0.3.23
 
 ### Improved

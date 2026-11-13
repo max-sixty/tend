@@ -21,6 +21,7 @@ from tend.checks import (
     _control_plane_ruleset,
     _list_org_secrets,
     _restrict_updates_ruleset,
+    apply_accepted,
     check_actions_event_policy,
     check_bot_permission,
     check_branch_protection,
@@ -1714,6 +1715,60 @@ def test_fix_tag_protection_creates_admin_gated_all_tags_ruleset() -> None:
     assert body["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
 
 
+@pytest.mark.parametrize(
+    "conditions",
+    [
+        {"ref_name": {"include": ["~ALL"], "exclude": ["refs/tags/hosted/**"]}},
+        {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
+        {},
+    ],
+)
+def test_fix_tag_protection_refuses_custom_selection(conditions: dict) -> None:
+    current = {"target": "tag", "conditions": conditions}
+    with (
+        patch("tend.checks._repository_rulesets", return_value={"Tag operations": 7}),
+        patch("tend.checks._fetch_ruleset", return_value=current),
+        patch("tend.checks._reconcile_ruleset", return_value=None) as reconcile,
+    ):
+        result = fix_tag_protection("owner/repo")
+
+    assert result.passed is False
+    assert "No rulesets changed" in result.message
+    assert "customized tag selection" in result.message
+    reconcile.assert_not_called()
+
+
+def test_fix_tag_protection_replaces_canonical_selection() -> None:
+    current = {
+        "target": "tag",
+        "conditions": {"ref_name": {"include": ["~ALL"], "exclude": []}},
+    }
+    with (
+        patch("tend.checks._repository_rulesets", return_value={"Tag operations": 7}),
+        patch("tend.checks._fetch_ruleset", return_value=current),
+        patch("tend.checks._reconcile_ruleset", return_value=None) as reconcile,
+    ):
+        result = fix_tag_protection("owner/repo")
+
+    assert result.passed is True
+    body = json.loads(reconcile.call_args.args[3])
+    assert body["conditions"] == current["conditions"]
+    assert {rule["type"] for rule in body["rules"]} == {"creation", "update"}
+    assert body["bypass_actors"] == [_role_actor(ROLE_ID_ADMIN)]
+
+
+def test_fix_tag_protection_unreadable_existing_ruleset_is_unknown() -> None:
+    with (
+        patch("tend.checks._repository_rulesets", return_value={"Tag operations": 7}),
+        patch("tend.checks._fetch_ruleset", return_value=None),
+        patch("tend.checks._reconcile_ruleset", return_value=None) as reconcile,
+    ):
+        result = fix_tag_protection("owner/repo")
+
+    assert result.passed is None
+    reconcile.assert_not_called()
+
+
 def test_fix_branch_protection_splits_rulesets_and_enables_yolo_last() -> None:
     writes: list[tuple[str, str, dict]] = []
 
@@ -2763,6 +2818,85 @@ def test_cli_check_skips_exit_0(
         result = CliRunner().invoke(main, ["check"])
     assert result.exit_code == 0
     assert "SKIP" in result.output
+
+
+_ACCEPTED_CONFIG = (
+    "bot_name: test-bot\n"
+    "checks:\n"
+    "  accepted:\n"
+    "    tag-protection: hosted/ tags use their own rulesets\n"
+)
+
+
+def test_apply_accepted_marks_only_failures() -> None:
+    results = apply_accepted(
+        [
+            CheckResult("tag-protection", False, "gap"),
+            CheckResult("secrets", True, "present"),
+            CheckResult("environment", False, "gap"),
+        ],
+        {"tag-protection": "reason", "secrets": "reason"},
+    )
+    assert [r.accepted for r in results] == ["reason", None, None]
+    assert [r.failed for r in results] == [False, False, True]
+
+
+def test_cli_check_accepted_failure_shows_reason_and_exits_0(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_config(tmp_path, _ACCEPTED_CONFIG)
+    monkeypatch.chdir(tmp_path)
+    results = [
+        CheckResult(
+            "tag-protection",
+            False,
+            "tag gap",
+            accepted="hosted/ tags use their own rulesets",
+        ),
+        CheckResult("secrets", True, "present"),
+    ]
+    with patch("tend.cli.run_all_checks", return_value=results):
+        result = CliRunner().invoke(main, ["check"])
+    assert result.exit_code == 0, result.output
+    assert "ACCEPTED  tag-protection — hosted/ tags use their own rulesets" in (
+        result.output
+    )
+    assert "FAIL" not in result.output
+
+
+def test_cli_check_fix_leaves_accepted_failure_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_config(tmp_path, _ACCEPTED_CONFIG)
+    monkeypatch.chdir(tmp_path)
+    accepted = CheckResult("tag-protection", False, "tag gap", accepted="reason")
+    before = [accepted, CheckResult("immutable-releases", False, "release gap")]
+    after = [accepted, CheckResult("immutable-releases", True, "protected")]
+    with (
+        patch("tend.cli.run_all_checks", side_effect=[before, after]),
+        patch("tend.cli.detect_default_branch", return_value="main"),
+        patch("tend.cli.fix_tag_protection") as fix_tags,
+        patch(
+            "tend.cli.fix_immutable_releases",
+            return_value=CheckResult("immutable-releases", True, "fixed"),
+        ) as fix_releases,
+    ):
+        result = CliRunner().invoke(main, ["check", "--fix", "--repo", "owner/repo"])
+    assert result.exit_code == 0, result.output
+    fix_releases.assert_called_once_with("owner/repo")
+    fix_tags.assert_not_called()
+
+
+def test_cli_check_warns_on_acceptance_that_now_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_config(tmp_path, _ACCEPTED_CONFIG)
+    monkeypatch.chdir(tmp_path)
+    results = [CheckResult("tag-protection", True, "protected")]
+    with patch("tend.cli.run_all_checks", return_value=results):
+        result = CliRunner().invoke(main, ["check"])
+    assert result.exit_code == 0
+    assert "checks.accepted names 'tag-protection', which now passes" in (result.output)
 
 
 def test_cli_check_fix_repairs_tag_and_release_protection(

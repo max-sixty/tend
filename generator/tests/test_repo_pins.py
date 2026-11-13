@@ -1052,7 +1052,11 @@ def test_shipped_prompt_skill_tokens_resolve_to_a_bundled_skill() -> None:
             )
         for harness in prompt.SKILL_PREFIX:
             rendered = prompt.render(
-                text, bot_name="bot", merge="restricted", harness=harness
+                text,
+                bot_name="bot",
+                merge="restricted",
+                ci_wait_off=False,
+                harness=harness,
             )
             assert "${SKILL" not in rendered, (
                 f"{path.relative_to(REPO_ROOT)} has a malformed skill token; "

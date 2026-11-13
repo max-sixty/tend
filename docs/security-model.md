@@ -68,7 +68,8 @@ Three load-bearing boundaries, with one deliberate policy choice:
    Tend's own pinned `land_pr.py` on the default branch, with no agent and no
    checkout of the PR; it only names a PR whose exact head carries the bot's
    record for that PR and base (a `tend/land/<PR>` status the bot itself
-   created on a head it pushed). The landing session it starts merges with
+   created on a head it pushed or on another bot's PR, such as Dependabot's).
+   The landing session it starts merges with
    that head's SHA, so a push after the review is refused by GitHub rather
    than landed.
 2. **Tend's operational credentials stay out of the agent process.** The
