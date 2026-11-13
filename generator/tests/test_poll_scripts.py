@@ -904,6 +904,28 @@ def test_approval_withholds_a_red_still_pending_at_the_session_end(
     assert "withhold" in result.stdout
 
 
+def test_approval_is_undecided_when_the_red_clears_but_checks_still_pend_at_the_session_end(
+    env: dict[str, str],
+) -> None:
+    """A red that clears during the wait doesn't approve a head whose checks
+    are still pending when the session's end cuts the wait short."""
+    _near_deadline(env)
+    _serve(
+        env,
+        _resp(OMNIBUS_RED, _check_run("full-tests", status="IN_PROGRESS")),
+        _resp(
+            _check_run("check-ok-to-merge"),
+            _check_run("full-tests", status="IN_PROGRESS"),
+        ),
+    )
+
+    result = _approval(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "undecided" in result.stdout
+    assert "full-tests" in result.stderr
+
+
 def test_a_job_awaiting_environment_approval_is_unverified(
     env: dict[str, str],
 ) -> None:

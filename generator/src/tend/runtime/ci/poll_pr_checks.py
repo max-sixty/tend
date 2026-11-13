@@ -361,7 +361,9 @@ def approval(
 
     Without *wait*, or when the session's end cuts the wait short, a red beside
     pending checks withholds as it stands, naming the checks still running; a
-    replacement that would supersede it is left to the next review.
+    replacement that would supersede it is left to the next review. When the
+    session's end cuts the wait after the red has cleared, the checks still
+    pending leave the approval undecided.
 
     A head that moves during that wait leaves the approval undecided; otherwise
     whether *sha* is still the head is not judged here: the review skill posts
@@ -386,6 +388,10 @@ def approval(
             return 2
         if rollup is None:
             print(f"no complete rollup read for {sha} while waiting", file=sys.stderr)
+            return 2
+        if outcome == "deadline" and not rollup["failed"]:
+            print(f"session ends soon with checks pending on {sha}:", file=sys.stderr)
+            print(*rollup["pending"], sep="\n", file=sys.stderr)
             return 2
 
     if rollup["failed"]:
