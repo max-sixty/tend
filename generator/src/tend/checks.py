@@ -798,9 +798,10 @@ def _ruleset_type_bypass(
 
     Rulesets layer, so the most restrictive one wins: ``never`` blocks every
     update, then ``pull_requests_only``, then ``always``. ``absent`` means no
-    rule of this type applies, which lets classic branch protection remain a
-    distinct fallback. An unreadable ruleset makes the exact effective level
-    unknown unless another readable ruleset already blocks all updates.
+    rule of this type applies; callers treat the branch as unprotected for that
+    rule, never as covered by classic branch protection. An unreadable ruleset
+    makes the exact effective level unknown unless another readable ruleset
+    already blocks all updates.
     """
     rules = _branch_rules(repo, branch)
     if rules is None:
