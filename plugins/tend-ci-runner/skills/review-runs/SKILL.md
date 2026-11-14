@@ -69,7 +69,7 @@ List tend CI runs that completed since the previous `review-runs` run (nominally
 tend runtime list-recent-runs review-runs
 ```
 
-If no runs are found, report "no runs to review", drain the trackers under **Outage trackers** below, then exit.
+If no runs are found, report "no runs to review", check **Wedged queues** and drain the trackers under **Outage trackers** below, then exit.
 
 Report the run census as the number of rows this returns. Carry each stderr `WARNING` into the summary as a coverage gap rather than an all-clear — except the re-run warning, which instead names earlier attempts whose logs to read before counting the window's failures.
 

@@ -380,9 +380,8 @@ concurrency group only with jobs for its own issue, so two reports can still rea
 one cause at once. The bot gets no notification or event for its own writes,
 so the nightly sweep continues the
 work on open issues it last wrote on, reports and partial investigations after
-successful turns included; `tend runtime idle-issues` lists those that no
-assignee, Tend run or closing PR will act on. It routes the work through
-ordinary triage using
+successful turns included, from the list `tend runtime idle-issues` computes.
+The sweep routes the work through ordinary triage using
 **Recover issue work** in `/tend-ci-runner:notifications`. With working access,
 the sweep can queue the actionable backlog within provider access and queue
 bounds; each batch runs a bounded matrix of the selected issue IDs. Each worker
