@@ -100,14 +100,16 @@ When a PR fixes a bug or changes a pattern, search for the same pattern in other
 
 The checkout uses `refs/pull/N/merge`, so you read the merged tree (PR head + current base branch). When a finding involves code outside `gh pr diff` — code the PR didn't touch but now interacts with — identify the interacting code by semantic anchor (selector, function name, declaration text) and quote enough of the relevant property/value that the reader can grep for it. Don't lead with the line number: the author's local branch may be behind main, so line numbers from the merged tree won't match their checkout, and a line-number-first citation reads as a hallucination when they check the line on their stale branch. Same principle as the `blob/main/...#L42` link rule in `/tend-ci-runner:run-tend` — line numbers are fragile across diverging refs.
 
-**Duplication check (for new functions/types):**
+**Duplication check:**
 
-For every new public or module-level function added in the diff, search the codebase for existing functions that do the same thing. LLM-generated code frequently reinvents internal APIs — this is the highest-value check for externally contributed PRs.
+For anything the diff introduces that answers a question the codebase may already answer — a function or type, a constant, a selector, a style rule, a check written inline inside a new helper — search for that question, not only the name. LLM-generated code frequently reinvents internal APIs — this is the highest-value check for externally contributed PRs.
 
 Two search strategies, both required:
 
-1. **Similar names and signatures.** Search for functions with similar names, return types, or parameter types.
+1. **Similar names, signatures, and values.** Search for functions with similar names, return types, or parameter types, and for the same literal value or rule body.
 2. **Overlapping subgoals.** Identify the intermediate steps the new code performs and search for existing code that does the same sub-tasks.
+
+A copy whose comment names its source is still a copy. Where the new code can't reach the original — a private helper, a module its package can't import, the same fact stated in another language or data file — ask for the original to be exported, moved, or generated rather than copied.
 
 Flag duplicates — reuse is almost always better than a parallel implementation.
 
