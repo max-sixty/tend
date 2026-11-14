@@ -282,7 +282,7 @@ files, but that run's token is read-only whatever the file asks for: probed
 with `contents: write` declared, its `POST /repos/…/dispatches` still
 returns 403, where the same request from a same-repo run with the same
 permission succeeds. So a fork PR's reviews reach the bot through the
-notifications poll, minutes later rather than seconds. The daily live scan is
+notifications poll, minutes later rather than seconds. The nightly sweep is
 the slower backstop for a missed notification. That is the cost of the
 property the relay depends on: a fork run that could start a secret-bearing
 run in the base repo would be a fork run with write access to it.
@@ -608,7 +608,7 @@ Bot closes and GitHub Apps cannot approve capacity. A missing or malformed
 history refuses creation without stopping the agent. Refusal reports usage,
 the limit and the next usage expiry; that expiry is a time to recheck, not a
 promise that capacity will then be available. Reviews, comments, existing branch
-updates and issue closure continue. Notifications and the daily live-work sweep
+updates and issue closure continue. Notifications and the nightly sweep
 recover unfinished work through their ordinary ownership and access checks.
 Nightly requires recovery evidence before closing a tracker as the bot.
 

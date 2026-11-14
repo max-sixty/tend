@@ -4,7 +4,7 @@
   "bot": "widget-agent",
   "merge": "yolo",
   "fixtures": {
-    "observations.json": "008a016af896299fcbeffb8a8f8356dda0a9578fd161be98c7c9f2155339e796"
+    "observations.json": "1343bbcf17e272b52482bc980e9f65fe9a2f154931a6e25214d2067bfb2ed5bb"
   },
   "origin": {
     "kind": "synthetic contrast",

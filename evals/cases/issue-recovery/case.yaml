@@ -1,7 +1,7 @@
 description: Recover the actionable issue backlog through ordinary triage with current ownership and access.
 vars:
   task: |
-    Act as Tend's daily review-runs session for each independent daily snapshot
+    Act as Tend's nightly session for each independent daily snapshot
     in observations.json, and as its notifications session for the explicitly
     marked notification snapshot. Load the relevant active guidance. Decide
     what work remains and what to dispatch, defer, acknowledge or update.

@@ -1,11 +1,11 @@
 [
   {
     "name": "daily-broad-scan",
-    "workflow": "review-runs",
+    "workflow": ["review-runs", "nightly"],
     "state": {
       "census": "184 concluded runs; 18 failed or unexpectedly long sessions span three unrelated workflows. Their session artifacts are available.",
       "pull_requests": "Six stalled bot PRs have independent diffs and check histories; none has an active review or repair run.",
-      "maintenance": "The scan must investigate the run failures, evaluate the stalled PRs and reconcile the current issue backlog. The findings have not yet been diagnosed.",
+      "maintenance": "review-runs must investigate the run failures; nightly must evaluate the stalled PRs and reconcile the current issue backlog. The findings have not yet been diagnosed.",
       "capacity": "Subagent tools are available. The runner is healthy and can support concurrent repository reads. No provider outage is active."
     }
   },

@@ -371,16 +371,18 @@ is written with the bot token from the `tend` environment, so filing or reopenin
 starts ordinary `tend-triage`. Triage closes the report once it has diagnosed
 its failures and each has an owner, so an open report holds unhandled work. A
 failure while it is open only adds evidence, for a running session or, when
-none is running, the daily sweep. The agent work runs through the issue path:
+none is running, the nightly sweep. The agent work runs through the issue path:
 triage diagnoses the report, fixing causes directly or filing cause issues for
 separate triage sessions. Its diagnosis links each repair's issue or PR; an
 unresolved durable cause keeps that owner when the report closes.
 Sessions recheck existing owners before starting work. A triage job shares a
 concurrency group only with jobs for its own issue, so two reports can still reach
 one cause at once. The bot gets no notification for its own writes.
-The daily `review-runs` sweep inspects all open issues for unfinished work,
-including bot-authored reports and partial investigations after successful turns.
-It routes unowned work through ordinary triage using
+The bot gets no event for its own writes, so the nightly sweep continues the
+work on open issues it last wrote on, reports and partial investigations after
+successful turns included; `tend runtime idle-issues` lists those that no
+assignee, Tend run or closing PR will act on. It routes the work through
+ordinary triage using
 **Recover issue work** in `/tend-ci-runner:notifications`. With working access,
 the sweep can queue the actionable backlog within provider access and queue
 bounds; each batch runs a bounded matrix of the selected issue IDs. Each worker

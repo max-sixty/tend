@@ -50,11 +50,11 @@
           "author": "widget-agent"
         }
       ],
-      "workflow": "daily review-runs live-work scan"
+      "workflow": "nightly open-work step"
     },
     {
       "id": "healthy-backlog",
-      "workflow": "daily review-runs live-work scan",
+      "workflow": "nightly open-work step",
       "startup": {
         "unread_notifications": [],
         "conflicted_bot_prs": []
@@ -155,7 +155,7 @@
           "author": "widget-agent"
         }
       ],
-      "workflow": "daily review-runs live-work scan"
+      "workflow": "nightly open-work step"
     },
     {
       "id": "queued-worker",
@@ -187,7 +187,7 @@
           "linked_prs": []
         }
       ],
-      "workflow": "daily review-runs live-work scan"
+      "workflow": "nightly open-work step"
     },
     {
       "id": "provider-reset",
@@ -210,7 +210,7 @@
           "author": "widget-agent"
         }
       ],
-      "workflow": "daily review-runs live-work scan"
+      "workflow": "nightly open-work step"
     },
     {
       "id": "foreign-notification",
@@ -249,7 +249,7 @@
     },
     {
       "id": "creation-exhausted",
-      "workflow": "daily review-runs live-work scan",
+      "workflow": "nightly open-work step",
       "startup": {
         "unread_notifications": [],
         "conflicted_bot_prs": []
