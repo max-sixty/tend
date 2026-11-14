@@ -6,6 +6,31 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.25
+
+### Improved
+
+- Triage closes a CI failure report once every failure it owes has an owner, a transient resolution or work a maintainer ended, and the lane's next failed run reopens the report with a comment. So each failed run on a branch that stays red starts a triage session. With no open report, a failed run reopens the lane's newest report unless the lane passed since it was filed, and files a new one otherwise. The daily `review-runs` sweep judges a red lane's newest report, open or closed: it closes an open report that triage finished, and reopens a closed one whose failure lost its owner. A PR review hands a failure the default branch shares to that report and the owners its diagnosis links. ([#1677](https://github.com/max-sixty/tend/pull/1677))
+- `.config/tend.yaml` takes `checks.accepted`, a map from a `tend check` name to the maintainer's reason for accepting its failure. An accepted failure prints as `ACCEPTED <name> — <reason>`, no longer makes `tend check` exit 1, and is left alone by `--fix`. It is refused under `merge: yolo`. ([#1662](https://github.com/max-sixty/tend/pull/1662))
+- Claude Code 2.1.322, uv 0.13.7 and `actions/upload-artifact` v7.0.2. The credential proxy's locked dependencies move to graphql-core 3.3.2, a security release of its parser. ([#1665](https://github.com/max-sixty/tend/pull/1665), [#1667](https://github.com/max-sixty/tend/pull/1667), [#1671](https://github.com/max-sixty/tend/pull/1671))
+
+### Fixed
+
+- `setup-runtime` retries the uv release download up to five times, so one transient 5xx from GitHub's release CDN no longer fails the run. ([#1666](https://github.com/max-sixty/tend/pull/1666))
+- CI polling ends before the Claude session's timeout: within 10 minutes of it, a poll returns the red already standing, or unverified, and the pre-approval check stays undecided rather than approving. An external check's failure, such as a commit status or Codecov's, returns red once two reads 30 seconds apart agree, without waiting for hung Actions jobs. A cancelled matrix check is superseded by a later run of the same workflow and event, so a passing replacement no longer leaves it unverified. ([#1683](https://github.com/max-sixty/tend/pull/1683), [#1584](https://github.com/max-sixty/tend/pull/1584), [#1526](https://github.com/max-sixty/tend/pull/1526))
+- Report triage searches for an existing cause by the complete test name, and rechecks open causes and PRs just before filing, so a sibling report's session that filed the cause first is found rather than duplicated. ([#1673](https://github.com/max-sixty/tend/pull/1673))
+- The `tend-outage` tracker says later failed runs appear in its comments, and that closing it needs every recorded run diagnosed. `review-runs` describes the census output `list-recent-runs` prints. ([#1598](https://github.com/max-sixty/tend/pull/1598), [#1680](https://github.com/max-sixty/tend/pull/1680))
+
+### Documentation
+
+- The security model's triage, tend-land, sandbox `PATH` and rate-limit tracker passages match the code, and the branch-protection check's docstring says an absent ruleset is unprotected. ([#1685](https://github.com/max-sixty/tend/pull/1685), [#1681](https://github.com/max-sixty/tend/pull/1681))
+
+### Internal
+
+- Development tooling and eval dependencies updated. ([#1669](https://github.com/max-sixty/tend/pull/1669), [#1674](https://github.com/max-sixty/tend/pull/1674), [#1678](https://github.com/max-sixty/tend/pull/1678), [#1679](https://github.com/max-sixty/tend/pull/1679), [#1682](https://github.com/max-sixty/tend/pull/1682), [#1684](https://github.com/max-sixty/tend/pull/1684))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
 ## 0.3.24
 
 ### Improved
