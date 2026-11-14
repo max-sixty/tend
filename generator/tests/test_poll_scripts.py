@@ -14,6 +14,7 @@ import json
 import re
 import subprocess
 import time
+import zlib
 from collections.abc import Callable
 from pathlib import Path
 
@@ -107,7 +108,13 @@ def _check_run(
     workflow: str = "ci",
     run_id: int = 100,
     started: str | None = "2026-01-01T00:00:00Z",
+    workflow_id: int | None = None,
+    event: str = "pull_request",
 ) -> dict:
+    # Distinct workflow files get distinct IDs; a test sharing a display name
+    # across files passes ``workflow_id`` explicitly.
+    if workflow_id is None:
+        workflow_id = zlib.crc32(workflow.encode())
     return {
         "__typename": "CheckRun",
         "name": name,
@@ -119,7 +126,8 @@ def _check_run(
             "workflowRun": {
                 "databaseId": run_id,
                 "createdAt": "2026-01-01T00:00:00Z",
-                "workflow": {"name": workflow},
+                "event": event,
+                "workflow": {"databaseId": workflow_id, "name": workflow},
             }
         },
     }
@@ -576,7 +584,17 @@ def test_cancelled_matrix_placeholder_yields_to_later_run(
 
 @pytest.mark.parametrize(
     "boundary",
-    ["same-run", "older-run", "other-workflow", "missing-run", "missing-created"],
+    [
+        "same-run",
+        "older-run",
+        "other-workflow",
+        "same-name-other-file",
+        "other-event",
+        "missing-run",
+        "missing-created",
+        "missing-workflow-id",
+        "missing-event",
+    ],
 )
 def test_cancelled_placeholder_without_later_workflow_run_stays_unverified(
     env: dict[str, str], boundary: str
@@ -590,15 +608,38 @@ def test_cancelled_placeholder_without_later_workflow_run_stays_unverified(
         if boundary == "older-run"
         else 333,
         workflow="other" if boundary == "other-workflow" else "ci",
+        workflow_id=2 if boundary == "same-name-other-file" else None,
+        event="push" if boundary == "other-event" else "pull_request",
         started="2026-01-01T00:10:00Z",
     )
     if boundary == "missing-run":
         other["checkSuite"]["workflowRun"].pop("databaseId")
     if boundary == "missing-created":
         other["checkSuite"]["workflowRun"].pop("createdAt")
+    if boundary == "missing-workflow-id":
+        other["checkSuite"]["workflowRun"]["workflow"].pop("databaseId")
+    if boundary == "missing-event":
+        other["checkSuite"]["workflowRun"].pop("event")
     _serve(env, _resp(old, other))
 
     assert _poll(env).returncode == 2
+
+
+@pytest.mark.parametrize(
+    "other", [{"workflow_id": 2}, {"event": "push"}], ids=["other-file", "other-event"]
+)
+def test_same_job_name_in_another_workflow_identity_does_not_hide_a_failure(
+    env: dict[str, str], other: dict
+) -> None:
+    _serve(
+        env,
+        _resp(
+            _check_run("test", conclusion="FAILURE", run_id=111),
+            _check_run("test", run_id=222, started="2026-01-01T00:10:00Z", **other),
+        ),
+    )
+
+    assert _poll(env).returncode == 1
 
 
 def test_run_creation_orders_replacements_even_when_old_job_started_later(
