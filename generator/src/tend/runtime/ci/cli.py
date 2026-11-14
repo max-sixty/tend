@@ -294,6 +294,13 @@ def outage_trackers() -> None:
     _run_evidence(review_runs.outage_trackers)
 
 
+@run_evidence.command("close-outage-trackers")
+@click.argument("report", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def close_outage_trackers(report: Path) -> None:
+    """Close the open trackers an outage-trackers report listed, marking them drained."""
+    _run_evidence(lambda: review_runs.close_outage_trackers(report))
+
+
 @click.group("review-reviewers")
 def reviewer_evidence() -> None:
     """Maintain the review-reviewers evidence store."""
