@@ -13,6 +13,7 @@
   },
   "overrides": {
     "@anthropic-ai/claude-agent-sdk": "$@anthropic-ai/claude-agent-sdk",
-    "@openai/codex-sdk": "$@openai/codex-sdk"
+    "@openai/codex-sdk": "$@openai/codex-sdk",
+    "@hono/node-server": "2.1.6"
   }
 }

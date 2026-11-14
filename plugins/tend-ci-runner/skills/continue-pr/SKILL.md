@@ -64,16 +64,13 @@ arrives while this run works remains with its reviewer per
 
 ## CI and landing
 
-Once the remaining findings are addressed, poll the pinned head per
-`/tend-ci-runner:monitor-ci`, including a head this run did not push. Handle
-failures as remaining repair work, then complete the landing decision per
-`/tend-ci-runner:merge-pr`. When the prompt says the review's CI wait is off,
-under `yolo`, this run polls no head. A push of yours ends it: record the push
-per **After the push** in `/tend-ci-runner:push-commits` and end. The review
-queued behind the push records the head for landing, and tend-land lands it
-when its CI is green or starts the next repair if it goes red. A head someone
-else moved since this run was started (another repair's push) is theirs to
-see through, so end without pushing. If the repair is obsolete or its premise
+Once the remaining findings are addressed, settle the pinned head's CI per
+**Which heads to poll** in `/tend-ci-runner:monitor-ci`. Where it leaves the
+head's CI to you, including a head this run did not push, handle failures as
+remaining repair work, then complete the landing decision per
+`/tend-ci-runner:merge-pr`. Where tend-land owns it, a push of yours ends this
+run, and a head someone else moved since this run was started (another
+repair's push) is theirs to see through, so end without pushing. If the repair is obsolete or its premise
 is disproved, withdraw only the bot's PR after the branch-state recheck in
 `/tend-ci-runner:push-commits`.
 

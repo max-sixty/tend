@@ -71,7 +71,7 @@ tend runtime list-recent-runs review-runs
 
 If no runs are found, report "no runs to review", complete **Reconcile live work** below, then exit.
 
-Report the run census as the count this returns. `.total_count` counts the wider `FETCH_FROM` fetch, so it bounds the census from above rather than matching it — but a census that lands on a round page boundary (30, 100) is still the signature of a page that was never followed, so check that one against `.total_count` before trusting it.
+Report the run census as the number of rows this returns. Carry each stderr `WARNING` into the summary as a coverage gap rather than an all-clear — except the re-run warning, which instead names earlier attempts whose logs to read before counting the window's failures.
 
 Then, for each run ID from above, pull its jobs and classify them:
 

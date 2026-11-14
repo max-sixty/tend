@@ -318,7 +318,7 @@ def test_a_long_queued_run_that_started_remains_a_candidate(
 def test_a_queued_batch_owns_its_issues_before_jobs_exist(
     env: dict[str, str],
 ) -> None:
-    """A batch can wait behind several long batches for more than a day.
+    """A batch can stay queued for as long as GitHub holds it.
 
     Its matrix has not expanded yet, so the submitted IDs are its ownership
     record; an age cutoff would admit a duplicate worker.

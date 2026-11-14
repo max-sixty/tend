@@ -2,9 +2,10 @@
 
 `shared/system-prompt.md` is the one home for instructions both harnesses read:
 the Claude action appends it to the system prompt, and the Codex runner stages
-it into `AGENTS.md`. Three things in it vary — the bot's name, merge mode,
-and how a skill is invoked — so the file writes those as `${BOT_NAME}`,
-`${TEND_MERGE}`, and `${SKILL:<name>}` and this module substitutes them.
+it into `AGENTS.md`. Four things in it vary — the bot's name, merge mode, whether
+the review's CI wait is off, and how a skill is invoked — so the file writes
+those as `${BOT_NAME}`, `${TEND_MERGE}`, `${TEND_CI_WAIT}`, and `${SKILL:<name>}`
+and this module substitutes them.
 
 """
 
@@ -15,9 +16,12 @@ import re
 from tend.config import SKILL_PREFIX
 
 SKILL_REF = re.compile(r"\$\{SKILL:([a-z0-9-]+)\}")
+CI_WAIT_OFF = " The review's CI wait is off (`await_ci: false`)."
 
 
-def render(text: str, *, bot_name: str, merge: str, harness: str) -> str:
+def render(
+    text: str, *, bot_name: str, merge: str, ci_wait_off: bool, harness: str
+) -> str:
     """Substitute skill references and runtime policy into *text*."""
     prefix = SKILL_PREFIX[harness]
     text = SKILL_REF.sub(lambda match: prefix + match.group(1), text)
@@ -26,4 +30,5 @@ def render(text: str, *, bot_name: str, merge: str, harness: str) -> str:
         .replace("$BOT_NAME", bot_name)
         .replace("${TEND_MERGE}", merge)
         .replace("$TEND_MERGE", merge)
+        .replace("${TEND_CI_WAIT}", CI_WAIT_OFF if ci_wait_off else "")
     )

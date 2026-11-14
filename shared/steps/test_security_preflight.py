@@ -105,17 +105,22 @@ def _accepted(fake_gh: FakeGh, answer: dict[str, object]) -> bool:
     )
 
 
-def test_control_plane_codeowners_fails_closed_on_an_unreadable_query(
-    monkeypatch: pytest.MonkeyPatch, fake_gh: FakeGh
+@pytest.mark.parametrize("failing", ["query", "errors"])
+def test_control_plane_codeowners_raises_on_a_failed_read(
+    monkeypatch: pytest.MonkeyPatch, fake_gh: FakeGh, failing: str
 ) -> None:
+    """A rate-limited read fails the gate as a read, not as a missing rule."""
     monkeypatch.setenv("TEND_MERGE", "yolo")
     _repo(fake_gh, rules=_lifecycle_rules(1))
-    fake_gh.respond("api", "graphql", with_=1)
     _bypass(fake_gh, 1, "pull_requests_only")
-    fake_gh.respond("api", "user", with_={"login": "tend-bot"})
+    _codeowners(fake_gh)
+    if failing == "query":
+        fake_gh.respond("api", "graphql", with_=1)
+    else:
+        fake_gh.respond("api", f"repos/{REPO}/codeowners/errors?ref=main", with_=1)
 
-    assert security_preflight.main() == 1
-    assert fake_gh.called("api", "graphql")
+    with pytest.raises(subprocess.CalledProcessError):
+        security_preflight.main()
 
 
 def test_control_plane_codeowners_reads_githubs_three_locations(

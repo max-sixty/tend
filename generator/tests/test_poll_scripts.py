@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -186,6 +187,9 @@ def env(tmp_path: Path) -> dict[str, str]:
         "GITHUB_REPOSITORY": "owner/repo",
         "GITHUB_RUN_ID": "555",
         "GITHUB_WORKFLOW": "tend-review",
+        # No session deadline unless a test sets one, whatever the session
+        # running this suite exports.
+        "TEND_DEADLINE": "",
     }
 
 
@@ -561,6 +565,7 @@ def test_cancelled_matrix_placeholder_yields_to_later_run(
     assert rollup == {
         "pending": ["full-tests (linux)"] if replacement_status == "QUEUED" else [],
         "failed": [],
+        "external_failed": [],
         "unverified": [],
     }
     result = _poll(env)
@@ -924,13 +929,189 @@ def test_a_late_api_blip_does_not_end_the_wait(env: dict[str, str]) -> None:
     assert result.returncode == 0, result.stdout
 
 
+@pytest.mark.parametrize("kind", ["status", "app"])
+@pytest.mark.parametrize("command", ["poll", "approval"])
+def test_external_failure_returns_while_actions_still_run(
+    env: dict[str, str], kind: str, command: str
+) -> None:
+    external = _status_ctx("codecov/patch", "FAILURE")
+    if kind == "app":
+        external = _check_run("codecov/patch", conclusion="FAILURE", workflow="")
+        external["checkSuite"] = {"app": {"slug": "codecov"}, "workflowRun": None}
+    _serve(env, _resp(external, _check_run("hung-job", status="IN_PROGRESS")))
+
+    result = _invoke(poll_pr_checks, env, [command, "7", HEAD_SHA])
+
+    assert result.returncode == 1
+    assert "codecov/patch" in result.stdout
+    assert "hung-job" in result.stdout
+    assert int(Path(env["GRAPHQL_CALLS"]).read_text()) >= 2
+
+
+@pytest.mark.parametrize("second_state", ["SUCCESS", "PENDING"])
+def test_external_failure_must_survive_confirmation(
+    env: dict[str, str], second_state: str
+) -> None:
+    running = _check_run("tests", status="IN_PROGRESS")
+    _serve(
+        env,
+        _resp(_status_ctx("coverage", "FAILURE"), running),
+        _resp(_status_ctx("coverage", second_state), running),
+        _resp(_status_ctx("coverage", "SUCCESS"), _check_run("tests")),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 0, result.stdout
+    assert int(Path(env["GRAPHQL_CALLS"]).read_text()) == 4
+
+
+@pytest.mark.parametrize("provider", [None, "github-actions"])
+def test_missing_workflow_does_not_establish_an_external_check(
+    env: dict[str, str], provider: str | None
+) -> None:
+    red = _check_run("gate", conclusion="FAILURE", workflow="")
+    red["checkSuite"] = {"app": {"slug": provider}, "workflowRun": None}
+    _serve(env, _resp(red, _check_run("tests", status="IN_PROGRESS")))
+
+    with pytest.raises(WaitNeverEnded):
+        _poll(env)
+
+
+def test_a_status_posted_by_actions_does_not_end_the_wait(
+    env: dict[str, str],
+) -> None:
+    gate = _status_ctx("ci/gate", "FAILURE")
+    gate["targetUrl"] = "https://github.com/o/r/actions/runs/99"
+    _serve(env, _resp(gate, _check_run("replacement", status="IN_PROGRESS")))
+
+    with pytest.raises(WaitNeverEnded):
+        _poll(env)
+
+
+def test_early_external_red_does_not_report_unconfirmed_actions_failure(
+    env: dict[str, str],
+) -> None:
+    _serve(
+        env,
+        _resp(
+            _status_ctx("coverage", "FAILURE"),
+            _check_run("cancelled-run-gate", conclusion="FAILURE"),
+            _check_run("replacement", status="IN_PROGRESS"),
+        ),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 1
+    assert "coverage" in result.stdout
+    assert "replacement" in result.stdout
+    assert "cancelled-run-gate" not in result.stdout
+
+
+def test_skipped_external_red_does_not_end_the_wait(env: dict[str, str]) -> None:
+    _serve(
+        env,
+        _resp(
+            _status_ctx("coverage", "FAILURE"),
+            _check_run("tests", status="IN_PROGRESS"),
+        ),
+        _resp(_status_ctx("coverage", "FAILURE"), _check_run("tests")),
+    )
+
+    result = _poll_args(env, "7", HEAD_SHA, "--skip", "coverage")
+
+    assert result.returncode == 0, result.stdout
+
+
 def test_a_check_that_never_finishes_holds_the_wait(env: dict[str, str]) -> None:
-    """The wait has no time bound — a slow suite is waited out however long it
-    runs, so a check that never finishes is ended by the session's timeout."""
+    """The wait has no fixed time bound — a slow suite is waited out however
+    long it runs, while the session's end is still distant."""
+    env["TEND_DEADLINE"] = str(int(time.time()) + 6 * 3600)
     _serve(env, _resp(_check_run("slow-matrix", status="IN_PROGRESS")))
 
     with pytest.raises(WaitNeverEnded):
         _poll(env)
+
+
+def _near_deadline(env: dict[str, str]) -> None:
+    """End the session just inside the poll's margin."""
+    margin = poll_pr_checks.DEADLINE_MARGIN_SEC
+    env["TEND_DEADLINE"] = str(int(time.time()) + margin - 60)
+
+
+def test_a_check_pending_at_the_session_end_is_unverified(
+    env: dict[str, str],
+) -> None:
+    """A check that never concludes — an abandoned app check — hands back
+    before the session is killed, naming what still pends."""
+    _near_deadline(env)
+    _serve(
+        env,
+        _resp(_check_run("tests"), _check_run("codecov/patch", status="IN_PROGRESS")),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "session ends soon — UNVERIFIED, not green" in result.stdout
+    assert "codecov/patch" in result.stdout
+
+
+def test_a_red_beside_a_hung_job_at_the_session_end_is_red(
+    env: dict[str, str],
+) -> None:
+    """A red already standing is reported when a hung job outlasts the session,
+    so a review can still act on it after approving."""
+    _near_deadline(env)
+    _serve(
+        env,
+        _resp(
+            _check_run("codecov/patch", conclusion="FAILURE", run_id=200),
+            _check_run("full-tests", status="IN_PROGRESS"),
+        ),
+    )
+
+    result = _poll(env)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "codecov/patch" in result.stdout
+    assert "still running, not waited for:\nfull-tests" in result.stdout
+
+
+def test_approval_withholds_a_red_still_pending_at_the_session_end(
+    env: dict[str, str],
+) -> None:
+    """The pre-approval wait stays fail-closed when the session's end cuts it."""
+    _near_deadline(env)
+    _serve(env, _resp(OMNIBUS_RED, _check_run("full-tests", status="IN_PROGRESS")))
+
+    result = _approval(env)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "withhold" in result.stdout
+
+
+def test_approval_is_undecided_when_the_red_clears_but_checks_still_pend_at_the_session_end(
+    env: dict[str, str],
+) -> None:
+    """A red that clears during the wait doesn't approve a head whose checks
+    are still pending when the session's end cuts the wait short."""
+    _near_deadline(env)
+    _serve(
+        env,
+        _resp(OMNIBUS_RED, _check_run("full-tests", status="IN_PROGRESS")),
+        _resp(
+            _check_run("check-ok-to-merge"),
+            _check_run("full-tests", status="IN_PROGRESS"),
+        ),
+    )
+
+    result = _approval(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "undecided" in result.stdout
+    assert "full-tests" in result.stderr
 
 
 def test_a_job_awaiting_environment_approval_is_unverified(

@@ -37,6 +37,9 @@ CONFIRM_SEC = 30
 #: check registers when its run is queued, seconds after the push, so this is
 #: a margin for GitHub's lag and a slow external status, not for CI to run.
 REGISTRATION_SEC = 5 * 60
+#: How long before the session's end (``TEND_DEADLINE``, epoch seconds, set by
+#: the harness) the wait hands back, leaving the session time to act on it.
+DEADLINE_MARGIN_SEC = 10 * 60
 GRAPHQL_QUERY = """
 query($owner: String!, $name: String!, $oid: GitObjectID!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
@@ -49,7 +52,10 @@ query($owner: String!, $name: String!, $oid: GitObjectID!, $endCursor: String) {
               __typename
               ... on CheckRun {
                 name status conclusion startedAt detailsUrl
-                checkSuite { workflowRun { databaseId createdAt workflow { name } } }
+                checkSuite {
+                  app { slug }
+                  workflowRun { databaseId createdAt workflow { name } }
+                }
               }
               ... on StatusContext { context state targetUrl }
             }
@@ -102,6 +108,13 @@ def reduce_rollup(
                 "run_created": str(
                     _dig(node, "checkSuite", "workflowRun", "createdAt") or ""
                 ),
+                "external": (
+                    "yes"
+                    if _dig(node, "checkSuite", "app", "slug")
+                    not in {None, "", "github-actions"}
+                    and _dig(node, "checkSuite", "workflowRun") is None
+                    else ""
+                ),
             }
         else:
             state = str(node.get("state") or "")
@@ -116,7 +129,12 @@ def reduce_rollup(
                 "started_at": "",
                 "run_id": "",
                 "run_created": "",
+                "external": "",
             }
+            # An Actions run can post statuses too, and a cancelled one can
+            # only post failure or error: statuses have no cancelled state.
+            if "/actions/runs/" not in context["url"]:
+                context["external"] = "yes"
         if own_run and own_run in context["url"]:
             continue
         if workflow and context["workflow"] == workflow:
@@ -131,7 +149,7 @@ def reduce_rollup(
 
     if not contexts:
         return (
-            {"pending": [], "failed": [], "unverified": []}
+            {"pending": [], "failed": [], "unverified": [], "external_failed": []}
             if allow_filtered_empty
             else None
         )
@@ -188,6 +206,13 @@ def reduce_rollup(
             f"{context['name']} {context['url']}"
             for context in current
             if context["status"] == "COMPLETED"
+            and context["conclusion"] in RED_CONCLUSIONS
+        ],
+        "external_failed": [
+            f"{context['name']} {context['url']}"
+            for context in current
+            if context["external"]
+            and context["status"] == "COMPLETED"
             and context["conclusion"] in RED_CONCLUSIONS
         ],
         "unverified": [
@@ -271,6 +296,15 @@ def head_note(*, pr: str, repo: str, sha: str) -> None:
         )
 
 
+def _deadline_near() -> bool:
+    """Whether the session's end is within :data:`DEADLINE_MARGIN_SEC`."""
+    try:
+        deadline = float(os.environ["TEND_DEADLINE"])
+    except (KeyError, ValueError):
+        return False
+    return time.time() >= deadline - DEADLINE_MARGIN_SEC
+
+
 def _settle(
     *,
     repo: str,
@@ -278,13 +312,18 @@ def _settle(
     sha: str,
     skip: frozenset[str] = frozenset(),
     sleep: Callable[[float], None],
-) -> tuple[Literal["settled", "moved", "none"], dict[str, list[str]] | None]:
-    """Poll until nothing pends on two reads 30s apart.
+) -> tuple[
+    Literal["settled", "red", "moved", "deadline", "none"],
+    dict[str, list[str]] | None,
+]:
+    """Poll until checks settle or an external failure survives two reads.
 
     Returns how the wait ended, and the last complete rollup read. The wait has
-    no time bound: a running check ends by its own job's timeout, so the wait
-    ends with the checks however long the consumer's CI takes. Two states have
-    no such end, and each is ended by the event that shows it:
+    no fixed time bound: it ends with the checks however long the consumer's
+    CI takes. An external failure present on two reads returns "red" without
+    waiting for Actions jobs: those jobs cannot supersede it through a
+    concurrency cancellation. Otherwise, two states have no such end, and each
+    is ended by the event that shows it:
 
     * checks still pend and the PR's head has moved off *sha* ("moved"). A
       merge requires *sha* to be the head, and the new head is its pusher's to
@@ -292,10 +331,13 @@ def _settle(
     * no complete rollup for :data:`REGISTRATION_SEC` ("none"): the commit
       has no check coming, or GitHub isn't answering for it.
 
-    A check that registers and never finishes — a status its app never
-    reports — holds the wait until the session's own timeout ends the run,
-    which then reads as timed out. A job waiting on an environment approval
-    doesn't: :func:`reduce_rollup` counts it as settled without a result.
+    A check can also outlast the session: a status its app never reports, or a
+    hung job under GitHub's default 6-hour job cap, which a session started
+    later cannot outlive. So checks still pending within
+    :data:`DEADLINE_MARGIN_SEC` of the harness's ``TEND_DEADLINE`` end the wait
+    ("deadline"), leaving the session time to act on what it read. A job
+    waiting on an environment approval never holds the wait:
+    :func:`reduce_rollup` counts it as settled without a result.
     """
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     workflow = os.environ.get("GITHUB_WORKFLOW", "")
@@ -315,7 +357,11 @@ def _settle(
         if current["pending"]:
             if _head(pr=pr, repo=repo) not in {"", sha}:
                 return "moved", last
-            continue
+            if _deadline_near():
+                return "deadline", last
+            if not current["external_failed"]:
+                continue
+        external_failed = set(current["external_failed"])
         sleep(CONFIRM_SEC)
         current = fetch_rollup(
             repo=repo, sha=sha, run_id=run_id, workflow=workflow, skip=skip
@@ -325,6 +371,11 @@ def _settle(
         last = current
         if not current["pending"]:
             return "settled", current
+        confirmed = external_failed.intersection(current["external_failed"])
+        if confirmed:
+            # Only these reds are confirmed. An Actions omnibus beside them
+            # may still be reporting a cancellation cascade.
+            return "red", {**current, "failed": sorted(confirmed)}
 
 
 def _read_once(
@@ -376,9 +427,14 @@ def approval(
     reached a verdict, so it cannot withhold on its merits. It approves, named
     as unverified so the approval doesn't read as a check that passed.
 
-    Without *wait*, a red beside pending checks withholds as it stands, naming
-    the checks still running; a replacement that would supersede it is left to
-    the next review.
+    A confirmed external failure returns before Actions jobs settle; those
+    jobs cannot supersede it by cancelling and replacing a workflow run.
+
+    Without *wait*, or when the session's end cuts the wait short, a red beside
+    pending checks withholds as it stands, naming the checks still running; a
+    replacement that would supersede it is left to the next review. When the
+    session's end cuts the wait after the red has cleared, the checks still
+    pending leave the approval undecided.
 
     A head that moves during that wait leaves the approval undecided; otherwise
     whether *sha* is still the head is not judged here: the review skill posts
@@ -403,6 +459,10 @@ def approval(
             return 2
         if rollup is None:
             print(f"no complete rollup read for {sha} while waiting", file=sys.stderr)
+            return 2
+        if outcome == "deadline" and not rollup["failed"]:
+            print(f"session ends soon with checks pending on {sha}:", file=sys.stderr)
+            print(*rollup["pending"], sep="\n", file=sys.stderr)
             return 2
 
     if rollup["failed"]:
@@ -438,7 +498,7 @@ def poll(
     wait: bool = True,
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
-    """Poll one pinned PR commit until its checks, less those in *skip*, settle.
+    """Poll one pinned commit until its checks settle or an external red confirms.
 
     Without *wait*, report the checks as they stand: checks still pending make
     the result unverified rather than something to wait for.
@@ -461,9 +521,13 @@ def poll(
         if current == "none" or last is None:
             print(f"no complete check rollup for {sha} — UNVERIFIED, not green")
             return 2
-        if current == "pending" and last["failed"]:
-            # A failed check is final on its own; the review acts on it now
-            # rather than leaving it for nobody once it ends.
+        outcome = current
+    else:
+        outcome, last = _settle(repo=repo, pr=pr, sha=sha, skip=skip, sleep=sleep)
+    if outcome in {"pending", "deadline"} and last is not None:
+        # A failed check is final on its own; the session acts on it now
+        # rather than leaving it for nobody once the remaining checks end.
+        if last["failed"]:
             print(f"red on {sha}:")
             print(*last["failed"], sep="\n")
             print("still running, not waited for:")
@@ -471,14 +535,11 @@ def poll(
             _unverified_note(last)
             head_note(pr=pr, repo=repo, sha=sha)
             return 1
-        if current == "pending":
-            print(f"still pending on {sha}, not waiting — UNVERIFIED, not green:")
-            print(*last["pending"], sep="\n")
-            _unverified_note(last)
-            return 2
-        outcome = "settled"
-    else:
-        outcome, last = _settle(repo=repo, pr=pr, sha=sha, skip=skip, sleep=sleep)
+        reason = "not waiting" if outcome == "pending" else "session ends soon"
+        print(f"still pending on {sha}, {reason} — UNVERIFIED, not green:")
+        print(*last["pending"], sep="\n")
+        _unverified_note(last)
+        return 2
     if outcome == "none" or last is None:
         print(
             f"no check registered on {sha} within {REGISTRATION_SEC // 60} minutes "
@@ -487,9 +548,12 @@ def poll(
         head_note(pr=pr, repo=repo, sha=sha)
         return 2
     settled = outcome == "settled"
-    if settled and last["failed"]:
+    if (settled or outcome == "red") and last["failed"]:
         print(f"red on {sha}:")
         print(*last["failed"], sep="\n")
+        if last["pending"]:
+            print("still running, not waited for:")
+            print(*last["pending"], sep="\n")
         _unverified_note(last)
         head_note(pr=pr, repo=repo, sha=sha)
         return 1

@@ -48,7 +48,7 @@ prompts apply to every workflow; the table lists what is specific to each.
 | Workflow | Injection surface | Attacker control | Specific mitigations |
 |----------|-------------------|-------------------|-------------|
 | **review** | PR diff content, review body on bot PRs | Full (any PR) / Medium (reviewers) | Base-branch config restoration |
-| **triage** | Issue body; the failed run's logs for a CI failure report | Partial (structured skill) / Minimal (must disrupt CI on a watched branch) | Structured skill; secret-bearing enqueue job runs only the generated label script without consumer checkout; one admitted issue worker at a time |
+| **triage** | Issue body; the failed run's logs for a CI failure report | Partial (structured skill) / Minimal (must disrupt CI on a watched branch) | Structured skill; the secret-bearing `select` job runs only Tend's `triage-batch select` command, without consumer checkout; at most one worker per issue, with different issues in parallel |
 | **mention** | Comment body on any issue/PR | Full | Engagement verification; review events re-entered via a secretless relay |
 | **ci-failures** | None (runs no agent) | Run metadata of this repository's own runs | Bot token scoped to the `tend` environment; runs only the generated script, without checking out or executing consumer code |
 | **weekly** | None | None | Scheduled trigger |
@@ -66,9 +66,11 @@ Three load-bearing boundaries, with one deliberate policy choice:
    wait off, the generated `tend-land` workflow starts the landing a review
    recorded, once CI is green. Its first job holds the bot token to run
    Tend's own pinned `land_pr.py` on the default branch, with no agent and no
-   checkout of the PR; it only names a PR whose exact head carries the bot's
-   record for that PR and base (a `tend/land/<PR>` status the bot itself
-   created on a head it pushed). The landing session it starts merges with
+   checkout of the PR. It starts a landing only for a PR whose exact head
+   carries the bot's record for that PR and base (a `tend/land/<PR>` status
+   the bot itself created on a head it pushed or on another bot's PR, such as
+   Dependabot's), and a repair session for a PR with no human author whose CI
+   went red. The landing session merges with
    that head's SHA, so a push after the review is refused by GitHub rather
    than landed.
 2. **Tend's operational credentials stay out of the agent process.** The
@@ -553,8 +555,9 @@ that Tend installs into its own directory, using the dependencies locked in
 Tend's release. Consumer `setup:` runs with runner authority before isolation
 and selects the job's tools through PATH. (`claude` is Node and ignores the
 system trust store, so it trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) The
-job's PATH crosses entry for entry, with the sandbox home's `bin` prepended and
-a pinned `uv` fallback appended.
+job's PATH crosses entry for entry, with the Tend runtime's `commands`
+directory and the sandbox home's `.local/bin` prepended and a pinned `uv`
+fallback appended.
 
 **Session-log upload.** The token-usage step uploads the agent's session JSONL
 only after the unit and sandbox UID are quiescent. One privileged
@@ -591,9 +594,8 @@ creation count at that close. The creation count approximates the limit that
 was hit without trusting mutable tracker text or replaying chains of earlier
 approvals. The approved number stays fixed until expiry; the effective limit
 is the greater of the current normal allowance and every active floor. A later
-close after exhausting a raised limit can raise it again. Approvals on older
-`Bot rate limit reached` trackers retain their original policy and do not
-create these seven-day floors.
+close after exhausting a raised limit can raise it again. Closing a tracker
+under the retired `Bot rate limit reached` title approves nothing.
 
 GitHub creation timestamps and human close events provide the evidence. The
 proxy counts its own successful and in-flight creations until the listing

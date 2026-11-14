@@ -6,15 +6,15 @@
 # Inputs (env): UV_INSTALL_DIR.
 set -euo pipefail
 
-UV_VERSION=0.13.6
+UV_VERSION=0.13.7
 case "$(uname -m)" in
   x86_64)
     target=x86_64-unknown-linux-gnu
-    sha256=f29c3e94ffabd7e6f3ba521dba169a9b7ec12100bf3257087f0f24f6123f3645
+    sha256=c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
     ;;
   aarch64)
     target=aarch64-unknown-linux-gnu
-    sha256=229e194255c7958d86d56e8790d969a6f74736592133f0dfd0076f754c642c1d
+    sha256=71279f8d3c67241e807b9d8db872d1bf541579fb9f08b7d1eb1682196d1e57dc
     ;;
   *)
     echo "::error::no pinned uv archive for $(uname -m)" >&2
@@ -24,7 +24,10 @@ esac
 
 mkdir -p "$UV_INSTALL_DIR"
 archive="${UV_INSTALL_DIR}/uv-${target}.tar.gz"
-curl -fsSL -o "$archive" \
+# --retry rides out the transient 5xx and timeouts a release download hits.
+# setup-runtime runs this before the harness action, whose failure report a
+# failed step skips, so an unretried blip here loses the run unrecorded.
+curl -fsSL --retry 5 -o "$archive" \
   "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${target}.tar.gz"
 echo "${sha256}  ${archive}" | sha256sum --check --quiet
 tar -xzf "$archive" -C "$UV_INSTALL_DIR" --strip-components=1 --no-same-owner
