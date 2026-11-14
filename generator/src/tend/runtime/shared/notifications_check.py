@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -14,7 +15,7 @@ GRAPHQL_QUERY = """
 query($q: String!) {
   search(query: $q, type: ISSUE, first: 100) {
     nodes { ... on PullRequest {
-      mergeable headRefOid
+      number baseRefName mergeable headRefOid
       comments(last: 100) { nodes { author { login } body } }
     } }
   }
@@ -60,6 +61,50 @@ def _is_deferred(pr: dict[str, Any], bot: str) -> bool:
     )
 
 
+def _merge_conflicts(repo: str, pr: dict[str, Any]) -> bool:
+    """Suppress only a verified clean merge of freshly fetched base and head.
+
+    A disposable bare repository avoids checkout changes, hooks and consumer
+    git config. Fetch full ancestry so a shallow checkout cannot hide a merge
+    base. No persistent clean marker is needed: both refs are checked each poll.
+    """
+    try:
+        with tempfile.TemporaryDirectory(prefix="tend-conflict-") as directory:
+
+            def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    ["git", "-C", directory, *args],
+                    capture_output=True,
+                    text=True,
+                    check=check,
+                    timeout=60,
+                )
+
+            git("init", "--bare")
+            git(
+                "fetch",
+                "--no-tags",
+                "--",
+                f"https://github.com/{repo}.git",
+                f"refs/heads/{pr['baseRefName']}:refs/heads/base",
+                f"refs/pull/{int(pr['number'])}/head:refs/heads/head",
+            )
+            result = git(
+                "merge-tree",
+                "--write-tree",
+                "refs/heads/base",
+                "refs/heads/head",
+                check=False,
+            )
+            if result.returncode in (0, 1):
+                return result.returncode == 1
+    except (KeyError, ValueError, OSError, subprocess.SubprocessError):
+        pass
+    # Conflicts and unavailable verification both warrant an agent's inspection.
+    print("::warning::local merge was not verified clean; retaining conflict work")
+    return True
+
+
 def _conflicts(repo: str) -> int:
     try:
         bot = _common.gh("api", "user", "--jq", ".login", quiet=True).strip()
@@ -84,7 +129,9 @@ def _conflicts(repo: str) -> int:
         # the next poll, which reads the value this one enqueued; the resolver
         # test-merges locally either way.
         return sum(
-            pr.get("mergeable") == "CONFLICTING" and not _is_deferred(pr, bot)
+            pr.get("mergeable") == "CONFLICTING"
+            and not _is_deferred(pr, bot)
+            and _merge_conflicts(repo, pr)
             for pr in nodes
             if isinstance(pr, dict)
         )
