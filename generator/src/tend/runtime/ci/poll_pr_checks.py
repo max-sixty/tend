@@ -52,7 +52,12 @@ query($owner: String!, $name: String!, $oid: GitObjectID!, $endCursor: String) {
               __typename
               ... on CheckRun {
                 name status conclusion startedAt detailsUrl
-                checkSuite { app { slug } workflowRun { workflow { name } } }
+                checkSuite {
+                  app { slug }
+                  workflowRun {
+                    databaseId createdAt event workflow { databaseId name }
+                  }
+                }
               }
               ... on StatusContext { context state targetUrl }
             }
@@ -99,6 +104,17 @@ def reduce_rollup(
                 ),
                 "url": str(node.get("detailsUrl") or ""),
                 "started_at": str(node.get("startedAt") or ""),
+                "run_id": str(
+                    _dig(node, "checkSuite", "workflowRun", "databaseId") or ""
+                ),
+                "run_created": str(
+                    _dig(node, "checkSuite", "workflowRun", "createdAt") or ""
+                ),
+                "workflow_id": str(
+                    _dig(node, "checkSuite", "workflowRun", "workflow", "databaseId")
+                    or ""
+                ),
+                "event": str(_dig(node, "checkSuite", "workflowRun", "event") or ""),
                 "external": (
                     "yes"
                     if _dig(node, "checkSuite", "app", "slug")
@@ -118,6 +134,10 @@ def reduce_rollup(
                 "workflow": "",
                 "url": str(node.get("targetUrl") or ""),
                 "started_at": "",
+                "run_id": "",
+                "run_created": "",
+                "workflow_id": "",
+                "event": "",
                 "external": "",
             }
             # An Actions run can post statuses too, and a cancelled one can
@@ -143,9 +163,49 @@ def reduce_rollup(
             else None
         )
 
-    groups: dict[tuple[str, str], list[dict[str, str]]] = {}
+    # A cancelled matrix may never expand, so its job name cannot match the
+    # replacement. Order workflow runs, not individual job start times (a
+    # later job in the cancelled run can start after the replacement). IDs
+    # break ties when GitHub creates both runs within the same second. A run
+    # replaces another only from the same workflow file and triggering event:
+    # display names collide across files, and a push run does not stand in
+    # for a pull_request one.
+    def run_key(context: dict[str, str]) -> tuple[str, str] | None:
+        if (
+            context["workflow_id"].isdecimal()
+            and context["event"]
+            and context["run_created"]
+            and context["run_id"].isdecimal()
+        ):
+            return (context["workflow_id"], context["event"])
+        return None
+
+    def run_order(context: dict[str, str]) -> tuple[str, int]:
+        return (context["run_created"], int(context["run_id"]))
+
+    latest_runs: dict[tuple[str, str], tuple[str, int]] = {}
     for context in contexts:
-        groups.setdefault((context["name"], context["workflow"]), []).append(context)
+        key = run_key(context)
+        if key is not None:
+            latest_runs[key] = max(
+                latest_runs.get(key, run_order(context)), run_order(context)
+            )
+    contexts = [
+        context
+        for context in contexts
+        if not (
+            context["conclusion"] == "CANCELLED"
+            and (key := run_key(context)) is not None
+            and run_order(context) < latest_runs[key]
+        )
+    ]
+
+    groups: dict[tuple[str, str, str], list[dict[str, str]]] = {}
+    for context in contexts:
+        identity = context["workflow_id"] or context["workflow"]
+        groups.setdefault((context["name"], identity, context["event"]), []).append(
+            context
+        )
 
     current: list[dict[str, str]] = []
     for group in groups.values():

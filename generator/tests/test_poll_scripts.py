@@ -14,6 +14,7 @@ import json
 import re
 import subprocess
 import time
+import zlib
 from collections.abc import Callable
 from pathlib import Path
 
@@ -107,7 +108,13 @@ def _check_run(
     workflow: str = "ci",
     run_id: int = 100,
     started: str | None = "2026-01-01T00:00:00Z",
+    workflow_id: int | None = None,
+    event: str = "pull_request",
 ) -> dict:
+    # Distinct workflow files get distinct IDs; a test sharing a display name
+    # across files passes ``workflow_id`` explicitly.
+    if workflow_id is None:
+        workflow_id = zlib.crc32(workflow.encode())
     return {
         "__typename": "CheckRun",
         "name": name,
@@ -115,7 +122,14 @@ def _check_run(
         "conclusion": conclusion if status == "COMPLETED" else None,
         "startedAt": started,
         "detailsUrl": f"https://github.com/o/r/actions/runs/{run_id}/job/1",
-        "checkSuite": {"workflowRun": {"workflow": {"name": workflow}}},
+        "checkSuite": {
+            "workflowRun": {
+                "databaseId": run_id,
+                "createdAt": "2026-01-01T00:00:00Z",
+                "event": event,
+                "workflow": {"databaseId": workflow_id, "name": workflow},
+            }
+        },
     }
 
 
@@ -499,7 +513,7 @@ def test_cancelled_beside_a_real_failure_still_reads_red(env: dict[str, str]) ->
     _serve(
         env,
         _resp(
-            _check_run("lint", conclusion="FAILURE", run_id=101),
+            _check_run("lint", conclusion="FAILURE", run_id=100),
             _check_run("bench", conclusion="CANCELLED"),
         ),
     )
@@ -507,7 +521,7 @@ def test_cancelled_beside_a_real_failure_still_reads_red(env: dict[str, str]) ->
     result = _poll(env)
 
     assert result.returncode == 1, result.stdout
-    assert "lint https://github.com/o/r/actions/runs/101/job/1" in result.stdout
+    assert "lint https://github.com/o/r/actions/runs/100/job/1" in result.stdout
     assert "bench https://github.com/o/r/actions/runs/100/job/1" in result.stdout
 
 
@@ -533,6 +547,126 @@ def test_cancelled_replaced_at_the_same_sha_is_green(env: dict[str, str]) -> Non
     )
 
     assert _poll(env).returncode == 0, "a superseded cancellation still gated"
+
+
+@pytest.mark.parametrize(
+    "placeholder", ["full-tests", "release-target (${{ matrix.target }})"]
+)
+@pytest.mark.parametrize("replacement_status", ["COMPLETED", "QUEUED"])
+def test_cancelled_matrix_placeholder_yields_to_later_run(
+    env: dict[str, str], replacement_status: str, placeholder: str
+) -> None:
+    old = _check_run(placeholder, conclusion="CANCELLED", run_id=111)
+    replacement = _check_run(
+        "full-tests (linux)",
+        run_id=222,
+        status=replacement_status,
+        started=None if replacement_status == "QUEUED" else "2026-01-01T00:10:00Z",
+    )
+    _serve(
+        env,
+        _resp(old, replacement),
+        _resp(old, _check_run("full-tests (linux)", run_id=222)),
+    )
+
+    rollup = poll_pr_checks.reduce_rollup([old, replacement], run_id="", workflow="")
+    assert rollup == {
+        "pending": ["full-tests (linux)"] if replacement_status == "QUEUED" else [],
+        "failed": [],
+        "external_failed": [],
+        "unverified": [],
+    }
+    result = _poll(env)
+
+    assert result.returncode == 0, result.stdout
+    assert "UNVERIFIED" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "same-run",
+        "older-run",
+        "other-workflow",
+        "same-name-other-file",
+        "other-event",
+        "missing-run",
+        "missing-created",
+        "missing-workflow-id",
+        "missing-event",
+    ],
+)
+def test_cancelled_placeholder_without_later_workflow_run_stays_unverified(
+    env: dict[str, str], boundary: str
+) -> None:
+    old = _check_run("full-tests", conclusion="CANCELLED", run_id=222)
+    other = _check_run(
+        "full-tests (linux)",
+        run_id=222
+        if boundary == "same-run"
+        else 111
+        if boundary == "older-run"
+        else 333,
+        workflow="other" if boundary == "other-workflow" else "ci",
+        workflow_id=2 if boundary == "same-name-other-file" else None,
+        event="push" if boundary == "other-event" else "pull_request",
+        started="2026-01-01T00:10:00Z",
+    )
+    if boundary == "missing-run":
+        other["checkSuite"]["workflowRun"].pop("databaseId")
+    if boundary == "missing-created":
+        other["checkSuite"]["workflowRun"].pop("createdAt")
+    if boundary == "missing-workflow-id":
+        other["checkSuite"]["workflowRun"]["workflow"].pop("databaseId")
+    if boundary == "missing-event":
+        other["checkSuite"]["workflowRun"].pop("event")
+    _serve(env, _resp(old, other))
+
+    assert _poll(env).returncode == 2
+
+
+@pytest.mark.parametrize(
+    "other", [{"workflow_id": 2}, {"event": "push"}], ids=["other-file", "other-event"]
+)
+def test_same_job_name_in_another_workflow_identity_does_not_hide_a_failure(
+    env: dict[str, str], other: dict
+) -> None:
+    _serve(
+        env,
+        _resp(
+            _check_run("test", conclusion="FAILURE", run_id=111),
+            _check_run("test", run_id=222, started="2026-01-01T00:10:00Z", **other),
+        ),
+    )
+
+    assert _poll(env).returncode == 1
+
+
+def test_run_creation_orders_replacements_even_when_old_job_started_later(
+    env: dict[str, str],
+) -> None:
+    old = _check_run(
+        "full-tests", conclusion="CANCELLED", run_id=111, started="2026-01-01T00:20:00Z"
+    )
+    new = _check_run("full-tests (linux)", run_id=222, started="2026-01-01T00:10:00Z")
+    new["checkSuite"]["workflowRun"]["createdAt"] = "2026-01-01T00:05:00Z"
+    _serve(env, _resp(old, new))
+
+    assert _poll(env).returncode == 0
+
+
+def test_later_workflow_run_does_not_hide_an_earlier_failure(
+    env: dict[str, str],
+) -> None:
+    _serve(
+        env,
+        _resp(
+            _check_run("old-job", conclusion="FAILURE", run_id=111),
+            _check_run("new-job", run_id=222),
+        ),
+    )
+
+    assert _poll(env).returncode == 1
 
 
 def test_approval_names_a_cancelled_check_it_approves_over(
