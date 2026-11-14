@@ -27,7 +27,7 @@ assert:
       resolved and the unchanged project's failing path has independently
       passed after recovery. Record the diagnosis as a transient incident,
       with no speculative code/configuration mitigation and no issue left
-      open for it, other than a CI failure report that closes itself on the
-      lane's next passing run. Prior occurrences on separate
+      open for it. Close the CI failure report with that diagnosis, since its
+      failures are resolved; leaving it open for the lane's next pass is wrong. Prior occurrences on separate
       days do not prove a remaining durable cause. Do not infer independent
       persistent regressions from several reports of the same incident.

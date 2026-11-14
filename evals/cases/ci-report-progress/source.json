@@ -4,7 +4,7 @@
   "bot": "leaf-agent",
   "merge": "yolo",
   "fixtures": {
-    "observations.json": "5e40d215e4bb73676495629d32df0eeff7e43b5d6e50511f7134a027c709126a"
+    "observations.json": "180a49cb644e636d44bb342687d988b197767cd8dd7dff76d16d4bc4973c4c39"
   },
   "origin": {
     "repository": "max-sixty/leaf",
@@ -12,6 +12,6 @@
       "40623173984",
       "40626642565"
     ],
-    "construction": "Reduced next-action contrast from two consecutive report-triage sessions. The first inspected runs 40605052307 and 40610988525 then posted nothing because owners existed; the next inspected both again plus a new run. Diagnostic details are summarized to isolate the completion decision. The second situation is a counterfactual duplicate after a public diagnosis."
+    "construction": "Reduced next-action contrast from two consecutive report-triage sessions. The first inspected runs 40605052307 and 40610988525 then posted nothing because owners existed; the next inspected both again plus a new run. Diagnostic details are summarized to isolate the completion decision. The second situation is a counterfactual duplicate after a public diagnosis. The creation-refused situation is a counterfactual near miss for closing a diagnosed report: one failure is left unowned after a refused creation."
   }
 }

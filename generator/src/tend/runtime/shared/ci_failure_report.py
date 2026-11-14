@@ -5,17 +5,23 @@ on a watched branch of this repository with a verdict. A report is one issue
 per workflow, branch and triggering event, the unit a run's verdict speaks
 for: a scheduled suite can fail on tests that push runs never reach.
 
-- A failed run files the report, or comments on the one already open.
+- A failed run comments on the open report. With none open, it reopens the
+  lane's newest report unless the lane has passed since that report was
+  filed: triage closed it once it had diagnosed its failures, and the lane
+  is still in the same red spell. After a pass, or with no report yet, it
+  files a new one.
 - A passing run closes the open report. Linked repair issues and PRs keep
   their own lifecycle: a pass does not show that a flaky cause is gone, and
   a fix may still be in flight.
 - A run that a newer finished run of the same lane supersedes changes nothing.
   Runs can finish out of order, and the newer verdict is the lane's state.
 
-The bot's token writes the report, so creating it triggers ordinary issue
-triage. Later failure comments add evidence without starting another session.
-The daily `review-runs` sweep revisits reports with unhandled failures and
-causes whose repair stalled; the bot gets no notification for its own writes.
+So a report is open while it holds unhandled work, as any open issue does.
+The bot's token writes the report, so filing or reopening it triggers ordinary
+issue triage. A failure while it is open only adds evidence: a running session
+reads it, and when none is running, because a session failed or left a
+failure without an owner, the daily `review-runs` sweep revisits the report.
+The bot gets no notification for its own writes.
 
 Inputs (env): ``GH_TOKEN`` (the bot's token), ``GITHUB_REPOSITORY``,
 ``GITHUB_EVENT_PATH`` (a `workflow_run` payload).
@@ -39,8 +45,11 @@ LABEL_COLOR = "b60205"
 # admits only these, so a cancelled run never takes the lane's pending slot
 # from a verdict; everything but `success` reaching here is a failure.
 VERDICTS = ("success", "failure", "timed_out", "startup_failure")
-# How far back the newer-run check looks. A lane finishing more runs than this
-# while this one waited for its job is a lane whose newest run reports itself.
+# How far back the reporter reads the lane's runs. A lane finishing more runs
+# than this while this one waited for its job is a lane whose newest run reports
+# itself, and a lane that passed since its newest report was filed shows a pass
+# well within this many runs, since a pass's report closes and a later failure
+# files a new one.
 RECENT_RUNS = 30
 
 
@@ -73,8 +82,8 @@ def run_link(run: dict[str, Any]) -> str:
     return f"[run {run['id']}]({run['html_url']}) on `{run['head_sha'][:12]}`"
 
 
-def superseded(repo: str, run: dict[str, Any]) -> bool:
-    """Whether a newer run of the same lane has already finished with a verdict."""
+def lane_verdicts(repo: str, run: dict[str, Any]) -> list[dict[str, Any]]:
+    """The lane's recent finished runs that have a verdict, this one included."""
     query = urlencode(
         {
             "branch": run["head_branch"],
@@ -84,24 +93,28 @@ def superseded(repo: str, run: dict[str, Any]) -> bool:
         }
     )
     listing = api(f"repos/{repo}/actions/workflows/{run['workflow_id']}/runs?{query}")
-    return any(
-        other["id"] > run["id"] and other.get("conclusion") in VERDICTS
+    return [
+        other
         for other in listing["workflow_runs"]
-    )
+        if other.get("conclusion") in VERDICTS
+    ]
 
 
-def open_report(repo: str, run: dict[str, Any]) -> int | None:
-    """The lane's report is the lowest open issue with its label and title.
+def reports(repo: str, run: dict[str, Any], state: str) -> list[dict[str, Any]]:
+    """The lane's reports in `state`, lowest number first.
 
-    The label assigns report ownership independently of who created the issue.
+    A report is an issue with the label and the lane's title. The label assigns
+    report ownership independently of who created the issue.
     """
-    issues = paginated(f"repos/{repo}/issues?labels={LABEL}&state=open&per_page=100")
-    numbers = sorted(
-        issue["number"]
-        for issue in issues
-        if "pull_request" not in issue and issue["title"] == title(run)
+    issues = paginated(f"repos/{repo}/issues?labels={LABEL}&state={state}&per_page=100")
+    return sorted(
+        (
+            issue
+            for issue in issues
+            if "pull_request" not in issue and issue["title"] == title(run)
+        ),
+        key=lambda issue: issue["number"],
     )
-    return numbers[0] if numbers else None
 
 
 def comment(repo: str, number: int, body: str) -> None:
@@ -126,11 +139,11 @@ def file_report(repo: str, run: dict[str, Any]) -> None:
         f"`{run['name']}` failed on `{run['head_branch']}`: {run_link(run)}, "
         f"triggered by `{run['event']}`.\n\n"
         f"This issue tracks `{run['name']}`'s `{run['event']}` runs on "
-        f"`{run['head_branch']}` until one passes. Each later failed run adds a "
-        "comment, and the next passing run closes this issue. Tend triages this "
-        "report when it opens, fixing causes directly or delegating them to separate "
-        "issues, and links each repair issue or PR here. The daily review revisits "
-        "unhandled failures.\n"
+        f"`{run['head_branch']}` until one passes. Tend triages it whenever it "
+        "opens or reopens: it fixes causes directly or delegates them to separate "
+        "issues, links each repair issue or PR here, and closes this issue once the "
+        "failures are diagnosed. The next failed run reopens it with a comment, "
+        "and a failed run after a pass files a new report.\n"
     )
     api(
         f"repos/{repo}/issues",
@@ -143,20 +156,35 @@ def main() -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     run = event["workflow_run"]
-    if superseded(repo, run):
+    verdicts = lane_verdicts(repo, run)
+    if any(other["id"] > run["id"] for other in verdicts):
         print(f"A newer run of this lane has finished; run {run['id']} changes nothing")
         return 0
-    number = open_report(repo, run)
-    if run["conclusion"] != "success":
-        if number is None:
-            file_report(repo, run)
-        else:
-            comment(repo, number, f"Failed again: {run_link(run)}.")
-    elif number is not None:
-        comment(repo, number, f"{run_link(run)} passed. Closing.")
-        api(
-            f"repos/{repo}/issues/{number}",
-            method="PATCH",
-            body={"state": "closed", "state_reason": "completed"},
-        )
+    open_reports = reports(repo, run, "open")
+    if run["conclusion"] == "success":
+        if open_reports:
+            number = open_reports[0]["number"]
+            comment(repo, number, f"{run_link(run)} passed. Closing.")
+            api(
+                f"repos/{repo}/issues/{number}",
+                method="PATCH",
+                body={"state": "closed", "state_reason": "completed"},
+            )
+        return 0
+    if open_reports:
+        comment(repo, open_reports[0]["number"], f"Failed again: {run_link(run)}.")
+        return 0
+    closed = reports(repo, run, "closed")
+    # GitHub's timestamps are UTC ISO 8601, so they compare as strings.
+    if not closed or any(
+        other["conclusion"] == "success"
+        and other["updated_at"] > closed[-1]["created_at"]
+        for other in verdicts
+    ):
+        file_report(repo, run)
+        return 0
+    number = closed[-1]["number"]
+    # Comment first: reopening starts the triage session that reads it.
+    comment(repo, number, f"Failed again: {run_link(run)}.")
+    api(f"repos/{repo}/issues/{number}", method="PATCH", body={"state": "open"})
     return 0

@@ -363,15 +363,18 @@ own commit, and every one of those runs finishes. `tend-ci-failures` runs no
 agent: it turns each verdict into the lane's CI failure report — one issue per
 watched workflow, branch and triggering event, since a scheduled suite can fail
 on tests push CI never runs — filing it on the first failure, commenting on
-each later one, and closing it on the next pass. Its group is keyed on that
+a later one while it is open, reopening it on a later one after triage closed
+it, and closing it on a pass. Its group is keyed on that
 lane and is job-level: a cancelled or skipped run, which the job's `if` skips,
 never enters it, so it never takes the pending slot from a verdict. The report
-is written with the bot token from the `tend` environment, so opening it starts
-ordinary `tend-triage`. Later failure comments add evidence without starting
-another session. The agent work runs through the issue path:
+is written with the bot token from the `tend` environment, so filing or reopening it
+starts ordinary `tend-triage`. Triage closes the report once it has diagnosed
+its failures and each has an owner, so an open report holds unhandled work. A
+failure while it is open only adds evidence, for a running session or, when
+none is running, the daily sweep. The agent work runs through the issue path:
 triage diagnoses the report, fixing causes directly or filing cause issues for
 separate triage sessions. Its diagnosis links each repair's issue or PR; an
-unresolved durable cause keeps that owner when a passing run closes the report.
+unresolved durable cause keeps that owner when the report closes.
 Sessions recheck existing owners before starting work. A triage job shares a
 concurrency group only with jobs for its own issue, so two reports can still reach
 one cause at once. The bot gets no notification for its own writes.
