@@ -123,7 +123,8 @@ maintainer merged without waiting.
 
 Use every row to identify what the failed run may have missed. Diagnose it and
 handle any applicable current work. Then close the trackers the report lists
-as open, each with the comment that marks it drained; one someone else already
+as open, each with the comment that marks it drained. One that gained a row
+since the report stays open for the next sweep, and one someone else already
 closed stays closed:
 
 ```bash

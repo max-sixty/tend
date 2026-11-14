@@ -193,14 +193,19 @@ def outage_trackers() -> int:
 def close_outage_trackers(report: Path) -> int:
     """Close the open trackers an `outage_trackers` report listed, marking each drained.
 
-    Only the trackers this sweep read: one filed after the report holds rows
-    nobody has diagnosed yet, and stays open for the next sweep.
+    Only what this sweep read: a tracker filed after the report, or one that
+    gained a row since, holds a run nobody has diagnosed yet, and stays open for
+    the next sweep.
     """
     closed = []
+    left_open = []
     for tracker in json.loads(report.read_text())["trackers"]:
         if tracker["state"] != "OPEN":
             continue
         number = int(tracker["number"])
+        if _rows(number) != tracker["rows"]:
+            left_open.append(number)
+            continue
         _common.gh(
             "issue",
             "close",
@@ -211,7 +216,7 @@ def close_outage_trackers(report: Path) -> int:
             f"{DRAINED_MARKER}\n`review-runs` read every run row on this tracker.",
         )
         closed.append(number)
-    _common.dump({"closed": closed})
+    _common.dump({"closed": closed, "left_open": left_open})
     return 0
 
 

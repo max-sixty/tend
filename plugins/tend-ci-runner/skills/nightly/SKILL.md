@@ -161,6 +161,7 @@ For each of these issues, check whether recent commits or the current codebase s
 
 - The bot opened the issue itself to report a transient condition (e.g., a "Nightly tests failed" report from a prior run) and the condition has clearly resolved — the fix PR is merged and the relevant CI on `main` is passing. Skip this case where closing the issue is itself a signal rather than a record of resolution:
   - a body containing "Do not close manually" — recurring trackers with their own lifecycle.
+  - the `tend-outage` label; `review-runs` closes these once it has read their rows.
   - the `tend-rate-limit` label; use its recovery rule below.
   - the `tend-ci-failure` label; the failing default-branch CI bullet above closes these reports under their own rule.
 - The repo's instructions (e.g., `running-tend` skill) explicitly authorize closing issues.

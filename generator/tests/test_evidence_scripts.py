@@ -396,9 +396,17 @@ def test_review_runs_close_outage_trackers_marks_only_the_open_trackers_read(
                 "trackers": [
                     {"number": 30, "state": "CLOSED", "rows": ["body-30"]},
                     {"number": 32, "state": "OPEN", "rows": ["body-32"]},
+                    # A failed run appended a row after the sweep read it.
+                    {"number": 33, "state": "OPEN", "rows": ["body-33"]},
                 ],
             }
         )
+    )
+    live = {"32": [], "33": [{"body": "row-33"}]}
+    monkeypatch.setattr(
+        review_runs._common,
+        "gh_json",
+        lambda *args, **kwargs: {"body": f"body-{args[2]}", "comments": live[args[2]]},
     )
     calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(
@@ -410,7 +418,7 @@ def test_review_runs_close_outage_trackers_marks_only_the_open_trackers_read(
     )
 
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == {"closed": [32]}
+    assert json.loads(result.output) == {"closed": [32], "left_open": [33]}
     [call] = calls
     assert call[:5] == ("issue", "close", "32", "--reason", "completed")
     assert call[5] == "--comment"
