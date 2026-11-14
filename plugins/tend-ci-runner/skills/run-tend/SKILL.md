@@ -76,6 +76,8 @@ Make the deliverable **maintainer-visible**: pushed, posted, or opened. Local-on
 
 Corollary: don't background anything whose output gates the deliverable. If a full test suite or comprehensive lint needs to run before push, run it synchronously and accept the time cost; if it's too slow for the session budget, push first and let CI re-run it. A session that shipped a partial result is recoverable; a session that ended mid-wait with the deliverable on a local branch is not. A targeted compile plus the tests directly exercising the change is enough local confidence to ship — leave the comprehensive matrix to CI.
 
+The same holds for subagents. Run one whose result the deliverable needs in the foreground — under Claude, `Agent` with `run_in_background: false`; several such calls in one message still run concurrently and the turn continues once all return. Ending the turn to wait for a background subagent's notification works only while the headless session stays alive, and a subagent still running when it exits is killed with its work.
+
 Before ending, re-fetch the thread you are handling: a comment that landed meanwhile may be a directive that changes the work, and a sibling run may already have done it (`/tend-ci-runner:post-to-github`).
 
 Your closing summary is the session's only durable record of what happened, and it is read later as if it were current. Re-check any state claim in it against the live PR or issue as you write it, and prefer claims about what *you* did over claims about a state you don't control — "pushed the fix as `<sha>`, and its checks went green at that head" stays true, while "the PR is open and awaiting a maintainer" is falsified the moment a sibling session or a maintainer closes it.
