@@ -23,11 +23,23 @@ FAKE_GH = (
 case "$1 $2" in
   "search code") emit "$(cat "$SEARCH_JSON")" ;;
   "api repos/a/new/contents/.github/workflows")
-    emit '[{"name":"tend-review.yaml"}]' ;;
+    emit '[{"name":"tend-triage.yaml"},{"name":"tend-review.yaml"}]' ;;
+  "api repos/a/new/contents/.github/workflows/tend-review.yaml")
+    emit '{"content":"b246IHt9Cg=="}' ;;
+  "api repos/a/new/contents/.github/workflows/tend-triage.yaml")
+    emit '{"content":"ICAgIGlmOiBnaXRodWIucmVwb3NpdG9yeV9vd25lciA9PSAnYScK"}' ;;
   "api repos/a/new/contents/.config/tend.yaml")
     emit '{"content":"Ym90X25hbWU6IG5ldy1ib3QK"}' ;;
   "api repos/w/config-missing/contents/.github/workflows")
     emit '[{"name":"tend-review.yaml"}]' ;;
+  "api repos/w/config-missing/contents/.github/workflows/tend-review.yaml")
+    emit '{"content":"b246IHt9Cg=="}' ;;
+  "api repos/m/mirror/contents/.github/workflows")
+    emit '[{"name":"tend-nightly.yaml"}]' ;;
+  "api repos/m/mirror/contents/.github/workflows/tend-nightly.yaml")
+    emit '{"content":"ICAgIGlmOiBnaXRodWIucmVwb3NpdG9yeV9vd25lciA9PSAndXBzdHJlYW0nCg=="}' ;;
+  "api repos/m/mirror/contents/.config/tend.yaml")
+    emit '{"content":"Ym90X25hbWU6IG1pcnJvci1ib3QK"}' ;;
   "api repos/w/config-missing/contents/.config/tend.yaml")
     echo "gh: Not Found (HTTP 404)" >&2
     exit 1
@@ -40,6 +52,8 @@ case "$1 $2" in
     emit '[{"name":"ci.yaml"}]' ;;
   "api repos/z/retained/contents/.github/workflows")
     emit '[{"name":"tend-nightly.yaml"}]' ;;
+  "api repos/z/retained/contents/.github/workflows/tend-nightly.yaml")
+    emit '{"content":"ICAgIGlmOiBnaXRodWIucmVwb3NpdG9yeV9vd25lciA9PSAneicK"}' ;;
   "api repos/z/retained/contents/.config/tend.yaml")
     emit '{"content":"Ym90X25hbWU6IGN1cnJlbnQtYm90Cg=="}' ;;
   "api repos/broken/repo/contents/.github/workflows")
@@ -65,7 +79,7 @@ def environment(tmp_path: Path, search: list[dict[str, object]]) -> dict[str, st
     }
 
 
-def test_refresh_unions_search_with_the_index_and_confirms_removals(
+def test_refresh_unions_search_with_the_index_and_drops_non_consumers(
     tmp_path: Path,
 ) -> None:
     data = tmp_path / "data"
@@ -89,6 +103,10 @@ def test_refresh_unions_search_with_the_index_and_confirms_removals(
             "path": ".github/workflows/tend-review.yaml",
         },
         {
+            "repository": {"nameWithOwner": "m/mirror"},
+            "path": ".github/workflows/tend-nightly.yaml",
+        },
+        {
             "repository": {"nameWithOwner": "irrelevant/repo"},
             "path": "README.yaml",
         },
@@ -106,7 +124,7 @@ def test_refresh_unions_search_with_the_index_and_confirms_removals(
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
         "changed": True,
-        "discovered": 1,
+        "discovered": 2,
         "consumers": 2,
         "removed": ["w/config-missing", "x/missing", "y/removed"],
     }
@@ -122,6 +140,7 @@ def test_refresh_unions_search_with_the_index_and_confirms_removals(
     assert "repos/w/config-missing/contents/.config/tend.yaml" in calls
     assert "repos/x/missing/contents/.config/tend.yaml" not in calls
     assert "repos/y/removed/contents/.config/tend.yaml" not in calls
+    assert "m/mirror" not in consumers.read_text()
 
 
 def test_github_failure_leaves_the_existing_index_untouched(tmp_path: Path) -> None:
