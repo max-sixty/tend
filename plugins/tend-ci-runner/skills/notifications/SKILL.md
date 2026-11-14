@@ -7,7 +7,7 @@ metadata:
 
 # Check Notifications and Bot PRs
 
-Unread notifications retain unanswered activity. Event workflows are the fast path; this poll handles missed activity and repairs conflicts on the configured bot's PRs. `/tend-ci-runner:nightly`'s **Step 5** continues the work no notification marks: issues the bot last wrote on, including its own reports.
+Unread notifications retain unanswered activity. Event workflows are the fast path; this poll handles missed activity and repairs conflicts on the configured bot's PRs. **Reconcile open work** in `/tend-ci-runner:nightly` continues the work no notification marks: issues the bot last wrote on, including its own reports.
 
 The workflow prompt supplies the **notification snapshot cutoff**. This run owns whatever the snapshot returned; anything the snapshot did not return belongs to the next poll.
 
@@ -58,7 +58,7 @@ Process the snapshot oldest first. Determine what work or response remains from 
 - An open same-repository CI failure report (labeled `tend-ci-failure`) needing diagnosis also goes through **Recover issue work**. Leave the notification unread until its worker succeeds. A closed report needs no action.
 - If the bot already handled the latest activity and no repair remains, record it as handled without posting again.
 - Otherwise route a same-repository issue needing triage through **Recover issue work**; use `/tend-ci-runner:review` for an unreviewed PR head, or answer a comment or review thread that asks the bot for something per `/tend-ci-runner:respond-on-thread` and `/tend-ci-runner:post-to-github`. Another repository's issue follows `/tend-ci-runner:act-in-other-repos`.
-- A non-conversational subject, such as a release or check suite, also has the outcome “no action”. Default-branch CI recovery belongs to `/tend-ci-runner:nightly`'s **Step 5**.
+- A non-conversational subject, such as a release or check suite, also has the outcome “no action”. Default-branch CI recovery belongs to **Reconcile open work** in `/tend-ci-runner:nightly`.
 - A subject with no readable target — a `Discussion`, whose `subject.url` is null, or a deleted issue or PR, whose `subject.url` 404s — also has the outcome “no action”. Nothing makes it readable on a later poll, so leaving it unresolved would hand it to every later poll to re-examine. A read that fails for any other reason — a 5xx, a rate limit — leaves the item unresolved.
 
 Judge deduplication from current state, including bot reviews and bot-authored PRs that cross-reference an issue. The notification timestamp alone does not prove whether a response covered the activity.

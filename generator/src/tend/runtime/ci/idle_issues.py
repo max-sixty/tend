@@ -1,14 +1,17 @@
-"""List the open issues where the bot had the last word and nothing will act next.
+"""List the open issues the bot had the last word on that nothing else will act on.
 
-A comment from anyone but the bot starts an event workflow, and the
-notifications poll recovers what those runs miss. The bot gets no event for
-its own writes, so an issue it last wrote on waits for the nightly sweep,
+A comment on a thread the bot is in starts an event workflow, and the
+notifications poll recovers what those runs miss, but the bot gets no event for
+its own writes. So an issue it last wrote on waits for the nightly sweep,
 whether its session finished the work or left a diagnosis, a next step or a
 blocker. This lists those issues, leaving out the ones something will act on
-without the sweep: an assignee, a queued or running Tend run, or an open pull
-request that would close the issue. Whether a listed issue still holds work is
-the sweep's judgement, so open pull requests that reference an issue without
-closing it are reported as evidence rather than counted as its owner.
+without the sweep: an assignee other than the bot, a queued or running Tend
+run, or an open pull request that will close the issue. Whether a listed issue
+still holds the bot's work is the sweep's judgement, so the open pull requests
+that reference it come back as evidence.
+
+Comments by GitHub Apps (`github-actions`, stale bots) start no Tend workflow,
+so they don't take the last word.
 """
 
 from __future__ import annotations
@@ -20,9 +23,9 @@ from typing import Any
 from tend.runtime.ci import active_subject_runs
 from tend.runtime.shared import _common, bot_identity
 
-# `last` rather than `first`: a long-lived issue, such as a CI failure report,
-# collects hundreds of cross-references, and the open pull requests among them
-# are the recent ones.
+# Cross-references are read from the end: a long-lived issue, such as a CI
+# failure report, collects hundreds, and the open pull requests are the recent
+# ones.
 QUERY = """
 query($owner: String!, $repo: String!, $endCursor: String) {
   repository(owner: $owner, name: $repo) {
@@ -32,19 +35,15 @@ query($owner: String!, $repo: String!, $endCursor: String) {
         number
         title
         url
-        author { login }
+        author { __typename login }
         labels(first: 20) { nodes { name } }
-        assignees(first: 1) { totalCount }
-        comments(last: 1) { nodes { author { login } createdAt } }
-        timelineItems(last: 100, itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT]) {
+        assignees(first: 10) { nodes { login } }
+        comments(last: 10) { nodes { author { __typename login } createdAt } }
+        closedByPullRequestsReferences(first: 1) { totalCount }
+        timelineItems(last: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
           nodes {
-            __typename
             ... on CrossReferencedEvent {
-              willCloseTarget
               source { ... on PullRequest { number state } }
-            }
-            ... on ConnectedEvent {
-              subject { ... on PullRequest { number state } }
             }
           }
         }
@@ -55,18 +54,13 @@ query($owner: String!, $repo: String!, $endCursor: String) {
 """
 
 
-def open_prs(issue: dict[str, Any]) -> tuple[list[int], bool]:
-    """Return the open pull requests referencing *issue*, and whether one closes it."""
-    numbers: list[int] = []
-    closes = False
-    for event in issue["timelineItems"]["nodes"]:
-        pr = event.get("source") or event.get("subject") or {}
-        if pr.get("state") != "OPEN":
-            continue
-        numbers.append(pr["number"])
-        if event["__typename"] == "ConnectedEvent" or event.get("willCloseTarget"):
-            closes = True
-    return sorted(set(numbers)), closes
+def last_word(issue: dict[str, Any]) -> tuple[str, str | None]:
+    """Return who last wrote on *issue*, apps aside, and when, if in a comment."""
+    for comment in reversed(issue["comments"]["nodes"]):
+        author = comment["author"] or {}
+        if author.get("__typename") != "Bot":
+            return _common.actor_login(author), comment["createdAt"]
+    return _common.actor_login(issue["author"]), None
 
 
 def select(
@@ -78,23 +72,26 @@ def select(
     """Keep the issues the bot last wrote on that nothing else will act on."""
     selected = []
     for issue in issues:
-        comment = next(iter(issue["comments"]["nodes"]), None)
-        last = comment or {"author": issue["author"], "createdAt": None}
-        if _common.actor_login(last["author"]) != bot:
+        author, at = last_word(issue)
+        if author != bot or issue["number"] in active:
             continue
-        if issue["assignees"]["totalCount"] or issue["number"] in active:
+        if any(a["login"] != bot for a in issue["assignees"]["nodes"]):
             continue
-        prs, closes = open_prs(issue)
-        if closes:
+        if issue["closedByPullRequestsReferences"]["totalCount"]:
             continue
+        prs = {
+            event["source"]["number"]
+            for event in issue["timelineItems"]["nodes"]
+            if (event.get("source") or {}).get("state") == "OPEN"
+        }
         selected.append(
             {
                 "number": issue["number"],
                 "title": issue["title"],
                 "url": issue["url"],
                 "labels": [label["name"] for label in issue["labels"]["nodes"]],
-                "last_comment_at": last["createdAt"],
-                "open_prs": prs,
+                "last_comment_at": at,
+                "open_prs": sorted(prs),
             }
         )
     return selected

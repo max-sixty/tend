@@ -107,20 +107,20 @@ Read the project's instruction files before reviewing. Apply the review checklis
 
 ## Step 5: Reconcile open work
 
-Event workflows answer activity as it arrives: a comment from anyone but the bot on a thread the bot is in starts `tend-mention`, and `tend-notifications` recovers what those runs miss. The bot gets no event for its own writes, so nothing else returns to work a bot session left open: an investigation that ended with a diagnosis, a next step or a blocker but no fix, a cause whose failure a later run shows again, a bot PR whose session stopped, a red default branch, a security alert Dependabot couldn't fix. This step continues that work and closes what is resolved. Open issues and PRs hold the work whatever became of the run that last touched them, so recover from their current state rather than by replaying a historical workflow payload. Divide the work per `/tend-ci-runner:review-runs`'s `references/parallel-maintenance.md`.
+The bot gets no event for its own writes, so work a bot session left open waits for this step: an investigation that ended with a diagnosis, a next step or a blocker but no fix, a cause whose failure a later run shows again, a bot PR whose session stopped, a red default branch. Continue it and close what is resolved, working from the current state of the issues and PRs that hold it rather than by replaying a historical workflow payload. Divide the work per `/tend-ci-runner:review-runs`'s `references/parallel-maintenance.md`.
 
 ### Unfinished work
 
-- open issues where the bot had the last word and nothing else will act next:
+- open issues the bot had the last word on that nothing else will act on:
 
   ```bash
   tend runtime idle-issues > "$TMPDIR/idle-issues.json"
   ```
 
-  It lists each open issue whose latest comment is the bot's, or that the bot filed with no comment since, and leaves out any with an assignee, a queued or running Tend run, or an open PR that would close it. `open_prs` names open PRs that reference an issue without closing it. For each listed issue, read its thread and linked repairs and apply **Recover issue work** in `/tend-ci-runner:notifications`: close it where the whole issue is resolved, leave it where it waits on a named person's answer or a maintainer's hold, and send the rest to a triage worker. A session's own comment ending in a diagnosis, a next step or a blocker leaves the work unfinished.
+  It lists each open issue whose latest comment, apps such as `github-actions` aside, is the bot's, or that the bot filed with no such comment since. It leaves out any with an assignee other than the bot, a queued or running Tend run, or an open PR that will close it, and `open_prs` names the open PRs that reference each one. Read each listed issue's thread and linked repairs and judge whose move it is. Where the bot owes the next action, such as a diagnosis to finish, a step its last session named, a blocker that may have cleared or a failure a later run shows again, send it to a triage worker through **Recover issue work** in `/tend-ci-runner:notifications`. Where the next action is someone else's, such as a maintainer's decision, an answer the bot asked for or a tracker with its own lifecycle, leave it and post nothing new. Close one only under **Resolved issues** below.
 - an open PR whose live head has no bot review, or whose latest comment, review, or inline review comment directed at the bot has no response; this includes replies to the bot's review on a fork PR;
 - unfinished configured-bot PRs, regardless of notification or review state. List the bot's open PRs (`gh pr list --state open --author "$BOT_NAME" --limit 200 --json number`) and continue each per `/tend-ci-runner:continue-pr`. A green proposal awaiting a maintainer in restricted mode, an explicit maintainer hold, or an unchanged external blocker needs no repeated post;
-- failing default-branch CI with no bot fix in progress. Another live-state check: scoped neither to the workflows `tend-ci-failures` reports — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window. On a lane `tend-ci-failures` reports, judge the lane's newest CI failure report (labeled `tend-ci-failure`), open or closed, against step 6 of **A report** in `/tend-ci-runner:triage`'s `references/ci-failures.md`, with the live issue and PR checks above. A closed report needs nothing while step 6 would still close it. Where it no longer would, because a failure's owner has lapsed, reopen the report with a comment naming that failure's run, which makes the run owed again (step 1) and starts the report's triage. An open report that step 6 would close is finished work its session didn't close: close it, so the lane's next failure reopens it. Otherwise hand an open report to ordinary triage through **Recover issue work** in `/tend-ci-runner:notifications`, including its access and admission checks, rather than working it here.
+- failing default-branch CI with no bot fix in progress, in any workflow and however old: Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them. On a lane `tend-ci-failures` reports, judge the lane's newest CI failure report (labeled `tend-ci-failure`), open or closed, against step 6 of **A report** in `/tend-ci-runner:triage`'s `references/ci-failures.md`, with the live issue and PR checks above. A closed report needs nothing while step 6 would still close it. Where it no longer would, because a failure's owner has lapsed, reopen the report with a comment naming that failure's run, which makes the run owed again (step 1) and starts the report's triage. An open report that step 6 would close is finished work its session didn't close: close it, so the lane's next failure reopens it. Otherwise hand an open report to ordinary triage through **Recover issue work** in `/tend-ci-runner:notifications`, including its access and admission checks, rather than working it here.
 
   ```bash
   tend runtime red-default-branch-runs
@@ -130,18 +130,7 @@ Event workflows answer activity as it arrives: a comment from anyone but the bot
 
   Listings can serve old snapshots; repeated agreement cannot establish freshness. Treat candidates as investigation leads. Apply evidence already collected: an independently verified later success on the same branch and subject closes older failures even when the helper's returned green is older. Do not leave those rows unresolved or demand the same verification again. Before opening a fix or reporting a remaining unresolved failure, inspect its run's jobs/logs and the workflow's current branch checks and later runs. Resolve contradictory evidence before acting; do not attribute it to a client cache or a GitHub cache without evidence. With no candidates, report only that no unfixed failures were found in the returned pages, naming the scope checked rather than declaring the branch green.
 
-  Read without a time window: an old failure may still need a fix. Dependabot updates have one-off names, so use a fix PR or tracker to determine whether one is already addressed. `review-runs` diagnoses tend's own failed runs inside its census window; older tend failures belong here.
-
-  Keep failed runs in the report as diagnostic evidence.
-
-- a tend workflow whose queue is dead. A run parked in GitHub's pre-job `waiting` state holds its concurrency group without ever concluding, so under `cancel-in-progress: false` every later tick takes the single pending slot and is replaced by its successor — the workflow stops running and nothing fails. `review-runs`' census admits a run only on a non-null `conclusion`, so it never sees the parked run, and the replacements it causes read there as ordinary concurrency.
-
-  ```bash
-  gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs?status=waiting&per_page=100" \
-    --jq '.workflow_runs[] | {id, path, created_at, html_url}'
-  ```
-
-  A tend run still `waiting` after several of its own scheduling intervals — or, on an event-driven workflow, long after the event that created it — is wedged. Every generated workflow but the secretless `tend-mention-relay` carries the `tend` environment, so any of the rest can park. `pending_deployments` on it confirms which kind: `wait_timer: 0` with an empty `reviewers` is an environment gate with nothing left to release it, so `gh run cancel <id>` is the remedy and the pending successor starts. `queued` is a different state and not this shape — `gh run cancel` there answers `Cannot cancel a workflow run that is completed` while the runs API still reports the run `queued`. That is GitHub bookkeeping holding nothing live; leave it rather than fighting it.
+  Dependabot updates have one-off names, so use a fix PR or tracker to determine whether one is already addressed. A tend workflow's failure since the last `review-runs` sweep is that sweep's to diagnose; an older one belongs here.
 
 - an open Dependabot security alert with no PR or tracker proposing its fix — same closure as the red rows above, so an alert whose fix needs a maintainer decision stops re-surfacing once it is tracked. Dependabot opens that PR itself for most alerts, so the ones that reach this sweep are the ones where it could not — and nothing else in tend looks: `weekly` reviews the dependency PRs that exist, and the defining property here is that none was created.
 
@@ -154,7 +143,7 @@ Event workflows answer activity as it arrives: a comment from anyone but the bot
 
   The PAT's `repo` scope covers this. Where alerts are disabled the call fails with `403 Dependabot alerts are disabled for this repository.` — that is the check not applying, not a missing scope; only an empty result means no open alerts. Otherwise run it unconditionally. An alert open for more than a few days with no PR naming its package is live work in the same sense as a red default-branch run. A red `dynamic/dependabot/...` row above naming that package is the mechanism: Dependabot is erroring, so waiting will not produce a PR and the manifest or lockfile has to be bumped directly. `gh run view <id> --log-failed` ends with an error table naming the dependency and the error type; `security_update_not_possible` also reports the lowest non-vulnerable version beside the highest the dependency tree currently resolves, which is the constraint to relax.
 
-Review the PRs above per the normal review instructions.
+Review the PRs above per `/tend-ci-runner:review`.
 
 ### Resolved issues
 
@@ -165,6 +154,8 @@ BUCKET=$(( GITHUB_RUN_NUMBER % 7 ))
 gh api --paginate "repos/{owner}/{repo}/issues?state=open&per_page=100" \
   --jq ".[] | select(.pull_request == null and (.user.login == \"$BOT_NAME\" or .number % 7 == $BUCKET)) | {number, title}"
 ```
+
+The closing rule below governs every issue this step reads, including those **Unfinished work** lists.
 
 For each of these issues, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue) per `/tend-ci-runner:post-to-github`. Close the issue with `gh issue close` when:
 

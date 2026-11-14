@@ -377,8 +377,8 @@ separate triage sessions. Its diagnosis links each repair's issue or PR; an
 unresolved durable cause keeps that owner when the report closes.
 Sessions recheck existing owners before starting work. A triage job shares a
 concurrency group only with jobs for its own issue, so two reports can still reach
-one cause at once. The bot gets no notification for its own writes.
-The bot gets no event for its own writes, so the nightly sweep continues the
+one cause at once. The bot gets no notification or event for its own writes,
+so the nightly sweep continues the
 work on open issues it last wrote on, reports and partial investigations after
 successful turns included; `tend runtime idle-issues` lists those that no
 assignee, Tend run or closing PR will act on. It routes the work through

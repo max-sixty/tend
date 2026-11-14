@@ -36,27 +36,38 @@ esac
 )
 
 
-def _issue(number: int, *, author: str = BOT, last: str | None = BOT, **extra) -> dict:
-    comments = [
-        {"author": {"login": last}, "createdAt": f"2026-11-0{number}T08:00:00Z"}
-    ]
+def _issue(
+    number: int,
+    *,
+    author: str = BOT,
+    comments: tuple = (BOT,),
+    assignees: tuple = (),
+    closing: int = 0,
+    refs: tuple = (),
+) -> dict:
+    """An open issue; each comment is a login, an app's ``(login, "Bot")``, or None
+    for a deleted account."""
+    nodes = []
+    for minute, who in enumerate(comments):
+        login, kind = who if isinstance(who, tuple) else (who, "User")
+        nodes.append(
+            {
+                "author": None if who is None else {"__typename": kind, "login": login},
+                "createdAt": f"2026-11-01T08:{minute:02d}:00Z",
+            }
+        )
     return {
         "number": number,
         "title": f"issue {number}",
         "url": f"https://github.com/owner/repo/issues/{number}",
-        "author": {"login": author},
+        "author": {"__typename": "User", "login": author},
         "labels": {"nodes": [{"name": "tend-ci-cause"}]},
-        "assignees": {"totalCount": extra.get("assignees", 0)},
-        "comments": {"nodes": comments if last else []},
-        "timelineItems": {"nodes": extra.get("timeline", [])},
-    }
-
-
-def _ref(pr: int, state: str, closes: bool) -> dict:
-    return {
-        "__typename": "CrossReferencedEvent",
-        "willCloseTarget": closes,
-        "source": {"number": pr, "state": state},
+        "assignees": {"nodes": [{"login": login} for login in assignees]},
+        "comments": {"nodes": nodes},
+        "closedByPullRequestsReferences": {"totalCount": closing},
+        "timelineItems": {
+            "nodes": [{"source": {"number": pr, "state": state}} for pr, state in refs]
+        },
     }
 
 
@@ -80,18 +91,21 @@ def test_lists_issues_the_bot_last_wrote_on_that_nothing_will_act_on(
         _page(
             [
                 _issue(1),
-                _issue(2, last="maintainer"),
-                _issue(3, assignees=1),
-                _issue(4, timeline=[_ref(40, "OPEN", True)]),
+                _issue(2, comments=(BOT, "maintainer")),
+                _issue(3, assignees=("maintainer",)),
+                _issue(4, closing=1),
+                _issue(5, refs=((50, "OPEN"), (51, "MERGED"))),
+                _issue(6, comments=()),
             ],
             more=True,
         ),
         _page(
             [
-                _issue(5, timeline=[_ref(50, "OPEN", False), _ref(51, "MERGED", True)]),
-                _issue(6, last=None),
                 _issue(7),
-                _issue(8, author="maintainer", last=None),
+                _issue(8, author="maintainer", comments=()),
+                _issue(9, assignees=(BOT,)),
+                _issue(10, comments=(BOT, ("github-actions", "Bot"))),
+                _issue(11, comments=(BOT, None)),
             ],
             more=False,
         ),
@@ -131,32 +145,24 @@ def test_lists_issues_the_bot_last_wrote_on_that_nothing_will_act_on(
     )
 
     assert result.returncode == 0, result.stderr
+
+    def listed(number: int, last_comment_at: str | None, open_prs=()) -> dict:
+        return {
+            "number": number,
+            "title": f"issue {number}",
+            "url": f"https://github.com/owner/repo/issues/{number}",
+            "labels": ["tend-ci-cause"],
+            "last_comment_at": last_comment_at,
+            "open_prs": list(open_prs),
+        }
+
     assert json.loads(result.stdout) == {
-        "open": 8,
+        "open": 11,
         "issues": [
-            {
-                "number": 1,
-                "title": "issue 1",
-                "url": "https://github.com/owner/repo/issues/1",
-                "labels": ["tend-ci-cause"],
-                "last_comment_at": "2026-11-01T08:00:00Z",
-                "open_prs": [],
-            },
-            {
-                "number": 5,
-                "title": "issue 5",
-                "url": "https://github.com/owner/repo/issues/5",
-                "labels": ["tend-ci-cause"],
-                "last_comment_at": "2026-11-05T08:00:00Z",
-                "open_prs": [50],
-            },
-            {
-                "number": 6,
-                "title": "issue 6",
-                "url": "https://github.com/owner/repo/issues/6",
-                "labels": ["tend-ci-cause"],
-                "last_comment_at": None,
-                "open_prs": [],
-            },
+            listed(1, "2026-11-01T08:00:00Z"),
+            listed(5, "2026-11-01T08:00:00Z", [50]),
+            listed(6, None),
+            listed(9, "2026-11-01T08:00:00Z"),
+            listed(10, "2026-11-01T08:00:00Z"),
         ],
     }
