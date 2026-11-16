@@ -30,6 +30,9 @@ NO_PROXY = "localhost,127.0.0.1,::1"
 PROXY_CA_CERT = Path("/usr/local/share/ca-certificates/tend-proxy.crt")
 TEND_RUN_DIR = AGENT_HOME / "run"
 AGENT_TMP_DIR = AGENT_HOME / "tmp"
+#: The runner's own ``XDG_RUNTIME_DIR`` is a ``0700`` directory the sandbox
+#: user cannot open; tools such as the .NET SDK refuse any other mode.
+AGENT_RUNTIME_DIR = AGENT_HOME / "xdg-runtime"
 TEND_AGENT_UV_DIR = AGENT_HOME / ".tend-uv/bin"
 #: Harness state stays in the sandbox's own home: runner-side steps stage it
 #: before the view exists and read the session log after it is gone.
@@ -145,6 +148,7 @@ def base_agent_env(path: str, anthropic_dummy: tuple[str, str] | None) -> list[s
         "XDG_CACHE_HOME": str(AGENT_HOME / ".cache"),
         "XDG_DATA_HOME": str(AGENT_HOME / ".local/share"),
         "XDG_STATE_HOME": str(AGENT_HOME / ".local/state"),
+        "XDG_RUNTIME_DIR": str(AGENT_RUNTIME_DIR),
         "HTTPS_PROXY": PROXY_URL,
         "HTTP_PROXY": PROXY_URL,
         "https_proxy": PROXY_URL,
@@ -211,6 +215,7 @@ def prepare_agent_home() -> None:
     """Create the sandbox-owned directories outside the view."""
     for directory in (TEND_RUN_DIR, AGENT_TMP_DIR, CLAUDE_CONFIG_DIR, CODEX_HOME):
         sudo("/usr/bin/mkdir", "-p", str(directory), user=SANDBOX)
+    sudo("/usr/bin/mkdir", "-p", "-m", "700", str(AGENT_RUNTIME_DIR), user=SANDBOX)
     log(f"run dir {TEND_RUN_DIR}")
 
 
