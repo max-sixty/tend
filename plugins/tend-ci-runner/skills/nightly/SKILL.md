@@ -250,7 +250,7 @@ That projection orients you; it does not clear a finding. It omits both states a
 
 The default action is a PR, not an issue. If there's a plausible fix, make it — explain uncertainty in the PR description.
 
-Group related findings by theme and complete the supported repairs. Record unresolved findings in the Step 9 summary.
+Group related findings by theme and complete the supported repairs. A reachable defect this run doesn't fix goes to an issue under item 2, or to a comment on an open issue that already covers it, carrying the reproduction and what couldn't be verified. The Step 9 summary links those issues; it is not where a finding lives.
 
 For each finding:
 
