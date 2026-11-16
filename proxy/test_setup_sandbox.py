@@ -67,9 +67,11 @@ def test_agent_state_stays_out_of_the_view() -> None:
     assert f"CLAUDE_CONFIG_DIR={setup_sandbox.CLAUDE_CONFIG_DIR}" in assignments
     assert f"CODEX_HOME={setup_sandbox.CODEX_HOME}" in assignments
     assert f"TMPDIR={setup_sandbox.AGENT_TMP_DIR}" in assignments
+    assert f"XDG_RUNTIME_DIR={setup_sandbox.AGENT_RUNTIME_DIR}" in assignments
     assert setup_sandbox.CLAUDE_CONFIG_DIR.is_relative_to(setup_sandbox.AGENT_HOME)
     assert setup_sandbox.CODEX_HOME.is_relative_to(setup_sandbox.AGENT_HOME)
     assert setup_sandbox.TEND_RUN_DIR.is_relative_to(setup_sandbox.AGENT_HOME)
+    assert setup_sandbox.AGENT_RUNTIME_DIR.is_relative_to(setup_sandbox.AGENT_HOME)
 
 
 def test_github_only_agent_environment_has_no_model_credential() -> None:
