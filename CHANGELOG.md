@@ -6,6 +6,17 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.26
+
+### Improved
+
+- The creation limit is a broad guard against runaway creation: in any rolling 24 hours the bot may create up to four times its daily average over the week before, and at least 30, where it was twice the previous seven UTC days' average with a floor of 10. Each maintainer close of the tracker in the past 24 hours doubles the limit, replacing seven-day approval floors. Refusals file a tracker titled `Creation allowance exhausted`; trackers titled `Creation allowance reached` are no longer reopened. The credential proxy forwards one creation at a time instead of reconciling receipts from GitHub's responses. ([#1693](https://github.com/max-sixty/tend/pull/1693))
+- Claude Code 2.1.325 and uv 0.13.8. The credential proxy's locked dependencies move to mitmproxy-rs 0.12.16 and argon2-cffi-bindings 26.2.0. ([#1690](https://github.com/max-sixty/tend/pull/1690), [#1691](https://github.com/max-sixty/tend/pull/1691))
+
+### Internal
+
+- Codex evals pin promptfoo 0.124.1, the newest release that accepts the pinned Codex SDK, and development tooling is updated. ([#1689](https://github.com/max-sixty/tend/pull/1689), [#1692](https://github.com/max-sixty/tend/pull/1692))
+
 ## 0.3.25
 
 ### Improved
