@@ -2,7 +2,7 @@
   "repository": "example/widget",
   "bot": "widget-agent",
   "now": "2026-10-28T01:00:00Z",
-  "shared_state": "Each snapshot is independent. All trackers are open, authored by widget-agent, titled Creation allowance exhausted, labeled tend-rate-limit, and have no manual-close prohibition or other lifecycle label. No maintainer has closed them. The bot cannot approve extra creation capacity by closing a tracker. Current reads, comments and issue closure work. There is no provider outage or separate approval gate. The repository has no override for closing these trackers. Creation usage is measured over the preceding 24 hours; UTC midnight does not reset it. A human close approves more: creations before it stop counting toward the allowance. Differently titled trackers grant no approval.",
+  "shared_state": "Each snapshot is independent. All trackers are open, authored by widget-agent, titled Creation allowance exhausted, labeled tend-rate-limit, and have no manual-close prohibition or other lifecycle label. No maintainer has closed them. The bot cannot approve extra creation capacity by closing a tracker. Current reads, comments and issue closure work. There is no provider outage or separate approval gate. The repository has no override for closing these trackers. Creation usage is measured over the preceding 24 hours; UTC midnight does not reset it. A human close approves more: each close doubles the allowance for 24 hours. Differently titled trackers grant no approval.",
   "snapshots": [
     {
       "id": "recovered-accounted",

@@ -268,7 +268,7 @@
           "message": "Tend creation allowance reached for example/widget: 30 creations in the past 24 hours; limit 30. Next usage expiry: 2026-10-26T23:00:00Z; recheck then. Refused runs are listed in issue220; closing it approves more."
         },
         "source": "The privileged proxy returned this response to an issue creation request; the agent kept running.",
-        "policy": "Usage is measured over the preceding 24 hours, without a midnight reset or a separate burst limit. The limit is max(30, ceil(4 * creations in the seven days before the preceding 24 hours / 7)). A human close of a tracker titled Creation allowance exhausted approves more: creations before the close stop counting. Closes of differently titled trackers approve nothing."
+        "policy": "Usage is measured over the preceding 24 hours, without a midnight reset or a separate burst limit. The limit is max(30, ceil(4 * creations in the seven days before the preceding 24 hours / 7)). A human close of a tracker titled Creation allowance exhausted approves more: each such close in the past 24 hours doubles the limit. Closes of differently titled trackers approve nothing."
       },
       "open_issues": [
         {

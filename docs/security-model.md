@@ -591,12 +591,13 @@ an issue on every run. The fourfold margin covers busy days, and accepted
 volume raises the next week's average, so steady growth raises the allowance
 with it.
 
-Closing the bot's `Creation allowance exhausted` tracker approves more:
-creations before the close stop counting toward the allowance, and a runaway
-that continues trips it again after another full allowance. Closes by the bot
-or a GitHub App approve nothing. Nor does a close made before the issue last
-gained its title or the `tend-rate-limit` label, so the bot cannot turn an
-issue a maintainer closed for another reason into an approval.
+Closing the bot's `Creation allowance exhausted` tracker approves more: each
+close in the past 24 hours doubles the allowance, so approving a large surge
+takes a few closes, and a runaway that outgrows the doubled allowance trips it
+again. Closes by the bot or a GitHub App approve nothing. Nor does a close
+made before the issue last gained its title or the `tend-rate-limit` label, so
+the bot cannot turn an issue a maintainer closed for another reason into an
+approval.
 
 GitHub creation timestamps and close events provide the evidence. The proxy
 forwards one creation at a time and reads the history for the next only after

@@ -6,8 +6,9 @@ least 30. Busy days stay inside that; a loop filing an issue every few
 minutes does not. Accepted volume feeds the next week's average, so steady
 growth raises the limit by itself.
 
-A maintainer approves more by closing the tracker: creations before the close
-stop counting. Bot and GitHub App closes approve nothing.
+A maintainer approves more by closing the tracker: each close in the past 24
+hours doubles the limit, so a surge they keep approving needs a few closes
+rather than one per allowance. Bot and GitHub App closes approve nothing.
 
 Each proxy forwards one creation at a time, so the history lists everything
 it created before. Independent proxies read the same history without
@@ -49,9 +50,9 @@ least {FLOOR}. New creations are refused; reviews, comments, existing-branch \
 repairs and issue closures continue. Usage falls as creations become 24 hours \
 old.
 
-**Closing this issue approves more:** creations before the close stop counting \
-toward the allowance. Another refusal reopens it. This bot and GitHub Apps \
-cannot approve themselves.
+**Closing this issue approves more:** each close doubles the allowance for 24 \
+hours. Another refusal reopens it. This bot and GitHub Apps cannot approve \
+themselves.
 
 {{row}}
 
@@ -128,24 +129,18 @@ def admit(request: dict[str, Any]) -> dict[str, Any]:
     if not pauses:
         time.sleep(random.randrange(JITTER))
         pauses = _issue.matching(PAUSE_LABEL, "all", PAUSE_TITLE)
-    approved = max(
-        (
-            at
-            for number in pauses
-            for at in approvals(_approval_events(repo, number), bot_id=bot_id, now=now)
-        ),
-        default=None,
+    approved = sum(
+        len(approvals(_approval_events(repo, number), bot_id=bot_id, now=now))
+        for number in pauses
     )
-    window = "in the past 24 hours"
-    if approved is not None:
-        recent = [at for at in recent if at > approved]
-        window = f"since the approval at {approved.strftime(_STAMP)}"
-        if len(recent) < allowance:
-            return {"allowed": True, "message": ""}
+    allowance *= 2**approved
+    if len(recent) < allowance:
+        return {"allowed": True, "message": ""}
 
+    approval = f" after {approved} approval{'s' * (approved > 1)}" if approved else ""
     status = (
-        f"{len(recent)} creations {window}; limit {allowance}. Next usage expiry: "
-        f"{(min(recent) + DAY).strftime(_STAMP)}; recheck then."
+        f"{len(recent)} creations in the past 24 hours; limit {allowance}{approval}. "
+        f"Next usage expiry: {(min(recent) + DAY).strftime(_STAMP)}; recheck then."
     )
     recovery = _file_pause_issue(
         f"{_issue.row()}\n\n{status}", pauses[0] if pauses else None

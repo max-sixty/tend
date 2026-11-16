@@ -246,7 +246,7 @@ repository admin, so a run as the bot checks the newest release's own
 average of issues and PRs, and at least 30, in any 24 hours in the workflow's
 repository. Exhausting the allowance pauses new creations while reviews,
 existing repairs and issue closure continue. A maintainer can close the
-rate-limit issue to approve more: creations before the close stop counting.
+rate-limit issue to approve more: each close doubles the allowance for 24 hours.
 
 **Fixed prompts** — Workflow prompts come from the action, not from
 attacker-controlled input like PR descriptions or comments.

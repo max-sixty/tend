@@ -147,16 +147,16 @@ def test_rolling_usage_survives_midnight_and_expires_after_24_hours(
     assert limiter.admit(REQUEST)["allowed"]
 
 
-def test_human_close_resets_the_count(gh: FakeGh) -> None:
-    close = NOW - timedelta(hours=1)
-    _history(gh, [*_rows(40, close - timedelta(hours=2)), *_rows(29, start=100)])
-    gh.respond(*EVENTS, with_=[[_closed(close)]])
+def test_each_human_close_doubles_the_limit(gh: FakeGh) -> None:
+    closes = [_closed(NOW - timedelta(hours=h)) for h in (1, 2, 3)]
+    gh.respond(*EVENTS, with_=[closes])
+    _history(gh, _rows(239, NOW - timedelta(hours=4)))
     assert limiter.admit(REQUEST)["allowed"]
-    _history(gh, [*_rows(40, close - timedelta(hours=2)), *_rows(30, start=100)])
+    _history(gh, _rows(240, NOW - timedelta(hours=4)))
     decision = limiter.admit(REQUEST)
     assert not decision["allowed"]
     assert (
-        "30 creations since the approval at 2026-01-02T11:00:00Z; limit 30."
+        "240 creations in the past 24 hours; limit 240 after 3 approvals."
         in decision["message"]
     )
 
