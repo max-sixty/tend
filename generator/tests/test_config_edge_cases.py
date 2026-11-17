@@ -566,7 +566,7 @@ def test_very_long_prompt(tmp_path: Path) -> None:
 
 
 def test_very_long_prompt_nightly(tmp_path: Path) -> None:
-    """Long prompt in nightly (scheduled) workflow uses block scalar."""
+    """A long prompt in a scheduled workflow reaches the agent intact."""
     long_text = "y" * 2500
     path = _write_config(
         tmp_path,
@@ -579,9 +579,7 @@ def test_very_long_prompt_nightly(tmp_path: Path) -> None:
     )
     cfg = Config.load(path)
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    nightly = workflows["tend-nightly.yaml"]
-    data = yaml.safe_load(nightly.content)
-    assert isinstance(data, dict)
+    assert _agent_prompt(workflows["tend-nightly.yaml"].content) == f"{long_text}\n"
 
 
 # ---------------------------------------------------------------------------
@@ -783,7 +781,7 @@ def test_unknown_workflow_warns(
 
 
 def test_prompt_with_multiline(tmp_path: Path) -> None:
-    """Multi-line prompt -- YAML block scalar."""
+    """A multi-line prompt reaches the agent with its line breaks."""
     path = _write_config(
         tmp_path,
         dedent("""\
@@ -800,9 +798,10 @@ def test_prompt_with_multiline(tmp_path: Path) -> None:
     assert "Line one." in cfg.workflows["nightly"].prompt
     assert "Line two." in cfg.workflows["nightly"].prompt
     workflows = {wf.filename: wf for wf in generate_all(cfg)}
-    nightly = workflows["tend-nightly.yaml"]
-    data = yaml.safe_load(nightly.content)
-    assert isinstance(data, dict)
+    assert (
+        _agent_prompt(workflows["tend-nightly.yaml"].content)
+        == "Line one.\nLine two.\nLine three.\n"
+    )
 
 
 def test_bot_name_yaml_injection_rejected(tmp_path: Path) -> None:
@@ -837,10 +836,10 @@ def test_setup_steps_preserves_order(tmp_path: Path) -> None:
     # Verify order in generated YAML
     workflows = without_relay(generate_all(cfg))
     for wf in workflows:
-        node_pos = wf.content.index("echo first")
+        first_pos = wf.content.index("echo first")
         middle_pos = wf.content.index("echo middle")
-        cache_pos = wf.content.index("echo last")
-        assert node_pos < middle_pos < cache_pos, f"Order wrong in {wf.filename}"
+        last_pos = wf.content.index("echo last")
+        assert first_pos < middle_pos < last_pos, f"Order wrong in {wf.filename}"
 
 
 def test_setup_steps_empty_list(tmp_path: Path) -> None:
