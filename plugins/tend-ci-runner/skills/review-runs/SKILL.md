@@ -152,20 +152,19 @@ tend runtime review-runs outage-trackers \
   > "$TMPDIR/review-runs-outage.json"
 ```
 
-It returns the open trackers plus any closed since Step 1's anchor by someone
-other than the bot, since only this drain closes a drained tracker. Read the
-closed ones too: the live scan above reads current repository state, where a
-merged PR whose review died in the outage is indistinguishable from one the
-maintainer merged without waiting.
+It returns the open trackers plus any closed since Step 1's anchor without
+this drain's closing comment. Read the closed ones too: the live scan above
+reads current repository state, where a merged PR whose review died in the
+outage is indistinguishable from one the maintainer merged without waiting.
 
 Use every row to identify what the failed run may have missed. Diagnose it and
-handle any applicable current work. Then close the trackers still open; one
-someone else already closed stays closed:
+handle any applicable current work. Then close the trackers the report lists
+as open, each with the comment that marks it drained. One that gained a row
+since the report stays open for the next sweep, and one someone else already
+closed stays closed:
 
 ```bash
-jq -r '.trackers[] | select(.state == "OPEN") | .number' \
-  "$TMPDIR/review-runs-outage.json" \
-  | while read -r number; do gh issue close "$number" --reason completed; done
+tend runtime review-runs close-outage-trackers "$TMPDIR/review-runs-outage.json"
 ```
 
 ## Step 2: Token usage report

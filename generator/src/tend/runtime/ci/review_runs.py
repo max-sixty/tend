@@ -27,6 +27,9 @@ OUTAGE_LABEL = "tend-outage"
 # `report_failure.py`'s title. The label alone also carries durable trackers,
 # which hold no run rows and must not be drained or closed here.
 OUTAGE_TITLE = "Bot temporarily unavailable"
+# The drain's closing comment. A closed tracker without it still owes a drain,
+# whoever closed it.
+DRAINED_MARKER = "<!-- tend-outage-drained -->"
 TEMP_DIR = Path(tempfile.gettempdir())
 
 
@@ -142,11 +145,12 @@ def _rows(number: int) -> list[str]:
 def outage_trackers() -> int:
     """Report every outage tracker whose rows this sweep still owes a drain.
 
-    Open trackers, plus any closed since the window anchor by someone other
-    than this bot. Only the drain closes a tracker, so a close by anyone else
-    — a maintainer watching the incident end — leaves live rows behind that no
-    live-repository scan can recover: a merged PR whose review died with the
-    outage looks exactly like one the maintainer merged unreviewed.
+    Open trackers, plus any closed since the window anchor without the drain's
+    closing comment. A close by anyone else — a maintainer watching the
+    incident end, or another bot session the repository lets close its issues —
+    leaves live rows behind that no live-repository scan can recover: a merged
+    PR whose review died with the outage looks exactly like one the maintainer
+    merged unreviewed.
     """
     since = _since_path().read_text().strip()
     if not since:
@@ -155,8 +159,6 @@ def outage_trackers() -> int:
             file=sys.stderr,
         )
         return 2
-    repo = _common.repository()
-    bot = str(_common.gh_json("api", "user")["login"])
     issues = _common.gh_json(
         "issue",
         "list",
@@ -177,26 +179,44 @@ def outage_trackers() -> int:
             continue
         number = int(issue["number"])
         state = str(issue.get("state") or "")
-        closed_by = ""
-        if state != "OPEN":
-            # Both stamps are `%Y-%m-%dT%H:%M:%SZ` UTC, so they order as text.
-            if str(issue.get("closedAt") or "") < since:
-                continue
-            # `closed_by` is on the single-issue REST response only; the list
-            # endpoint and `gh issue list --json` both omit it.
-            closed = _common.gh_json("api", f"repos/{repo}/issues/{number}")
-            closed_by = _common.actor_login(closed.get("closed_by"))
-            if closed_by == bot:
-                continue
-        trackers.append(
-            {
-                "number": number,
-                "state": state,
-                "closed_by": closed_by,
-                "rows": _rows(number),
-            }
-        )
+        # Both stamps are `%Y-%m-%dT%H:%M:%SZ` UTC, so they order as text.
+        if state != "OPEN" and str(issue.get("closedAt") or "") < since:
+            continue
+        rows = _rows(number)
+        if state != "OPEN" and any(DRAINED_MARKER in row for row in rows):
+            continue
+        trackers.append({"number": number, "state": state, "rows": rows})
     _common.dump({"since": since, "trackers": trackers})
+    return 0
+
+
+def close_outage_trackers(report: Path) -> int:
+    """Close the open trackers an `outage_trackers` report listed, marking each drained.
+
+    Only what this sweep read: a tracker filed after the report, or one that
+    gained a row since, holds a run nobody has diagnosed yet, and stays open for
+    the next sweep.
+    """
+    closed = []
+    left_open = []
+    for tracker in json.loads(report.read_text())["trackers"]:
+        if tracker["state"] != "OPEN":
+            continue
+        number = int(tracker["number"])
+        if _rows(number) != tracker["rows"]:
+            left_open.append(number)
+            continue
+        _common.gh(
+            "issue",
+            "close",
+            str(number),
+            "--reason",
+            "completed",
+            "--comment",
+            f"{DRAINED_MARKER}\n`review-runs` read every run row on this tracker.",
+        )
+        closed.append(number)
+    _common.dump({"closed": closed, "left_open": left_open})
     return 0
 
 
