@@ -107,17 +107,16 @@ Read the project's instruction files before reviewing. Apply the review checklis
 
 ## Step 5: Reconcile open work
 
-The bot gets no event for its own writes, so work a bot session left open waits for this step: an investigation that ended with a diagnosis, a next step or a blocker but no fix, a cause whose failure a later run shows again, a bot PR whose session stopped, a red default branch. Continue it and close what is resolved, working from the current state of the issues and PRs that hold it rather than by replaying a historical workflow payload. Divide the work per `/tend-ci-runner:review-runs`'s `references/parallel-maintenance.md`.
+The bot gets no event for its own writes, so work a bot session left open waits for this step: a CI cause whose session ended without a fix, a bot PR whose session stopped, a red default branch. Continue it and close what is resolved, working from the current state of the issues and PRs that hold it rather than by replaying a historical workflow payload. Divide the work per `/tend-ci-runner:review-runs`'s `references/parallel-maintenance.md`.
 
 ### Unfinished work
 
-- open issues the bot had the last word on that nothing else will act on:
+- open CI cause issues (labeled `tend-ci-cause`) with no assignee other than the bot, no queued or running Tend run and no open PR that will close them. Start triage on each of the `causes` this lists through **Recover issue work** in `/tend-ci-runner:notifications`:
 
   ```bash
   tend runtime idle-issues > "$TMPDIR/idle-issues.json"
   ```
 
-  It lists each open issue whose latest comment, apps such as `github-actions` aside, is the bot's, or that the bot filed with no such comment since. It leaves out any with an assignee other than the bot, a queued or running Tend run, or an open PR that will close it, and `open_prs` names the open PRs that reference each one. A CI failure report among them follows the failing default-branch CI bullet below. For the rest, read each thread and its linked repairs and judge whose move it is. Where the bot owes the next action, such as a diagnosis to finish, a step its last session named, a blocker that has cleared since the bot's comment or a failure a later run shows again, send it to a triage worker through **Recover issue work** in `/tend-ci-runner:notifications`. Where the next action is someone else's, such as a maintainer's decision, an answer the bot asked for, an evidence or outage tracker, or a blocker unchanged since the bot's comment that leaves no separable work (**Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` says what counts as one), leave it, posting nothing new unless **Resolved issues** below finds it resolved. Close one only under that rule.
 - an open PR whose live head has no bot review, or whose latest comment, review, or inline review comment directed at the bot has no response; this includes replies to the bot's review on a fork PR;
 - unfinished configured-bot PRs, regardless of notification or review state. List the bot's open PRs (`gh pr list --state open --author "$BOT_NAME" --limit 200 --json number`) and continue each per `/tend-ci-runner:continue-pr`. A green proposal awaiting a maintainer in restricted mode, an explicit maintainer hold, or an unchanged external blocker needs no repeated post;
 - failing default-branch CI with no bot fix in progress, in any workflow and however old: Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them. On a lane `tend-ci-failures` reports, judge the lane's newest CI failure report (labeled `tend-ci-failure`), open or closed, against step 6 of **A report** in `/tend-ci-runner:triage`'s `references/ci-failures.md`, with the live issue and PR checks above. A closed report needs nothing while step 6 would still close it. Where it no longer would, because a failure's owner has lapsed, reopen the report with a comment naming that failure's run, which makes the run owed again (step 1) and starts the report's triage. An open report that step 6 would close is finished work its session didn't close: close it, so the lane's next failure reopens it. Otherwise hand an open report to ordinary triage through **Recover issue work** in `/tend-ci-runner:notifications`, including its access and admission checks, rather than working it here.
@@ -155,13 +154,11 @@ gh api --paginate "repos/{owner}/{repo}/issues?state=open&per_page=100" \
   --jq ".[] | select(.pull_request == null and (.user.login == \"$BOT_NAME\" or .number % 7 == $BUCKET)) | {number, title}"
 ```
 
-The closing rule below governs every issue this step reads, including those **Unfinished work** lists.
-
 For each of these issues, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue) per `/tend-ci-runner:post-to-github`. Close the issue with `gh issue close` when:
 
 - The bot opened the issue itself to report a transient condition (e.g., a "Nightly tests failed" report from a prior run) and the condition has clearly resolved — the fix PR is merged and the relevant CI on `main` is passing. Skip this case where closing the issue is itself a signal rather than a record of resolution:
   - a body containing "Do not close manually" — recurring trackers with their own lifecycle.
-  - the `tend-outage` label; `review-runs` closes these once it has read their rows.
+  - the `tend-outage` label. Its rows identify failed runs that `review-runs` diagnoses, and nightly's cron precedes `review-runs` under the generated defaults, so closing the issue here can remove those rows before that diagnosis.
   - the `tend-rate-limit` label; use its recovery rule below.
   - the `tend-ci-failure` label; the failing default-branch CI bullet above closes these reports under their own rule.
 - The repo's instructions (e.g., `running-tend` skill) explicitly authorize closing issues.

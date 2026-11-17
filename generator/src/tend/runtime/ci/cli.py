@@ -251,7 +251,7 @@ def scope_audit() -> None:
 
 @click.command("idle-issues")
 def idle() -> None:
-    """List open issues the bot last wrote on that nothing else will act on."""
+    """List open CI causes, and other issues the bot last wrote on, that nothing will act on."""
     _run(idle_issues.main)
 
 
@@ -292,13 +292,6 @@ def append_run_evidence() -> None:
 @run_evidence.command("outage-trackers")
 def outage_trackers() -> None:
     _run_evidence(review_runs.outage_trackers)
-
-
-@run_evidence.command("close-outage-trackers")
-@click.argument("report", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-def close_outage_trackers(report: Path) -> None:
-    """Close the open trackers an outage-trackers report listed, marking them drained."""
-    _run_evidence(lambda: review_runs.close_outage_trackers(report))
 
 
 @click.group("review-reviewers")

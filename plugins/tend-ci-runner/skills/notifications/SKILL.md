@@ -7,7 +7,7 @@ metadata:
 
 # Check Notifications and Bot PRs
 
-Unread notifications retain unanswered activity. Event workflows are the fast path; this poll handles missed activity and repairs conflicts on the configured bot's PRs. **Reconcile open work** in `/tend-ci-runner:nightly` continues the work no notification marks: issues the bot last wrote on, including its own reports.
+Unread notifications retain unanswered activity. Event workflows are the fast path; this poll handles missed activity and repairs conflicts on the configured bot's PRs. The bot gets no notification for its own writes, so `/tend-ci-runner:nightly` restarts stalled CI causes and reports, and `/tend-ci-runner:weekly` the other issues the bot left unfinished.
 
 The workflow prompt supplies the **notification snapshot cutoff**. This run owns whatever the snapshot returned; anything the snapshot did not return belongs to the next poll.
 
@@ -107,7 +107,7 @@ current PR heads before changing a branch.
 
 ## 6. Recover issue work
 
-Route same-repository issues found by notifications or by `/tend-ci-runner:nightly` through ordinary triage. Apply **Reconcile existing work** in `/tend-ci-runner:triage` to their live state, conversation and linked repairs. Perform supported closures here; send remaining investigation or verification to a worker. Apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` to unfinished or blocked work.
+Route same-repository issues found by notifications, `/tend-ci-runner:nightly` or `/tend-ci-runner:weekly` through ordinary triage. Apply **Reconcile existing work** in `/tend-ci-runner:triage` to their live state, conversation and linked repairs. Perform supported closures here; send remaining investigation or verification to a worker. Apply **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` to unfinished or blocked work.
 
 Before dispatching an issue, check its live runs per **Give each thread a current outcome**. Skip a subject already active or queued. Check recent worker outcomes and current access or outage records. Respect an outstanding approval gate or provider reset. When access is uncertain, dispatch one ordinary worker as a control and inspect its actual result before admitting more. Tend's creation allowance governs new issues and PRs; apply **Creation allowance** in `/tend-ci-runner:open-pr` when that is the remaining work.
 

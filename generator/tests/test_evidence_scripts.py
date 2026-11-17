@@ -308,7 +308,7 @@ def test_review_reviewers_append_refetches_before_patching(
     assert json.loads(capsys.readouterr().out)["action"] == "appended"
 
 
-def test_review_runs_outage_trackers_reads_every_undrained_tracker(
+def test_review_runs_outage_trackers_reads_a_maintainer_closed_tracker(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -316,6 +316,7 @@ def test_review_runs_outage_trackers_reads_every_undrained_tracker(
     since = tmp_path / "since"
     since.write_text("2026-09-17T19:39:09Z\n")
     monkeypatch.setenv("REVIEW_RUNS_SINCE_FILE", str(since))
+    monkeypatch.setattr(review_runs._common, "repository", lambda: "owner/repo")
     issues = [
         # A maintainer closed it mid-window, so its rows were never drained.
         {
@@ -324,14 +325,7 @@ def test_review_runs_outage_trackers_reads_every_undrained_tracker(
             "state": "CLOSED",
             "closedAt": "2026-09-18T05:39:34Z",
         },
-        # Another bot session closed it mid-window; the drain still owes it.
-        {
-            "number": 21,
-            "title": review_runs.OUTAGE_TITLE,
-            "state": "CLOSED",
-            "closedAt": "2026-09-18T06:20:00Z",
-        },
-        # The previous sweep's own close, marked drained.
+        # The previous sweep's own close — already drained.
         {
             "number": 20,
             "title": review_runs.OUTAGE_TITLE,
@@ -364,10 +358,15 @@ def test_review_runs_outage_trackers_reads_every_undrained_tracker(
         if args[:2] == ("issue", "list"):
             return issues
         if args[:2] == ("issue", "view"):
-            comments = [{"body": f"row-{args[2]}"}]
-            if args[2] == "20":
-                comments.append({"body": f"{review_runs.DRAINED_MARKER}\nread"})
-            return {"body": f"body-{args[2]}", "comments": comments}
+            return {
+                "body": f"body-{args[2]}",
+                "comments": [{"body": f"row-{args[2]}"}],
+            }
+        if args[:2] == ("api", "user"):
+            return {"login": "bot"}
+        if args[0] == "api" and args[1].startswith("repos/owner/repo/issues/"):
+            closer = {"30": "maintainer", "20": "bot"}[args[1].rsplit("/", 1)[-1]]
+            return {"closed_by": {"login": closer}}
         raise AssertionError(args)
 
     monkeypatch.setattr(review_runs._common, "gh_json", json_call)
@@ -376,50 +375,8 @@ def test_review_runs_outage_trackers_reads_every_undrained_tracker(
 
     output = json.loads(capsys.readouterr().out)
     assert output["since"] == "2026-09-17T19:39:09Z"
-    assert [tracker["number"] for tracker in output["trackers"]] == [21, 30, 32]
-    assert output["trackers"][1] == {
-        "number": 30,
-        "state": "CLOSED",
-        "rows": ["body-30", "row-30"],
-    }
-    assert output["trackers"][2]["state"] == "OPEN"
-
-
-def test_review_runs_close_outage_trackers_marks_only_the_open_trackers_read(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    report = tmp_path / "review-runs-outage.json"
-    report.write_text(
-        json.dumps(
-            {
-                "since": "2026-09-17T19:39:09Z",
-                "trackers": [
-                    {"number": 30, "state": "CLOSED", "rows": ["body-30"]},
-                    {"number": 32, "state": "OPEN", "rows": ["body-32"]},
-                    # A failed run appended a row after the sweep read it.
-                    {"number": 33, "state": "OPEN", "rows": ["body-33"]},
-                ],
-            }
-        )
-    )
-    live = {"32": [], "33": [{"body": "row-33"}]}
-    monkeypatch.setattr(
-        review_runs._common,
-        "gh_json",
-        lambda *args, **kwargs: {"body": f"body-{args[2]}", "comments": live[args[2]]},
-    )
-    calls: list[tuple[str, ...]] = []
-    monkeypatch.setattr(
-        review_runs._common, "gh", lambda *args, **kwargs: calls.append(args) or ""
-    )
-
-    result = CliRunner().invoke(
-        main, ["runtime", "review-runs", "close-outage-trackers", str(report)]
-    )
-
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == {"closed": [32], "left_open": [33]}
-    [call] = calls
-    assert call[:5] == ("issue", "close", "32", "--reason", "completed")
-    assert call[5] == "--comment"
-    assert call[6].startswith(review_runs.DRAINED_MARKER)
+    assert [tracker["number"] for tracker in output["trackers"]] == [30, 32]
+    assert output["trackers"][0]["state"] == "CLOSED"
+    assert output["trackers"][0]["closed_by"] == "maintainer"
+    assert output["trackers"][0]["rows"] == ["body-30", "row-30"]
+    assert output["trackers"][1]["state"] == "OPEN"

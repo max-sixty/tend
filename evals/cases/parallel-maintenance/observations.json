@@ -39,7 +39,7 @@
       "census": "The only new failure is the same test and trace repeated in three runs.",
       "ownership": "One open cause issue 410 links active repair PR 420 and a running worker; the latest run evidence is already in the issue.",
       "pull_requests": "PR 420 is the only open PR and is being repaired.",
-      "remaining_work": "The live-state checks are complete; only the scan summary remains.",
+      "remaining_work": "The ownership checks are complete; only the scan summary remains.",
       "capacity": "Subagent tools are available."
     }
   }

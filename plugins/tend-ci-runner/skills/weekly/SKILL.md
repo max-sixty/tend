@@ -1,6 +1,6 @@
 ---
 name: weekly
-description: Weekly maintenance — reviews dependency PRs and runs any repo-specific weekly tasks defined in running-tend.
+description: Weekly maintenance — reviews dependency PRs, restarts stalled issues, and runs any repo-specific weekly tasks from running-tend.
 metadata:
   internal: true
 ---
@@ -9,12 +9,13 @@ metadata:
 
 ## Step 0: Load required skills
 
-- Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay for Step 3.
+- Load `/tend-ci-runner:run-tend` first, including its repo-specific overlay for Step 4.
 - Read `/tend-ci-runner:review-runs`'s `references/parallel-maintenance.md` to divide the sweep's work.
 - Load `/tend-ci-runner:post-to-github` before composing comments or reviews.
 - Read `/tend-ci-runner:review`'s `references/approving.md` before approving.
 - Load `/tend-ci-runner:dismiss-approval` if an earlier bot approval must be withdrawn.
 - Load `/tend-ci-runner:merge-pr` for each safe dependency PR's landing decision.
+- Load `/tend-ci-runner:notifications`, `/tend-ci-runner:triage` and `/tend-ci-runner:fix-a-bug` before Step 3, for **Recover issue work** and the sections it cites.
 
 ## Step 1: Find dependency PRs
 
@@ -25,7 +26,7 @@ gh pr list --state open --limit 200 --json number,title,author,labels \
 
 `gh` reports a bot PR's author as `app/dependabot`; `dependabot[bot]` is the commit author. Both spellings stay in the filter so it holds whichever form a `gh` version returns.
 
-If no dependency PRs are open, note "0 dependency PRs to process" and continue to Step 3 — do not exit; repo-specific weekly tasks may still be due.
+If no dependency PRs are open, note "0 dependency PRs to process" and continue to Step 3 — do not exit; Steps 3 and 4 still apply.
 
 ## Step 2: For each dependency PR
 
@@ -73,10 +74,18 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
    ```
    A dismissed review reports `DISMISSED` rather than `APPROVED`, so the filter stops matching it and a later run re-dismisses nothing.
 
-## Step 3: Repo-specific weekly tasks
+## Step 3: Restart stalled issues
+
+```bash
+tend runtime idle-issues > "$TMPDIR/idle-issues.json"
+```
+
+Its `others` are the open issues the bot had the last word on, apps aside, that no assignee, Tend run or closing PR will act on; CI causes and reports, which `/tend-ci-runner:nightly` restarts, and Tend's bookkeeping trackers are left out. Read each thread and its linked PRs, starting from `open_prs`. Where the bot owes the next step — an investigation or fix triage left unfinished, as **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` scopes it, including a recorded blocker that has since cleared — send the issue to a triage worker through **Recover issue work** in `/tend-ci-runner:notifications`. Otherwise leave it and post nothing.
+
+## Step 4: Repo-specific weekly tasks
 
 Perform any weekly maintenance the loaded `running-tend` overlay defines, following the repo's PR title conventions. If it defines no weekly tasks (or none are due this week), say so in the summary.
 
-## Step 4: Summary
+## Step 5: Summary
 
-Report: dependency PRs processed/approved/skipped (with reasons), and repo-specific weekly tasks completed (or "no repo-specific weekly tasks defined" / "no weekly tasks due").
+Report: dependency PRs processed/approved/skipped (with reasons), issues sent to triage, and repo-specific weekly tasks completed (or "no repo-specific weekly tasks defined" / "no weekly tasks due").

@@ -609,8 +609,8 @@ few.
 A missing or malformed history refuses creation without stopping the agent.
 Refusal reports usage, the limit and the next usage expiry; that expiry is a
 time to recheck, not a promise that capacity will then be available. Reviews,
-comments, existing branch updates and issue closure continue. Notifications and the nightly sweep
-recover unfinished work through their ordinary ownership and access checks.
+comments, existing branch updates and issue closure continue. Notifications and the nightly and
+weekly sweeps recover unfinished work through their ordinary ownership and access checks.
 Nightly requires recovery evidence before closing a tracker as the bot.
 
 **Fixed prompts and marketplace skills.** The prompt and skill set come from

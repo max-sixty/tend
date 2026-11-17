@@ -455,9 +455,9 @@ bot_name: my-project-bot
 # ### nightly
 #
 # Daily (default 06:17 UTC). Resolves conflicts on open PRs, reviews recent
-# commits, continues the bot's unfinished issues and PRs and closes resolved
-# ones, surveys ~10 files for bugs and stale docs, regenerates tend workflow
-# files.
+# commits, restarts stalled CI causes, continues the bot's unfinished PRs,
+# closes resolved issues, surveys ~10 files for bugs and stale docs,
+# regenerates tend workflow files.
 #
 # workflows:
 #   nightly:
@@ -466,7 +466,8 @@ bot_name: my-project-bot
 # ### weekly
 #
 # Weekly (default Sunday 09:17 UTC). Reviews dependency PRs and approves safe
-# patch and minor updates; merging follows the configured mode.
+# patch and minor updates; merging follows the configured mode. Restarts other
+# issues the bot left unfinished.
 #
 # workflows:
 #   weekly:

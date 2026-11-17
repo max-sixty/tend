@@ -1,9 +1,11 @@
-"""Tests for idle_issues.py — the open issues only the nightly sweep will reach.
+"""Tests for idle_issues.py — the open issues only the nightly and weekly sweeps reach.
 
-The bot gets no event for its own writes, so an issue it last wrote on, with no
-assignee, run or closing pull request to act next, waits for the nightly sweep.
-Listing one the sweep shouldn't own sends a second worker after work something
-already holds; leaving one out strands it, since no other workflow returns to it.
+The bot gets no event for its own writes, so an issue with no assignee, run or
+closing pull request to act next waits for a sweep: nightly restarts every such
+CI cause, and weekly reads the other issues the bot had the last word on.
+Listing an issue something else will act on sends a second worker after work it
+already holds; leaving one out strands it, since no other workflow returns to
+it.
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ esac
 def _issue(
     number: int,
     *,
+    labels: tuple = (),
     author: str = BOT,
     comments: tuple = (BOT,),
     assignees: tuple = (),
@@ -61,7 +64,7 @@ def _issue(
         "title": f"issue {number}",
         "url": f"https://github.com/owner/repo/issues/{number}",
         "author": {"__typename": "User", "login": author},
-        "labels": {"nodes": [{"name": "tend-ci-cause"}]},
+        "labels": {"nodes": [{"name": label} for label in labels]},
         "assignees": {"nodes": [{"login": login} for login in assignees]},
         "comments": {"nodes": nodes},
         "closedByPullRequestsReferences": {"totalCount": closing},
@@ -84,28 +87,41 @@ def _page(issues: list[dict], more: bool) -> dict:
     }
 
 
-def test_lists_issues_the_bot_last_wrote_on_that_nothing_will_act_on(
+CAUSE = ("tend-ci-cause",)
+
+
+def test_lists_causes_and_the_issues_the_bot_last_wrote_on_that_nothing_will_act_on(
     tmp_path: Path,
 ) -> None:
     pages = [
         _page(
             [
-                _issue(1),
-                _issue(2, comments=(BOT, "maintainer")),
-                _issue(3, assignees=("maintainer",)),
-                _issue(4, closing=1),
-                _issue(5, refs=((50, "OPEN"), (51, "MERGED"))),
-                _issue(6, comments=()),
+                _issue(1, labels=CAUSE, comments=(BOT, "maintainer")),
+                _issue(2, labels=CAUSE, assignees=("maintainer",)),
+                _issue(3, labels=CAUSE, closing=1),
+                _issue(4, labels=CAUSE),
+                _issue(5, labels=CAUSE, assignees=(BOT,)),
             ],
             more=True,
         ),
         _page(
             [
-                _issue(7),
-                _issue(8, author="maintainer", comments=()),
-                _issue(9, assignees=(BOT,)),
-                _issue(10, comments=(BOT, ("github-actions", "Bot"))),
-                _issue(11, comments=(BOT, None)),
+                _issue(6),
+                _issue(7, comments=(BOT, "maintainer")),
+                _issue(8, assignees=("maintainer",)),
+                _issue(9, closing=1),
+                _issue(10),
+                _issue(11, refs=((50, "OPEN"), (51, "MERGED"))),
+                _issue(12, comments=()),
+                _issue(13, author="maintainer", comments=()),
+                _issue(14, assignees=(BOT,)),
+                _issue(15, comments=(BOT, ("github-actions", "Bot"))),
+                _issue(16, comments=(BOT, None)),
+                _issue(17, labels=("tend-ci-failure",)),
+                _issue(18, labels=("tend-outage",)),
+                _issue(19, labels=("tend-rate-limit",)),
+                _issue(20, labels=("review-runs-tracking",)),
+                _issue(21, labels=("review-reviewers-tracking",)),
             ],
             more=False,
         ),
@@ -122,7 +138,7 @@ def test_lists_issues_the_bot_last_wrote_on_that_nothing_will_act_on(
                         "id": 70,
                         "path": ".github/workflows/tend-triage.yaml",
                         "status": "queued",
-                        "display_title": "triage [7]",
+                        "display_title": "triage [4,10]",
                     }
                 ]
             }
@@ -146,23 +162,29 @@ def test_lists_issues_the_bot_last_wrote_on_that_nothing_will_act_on(
 
     assert result.returncode == 0, result.stderr
 
-    def listed(number: int, last_comment_at: str | None, open_prs=()) -> dict:
+    def cause(number: int) -> dict:
         return {
             "number": number,
             "title": f"issue {number}",
             "url": f"https://github.com/owner/repo/issues/{number}",
-            "labels": ["tend-ci-cause"],
+        }
+
+    def other(number: int, last_comment_at: str | None, open_prs=()) -> dict:
+        return {
+            **cause(number),
+            "labels": [],
             "last_comment_at": last_comment_at,
             "open_prs": list(open_prs),
         }
 
     assert json.loads(result.stdout) == {
-        "open": 11,
-        "issues": [
-            listed(1, "2026-11-01T08:00:00Z"),
-            listed(5, "2026-11-01T08:00:00Z", [50]),
-            listed(6, None),
-            listed(9, "2026-11-01T08:00:00Z"),
-            listed(10, "2026-11-01T08:00:00Z"),
+        "open": 21,
+        "causes": [cause(1), cause(5)],
+        "others": [
+            other(6, "2026-11-01T08:00:00Z"),
+            other(11, "2026-11-01T08:00:00Z", [50]),
+            other(12, None),
+            other(14, "2026-11-01T08:00:00Z"),
+            other(15, "2026-11-01T08:00:00Z"),
         ],
     }

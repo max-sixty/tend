@@ -1,16 +1,22 @@
-"""List the open issues the bot had the last word on that nothing else will act on.
+"""List the open issues nothing else will act on, for the sweeps that restart them.
 
 A comment on a thread the bot is in starts an event workflow, and the
 notifications poll recovers what those runs miss, but the bot gets no event for
-its own writes. So an issue it last wrote on waits for the nightly sweep,
-whether its session finished the work or left a diagnosis, a next step or a
-blocker. This lists those issues, leaving out the ones something will act on
-without the sweep: an assignee other than the bot, a queued or running Tend
-run, or an open pull request that will close the issue. Whether a listed issue
-still holds the bot's work is the sweep's judgement, so the open pull requests
-that reference it come back as evidence.
+its own writes. So work a bot session left on an issue waits for a sweep.
+Something else will act on an issue with an assignee other than the bot, a
+queued or running Tend run, or an open pull request that will close it, so
+neither list includes those.
 
-Comments by GitHub Apps (`github-actions`, stale bots) start no Tend workflow,
+- ``causes``: open CI cause issues, for nightly to restart. A cause waiting on a
+  person is assigned to them, so one that is left has stalled, whoever wrote
+  last.
+- ``others``: the remaining open issues the bot had the last word on, for
+  weekly to read. Nothing on GitHub tells a stalled issue from one waiting to be
+  prioritised, so the open pull requests that reference each one come back as
+  evidence for that judgement. CI failure reports are nightly's, and Tend's
+  bookkeeping trackers hold no work, so neither is listed.
+
+Comments by GitHub Apps (``github-actions``, stale bots) start no Tend workflow,
 so they don't take the last word.
 """
 
@@ -20,8 +26,15 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
-from tend.runtime.ci import active_subject_runs
-from tend.runtime.shared import _common, bot_identity
+from tend.runtime.ci import active_subject_runs, review_reviewers, review_runs
+from tend.runtime.shared import _common, bot_identity, ci_failure_report
+from tend.workflows import BOOKKEEPING_LABELS
+
+CAUSE_LABEL = "tend-ci-cause"
+NOT_OTHERS = frozenset(
+    {ci_failure_report.LABEL, review_runs.LABEL, review_reviewers.LABEL}
+    | set(BOOKKEEPING_LABELS)
+)
 
 # Cross-references are read from the end: a long-lived issue, such as a CI
 # failure report, collects hundreds, and the open pull requests are the recent
@@ -68,33 +81,43 @@ def select(
     *,
     bot: str,
     active: set[int],
-) -> list[dict[str, Any]]:
-    """Keep the issues the bot last wrote on that nothing else will act on."""
-    selected = []
+) -> dict[str, list[dict[str, Any]]]:
+    """Split the issues nothing else will act on into ``causes`` and ``others``."""
+    causes = []
+    others = []
     for issue in issues:
-        author, at = last_word(issue)
-        if author != bot or issue["number"] in active:
+        if issue["number"] in active:
             continue
         if any(a["login"] != bot for a in issue["assignees"]["nodes"]):
             continue
         if issue["closedByPullRequestsReferences"]["totalCount"]:
+            continue
+        listed = {
+            "number": issue["number"],
+            "title": issue["title"],
+            "url": issue["url"],
+        }
+        labels = [label["name"] for label in issue["labels"]["nodes"]]
+        if CAUSE_LABEL in labels:
+            causes.append(listed)
+            continue
+        author, at = last_word(issue)
+        if author != bot or NOT_OTHERS.intersection(labels):
             continue
         prs = {
             event["source"]["number"]
             for event in issue["timelineItems"]["nodes"]
             if (event.get("source") or {}).get("state") == "OPEN"
         }
-        selected.append(
+        others.append(
             {
-                "number": issue["number"],
-                "title": issue["title"],
-                "url": issue["url"],
-                "labels": [label["name"] for label in issue["labels"]["nodes"]],
+                **listed,
+                "labels": labels,
                 "last_comment_at": at,
                 "open_prs": sorted(prs),
             }
         )
-    return selected
+    return {"causes": causes, "others": others}
 
 
 def main() -> int:
@@ -131,7 +154,5 @@ def main() -> int:
         )
     }
     bot, _ = bot_identity.read()
-    _common.dump(
-        {"open": len(issues), "issues": select(issues, bot=bot, active=active)}
-    )
+    _common.dump({"open": len(issues), **select(issues, bot=bot, active=active)})
     return 0

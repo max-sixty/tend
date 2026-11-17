@@ -4,7 +4,7 @@
   "bot": "tend-agent",
   "merge": "yolo",
   "fixtures": {
-    "observations.json": "2407ab52dbbe7581bdd1bce0716aea052d3cbc38b5dc7e36201ac057d4671da9"
+    "observations.json": "97527f774c8bfd681728f7d4076268f32068f5eb58d26f74d2d3fcb94273d6a8"
   },
   "origin": {
     "construction": "Synthetic maintenance-planning contrasts: a broad daily investigation, weekly independent repairs and reviews, and a small scan whose failures already share an active repair owner. Evaluates proposed delegation decisions, not live execution or throughput."
