@@ -111,7 +111,7 @@ The bot gets no event for its own writes, so work a bot session left open waits 
 
 ### Unfinished work
 
-- open CI cause issues (labeled `tend-ci-cause`) with no assignee other than the bot, no queued or running Tend run and no open PR that will close them. Start triage on each of the `causes` this lists through **Recover issue work** in `/tend-ci-runner:notifications`:
+- open CI cause issues (labeled `tend-ci-cause`) with no assignee other than the bot, no queued or running Tend run and no open PR that will close them. Pass each of the `causes` this lists to **Recover issue work** in `/tend-ci-runner:notifications`:
 
   ```bash
   tend runtime idle-issues > "$TMPDIR/idle-issues.json"
