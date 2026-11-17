@@ -13,8 +13,9 @@ neither list includes those.
 - ``others``: the remaining open issues the bot had the last word on, for
   weekly to read. Nothing on GitHub tells a stalled issue from one waiting to be
   prioritised, so the URLs of the open pull requests, in any repository, that
-  reference each one come back as evidence for that judgement. CI failure reports are nightly's, and Tend's
-  bookkeeping trackers hold no work, so neither is listed.
+  reference each one come back as evidence for that judgement. CI failure
+  reports are nightly's, and Tend's bookkeeping trackers hold no work, so
+  neither is listed.
 
 Comments by GitHub Apps (``github-actions``, stale bots) start no Tend workflow,
 so they don't take the last word.

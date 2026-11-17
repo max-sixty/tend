@@ -23,12 +23,14 @@ assert:
       together to the batch workflow. Do not stop after one, wait for
       unrelated issue214 to finish, or defer the remainder to another day.
       Leave issue217, which waits on the maintainer's choice of default,
-      without dispatching it or posting on it.
+      without dispatching it or posting on it; assigning it to the
+      maintainer is acceptable.
       A successful investigation without a repair is still engineering work;
       an empty inbox or bot authorship does not erase the live backlog.
       In established-dispositions, preserve PR303's repair ownership and
       issue204's unchanged specific approval requirement without dispatching
-      redundant verification workers, repeating diagnosis or posting again.
+      redundant verification workers, repeating diagnosis or posting again;
+      assigning issue204 to owner while it waits is acceptable.
       In queued-worker, skip issue205 because its own worker is queued, but
       enqueue a batch containing unowned issue210 despite unrelated issue209 running.
       In provider-reset, defer206 until access changes rather than probe the
