@@ -146,12 +146,14 @@ Review the PRs above per `/tend-ci-runner:review`.
 
 ### Resolved issues
 
-The bot's own open issues, which include the transient reports the close rule below targets, and this run's seventh of the rest, so every issue is checked at least every seventh run however many are open:
+The bot's own open issues, which include the transient reports the close rule below targets, and this run's seventh of the rest, so every issue is checked at least every seventh run however many are open. CI causes and reports are left out, since **Unfinished work** above closes them under their own rules:
 
 ```bash
 BUCKET=$(( GITHUB_RUN_NUMBER % 7 ))
 gh api --paginate "repos/{owner}/{repo}/issues?state=open&per_page=100" \
-  --jq ".[] | select(.pull_request == null and (.user.login == \"$BOT_NAME\" or .number % 7 == $BUCKET)) | {number, title}"
+  --jq ".[] | select(.pull_request == null
+      and (any(.labels[].name; . == \"tend-ci-cause\" or . == \"tend-ci-failure\") | not)
+      and (.user.login == \"$BOT_NAME\" or .number % 7 == $BUCKET)) | {number, title}"
 ```
 
 For each of these issues, check whether recent commits or the current codebase state already resolve it. If resolved, comment with the evidence (commits, CI runs, or code state that resolves the issue) per `/tend-ci-runner:post-to-github`. Close the issue with `gh issue close` when:
@@ -160,7 +162,6 @@ For each of these issues, check whether recent commits or the current codebase s
   - a body containing "Do not close manually" — recurring trackers with their own lifecycle.
   - the `tend-outage` label. Its rows identify failed runs that `review-runs` diagnoses before checking the live repository for missed work. Nightly's cron precedes `review-runs` under the generated defaults, so closing the issue here can remove those rows before that check.
   - the `tend-rate-limit` label; use its recovery rule below.
-  - the `tend-ci-failure` label; the failing default-branch CI bullet above closes these reports under their own rule.
 - The repo's instructions (e.g., `running-tend` skill) explicitly authorize closing issues.
 
 Otherwise, leave it open for a maintainer to close.
