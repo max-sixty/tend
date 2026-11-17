@@ -27,8 +27,9 @@ OUTAGE_LABEL = "tend-outage"
 # `report_failure.py`'s title. The label alone also carries durable trackers,
 # which hold no run rows and must not be drained or closed here.
 OUTAGE_TITLE = "Bot temporarily unavailable"
-# The drain's closing comment. A closed tracker without it still owes a drain,
-# whoever closed it.
+# The drain's closing comment. A closed tracker whose latest row isn't this
+# still owes a drain, whoever closed it: one reopened after a drain can gain rows
+# below an earlier marker.
 DRAINED_MARKER = "<!-- tend-outage-drained -->"
 TEMP_DIR = Path(tempfile.gettempdir())
 
@@ -183,7 +184,7 @@ def outage_trackers() -> int:
         if state != "OPEN" and str(issue.get("closedAt") or "") < since:
             continue
         rows = _rows(number)
-        if state != "OPEN" and any(DRAINED_MARKER in row for row in rows):
+        if state != "OPEN" and DRAINED_MARKER in rows[-1]:
             continue
         trackers.append({"number": number, "state": state, "rows": rows})
     _common.dump({"since": since, "trackers": trackers})

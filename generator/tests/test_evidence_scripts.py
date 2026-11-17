@@ -331,6 +331,14 @@ def test_review_runs_outage_trackers_reads_every_undrained_tracker(
             "state": "CLOSED",
             "closedAt": "2026-09-18T06:20:00Z",
         },
+        # Drained, then reopened and closed again with a new row below the
+        # marker.
+        {
+            "number": 22,
+            "title": review_runs.OUTAGE_TITLE,
+            "state": "CLOSED",
+            "closedAt": "2026-09-18T07:00:00Z",
+        },
         # The previous sweep's own close, marked drained.
         {
             "number": 20,
@@ -365,8 +373,10 @@ def test_review_runs_outage_trackers_reads_every_undrained_tracker(
             return issues
         if args[:2] == ("issue", "view"):
             comments = [{"body": f"row-{args[2]}"}]
-            if args[2] == "20":
+            if args[2] in ("20", "22"):
                 comments.append({"body": f"{review_runs.DRAINED_MARKER}\nread"})
+            if args[2] == "22":
+                comments.append({"body": "row-22-after-reopen"})
             return {"body": f"body-{args[2]}", "comments": comments}
         raise AssertionError(args)
 
@@ -376,13 +386,13 @@ def test_review_runs_outage_trackers_reads_every_undrained_tracker(
 
     output = json.loads(capsys.readouterr().out)
     assert output["since"] == "2026-09-17T19:39:09Z"
-    assert [tracker["number"] for tracker in output["trackers"]] == [21, 30, 32]
-    assert output["trackers"][1] == {
+    assert [tracker["number"] for tracker in output["trackers"]] == [21, 22, 30, 32]
+    assert output["trackers"][2] == {
         "number": 30,
         "state": "CLOSED",
         "rows": ["body-30", "row-30"],
     }
-    assert output["trackers"][2]["state"] == "OPEN"
+    assert output["trackers"][3]["state"] == "OPEN"
 
 
 def test_review_runs_close_outage_trackers_marks_only_the_open_trackers_read(
