@@ -581,34 +581,35 @@ job and `tend check` accepts access-only auth without refresh credentials.
 The external owner must wait for existing refresh runs to finish and retain
 the full login in its own credential store; unused refresh secrets must be removed.
 
-**Rate limiting.** The credential proxy counts agent issue and PR creations in
-one rolling 24-hour window for the workflow's repository, including CI cause
-issues. The normal allowance is twice the average daily creation count over the
-previous seven complete UTC days, rounded up, with a minimum of ten. A batch may
-use the whole allowance; midnight does not clear the preceding 24 hours' usage.
-This guards sudden increases in volume, not sustained growth or a fixed cost.
+**Rate limiting.** The credential proxy refuses a new issue or PR when the bot
+has already created its allowance in the workflow's repository in the past 24
+hours. The allowance is four times the bot's daily average over the seven days
+before that, rounded up, and at least 30. CI cause issues, trusted runner
+reports and the tracker count as creations; creations in other repositories
+do not. This is a broad guard against runaway creation, such as a loop filing
+an issue on every run. The fourfold margin covers busy days, and accepted
+volume raises the next week's average, so steady growth raises the allowance
+with it.
 
-Closing the bot's `Creation allowance reached` tracker approves a seven-day
-floor: twice the greater of the normal allowance and the preceding 24 hours'
-creation count at that close. The creation count approximates the limit that
-was hit without trusting mutable tracker text or replaying chains of earlier
-approvals. The approved number stays fixed until expiry; the effective limit
-is the greater of the current normal allowance and every active floor. A later
-close after exhausting a raised limit can raise it again. Closing a tracker
-under the retired `Bot rate limit reached` title approves nothing.
+Closing the bot's `Creation allowance exhausted` tracker approves more: each
+close in the past 24 hours doubles the allowance, so approving a large surge
+takes a few closes, and a runaway that outgrows the doubled allowance trips it
+again. Closes by the bot or a GitHub App approve nothing. Nor does a close
+made before the issue last gained its title or the `tend-rate-limit` label, so
+the bot cannot turn an issue a maintainer closed for another reason into an
+approval.
 
-GitHub creation timestamps and human close events provide the evidence. The
-proxy counts its own successful and in-flight creations until the listing
-includes them, avoiding duplicate admission within a session. Separate runners
-can still admit concurrent requests against the same history; this is not an
-atomic reservation across runners. Trusted runner reports and the tracker count
-toward volume. Creations in other repositories are outside this allowance.
+GitHub creation timestamps and close events provide the evidence. The proxy
+forwards one creation at a time and reads the history for the next only after
+GitHub has answered the last, so a session cannot slip a parallel burst past
+the allowance. Separate runners read the same history without reserving, so
+creations admitted at the same moment on two runners can overshoot it by a
+few.
 
-Bot closes and GitHub Apps cannot approve capacity. A missing or malformed
-history refuses creation without stopping the agent. Refusal reports usage,
-the limit and the next usage expiry; that expiry is a time to recheck, not a
-promise that capacity will then be available. Reviews, comments, existing branch
-updates and issue closure continue. Notifications and the nightly sweep
+A missing or malformed history refuses creation without stopping the agent.
+Refusal reports usage, the limit and the next usage expiry; that expiry is a
+time to recheck, not a promise that capacity will then be available. Reviews,
+comments, existing branch updates and issue closure continue. Notifications and the nightly sweep
 recover unfinished work through their ordinary ownership and access checks.
 Nightly requires recovery evidence before closing a tracker as the bot.
 

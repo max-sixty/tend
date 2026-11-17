@@ -23,10 +23,11 @@ The Codex harness sets ``TEND_GITHUB_ONLY=1`` because OpenAI's purpose-built
 Responses API proxy owns model authentication there.
 
 New issues and pull requests pass through the installed runtime's creation
-budget before GitHub receives them. Other requests keep working when the
-budget is exhausted. Local reservations cover concurrent creates and GitHub
-listing lag within this process; independent runners still share a best-effort
-budget rather than an atomic reservation service.
+allowance before GitHub receives them. Other requests keep working when the
+allowance is exhausted. This process forwards one creation at a time, so the
+history each admission reads lists every creation it forwarded before.
+Independent runners admit against the same history without reserving, so
+creations admitted at the same moment on two runners can overshoot by a few.
 
 Security boundary: the injection allowlist below is exact-match on
 ``flow.request.host`` — the real connection target, NOT ``pretty_host``, which
@@ -46,7 +47,6 @@ import json
 import logging
 import os
 import re
-from datetime import UTC, datetime, timedelta
 from urllib.parse import unquote, urlsplit
 
 from graphql import GraphQLError, get_operation_ast, parse, value_from_ast_untyped
@@ -87,7 +87,7 @@ ANTHROPIC_HOSTS = frozenset({"api.anthropic.com"})
 def _creation(request: http.Request) -> dict[str, str] | None:
     """Select the creation the request actually executes, independent of aliases.
 
-    GitHub's REST and GraphQL APIs are two routes to the same creation budget.
+    GitHub's REST and GraphQL APIs are two routes to the same creation allowance.
     Parsing GraphQL also keeps queries containing mutation-like strings, unused
     operations and skipped fields out of admission. Multiple creations in one
     mutation are refused: each creation needs its own admission result.
@@ -156,12 +156,12 @@ def _creation(request: http.Request) -> dict[str, str] | None:
         return None
     if len(creations) != 1:
         raise ValueError("Create one issue or pull request per GraphQL operation.")
-    response_key, field = next(iter(creations.items()))
+    field = next(iter(creations.values()))
     input_node = next(arg.value for arg in field.arguments if arg.name.value == "input")
     repository_id = value_from_ast_untyped(input_node, variables)["repositoryId"]
     if not isinstance(repository_id, str) or not repository_id:
         raise ValueError("Creation requires a repositoryId.")
-    return {"repository_id": repository_id, "response_key": response_key}
+    return {"repository_id": repository_id}
 
 
 def _refuse(flow: http.HTTPFlow, status: int, message: str) -> None:
@@ -179,8 +179,7 @@ class CredentialInjector:
                 "proxy with no GitHub token to inject"
             )
         self._gh_token = gh_token
-        self._creation_lock = asyncio.Lock()
-        self._receipts: dict[str, dict[str, str | None]] = {}
+        self._creating = asyncio.Lock()
         # Basic base64("x-access-token:<token>") — GitHub's git endpoint accepts
         # the token as the password with this fixed username.
         self._gh_basic = (
@@ -255,50 +254,39 @@ class CredentialInjector:
         )
 
     async def _admit(self, flow: http.HTTPFlow, creation: dict[str, str]) -> bool:
-        # Only creation admission serializes; reviews, git transfers and model
-        # streams continue while GitHub supplies the budget evidence. Reserve
-        # before forwarding so concurrent creates in this proxy see each other.
-        async with self._creation_lock:
-            now = datetime.now(UTC)
-            floor = (now - timedelta(days=1)).isoformat()
-            self._receipts = {
-                key: receipt
-                for key, receipt in self._receipts.items()
-                if receipt["created_at"] >= floor
-            }
-            try:
-                result = await self._check_budget(
-                    {
-                        key: value
-                        for key, value in creation.items()
-                        if key != "response_key"
-                    }
-                    | {"pending": list(self._receipts.values())}
-                )
-                if not result["allowed"]:
-                    _refuse(flow, 429, result["message"])
-                    return False
-                if result["in_scope"]:
-                    self._receipts[flow.id] = {
-                        "id": None,
-                        "created_at": datetime.now(UTC).isoformat(),
-                    }
-                    flow.metadata["tend_creation"] = creation
-            except (OSError, ValueError, KeyError, TypeError, TimeoutError) as error:
-                detail = str(error)
-                if self._gh_token:
-                    detail = detail.replace(self._gh_token, "[redacted]")
-                _refuse(
-                    flow,
-                    503,
-                    "Creation budget could not be read; retry this creation. "
-                    + detail[-1500:],
-                )
-                return False
-        return True
+        # A creation holds the lock until GitHub answers it, so the next
+        # admission's history lists it. Reviews, git transfers and model
+        # streams never wait on it.
+        await self._creating.acquire()
+        flow.metadata["tend_creation"] = True
+        admitted = False
+        try:
+            result = await self._check_allowance(creation)
+            admitted = result["allowed"]
+            if not admitted:
+                _refuse(flow, 429, result["message"])
+        except (OSError, ValueError, KeyError, TypeError, TimeoutError) as error:
+            detail = str(error)
+            if self._gh_token:
+                detail = detail.replace(self._gh_token, "[redacted]")
+            _refuse(
+                flow,
+                503,
+                "Creation allowance could not be read; retry this creation. "
+                + detail[-1500:],
+            )
+        finally:
+            # Anything but an admission, cancellation included, frees the next.
+            if not admitted:
+                self._answered(flow)
+        return admitted
 
-    async def _check_budget(self, payload: dict) -> dict:
-        # The installed runtime owns budget arithmetic and approval records. It
+    def _answered(self, flow: http.HTTPFlow) -> None:
+        if flow.metadata.pop("tend_creation", False):
+            self._creating.release()
+
+    async def _check_allowance(self, payload: dict) -> dict:
+        # The installed runtime owns the allowance and its approvals. It
         # runs outside the sandbox, directly against GitHub with the real token.
         # Do not inherit proxy routing: that would loop this request back here.
         environment = {
@@ -328,54 +316,25 @@ class CredentialInjector:
             raise
         if process.returncode:
             raise ValueError(
-                "Creation budget command failed: " + stderr.decode(errors="replace")
+                "Creation allowance command failed: " + stderr.decode(errors="replace")
             )
         result = json.loads(stdout)
-        if (
-            type(result["allowed"]) is not bool
-            or type(result["in_scope"]) is not bool
-            or not isinstance(result["message"], str)
+        if type(result["allowed"]) is not bool or not isinstance(
+            result["message"], str
         ):
-            raise ValueError("Invalid creation budget response.")
+            raise ValueError("Invalid creation allowance response.")
         return result
 
+    # mitmproxy gives every flow either a response or an error, which ends a
+    # forwarded creation's hold on the lock.
     def response(self, flow: http.HTTPFlow) -> None:
-        creation = flow.metadata.get("tend_creation")
-        if creation is None:
-            return
-        if 400 <= flow.response.status_code < 500:
-            self._receipts.pop(flow.id, None)
-            return
-        if not 200 <= flow.response.status_code < 300:
-            # A transport/server failure may follow an accepted creation. Keep
-            # that reservation rather than manufacture available capacity.
-            return
-        try:
-            payload = json.loads(flow.response.get_text())
-            if "response_key" in creation:
-                item = (payload.get("data") or {}).get(creation["response_key"])
-                # A caller may omit receipt fields in its selection. Retain an
-                # anonymous reservation when the response cannot identify it.
-                # GraphQL errors can also null the payload after creation has
-                # persisted, so an HTTP 200 error is an unknown outcome.
-                item = (
-                    (item or {}).get("issue") or (item or {}).get("pullRequest") or {}
-                )
-                identifier, stamp = item.get("id"), item.get("createdAt")
-            else:
-                identifier, stamp = payload.get("node_id"), payload.get("created_at")
-            receipt = self._receipts[flow.id]
-            if isinstance(identifier, str):
-                receipt["id"] = identifier
-            if isinstance(stamp, str):
-                receipt["created_at"] = datetime.fromisoformat(stamp).isoformat()
-        except (ValueError, KeyError, TypeError):
-            # The request reached GitHub but its outcome is not readable. The
-            # reservation remains conservative until its evidence window ends.
-            return
+        self._answered(flow)
+
+    def error(self, flow: http.HTTPFlow) -> None:
+        self._answered(flow)
 
     def responseheaders(self, flow: http.HTTPFlow) -> None:
-        # Stream ordinary responses straight through for every allowlisted
+        # Stream responses straight through for every allowlisted
         # host, not just Anthropic. Without this, mitmproxy
         # buffers the entire body in memory before relaying a single byte, which
         # breaks two cases: Anthropic's SSE inference responses arrive as one
@@ -386,9 +345,7 @@ class CredentialInjector:
         # also streams large REQUEST bodies, whose headers are forwarded upstream
         # before the request hook fires — silently disabling credential injection
         # on exactly the large-context calls that need it.
-        # Creation receipts are small and let admission reconcile local
-        # reservations with GitHub's durable history on the next creation.
-        flow.response.stream = "tend_creation" not in flow.metadata
+        flow.response.stream = True
 
 
 addons = [CredentialInjector()]

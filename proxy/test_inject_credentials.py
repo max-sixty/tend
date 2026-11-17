@@ -12,13 +12,10 @@ import os
 import re
 import subprocess
 import sys
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import inject_credentials
 import pytest
 import setup_sandbox
-from graphql import build_schema, graphql_sync
 from inject_credentials import (
     ANTHROPIC_HOSTS,
     BASIC_HOSTS,
@@ -394,7 +391,7 @@ def _api_flow(path: str, *, method: str = "POST", body: dict | None = None):
             "mutation($input:CreateIssueInput!){new:createIssue(input:$input){issue{id}}}",
             {"input": {"repositoryId": "R_1", "title": "a"}},
             None,
-            {"repository_id": "R_1", "response_key": "new"},
+            {"repository_id": "R_1"},
         ),
         (
             (
@@ -404,7 +401,7 @@ def _api_flow(path: str, *, method: str = "POST", body: dict | None = None):
             ),
             {},
             None,
-            {"repository_id": "R_1", "response_key": "createPullRequest"},
+            {"repository_id": "R_1"},
         ),
         (
             (
@@ -432,7 +429,7 @@ def _api_flow(path: str, *, method: str = "POST", body: dict | None = None):
             ),
             {"make": True},
             None,
-            {"repository_id": "R_1", "response_key": "createIssue"},
+            {"repository_id": "R_1"},
         ),
     ],
 )
@@ -453,9 +450,9 @@ def test_exhaustion_blocks_only_creation(
 
     async def exhausted(payload):
         reads.append(payload)
-        return {"allowed": False, "in_scope": True, "message": "Close #42 to approve."}
+        return {"allowed": False, "message": "Close #42 to approve."}
 
-    monkeypatch.setattr(injector, "_check_budget", exhausted)
+    monkeypatch.setattr(injector, "_check_allowance", exhausted)
     creates = [
         _api_flow("/repos/owner/repo/issues"),
         _api_flow("/repos/owner/repo/pulls"),
@@ -494,147 +491,74 @@ def test_exhaustion_blocks_only_creation(
     assert len(reads) == 3
 
 
-def test_creation_reservations_cover_inflight_requests_and_reconcile_receipts(
+def test_creations_wait_for_github_to_answer_the_one_before(
     injector: CredentialInjector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seen = []
+    reads = []
+
+    async def allowance(payload):
+        reads.append(payload)
+        return {"allowed": len(reads) != 2, "message": "Full"}
+
+    async def settle():
+        for _ in range(10):
+            await asyncio.sleep(0)
 
     async def scenario():
-        checking, release = asyncio.Event(), asyncio.Event()
+        flows = [_api_flow("/repos/owner/repo/issues") for _ in range(4)]
+        tasks = [asyncio.create_task(injector.request(flow)) for flow in flows]
+        await settle()
+        assert len(reads) == 1
+        review = _api_flow("/repos/owner/repo/pulls/3/reviews")
+        await injector.request(review)
+        assert "Authorization" in review.request.headers
+        flows[0].response = tutils.tresp(status_code=201)
+        injector.response(flows[0])
+        await settle()
+        # The second is refused, which frees the third without an answer.
+        assert len(reads) == 3
+        assert flows[1].response.status_code == 429
+        injector.error(flows[2])
+        await asyncio.gather(*tasks)
+        assert len(reads) == 4
+        assert flows[3].response is None
 
-        async def budget(payload):
-            seen.append(json.loads(json.dumps(payload)))
-            checking.set()
-            await release.wait()
-            return {
-                "allowed": not payload["pending"],
-                "in_scope": True,
-                "message": "Full",
-            }
-
-        monkeypatch.setattr(injector, "_check_budget", budget)
-        first = _api_flow("/repos/owner/repo/issues")
-        first_task = asyncio.create_task(injector.request(first))
-        await checking.wait()
-        comment = _api_flow("/repos/owner/repo/issues/3/comments")
-        await injector.request(comment)
-        assert not first_task.done()
-        assert comment.response is None
-        release.set()
-        await first_task
-        second = _api_flow("/repos/owner/repo/issues")
-        await injector.request(second)
-        assert second.response.status_code == 429
-        assert seen[1]["pending"][0]["id"] is None
-        first.response = tutils.tresp(status_code=201)
-        first.response.text = json.dumps({"node_id": "I_1"})
-        injector.responseheaders(first)
-        assert first.response.stream is False
-        injector.response(first)
-        third = _api_flow("/repos/owner/repo/issues")
-        await injector.request(third)
-        assert seen[2]["pending"][0]["id"] == "I_1"
-
+    monkeypatch.setattr(injector, "_check_allowance", allowance)
     asyncio.run(scenario())
 
 
-def test_slow_admission_reserves_at_forwarding_time(
+def test_cancelled_admission_frees_the_next_creation(
     injector: CredentialInjector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    class Clock(datetime):
-        current = datetime(2026, 10, 27, 23, 59, 59, tzinfo=UTC)
+    async def allowance(payload):
+        await asyncio.Event().wait()
 
-        @classmethod
-        def now(cls, tz=None):
-            return cls.current
+    async def scenario():
+        stuck = asyncio.create_task(injector.request(_api_flow("/repos/o/r/issues")))
+        await asyncio.sleep(0)
+        stuck.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await stuck
 
-    monkeypatch.setattr(inject_credentials, "datetime", Clock)
+        async def allowed(payload):
+            return {"allowed": True, "message": ""}
 
-    async def budget(payload):
-        # Admission can cross midnight. Reservations use forwarding time so
-        # they remain counted for a full rolling 24 hours.
-        Clock.current = datetime(2026, 10, 28, 0, 0, 1, tzinfo=UTC)
-        used = sum(
-            Clock.current - timedelta(days=1)
-            < datetime.fromisoformat(row["created_at"])
-            <= Clock.current
-            for row in payload["pending"]
-        )
-        return {"allowed": used < 10, "in_scope": True, "message": "Full"}
+        monkeypatch.setattr(injector, "_check_allowance", allowed)
+        flow = _api_flow("/repos/o/r/issues")
+        await asyncio.wait_for(injector.request(flow), timeout=5)
+        assert flow.response is None
 
-    monkeypatch.setattr(injector, "_check_budget", budget)
-    for _ in range(10):
-        creation = _api_flow("/repos/owner/repo/issues")
-        asyncio.run(injector.request(creation))
-        assert creation.response is None
-    overflow = _api_flow("/repos/owner/repo/issues")
-    asyncio.run(injector.request(overflow))
-    assert overflow.response.status_code == 429
+    monkeypatch.setattr(injector, "_check_allowance", allowance)
+    asyncio.run(scenario())
 
 
-def test_failed_creation_releases_its_reservation(
-    injector: CredentialInjector, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seen = []
-
-    async def budget(payload):
-        seen.append(payload)
-        return {"allowed": True, "in_scope": True, "message": ""}
-
-    monkeypatch.setattr(injector, "_check_budget", budget)
-    first = _api_flow("/repos/owner/repo/issues")
-    asyncio.run(injector.request(first))
-    first.response = tutils.tresp(status_code=422)
-    injector.response(first)
-    asyncio.run(injector.request(_api_flow("/repos/owner/repo/issues")))
-    assert seen[1]["pending"] == []
-
-
-def test_graphql_field_error_keeps_the_persisted_creation_reserved(
-    injector: CredentialInjector, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    async def budget(payload):
-        return {"allowed": not payload["pending"], "in_scope": True, "message": "Full"}
-
-    monkeypatch.setattr(injector, "_check_budget", budget)
-    schema = build_schema("""
-        type Query { unused: Boolean }
-        input CreateIssueInput { repositoryId: ID!, title: String! }
-        type Mutation { createIssue(input: CreateIssueInput!): CreateIssuePayload! }
-        type CreateIssuePayload { issue: Issue! }
-        type Issue { id: ID! }
-    """)
-    persisted = []
-
-    def create(_info, input):
-        persisted.append(input)
-        return {"issue": {"id": None}}
-
-    query = (
-        'mutation { createIssue(input:{repositoryId:"R_current",title:"a"}){issue{id}}}'
-    )
-    flow = _api_flow("/graphql", body={"query": query})
-    asyncio.run(injector.request(flow))
-    result = graphql_sync(schema, query, root_value={"createIssue": create})
-    assert len(persisted) == 1
-    assert result.data is None
-    assert result.errors[0].path == ["createIssue", "issue", "id"]
-    flow.response = tutils.tresp(status_code=200)
-    flow.response.text = json.dumps(result.formatted)
-    injector.response(flow)
-
-    next_creation = _api_flow("/repos/owner/repo/issues")
-    asyncio.run(injector.request(next_creation))
-    assert next_creation.response.status_code == 429
-
-
-def test_missing_budget_evidence_does_not_stop_existing_work(
+def test_missing_creation_history_does_not_stop_existing_work(
     injector: CredentialInjector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def unavailable(_payload):
         raise OSError("GitHub unavailable")
 
-    monkeypatch.setattr(injector, "_check_budget", unavailable)
+    monkeypatch.setattr(injector, "_check_allowance", unavailable)
     creation = _api_flow("/repos/owner/repo/issues")
     asyncio.run(injector.request(creation))
     assert creation.response.status_code == 503
@@ -643,7 +567,7 @@ def test_missing_budget_evidence_does_not_stop_existing_work(
     assert review.response is None
 
 
-def test_budget_failure_surfaces_redacted_github_diagnostic(
+def test_allowance_failure_surfaces_redacted_github_diagnostic(
     injector: CredentialInjector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class FailedProcess:
@@ -688,19 +612,6 @@ def test_batched_creations_cannot_share_one_admission(
     assert "one creation" in flow.response.text
 
 
-def test_foreign_creation_does_not_consume_local_budget(
-    injector: CredentialInjector, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    async def foreign(_payload):
-        return {"allowed": True, "in_scope": False, "message": ""}
-
-    monkeypatch.setattr(injector, "_check_budget", foreign)
-    flow = _api_flow("/repos/elsewhere/other/issues")
-    asyncio.run(injector.request(flow))
-    assert flow.response is None
-    assert "tend_creation" not in flow.metadata
-
-
 def test_proxy_calls_the_isolated_runtime_with_direct_github_access(
     injector: CredentialInjector,
     installed_runtime: tuple[Path, Path],
@@ -737,7 +648,7 @@ elif args[:3] == ["api", "--paginate", "--slurp"] and "issues?" in args[3]:
 elif args[:3] == ["api", "--paginate", "--slurp"] and "/events?" in args[3]:
     result = [[]]
 elif args[:2] == ["issue", "list"]:
-    result = [{"number": 42, "title": "Creation allowance reached"}]
+    result = [{"number": 42, "title": "Creation allowance exhausted"}]
 elif args[:2] in [["issue", "reopen"], ["issue", "comment"]]:
     print("tracker updated")
     sys.exit(0)
@@ -748,7 +659,7 @@ print(json.dumps(result))
     )
     fake.chmod(0o755)
     log, count = tmp_path / "calls.jsonl", tmp_path / "count"
-    count.write_text("10")
+    count.write_text("30")
     monkeypatch.setenv("FAKE_GH_LOG", str(log))
     monkeypatch.setenv("FAKE_GH_COUNT", str(count))
     monkeypatch.setenv("PATH", str(bindir) + os.pathsep + os.environ["PATH"])
@@ -771,8 +682,6 @@ print(json.dumps(result))
     assert log.read_text() == calls
 
     count.write_text("0")
-    # gh's actual IssueCreate selection returns id and url; that ID reconciles
-    # a successful local reservation once it appears in the repository listing.
     allowed = _api_flow(
         "/graphql",
         body={
@@ -785,18 +694,3 @@ print(json.dumps(result))
     )
     asyncio.run(injector.request(allowed))
     assert allowed.response is None
-    allowed.response = tutils.tresp(status_code=200)
-    allowed.response.text = json.dumps(
-        {
-            "data": {
-                "createIssue": {
-                    "issue": {
-                        "id": "I_created",
-                        "url": "https://github.com/owner/repo/issues/100",
-                    }
-                }
-            }
-        }
-    )
-    injector.response(allowed)
-    assert injector._receipts[allowed.id]["id"] == "I_created"

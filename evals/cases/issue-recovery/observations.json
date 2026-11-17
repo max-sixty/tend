@@ -261,14 +261,14 @@
           "number": 220,
           "label": "tend-rate-limit",
           "state": "OPEN",
-          "title": "Creation allowance reached"
+          "title": "Creation allowance exhausted"
         },
         "latest_response": {
           "status": 429,
-          "message": "Tend creation allowance reached for example/widget: 10 creations in the preceding 24 hours, limit 10. Next usage expiry: 2026-10-26T23:00:00Z. Recheck then; the allowance may also change as the baseline changes or approval floors expire. A maintainer can close issue220 to approve a higher limit for seven days."
+          "message": "Tend creation allowance reached for example/widget: 30 creations in the past 24 hours; limit 30. Next usage expiry: 2026-10-26T23:00:00Z; recheck then. Refused runs are listed in issue220; closing it approves more."
         },
         "source": "The privileged proxy returned this response to an issue creation request; the agent kept running.",
-        "policy": "Usage is measured over the preceding 24 hours, without a midnight reset or a separate burst limit. The base limit is max(10, ceil(2 * mean creations per day over the preceding seven complete UTC days)). A human close of a tracker titled Creation allowance reached grants a numeric floor for seven days equal to twice the greater of the base limit and preceding-24-hour creations at close. The current limit is the greater of the current base and all unexpired floors. Closes of older differently titled trackers grant no floor."
+        "policy": "Usage is measured over the preceding 24 hours, without a midnight reset or a separate burst limit. The limit is max(30, ceil(4 * creations in the seven days before the preceding 24 hours / 7)). A human close of a tracker titled Creation allowance exhausted approves more: each such close in the past 24 hours doubles the limit. Closes of differently titled trackers approve nothing."
       },
       "open_issues": [
         {

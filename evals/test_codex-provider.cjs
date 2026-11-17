@@ -44,7 +44,8 @@ test("repository observations reject malformed or independently changed state", 
   ]) assert.equal(repositoryUnchanged(output).pass, false, output);
 });
 
-test("fresh Codex tasks isolate evidence and expose artifacts or actual trajectories", async (t) => {
+/** Point the provider at a throwaway subscription login for the rest of `t`. */
+async function fakeLogin(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "tend-provider-test-"));
   const authHome = path.join(root, "auth");
   await fs.mkdir(authHome);
@@ -61,6 +62,38 @@ test("fresh Codex tasks isolate evidence and expose artifacts or actual trajecto
     }
     await fs.rm(root, { recursive: true, force: true });
   });
+  return { root, authHome, auth };
+}
+
+test("promptfoo's Codex provider runs the pinned SDK", async (t) => {
+  // Promptfoo's provider and the pinned SDK run for real, so a promptfoo
+  // release that refuses the pinned SDK fails here. Only the Codex binary is a
+  // stand-in. It reports the pinned CLI's version, because promptfoo can
+  // check that a binary override matches the SDK.
+  const { root } = await fakeLogin(t);
+  const { version } = require("@openai/codex/package.json");
+  const turn = [
+    { type: "thread.started", thread_id: "thread" },
+    { type: "item.completed", item: { id: "item", type: "agent_message", text: "Stand-in answer" } },
+    { type: "turn.completed", usage: { input_tokens: 2, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } },
+  ];
+  const codex = path.join(root, "codex");
+  await fs.writeFile(codex, `#!${process.execPath}
+if (process.argv.includes("--version")) console.log("codex-cli ${version}");
+else process.stdin.resume().on("end", () => {
+  for (const event of ${JSON.stringify(turn)}) console.log(JSON.stringify(event));
+});
+`, { mode: 0o755 });
+  class StandInProvider extends CodexProvider {
+    async codexPath() { return codex; }
+  }
+  const response = await new StandInProvider({ config: { judge: true } }).callApi("grade");
+  assert.equal(response.error, undefined);
+  assert.equal(response.output, "Stand-in answer");
+});
+
+test("fresh Codex tasks isolate evidence and expose artifacts or actual trajectories", async (t) => {
+  const { root, authHome, auth } = await fakeLogin(t);
   // One prepared arm serves every case; the test's metadata selects one.
   const arm = path.join(root, "arm");
   const staged = path.join(arm, "case");
