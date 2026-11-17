@@ -80,7 +80,7 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
 tend runtime idle-issues > "$TMPDIR/idle-issues.json"
 ```
 
-Its `others` are the open issues the bot had the last word on, apps aside, that no assignee, Tend run or closing PR will act on; CI causes and reports, which `/tend-ci-runner:nightly` restarts, and Tend's bookkeeping trackers are left out. Read each thread and its linked PRs, starting from `open_prs`. Where the bot owes the next step — an investigation or fix triage left unfinished, as **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` scopes it, including a recorded blocker that has since cleared — send the issue to a triage worker through **Recover issue work** in `/tend-ci-runner:notifications`. Otherwise leave it and post nothing.
+Its `others` are the open issues the bot had the last word on, apps aside, that no assignee, Tend run or closing PR will act on; CI causes and reports, which `/tend-ci-runner:nightly` handles, and Tend's bookkeeping trackers are left out. Read each thread and its linked PRs, starting from `open_prs`. Where the bot owes the next step — an investigation or fix triage left unfinished, as **Retain engineering ownership** in `/tend-ci-runner:fix-a-bug` scopes it, including a recorded blocker that has since cleared — send the issue to a triage worker through **Recover issue work** in `/tend-ci-runner:notifications`. Otherwise leave it and post nothing.
 
 ## Step 4: Repo-specific weekly tasks
 

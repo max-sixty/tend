@@ -12,8 +12,8 @@ neither list includes those.
   last.
 - ``others``: the remaining open issues the bot had the last word on, for
   weekly to read. Nothing on GitHub tells a stalled issue from one waiting to be
-  prioritised, so the open pull requests that reference each one come back as
-  evidence for that judgement. CI failure reports are nightly's, and Tend's
+  prioritised, so the URLs of the open pull requests, in any repository, that
+  reference each one come back as evidence for that judgement. CI failure reports are nightly's, and Tend's
   bookkeeping trackers hold no work, so neither is listed.
 
 Comments by GitHub Apps (``github-actions``, stale bots) start no Tend workflow,
@@ -56,7 +56,7 @@ query($owner: String!, $repo: String!, $endCursor: String) {
         timelineItems(last: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
           nodes {
             ... on CrossReferencedEvent {
-              source { ... on PullRequest { number state } }
+              source { ... on PullRequest { url state } }
             }
           }
         }
@@ -105,7 +105,7 @@ def select(
         if author != bot or NOT_OTHERS.intersection(labels):
             continue
         prs = {
-            event["source"]["number"]
+            event["source"]["url"]
             for event in issue["timelineItems"]["nodes"]
             if (event.get("source") or {}).get("state") == "OPEN"
         }

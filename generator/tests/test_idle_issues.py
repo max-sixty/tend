@@ -17,6 +17,7 @@ from pathlib import Path
 from tests import GH_PREAMBLE, fake_bin, runtime_command, tool_path
 
 BOT = "widget-agent"
+REPO = "https://github.com/owner/repo"
 
 FAKE_GH = (
     GH_PREAMBLE
@@ -69,7 +70,7 @@ def _issue(
         "comments": {"nodes": nodes},
         "closedByPullRequestsReferences": {"totalCount": closing},
         "timelineItems": {
-            "nodes": [{"source": {"number": pr, "state": state}} for pr, state in refs]
+            "nodes": [{"source": {"url": url, "state": state}} for url, state in refs]
         },
     }
 
@@ -111,7 +112,15 @@ def test_lists_causes_and_the_issues_the_bot_last_wrote_on_that_nothing_will_act
                 _issue(8, assignees=("maintainer",)),
                 _issue(9, closing=1),
                 _issue(10),
-                _issue(11, refs=((50, "OPEN"), (51, "MERGED"))),
+                _issue(
+                    11,
+                    refs=(
+                        (f"{REPO}/pull/50", "OPEN"),
+                        (f"{REPO}/pull/51", "MERGED"),
+                        # The bot's upstream PR, in another repository.
+                        ("https://github.com/upstream/lib/pull/7", "OPEN"),
+                    ),
+                ),
                 _issue(12, comments=()),
                 _issue(13, author="maintainer", comments=()),
                 _issue(14, assignees=(BOT,)),
@@ -182,7 +191,11 @@ def test_lists_causes_and_the_issues_the_bot_last_wrote_on_that_nothing_will_act
         "causes": [cause(1), cause(5)],
         "others": [
             other(6, "2026-11-01T08:00:00Z"),
-            other(11, "2026-11-01T08:00:00Z", [50]),
+            other(
+                11,
+                "2026-11-01T08:00:00Z",
+                [f"{REPO}/pull/50", "https://github.com/upstream/lib/pull/7"],
+            ),
             other(12, None),
             other(14, "2026-11-01T08:00:00Z"),
             other(15, "2026-11-01T08:00:00Z"),

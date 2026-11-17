@@ -7,7 +7,7 @@ metadata:
 
 # Check Notifications and Bot PRs
 
-Unread notifications retain unanswered activity. Event workflows are the fast path; this poll handles missed activity and repairs conflicts on the configured bot's PRs. The bot gets no notification for its own writes, so `/tend-ci-runner:nightly` restarts stalled CI causes and reports, and `/tend-ci-runner:weekly` the other issues the bot left unfinished.
+Unread notifications retain unanswered activity. Event workflows are the fast path; this poll handles missed activity and repairs conflicts on the configured bot's PRs. The bot gets no notification for its own writes, so `/tend-ci-runner:nightly` restarts stalled CI causes and revisits CI failure reports, and `/tend-ci-runner:weekly` restarts the other issues the bot left unfinished.
 
 The workflow prompt supplies the **notification snapshot cutoff**. This run owns whatever the snapshot returned; anything the snapshot did not return belongs to the next poll.
 
@@ -111,7 +111,7 @@ Route same-repository issues found by notifications, `/tend-ci-runner:nightly` o
 
 Before dispatching an issue, check its live runs per **Give each thread a current outcome**. Skip a subject already active or queued. Check recent worker outcomes and current access or outage records. Respect an outstanding approval gate or provider reset. When access is uncertain, dispatch one ordinary worker as a control and inspect its actual result before admitting more. Tend's creation allowance governs new issues and PRs; apply **Creation allowance** in `/tend-ci-runner:open-pr` when that is the remaining work.
 
-With working access, collect the distinct actionable issue numbers oldest first and dispatch them together as a JSON array. The dispatch command splits at GitHub's matrix and run-name limits so queued batches keep every issue ID visible to ownership checks. There is no one-issue-per-poll or daily-sweep cap. Each number creates one issue job; an empty selection creates none. A batch runs at most the configured `workflows.triage.max_parallel` issue jobs at once (default five), and batches don't wait for each other. Stop admitting work if access fails or a dispatch is refused; open issues remain for the next sweep. One failed job does not cancel its peers.
+With working access, collect the distinct actionable issue numbers oldest first and dispatch them together as a JSON array. The dispatch command splits at GitHub's matrix and run-name limits so queued batches keep every issue ID visible to ownership checks. There is no one-issue-per-poll or per-sweep cap. Each number creates one issue job; an empty selection creates none. A batch runs at most the configured `workflows.triage.max_parallel` issue jobs at once (default five), and batches don't wait for each other. Stop admitting work if access fails or a dispatch is refused; open issues remain for the next sweep. One failed job does not cancel its peers.
 
 ```bash
 # Example: the actual selection, not a fixed set of worker slots.
