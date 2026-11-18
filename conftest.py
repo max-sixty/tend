@@ -6,6 +6,8 @@ canned responses and are recorded, and a test never puts a shim on ``PATH``.
 ``GITHUB_ENV``, ``GITHUB_STEP_SUMMARY``) at files under ``tmp_path``.
 ``actions_env`` sets the run and event variables a step reads to name itself.
 The doubles themselves live in ``_fakes.py`` so tests can import their types.
+Every test starts without ``TEND_ISSUE_NUMBER``, which a triage matrix job sets
+and which outranks the event payload as a step's subject.
 """
 
 from __future__ import annotations
@@ -17,6 +19,11 @@ import pytest
 from tend.runtime.shared import _common
 
 from _fakes import FakeGh, GithubFiles
+
+
+@pytest.fixture(autouse=True)
+def _no_matrix_issue(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TEND_ISSUE_NUMBER", raising=False)
 
 
 @pytest.fixture

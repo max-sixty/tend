@@ -26,7 +26,6 @@ import pytest
 
 from tests import GH_PREAMBLE, fake_bin, runtime_command, tool_path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = "token-report"
 # Before every fixture timestamp below, so a case that isn't about the window
 # sees all of its runs.
@@ -498,11 +497,10 @@ def test_one_unreadable_artifact_costs_its_own_run_and_no_other(
 ) -> None:
     """An artifact cut mid-write must not take the other 200 runs with it.
 
-    `jq` exits non-zero on it, and under `set -euo pipefail` that ends the
-    script before anything reaches stdout — every other run's spend lost to one
-    bad file. A file holding no object at all takes the same path: `jq` exits
-    0 with no output, and reporting the run as a zero would say its spend was
-    nothing when the truth is that it is unknown.
+    Parsing it raises, and an uncaught error would end the report before
+    anything reaches stdout — every other run's spend lost to one bad file. A
+    file holding no object at all is skipped the same way: reporting the run as
+    a zero would say its spend was nothing when the truth is that it is unknown.
     """
     report.add(1, cost_usd=3.0).add_raw(2, body).add(3, number=852)
     output, rows = report.run()
@@ -569,7 +567,7 @@ def test_half_cent_costs_round_up_consistently(report: Report) -> None:
 def test_a_workflow_name_with_a_space_keeps_its_own_column(report: Report) -> None:
     """The summary pads its own columns, so a cell may contain spaces.
 
-    `EXTRA_PREFIXES` exists for hand-written workflows, whose names are not
+    Extra prefix arguments exist for hand-written workflows, whose names are not
     held to the generator's `tend-` convention — and a shifted column reads as
     a different metric rather than as a broken table.
     """
@@ -586,7 +584,9 @@ def test_a_workflow_name_with_a_space_keeps_its_own_column(report: Report) -> No
 
 
 @pytest.mark.parametrize("prefix", ['review "', "review \\"])
-def test_workflow_prefix_is_passed_to_jq_as_data(report: Report, prefix: str) -> None:
+def test_workflow_prefix_with_quotes_matches_literally(
+    report: Report, prefix: str
+) -> None:
     report.add(1, workflow=f"{prefix}special")
 
     output, _ = report.run(prefix)
