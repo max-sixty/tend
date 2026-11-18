@@ -6,6 +6,22 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.27
+
+### Improved
+
+- The nightly sweep restarts stalled CI causes, and the weekly sweep restarts other issues the bot left unfinished. `tend runtime idle-issues` lists the open `tend-ci-cause` issues with no assignee but the bot, no queued or running Tend run and no open PR that will close them, and nightly sends each one to triage. Weekly reads the other open issues the bot had the last word on and sends to triage only those where the bot owes the next step. The checks for unfinished issues and bot PRs, red default-branch CI and unaddressed Dependabot alerts move from `review-runs` to nightly, and a session keeps an issue assigned to the person a request waits on until they act. ([#1688](https://github.com/max-sixty/tend/pull/1688))
+- Nightly files a reachable defect it doesn't fix as an issue, or as a comment on an open issue that covers it, instead of only listing it in the step summary. ([#1699](https://github.com/max-sixty/tend/pull/1699))
+
+### Fixed
+
+- `review-runs` drains `tend-outage` trackers that the bot closed for another reason. It closes trackers with `tend runtime review-runs close-outage-trackers`, which marks the close and leaves open any tracker that gained a row since the sweep read it, and it skips a closed tracker only when that mark is its latest row. ([#1700](https://github.com/max-sixty/tend/pull/1700))
+- The sandbox gets its own `XDG_RUNTIME_DIR`, so tools that write there, such as the .NET SDK on its first run, no longer fail on the runner's directory. ([#1697](https://github.com/max-sixty/tend/pull/1697))
+
+### Internal
+
+- Stale comments in the Claude action and the failure-report step are corrected, and tests assert that generated prompts reach the agent and no longer inherit `TEND_ISSUE_NUMBER`. ([#1701](https://github.com/max-sixty/tend/pull/1701), [#1702](https://github.com/max-sixty/tend/pull/1702), [#1703](https://github.com/max-sixty/tend/pull/1703))
+
 ## 0.3.26
 
 ### Improved
