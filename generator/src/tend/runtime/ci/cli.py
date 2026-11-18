@@ -15,6 +15,7 @@ from tend.runtime.ci import (
     bot_review_state,
     check_body_links,
     enrich_tend_outage_issues,
+    idle_issues,
     land_pr,
     list_recent_runs,
     nightly_survey_files,
@@ -248,6 +249,12 @@ def scope_audit() -> None:
     _run(pat_scope_audit.main)
 
 
+@click.command("idle-issues")
+def idle() -> None:
+    """List open CI causes, and other issues the bot last wrote on, that nothing will act on."""
+    _run(idle_issues.main)
+
+
 @click.command("red-default-branch-runs")
 def red_runs() -> None:
     """List unresolved failed runs on the repository's default branch."""
@@ -352,6 +359,7 @@ def register(runtime: click.Group) -> None:
         survey_files,
         workflow_update,
         scope_audit,
+        idle,
         red_runs,
         enrich_outages,
         corrections,

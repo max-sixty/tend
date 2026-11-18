@@ -4,7 +4,7 @@
   "bot": "repair-agent",
   "merge": "yolo",
   "fixtures": {
-    "observations.json": "1e44e5789734b01b2957640a6335424523e0a9ceb19082a326e5074e576119ad"
+    "observations.json": "c6ca6ecc67f5a7bb57742ac13d6772acafa94caffdadc4c2fd004bc74dc86ed4"
   },
   "origin": {
     "kind": "synthetic closure contrasts adapted from observed recovery decisions",

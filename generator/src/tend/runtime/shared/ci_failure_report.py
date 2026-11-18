@@ -20,7 +20,7 @@ So a report is open while it holds unhandled work, as any open issue does.
 The bot's token writes the report, so filing or reopening it triggers ordinary
 issue triage. A failure while it is open only adds evidence: a running session
 reads it, and when none is running, because a session failed or left a
-failure without an owner, the daily `review-runs` sweep revisits the report.
+failure without an owner, the nightly sweep revisits the report.
 The bot gets no notification for its own writes.
 
 Inputs (env): ``GH_TOKEN`` (the bot's token), ``GITHUB_REPOSITORY``,
