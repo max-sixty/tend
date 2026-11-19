@@ -127,7 +127,6 @@ in depth.
 | Token | Lifetime | If leaked, attacker can... | ...but cannot |
 |-------|----------|----------------------------|---------------|
 | Bot token (PAT) | Long-lived | Push to unprotected branches, create PRs, impersonate the bot; under yolo, merge ordinary PRs | Push directly to the default branch, alter yolo control-plane paths without CODEOWNER approval, operate on tags, or read environment secret values |
-| Bot token (App) | ~1 hour | Same as PAT, until the token expires | Same, plus auto-expiry |
 | Claude OAuth | Long-lived | Run Claude sessions billed to the account | Access GitHub |
 | `OPENAI_API_KEY` | Until revoked | Run Codex/OpenAI calls billed to the account | Access GitHub |
 | `CODEX_AUTH_JSON` | Current access-token lifetime | Run Codex against the ChatGPT account | Refresh itself or access GitHub |
@@ -177,13 +176,13 @@ authentication if it stays offline past expiry.
 Use a single bot token across all workflows for consistent identity. The
 configured merge and control-plane rulesets cap its repository authority.
 
-Two tokens are needed: the bot's PAT (or GitHub App) credential, plus a
+Two tokens are needed: the bot's classic PAT, plus a
 harness-auth credential whose form depends on `harness` in
 `.config/tend.yaml`.
 
 | Token | Purpose |
 |-------|---------|
-| Bot token (PAT or App) | GitHub API and git operations. Consistent bot identity. |
+| Bot token (classic PAT) | GitHub API and git operations. Consistent bot identity. |
 | Harness auth (one of, per harness) | Authenticates the agent runtime. |
 | ↳ Claude OAuth token | `harness: claude`: authenticates Claude Code to the Anthropic API. |
 | ↳ Codex subscription auth | `harness: codex`: access-only consumer auth with hosted or external refresh (experimental; see above). |
