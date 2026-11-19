@@ -591,19 +591,20 @@ def test_launch_only_adds_harness_names_inside_the_sandbox(
     assert argv[0] == "/usr/bin/env"
 
 
-def test_launch_writes_settings_inside_the_existing_sandbox(launch: Launcher) -> None:
+def test_launch_writes_settings_inside_the_existing_sandbox(
+    launch: Launcher, tmp_path: Path
+) -> None:
     """The exact file, so a key that silently stops being written is caught.
 
     The three claude.ai keys are the ones worth naming: they are what holds the
     bot's account out of the session, and the sync pair honors only ``false``
     because the feature it refuses turns on server-side.
     """
-    result = launch(stream=_ev_result())
-    tee = result.command("tee")
+    launch(stream=_ev_result())
+    workspace = tmp_path / "workspace"
+    written = workspace / ".claude/settings.local.json"
 
-    assert tee.argv[0] == "tee"
-    assert tee.argv[-1].endswith("/.claude/settings.local.json")
-    assert json.loads(tee.kwargs["input"]) == {
+    assert json.loads(written.read_text()) == {
         "permissions": {
             "defaultMode": "bypassPermissions",
             "allow": ["Bash", "Read"],
@@ -614,10 +615,7 @@ def test_launch_writes_settings_inside_the_existing_sandbox(launch: Launcher) ->
         "syncClaudeAiPlugins": False,
         "disableClaudeAiConnectors": True,
     }
-    mkdir = result.command("mkdir")
-    assert mkdir.argv[0] == "mkdir"
-    assert mkdir.kwargs["stdin"] is subprocess.DEVNULL
-    exclude = Path(tee.argv[-1]).parents[1] / ".git/info/exclude"
+    exclude = workspace / ".git/info/exclude"
     assert exclude.read_text() == "/.claude/settings.local.json\n"
 
 
