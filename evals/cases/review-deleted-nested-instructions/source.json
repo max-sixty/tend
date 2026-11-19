@@ -5,7 +5,9 @@
   "fixtures": {
     "checkout/AGENTS.md": "2c0426233529f7461f7db1a36f32739f4dca0e13cf3fba51146775e68e4ed9e9",
     "checkout/tests/AGENTS.md": "5c9a11b7ee52d9988d284fb11092bb2543b8d9294fe1017ecff9cc9f36023af9",
+    "checkout/tests/intégration/AGENTS.md": "7f18ecb10dff2de888c615ae6bae806f90b3fbb7bf4e05e807bede58d1fb71c7",
+    "checkout/tests/intégration/test_import.py": "cf8d10b2286b1eb65b382d5745d82d440d841a100dfe1d15b0e8fcbc9847e9a7",
     "checkout/tests/unit/test_export.py": "1d50f10ac8a753fd5b9b8660d03a4f6886e8fc5ece4565d05ad9909a26547373",
-    "evidence/change.patch": "e01056ee0ed1e8812a494b878d438b58a6329ebfd2d22abda959ad0143df9833"
+    "evidence/change.patch": "e041c7a054578d205e50fafd6648bd68f81dd22ac6c277943aecdfd18e411656"
   }
 }

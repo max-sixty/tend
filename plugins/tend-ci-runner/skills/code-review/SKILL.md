@@ -19,16 +19,18 @@ If a target was passed (PR number, branch, ref range, path, or a free-form scope
 Read the unique project instruction files that govern the changed code: `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, and `AGENTS.override.md` in each changed path's directory and every ancestor up to the repo root, so `tests/CLAUDE.md` governs a change to `tests/unit/foo.rs`. Changed paths include both sides of a rename and deleted files. Look on disk, not in the index — on a PR checkout the working tree holds the base copies that govern, including one the diff deletes:
 
 ```bash
-git diff --name-only --no-renames <range> | while read -r f; do
-  d=$(dirname "$f")
-  while :; do
+git diff --name-only --no-renames -z <range> | while IFS= read -r -d '' f; do
+  d=$f
+  while [ "$d" != . ]; do
+    case $d in */*) d=${d%/*} ;; *) d=. ;; esac
     for n in CLAUDE.md CLAUDE.local.md AGENTS.md AGENTS.override.md; do
-      [ -f "$d/$n" ] && echo "$d/$n"
+      [ -f "$d/$n" ] && printf '%s\0' "$d/$n"
     done
-    [ "$d" = . ] && break; d=$(dirname "$d")
   done
-done | sort -u
+done | sort -zu | tr '\0' '\n'
 ```
+
+The paths stay NUL-delimited until the final listing: without `-z`, Git quotes a path holding a non-ASCII byte (`"tests/int\303\251gration/..."`), and no directory by that name exists.
 
 Read a symlinked source only once. Nested instructions apply only to files at or below their directory.
 

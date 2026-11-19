@@ -32,3 +32,15 @@ index 8d2e41b..c07a5f3 100644
 +    out = Path("tests/fixtures/empty.json")
 +    export_report([], out)
 +    assert json.loads(out.read_text()) == {}
+diff --git "a/tests/int\303\251gration/test_import.py" "b/tests/int\303\251gration/test_import.py"
+index 51c0d7e..9a4b2f1 100644
+--- "a/tests/int\303\251gration/test_import.py"
++++ "b/tests/int\303\251gration/test_import.py"
+@@ -6,3 +6,7 @@ from exporter import import_report
+ def test_import_report_round_trips(database):
+     database.insert({"kind": "sale", "amount": 3})
+     assert import_report(database) == {"sale": 3}
++
++
++def test_import_report_empty(database):
++    assert import_report(database) == {}
