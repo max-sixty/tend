@@ -1,0 +1,34 @@
+diff --git a/tests/AGENTS.md b/tests/AGENTS.md
+deleted file mode 100644
+index 3f1c2a9..0000000
+--- a/tests/AGENTS.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+-# Tests
+-
+-Tests must never write inside the repository tree. Write generated files under
+-pytest's `tmp_path` fixture; a file written under `tests/` is picked up by the
+-next run's fixture discovery and breaks parallel runs.
+diff --git a/tests/unit/test_export.py b/tests/unit/test_export.py
+index 8d2e41b..c07a5f3 100644
+--- a/tests/unit/test_export.py
++++ b/tests/unit/test_export.py
+@@ -1,9 +1,15 @@
+ import json
++from pathlib import Path
+
+ from exporter import export_report
+
+
+-def test_export_report_writes_totals(tmp_path):
+-    out = tmp_path / "out.json"
++def test_export_report_writes_totals():
++    out = Path("tests/fixtures/out.json")
+     export_report([{"kind": "sale", "amount": 3}, {"kind": "sale", "amount": 4}], out)
+     assert json.loads(out.read_text()) == {"sale": 7}
++
++
++def test_export_report_empty():
++    out = Path("tests/fixtures/empty.json")
++    export_report([], out)
++    assert json.loads(out.read_text()) == {}

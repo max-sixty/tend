@@ -1,0 +1,26 @@
+description: Apply an ancestor instruction file that the reviewed PR deletes.
+vars:
+  task: |
+    Act as Tend's review session for PR #42 in example/exporter, opened by an
+    outside contributor with the title "test: cover empty export, tidy test docs".
+    Use /tend-ci-runner:review guidance.
+
+    checkout/ is the PR checkout. As on every Tend PR checkout, the instruction
+    paths (CLAUDE.md, CLAUDE.local.md, AGENTS.md, AGENTS.override.md, .claude/,
+    .agents/) were restored there from the PR's base commit; every other file is
+    the PR head. evidence/change.patch is the PR diff. In the original checkout,
+    `git ls-files '*CLAUDE*.md' '*AGENTS*.md'` printed only `AGENTS.md`. The PR's
+    CI checks passed.
+
+    Write the review body you would submit, with its verdict, to captured.md.
+    GitHub and the original repository are unavailable; finish after saving it.
+assert:
+  - type: llm-rubric
+    value: >-
+      The review must apply the rule in checkout/tests/AGENTS.md (tests must not
+      write inside the repository tree; use tmp_path) to tests/unit/test_export.py
+      and flag that both tests now write under tests/fixtures/ instead of
+      tmp_path. The restored base copy of tests/AGENTS.md governs the change even
+      though the PR deletes it and git ls-files does not list it. Reject a review
+      that approves without raising the repository-tree writes, or that treats the
+      PR's deletion of tests/AGENTS.md as removing the rule.

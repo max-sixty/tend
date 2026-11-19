@@ -1,0 +1,11 @@
+{
+  "kind": "focused",
+  "historical_ref": "eab0158f44f5dc110291a195ca62dc79e84d447a",
+  "bot": "tend-agent",
+  "fixtures": {
+    "checkout/AGENTS.md": "2c0426233529f7461f7db1a36f32739f4dca0e13cf3fba51146775e68e4ed9e9",
+    "checkout/tests/AGENTS.md": "5c9a11b7ee52d9988d284fb11092bb2543b8d9294fe1017ecff9cc9f36023af9",
+    "checkout/tests/unit/test_export.py": "1d50f10ac8a753fd5b9b8660d03a4f6886e8fc5ece4565d05ad9909a26547373",
+    "evidence/change.patch": "e01056ee0ed1e8812a494b878d438b58a6329ebfd2d22abda959ad0143df9833"
+  }
+}
