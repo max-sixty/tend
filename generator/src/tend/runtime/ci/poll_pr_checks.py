@@ -307,6 +307,40 @@ def _head(*, pr: str, repo: str) -> str:
         return ""
 
 
+def _conflicting(*, pr: str, repo: str, sha: str) -> bool:
+    """Whether *sha* is the PR's head and GitHub reports it conflicting.
+
+    GitHub creates no `pull_request` run for a PR that conflicts with its base,
+    so its checks may hold only `pull_request_target` workflows and external
+    apps, and a green read of those need not cover the PR's CI. A read that
+    fails, or a lazily computed `UNKNOWN`, counts as no conflict.
+    """
+    try:
+        response = _common.gh_json(
+            "pr",
+            "view",
+            pr,
+            "--repo",
+            repo,
+            "--json",
+            "headRefOid,mergeable",
+            quiet=True,
+        )
+    except (subprocess.CalledProcessError, ValueError):
+        return False
+    return (
+        isinstance(response, dict)
+        and response.get("headRefOid") == sha
+        and response.get("mergeable") == "CONFLICTING"
+    )
+
+
+CONFLICT_NOTE = (
+    "PR conflicts with its base, and GitHub runs no pull_request CI on a "
+    "conflicting head, so the checks on {sha} may not include the PR's CI"
+)
+
+
 def head_note(*, pr: str, repo: str, sha: str) -> None:
     """Report a moved branch without retargeting the commit verdict."""
     current = _head(pr=pr, repo=repo)
@@ -460,6 +494,10 @@ def approval(
     A head that moves during that wait leaves the approval undecided; otherwise
     whether *sha* is still the head is not judged here: the review skill posts
     every review behind `review_preflight.py post`, which refuses a moved head.
+
+    A head that conflicts with its base leaves the approval undecided unless
+    a check already failed: its checks may not include the PR's `pull_request`
+    CI.
     """
     repo = os.environ["GITHUB_REPOSITORY"]
     rollup = fetch_rollup(
@@ -493,6 +531,9 @@ def approval(
             print("still running, not waited for:")
             print(*rollup["pending"], sep="\n")
         return 1
+    if _conflicting(pr=pr, repo=repo, sha=sha):
+        print(CONFLICT_NOTE.format(sha=sha), file=sys.stderr)
+        return 2
     if rollup["unverified"]:
         print(f"approve: no failing check on {sha}; unverified:")
         print(*rollup["unverified"], sep="\n")
@@ -582,6 +623,9 @@ def poll(
         print(f"no result from these checks on {sha} — UNVERIFIED, not green:")
         print(*last["unverified"], sep="\n")
         head_note(pr=pr, repo=repo, sha=sha)
+        return 2
+    if settled and _conflicting(pr=pr, repo=repo, sha=sha):
+        print(CONFLICT_NOTE.format(sha=sha) + " — UNVERIFIED, not green")
         return 2
     if settled:
         print(f"green: every gating check on {sha} settled green")
