@@ -45,8 +45,7 @@ The easiest way to get started is to install the Tend plugin into a local Claude
 Code session, and run the [`/install-tend` skill](plugins/install-tend/skills/install-tend/SKILL.md):
 
 ```sh
-claude plugin marketplace add max-sixty/tend
-claude plugin install install-tend@tend
+claude plugin install install-tend --marketplace max-sixty/tend
 claude /install-tend
 ```
 
