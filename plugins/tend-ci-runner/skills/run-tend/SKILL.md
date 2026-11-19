@@ -13,6 +13,8 @@ Tend's bundled skills provide defaults; the consumer repo's own instructions —
 
 If a `running-tend` skill is listed in your available skills, read it before doing anything else. It typically carries PR title conventions, label policies, custom workflows to watch, and other repo-specific context. It can also define extra tasks for the job you're running — additional nightly or weekly maintenance, repo-specific health checks — which you perform as part of that job, not just keep in mind.
 
+Instruction files below the repo root (`CLAUDE.md`, `AGENTS.md`, and their local and override variants) govern the files beneath them, and the harness does not load them when you read code through the shell. Before editing or reviewing a file, read the instruction files in its directory and each ancestor; `git ls-files '*CLAUDE*.md' '*AGENTS*.md'` lists them.
+
 Invoke a repo-local skill by its own name with no plugin prefix — `/running-tend`, never under the `/tend-ci-runner:` prefix, which is reserved for this plugin's own skills.
 
 ## Action skills
