@@ -109,9 +109,7 @@ Two search strategies, both required:
 1. **Similar names, signatures, and values.** Search for functions with similar names, return types, or parameter types, and for the same literal value or rule body.
 2. **Overlapping subgoals.** Identify the intermediate steps the new code performs and search for existing code that does the same sub-tasks.
 
-A copy whose comment names its source is still a copy. Where the new code can't reach the original — a private helper, a module its package can't import, the same fact stated in another language or data file — ask for the original to be exported, moved, or generated rather than copied.
-
-Flag duplicates — reuse is almost always better than a parallel implementation.
+A copy whose comment names its source is still a copy. Flag each duplicate by the shared fact it restates and where the original lives. Reusing a reachable original is almost always better than a parallel implementation. Where the new code can't reach the original — a private helper, a module its package can't import, the same fact stated in another language or data file — weigh consolidating it (exporting, moving, or generating) against the repo's guidance before recommending a remedy; where that guidance is silent, name the duplication and leave the tradeoff to the author.
 
 ### 5. Second pass
 
