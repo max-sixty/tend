@@ -98,7 +98,7 @@ Four pieces:
    the consumer's `.github/workflows/` from `.config/tend.yaml`. Picks the
    right action ref and secret names per `harness`. Generation is
    idempotent — running `init` again overwrites all files from the
-   current config. When review, triage or land is generated, it also merges the
+   current config. When review or land is generated, it also merges the
    `concurrency.queue` ignore into the consumer-owned
    `.github/actionlint.yaml` (see "Concurrency and filtering").
 4. **Config** (`.config/tend.yaml`) — inputs to the generator. Overrides
@@ -337,7 +337,7 @@ Concurrency groups:
 | mention-relay | none | stateless — secretless job that re-posts review events to mention as a `repository_dispatch` |
 | mention/verify | none | stateless |
 | mention/handle | `workflow-handle-issue#\|PR#` | **no** — each mention runs to completion |
-| triage | `tend-triage` | **no** — one whole batch at a time; its matrix runs up to `workflows.triage.max_parallel` issue jobs (default five); `queue: max` holds pending batches; the daily sweep recovers unfinished open issues outside GitHub's finite queue |
+| triage | `tend-triage-<issue>` | **no** — one job per issue at a time, and different issues share no group; a batch's matrix runs up to `workflows.triage.max_parallel` issue jobs (default five); a newer event replaces a job pending for its issue, and the new session reads the live issue |
 | notifications | `tend-notifications` | **no** — one poll drains notifications and repairs bot PRs at a time |
 | ci-failures | `workflow-<watched workflow>-<event>-<branch>` | **no** — one writer per CI failure report, so a lane's verdicts apply in turn and never file two |
 | land/check | none | stateless — reads records and checks, starts nothing itself |
@@ -363,30 +363,38 @@ own commit, and every one of those runs finishes. `tend-ci-failures` runs no
 agent: it turns each verdict into the lane's CI failure report — one issue per
 watched workflow, branch and triggering event, since a scheduled suite can fail
 on tests push CI never runs — filing it on the first failure, commenting on
-each later one, and closing it on the next pass. Its group is keyed on that
+a later one while it is open, reopening it on a later one after triage closed
+it, and closing it on a pass. Its group is keyed on that
 lane and is job-level: a cancelled or skipped run, which the job's `if` skips,
 never enters it, so it never takes the pending slot from a verdict. The report
-is written with the bot token from the `tend` environment, so opening it starts
-ordinary `tend-triage`. Later failure comments add evidence without starting
-another session. The agent work runs through the issue path:
+is written with the bot token from the `tend` environment, so filing or reopening it
+starts ordinary `tend-triage`. Triage closes the report once it has diagnosed
+its failures and each has an owner, so an open report holds unhandled work. A
+failure while it is open only adds evidence, for a running session or, when
+none is running, the nightly sweep. The agent work runs through the issue path:
 triage diagnoses the report, fixing causes directly or filing cause issues for
 separate triage sessions. Its diagnosis links each repair's issue or PR; an
-unresolved durable cause keeps that owner when a passing run closes the report.
-Sessions recheck existing owners before starting work. All triage batches share
-one workflow concurrency group. The bot gets no notification for its own writes.
-The daily `review-runs` sweep inspects all open issues for unfinished work,
-including bot-authored reports and partial investigations after successful turns.
-It routes unowned work through ordinary triage using
+unresolved durable cause keeps that owner when the report closes.
+Sessions recheck existing owners before starting work. A triage job shares a
+concurrency group only with jobs for its own issue, so two reports can still reach
+one cause at once. The bot gets no notification or event for its own writes, so
+`tend runtime idle-issues` lists the open issues that no assignee, Tend run or
+closing PR will act on. The nightly sweep restarts every cause it lists, since
+a cause waiting on a person is assigned to them. Nothing on GitHub tells
+another issue that stalled from one waiting to be prioritised, so the weekly
+sweep reads each one the bot had the last word on and restarts those where the
+bot owes the next step. Both route the work through ordinary triage using
 **Recover issue work** in `/tend-ci-runner:notifications`. With working access,
-the sweep can queue the actionable backlog within provider access and queue
+a sweep can queue the actionable backlog within provider access and queue
 bounds; each batch runs a bounded matrix of the selected issue IDs. Each worker
 checks the live issue and repair ownership again when it starts. The runtime's
 `triage-batch dispatch` command splits selections at GitHub's matrix and run-name
 limits; `select` refuses payloads whose queued ownership would be truncated.
 
-**GHA queue depth.** Review, triage and land set `queue: max`, so pending events within
-GitHub's queue limit wait: a later push cannot replace `ready_for_review`, and
-a new report cannot replace an earlier report's triage.
+**GHA queue depth.** Review and land set `queue: max`, so pending events within
+GitHub's queue limit wait: a later push cannot replace `ready_for_review`. Triage
+needs no queue, since a report is its own issue and a newer event for an issue
+replaces a job pending for it.
 GitHub accepts the key; actionlint's schema does not, so `init` merges the
 matching ignore into `.github/actionlint.yaml`, which the binary reads for
 every invocation.

@@ -1,11 +1,12 @@
 """File or append to a `tend-outage` issue when a run fails.
 
 Shared verbatim by both harness actions; the caller gates it on the job being
-red, so a failure anywhere in the action — the rate-limit preflight and
-sandbox build ahead of the agent as much as the agent itself — lands in the
-tracker. The one exclusion is the security preflight: that failure is a
-persistent config refusal rather than an outage, and the issue this files
-("temporarily unavailable", closed once resolved) would never resolve.
+red, so a failure anywhere in the action — identity resolution, auth
+validation and the sandbox build ahead of the agent as much as the agent
+itself — lands in the tracker. The one exclusion is the security preflight:
+that failure is a persistent config refusal rather than an outage, and the
+issue this files ("temporarily unavailable", closed once resolved) would never
+resolve.
 
 Records the run link, plus the one remedy the tracker can name for itself: a
 pin behind the current release (see :func:`remedy_note`). Error annotations and
@@ -59,7 +60,8 @@ underlying cause is resolved.
 
 {row}{remedy}
 
-This issue was created automatically. Close it after every row above is \
+This issue was created automatically. Additional failed runs are recorded in \
+comments. Close it after every run recorded in the issue body or comments is \
 diagnosed and the live repository has been checked for work the failed runs \
 may have missed. The `tend-review-runs` sweep does that where it runs.
 """

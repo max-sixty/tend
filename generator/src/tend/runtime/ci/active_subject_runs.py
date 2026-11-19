@@ -131,9 +131,9 @@ def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[i
 
     GitHub's runs API does not expose dispatch inputs. Triage's generated
     run-name is therefore an explicit wire format, `triage [1,2]`, retained
-    while the workflow waits for its lane and has no jobs. Job names carry
-    the same numeric identity after expansion; issue titles are never keys.
-    A queued batch can legitimately wait days, so it has no age-based expiry.
+    while the run has no jobs. Job names carry the same numeric identity after
+    expansion; issue titles are never keys. A queued run has no age-based
+    expiry, since how long GitHub holds one isn't ours to bound.
     """
     subjects: dict[int, set[int]] = {}
     for run in runs:

@@ -6,6 +6,85 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.27
+
+### Improved
+
+- The nightly sweep restarts stalled CI causes, and the weekly sweep restarts other issues the bot left unfinished. `tend runtime idle-issues` lists the open `tend-ci-cause` issues with no assignee but the bot, no queued or running Tend run and no open PR that will close them, and nightly sends each one to triage. Weekly reads the other open issues the bot had the last word on and sends to triage only those where the bot owes the next step. The checks for unfinished issues and bot PRs, red default-branch CI and unaddressed Dependabot alerts move from `review-runs` to nightly, and a session keeps an issue assigned to the person a request waits on until they act. ([#1688](https://github.com/max-sixty/tend/pull/1688))
+- Nightly files a reachable defect it doesn't fix as an issue, or as a comment on an open issue that covers it, instead of only listing it in the step summary. ([#1699](https://github.com/max-sixty/tend/pull/1699))
+
+### Fixed
+
+- `review-runs` drains `tend-outage` trackers that the bot closed for another reason. It closes trackers with `tend runtime review-runs close-outage-trackers`, which marks the close and leaves open any tracker that gained a row since the sweep read it, and it skips a closed tracker only when that mark is its latest row. ([#1700](https://github.com/max-sixty/tend/pull/1700))
+- The sandbox gets its own `XDG_RUNTIME_DIR`, so tools that write there, such as the .NET SDK on its first run, no longer fail on the runner's directory. ([#1697](https://github.com/max-sixty/tend/pull/1697))
+
+### Internal
+
+- Stale comments in the Claude action and the failure-report step are corrected, and tests assert that generated prompts reach the agent and no longer inherit `TEND_ISSUE_NUMBER`. ([#1701](https://github.com/max-sixty/tend/pull/1701), [#1702](https://github.com/max-sixty/tend/pull/1702), [#1703](https://github.com/max-sixty/tend/pull/1703))
+
+## 0.3.26
+
+### Improved
+
+- The creation limit is a broad guard against runaway creation: in any rolling 24 hours the bot may create up to four times its daily average over the week before, and at least 30, where it was twice the previous seven UTC days' average with a floor of 10. Each maintainer close of the tracker in the past 24 hours doubles the limit, replacing seven-day approval floors. Refusals file a tracker titled `Creation allowance exhausted`; trackers titled `Creation allowance reached` are no longer reopened. The credential proxy forwards one creation at a time instead of reconciling receipts from GitHub's responses. ([#1693](https://github.com/max-sixty/tend/pull/1693))
+- Claude Code 2.1.325 and uv 0.13.8. The credential proxy's locked dependencies move to mitmproxy-rs 0.12.16 and argon2-cffi-bindings 26.2.0. ([#1690](https://github.com/max-sixty/tend/pull/1690), [#1691](https://github.com/max-sixty/tend/pull/1691))
+
+### Internal
+
+- Codex evals pin promptfoo 0.124.1, the newest release that accepts the pinned Codex SDK, and development tooling is updated. ([#1689](https://github.com/max-sixty/tend/pull/1689), [#1692](https://github.com/max-sixty/tend/pull/1692))
+
+## 0.3.25
+
+### Improved
+
+- Triage closes a CI failure report once every failure it owes has an owner, a transient resolution or work a maintainer ended, and the lane's next failed run reopens the report with a comment. So each failed run on a branch that stays red starts a triage session. With no open report, a failed run reopens the lane's newest report unless the lane passed since it was filed, and files a new one otherwise. The daily `review-runs` sweep judges a red lane's newest report, open or closed: it closes an open report that triage finished, and reopens a closed one whose failure lost its owner. A PR review hands a failure the default branch shares to that report and the owners its diagnosis links. ([#1677](https://github.com/max-sixty/tend/pull/1677))
+- `.config/tend.yaml` takes `checks.accepted`, a map from a `tend check` name to the maintainer's reason for accepting its failure. An accepted failure prints as `ACCEPTED <name> — <reason>`, no longer makes `tend check` exit 1, and is left alone by `--fix`. It is refused under `merge: yolo`. ([#1662](https://github.com/max-sixty/tend/pull/1662))
+- Claude Code 2.1.322, uv 0.13.7 and `actions/upload-artifact` v7.0.2. The credential proxy's locked dependencies move to graphql-core 3.3.2, a security release of its parser. ([#1665](https://github.com/max-sixty/tend/pull/1665), [#1667](https://github.com/max-sixty/tend/pull/1667), [#1671](https://github.com/max-sixty/tend/pull/1671))
+
+### Fixed
+
+- `setup-runtime` retries the uv release download up to five times, so one transient 5xx from GitHub's release CDN no longer fails the run. ([#1666](https://github.com/max-sixty/tend/pull/1666))
+- CI polling ends before the Claude session's timeout: within 10 minutes of it, a poll returns the red already standing, or unverified, and the pre-approval check stays undecided rather than approving. An external check's failure, such as a commit status or Codecov's, returns red once two reads 30 seconds apart agree, without waiting for hung Actions jobs. A cancelled matrix check is superseded by a later run of the same workflow and event, so a passing replacement no longer leaves it unverified. ([#1683](https://github.com/max-sixty/tend/pull/1683), [#1584](https://github.com/max-sixty/tend/pull/1584), [#1526](https://github.com/max-sixty/tend/pull/1526))
+- Report triage searches for an existing cause by the complete test name, and rechecks open causes and PRs just before filing, so a sibling report's session that filed the cause first is found rather than duplicated. ([#1673](https://github.com/max-sixty/tend/pull/1673))
+- The `tend-outage` tracker says later failed runs appear in its comments, and that closing it needs every recorded run diagnosed. `review-runs` describes the census output `list-recent-runs` prints. ([#1598](https://github.com/max-sixty/tend/pull/1598), [#1680](https://github.com/max-sixty/tend/pull/1680))
+
+### Documentation
+
+- The security model's triage, tend-land, sandbox `PATH` and rate-limit tracker passages match the code, and the branch-protection check's docstring says an absent ruleset is unprotected. ([#1685](https://github.com/max-sixty/tend/pull/1685), [#1681](https://github.com/max-sixty/tend/pull/1681))
+
+### Internal
+
+- Development tooling and eval dependencies updated. ([#1669](https://github.com/max-sixty/tend/pull/1669), [#1674](https://github.com/max-sixty/tend/pull/1674), [#1678](https://github.com/max-sixty/tend/pull/1678), [#1679](https://github.com/max-sixty/tend/pull/1679), [#1682](https://github.com/max-sixty/tend/pull/1682), [#1684](https://github.com/max-sixty/tend/pull/1684))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
+## 0.3.24
+
+### Improved
+
+- Triage jobs share a concurrency group only with jobs for the same issue (`tend-triage-<issue>`), so sessions for different issues run at once, up to the account's job limit. `workflows.triage.max_parallel` bounds one dispatched batch. ([#1648](https://github.com/max-sixty/tend/pull/1648))
+- With the review's CI wait off (`workflows.review.await_ci: false`), every session is told so through the system prompt, and a session that pushes to a PR with no human author hands its CI to tend-land instead of polling. A push to a human's PR stays with the session that made it. `land-pr intend` accepts a head on a PR GitHub marks as bot-authored, such as Dependabot's. ([#1648](https://github.com/max-sixty/tend/pull/1648), [#1652](https://github.com/max-sixty/tend/pull/1652))
+- The nightly token report reads session logs from one paged artifact listing and skips runs whose jobs were all skipped, cutting its GitHub API requests. ([#1644](https://github.com/max-sixty/tend/pull/1644), [#1653](https://github.com/max-sixty/tend/pull/1653))
+- Claude Code 2.1.316 and uv 0.13.6. ([#1633](https://github.com/max-sixty/tend/pull/1633), [#1634](https://github.com/max-sixty/tend/pull/1634))
+
+### Fixed
+
+- Review reads an approval that GitHub dismissed as stale on a push as automatic, and reviews the new head. ([#1650](https://github.com/max-sixty/tend/pull/1650))
+- The yolo security preflight fails on an unreadable CODEOWNERS read with the failed `gh` call, rather than reporting a missing rule. ([#1643](https://github.com/max-sixty/tend/pull/1643))
+- `tend check --fix` refuses to overwrite a tag ruleset whose target or conditions differ from the canonical all-tags selection. ([#1638](https://github.com/max-sixty/tend/pull/1638))
+- Codex sessions waiting on CI set an hour's yield on the `exec` cell and `wait` calls as well as `write_stdin`, so a poll no longer returns every second. ([#1641](https://github.com/max-sixty/tend/pull/1641))
+
+### Documentation
+
+- The bot token must be a classic PAT; GitHub's notifications API accepts no fine-grained token. ([#1656](https://github.com/max-sixty/tend/pull/1656))
+- `debug-tend-run` lists the main session logs of the job being debugged instead of taking the first `.jsonl`. ([#1655](https://github.com/max-sixty/tend/pull/1655))
+
+### Internal
+
+- Tend's own workflows run on Claude, and its monthly reviewer-tracking issues close when the next month's opens. ([#1639](https://github.com/max-sixty/tend/pull/1639), [#1657](https://github.com/max-sixty/tend/pull/1657))
+
+> _This was written by Claude Code on behalf of max-sixty_
+
 ## 0.3.23
 
 ### Improved

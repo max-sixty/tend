@@ -103,7 +103,11 @@ def stage_agents() -> int:
     shared = (action_path.parent / "shared/system-prompt.md").read_text()
     tail = (action_path / "agents-tail.md").read_text()
     render = functools.partial(
-        _prompt.render, bot_name=bot_name, merge=merge, harness="codex"
+        _prompt.render,
+        bot_name=bot_name,
+        merge=merge,
+        ci_wait_off=os.environ["TEND_AWAIT_CI"] == "false",
+        harness="codex",
     )
     body = (
         "# Tend CI instructions (Codex harness)\n\n"

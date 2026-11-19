@@ -69,9 +69,9 @@ List tend CI runs that completed since the previous `review-runs` run (nominally
 tend runtime list-recent-runs review-runs
 ```
 
-If no runs are found, report "no runs to review", complete **Reconcile live work** below, then exit.
+If no runs are found, report "no runs to review", check **Wedged queues** and drain the trackers under **Outage trackers** below, then exit.
 
-Report the run census as the count this returns. `.total_count` counts the wider `FETCH_FROM` fetch, so it bounds the census from above rather than matching it — but a census that lands on a round page boundary (30, 100) is still the signature of a page that was never followed, so check that one against `.total_count` before trusting it.
+Report the run census as the number of rows this returns. Carry each stderr `WARNING` into the summary as a coverage gap rather than an all-clear — except the re-run warning, which instead names earlier attempts whose logs to read before counting the window's failures.
 
 Then, for each run ID from above, pull its jobs and classify them:
 
@@ -91,81 +91,44 @@ gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" \
 
 After retrieving the timeout cap from the workflow file, flag any job whose duration exceeded 90% of it as a near-timeout. For the default 360-min cap, that threshold is 324 min.
 
-### Reconcile live work
+Keep each failed run in the summary as diagnostic evidence, whether or not its work has since been recovered.
 
-The failed-run census and the `tend-outage` issue diagnose availability. Open issues and PRs retain the work, including after a failed worker or a successful partial investigation. Recover from their current state through **Recover issue work** in `/tend-ci-runner:notifications`, rather than replaying historical workflow payloads.
+### Wedged queues
 
-As a daily backstop for delayed notifications, retention, edited activity, and repaired subscriptions, inspect the live repository for:
+A run parked in GitHub's pre-job `waiting` state holds its concurrency group without ever concluding, so under `cancel-in-progress: false` every later tick takes the single pending slot and is replaced by its successor — the workflow stops running and nothing fails. The census above cannot see the parked run, since it admits a row only on a non-null `conclusion`, and the replacements it causes read there as ordinary concurrency.
 
-- open issues whose state needs reconciling: unanswered activity, unfinished engineering work, or a completed repair whose issue remains open. Include bot-authored reports, reopened issues and partial investigations, regardless of the last run's conclusion or whether a human has replied. Apply **Recover issue work** in `/tend-ci-runner:notifications` to close resolved issues and determine which still need a worker. List every page, rather than only a recent window or CI causes:
+```bash
+gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs?status=waiting&per_page=100" \
+  --jq '.workflow_runs[] | {id, path, created_at, html_url}'
+```
 
-  ```bash
-  gh api "repos/$GITHUB_REPOSITORY/issues?state=open&sort=created&direction=asc&per_page=100" \
-    --paginate --jq '.[] | select(has("pull_request") | not) | {number,title,labels}'
-  ```
+A tend run still `waiting` after several of its own scheduling intervals — or, on an event-driven workflow, long after the event that created it — is wedged. Every generated workflow but the secretless `tend-mention-relay` carries the `tend` environment, so any of the rest can park. `pending_deployments` on it confirms which kind: `wait_timer: 0` with an empty `reviewers` is an environment gate with nothing left to release it, so `gh run cancel <id>` is the remedy and the pending successor starts. `queued` is a different state and not this shape — `gh run cancel` there answers `Cannot cancel a workflow run that is completed` while the runs API still reports the run `queued`. That is GitHub bookkeeping holding nothing live; leave it rather than fighting it.
 
-- an open PR whose live head has no bot review, or whose latest comment, review, or inline review comment directed at the bot has no response; this includes replies to the bot's review on a fork PR;
-- unfinished configured-bot PRs, regardless of notification or review state. List the bot's open PRs (`gh pr list --state open --author "$BOT_NAME" --limit 200 --json number`) and continue each per `/tend-ci-runner:continue-pr`. A green proposal awaiting a maintainer in restricted mode, an explicit maintainer hold, or an unchanged external blocker needs no repeated post;
-- failing default-branch CI with no bot fix in progress. Another live-state check: scoped neither to the workflows `tend-ci-failures` reports — Dependabot security updates, cron releases and doc builds fail there with no PR attached, and nothing else looks for them — nor to this run's window. A failure an open CI failure report (labeled `tend-ci-failure`) tracks is in progress only where the bot has triaged the report since its newest run and a cause issue or repair PR covers the failure, whose ownership the live issue and PR checks above verify. Otherwise hand the report to ordinary triage through **Recover issue work** in `/tend-ci-runner:notifications`, including its access and admission checks, rather than working it here.
+### Outage trackers
 
-  ```bash
-  tend runtime red-default-branch-runs
-  ```
-
-  `candidates` contains returned failures without a later observed green of the same subject. Committed workflow paths match by path, including Tend-generated YAML under `.github/workflows/`. Only GitHub-generated run paths starting with `dynamic/` match by both path and name. `observed_green_by_path` records the newest returned green per path; on a `dynamic/` path it may have closed a different name. `reached_back_to` is the newest oldest-row timestamp among pages that filled their limit. A null floor means no returned page filled its limit, not that the branch's entire history is current or complete.
-
-  Listings can serve old snapshots; repeated agreement cannot establish freshness. Treat candidates as investigation leads. Apply evidence already collected: an independently verified later success on the same branch and subject closes older failures even when the helper's returned green is older. Do not leave those rows unresolved or demand the same verification again. Before opening a fix or reporting a remaining unresolved failure, inspect its run's jobs/logs and the workflow's current branch checks and later runs. Resolve contradictory evidence before acting; do not attribute it to a client cache or a GitHub cache without evidence. With no candidates, report only that no unfixed failures were found in the returned pages, naming the scope checked rather than declaring the branch green.
-
-  Read without a time window: an old failure may still need a fix. Dependabot updates have one-off names, so use a fix PR or tracker to determine whether one is already addressed. Step 1 covers tend rows inside its census window; older tend failures still belong here.
-
-- a tend workflow whose queue is dead. A run parked in GitHub's pre-job `waiting` state holds its concurrency group without ever concluding, so under `cancel-in-progress: false` every later tick takes the single pending slot and is replaced by its successor — the workflow stops running and nothing fails. Step 1's census cannot see the parked run, which admits a row only on a non-null `conclusion`, and the replacements it causes read there as ordinary concurrency.
-
-  ```bash
-  gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs?status=waiting&per_page=100" \
-    --jq '.workflow_runs[] | {id, path, created_at, html_url}'
-  ```
-
-  A tend run still `waiting` after several of its own scheduling intervals — or, on an event-driven workflow, long after the event that created it — is wedged. Every generated workflow but the secretless `tend-mention-relay` carries the `tend` environment, so any of the rest can park. `pending_deployments` on it confirms which kind: `wait_timer: 0` with an empty `reviewers` is an environment gate with nothing left to release it, so `gh run cancel <id>` is the remedy and the pending successor starts. `queued` is a different state and not this shape — `gh run cancel` there answers `Cannot cancel a workflow run that is completed` while the runs API still reports the run `queued`. That is GitHub bookkeeping holding nothing live; leave it rather than fighting it.
-
-- an open Dependabot security alert with no PR or tracker proposing its fix — same closure as the red rows above, so an alert whose fix needs a maintainer decision stops re-surfacing once it is tracked. Dependabot opens that PR itself for most alerts, so the ones that reach this sweep are the ones where it could not — and nothing else in tend looks: `weekly` reviews the dependency PRs that exist, and the defining property here is that none was created.
-
-  ```bash
-  gh api --paginate "repos/$GITHUB_REPOSITORY/dependabot/alerts?state=open&per_page=100" \
-    --jq '.[] | {number, dep: .dependency.package.name, manifest: .dependency.manifest_path,
-                 sev: .security_advisory.severity, created_at,
-                 fix: .security_vulnerability.first_patched_version.identifier}'
-  ```
-
-  The PAT's `repo` scope covers this. Where alerts are disabled the call fails with `403 Dependabot alerts are disabled for this repository.` — that is the check not applying, not a missing scope; only an empty result means no open alerts. Otherwise run it unconditionally. An alert open for more than a few days with no PR naming its package is live work in the same sense as a red default-branch run. A red `dynamic/dependabot/...` row above naming that package is the mechanism: Dependabot is erroring, so waiting will not produce a PR and the manifest or lockfile has to be bumped directly. `gh run view <id> --log-failed` ends with an error table naming the dependency and the error type; `security_update_not_possible` also reports the lowest non-vulnerable version beside the highest the dependency tree currently resolves, which is the constraint to relax.
-
-Route same-repository issues needing triage through **Recover issue work**
-in `/tend-ci-runner:notifications`; use the normal review instructions for PRs.
-Keep failed runs in the report as diagnostic evidence.
-
-After the exhaustive live scan, read every row on every outage tracker this
-sweep still owes a drain. Each tracker's `rows` holds them in order: the issue
-body carries the first, comments the rest. Fail the sweep if the script exits
-non-zero; that is different from it returning no trackers:
+Read every row on every outage tracker this sweep still owes a drain. Each
+tracker's `rows` holds them in order: the issue body carries the first,
+comments the rest. Fail the sweep if the script exits non-zero; that is
+different from it returning no trackers:
 
 ```bash
 tend runtime review-runs outage-trackers \
   > "$TMPDIR/review-runs-outage.json"
 ```
 
-It returns the open trackers plus any closed since Step 1's anchor by someone
-other than the bot, since only this drain closes a drained tracker. Read the
-closed ones too: the live scan above reads current repository state, where a
-merged PR whose review died in the outage is indistinguishable from one the
+It returns the open trackers plus any closed since Step 1's anchor without
+this drain's closing comment. Read the closed ones too: current repository
+state can't tell a merged PR whose review died in the outage from one the
 maintainer merged without waiting.
 
 Use every row to identify what the failed run may have missed. Diagnose it and
-handle any applicable current work. Then close the trackers still open; one
-someone else already closed stays closed:
+handle any applicable current work. Then close the trackers the report lists
+as open, each with the comment that marks it drained. One that gained a row
+since the report stays open for the next sweep, and one someone else already
+closed stays closed:
 
 ```bash
-jq -r '.trackers[] | select(.state == "OPEN") | .number' \
-  "$TMPDIR/review-runs-outage.json" \
-  | while read -r number; do gh issue close "$number" --reason completed; done
+tend runtime review-runs close-outage-trackers "$TMPDIR/review-runs-outage.json"
 ```
 
 ## Step 2: Token usage report
@@ -199,7 +162,7 @@ For each analyzed run, compare what the bot did against what happened next. The 
 - **Review**: did subsequent commits undo something the bot approved? Did human reviewers flag issues it missed?
 - **Triage**: was the classification correct? Did the issue get relabeled?
 - **Nightly**: did the bot's PRs merge, or get closed as unhelpful?
-- **CI failure reports**: did each cause's fix resolve its failure, and did the report close when the lane passed?
+- **CI failure reports**: did each cause's fix resolve its failure, and did each report close once its failures were diagnosed and owned, and reopen on the lane's next failure?
 
 mention, notifications, and weekly runs get the same treatment: find the bot's output and check whether it was accepted.
 

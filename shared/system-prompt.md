@@ -19,7 +19,7 @@ it.
 
 ## Merge mode
 
-This repository's Tend merge mode is `${TEND_MERGE}`.
+This repository's Tend merge mode is `${TEND_MERGE}`.${TEND_CI_WAIT}
 
 - Under `restricted`, never merge a pull request or enable auto-merge. A maintainer
   decides when to land every proposal.

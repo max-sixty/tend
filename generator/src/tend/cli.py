@@ -122,11 +122,35 @@ def _print_check_results(results: list[CheckResult]) -> None:
     for r in results:
         if r.passed is True:
             icon = click.style("PASS", fg="green")
+        elif r.accepted is not None:
+            icon = click.style("ACCEPTED", fg="cyan")
+            click.echo(f"  {icon}  {r.name} — {r.accepted}")
+            click.echo(f"      (check reported: {r.message})")
+            continue
         elif r.passed is False:
             icon = click.style("FAIL", fg="red")
         else:
             icon = click.style("SKIP", fg="yellow")
         click.echo(f"  {icon}  {r.name} — {r.message}")
+
+
+def _warn_unused_acceptances(results: list[CheckResult], cfg: Config) -> None:
+    """Name `checks.accepted` entries that matched no failing check."""
+    by_name = {r.name: r for r in results}
+    for name in sorted(cfg.accepted_checks):
+        result = by_name.get(name)
+        if result is None:
+            click.echo(
+                f"Warning: checks.accepted names '{name}', which tend check "
+                "did not run",
+                err=True,
+            )
+        elif result.passed is True:
+            click.echo(
+                f"Warning: checks.accepted names '{name}', which now passes; "
+                "remove the entry",
+                err=True,
+            )
 
 
 def _yolo_activation_blockers(results: list[CheckResult]) -> list[CheckResult]:
@@ -214,10 +238,7 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
         path.write_text(wf.content, encoding="utf-8")
         click.echo(f"  wrote {path}")
 
-    if any(
-        wf.filename in {"tend-review.yaml", "tend-triage.yaml", "tend-land.yaml"}
-        for wf in workflows
-    ):
+    if any(wf.filename in {"tend-review.yaml", "tend-land.yaml"} for wf in workflows):
         _update_actionlint_config(dry_run)
     # Remove stale tend-*.yaml files the generator didn't produce this run.
     # Catches: install-test cleanup on regen, disabled workflows leaving
@@ -269,8 +290,9 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
     results = run_all_checks(cfg, repo)
     click.echo("Security checks:")
     _print_check_results(results)
+    _warn_unused_acceptances(results, cfg)
 
-    failures = [r for r in results if r.passed is False]
+    failures = [r for r in results if r.failed]
     activation_blockers = (
         _yolo_activation_blockers(results) if cfg.merge == "yolo" else []
     )
@@ -396,7 +418,7 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
                 else replace(cfg, merge=merge_to_apply)
             )
             results = run_all_checks(applied_cfg, repo)
-            failures = [r for r in results if r.passed is False]
+            failures = [r for r in results if r.failed]
 
     if any(r.name == "actions-event-policy" for r in failures):
         click.echo()
@@ -460,5 +482,5 @@ def check(config_path: Path | None, repo: str | None, fix: bool) -> None:
         raise click.ClickException(
             "Yolo security checks are incomplete; resolve the skipped checks."
         )
-    if not fixed_any or any(r.passed is False for r in results):
+    if not fixed_any or any(r.failed for r in results):
         raise SystemExit(1)

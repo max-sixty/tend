@@ -131,6 +131,9 @@ verify() {
   grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$AGENT_ENV_FILE"
   grep -qx 'CLAUDE_CONFIG_DIR=/home/tend-sandbox/.claude' "$AGENT_ENV_FILE"
   sudo -u "$SANDBOX" test -w /home/tend-sandbox/tmp
+  grep -qx 'XDG_RUNTIME_DIR=/home/tend-sandbox/xdg-runtime' "$AGENT_ENV_FILE"
+  # The .NET SDK refuses a runtime directory with another mode or owner.
+  test "$(sudo -u "$SANDBOX" stat -c '%a %U' /home/tend-sandbox/xdg-runtime)" = "700 $SANDBOX"
   # Tend's own runner-side secrets, including the proxy's CA private key.
   test -f "$TEND_PRIVATE_DIR/tend-proxy/mitmproxy-ca.pem"
   if sudo -u "$SANDBOX" test -r "$TEND_PRIVATE_DIR/tend-proxy/mitmproxy-ca.pem"; then
@@ -367,6 +370,7 @@ PY
   agent_proxy=$(sudo -u "$SANDBOX" sed -n 's/^HTTP_PROXY=//p' "$claude_env")
   test "$agent_proxy" = "$PROXY_URL"
   sudo -u "$SANDBOX" grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$claude_env"
+  sudo -u "$SANDBOX" grep -qx 'XDG_RUNTIME_DIR=/home/tend-sandbox/xdg-runtime' "$claude_env"
   sudo -u "$SANDBOX" grep -qxF "HOME=$HOME" "$claude_env"
   sudo -u "$SANDBOX" test -f /home/tend-sandbox/tmp/tend-scratch-probe
   test ! -e /tmp/tend-sandbox-scratch

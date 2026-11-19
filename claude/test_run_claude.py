@@ -15,6 +15,7 @@ import os
 import re
 import signal
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -499,8 +500,8 @@ def launch(
 def test_launch_steers_the_agent_entirely_through_argv(launch: Launcher) -> None:
     """Nothing on the far side reads the model or the prompts from the env.
 
-    `--permission-mode` restates what settings.local.json already says, so the
-    mode survives a consumer overriding that file.
+    `--permission-mode` is what sets the mode: Claude Code ignores
+    `defaultMode` in settings.local.json.
     """
     argv = launch(stream=_ev_result()).command("claude").argv
 
@@ -573,6 +574,7 @@ def test_launch_only_adds_harness_names_inside_the_sandbox(
     result = launch(stream=_ev_result())
     argv = result.command("claude").argv
     crossing = argv[1 : argv.index("claude")]
+    deadline = crossing.pop()
 
     assert crossing == [
         "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0",
@@ -581,22 +583,28 @@ def test_launch_only_adds_harness_names_inside_the_sandbox(
         "CI=true",
         "BASH_MAX_TIMEOUT_MS=900000",
     ]
+    # When the supervisor's 900 s bound stops the run, so a CI poll can hand
+    # back before it.
+    name, _, value = deadline.partition("=")
+    assert name == "TEND_DEADLINE"
+    assert -5 <= int(value) - 900 - time.time() <= 1
     assert argv[0] == "/usr/bin/env"
 
 
-def test_launch_writes_settings_inside_the_existing_sandbox(launch: Launcher) -> None:
+def test_launch_writes_settings_inside_the_existing_sandbox(
+    launch: Launcher, tmp_path: Path
+) -> None:
     """The exact file, so a key that silently stops being written is caught.
 
     The three claude.ai keys are the ones worth naming: they are what holds the
     bot's account out of the session, and the sync pair honors only ``false``
     because the feature it refuses turns on server-side.
     """
-    result = launch(stream=_ev_result())
-    tee = result.command("tee")
+    launch(stream=_ev_result())
+    workspace = tmp_path / "workspace"
+    written = workspace / ".claude/settings.local.json"
 
-    assert tee.argv[0] == "tee"
-    assert tee.argv[-1].endswith("/.claude/settings.local.json")
-    assert json.loads(tee.kwargs["input"]) == {
+    assert json.loads(written.read_text()) == {
         "permissions": {
             "defaultMode": "bypassPermissions",
             "allow": ["Bash", "Read"],
@@ -607,10 +615,7 @@ def test_launch_writes_settings_inside_the_existing_sandbox(launch: Launcher) ->
         "syncClaudeAiPlugins": False,
         "disableClaudeAiConnectors": True,
     }
-    mkdir = result.command("mkdir")
-    assert mkdir.argv[0] == "mkdir"
-    assert mkdir.kwargs["stdin"] is subprocess.DEVNULL
-    exclude = Path(tee.argv[-1]).parents[1] / ".git/info/exclude"
+    exclude = workspace / ".git/info/exclude"
     assert exclude.read_text() == "/.claude/settings.local.json\n"
 
 
@@ -699,9 +704,8 @@ def test_supervise_reaps_the_process_group_when_the_runner_cancels_the_job(
 
     SIGTERM's default disposition ends this process where it stands, so the
     reap would be skipped and the agent would run on as an orphan — still
-    writing to the workspace — while the runner tore the job down. `tend-triage`
-    runs with `cancel-in-progress: true`, so this is a routine exit, not an
-    exotic one.
+    writing to the workspace — while the runner tore the job down. Every
+    cancelled run, a maintainer's or a workflow override's, ends this way.
     """
     calls: list[Recorded] = []
     handlers: list[Any] = []
@@ -761,11 +765,10 @@ def test_launch_reports_a_signalled_child_in_shell_convention(
 def test_main_refuses_to_start_without_an_input_it_needs_late(
     monkeypatch: pytest.MonkeyPatch, github_files: GithubFiles
 ) -> None:
-    """A missing input must fail now, not on the run that first reaches it.
+    """A missing input fails up front, naming the variable.
 
-    TEND_TIMEOUT_SEC is read only when naming the bound in a timeout
-    annotation, so dropping it from the step's `env:` would leave every
-    ordinary run green and surface months later, mid-outage, as a bare exit 1.
+    TEND_TIMEOUT_SEC bounds both the agent's Bash calls and the supervisor, so
+    without the check its absence would surface as a bare KeyError.
     """
     for name in (
         "TEND_RUN_DIR",

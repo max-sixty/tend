@@ -143,10 +143,7 @@ succeeds against the committed config, and is idempotent.
 
 This runs before the verification steps so they exercise the workflows
 this run just wrote, rather than the ones a release ago that it is about
-to replace. It also orders the fixture's own migration: §1 keeps its
-repo-level secret copies until the regenerated workflows name the `tend`
-environment, so the deletion only becomes possible after this step has
-run at least once against a released generator that emits it.
+to replace.
 
 ```bash
 WORK=$(mktemp -d)

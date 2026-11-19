@@ -38,8 +38,6 @@ def test_shared_json_output_preserves_unicode(
 
 
 def _iso(epoch: int) -> str:
-    from datetime import datetime
-
     return datetime.fromtimestamp(epoch, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 

@@ -129,6 +129,8 @@ def guidance(source: dict, plugin: Path, harness: str) -> str:
     if merge not in {"restricted", "yolo"}:
         raise ValueError(f"Unknown merge mode: {merge}")
     value = value.replace("${TEND_MERGE}", merge)
+    # A case's own prompts state the CI wait, per situation.
+    value = value.replace("${TEND_CI_WAIT}", "")
     boot = (
         "run-tend"
         if (plugin / "skills/run-tend/SKILL.md").is_file()

@@ -50,11 +50,11 @@
           "author": "widget-agent"
         }
       ],
-      "workflow": "daily review-runs live-work scan"
+      "workflow": "nightly open-work step"
     },
     {
       "id": "healthy-backlog",
-      "workflow": "daily review-runs live-work scan",
+      "workflow": "weekly stall check",
       "startup": {
         "unread_notifications": [],
         "conflicted_bot_prs": []
@@ -92,18 +92,45 @@
           "title": "Index update rejects an existing record",
           "author": "widget-agent",
           "state": "OPEN",
-          "labels": [
-            "tend-ci-cause"
-          ],
+          "labels": [],
           "comments": [],
           "latest_worker": {
             "conclusion": "failure"
           },
           "linked_prs": []
+        },
+        {
+          "number": 217,
+          "title": "Choose the default export encoding",
+          "author": "maintainer",
+          "state": "OPEN",
+          "labels": [],
+          "comments": [
+            {
+              "author": "widget-agent",
+              "body": "Both encodings are implemented behind a setting. UTF-8 breaks the two downstream importers that parse Latin-1; keeping Latin-1 leaves non-Latin names unexportable. @maintainer, which default do you want? Switching it is a one-line change once you decide."
+            }
+          ],
+          "linked_prs": []
+        },
+        {
+          "number": 218,
+          "title": "Thumbnails render rotated after import",
+          "author": "widget-agent",
+          "state": "OPEN",
+          "labels": [],
+          "comments": [
+            {
+              "author": "widget-agent",
+              "body": "The rotation comes from imagekit ignoring the EXIF orientation tag, which imagekit 4.2 fixes. Blocked until 4.2 is released; then the pin can be bumped and the regression test added."
+            }
+          ],
+          "current_state": "imagekit 4.2 was released three days ago and installs from the package index.",
+          "linked_prs": []
         }
       ],
-      "live_runs": "An ordinary worker for unrelated issue214 is running. None of 211,212,213 has an active or queued worker or repair owner. The three causes are independent.",
-      "access_state": "Several recent workers succeeded on the configured provider. No reset, outage, approval or rate-limit gate. The rolling 24-hour creation allowance and serial queue have room for all three candidates."
+      "live_runs": "An ordinary worker for unrelated issue214 is running. None of 211,212,213,217,218 has an active or queued worker, assignee or repair owner. The issues are independent.",
+      "access_state": "Several recent workers succeeded on the configured provider. No reset, outage, approval or rate-limit gate. The rolling 24-hour creation allowance and serial queue have room for every candidate."
     },
     {
       "id": "established-dispositions",
@@ -155,7 +182,7 @@
           "author": "widget-agent"
         }
       ],
-      "workflow": "daily review-runs live-work scan"
+      "workflow": "nightly open-work step"
     },
     {
       "id": "queued-worker",
@@ -164,7 +191,7 @@
         "conflicted_bot_prs": []
       },
       "live_runs": "An ordinary triage job for issue205 is queued awaiting worker admission. Another issue209 worker is running. Neither owns issue210.",
-      "access_state": "The current worker and a recent completed worker are healthy. No provider outage, reset, rate limit or approval gate. Current allowance has room for all supplied candidates; the serialized triage queue has capacity.",
+      "access_state": "The current worker and a recent completed worker are healthy. No provider outage, reset, rate limit or approval gate. Current allowance has room for all supplied candidates; triage has capacity.",
       "open_issues": [
         {
           "number": 205,
@@ -180,14 +207,16 @@
         {
           "number": 210,
           "title": "The export command omits metadata",
-          "author": "maintainer",
+          "author": "widget-agent",
           "state": "OPEN",
-          "labels": [],
+          "labels": [
+            "tend-ci-cause"
+          ],
           "comments": [],
           "linked_prs": []
         }
       ],
-      "workflow": "daily review-runs live-work scan"
+      "workflow": "nightly open-work step"
     },
     {
       "id": "provider-reset",
@@ -210,7 +239,7 @@
           "author": "widget-agent"
         }
       ],
-      "workflow": "daily review-runs live-work scan"
+      "workflow": "nightly open-work step"
     },
     {
       "id": "foreign-notification",
@@ -249,7 +278,7 @@
     },
     {
       "id": "creation-exhausted",
-      "workflow": "daily review-runs live-work scan",
+      "workflow": "nightly open-work step",
       "startup": {
         "unread_notifications": [],
         "conflicted_bot_prs": []
@@ -261,14 +290,14 @@
           "number": 220,
           "label": "tend-rate-limit",
           "state": "OPEN",
-          "title": "Creation allowance reached"
+          "title": "Creation allowance exhausted"
         },
         "latest_response": {
           "status": 429,
-          "message": "Tend creation allowance reached for example/widget: 10 creations in the preceding 24 hours, limit 10. Next usage expiry: 2026-10-26T23:00:00Z. Recheck then; the allowance may also change as the baseline changes or approval floors expire. A maintainer can close issue220 to approve a higher limit for seven days."
+          "message": "Tend creation allowance reached for example/widget: 30 creations in the past 24 hours; limit 30. Next usage expiry: 2026-10-26T23:00:00Z; recheck then. Refused runs are listed in issue220; closing it approves more."
         },
         "source": "The privileged proxy returned this response to an issue creation request; the agent kept running.",
-        "policy": "Usage is measured over the preceding 24 hours, without a midnight reset or a separate burst limit. The base limit is max(10, ceil(2 * mean creations per day over the preceding seven complete UTC days)). A human close of a tracker titled Creation allowance reached grants a numeric floor for seven days equal to twice the greater of the base limit and preceding-24-hour creations at close. The current limit is the greater of the current base and all unexpired floors. Closes of older differently titled trackers grant no floor."
+        "policy": "Usage is measured over the preceding 24 hours, without a midnight reset or a separate burst limit. The limit is max(30, ceil(4 * creations in the seven days before the preceding 24 hours / 7)). A human close of a tracker titled Creation allowance exhausted approves more: each such close in the past 24 hours doubles the limit. Closes of differently titled trackers approve nothing."
       },
       "open_issues": [
         {
@@ -290,8 +319,10 @@
         {
           "number": 216,
           "title": "Duplicate rows appear after retry",
-          "author": "maintainer",
-          "labels": [],
+          "author": "widget-agent",
+          "labels": [
+            "tend-ci-cause"
+          ],
           "state": "OPEN",
           "comments": [
             {

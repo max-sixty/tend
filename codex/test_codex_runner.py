@@ -92,7 +92,7 @@ def test_stage_agents_writes_as_the_sandbox_user(
     shared = action.parent / "shared"
     shared.mkdir()
     (shared / "system-prompt.md").write_text(
-        "Act as ${BOT_NAME} under ${TEND_MERGE}; keep $GH_TOKEN. "
+        "Act as ${BOT_NAME} under ${TEND_MERGE}.${TEND_CI_WAIT} Keep $GH_TOKEN. "
         "Read ${SKILL:run-tend}.\n"
     )
     (action / "agents-tail.md").write_text("Look up $BOT_NAME.\n")
@@ -105,6 +105,7 @@ def test_stage_agents_writes_as_the_sandbox_user(
         )
     monkeypatch.setenv("BOT_NAME", "tend-bot")
     monkeypatch.setenv("TEND_MERGE", "restricted")
+    monkeypatch.setenv("TEND_AWAIT_CI", "false")
     calls: list[tuple[list[str], dict[str, object]]] = []
 
     def run(args: list[str], **kwargs: object):
@@ -125,7 +126,8 @@ def test_stage_agents_writes_as_the_sandbox_user(
     ]
     expected = (
         "# Tend CI instructions (Codex harness)\n\n"
-        "Act as tend-bot under restricted; keep $GH_TOKEN. Read $run-tend.\n\n"
+        "Act as tend-bot under restricted. The review's CI wait is off "
+        "(`await_ci: false`). Keep $GH_TOKEN. Read $run-tend.\n\n"
         "Look up tend-bot.\n"
     )
     if memory_enabled:

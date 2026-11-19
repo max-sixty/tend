@@ -16,7 +16,23 @@ A structured, Tend-owned pass over a diff that returns ranked findings on every 
 
 If a target was passed (PR number, branch, ref range, path, or a free-form scope instruction), review that. Otherwise run `git diff @{upstream}...HEAD` (falling back to `git diff main...HEAD` or `git diff HEAD~1`); if there are uncommitted changes, or the range diff is empty, also run `git diff HEAD`. That unified diff is the review scope.
 
-Read the unique project instruction files that govern the changed code: root and nested `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, and `AGENTS.override.md` files in directories that contain changed files. Read a symlinked source only once. Nested instructions apply only to files at or below their directory.
+Read the unique project instruction files that govern the changed code: `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, and `AGENTS.override.md` in each changed path's directory and every ancestor up to the repo root, so `tests/CLAUDE.md` governs a change to `tests/unit/foo.rs`. Changed paths include both sides of a rename and deleted files. Look on disk, not in the index — on a PR checkout the working tree holds the base copies that govern, including one the diff deletes:
+
+```bash
+git diff --name-only --no-renames -z <range> | while IFS= read -r -d '' f; do
+  d=$f
+  while [ "$d" != . ]; do
+    case $d in */*) d=${d%/*} ;; *) d=. ;; esac
+    for n in CLAUDE.md CLAUDE.local.md AGENTS.md AGENTS.override.md; do
+      [ -f "$d/$n" ] && printf '%s\0' "$d/$n"
+    done
+  done
+done | sort -zu | tr '\0' '\n'
+```
+
+The paths stay NUL-delimited until the final listing: without `-z`, Git quotes a path holding a non-ASCII byte (`"tests/int\303\251gration/..."`), and no directory by that name exists.
+
+Read a symlinked source only once. Nested instructions apply only to files at or below their directory.
 
 ## Phase 1 — Find candidates
 
