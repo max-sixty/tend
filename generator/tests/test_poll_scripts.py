@@ -378,6 +378,58 @@ def test_approval_is_undecided_when_the_head_moves_while_it_waits(
     assert "moved" in result.stderr
 
 
+def _conflicting_head(env: dict[str, str], sha: str = HEAD_SHA) -> None:
+    Path(env["HEAD_JSON"]).write_text(
+        json.dumps({"headRefOid": sha, "mergeable": "CONFLICTING"})
+    )
+
+
+def test_a_conflicting_head_leaves_the_approval_undecided(
+    env: dict[str, str],
+) -> None:
+    """GitHub runs no `pull_request` CI on a conflicting head, so the external
+    checks left on it can't stand in for the PR's CI."""
+    _conflicting_head(env)
+    _serve(env, _resp(_status_ctx("Cloudflare Pages", "SUCCESS")))
+
+    result = _approval(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "conflicts with its base" in result.stderr
+
+
+def test_a_conflicting_head_still_withholds_on_a_red(env: dict[str, str]) -> None:
+    _conflicting_head(env)
+    _serve(env, _resp(OMNIBUS_RED, _check_run("matrix")))
+
+    result = _approval(env)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.startswith("withhold: red")
+
+
+def test_a_conflicting_head_never_polls_green(env: dict[str, str]) -> None:
+    _conflicting_head(env)
+    _serve(env, _resp(_status_ctx("Cloudflare Pages", "SUCCESS")))
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "conflicts with its base" in result.stdout
+    assert "verdict: UNVERIFIED" in result.stdout
+
+
+def test_a_conflict_on_a_newer_head_does_not_retarget_the_verdict(
+    env: dict[str, str],
+) -> None:
+    """`mergeable` describes the PR's current head, not the polled commit."""
+    _conflicting_head(env, "b" * 40)
+    _serve(env, _resp(_check_run("tests")))
+
+    assert _approval(env).returncode == 0
+    assert _poll(env).returncode == 0
+
+
 @pytest.mark.parametrize(
     ("response", "code", "named"),
     [
