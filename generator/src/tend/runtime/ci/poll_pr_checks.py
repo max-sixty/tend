@@ -311,8 +311,8 @@ def _conflicting(*, pr: str, repo: str, sha: str) -> bool:
     """Whether *sha* is the PR's head and GitHub reports it conflicting.
 
     GitHub creates no `pull_request` run for a PR that conflicts with its base,
-    so such a head carries only `pull_request_target` workflows and external
-    apps, and a green read of those verified none of the PR's CI. A read that
+    so its checks may hold only `pull_request_target` workflows and external
+    apps, and a green read of those need not cover the PR's CI. A read that
     fails, or a lazily computed `UNKNOWN`, counts as no conflict.
     """
     try:
@@ -335,7 +335,10 @@ def _conflicting(*, pr: str, repo: str, sha: str) -> bool:
     )
 
 
-CONFLICT_NOTE = "PR conflicts with its base, so GitHub ran no pull_request CI on {sha}"
+CONFLICT_NOTE = (
+    "PR conflicts with its base, and GitHub runs no pull_request CI on a "
+    "conflicting head, so the checks on {sha} may not include the PR's CI"
+)
 
 
 def head_note(*, pr: str, repo: str, sha: str) -> None:
@@ -493,7 +496,8 @@ def approval(
     every review behind `review_preflight.py post`, which refuses a moved head.
 
     A head that conflicts with its base leaves the approval undecided unless
-    a check already failed: no `pull_request` CI ran on it.
+    a check already failed: its checks may not include the PR's `pull_request`
+    CI.
     """
     repo = os.environ["GITHUB_REPOSITORY"]
     rollup = fetch_rollup(
