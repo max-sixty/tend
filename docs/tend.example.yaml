@@ -437,15 +437,14 @@ bot_name: my-project-bot
 # ### ci-failures
 #
 # Triggers when a watched CI workflow finishes on a watched branch, and runs no
-# agent. A failed run opens a CI failure report, an issue per workflow, branch
-# and triggering event, or comments on the open one. Triage closes the report
-# once it has diagnosed the failures, and the lane's next failed run reopens it;
-# the bot token makes filing or reopening it trigger ordinary triage. A passing
-# run closes an open report. Triage links a separate issue for each
-# distinct cause and fixes each one there. A cancelled run reports nothing,
-# and GitHub ends a job that exceeds its time
-# limit as cancelled; a step that exceeds its own `timeout-minutes` fails
-# instead, so a hang bounded there is reported.
+# agent. A failed run comments on the open CI failure report for its workflow,
+# branch and triggering event, or files a new one when none is open; the bot
+# token makes filing it trigger ordinary triage. Triage closes the report once
+# it has diagnosed the failures, and a passing run closes an open report.
+# Triage links a separate issue for each distinct cause and fixes each one
+# there. A cancelled run reports nothing, and GitHub ends a job that exceeds
+# its time limit as cancelled; a step that exceeds its own `timeout-minutes`
+# fails instead, so a hang bounded there is reported.
 #
 # workflows:
 #   ci-failures:

@@ -360,16 +360,17 @@ github.repository`, so neither needs the guard.
 
 **Red branches.** A red branch fails every push that follows it, each on its
 own commit, and every one of those runs finishes. `tend-ci-failures` runs no
-agent: it turns each verdict into the lane's CI failure report — one issue per
-watched workflow, branch and triggering event, since a scheduled suite can fail
-on tests push CI never runs — filing it on the first failure, commenting on
-a later one while it is open, reopening it on a later one after triage closed
-it, and closing it on a pass. Its group is keyed on that
+agent: it turns each verdict into the lane's CI failure report — at most one
+open issue per watched workflow, branch and triggering event, since a scheduled
+suite can fail on tests push CI never runs — filing one on a failure when none
+is open, commenting on a later failure while it is open, and closing it on a
+pass. Its group is keyed on that
 lane and is job-level: a cancelled or skipped run, which the job's `if` skips,
 never enters it, so it never takes the pending slot from a verdict. The report
-is written with the bot token from the `tend` environment, so filing or reopening it
+is written with the bot token from the `tend` environment, so filing it
 starts ordinary `tend-triage`. Triage closes the report once it has diagnosed
-its failures and each has an owner, so an open report holds unhandled work. A
+its failures and each has an owner, so an open report holds unhandled work, and
+the lane's next failure files a new one. A
 failure while it is open only adds evidence, for a running session or, when
 none is running, the nightly sweep. The agent work runs through the issue path:
 triage diagnoses the report, fixing causes directly or filing cause issues for
@@ -596,6 +597,19 @@ still a mechanism.
 This is tend's answer, and it stays here. The bundled skills carry no view on
 what compute is worth — a bot session in this repo reads this file, and a
 session in another repo reads that repo's.
+
+## Issues Tend files
+
+Give each issue Tend files about a recurring event, such as a CI failure, an
+outage or a monthly review, a bounded life: one incident, or one period that its
+title names. While it is open, later events comment on it; once it closes, the
+next event files a new issue. Don't reuse one issue for every recurrence. Its
+thread grows without bound, each session that triages it reads all of it, and a
+maintainer opening it scrolls past every earlier incident to reach the current
+one. The history across incidents lives in the issues they link, such as a CI
+failure's cause issues, and in a search for earlier issues of the same kind.
+The creation-allowance tracker keeps one issue, for the reason `_issue.py`
+gives.
 
 ## Live testing against real GitHub
 

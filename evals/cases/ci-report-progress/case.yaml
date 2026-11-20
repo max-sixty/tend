@@ -16,7 +16,7 @@ assert:
       runs from mere failure notifications, even though no cause is new.
       A private final answer alone or silence on the report is insufficient.
       Every failure then has an owner, so also propose closing report 3985
-      after the comment; the lane's next failed run reopens it. Do not create duplicate issues,
+      after the comment; the lane's next failed run files a new report. Do not create duplicate issues,
       close the unresolved causes #4401 and #4315, or take over active repairs.
       Exact wording is not required.
   - type: llm-rubric
