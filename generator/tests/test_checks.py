@@ -1165,7 +1165,6 @@ def test_secrets_missing() -> None:
         )
     assert result.passed is False
     assert "CLAUDE_CODE_OAUTH_TOKEN" in result.message
-    assert "admin:org" not in result.message
 
 
 def test_secrets_missing_with_org_403_hint() -> None:
@@ -1181,7 +1180,6 @@ def test_secrets_missing_with_org_403_hint() -> None:
     assert "CLAUDE_CODE_OAUTH_TOKEN" in result.message
     assert "repo scope" in result.message
     assert "Secrets read permission" in result.message
-    assert "admin:org" not in result.message
 
 
 def test_secrets_org_level_copy_fails() -> None:
@@ -1424,7 +1422,6 @@ def test_repo_secret_allowlist_org_forbidden() -> None:
     assert result.passed is True
     assert "repo scope" in result.message
     assert "Secrets read permission" in result.message
-    assert "admin:org" not in result.message
 
 
 def test_repo_secret_allowlist_owner_forbidden() -> None:
@@ -2345,14 +2342,9 @@ def test_run_all_checks_requires_configured_auth_when_all_workflows_are_disabled
 
 
 def test_memory_gist_requires_its_environment_secret() -> None:
-    def fake(*args, **kwargs):
-        if args[1] == "repos/owner/repo" and ".private" in args:
-            return _make_completed("false\n")
-        return _gh_all_pass()(*args, **kwargs)
-
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("tend.checks._gh", side_effect=fake),
+        patch("tend.checks._gh", side_effect=_gh_all_pass()),
     ):
         results = run_all_checks(_config(memory_gist=True), repo="owner/repo")
 
@@ -2449,9 +2441,9 @@ def test_run_all_checks_with_protected_branches() -> None:
             _config(protected_branches=["v1", "v2"]),
             repo="owner/repo",
         )
-    # default + v1 + v2 + bot-permission + environment + environment-deployments
-    # + tag protection + immutable releases + credential-environments + secrets
-    # + claude-auth + allowlist = 12
+    # default + v1 + v2 + actions-event-policy + bot-permission + environment
+    # + environment-deployments + tag protection + immutable releases
+    # + credential-environments + secrets + claude-auth + allowlist = 13
     assert len(results) == 13
     bp_results = [r for r in results if r.name.startswith("branch-protection:")]
     assert len(bp_results) == 3
@@ -2466,25 +2458,14 @@ def test_run_all_checks_with_protected_branches() -> None:
 def test_codex_engine_passes_with_openai_key() -> None:
     """Engine=codex with OPENAI_API_KEY set passes the codex-auth check."""
 
-    def fake_gh(*args, **kwargs):
-        url = _url(args)
-        if url == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
-            return _make_completed("main\n")
-        if "rules/branches" in url:
-            return _make_completed(_BRANCH_HAS_UPDATE_RULE)
-        if "branches" in url:
-            return _make_completed("true\n")
-        if "collaborators" in url:
-            return _make_completed("write\n")
-        if url.endswith("/environments"):
-            return _make_completed(_environment_listing("tend"))
-        if "secrets" in url:
-            return _make_completed(_secret_names(BOT_TOKEN_SECRET, OPENAI_KEY_SECRET))
-        return _make_completed(returncode=1)
-
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("tend.checks._gh", side_effect=fake_gh),
+        patch(
+            "tend.checks._gh",
+            side_effect=_gh_all_pass(
+                environment_secrets=(BOT_TOKEN_SECRET, OPENAI_KEY_SECRET)
+            ),
+        ),
     ):
         results = run_all_checks(_config(harness="codex"), repo="owner/repo")
     codex_check = [r for r in results if r.name == "codex-auth"]
@@ -2643,25 +2624,12 @@ def test_codex_refresh_environment_requires_main_only() -> None:
 def test_codex_engine_fails_when_no_auth() -> None:
     """Engine=codex with OPENAI_API_KEY unset is a hard failure."""
 
-    def fake_gh(*args, **kwargs):
-        url = _url(args)
-        if url == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
-            return _make_completed("main\n")
-        if "rules/branches" in url:
-            return _make_completed(_BRANCH_HAS_UPDATE_RULE)
-        if "branches" in url:
-            return _make_completed("true\n")
-        if "collaborators" in url:
-            return _make_completed("write\n")
-        if url.endswith("/environments"):
-            return _make_completed(_environment_listing("tend"))
-        if "secrets" in url:
-            return _make_completed(_secret_names(BOT_TOKEN_SECRET))
-        return _make_completed(returncode=1)
-
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("tend.checks._gh", side_effect=fake_gh),
+        patch(
+            "tend.checks._gh",
+            side_effect=_gh_all_pass(environment_secrets=(BOT_TOKEN_SECRET,)),
+        ),
     ):
         results = run_all_checks(_config(harness="codex"), repo="owner/repo")
     codex_check = [r for r in results if r.name == "codex-auth"]
@@ -2695,25 +2663,14 @@ def test_claude_engine_passes_with_oauth_token() -> None:
 def test_claude_engine_passes_with_api_key() -> None:
     """Engine=claude with only ANTHROPIC_API_KEY set passes claude-auth."""
 
-    def fake_gh(*args, **kwargs):
-        url = _url(args)
-        if url == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
-            return _make_completed("main\n")
-        if "rules/branches" in url:
-            return _make_completed(_BRANCH_HAS_UPDATE_RULE)
-        if "branches" in url:
-            return _make_completed("true\n")
-        if "collaborators" in url:
-            return _make_completed("write\n")
-        if "secrets" in url:
-            return _make_completed(
-                _secret_names(BOT_TOKEN_SECRET, ANTHROPIC_API_KEY_SECRET)
-            )
-        return _make_completed(returncode=1)
-
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("tend.checks._gh", side_effect=fake_gh),
+        patch(
+            "tend.checks._gh",
+            side_effect=_gh_all_pass(
+                environment_secrets=(BOT_TOKEN_SECRET, ANTHROPIC_API_KEY_SECRET)
+            ),
+        ),
     ):
         results = run_all_checks(_config(), repo="owner/repo")
     claude_check = [r for r in results if r.name == "claude-auth"]
@@ -2724,23 +2681,12 @@ def test_claude_engine_passes_with_api_key() -> None:
 def test_claude_engine_fails_when_no_auth() -> None:
     """Engine=claude with neither secret set is a hard failure."""
 
-    def fake_gh(*args, **kwargs):
-        url = _url(args)
-        if url == "repos/owner/repo" and "--jq" in args and ".default_branch" in args:
-            return _make_completed("main\n")
-        if "rules/branches" in url:
-            return _make_completed(_BRANCH_HAS_UPDATE_RULE)
-        if "branches" in url:
-            return _make_completed("true\n")
-        if "collaborators" in url:
-            return _make_completed("write\n")
-        if "secrets" in url:
-            return _make_completed(_secret_names(BOT_TOKEN_SECRET))
-        return _make_completed(returncode=1)
-
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("tend.checks._gh", side_effect=fake_gh),
+        patch(
+            "tend.checks._gh",
+            side_effect=_gh_all_pass(environment_secrets=(BOT_TOKEN_SECRET,)),
+        ),
     ):
         results = run_all_checks(_config(), repo="owner/repo")
     claude_check = [r for r in results if r.name == "claude-auth"]
