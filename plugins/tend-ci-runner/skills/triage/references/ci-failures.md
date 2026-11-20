@@ -1,8 +1,8 @@
 # CI failure reports and their causes
 
-When a watched workflow fails on a watched branch, the generated `tend-ci-failures` workflow opens a **report** with the bot token: an issue labeled `tend-ci-failure`, one per workflow, branch and triggering event. Opening it starts ordinary issue triage. Each later failed run adds a comment without starting a session; `/tend-ci-runner:review-runs` checks for unhandled failures. The next passing run closes the report; its linked repair issues and PRs keep their own lifecycle. A passing run alone does not establish that a durable cause is fixed.
+When a watched workflow fails on a watched branch, the generated `tend-ci-failures` workflow opens a **report** with the bot token: an issue labeled `tend-ci-failure`, one per workflow, branch and triggering event. Opening it starts ordinary issue triage. The report's session closes it once its failures are diagnosed (step 6), and while the lane stays red its next failed run reopens it with a comment, which starts triage again. A failed run while the report is open only adds a comment: a running session reads it, and when none is running, because a session failed or left a failure without an owner, `/tend-ci-runner:nightly` revisits the report. A passing run closes an open report; its linked repair issues and PRs keep their own lifecycle. A passing run alone does not establish that a durable cause is fixed.
 
-A report's session diagnoses its failures, then fixes them directly or fans out distinct causes into ordinary **cause issues** whose creation starts their own triage sessions. Choose the route that makes useful repair progress, weighing the investigation already done and whether separate sessions can advance independent work. An issue or repair PR owns each durable cause beyond the report's next passing run. A cause can affect several reports; link its owner from each diagnosis without a parent hierarchy or its child limit. The daily `/tend-ci-runner:review-runs` sweep recovers stalled owners.
+A report's session diagnoses its failures, then fixes them directly or fans out distinct causes into ordinary **cause issues** whose creation starts their own triage sessions. Choose the route that makes useful repair progress, weighing the investigation already done and whether separate sessions can advance independent work. An issue or repair PR owns each durable cause beyond the report's closing. A cause can affect several reports; link its owner from each diagnosis without a parent hierarchy or its child limit. `/tend-ci-runner:nightly` restarts stalled cause issues and continues stalled bot PRs.
 
 ## A report
 
@@ -31,7 +31,9 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
 
    ```bash
    # <term>: a failing test or job name, or a distinctive phrase from the error;
-   # search matches titles and bodies, so run one per term
+   # search matches titles and bodies, so run one per term. Use a test's complete
+   # name: search matches a snake_case identifier only as a whole word, so a
+   # prefix of it finds nothing
    gh issue list --state all --search "<term>" --json number,title,state,author --limit 100
    gh pr list --state closed --search "<term>" --limit 100 --json number,title,state
    ```
@@ -41,7 +43,7 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
 4. **Act on each cause.**
    - **An open issue or PR owns it.** Post there only evidence its thread lacks, per `/tend-ci-runner:post-to-github`.
    - **A closed cause recurs.** Reopen its cause issue with the new run as evidence. If only a merged repair PR exists, use it as diagnosis evidence and treat the recurrence as unowned work below.
-   - **Transient**: infrastructure rather than anything the project's code does, such as runner-disk corruption, an isolated network blip or an upstream incident since resolved, with the same path passing on runs around it. File nothing; the report's comment carries the diagnosis, and the lane's next pass closes the report. Earlier transient diagnoses of the same shape are leads, not proof. A reproducible project or upstream defect stays durable even when it first appeared today or some reruns passed, and a cause you can't place as transient is durable.
+   - **Transient**: infrastructure rather than anything the project's code does, such as runner-disk corruption, an isolated network blip or an upstream incident since resolved, with the same path passing on runs around it. File nothing; the report's comment carries the diagnosis. Earlier transient diagnoses of the same shape are leads, not proof. A reproducible project or upstream defect stays durable even when it first appeared today or some reruns passed, and a cause you can't place as transient is durable.
    - **Nothing owns it.** Repair it here per `/tend-ci-runner:fix-a-bug`, or delegate it by filing a cause issue per `/tend-ci-runner:open-pr`. A direct repair PR is the owner; it needs no extra cause issue. Link the report in its body, using the closing-keyword rules in `/tend-ci-runner:open-pr` when work remains. For a delegated cause, title its issue for the failure (`test_merge_order: <short cause>`) and label it `tend-ci-cause`. Write the body for whoever fixes it: the failing tests or jobs, the deciding error, the runs that show it, the diagnosis so far, and the line `Cause of a failure tracked in #<report>.`
 
      ```bash
@@ -50,7 +52,20 @@ Load `/tend-ci-runner:ground-claims` before reading the failures.
      gh issue create --label tend-ci-cause --title "<title>" --body-file "$TMPDIR/cause.md"
      ```
 
-5. **Record the diagnosis on the report.** Name the runs diagnosed and link each cause's issue or repair PR, or explain its transient resolution. Leave unfinished diagnosis or repair with a durable owner rather than only in a report that the next pass closes. If creation is refused, follow **Creation allowance** in `/tend-ci-runner:open-pr` and record what remains unowned; do not count it as handled. This comment tells the next session which runs are handled, including when their causes were already linked. When no run or evidence is new, there is nothing to record.
+     Report triages of other lanes run concurrently and can file or repair the same cause between step 3 and here. As the last step before `gh issue create`, recheck the open cause issues and PRs, matching locally rather than through the search index:
+
+     ```bash
+     # <term>: the complete failing test or job name the cause issue would carry
+     match='.[] | select((.title + .body) | contains($t)) | {number, title}'
+     gh issue list --state open --label tend-ci-cause --limit 200 --json number,title,body | jq --arg t "<term>" "$match"
+     gh pr list --state open --limit 200 --json number,title,body | jq --arg t "<term>" "$match"
+     ```
+
+     A match is a candidate, not an owner: one test or job can fail for different causes. Read each matching issue or PR and match its evidence per **Claims of recurrence**, as in step 3. Treat it as the open owner above only when that evidence shows the same cause; otherwise file.
+
+5. **Record the diagnosis on the report.** Name the runs diagnosed and link each cause's issue or repair PR, or explain its transient resolution. Leave unfinished diagnosis or repair with a durable owner rather than only in the report, which closes once diagnosed. If creation is refused, follow **Creation allowance** in `/tend-ci-runner:open-pr` and record what remains unowned; do not count it as handled. This comment tells the next session which runs are handled, including when their causes were already linked. When no run or evidence is new, there is nothing to record.
+
+6. **Close the diagnosed report.** Re-read the report and diagnose any run that arrived after the ones you read. Then, once the runs this session owes (step 1) are diagnosed and each of their failures has an owner, a transient resolution or work a maintainer ended (step 3), close it (`gh issue close <report> --reason completed`); the lane's next failed run reopens it. A merged repair the newest run confirms counts as an owner. Leave it open while a failure has none of these, so `/tend-ci-runner:nightly` sees unhandled work.
 
 ## A cause issue
 

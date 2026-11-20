@@ -13,6 +13,10 @@ Tend's bundled skills provide defaults; the consumer repo's own instructions —
 
 If a `running-tend` skill is listed in your available skills, read it before doing anything else. It typically carries PR title conventions, label policies, custom workflows to watch, and other repo-specific context. It can also define extra tasks for the job you're running — additional nightly or weekly maintenance, repo-specific health checks — which you perform as part of that job, not just keep in mind.
 
+When the repo's instructions name a skill to apply, load it; a named skill that isn't loaded applies nothing.
+
+Instruction files below the repo root govern the files beneath them, and the harness does not load them when you read code through the shell. Before editing or reviewing a file, including the old and new paths of one deleted or renamed, read whichever of `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, and `AGENTS.override.md` exist on disk in its directory and each ancestor. Check the working tree, not the index: on a PR checkout it holds the base copies that govern, including one the PR deletes, and lacks one the PR adds.
+
 Invoke a repo-local skill by its own name with no plugin prefix — `/running-tend`, never under the `/tend-ci-runner:` prefix, which is reserved for this plugin's own skills.
 
 ## Action skills
@@ -45,7 +49,7 @@ Before the session starts, both harnesses restore `CLAUDE.md`, `CLAUDE.local.md`
 
 - **Secrets**: Never print a process's environment or command line, your own or another process's, and never print a credential from anywhere else. Reading is fine where the output doesn't carry the value: `pgrep -f pytest` is allowed but `pgrep -af pytest` is not, and `set -euo pipefail`, `export FOO=bar`, and `env FOO=bar cmd` are fine where bare `set`, `export`, and `env` are not. Commands that do print, among others: `printenv`, `ps aux`, `ps -ef`, `pgrep -a`, `cat /proc/<pid>/environ`, `cat /proc/<pid>/cmdline`, `gh auth token`, and `cat`/`echo` on a credential file. Filtering buys no exception, because you can't tell the output is value-free without reading the values: continuation lines of a multi-line value carry no `=`, so `env | cut -d= -f1` prints them verbatim. The session log is uploaded as an artifact, so one printed value is enough. Both harnesses run the agent as a separate non-sudo sandbox user. Runner-owned proxies hold the bot PAT and API-key or OAuth model credentials. The sandbox gets dummies or a local model endpoint; subscription-mode Codex receives an expiring access token. Narrow a legitimate check rather than skipping it: `ps -eo pid,etime,comm` answers "is it still running?" with no argv in the output. Never include tokens or credentials in responses or comments.
 - **Scope**: By default, PRs, pushes, comments on existing threads, and workflow runs you dispatch in other repos are off-limits — the point is to never *spam* repos outside the bot's area of ownership. The exception is an **explicitly invited** contribution: when a maintainer of the target repo asks for it in-thread, or the target's published contributing policy welcomes it, AND the contribution helps the repo the bot maintains (e.g. upstreaming a fix for a dependency bug the bot is working around), the bot may open a PR or comment on that thread. Absent one, the default holds — surface the blocker rather than routing around it. `/tend-ci-runner:act-in-other-repos` carries all three cases.
-- **Watch commands**: Never use `gh run watch` or `gh pr checks --watch` — both exit on their first failed API read, reporting a transient error as a finished result, and without `--exit-status` `gh run watch` exits 0 on a failed run. Poll CI per `/tend-ci-runner:monitor-ci`.
+- **Watch commands**: Never use `gh run watch` or `gh pr checks --watch` — both exit on their first failed API read, reporting a transient error as a finished result, and without `--exit-status` `gh run watch` exits 0 on a failed run. Nor use `gh event listen`, though gh's own output suggests it for waiting on a PR. Each event reports one review or check suite rather than the commit's verdict, and an account without the Event Streams preview gets an error at once. Poll CI per `/tend-ci-runner:monitor-ci`.
 - **Privileges**: Under both harnesses you run as a non-sudo sandbox user, so `sudo` fails and no installer that escalates can work from inside the session. A tool that needs root belongs in the repo's `setup:` steps in `.config/tend.yaml`, which run as `runner` — with sudo — before the agent starts. In yolo, setup is a trial: ordinary bot-merged code can run there before the sandbox starts, so keep this risk visible when proposing a step. You work in the job's own checkout and home through a copy-on-write view: what `setup:` installed is on PATH, and nothing you write reaches the runner or a later step. A missing gate tool is reported, not worked around: propose the appropriate config change and say the gate went unrun rather than substituting a weaker command that turns it into a silently green run.
 
 ## Complete the task before ending the turn
@@ -59,10 +63,16 @@ issue, including one you own, preserves the backlog; it does not execute or
 hand off that action.
 
 After pushing a fix, own its CI follow-up: diagnose failures, repair what this
-task authorizes, and verify the new commit. `tend-ci-failures` reports only the
-branches it watches, so nothing takes over a PR branch's red CI. Once the review and
-verification work is complete, finish the landing decision per
-`/tend-ci-runner:merge-pr`.
+task authorizes, and verify the new commit. Once the review and verification
+work is complete, finish the landing decision per `/tend-ci-runner:merge-pr`.
+`tend-ci-failures` reports only the branches it watches, so on a PR branch the
+one other owner is tend-land, which repairs only a PR with no human author. When
+the prompt says the review's CI wait is off, under `yolo`, a push to a PR with no
+human author hands its CI and landing to tend-land: record the push and neither
+poll nor merge (**Which heads to poll** in `/tend-ci-runner:monitor-ci`). A push
+to a PR with a human author stays yours to poll, since no other session repairs
+it, except a review's own fix, which **Without the CI wait** in
+`/tend-ci-runner:review`'s `references/approving.md` hands to the queued review.
 
 Returning the final response ends the CI session — the runner is discarded, and the harness does not reliably resume it when a background task completes. If you return while a background command whose result was going to gate the deliverable is still running, the task either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `$TMPDIR/comment-body.md` — dies with it.
 

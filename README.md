@@ -45,8 +45,7 @@ The easiest way to get started is to install the Tend plugin into a local Claude
 Code session, and run the [`/install-tend` skill](plugins/install-tend/skills/install-tend/SKILL.md):
 
 ```sh
-claude plugin marketplace add max-sixty/tend
-claude plugin install install-tend@tend
+claude plugin install install-tend --marketplace max-sixty/tend
 claude /install-tend
 ```
 
@@ -77,9 +76,9 @@ file](docs/tend.example.yaml) and a repo-local `/running-tend` skill.
 | **mention**       | @bot mention, review       | Responds to requests in PR and issue conversations.                                                                                                         |
 | **mention-relay** | PR review                  | Hands review events on same-repo PRs to **mention** from a job that holds no secrets.                                                                       |
 | **triage**        | Issue opened               | Classifies the issue, checks for duplicates, reproduces bugs, attempts conservative fixes.                                                                  |
-| **ci-failures**   | CI finishes                | Runs no agent: a failed run on the default branch opens an issue, or comments on the open one, and starts triage for it; the next passing run closes it. Triage links a separate issue for each root cause and fixes it there. |
-| **nightly**       | Daily                      | Resolves conflicts on open PRs, reviews recent commits, surveys ~10 files for bugs and stale docs, closes resolved issues, regenerates tend workflow files. |
-| **weekly**        | Weekly                     | Reviews dependency PRs and approves safe patch and minor updates; merging follows the configured mode.                                                     |
+| **ci-failures**   | CI finishes                | Runs no agent: a failed run on the default branch opens an issue, or reopens the one triage closed once it was diagnosed, which starts triage; a passing run closes an open report. Triage links a separate issue for each root cause and fixes it there. |
+| **nightly**       | Daily                      | Resolves conflicts on open PRs, reviews recent commits, restarts stalled CI causes, continues the bot's unfinished PRs, closes resolved issues, surveys ~10 files for bugs and stale docs, regenerates tend workflow files. |
+| **weekly**        | Weekly                     | Reviews dependency PRs and approves safe patch and minor updates; merging follows the configured mode. Restarts other issues the bot left unfinished. |
 | **notifications** | Every 15 minutes           | Drains unread notifications as a recovery queue and repairs conflicts on bot-authored PRs.                                                                  |
 | **review-runs**   | Daily                      | Reviews recent CI runs for behavioral problems and proposes skill/config improvements.                                                                      |
 | **codex-auth-refresh** | Weekly                 | When any workflow uses Codex, renews experimental Plus/Pro auth through its single-writer credential; disable for external refresh; no-ops for API-key installs. |
@@ -242,10 +241,11 @@ can still edit an immutable release's notes. `tend check` requires the setting a
 repository admin, so a run as the bot checks the newest release's own
 `immutable` flag instead.
 
-**Rate limiting** — One rolling 24-hour allowance covers issues and PRs in the
-workflow's repository, scaled to its recent creation volume. Exhausting it pauses
-new creations while reviews, existing repairs and issue closure continue. A
-maintainer can close the rate-limit issue to set an approval floor for seven days.
+**Rate limiting** — The bot may create at most four times its recent daily
+average of issues and PRs, and at least 30, in any 24 hours in the workflow's
+repository. Exhausting the allowance pauses new creations while reviews,
+existing repairs and issue closure continue. A maintainer can close the
+rate-limit issue to approve more: each close doubles the allowance for 24 hours.
 
 **Fixed prompts** — Workflow prompts come from the action, not from
 attacker-controlled input like PR descriptions or comments.

@@ -13,7 +13,7 @@ Complete the maintainer's account-side check under **Harness = codex** in
 ## Thread memory: deterministic prep of prior conversations
 
 A thread's session logs share one artifact name per harness, so
-`run-tend` finds its prior runs with a single `?name=` call, and the
+`read-session-logs` finds its prior runs with a single `?name=` call, and the
 agent downloads and parses them on demand. The lookup is cheap; the
 cost is the agent reading raw logs (a session JSONL runs ~100 KB, ~30k
 tokens) each time it opens one.

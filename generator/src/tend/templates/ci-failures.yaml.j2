@@ -1,8 +1,9 @@
 <<header>>
 name: tend-ci-failures
 # Turns a watched workflow's verdict on a watched branch into its CI failure
-# report, with no agent: a failure files the report or comments on it, and a
-# pass closes it. The bot token makes a new report trigger ordinary issue triage.
+# report, with no agent: a failure files the report, comments on it, or reopens
+# the one triage closed once diagnosed, and a pass closes it. The bot token makes
+# filing or reopening a report trigger ordinary issue triage.
 on:
   workflow_run:
     workflows: <<watched|tojson>>

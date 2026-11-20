@@ -16,6 +16,9 @@ inputs:
   merge:
     default: restricted
     description: Merge mode generated from .config/tend.yaml (restricted or yolo)
+  await_ci:
+    default: "true"
+    description: Whether the review waits for CI, generated from .config/tend.yaml (true or false)
   claude_code_oauth_token:
     required: false
     default: ""
@@ -61,7 +64,7 @@ inputs:
     default: "false"
     description: Include the rendered Claude transcript in the workflow step summary.
   claude_version:
-    default: "2.1.316"
+    default: "2.1.325"
     description: >-
       Version of the `claude` binary to install via
       `https://claude.ai/install.sh`, pinned to a specific
@@ -168,23 +171,9 @@ runs:
         SYSTEM_PROMPT_FILE: ${{ github.action_path }}/../shared/system-prompt.md
         BOT_NAME: ${{ steps.bot.outputs.login }}
         TEND_MERGE: ${{ inputs.merge }}
+        TEND_AWAIT_CI: ${{ inputs.await_ci }}
         EXTRA: ${{ inputs.system_prompt_append }}
 
-    # Credential isolation: run the agent as a separate, non-sudo
-    # `tend-sandbox` user while the real secrets live only in a local mitmproxy
-    # that injects them per-host. The agent holds only dummies:
-    #   - GitHub PAT → injected for GitHub hosts; never in the agent's env, and
-    #     not in .git/config (the setup script strips the credential
-    #     `actions/checkout` persists there).
-    #   - Anthropic OAuth/API key → injected for api.anthropic.com; the agent
-    #     gets a dummy in the matching scheme so `claude` emits the right
-    #     headers, and the proxy swaps in the real secret. So even the model
-    #     auth never reaches the agent's env or disk.
-    # The proxy machinery lives at the top-level proxy/, shared with the
-    # Codex harness's runtime modules under tend.runtime.codex.
-    # ACTION_PATH points at the repo root so setup_sandbox.py's proxy addon
-    # path resolves. See ../proxy/setup_sandbox.py and
-    # ../proxy/inject_credentials.py.
     # Restricted mode trusts the default branch's cache writes. Keyed on the
     # lock the proxy installs from and the script pinning the uv that reads
     # it, which hashFiles can't reach outside the workspace.
@@ -201,6 +190,21 @@ runs:
         path: ${{ runner.temp }}/tend-proxy-uv
         key: tend-proxy-uv-${{ runner.os }}-${{ steps.proxy_pins.outputs.sha256 }}
 
+    # Credential isolation: run the agent as a separate, non-sudo
+    # `tend-sandbox` user while the real secrets live only in a local mitmproxy
+    # that injects them per-host. The agent holds only dummies:
+    #   - GitHub PAT → injected for GitHub hosts; never in the agent's env, and
+    #     not in .git/config (the setup script strips the credential
+    #     `actions/checkout` persists there).
+    #   - Anthropic OAuth/API key → injected for api.anthropic.com; the agent
+    #     gets a dummy in the matching scheme so `claude` emits the right
+    #     headers, and the proxy swaps in the real secret. So even the model
+    #     auth never reaches the agent's env or disk.
+    # The proxy machinery lives at the top-level proxy/, shared with the
+    # Codex harness's runtime modules under tend.runtime.codex.
+    # ACTION_PATH points at the repo root so setup_sandbox.py's proxy addon
+    # path resolves. See ../proxy/setup_sandbox.py and
+    # ../proxy/inject_credentials.py.
     - name: Set up credential-isolation sandbox
       shell: bash
       env:
@@ -241,8 +245,8 @@ runs:
           < "${{ github.action_path }}/../shared/steps/install-uv.sh"
 
     # Install the tend plugins into the sandbox's own ~/.claude. MARKETPLACE_ROOT
-    # is the dir holding .claude-plugin/ and plugins/; for this root action
-    # that's the action checkout itself.
+    # is the dir holding .claude-plugin/ and plugins/: the repository root, one
+    # level above this action's claude/ dir.
     - name: Install tend plugins (sandbox)
       shell: bash
       run: bash "${{ github.action_path }}/install-tend-plugins.sh"
@@ -381,10 +385,9 @@ runs:
     # also persistent — red until a human fixes branch protection, so an issue
     # titled "Bot temporarily unavailable" would collect a row per trigger —
     # but that argument doesn't single it out: `Validate auth configured` fails
-    # the same way and stays in. Bounding
-    # that repeated append belongs in `report_failure.py`, where it covers
-    # every such step at once (#859); enumerating more step ids here would go
-    # stale as steps move.
+    # the same way and stays in, taking one row per run (`report_failure.py`
+    # bounds appends per run, not per incident). Enumerating more step ids here
+    # would go stale as steps move.
     - name: Report failure
       if: failure() && steps.security.outcome != 'failure'
       shell: bash
@@ -405,7 +408,7 @@ runs:
     # first output: an empty name fails the upload.
     - name: Upload session logs
       if: always()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ steps.tokens.outputs.artifact_name || (env.TEND_ISSUE_NUMBER && format('claude-session-logs-n{0}', env.TEND_ISSUE_NUMBER)) || 'claude-session-logs' }}
         # The Token usage step consolidates the sandbox user's session JSONL,

@@ -7,7 +7,9 @@
       "report": {
         "number": 3985,
         "state": "OPEN",
-        "labels": ["tend-ci-failure"],
+        "labels": [
+          "tend-ci-failure"
+        ],
         "last_diagnosis": "Run 40600745001 adds causes #4526 through #4530; its other failures match #4401, #4315 and the existing investigations.",
         "later_comments": [
           "Failed again: https://github.com/max-sixty/leaf/actions/runs/40605052307 on fb71279dcdb7.",
@@ -21,10 +23,27 @@
       "report": {
         "number": 3985,
         "state": "OPEN",
-        "labels": ["tend-ci-failure"],
+        "labels": [
+          "tend-ci-failure"
+        ],
         "last_comment": "Compared runs 40605052307 and 40610988525. Their remaining failures belong to the already linked #4401 and #4315; the first run predates the repairs for #4526 through #4530, which are absent in the second run. No new causes."
       },
       "completed_investigation": "A queued duplicate session rechecked the report. The latest recorded run is still 40610988525. The quoted diagnosis covers every recorded failure. No newer run or new evidence exists, and the cause repairs remain unresolved."
+    },
+    {
+      "id": "creation-refused",
+      "report": {
+        "number": 3985,
+        "state": "OPEN",
+        "labels": [
+          "tend-ci-failure"
+        ],
+        "last_diagnosis": "Compared runs 40605052307 and 40610988525. Their remaining failures belong to the already linked #4401 and #4315. No new causes.",
+        "later_comments": [
+          "Failed again: https://github.com/max-sixty/leaf/actions/runs/40618823101 on 0c41d9a27be5."
+        ]
+      },
+      "completed_investigation": "Run 40618823101 was read. Its failures in #4401's and #4315's tests match those owners, whose threads already hold the evidence. It also fails tests/browser/test_margin.py::test_resolved_card_keeps_its_place, a new durable cause that no open or closed issue or PR owns. Filing its cause issue was refused: the creation allowance is exhausted (usage 12 of 12; recheck after 18:40 UTC; tracker #5702). No other run or evidence is new."
     }
   ]
 }

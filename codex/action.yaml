@@ -12,6 +12,9 @@ inputs:
   merge:
     default: restricted
     description: Merge mode generated from .config/tend.yaml (restricted or yolo)
+  await_ci:
+    default: "true"
+    description: Whether the review waits for CI, generated from .config/tend.yaml (true or false)
   openai_api_key:
     required: false
     default: ""
@@ -253,6 +256,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         BOT_NAME: ${{ steps.bot.outputs.login }}
         TEND_MERGE: ${{ inputs.merge }}
+        TEND_AWAIT_CI: ${{ inputs.await_ci }}
       run: |
         tend runtime codex stage-agents
 
@@ -361,7 +365,7 @@ runs:
     # first output: an empty name fails the upload.
     - name: Upload session logs
       if: always()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ steps.tokens.outputs.artifact_name || (env.TEND_ISSUE_NUMBER && format('codex-session-logs-n{0}', env.TEND_ISSUE_NUMBER)) || 'codex-session-logs' }}
         path: ${{ runner.temp }}/tend-codex-logs/

@@ -5,7 +5,7 @@
       "id": "superseded-repair",
       "workflow": [
         "triage",
-        "review-runs"
+        "nightly"
       ],
       "issue": {
         "number": 703,
@@ -33,7 +33,7 @@
     },
     {
       "id": "partial-intermittent",
-      "workflow": "review-runs",
+      "workflow": "nightly",
       "issue": {
         "number": 706,
         "state": "OPEN",

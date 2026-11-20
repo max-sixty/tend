@@ -15,11 +15,23 @@ assert:
       existing cause owners. The report must durably distinguish these handled
       runs from mere failure notifications, even though no cause is new.
       A private final answer alone or silence on the report is insufficient.
-      Do not create duplicate issues, close unresolved causes or take over
-      active repairs. Exact wording is not required.
+      Every failure then has an owner, so also propose closing report 3985
+      after the comment; the lane's next failed run reopens it. Do not create duplicate issues,
+      close the unresolved causes #4401 and #4315, or take over active repairs.
+      Exact wording is not required.
   - type: llm-rubric
     value: >-
       For already-compared-runs, no new diagnosis or outward comment is needed:
       the report already records the disposition of every run and no newer
-      failure exists. Do not repeat that comment, open another cause or close
-      the unresolved report. Returning that nothing new is owed is correct.
+      failure exists. Every recorded run is diagnosed and owned, so propose
+      closing report 3985 without another comment. Do not repeat that comment, open
+      another cause, or close the unresolved causes #4401 and #4315.
+  - type: llm-rubric
+    value: >-
+      For creation-refused, propose a comment on report 3985 recording that run
+      40618823101 was diagnosed, linking #4401 and #4315 for its matching
+      failures, and recording the new margin-test cause as unowned because
+      creation was refused, with what remains to file. Leave report 3985 open,
+      since a failure has no owner. Proposing to close the report, presenting
+      the comment as the cause's owner, or retrying creation before the
+      recheck time is wrong.

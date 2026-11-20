@@ -266,17 +266,13 @@ def _actionlint_path(tmp_path: Path) -> Path:
     return tmp_path / ".github" / "actionlint.yaml"
 
 
-@pytest.mark.parametrize("review", [True, False])
 def test_init_writes_actionlint_queue_ignore(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, review: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`concurrency.queue` is valid GitHub syntax actionlint's schema rejects,
     so init ships the ignore that keeps a consumer's lint green — scoped to the
     generated files so a real schema error elsewhere still fails."""
-    _write_config(
-        tmp_path,
-        "bot_name: test-bot\n" + ("" if review else "workflows:\n  review: false\n"),
-    )
+    _write_config(tmp_path, "bot_name: test-bot\n")
     monkeypatch.chdir(tmp_path)
 
     assert _run_init().exit_code == 0
@@ -296,8 +292,6 @@ def test_init_skips_actionlint_config_without_queued_workflows(
             bot_name: test-bot
             workflows:
               review:
-                enabled: false
-              triage:
                 enabled: false
             """),
     )

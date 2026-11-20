@@ -13,8 +13,9 @@ Reads (env): ``TEND_RUN_DIR``,
 ``GITHUB_*`` context from Actions. ``GITHUB_STEP_SUMMARY`` is read only when
 rendering the transcript.
 The trusted outer supervisor reaps the sandbox UID, copies the fixed
-``TEND_RUN_DIR/tend-stream.json`` file through a no-follow bounded read, and
-publishes the runner-owned path plus ``sandbox_reaped``.
+``TEND_RUN_DIR/tend-stream.json`` and ``tend-claude-stderr.log`` files through
+no-follow bounded reads, and publishes the stream's runner-owned path plus
+``sandbox_reaped``.
 
 Decisions this module owns:
 
@@ -120,6 +121,7 @@ def launch_argv(
     bot_id: str,
     ci: str,
     timeout_sec: int,
+    deadline: int,
     settings_file: str = "",
 ) -> list[str]:
     """The command that launches the agent inside the existing sandbox.
@@ -132,7 +134,8 @@ def launch_argv(
     command past its timeout is moved to the background, and a headless run
     doesn't reliably act on its completion, so a wait that must end in the
     foreground — a CI poll ahead of a merge or a dismissal — runs as long as
-    the checks it waits on.
+    the checks it waits on. ``TEND_DEADLINE`` is when the supervisor stops the
+    run, in epoch seconds, so such a wait can hand back before it.
 
     The model, tools and prompts are argv rather than environment: nothing on
     the far side reads them, and ``--permission-mode`` is what actually sets
@@ -147,6 +150,7 @@ def launch_argv(
         f"BOT_ID={bot_id}",
         f"CI={ci}",
         f"BASH_MAX_TIMEOUT_MS={timeout_sec * 1000}",
+        f"TEND_DEADLINE={deadline}",
         "claude",
         "-p",
         *(arg for arg in extra_args.split("\n") if arg),
@@ -433,26 +437,16 @@ def main() -> int:
     stream_json = Path(env["TEND_RUN_DIR"]) / "tend-stream.json"
     stderr_log = Path(env["TEND_RUN_DIR"]) / "tend-claude-stderr.log"
 
-    # Written inside the sandbox so the agent can read it back. It lands in the consumer's
-    # checkout untracked, next to the `.claude/skills/` they do track, so the
-    # exclude keeps a broad `git add -A` from committing `bypassPermissions`
-    # into the session's PR.
+    # The settings land in the consumer's checkout untracked, next to the
+    # `.claude/skills/` they do track, so the exclude keeps a broad `git add -A`
+    # from committing `bypassPermissions` into the session's PR.
     exclude = workspace / ".git/info/exclude"
     exclude.parent.mkdir(exist_ok=True)
     with exclude.open("a", encoding="utf-8") as stream:
         stream.write("/.claude/settings.local.json\n")
-    # `tee` receives the body through its own pipe rather than the step's stdin.
-    subprocess.run(
-        ["mkdir", "-p", str(workspace / ".claude")],
-        stdin=subprocess.DEVNULL,
-        check=True,
-    )
-    subprocess.run(
-        ["tee", str(workspace / ".claude/settings.local.json")],
-        input=json.dumps(settings(env["TEND_ALLOWED_TOOLS"])),
-        stdout=subprocess.DEVNULL,
-        text=True,
-        check=True,
+    (workspace / ".claude").mkdir(exist_ok=True)
+    (workspace / ".claude/settings.local.json").write_text(
+        json.dumps(settings(env["TEND_ALLOWED_TOOLS"])), encoding="utf-8"
     )
 
     # The launch already applied the curated agent environment. Do not
@@ -469,6 +463,7 @@ def main() -> int:
         bot_id=env["BOT_ID"],
         ci=os.environ.get("CI") or "true",
         timeout_sec=int(env["TEND_TIMEOUT_SEC"]),
+        deadline=int(time.time()) + int(env["TEND_TIMEOUT_SEC"]),
         settings_file=os.environ.get("TEND_AUTO_MEMORY_SETTINGS", ""),
     )
     run = supervise(

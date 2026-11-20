@@ -158,7 +158,7 @@ def test_reseed_does_not_publish_secrets_when_policy_repair_fails(
 
 
 @pytest.mark.parametrize("existing", [False, True])
-def test_tracking_uses_utc_month_and_reuses_oldest_match(
+def test_tracking_uses_utc_month_reuses_oldest_match_and_closes_prior_months(
     processes: FakeGh,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -189,6 +189,7 @@ def test_tracking_uses_utc_month_and_reuses_oldest_match(
         ],
     )
     processes.respond("gh", "issue", "create", with_="")
+    processes.respond("gh", "issue", "close", with_="")
     init_review_tracking.main()
     assert processes.calls[0] == (
         "gh",
@@ -203,11 +204,23 @@ def test_tracking_uses_utc_month_and_reuses_oldest_match(
         "--json",
         "number,title",
     )
+    assert processes.called("gh", "issue", "close") == [
+        (
+            "gh",
+            "issue",
+            "close",
+            "1",
+            "-R",
+            "owner/repo",
+            "--comment",
+            "Superseded by the 2026-10 tracker.",
+        )
+    ]
     if existing:
-        assert len(processes.calls) == 1
+        assert len(processes.calls) == 2
         assert capsys.readouterr().out == "Tracking issue for 2026-10 exists: #7\n"
     else:
-        assert processes.calls[1] == (
+        assert processes.calls[2] == (
             "gh",
             "issue",
             "create",
@@ -220,7 +233,7 @@ def test_tracking_uses_utc_month_and_reuses_oldest_match(
             "-F",
             "-",
         )
-        assert processes.stdins[1] == init_review_tracking.BODY
+        assert processes.stdins[2] == init_review_tracking.BODY
 
 
 @pytest.mark.parametrize("placeholder", [False, True])

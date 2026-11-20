@@ -48,7 +48,7 @@ prompts apply to every workflow; the table lists what is specific to each.
 | Workflow | Injection surface | Attacker control | Specific mitigations |
 |----------|-------------------|-------------------|-------------|
 | **review** | PR diff content, review body on bot PRs | Full (any PR) / Medium (reviewers) | Base-branch config restoration |
-| **triage** | Issue body; the failed run's logs for a CI failure report | Partial (structured skill) / Minimal (must disrupt CI on a watched branch) | Structured skill; secret-bearing enqueue job runs only the generated label script without consumer checkout; one admitted issue worker at a time |
+| **triage** | Issue body; the failed run's logs for a CI failure report | Partial (structured skill) / Minimal (must disrupt CI on a watched branch) | Structured skill; the secret-bearing `select` job runs only Tend's `triage-batch select` command, without consumer checkout; at most one worker per issue, with different issues in parallel |
 | **mention** | Comment body on any issue/PR | Full | Engagement verification; review events re-entered via a secretless relay |
 | **ci-failures** | None (runs no agent) | Run metadata of this repository's own runs | Bot token scoped to the `tend` environment; runs only the generated script, without checking out or executing consumer code |
 | **weekly** | None | None | Scheduled trigger |
@@ -66,9 +66,11 @@ Three load-bearing boundaries, with one deliberate policy choice:
    wait off, the generated `tend-land` workflow starts the landing a review
    recorded, once CI is green. Its first job holds the bot token to run
    Tend's own pinned `land_pr.py` on the default branch, with no agent and no
-   checkout of the PR; it only names a PR whose exact head carries the bot's
-   record for that PR and base (a `tend/land/<PR>` status the bot itself
-   created on a head it pushed). The landing session it starts merges with
+   checkout of the PR. It starts a landing only for a PR whose exact head
+   carries the bot's record for that PR and base (a `tend/land/<PR>` status
+   the bot itself created on a head it pushed or on another bot's PR, such as
+   Dependabot's), and a repair session for a PR with no human author whose CI
+   went red. The landing session merges with
    that head's SHA, so a push after the review is refused by GitHub rather
    than landed.
 2. **Tend's operational credentials stay out of the agent process.** The
@@ -280,7 +282,7 @@ files, but that run's token is read-only whatever the file asks for: probed
 with `contents: write` declared, its `POST /repos/…/dispatches` still
 returns 403, where the same request from a same-repo run with the same
 permission succeeds. So a fork PR's reviews reach the bot through the
-notifications poll, minutes later rather than seconds. The daily live scan is
+notifications poll, minutes later rather than seconds. The nightly sweep is
 the slower backstop for a missed notification. That is the cost of the
 property the relay depends on: a fork run that could start a secret-bearing
 run in the base repo would be a fork run with write access to it.
@@ -553,8 +555,9 @@ that Tend installs into its own directory, using the dependencies locked in
 Tend's release. Consumer `setup:` runs with runner authority before isolation
 and selects the job's tools through PATH. (`claude` is Node and ignores the
 system trust store, so it trusts the proxy CA via `NODE_EXTRA_CA_CERTS`.) The
-job's PATH crosses entry for entry, with the sandbox home's `bin` prepended and
-a pinned `uv` fallback appended.
+job's PATH crosses entry for entry, with the Tend runtime's `commands`
+directory and the sandbox home's `.local/bin` prepended and a pinned `uv`
+fallback appended.
 
 **Session-log upload.** The token-usage step uploads the agent's session JSONL
 only after the unit and sandbox UID are quiescent. One privileged
@@ -578,36 +581,36 @@ job and `tend check` accepts access-only auth without refresh credentials.
 The external owner must wait for existing refresh runs to finish and retain
 the full login in its own credential store; unused refresh secrets must be removed.
 
-**Rate limiting.** The credential proxy counts agent issue and PR creations in
-one rolling 24-hour window for the workflow's repository, including CI cause
-issues. The normal allowance is twice the average daily creation count over the
-previous seven complete UTC days, rounded up, with a minimum of ten. A batch may
-use the whole allowance; midnight does not clear the preceding 24 hours' usage.
-This guards sudden increases in volume, not sustained growth or a fixed cost.
+**Rate limiting.** The credential proxy refuses a new issue or PR when the bot
+has already created its allowance in the workflow's repository in the past 24
+hours. The allowance is four times the bot's daily average over the seven days
+before that, rounded up, and at least 30. CI cause issues, trusted runner
+reports and the tracker count as creations; creations in other repositories
+do not. This is a broad guard against runaway creation, such as a loop filing
+an issue on every run. The fourfold margin covers busy days, and accepted
+volume raises the next week's average, so steady growth raises the allowance
+with it.
 
-Closing the bot's `Creation allowance reached` tracker approves a seven-day
-floor: twice the greater of the normal allowance and the preceding 24 hours'
-creation count at that close. The creation count approximates the limit that
-was hit without trusting mutable tracker text or replaying chains of earlier
-approvals. The approved number stays fixed until expiry; the effective limit
-is the greater of the current normal allowance and every active floor. A later
-close after exhausting a raised limit can raise it again. Approvals on older
-`Bot rate limit reached` trackers retain their original policy and do not
-create these seven-day floors.
+Closing the bot's `Creation allowance exhausted` tracker approves more: each
+close in the past 24 hours doubles the allowance, so approving a large surge
+takes a few closes, and a runaway that outgrows the doubled allowance trips it
+again. Closes by the bot or a GitHub App approve nothing. Nor does a close
+made before the issue last gained its title or the `tend-rate-limit` label, so
+the bot cannot turn an issue a maintainer closed for another reason into an
+approval.
 
-GitHub creation timestamps and human close events provide the evidence. The
-proxy counts its own successful and in-flight creations until the listing
-includes them, avoiding duplicate admission within a session. Separate runners
-can still admit concurrent requests against the same history; this is not an
-atomic reservation across runners. Trusted runner reports and the tracker count
-toward volume. Creations in other repositories are outside this allowance.
+GitHub creation timestamps and close events provide the evidence. The proxy
+forwards one creation at a time and reads the history for the next only after
+GitHub has answered the last, so a session cannot slip a parallel burst past
+the allowance. Separate runners read the same history without reserving, so
+creations admitted at the same moment on two runners can overshoot it by a
+few.
 
-Bot closes and GitHub Apps cannot approve capacity. A missing or malformed
-history refuses creation without stopping the agent. Refusal reports usage,
-the limit and the next usage expiry; that expiry is a time to recheck, not a
-promise that capacity will then be available. Reviews, comments, existing branch
-updates and issue closure continue. Notifications and the daily live-work sweep
-recover unfinished work through their ordinary ownership and access checks.
+A missing or malformed history refuses creation without stopping the agent.
+Refusal reports usage, the limit and the next usage expiry; that expiry is a
+time to recheck, not a promise that capacity will then be available. Reviews,
+comments, existing branch updates and issue closure continue. Notifications and the nightly and
+weekly sweeps recover unfinished work through their ordinary ownership and access checks.
 Nightly requires recovery evidence before closing a tracker as the bot.
 
 **Fixed prompts and marketplace skills.** The prompt and skill set come from

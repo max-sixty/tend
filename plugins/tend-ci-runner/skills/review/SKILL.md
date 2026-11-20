@@ -52,6 +52,8 @@ If the incremental changes are trivial, skip steps 2–5 and go directly to **Re
 
 **Commit and PR authorship do not affect review behavior.** Apply the same trivial-vs-substantive heuristic regardless of who pushed the new commits. When `tend-notifications` or `tend-triage` pushes a fix to a human-authored PR, reviewing (and re-approving) the updated state is expected — the reviewer role is independent of commit authorship.
 
+**A dismissal on push is not a verdict.** Where the repository's rules dismiss stale approvals, GitHub dismisses the bot's approval on every push and records the pusher as the timeline event's `actor`. That `review_dismissed` event carries `dismissed_review.dismissal_commit_id` and a null `dismissal_message`; a person's dismissal carries their message and no dismissal commit. Review the new head as usual after an automatic one. Only a dismissal with a message is a signal to read.
+
 **Apply the sibling-workflow dedup rule from `/tend-ci-runner:post-to-github`** to both the review body and inline comments. If a prior bot comment in the conversation already covers a point — a previous review on this or an earlier commit, a `tend-mention` reply, a `tend-triage` post, anything from a tend workflow — omit it from this review and stick to diff-grounded findings. If that leaves no new diff-grounded finding on the incremental changes and the only outstanding concern is a still-unresolved thread from an earlier bot review, do not post a new review: that thread already blocks the PR, and restating "the prior thread still applies" on every push is noise. Resolve any bot threads the new commits addressed (**Resolve handled suggestions**), then finish without posting. When no concern remains, follow **Submit** for the current-head verdict. When concurrent runs race (a new push while the first run is still responding), both see the same unanswered question — check whether a bot reply exists after the question's timestamp before answering. Address remaining unanswered questions in the review body (not via `gh pr comment`).
 
 ### 2. Check for overlapping PRs
@@ -97,16 +99,16 @@ When a PR fixes a bug or changes a pattern, search for the same pattern in other
 
 The checkout uses `refs/pull/N/merge`, so you read the merged tree (PR head + current base branch). When a finding involves code outside `gh pr diff` — code the PR didn't touch but now interacts with — identify the interacting code by semantic anchor (selector, function name, declaration text) and quote enough of the relevant property/value that the reader can grep for it. Don't lead with the line number: the author's local branch may be behind main, so line numbers from the merged tree won't match their checkout, and a line-number-first citation reads as a hallucination when they check the line on their stale branch. Same principle as the `blob/main/...#L42` link rule in `/tend-ci-runner:run-tend` — line numbers are fragile across diverging refs.
 
-**Duplication check (for new functions/types):**
+**Duplication check:**
 
-For every new public or module-level function added in the diff, search the codebase for existing functions that do the same thing. LLM-generated code frequently reinvents internal APIs — this is the highest-value check for externally contributed PRs.
+For anything the diff introduces that answers a question the codebase may already answer — a function or type, a constant, a selector, a style rule, a check written inline inside a new helper — search for that question, not only the name. LLM-generated code frequently reinvents internal APIs — this is the highest-value check for externally contributed PRs.
 
 Two search strategies, both required:
 
-1. **Similar names and signatures.** Search for functions with similar names, return types, or parameter types.
+1. **Similar names, signatures, and values.** Search for functions with similar names, return types, or parameter types, and for the same literal value or rule body.
 2. **Overlapping subgoals.** Identify the intermediate steps the new code performs and search for existing code that does the same sub-tasks.
 
-Flag duplicates — reuse is almost always better than a parallel implementation.
+A copy whose comment names its source is still a copy. Flag each duplicate by the shared fact it restates and where the original lives. Reusing a reachable original is almost always better than a parallel implementation. Where the new code can't reach the original — a private helper, a module its package can't import, the same fact stated in another language or data file — weigh consolidating it (exporting, moving, or generating) against the repo's guidance before recommending a remedy; where that guidance is silent, name the duplication and leave the tradeoff to the author.
 
 ### 5. Second pass
 
