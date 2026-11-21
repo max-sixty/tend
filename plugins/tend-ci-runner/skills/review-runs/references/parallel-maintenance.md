@@ -15,4 +15,5 @@ and its own worktree when editing. Size the fan-out to the independent work
 and available resources rather than imposing a fixed small quota. A small or
 coupled task may need no delegation. The parent reconciles findings, checks
 current ownership before outward actions, and waits for its subagents before
-reporting the sweep's outcome.
+reporting the sweep's outcome — in the foreground, per **Complete the task
+before ending the turn** in `/tend-ci-runner:run-tend`, not by ending its turn.
