@@ -14,6 +14,7 @@ https://github.com/max-sixty/tend/compare for their history.
 - The creation limiter files one `Creation allowance exhausted` tracker per spell of refusals instead of reopening a single tracker. The newest tracker filed in the past 24 hours no longer counts toward the allowance, no tracker is filed once creations reach twice the limit, and a failed tracker read still returns the refusal with its usage. ([#1716](https://github.com/max-sixty/tend/pull/1716))
 - Review's duplication check covers any function, type, constant, selector, style rule or inline check that repeats something the codebase already answers, searched by question and value as well as name, and the nightly survey searches the whole repository for code answering the same question. ([#1646](https://github.com/max-sixty/tend/pull/1646))
 - Before editing or reviewing a file, sessions read the `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md` and `AGENTS.override.md` files in its directory and each ancestor, which Claude Code doesn't load for shell reads. ([#1712](https://github.com/max-sixty/tend/pull/1712))
+- Review approves a PR only when it is worth merging, not only correct: it weighs the benefit against what the PR adds and any cheaper route, and otherwise posts a `COMMENT` naming the cost. Self-authored PRs get the same weighing. ([#1651](https://github.com/max-sixty/tend/pull/1651))
 
 ### Fixed
 
