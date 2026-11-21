@@ -6,6 +6,29 @@ published verbatim as that version's GitHub Release notes
 0.1.1 predate this changelog; see the compare views at
 https://github.com/max-sixty/tend/compare for their history.
 
+## 0.3.28
+
+### Improved
+
+- A CI failure report covers one incident: a failed run comments on its lane's open report, or files a new one when none is open, and Tend no longer reopens a report that triage closed. Nightly hands a failure whose owner lapsed to a cause issue instead of reopening the report. ([#1715](https://github.com/max-sixty/tend/pull/1715))
+- The creation limiter files one `Creation allowance exhausted` tracker per spell of refusals instead of reopening a single tracker. The newest tracker filed in the past 24 hours no longer counts toward the allowance, no tracker is filed once creations reach twice the limit, and a failed tracker read still returns the refusal with its usage. ([#1716](https://github.com/max-sixty/tend/pull/1716))
+- Review's duplication check covers any function, type, constant, selector, style rule or inline check that repeats something the codebase already answers, searched by question and value as well as name, and the nightly survey searches the whole repository for code answering the same question. ([#1646](https://github.com/max-sixty/tend/pull/1646))
+- Before editing or reviewing a file, sessions read the `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md` and `AGENTS.override.md` files in its directory and each ancestor, which Claude Code doesn't load for shell reads. ([#1712](https://github.com/max-sixty/tend/pull/1712))
+
+### Fixed
+
+- `poll-pr-checks` reports a PR head as unverified, rather than approving it or calling it green, when GitHub reports the PR as conflicting there and no CI ran. ([#1713](https://github.com/max-sixty/tend/pull/1713))
+- CI waits stay on `/tend-ci-runner:monitor-ci`'s poll instead of `gh event listen`, which gh 2.105.0 suggests to agents and which fails without the Event Streams preview. ([#1708](https://github.com/max-sixty/tend/pull/1708))
+
+### Documentation
+
+- The README installs the plugin with one command, `claude plugin install install-tend --marketplace max-sixty/tend`. ([#1707](https://github.com/max-sixty/tend/pull/1707))
+- The install-time security reference names the classic PAT as the only bot credential. ([#1709](https://github.com/max-sixty/tend/pull/1709))
+
+### Internal
+
+- The eval lockfile takes `basic-ftp` 6.2.6 through `proxy-agent` 8.0.3, the Claude launcher writes session settings from Python, and `test_checks.py` drops stale `gh` fakes. ([#1706](https://github.com/max-sixty/tend/pull/1706), [#1710](https://github.com/max-sixty/tend/pull/1710), [#1714](https://github.com/max-sixty/tend/pull/1714))
+
 ## 0.3.27
 
 ### Improved
