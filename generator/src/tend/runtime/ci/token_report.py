@@ -254,36 +254,77 @@ def _json_documents(text: str) -> list[dict[str, Any]]:
     return documents
 
 
-def _session_logs(repo: str, created_after: datetime) -> list[dict[str, Any]]:
+def _is_session_log(artifact: dict[str, Any]) -> bool:
+    return "-session-logs" in artifact["name"]
+
+
+def _artifacts(path: str) -> list[dict[str, Any]]:
+    """The ``artifacts`` array of one listing page, or raise a read failure."""
+    body = _common.gh_json("api", path, quiet=True)
+    if not isinstance(body, dict) or not isinstance(body.get("artifacts"), list):
+        raise _common.UnexpectedShape(f"{path}: no artifacts array")
+    return body["artifacts"]
+
+
+def _session_logs(
+    repo: str, created_after: datetime
+) -> tuple[list[dict[str, Any]], bool]:
     """The session-log artifacts the repository holds for runs created since
-    *created_after*, read from its artifact listing.
+    *created_after*, read from its artifact listing, and whether the listing
+    was read to that bound.
 
     Each artifact names its run, so a run that uploaded no session log costs
     nothing, and most runs in a window uploaded none: a landing check, a relay,
     a mention that was not for the bot. The listing runs newest first, out of
     order by minutes at most, and no artifact predates its run, so the read
     ends at the first page that reaches one created before *created_after*, a
-    day before the window opens.
+    day before the window opens. A page that fails ends the read early, with
+    the pages before it kept.
     """
     found: dict[int, dict[str, Any]] = {}
     page = 1
     while True:
-        artifacts = _common.gh_json(
-            "api",
-            f"repos/{repo}/actions/artifacts?per_page={ARTIFACT_PAGE}&page={page}",
-        )["artifacts"]
+        try:
+            artifacts = _artifacts(
+                f"repos/{repo}/actions/artifacts?per_page={ARTIFACT_PAGE}&page={page}"
+            )
+        except _common.GH_READ_FAILED as error:
+            stderr = getattr(error, "stderr", None) or str(error)
+            print(
+                f"WARNING: the artifact listing failed at page {page} "
+                f"({stderr.strip()}); asking each run it had not reached for "
+                "its own artifacts.",
+                file=sys.stderr,
+            )
+            return list(found.values()), False
         # Keyed by id: an upload during the read shifts the listing a place,
         # repeating an artifact at the head of the next page.
         found.update(
             (artifact["id"], artifact)
             for artifact in artifacts
-            if "-session-logs" in artifact["name"]
+            if _is_session_log(artifact)
         )
         if len(artifacts) < ARTIFACT_PAGE or any(
             _parse_time(artifact["created_at"]) < created_after
             for artifact in artifacts
         ):
-            return list(found.values())
+            return list(found.values()), True
+        page += 1
+
+
+def _run_session_logs(repo: str, run_id: int) -> list[dict[str, Any]]:
+    """The session-log artifacts of one run, read across every page of its
+    artifact listing."""
+    found: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        artifacts = _artifacts(
+            f"repos/{repo}/actions/runs/{run_id}/artifacts"
+            f"?per_page={ARTIFACT_PAGE}&page={page}"
+        )
+        found.extend(a for a in artifacts if _is_session_log(a))
+        if len(artifacts) < ARTIFACT_PAGE:
+            return found
         page += 1
 
 
@@ -392,10 +433,21 @@ def main(completed_after: datetime, extra_prefixes: tuple[str, ...] = ()) -> int
                 runs_by_id[int(row["databaseId"])] = row
 
     logs_by_run: dict[int, list[dict[str, Any]]] = {}
-    for artifact in _session_logs(repo, created_after):
+    listed, complete = _session_logs(repo, created_after)
+    for artifact in listed:
         run_id = (artifact["workflow_run"] or {}).get("id")
         if run_id in runs_by_id:
             logs_by_run.setdefault(run_id, []).append(artifact)
+    if not complete:
+        # A run the partial listing never reached may still have uploaded one;
+        # a failed read here costs that run alone, counted as skipped below.
+        for run_id in runs_by_id.keys() - logs_by_run.keys():
+            try:
+                logs = _run_session_logs(repo, run_id)
+            except _common.GH_READ_FAILED:
+                continue
+            if logs:
+                logs_by_run[run_id] = logs
 
     print(
         f"Downloading {sum(map(len, logs_by_run.values()))} session logs for "
