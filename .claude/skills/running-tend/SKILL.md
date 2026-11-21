@@ -188,7 +188,8 @@ uv run --script \
 The command unions code-search results with the current index, verifies each
 repository, and leaves the existing file untouched if a GitHub read fails.
 Confirm every repository listed under `removed` no longer has generated Tend
-workflows before publishing the change.
+workflows, or is a mirror whose fork guard names another owner, before
+publishing the change.
 
 When the refresh adds a repository nobody here maintains, add it to
 `.github/workflows/review-reviewers.yaml`'s matrix in the same PR — that

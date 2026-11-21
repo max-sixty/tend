@@ -7,7 +7,9 @@
 GitHub code search discovers new installations but has incomplete recall, so
 the command unions search results with the current index. A successful refresh
 retains only repositories whose default branch contains a generated Tend
-workflow and a config with a bot name. All GitHub reads finish before the index
+workflow and a config with a bot name, and whose workflows' fork guard names the
+repository's own owner, so a mirror of another consumer is not listed. All
+GitHub reads finish before the index
 is replaced; an API failure therefore leaves the existing file intact.
 """
 
@@ -16,6 +18,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +29,7 @@ from ruamel.yaml.error import YAMLError
 
 CONSUMERS_PATH = Path("data/consumers.json")
 WORKFLOW_PREFIX = ".github/workflows/tend-"
+FORK_GUARD = re.compile(r"github\.repository_owner == '([^']+)'")
 
 
 def github_json(*args: str, allow_missing: bool = False) -> Any:
@@ -107,6 +111,23 @@ def discover_repositories() -> set[str]:
     return repositories
 
 
+def guard_owner(repository: str, names: list[str]) -> str | None:
+    """Return the owner pinned by the first Tend workflow carrying a fork guard."""
+    for name in names:
+        workflow = github_json(
+            "api", f"repos/{repository}/contents/.github/workflows/{name}"
+        )
+        if not isinstance(workflow, dict) or not isinstance(
+            workflow.get("content"), str
+        ):
+            raise TypeError(f"workflow {name} response for {repository} was invalid")
+        encoded = "".join(workflow["content"].splitlines())
+        text = base64.b64decode(encoded, validate=True).decode()
+        if match := FORK_GUARD.search(text):
+            return match.group(1)
+    return None
+
+
 def read_consumer(repository: str) -> dict[str, str] | None:
     """Return one installed consumer, or ``None`` when no Tend workflow remains."""
     workflows = github_json(
@@ -118,12 +139,17 @@ def read_consumer(repository: str) -> dict[str, str] | None:
         return None
     if not isinstance(workflows, list):
         raise TypeError(f"workflow listing for {repository} was not an array")
-    if not any(
-        isinstance(entry, dict)
+    names = sorted(
+        entry["name"]
+        for entry in workflows
+        if isinstance(entry, dict)
         and isinstance(entry.get("name"), str)
         and entry["name"].startswith("tend-")
-        for entry in workflows
-    ):
+    )
+    if not names:
+        return None
+    owner = guard_owner(repository, names)
+    if owner is not None and owner.lower() != repository.split("/")[0].lower():
         return None
 
     config = github_json(
