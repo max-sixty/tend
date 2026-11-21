@@ -585,13 +585,22 @@ the full login in its own credential store; unused refresh secrets must be remov
 has already created its allowance in the workflow's repository in the past 24
 hours. The allowance is four times the bot's daily average over the seven days
 before that, rounded up, and at least 30. CI cause issues, trusted runner
-reports and the tracker count as creations; creations in other repositories
-do not. This is a broad guard against runaway creation, such as a loop filing
-an issue on every run. The fourfold margin covers busy days, and accepted
-volume raises the next week's average, so steady growth raises the allowance
-with it.
+reports and trackers count as creations, except the newest tracker filed in
+the past 24 hours, which is the limiter's own notice of a refusal spell. Only
+one is left out because a tracker is recognised by its title and label, which
+an agent can also give its own issues; that gains it at most one creation a day.
+Creations in other repositories do not count, and neither does an issue the
+bot transferred out of this one. This is a broad guard against
+runaway creation, such as a loop filing an issue on every run. The fourfold
+margin covers busy days, and accepted volume raises the next week's average,
+so steady growth raises the allowance with it.
 
-Closing the bot's `Creation allowance exhausted` tracker approves more: each
+Each spell of refusals has its own `Creation allowance exhausted` tracker: a
+refusal comments on the open tracker, or files one when none is open. No
+tracker is filed once creations reach twice the allowance. The agent can close
+a tracker or edit away its title and label, so that the next refusal files
+another; each one filed then counts, so the limiter files at most about one
+allowance of trackers a day. Closing a tracker approves more: each
 close in the past 24 hours doubles the allowance, so approving a large surge
 takes a few closes, and a runaway that outgrows the doubled allowance trips it
 again. Closes by the bot or a GitHub App approve nothing. Nor does a close

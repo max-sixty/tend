@@ -5,12 +5,11 @@
 one table format, and both race with sibling jobs failing or tripping at the
 same instant.
 
-Callers keep their own policy about a closed issue, because the two differ and
-the difference is deliberate: an outage issue closed as resolved must not
-swallow the next incident, so ``report_failure`` files a fresh one; the
-rate-limit issue is a single long-lived record whose maintainer closes are
-approvals and whose bot closes record recovery, so the creation limiter
-reopens it on another refusal.
+Each issue covers one incident: an outage, or a spell of creation refusals.
+Both callers comment on the open issue and file a fresh one once it closes, so
+no thread grows for all time; the creation limiter also stops filing at twice
+its limit, for the reason its docstring gives. Each handles its own read and
+write failures, because the two differ in what a failure must not lose.
 
 Inputs (env, from Actions): ``GITHUB_SERVER_URL``, ``GITHUB_REPOSITORY``,
 ``GITHUB_RUN_ID``, ``GITHUB_EVENT_NAME``, ``GITHUB_EVENT_PATH``.
@@ -80,11 +79,11 @@ def row() -> str:
     return f"{_ROW_HEADER}\n| {when} | {anchor()} | {ref() or 'N/A'} |"
 
 
-def matching(label: str, state: str, title: str) -> list[int]:
-    """Every issue this bot filed under *title* carrying *label*, lowest first.
+def matching(label: str, title: str) -> list[int]:
+    """Every open issue this bot filed under *title* carrying *label*, lowest first.
 
     A failed, malformed, or truncated listing cannot establish that no tracker
-    exists. Let it fail before a caller creates a duplicate or loses approvals.
+    is open. Let it fail before a caller creates a duplicate.
     """
     issues = _common.gh_json(
         "issue",
@@ -96,7 +95,7 @@ def matching(label: str, state: str, title: str) -> list[int]:
         "--label",
         label,
         "--state",
-        state,
+        "open",
         "--limit",
         "100",
         "--json",
@@ -122,8 +121,9 @@ def matching(label: str, state: str, title: str) -> list[int]:
     return sorted(numbers)
 
 
-def canonical(label: str, state: str, title: str) -> int | None:
-    """The write destination: lowest-numbered, ``None`` when there is none.
+def canonical(label: str, title: str) -> int | None:
+    """The write destination: the lowest-numbered open record, ``None`` when
+    none is open.
 
     Lowest rather than newest, because a race can leave a duplicate the
     reconcile then closes and the lowest is the one every leg computes alike.
@@ -132,7 +132,7 @@ def canonical(label: str, state: str, title: str) -> int | None:
     failed" and "there is none" are different facts, and a caller that
     conflates them files a fresh record while one is already open.
     """
-    numbers = matching(label, state, title)
+    numbers = matching(label, title)
     return numbers[0] if numbers else None
 
 

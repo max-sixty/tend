@@ -125,8 +125,8 @@ def test_matching_keeps_this_records_title_lowest_first(
             {"number": 3, "title": "Something a maintainer labelled"},
         ],
     )
-    assert _issue.matching(OUTAGE_LABEL, "open", OUTAGE_TITLE) == [8, 42]
-    assert _issue.canonical(OUTAGE_LABEL, "open", OUTAGE_TITLE) == 8
+    assert _issue.matching(OUTAGE_LABEL, OUTAGE_TITLE) == [8, 42]
+    assert _issue.canonical(OUTAGE_LABEL, OUTAGE_TITLE) == 8
     assert fake_gh.called(*listing)
 
 
@@ -148,14 +148,14 @@ def test_canonical_raises_rather_than_reading_a_failed_list_as_none(
 ) -> None:
     fake_gh.respond("issue", "list", with_=response)
     with pytest.raises(_common.GH_READ_FAILED):
-        _issue.canonical(OUTAGE_LABEL, "open", OUTAGE_TITLE)
+        _issue.canonical(OUTAGE_LABEL, OUTAGE_TITLE)
 
 
 def test_canonical_accepts_a_valid_empty_listing(
     fake_gh: FakeGh, actions_env: Path
 ) -> None:
     fake_gh.respond("issue", "list", with_=[])
-    assert _issue.canonical(OUTAGE_LABEL, "open", OUTAGE_TITLE) is None
+    assert _issue.canonical(OUTAGE_LABEL, OUTAGE_TITLE) is None
 
 
 @pytest.mark.parametrize(

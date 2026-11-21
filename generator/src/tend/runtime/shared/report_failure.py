@@ -20,7 +20,6 @@ work the failed runs may have missed. Reopening would fold the next incident
 into a stale record. Nightly leaves this label alone because its cron precedes
 `review-runs`, and a clean recent run says nothing about missed work. Where a
 consumer disables `review-runs`, a maintainer applies the same close criterion.
-The rate-limit issue takes the opposite policy, for reasons in ``_issue.py``.
 
 Repeated appends are bounded per run, not per incident: a matrix workflow runs
 this once per leg and every leg shares one ``GITHUB_RUN_ID``, so the tracker
@@ -110,7 +109,7 @@ def main() -> int:
     # needs. Skipping costs this one row on a transient failure, and the next
     # failure records normally.
     try:
-        existing = _issue.canonical(LABEL, "open", TITLE)
+        existing = _issue.canonical(LABEL, TITLE)
     except _common.GH_READ_FAILED:
         _common.annotate(
             "warning",
