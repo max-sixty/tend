@@ -162,7 +162,7 @@ For each analyzed run, compare what the bot did against what happened next. The 
 - **Review**: did subsequent commits undo something the bot approved? Did human reviewers flag issues it missed?
 - **Triage**: was the classification correct? Did the issue get relabeled?
 - **Nightly**: did the bot's PRs merge, or get closed as unhelpful?
-- **CI failure reports**: did each cause's fix resolve its failure, and did each report close once its failures were diagnosed and owned, and reopen on the lane's next failure?
+- **CI failure reports**: did each cause's fix resolve its failure, and did each report close once its failures were diagnosed and owned, so the lane's next failure filed a new one?
 
 mention, notifications, and weekly runs get the same treatment: find the bot's output and check whether it was accepted.
 

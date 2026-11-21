@@ -37,9 +37,8 @@ NOT_OTHERS = frozenset(
     | set(BOOKKEEPING_LABELS)
 )
 
-# Cross-references are read from the end: a long-lived issue, such as a CI
-# failure report, collects hundreds, and the open pull requests are the recent
-# ones.
+# Cross-references are read from the end: a long-lived issue collects hundreds,
+# and the open pull requests are the recent ones.
 QUERY = """
 query($owner: String!, $repo: String!, $endCursor: String) {
   repository(owner: $owner, name: $repo) {

@@ -27,14 +27,8 @@ class FakeGitHub:
         self.issues: dict[int, dict[str, Any]] = {}
         self.runs: list[dict[str, Any]] = []
         self.comments: list[tuple[int, str]] = []
-        # Every write to an issue, in order: ("comment" | "closed" | "open", number).
+        # Every write to an existing issue, in order: ("comment" | "closed", number).
         self.writes: list[tuple[str, int]] = []
-        self._clock = 0
-
-    def now(self) -> str:
-        """A timestamp later than every earlier one, in GitHub's UTC format."""
-        self._clock += 1
-        return f"2026-11-01T00:{self._clock // 60:02d}:{self._clock % 60:02d}Z"
 
     def issue(self, title: str, *, author: str, labels=(), state="open") -> int:
         number = len(self.issues) + 1
@@ -42,7 +36,6 @@ class FakeGitHub:
             "number": number,
             "title": title,
             "state": state,
-            "created_at": self.now(),
             "user": {"login": author},
             "labels": [{"name": name} for name in labels],
         }
@@ -63,16 +56,16 @@ class FakeGitHub:
             return {"workflow_runs": sorted(runs, key=lambda r: -r["id"])}
         if method == "GET" and (
             m := re.fullmatch(
-                rf"repos/{REPO}/issues\?labels=([^&]+)&state=(open|closed)&per_page=100&page=(\d+)",
+                rf"repos/{REPO}/issues\?labels=([^&]+)&state=open&per_page=100&page=(\d+)",
                 path,
             )
         ):
-            if m.group(3) != "1":
+            if m.group(2) != "1":
                 return []
             return [
                 issue
                 for issue in self.issues.values()
-                if issue["state"] == m.group(2)
+                if issue["state"] == "open"
                 and any(label["name"] == m.group(1) for label in issue["labels"])
             ]
         if method == "POST" and path == f"repos/{REPO}/labels":
@@ -90,10 +83,7 @@ class FakeGitHub:
         if method == "PATCH" and (
             m := re.fullmatch(rf"repos/{REPO}/issues/(\d+)", path)
         ):
-            assert body in (
-                {"state": "closed", "state_reason": "completed"},
-                {"state": "open"},
-            )
+            assert body == {"state": "closed", "state_reason": "completed"}
             self.issues[int(m.group(1))]["state"] = body["state"]
             self.writes.append((body["state"], int(m.group(1))))
             return {}
@@ -126,7 +116,6 @@ def github(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeGitHub:
 
 def _finish(github: FakeGitHub, run: dict[str, Any]) -> None:
     """The run finishes, and its `workflow_run` event reaches the script."""
-    run["updated_at"] = github.now()
     github.runs.append(run)
     Path(report.os.environ["GITHUB_EVENT_PATH"]).write_text(
         json.dumps({"workflow_run": run, "repository": {"default_branch": "main"}})
@@ -159,23 +148,23 @@ def test_a_failure_files_one_report_and_later_failures_comment_on_it(
     ]
 
 
-def test_the_next_failure_reopens_a_report_triage_closed(github: FakeGitHub) -> None:
+def test_a_failure_after_triage_closed_the_report_files_a_new_one(
+    github: FakeGitHub,
+) -> None:
     """Triage closes a report once it has diagnosed its failures. While the lane
-    stays red, its next failure reopens that report, not an earlier red spell's,
-    and reopening starts the next triage session, so the comment naming the run
-    comes first."""
+    stays red, its next failure files a new report and leaves the closed one
+    alone, so no report's thread grows with the length of a red spell."""
     _finish(github, _run(100, "failure"))
-    _finish(github, _run(101, "success"))
-    _finish(github, _run(102, "failure"))
+    [closed] = _open_reports(github)
+    github.issues[closed["number"]]["state"] = "closed"
+
+    _finish(github, _run(101, "failure"))
+
     [filed] = _open_reports(github)
-    github.issues[filed["number"]]["state"] = "closed"
-    github.writes.clear()
-
-    _finish(github, _run(103, "failure"))
-
-    assert github.writes == [("comment", filed["number"]), ("open", filed["number"])]
-    assert "actions/runs/103" in github.comments[-1][1]
-    assert len(github.issues) == 2
+    assert filed["number"] != closed["number"]
+    assert "actions/runs/101" in filed["body"]
+    assert github.issues[closed["number"]]["state"] == "closed"
+    assert github.writes == []
 
 
 def test_each_event_is_its_own_lane(github: FakeGitHub) -> None:
@@ -217,7 +206,7 @@ def test_a_superseded_verdict_changes_nothing(github: FakeGitHub) -> None:
     """Runs finish out of order; the newer finished verdict is the lane's state.
 
     An older green arriving after a newer red must not close the red's report,
-    and an older red arriving after a newer green must not reopen one. A newer
+    and an older red arriving after a newer green must not file one. A newer
     run that was cancelled has no verdict, so it supersedes nothing.
     """
     _finish(github, _run(102, "failure"))
