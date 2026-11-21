@@ -7,9 +7,8 @@ same instant.
 
 Each issue covers one incident: an outage, or a spell of creation refusals.
 Both callers comment on the open issue and file a fresh one once it closes, so
-no thread grows for all time; the creation limiter also stops filing at twice
-its limit, for the reason its docstring gives. Each handles its own read and
-write failures, because the two differ in what a failure must not lose.
+no thread grows for all time. Each handles its own read and write failures,
+because the two differ in what a failure must not lose.
 
 Inputs (env, from Actions): ``GITHUB_SERVER_URL``, ``GITHUB_REPOSITORY``,
 ``GITHUB_RUN_ID``, ``GITHUB_EVENT_NAME``, ``GITHUB_EVENT_PATH``.

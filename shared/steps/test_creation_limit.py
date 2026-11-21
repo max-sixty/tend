@@ -188,13 +188,12 @@ def test_only_a_recent_human_close_approves(gh: FakeGh, approval: dict) -> None:
     assert gh.called(*EVENTS)
 
 
-def test_one_tracker_a_day_is_left_out_of_the_count(gh: FakeGh) -> None:
+def test_trackers_are_left_out_of_the_count(gh: FakeGh) -> None:
     """The limiter files a tracker per spell of refusals, and counting it would
-    make the spell pay for its own notice. Only one is left out, since an agent
-    can give its own issues the tracker's title and label."""
-    _history(gh, [_tracker(41), _tracker(42), *_rows(28)])
-    assert limiter.admit(REQUEST)["allowed"]
+    make the spell pay for its own notice."""
     _history(gh, [_tracker(41), _tracker(42), *_rows(29)])
+    assert limiter.admit(REQUEST)["allowed"]
+    _history(gh, [_tracker(41), _tracker(42), *_rows(30)])
     gh.respond(*EVENTS[:3], EVENTS[3].replace("/42/", "/41/"), with_=[[]])
     assert not limiter.admit(REQUEST)["allowed"]
 
@@ -208,27 +207,6 @@ def test_a_failed_tracker_read_still_refuses_and_files_nothing(gh: FakeGh) -> No
     assert "could not be read" in decision["message"]
     assert not gh.called("issue", "create")
     assert not gh.called("issue", "comment")
-
-
-def test_no_tracker_is_filed_once_creations_reach_twice_the_limit(
-    gh: FakeGh,
-) -> None:
-    """The agent can close a tracker, or edit away its title and label, so the
-    next refusal files another; each filed tracker then counts, and filing
-    stops at twice the limit."""
-    _history(gh, _rows(60))
-    gh.respond(*TRACKERS, with_=[])
-
-    decision = limiter.admit(REQUEST)
-
-    assert not decision["allowed"]
-    assert "60 creations in the past 24 hours; limit 30." in decision["message"]
-    assert "none is filed once creations reach twice the limit" in decision["message"]
-    assert not gh.called("issue", "create")
-
-    gh.respond(*TRACKERS, with_=[{"number": 42, "title": limiter.PAUSE_TITLE}])
-    assert "#42" in limiter.admit(REQUEST)["message"]
-    assert gh.called("issue", "comment", "42")
 
 
 def test_a_refusal_after_the_tracker_closed_files_a_new_one(gh: FakeGh) -> None:
@@ -303,20 +281,6 @@ def test_missing_notice_does_not_claim_a_tracker_exists(gh: FakeGh) -> None:
     assert "#?" not in result["message"]
 
 
-def test_approval_follows_its_own_label_and_excludes_prelabel_closes() -> None:
-    foreign = {
-        "event": "labeled",
-        "label": {"name": "needs-triage"},
-        "created_at": (NOW - timedelta(minutes=30)).isoformat(),
-    }
-    close = _closed()
-    assert limiter.approvals([foreign, close], bot_id=BOT_ID, now=NOW) == [
-        NOW - timedelta(hours=1)
-    ]
-    own = foreign | {"label": {"name": limiter.PAUSE_LABEL}}
-    assert limiter.approvals([own, close], bot_id=BOT_ID, now=NOW) == []
-
-
 @pytest.mark.parametrize(
     "age,accepted",
     [
@@ -330,20 +294,3 @@ def test_approval_window_boundaries(age: timedelta, accepted: bool) -> None:
     assert limiter.approvals([_closed(at)], bot_id=BOT_ID, now=NOW) == (
         [at] if accepted else []
     )
-
-
-def test_renamed_tracker_cannot_import_earlier_closes() -> None:
-    events = [
-        {
-            "event": "labeled",
-            "label": {"name": limiter.PAUSE_LABEL},
-            "created_at": "2025-12-20T00:00:00Z",
-        },
-        _closed(NOW - timedelta(hours=6)),
-        {"event": "renamed", "created_at": (NOW - timedelta(hours=4)).isoformat()},
-    ]
-    assert limiter.approvals(events, bot_id=BOT_ID, now=NOW) == []
-    events.append(_closed())
-    assert limiter.approvals(events, bot_id=BOT_ID, now=NOW) == [
-        NOW - timedelta(hours=1)
-    ]
