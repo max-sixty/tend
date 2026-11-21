@@ -6,15 +6,27 @@ least 30. Busy days stay inside that; a loop filing an issue every few
 minutes does not. Accepted volume feeds the next week's average, so steady
 growth raises the limit by itself.
 
-A maintainer approves more by closing the tracker: each close in the past 24
-hours doubles the limit, so a surge they keep approving needs a few closes
-rather than one per allowance. Bot and GitHub App closes approve nothing.
+Each spell of refusals has its own tracker issue: a refusal comments on the
+open tracker, or files one when none is open, and once it closes the next
+refusal files a new one. A maintainer approves more by closing a tracker: each
+close in the past 24 hours doubles the limit, so a surge they keep approving
+needs a few closes rather than one per allowance. Bot and GitHub App closes
+approve nothing; a bot close records that creation has recovered.
+
+No tracker is filed once creations reach twice the limit. The agent can close a
+tracker, or edit away the title and label that identify it, so that the next
+refusal files another; the bound rests on the creation count, which neither
+closing nor editing an issue changes, and a spell's own tracker is filed just
+past the limit.
 
 Each proxy forwards one creation at a time, so the history lists everything
 it created before. Independent proxies read the same history without
 reserving, so creations admitted at the same moment on two runners can
-overshoot by a few. Trusted runner reports count toward volume. Other agent
-operations keep running.
+overshoot by a few. Trusted runner reports count toward volume, but the
+newest tracker filed in the past 24 hours does not: it is the limiter's own
+notice of a spell, and counting it would make the spell pay for announcing
+itself. Any further issue with the tracker's title and label counts, since an
+agent can give its own issues both. Other agent operations keep running.
 """
 
 from __future__ import annotations
@@ -51,8 +63,8 @@ repairs and issue closures continue. Usage falls as creations become 24 hours \
 old.
 
 **Closing this issue approves more:** each close doubles the allowance for 24 \
-hours. Another refusal reopens it. This bot and GitHub Apps cannot approve \
-themselves.
+hours. Refusals comment here while it is open; one after it closes files a new \
+issue. This bot and GitHub Apps cannot approve themselves.
 
 {{row}}
 
@@ -76,7 +88,20 @@ def _timestamp(value: str) -> datetime:
     return stamp
 
 
-def _creations(repo: str, bot: str, since: datetime) -> list[datetime]:
+def _is_tracker(row: dict[str, Any]) -> bool:
+    return (
+        row["title"] == PAUSE_TITLE
+        and "pull_request" not in row
+        and any(label["name"] == PAUSE_LABEL for label in row["labels"])
+    )
+
+
+def _history(
+    repo: str, bot: str, since: datetime, now: datetime
+) -> tuple[list[datetime], list[int]]:
+    """The bot's creations since *since*, less the newest tracker filed in the
+    past 24 hours, and the trackers updated in the past 24 hours, which hold
+    every close that can approve."""
     # GitHub's `since` filters updates, so discard old creations returned after
     # recent edits. Node IDs deduplicate an item a new creation pushes onto the
     # next page mid-read.
@@ -90,14 +115,20 @@ def _creations(repo: str, bot: str, since: datetime) -> list[datetime]:
             "per_page": 100,
         }
     )
-    result = {}
+    created, trackers, notice = {}, set(), None
     for row in _common.gh_paginated(f"repos/{repo}/issues?{query}"):
-        node, created = row["node_id"], _timestamp(row["created_at"])
+        node, at = row["node_id"], _timestamp(row["created_at"])
         if not isinstance(node, str) or not node:
             raise _common.UnexpectedShape("creation is missing its node ID")
-        if created >= since:
-            result[node] = created
-    return list(result.values())
+        if at >= since:
+            created[node] = at
+        if _is_tracker(row):
+            if at > now - DAY and (notice is None or at > created[notice]):
+                notice = node
+            if _timestamp(row["updated_at"]) > now - DAY:
+                trackers.add(row["number"])
+    created.pop(notice, None)
+    return list(created.values()), sorted(trackers)
 
 
 def limit(created: list[datetime], now: datetime) -> int:
@@ -119,19 +150,17 @@ def admit(request: dict[str, Any]) -> dict[str, Any]:
 
     bot, bot_id = bot_identity.read()
     now = _common.utcnow()
-    created = _creations(repo, bot, now - DAY - timedelta(days=BASELINE_DAYS))
+    created, trackers = _history(
+        repo, bot, now - DAY - timedelta(days=BASELINE_DAYS), now
+    )
     allowance = limit(created, now)
     recent = [at for at in created if at > now - DAY]
     if len(recent) < allowance:
         return {"allowed": True, "message": ""}
 
-    pauses = _issue.matching(PAUSE_LABEL, "all", PAUSE_TITLE)
-    if not pauses:
-        time.sleep(random.randrange(JITTER))
-        pauses = _issue.matching(PAUSE_LABEL, "all", PAUSE_TITLE)
     approved = sum(
         len(approvals(_approval_events(repo, number), bot_id=bot_id, now=now))
-        for number in pauses
+        for number in trackers
     )
     allowance *= 2**approved
     if len(recent) < allowance:
@@ -142,8 +171,8 @@ def admit(request: dict[str, Any]) -> dict[str, Any]:
         f"{len(recent)} creations in the past 24 hours; limit {allowance}{approval}. "
         f"Next usage expiry: {(min(recent) + DAY).strftime(_STAMP)}; recheck then."
     )
-    recovery = _file_pause_issue(
-        f"{_issue.row()}\n\n{status}", pauses[0] if pauses else None
+    recovery = _record_refusal(
+        f"{_issue.row()}\n\n{status}", may_file=len(recent) < 2 * allowance
     )
     return {
         "allowed": False,
@@ -193,12 +222,27 @@ def approvals(
     return result
 
 
-def _file_pause_issue(row: str, pause: int | None) -> str:
+def _record_refusal(row: str, *, may_file: bool) -> str:
+    """Comment *row* on the open tracker, or file one when none is open and
+    *may_file*."""
+    # The refusal stands whatever happens here. A failed read cannot show that
+    # no tracker is open, so it records nothing rather than file a second one.
+    try:
+        pause = _issue.canonical(PAUSE_LABEL, PAUSE_TITLE)
+        if pause is None and may_file:
+            time.sleep(random.randrange(JITTER))
+            pause = _issue.canonical(PAUSE_LABEL, PAUSE_TITLE)
+    except _common.GH_READ_FAILED:
+        return (
+            f"The `{PAUSE_LABEL}` issues could not be read, so this refusal is not "
+            "recorded on a tracker; retry when usage falls."
+        )
+    if pause is None and not may_file:
+        return (
+            f"No `{PAUSE_LABEL}` issue is open, and none is filed once creations "
+            "reach twice the limit; retry when usage falls."
+        )
     if pause is not None:
-        try:
-            _common.gh("issue", "reopen", str(pause))
-        except subprocess.CalledProcessError:
-            pass
         try:
             _issue.comment(pause, row)
         except subprocess.CalledProcessError:

@@ -110,7 +110,7 @@ def main() -> int:
     # needs. Skipping costs this one row on a transient failure, and the next
     # failure records normally.
     try:
-        existing = _issue.canonical(LABEL, "open", TITLE)
+        existing = _issue.canonical(LABEL, TITLE)
     except _common.GH_READ_FAILED:
         _common.annotate(
             "warning",

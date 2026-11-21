@@ -644,12 +644,12 @@ elif args == ["api", "repos/owner/repo"]:
 elif args[:3] == ["api", "--paginate", "--slurp"] and "issues?" in args[3]:
     stamp = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
     count = int(Path(os.environ["FAKE_GH_COUNT"]).read_text())
-    result = [[{"node_id": f"I_{i}", "created_at": stamp} for i in range(count)]]
+    result = [[{"node_id": f"I_{i}", "created_at": stamp, "title": "x"} for i in range(count)]]
 elif args[:3] == ["api", "--paginate", "--slurp"] and "/events?" in args[3]:
     result = [[]]
 elif args[:2] == ["issue", "list"]:
     result = [{"number": 42, "title": "Creation allowance exhausted"}]
-elif args[:2] in [["issue", "reopen"], ["issue", "comment"]]:
+elif args[:2] == ["issue", "comment"]:
     print("tracker updated")
     sys.exit(0)
 else:
@@ -675,7 +675,7 @@ print(json.dumps(result))
     assert blocked.response.status_code == 429
     assert "#42" in json.loads(blocked.response.text)["message"]
     calls = log.read_text()
-    assert '"reopen", "42"' in calls
+    assert '"comment", "42"' in calls
     review = _api_flow("/repos/owner/repo/pulls/3/reviews")
     asyncio.run(injector.request(review))
     assert review.response is None

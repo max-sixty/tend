@@ -608,8 +608,11 @@ thread grows without bound, each session that triages it reads all of it, and a
 maintainer opening it scrolls past every earlier incident to reach the current
 one. The history across incidents lives in the issues they link, such as a CI
 failure's cause issues, and in a search for earlier issues of the same kind.
-The creation-allowance tracker keeps one issue, for the reason `_issue.py`
-gives.
+Where an agent can both end the issue's life, by closing it or editing away
+what identifies it, and cause the next event, bound how often a new one is
+filed by something closing or editing the issue does not change, as the
+creation limiter does with the bot's creation count; otherwise closing and
+retrying files issues without limit.
 
 ## Live testing against real GitHub
 

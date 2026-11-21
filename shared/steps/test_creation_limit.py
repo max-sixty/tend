@@ -25,7 +25,7 @@ TRACKERS = (
     "--label",
     "tend-rate-limit",
     "--state",
-    "all",
+    "open",
     "--limit",
     "100",
     "--json",
@@ -55,7 +55,19 @@ def _activity(now: datetime = NOW) -> tuple[str, ...]:
 
 
 def _row(number: int, at: datetime = NOW) -> dict[str, str]:
-    return {"node_id": f"I_{number}", "created_at": at.isoformat()}
+    return {"node_id": f"I_{number}", "created_at": at.isoformat(), "title": "x"}
+
+
+def _tracker(number: int = 42, updated: datetime = NOW) -> dict[str, Any]:
+    """A tracker the history read returns; it counts toward nothing."""
+    return {
+        "node_id": f"T_{number}",
+        "number": number,
+        "title": limiter.PAUSE_TITLE,
+        "labels": [{"name": limiter.PAUSE_LABEL}],
+        "created_at": (updated - timedelta(hours=1)).isoformat(),
+        "updated_at": updated.isoformat(),
+    }
 
 
 def _rows(count: int, at: datetime = NOW, start: int = 0) -> list[dict[str, str]]:
@@ -76,7 +88,6 @@ def gh(
     fake_gh.respond(*_activity(), with_=[[]])
     fake_gh.respond(*TRACKERS, with_=[{"number": 42, "title": limiter.PAUSE_TITLE}])
     fake_gh.respond(*EVENTS, with_=[[]])
-    fake_gh.respond("issue", "reopen", with_="")
     fake_gh.respond("issue", "comment", with_="")
     return fake_gh
 
@@ -116,7 +127,7 @@ def test_quiet_repository_gets_the_floor(gh: FakeGh) -> None:
     assert not decision["allowed"]
     assert "30 creations in the past 24 hours; limit 30." in decision["message"]
     assert "#42" in decision["message"]
-    assert gh.called("issue", "reopen", "42")
+    assert gh.called("issue", "comment", "42")
 
 
 def test_limit_is_four_times_the_previous_weeks_daily_average(gh: FakeGh) -> None:
@@ -150,9 +161,9 @@ def test_rolling_usage_survives_midnight_and_expires_after_24_hours(
 def test_each_human_close_doubles_the_limit(gh: FakeGh) -> None:
     closes = [_closed(NOW - timedelta(hours=h)) for h in (1, 2, 3)]
     gh.respond(*EVENTS, with_=[closes])
-    _history(gh, _rows(239, NOW - timedelta(hours=4)))
+    _history(gh, [_tracker(), *_rows(239, NOW - timedelta(hours=4))])
     assert limiter.admit(REQUEST)["allowed"]
-    _history(gh, _rows(240, NOW - timedelta(hours=4)))
+    _history(gh, [_tracker(), *_rows(240, NOW - timedelta(hours=4))])
     decision = limiter.admit(REQUEST)
     assert not decision["allowed"]
     assert (
@@ -171,9 +182,76 @@ def test_each_human_close_doubles_the_limit(gh: FakeGh) -> None:
     ids=["bot", "app", "older-than-a-day"],
 )
 def test_only_a_recent_human_close_approves(gh: FakeGh, approval: dict) -> None:
-    _history(gh, _rows(30))
+    _history(gh, [_tracker(), *_rows(30)])
     gh.respond(*EVENTS, with_=[[approval]])
     assert not limiter.admit(REQUEST)["allowed"]
+    assert gh.called(*EVENTS)
+
+
+def test_one_tracker_a_day_is_left_out_of_the_count(gh: FakeGh) -> None:
+    """The limiter files a tracker per spell of refusals, and counting it would
+    make the spell pay for its own notice. Only one is left out, since an agent
+    can give its own issues the tracker's title and label."""
+    _history(gh, [_tracker(41), _tracker(42), *_rows(28)])
+    assert limiter.admit(REQUEST)["allowed"]
+    _history(gh, [_tracker(41), _tracker(42), *_rows(29)])
+    gh.respond(*EVENTS[:3], EVENTS[3].replace("/42/", "/41/"), with_=[[]])
+    assert not limiter.admit(REQUEST)["allowed"]
+
+
+def test_a_failed_tracker_read_still_refuses_and_files_nothing(gh: FakeGh) -> None:
+    _history(gh, _rows(30))
+    gh.respond(*TRACKERS, with_=1)
+    decision = limiter.admit(REQUEST)
+    assert not decision["allowed"]
+    assert "30 creations in the past 24 hours; limit 30." in decision["message"]
+    assert "could not be read" in decision["message"]
+    assert not gh.called("issue", "create")
+    assert not gh.called("issue", "comment")
+
+
+def test_no_tracker_is_filed_once_creations_reach_twice_the_limit(
+    gh: FakeGh,
+) -> None:
+    """The agent can close a tracker, or edit away its title and label, so the
+    next refusal files another; each filed tracker then counts, and filing
+    stops at twice the limit."""
+    _history(gh, _rows(60))
+    gh.respond(*TRACKERS, with_=[])
+
+    decision = limiter.admit(REQUEST)
+
+    assert not decision["allowed"]
+    assert "60 creations in the past 24 hours; limit 30." in decision["message"]
+    assert "none is filed once creations reach twice the limit" in decision["message"]
+    assert not gh.called("issue", "create")
+
+    gh.respond(*TRACKERS, with_=[{"number": 42, "title": limiter.PAUSE_TITLE}])
+    assert "#42" in limiter.admit(REQUEST)["message"]
+    assert gh.called("issue", "comment", "42")
+
+
+def test_a_refusal_after_the_tracker_closed_files_a_new_one(gh: FakeGh) -> None:
+    """A tracker filed over a day ago and closed has ended its spell: the next
+    refusal files a new tracker rather than reopening it, and a tracker
+    untouched for a day holds no close that can still approve, so its events
+    are not read."""
+    old = _tracker(42, updated=NOW - timedelta(days=2)) | {"state": "closed"}
+    _history(gh, [old, *_rows(30)])
+    gh.respond(*TRACKERS, with_=[])
+    gh.respond("label", "create", with_="")
+    gh.respond("issue", "create", with_="https://github.com/owner/repo/issues/43\n")
+    for number in range(33, 42):
+        gh.respond("api", f"repos/owner/repo/issues/{number}", with_=1)
+    gh.respond("api", "repos/owner/repo/issues/42", with_=old)
+
+    decision = limiter.admit(REQUEST)
+
+    assert not decision["allowed"]
+    assert "Refused runs are listed in #43" in decision["message"]
+    assert not gh.called(*EVENTS)
+    assert not gh.called("issue", "comment")
+    assert not gh.called("issue", "reopen")
 
 
 @pytest.mark.parametrize(
