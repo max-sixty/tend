@@ -1,0 +1,41 @@
+{
+  "repository": "max-sixty/worktrunk",
+  "request": "Review PR #4680.",
+  "snapshot_at": "2026-11-03T10:30:20.521Z",
+  "pull_request": {
+    "number": 4680,
+    "url": "https://github.com/max-sixty/worktrunk/pull/4680",
+    "title": "fix(shell): treat PowerShell directive paths literally",
+    "body": "When the PowerShell temporary directory contains wildcard characters such as `temp[1]`, `wt switch` can finish without changing the parent shell's directory. The directive file is written, but the wrapper treats its path as a wildcard during lookup and cleanup, leaving the file behind.\n\nUse `-LiteralPath` for all four directive-file operations. Add a regression that checks both the directory change and removal of the temporary file, and refresh the generated PowerShell snapshot.\n\nValidation: all 4 PowerShell integration tests pass with all features enabled, including the new regression. The shell-generation snapshot test, pre-commit checks (including clippy), doctests and rustdoc also pass. The original template reproduced the failure on Windows PowerShell 5; the corrected template switches directories and leaves no directive file on both Windows PowerShell 5 and PowerShell 7.6.9.\n\nThe full `hook pre-merge --yes` gate did not pass on this Windows host: 4,693 passed, 74 failed, 40 skipped. Failures include configuration/statusline snapshots, switch tests and the performance helper CLI; those failures and snapshots are outside this change and were not accepted or modified.\n",
+    "author": "dajiaohuang",
+    "additions": 61,
+    "deletions": 6,
+    "changed_files": 3,
+    "linked_issues": []
+  },
+  "review_preflight_start": {
+    "head_sha": "ac43efa00e9beead5e06f4468fcf167ef0acec42",
+    "author": "human",
+    "is_draft": false,
+    "already_reviewed": false,
+    "incremental_path": null
+  },
+  "bot_review_state_feedback": {
+    "review_state": {
+      "reviews": [],
+      "head_sha": "ac43efa00e9beead5e06f4468fcf167ef0acec42",
+      "bot_login": "worktrunk-bot",
+      "last_force_push_at": "",
+      "last_substantive": null,
+      "force_pushed_since": false,
+      "at_head": null,
+      "orphan_id": null,
+      "fresh_approval_sha": "",
+      "stale_approval_id": "",
+      "standing_approval_id": ""
+    },
+    "conversation": [],
+    "review_threads": []
+  },
+  "approval_check": "approve: no failing check on ac43efa00e9beead5e06f4468fcf167ef0acec42\nverdict: approve on ac43efa00e9beead5e06f4468fcf167ef0acec42 (exit 0)"
+}

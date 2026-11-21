@@ -1,0 +1,90 @@
+c9e56e237 test(list): cover the URL health-check probe path
+
+32	0	src/commands/list/collect/tasks.rs
+
+diff --git a/src/commands/list/collect/tasks.rs b/src/commands/list/collect/tasks.rs
+--- a/src/commands/list/collect/tasks.rs
++++ b/src/commands/list/collect/tasks.rs
+@@ -1053,50 +1053,82 @@ fn probe_addrs_treat_unspecified_literals_as_local() {
+             "0.0.0.0 means all interfaces; probe loopback, not INADDR_ANY"
+         );
+         assert_eq!(
+             url_probe_addrs("::", 3000),
+             loopback_pair,
+             ":: means all interfaces; probe loopback, not in6addr_any"
+         );
+     }
+
+     #[test]
+     fn probe_addrs_try_both_loopback_families_for_hostnames() {
+         assert_eq!(
+             url_probe_addrs("localhost", 3000),
+             vec![
+                 SocketAddr::from(([127, 0, 0, 1], 3000)),
+                 SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 3000),
+             ]
+         );
+         assert_eq!(
+             url_probe_addrs("main.localhost", 3000),
+             url_probe_addrs("localhost", 3000),
+             "a *.localhost host is still a local default assumption"
+         );
+     }
+
++    #[test]
++    fn probe_addr_detects_listening_loopback_sockets() {
++        // The URL health check is skipped in the rest of the suite via
++        // WORKTRUNK_TEST_SKIP_URL_HEALTH_CHECK, so nothing else exercises
++        // `probe_addr`. Bind real loopback listeners to run both socket
++        // domains (IPv4 and IPv6) without depending on random local processes.
++        let v4 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
++        assert!(probe_addr(v4.local_addr().unwrap()));
++
++        let v6 = std::net::TcpListener::bind("[::1]:0").unwrap();
++        assert!(probe_addr(v6.local_addr().unwrap()));
++    }
++
++    #[test]
++    fn url_status_probes_a_listening_loopback_port() {
++        let test = TestRepo::new();
++        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
++        let port = listener.local_addr().unwrap().port();
++
++        let mut ctx = task_context(&test);
++        ctx.item_url = Some(format!("http://127.0.0.1:{port}"));
++
++        let result = TaskKind::UrlStatus.compute(ctx).unwrap();
++        let TaskResult::UrlStatus { active, .. } = result else {
++            panic!("expected UrlStatus");
++        };
++        // The env gate forces an inactive result; otherwise our bound
++        // listener answers, so the probe path is exercised unless gated.
++        let gated = std::env::var("WORKTRUNK_TEST_SKIP_URL_HEALTH_CHECK").is_ok();
++        assert_eq!(active, Some(!gated));
++    }
++
+     #[test]
+     fn summary_without_command_keeps_task_identity() {
+         let test = TestRepo::new();
+
+         let error = TaskKind::SummaryGenerate
+             .compute(task_context(&test))
+             .unwrap_err();
+
+         assert_eq!(error.item_idx, 3);
+         assert_eq!(error.kind, TaskKind::SummaryGenerate);
+         assert_eq!(error.message, "summary generation requires an LLM command");
+     }
+
+     #[test]
+     fn test_first_line_simple() {
+         assert_eq!(first_line("Add feature\n\nDetails here"), "Add feature");
+     }
+
+     #[test]
+     fn test_first_line_skips_empty() {
+         assert_eq!(first_line("\n\nAdd feature\nMore"), "Add feature");
+     }
+
+     #[test]
+     fn test_first_line_single_line() {

@@ -1,0 +1,33 @@
+{
+  "repository": "max-sixty/worktrunk",
+  "request": "Review PR #4334.",
+  "snapshot_at": "2026-10-01T18:20:00Z",
+  "pull_request": {
+    "number": 4334,
+    "url": "https://github.com/max-sixty/worktrunk/pull/4334",
+    "title": "style(list): use a dim outline flag for irregular worktrees",
+    "body": "Display off-template paths and duplicate branch checkouts with a dim outline flag (`⚐`) instead of the dim yellow filled flag (`⚑`). Use the same neutral dim style as the other informational status symbols, and update help, documentation mirrors, and snapshots.\n\nValidation: all 343 targeted list/help/promote tests pass, along with documentation sync, docs build, Clippy, and doctests. The full local gate has 5,012 passes and four failures: three background-removal timeouts (the tests pass in isolation on this branch and freshly rebuilt main) and a Git error-message snapshot mismatch reproduced on main with Git 2.56.0.\n\n> _This was written by Codex on behalf of max-sixty_\n",
+    "author": "max-sixty",
+    "additions": 69,
+    "deletions": 74,
+    "changed_files": 31,
+    "linked_issues": []
+  },
+  "review_preflight_start": {
+    "head_sha": "5a22e154d2fdc99b42608a53dee659a838aa4e78",
+    "author": "human",
+    "is_draft": false,
+    "already_reviewed": false,
+    "incremental_path": null
+  },
+  "bot_review_state_feedback": {
+    "review_state": {
+      "reviews": [],
+      "head_sha": "5a22e154d2fdc99b42608a53dee659a838aa4e78",
+      "bot_login": "worktrunk-bot"
+    },
+    "conversation": [],
+    "review_threads": []
+  },
+  "approval_check": "approve: no failing check on 5a22e154d2fdc99b42608a53dee659a838aa4e78\nverdict: approve on 5a22e154d2fdc99b42608a53dee659a838aa4e78 (exit 0)"
+}

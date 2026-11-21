@@ -1,0 +1,56 @@
+{
+  "repository": "max-sixty/worktrunk",
+  "request": "Review PR #4664.",
+  "snapshot_at": "2026-11-02T15:20:45.705Z",
+  "pull_request": {
+    "number": 4664,
+    "url": "https://github.com/max-sixty/worktrunk/pull/4664",
+    "title": "Reject certificate tables whose declared bytes are absent",
+    "body": "The Windows release checker currently treats a nonzero certificate-table size as proof that the table is present, ignoring its file offset. A table entry with offset zero or a range extending beyond EOF can therefore produce `all executables signed` even though its declared certificate bytes are absent.\n\nCheck that the entry has a nonzero file offset and that its entire declared range fits inside the executable before reporting a nonzero table size. This remains a certificate-table presence check; it does not validate Authenticode signatures, trust chains, PE structure, or certificate contents.\n\nValidation: `python3 -m unittest discover -s .github/tests -v` passes two methods covering 10 PE32/PE32+ fixture cases via the actual checker subprocess over ZIP archives. Six invalid fixture cases are accepted by the unchanged upstream script and rejected with the fix. The accepted fixtures contain synthetic certificate bytes and establish only range-presence behavior.\n\nHosted validation at exact head `69b18a2bfe4296ff5abbfcad76039d817f018d23`: the required Linux, macOS, Windows, and fast-check jobs passed (17 successful check runs, 20 skipped; pre-commit.ci also successful). The local `cargo run -- hook pre-merge --yes` hook was not validated in the minimal checkout. Focused Python checker tests passed locally as described above. This remains a certificate-table byte-presence check, not signature or trust validation.\n\nAI disclosure: implementation, regression tests, and this description were prepared with Codex and reviewed by a separate Codex agent. No human-authorship or human-review claim is made.\nReview follow-up: run `.github/tests` with standard-library unittest discovery in the required PR `fast-checks` job, immediately after checkout. This makes the checker regressions continuous; workflow triggers, permissions, environment gates, and other steps are unchanged. The exact CI command passes locally (2 methods / 10 fixture cases), and PyYAML 6.0.3 validates the workflow. Hosted checks for the new head are pending; the successful hosted results above refer to the explicitly named earlier head.\n",
+    "author": "rudycelekli",
+    "additions": 57,
+    "deletions": 2,
+    "changed_files": 3,
+    "linked_issues": []
+  },
+  "review_preflight_start": {
+    "head_sha": "d4b6a4c847f2f17088a58451a8a56be32c5ef727",
+    "author": "human",
+    "is_draft": false,
+    "already_reviewed": false,
+    "incremental_path": null
+  },
+  "bot_review_state_feedback": {
+    "review_state": {
+      "reviews": [
+        {
+          "id": 5737817509,
+          "sha": "69b18a2bfe4296ff5abbfcad76039d817f018d23",
+          "state": "COMMENTED",
+          "at": "2026-11-02T14:10:38Z",
+          "body": "The new regression tests are only run by the manual `unittest discover` command. The repository's CI and pre-merge commands do not invoke `.github/tests`, so a later change could restore the false-green certificate check while PR checks still pass. Please run this suite in a PR CI job so the regression cases protect the checker continuously.\n\n<!-- tend:draft-review -->",
+          "draft_mode": true
+        }
+      ],
+      "head_sha": "d4b6a4c847f2f17088a58451a8a56be32c5ef727",
+      "bot_login": "worktrunk-bot",
+      "last_force_push_at": "",
+      "last_substantive": {
+        "id": 5737817509,
+        "sha": "69b18a2bfe4296ff5abbfcad76039d817f018d23",
+        "state": "COMMENTED",
+        "at": "2026-11-02T14:10:38Z",
+        "draft_mode": true
+      },
+      "force_pushed_since": false,
+      "at_head": null,
+      "orphan_id": null,
+      "fresh_approval_sha": "",
+      "stale_approval_id": "",
+      "standing_approval_id": ""
+    },
+    "conversation": [],
+    "review_threads": []
+  },
+  "approval_check": "approve: no failing check on d4b6a4c847f2f17088a58451a8a56be32c5ef727\nverdict: approve on d4b6a4c847f2f17088a58451a8a56be32c5ef727 (exit 0)"
+}

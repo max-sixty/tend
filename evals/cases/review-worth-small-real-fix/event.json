@@ -1,0 +1,41 @@
+{
+  "repository": "max-sixty/worktrunk",
+  "request": "Review PR #4668.",
+  "snapshot_at": "2026-11-02T17:13:33.038Z",
+  "pull_request": {
+    "number": 4668,
+    "url": "https://github.com/max-sixty/worktrunk/pull/4668",
+    "title": "Retry failed plugin worktree lookups instead of caching misses",
+    "body": "Calling /wt-diff before git init caches a null worktree lookup for the session directory. Initializing the repository afterward does not help: subsequent commands reuse that miss and report no Git worktree for the rest of the module lifetime. A transient Git/process failure is similarly cached permanently.\n\nCache only successful locate results. Successful worktree lookups still avoid repeated Git subprocesses. This intentionally trades negative-cache savings for recovery: three repeated non-repository lookups now perform three Git probes rather than one. These probes occur when locating for the command/open pane; passive hooks still only note directories. Positive-cache invalidation behavior is unchanged.\n\nAdded a canonical Claude test for a failed command followed by a now-available repository, opening the pane and retaining the successful lookup cache. That canonical test is UNRUN: Claude Code plugin validate/test and the full UI integration gate are unavailable in this environment.\n\nLocal evidence is narrower: Node 24 executes the actual locate function body extracted from register.tsx, with TypeScript types stripped, against real temporary Git repositories. Four checks cover git init after a miss, a controlled transient process failure followed by actual Git discovery, successful-cache reuse, and repeated non-repository probe counts. Unchanged source: two failures/two passes. Fixed: four passes in 490ms. This does not execute the complete Claude module or establish hosted/full-plugin acceptance.\n\nAI disclosure: implementation, tests and description were prepared with Codex and independently reviewed by another Codex agent. No human-authorship or human-review claim is made.",
+    "author": "rudycelekli",
+    "additions": 39,
+    "deletions": 2,
+    "changed_files": 2,
+    "linked_issues": []
+  },
+  "review_preflight_start": {
+    "head_sha": "1e4d728a2c740b93c945c3f6a76cbde2c77899d5",
+    "author": "human",
+    "is_draft": false,
+    "already_reviewed": false,
+    "incremental_path": null
+  },
+  "bot_review_state_feedback": {
+    "review_state": {
+      "reviews": [],
+      "head_sha": "1e4d728a2c740b93c945c3f6a76cbde2c77899d5",
+      "bot_login": "worktrunk-bot",
+      "last_force_push_at": "",
+      "last_substantive": null,
+      "force_pushed_since": false,
+      "at_head": null,
+      "orphan_id": null,
+      "fresh_approval_sha": "",
+      "stale_approval_id": "",
+      "standing_approval_id": ""
+    },
+    "conversation": [],
+    "review_threads": []
+  },
+  "approval_check": "approve: no failing check on 1e4d728a2c740b93c945c3f6a76cbde2c77899d5\nverdict: approve on 1e4d728a2c740b93c945c3f6a76cbde2c77899d5 (exit 0)"
+}

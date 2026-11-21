@@ -1,0 +1,101 @@
+{
+  "repository": "max-sixty/worktrunk",
+  "request": "Review PR #4669.",
+  "snapshot_at": "2026-11-02T19:03:00Z",
+  "pull_request": {
+    "number": 4669,
+    "url": "https://github.com/max-sixty/worktrunk/pull/4669",
+    "title": "fix(picker): flash success feedback after alt-x removes worktree",
+    "body": "Fixes #4636 \n\nWhen using `alt-x` to remove a worktree but keep its unmerged branch, the picker optimistically morphs the row. Previously, if the background removal succeeded, it didn't provide any visual feedback to confirm the action (unlike the failure paths).\n\nThis updates the background thread to flash a transient success message (`Removed <branch> worktree; kept branch`) in the header once it confirms the worktree directory is actually gone. \n\nAlso updated `test_apply_morphs_unmerged_worktree_to_branch_row` to wait for and assert this new header flash.",
+    "author": "Yash2031v",
+    "additions": 137,
+    "deletions": 5,
+    "changed_files": 1,
+    "linked_issues": [
+      {
+        "number": 4636,
+        "title": "Show success feedback after Alt-x removes a worktree in the picker",
+        "body": "`Alt-x` can remove a worktree while leaving its unmerged branch. The picker changes the row to `/ branch`, but does not say that the worktree was removed and the branch was kept. Selecting that row with Enter can then create the worktree again. A user reported this as confusing in #1251 on v0.81.0.\n\nThe [picker's removal path](https://github.com/max-sixty/worktrunk/blob/4907d2dd40de47f14bd0fc0e3b3f6ebe143094e3/src/commands/picker/mod.rs#L569) morphs the row in place, and its [executor](https://github.com/max-sixty/worktrunk/blob/4907d2dd40de47f14bd0fc0e3b3f6ebe143094e3/src/commands/picker/mod.rs#L338) uses silent output while the TUI owns the terminal. Failure paths flash a message, but the successful morph does not.\n\nGive successful in-picker removal explicit feedback that distinguishes removal of the worktree from deletion or retention of its branch. The picker should remain usable for removing more rows; the wording and placement of that feedback need a UX choice.\n",
+        "author": "worktrunk-bot",
+        "comments": [
+          {
+            "author": "worktrunk-bot",
+            "body": "The picker already uses a transient header message when `Alt-x` declines or fails to remove a row. That gives success feedback a possible place while the picker stays open. A message for the reported case needs to say both that the worktree was removed and that its branch was kept; the `/ branch` row alone leaves that ambiguous.\n\nI’m leaving the wording and placement choice open here. #4458 also changes the picker’s background removal completion path, so a follow-up should be based on that outcome and show success only after removal is confirmed, not when the row first morphs optimistically.\n",
+            "created_at": "2026-10-30T16:40:31Z"
+          },
+          {
+            "author": "Yash2031v",
+            "body": "Hi @max-sixty, I would like to work on this issue. I plan to add the transient success feedback in the picker header once background removal is confirmed, explicitly stating that the worktree was removed while keeping the branch. Could you please assign this to me?",
+            "created_at": "2026-11-02T17:16:13Z"
+          }
+        ]
+      }
+    ]
+  },
+  "review_preflight_start": {
+    "head_sha": "09076ab8b2da71f986c5198ef4f4df6b2f8978ac",
+    "author": "human",
+    "is_draft": false,
+    "already_reviewed": false,
+    "incremental_path": "../incremental.txt"
+  },
+  "bot_review_state_feedback": {
+    "review_state": {
+      "reviews": [
+        {
+          "id": 5740780063,
+          "sha": "fa9ee4b2e93f03468a4b3645520009c06171a5be",
+          "state": "COMMENTED",
+          "at": "2026-11-02T17:43:26Z",
+          "body": "The success flash can report that the branch was kept when removal actually deleted it. `worktree_removal_keeps_branch` predicts retention before the background operation, but an approved `pre-remove` hook can integrate the branch before `remove_removed_worktree_silently` captures fresh refs and `delete_branch_if_safe` decides its fate. The worktree path is then gone, so this `else` arm shows “kept branch” while the morphed `/ branch` row points to a missing branch. Please base the confirmation and final row state on the observed branch fate after removal.\n"
+        },
+        {
+          "id": 5741474893,
+          "sha": "ab71e962dbab985b9869e586d7f916982d075fde",
+          "state": "COMMENTED",
+          "at": "2026-11-02T18:35:32Z",
+          "body": "The branch-deleted path needs the same settled preview refresh as the normal row-drop path. When this was the last selected row, the picker can keep showing the removed branch's preview after the row disappears."
+        },
+        {
+          "id": 5741817133,
+          "sha": "5e849d769121efbd87f09f36eec521509ab2e48f",
+          "state": "COMMENTED",
+          "at": "2026-11-02T19:02:29Z",
+          "body": "CI's lint check fails because `cargo fmt` rewrites the new test assignment."
+        }
+      ],
+      "head_sha": "09076ab8b2da71f986c5198ef4f4df6b2f8978ac",
+      "bot_login": "worktrunk-bot"
+    },
+    "conversation": [],
+    "review_threads": [
+      {
+        "id": "PRRT_kwDOQEkLn86yzzLW",
+        "is_resolved": true,
+        "comments": [
+          {
+            "author": "worktrunk-bot",
+            "body": "Queue the settled preview refresh after the pool resync. The normal `RemovalEffect::Dropped` path does this because skim does not refresh the preview when the selected last row disappears; this new background drop has the same case.\n\n```suggestion\n                        let _ = tx.try_send(Event::Action(resync_pool_action(Arc::clone(&items))));\n                        let _ = tx.try_send(Event::Action(run_preview_when_settled(\n                            Arc::new(AtomicUsize::new(0)),\n                            Arc::new(AtomicUsize::new(0)),\n                        )));\n```",
+            "path": "src/commands/picker/mod.rs",
+            "line": 692,
+            "created_at": "2026-11-02T18:35:32Z"
+          }
+        ]
+      },
+      {
+        "id": "PRRT_kwDOQEkLn86y0a29",
+        "is_resolved": true,
+        "comments": [
+          {
+            "author": "worktrunk-bot",
+            "body": "```suggestion\n        let (row, token, _, morphed) = setup_morphable_row(&remover, \"feature\", &reported_path);\n```",
+            "path": "src/commands/picker/mod.rs",
+            "line": null,
+            "created_at": "2026-11-02T19:02:29Z"
+          }
+        ]
+      }
+    ]
+  },
+  "approval_check": "approve: no failing check on 09076ab8b2da71f986c5198ef4f4df6b2f8978ac\nverdict: approve on 09076ab8b2da71f986c5198ef4f4df6b2f8978ac (exit 0)"
+}

@@ -1,0 +1,29 @@
+{
+  "kind": "trajectory",
+  "historical_ref": "11dbe4fa66e2cb576453c6804fcdfd0e072b0a54",
+  "bot": "worktrunk-bot",
+  "merge": "restricted",
+  "repository_instructions": true,
+  "checkout": {
+    "repository": "https://github.com/max-sixty/worktrunk.git",
+    "base": "c60d061ccc59557823d2f155217d9d23557d88c5",
+    "head": "c9e56e2373820190533828cc15ec8b8fd19cf81f",
+    "previous_review_head": "5de9aeb62c943afd02c06dabca181d40ff751528"
+  },
+  "fixtures": {
+    "incremental.txt": "0bd08efd97269b9058dcde645eb3fcd8c53dcff224f8e9b9415f226603fd7b7a",
+    "event.json": "2d629ac0eb36fe240242ace0b4807ce3a5b5953dcd87f39bd09613bc8f909b7c"
+  },
+  "origin": {
+    "run": "41806571435",
+    "artifact": "claude-session-logs-n4694",
+    "transcript": "-home-runner-work-worktrunk-worktrunk/1e9722f1-ca56-4ed3-ad51-9e3a69606b29.jsonl",
+    "sha256": "15c12287f6c2732e473f336536e8b50bb1d37777ff0279263993a3298a35e179",
+    "harness": "claude",
+    "production_verdict": "APPROVED",
+    "synthetic_context": "The final body-only COMMENT in review_state.reviews never happened; it is added so the case can measure what a later pass does with a hold that already stands.",
+    "snapshot_at": "2026-11-04T09:25:14.677Z",
+    "pr": "https://github.com/max-sixty/worktrunk/pull/4694"
+  },
+  "limits": "Fresh investigation of a real pinned checkout and frozen GitHub observations. No original history is supplied. Live GitHub is absent, so the reviewer cannot search other issues or PRs for reports beyond those linked, and the checkout is the PR head rather than refs/pull/N/merge. Dependencies from the original runner are not installed."
+}

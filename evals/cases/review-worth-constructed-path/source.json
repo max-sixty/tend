@@ -1,0 +1,26 @@
+{
+  "kind": "trajectory",
+  "historical_ref": "11dbe4fa66e2cb576453c6804fcdfd0e072b0a54",
+  "bot": "worktrunk-bot",
+  "merge": "restricted",
+  "repository_instructions": true,
+  "checkout": {
+    "repository": "https://github.com/max-sixty/worktrunk.git",
+    "base": "f478bb3885b2c40120d511a0b3dfd1d14ba36bb7",
+    "head": "1682429ff9b52263423125cfa96c6749cb187f86"
+  },
+  "fixtures": {
+    "event.json": "7cdcc69f1705071c6f0cacc22d2aa2071faf171d9b5e8cb46f04569df1d9dd13"
+  },
+  "origin": {
+    "run": "41495579405",
+    "artifact": "codex-session-logs-n4665",
+    "transcript": "sessions/2026/11/02/rollout-2026-11-02T17-56-26-01a19d67-c243-7140-b5a8-c0fcb982dc7b.jsonl",
+    "sha256": "c67bf62bef2465e24e53029f56a2ad51ddeac7aef21507d3b7a7bc2eeece27ab",
+    "harness": "codex",
+    "production_verdict": "APPROVED",
+    "snapshot_at": "2026-11-02T17:56:31.642Z",
+    "pr": "https://github.com/max-sixty/worktrunk/pull/4665"
+  },
+  "limits": "Fresh investigation of a real pinned checkout and frozen GitHub observations. No original history is supplied. Live GitHub is absent, so the reviewer cannot search other issues or PRs for reports beyond those linked, and the checkout is the PR head rather than refs/pull/N/merge. Dependencies from the original runner are not installed."
+}

@@ -1,0 +1,103 @@
+{
+  "repository": "max-sixty/worktrunk",
+  "request": "Review PR #4694.",
+  "snapshot_at": "2026-11-04T09:25:14.677Z",
+  "pull_request": {
+    "number": 4694,
+    "url": "https://github.com/max-sixty/worktrunk/pull/4694",
+    "title": "fix(list): probe dev-server URL on its own host and both loopback families",
+    "body": "## Problem\n\nThe dev-server URL health check in `wt list` / statusline hardcoded an IPv4 loopback probe and required an `http(s)://` scheme:\n\n- A server bound only to `::1` (common on macOS, where `localhost` resolves to IPv6 first, and some Vite/Next setups bind only `::1`) is reachable but shown as inactive/dim.\n- A URL pointing at another address probed `127.0.0.1` instead, so the result is simply wrong.\n- A scheme-less `localhost:3000` was neither collapsed to `:port` nor health-checked.\n\n## Fix\n\n- Parse the host alongside the port (`parse_host_port_from_url`), tolerating a missing scheme and IPv6 literals; `parse_port_from_url` now also tolerates a missing scheme, so scheme-less URLs collapse to `:port`.\n- Probe an explicit IP literal in the URL as given; otherwise treat hostnames as a local default assumption and try both `127.0.0.1` and `::1` (IPv4 first, preserving prior behaviour).\n- Never resolve DNS, keeping the health check off the network.\n- Probe with the matching socket domain (`IPV4` / `IPV6`).\n\n## Tests\n\nAdded unit tests covering scheme/path, scheme-less URLs, IPv6 literals, missing ports, IP-literal probing, and dual loopback candidates for hostnames.\n\n> Note: the full `cargo test` suite was not run in the development environment (the repo pins rustc 1.98.0; only 1.95 was available). CI should run it.",
+    "author": "saltcoffee",
+    "additions": 198,
+    "deletions": 16,
+    "changed_files": 1,
+    "linked_issues": []
+  },
+  "review_preflight_start": {
+    "head_sha": "c9e56e2373820190533828cc15ec8b8fd19cf81f",
+    "author": "human",
+    "is_draft": false,
+    "already_reviewed": false,
+    "incremental_path": "../incremental.txt"
+  },
+  "bot_review_state_feedback": {
+    "review_state": {
+      "reviews": [
+        {
+          "id": 5765650051,
+          "sha": "0f15c48c7922f93b347992f5fa5cc78698b6f0d7",
+          "state": "COMMENTED",
+          "at": "2026-11-04T08:44:02Z",
+          "body": "A URL with a non-loopback IP literal (`http://192.168.1.20:3000`) now gets a TCP connect to that host from every `wt list` and statusline render. That contradicts the docstring's own \"a health check must not touch the network\", and AGENTS.md → **Network Access** (\"Worktrunk touches the network only when the user asks for it\"). A `list.url` template configures a display link; it isn't a request to probe a remote host. Before this PR, such a URL probed `127.0.0.1`, which was wrong but local. Restricting the literal case to `ip.is_loopback()` keeps the health check local. A non-loopback literal would then get either the loopback pair or no check (`active: None`). Which of those is right is a maintainer call; probing the remote host shouldn't be the default.",
+          "draft_mode": false
+        },
+        {
+          "id": 5765742559,
+          "sha": "5de9aeb62c943afd02c06dabca181d40ff751528",
+          "state": "DISMISSED",
+          "at": "2026-11-04T08:51:59Z",
+          "body": "The PR title and the description's Fix and Problem sections still say an explicit IP literal is probed as given (\"probe dev-server URL on its own host\"). After the latest commit, only a loopback literal is probed as given. A non-loopback or unspecified literal falls back to the loopback pair, so the \"URL pointing at another address probed `127.0.0.1`\" problem is deliberately left as is. The squash title becomes the commit that the changelog is generated from, so it's worth updating it to describe what now ships, e.g. `fix(list): probe dev-server URL on both loopback families`.\n",
+          "draft_mode": false
+        },
+        {
+          "id": 5765998466,
+          "sha": "5de9aeb62c943afd02c06dabca181d40ff751528",
+          "state": "COMMENTED",
+          "at": "2026-11-04T09:11:46Z",
+          "body": "`codecov/patch` failed on this commit at 89.65%: 9 of 87 added lines are uncovered. Seven of them are `probe_addr`. The suite sets `WORKTRUNK_TEST_SKIP_URL_HEALTH_CHECK`, so the probe never runs in tests. On main the old inline IPv4 probe was uncovered for the same reason, but the IPv6 domain branch is new and has no coverage. Probing a bound loopback listener directly covers the function without touching that env gate (suggestion inline). The remaining two lines are the `compute_url_status` call site, which sits behind the env gate as before.\n\nI've withdrawn my approval until coverage is resolved. AGENTS.md → **Coverage** requires explicit approval before merging with a failing `codecov/patch`.",
+          "draft_mode": false
+        }
+      ],
+      "head_sha": "c9e56e2373820190533828cc15ec8b8fd19cf81f",
+      "bot_login": "worktrunk-bot",
+      "last_force_push_at": "",
+      "last_substantive": {
+        "id": 5765998466,
+        "sha": "5de9aeb62c943afd02c06dabca181d40ff751528",
+        "state": "COMMENTED",
+        "at": "2026-11-04T09:11:46Z",
+        "draft_mode": false
+      },
+      "force_pushed_since": false,
+      "at_head": null,
+      "orphan_id": null,
+      "fresh_approval_sha": "",
+      "stale_approval_id": "",
+      "standing_approval_id": ""
+    },
+    "conversation": [],
+    "review_threads": [
+      {
+        "id": "PRRT_kwDOQEkLn86zg-YT",
+        "is_resolved": true,
+        "is_outdated": true,
+        "comments": [
+          {
+            "author": "worktrunk-bot",
+            "sha": "0f15c48c7922f93b347992f5fa5cc78698b6f0d7",
+            "path": "src/commands/list/collect/tasks.rs",
+            "line": null,
+            "created_at": "2026-11-04T08:44:02Z",
+            "body": "An unspecified address (`http://0.0.0.0:3000`, which many dev servers print as their listen URL, or `http://[::]:3000`) is now probed as given. On Windows, `connect()` to `INADDR_ANY`/`in6addr_any` fails with `WSAEADDRNOTAVAIL`, so a running server shows as dead. Before this change it probed `127.0.0.1` and worked. Treating an unspecified literal like a hostname fixes that:\n\n```suggestion\n    if let Ok(ip) = host.parse::<IpAddr>()\n        && !ip.is_unspecified()\n    {\n```"
+          }
+        ]
+      },
+      {
+        "id": "PRRT_kwDOQEkLn86zhn0X",
+        "is_resolved": false,
+        "is_outdated": false,
+        "comments": [
+          {
+            "author": "worktrunk-bot",
+            "sha": "c9e56e2373820190533828cc15ec8b8fd19cf81f",
+            "path": "src/commands/list/collect/tasks.rs",
+            "line": 1076,
+            "created_at": "2026-11-04T09:11:46Z",
+            "body": "Covers both socket-domain branches of `probe_addr`. Nothing else in the suite reaches it, because of the env gate:\n\n```suggestion\n    }\n\n    #[test]\n    fn probe_addr_detects_listening_loopback_sockets() {\n        let v4 = std::net::TcpListener::bind(\"127.0.0.1:0\").unwrap();\n        assert!(probe_addr(v4.local_addr().unwrap()));\n        let v6 = std::net::TcpListener::bind(\"[::1]:0\").unwrap();\n        assert!(probe_addr(v6.local_addr().unwrap()));\n    }\n```"
+          }
+        ]
+      }
+    ]
+  },
+  "approval_check": "approve: no failing check on c9e56e2373820190533828cc15ec8b8fd19cf81f\nverdict: approve on c9e56e2373820190533828cc15ec8b8fd19cf81f (exit 0)"
+}

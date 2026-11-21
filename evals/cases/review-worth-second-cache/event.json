@@ -1,0 +1,41 @@
+{
+  "repository": "max-sixty/worktrunk",
+  "request": "Review PR #4666.",
+  "snapshot_at": "2026-11-02T16:03:43.983Z",
+  "pull_request": {
+    "number": 4666,
+    "url": "https://github.com/max-sixty/worktrunk/pull/4666",
+    "title": "fix(git): resolve push remote names before literal URLs",
+    "body": "`branch.<name>.pushRemote` accepts both remote names and literal destinations. The prefix heuristic treats a configured remote named `git@mirror` as a URL, but treats an SCP URL with a different SSH user as a remote name. CI lookup can consequently use the wrong repository or fall back to the primary remote.\n\nAsk Git to resolve a named remote in the repository's discovery context before preserving an unresolved literal. Use the structured missing-remote exit status; other Git failures remain unresolved. Cache these results separately from fetch lookups so a cached missing named remote cannot erase a literal destination. This retains the existing logical forge URL behavior, including demos that redirect push transport with `pushInsteadOf`.\n\nValidation: Rust 1.98.0 integration tests for the complete `default_branch` module: 46 passed. Coverage includes custom SSH users, `git@mirror` and slash-named remotes, file/local paths, linked-worktree-only remote configuration, cached fetch misses and successful fetch-cache reuse, malformed Git configuration, and the existing logical forge URL with local push transport. Four of the six remote/literal cases fail against the original implementation. `cargo fmt --all` and `git diff --check` pass.\n\nThe full project pre-merge hook did not pass locally: `pre-commit` and `cargo-insta` are unavailable. The macOS SDK14.4 build also emits a nonfatal `rust-objcopy` packaging warning about its bundled `libLLVM.dylib`. Hosted validation is pending. No full-platform or live forge acceptance is claimed.\n",
+    "author": "rudycelekli",
+    "additions": 161,
+    "deletions": 16,
+    "changed_files": 4,
+    "linked_issues": []
+  },
+  "review_preflight_start": {
+    "head_sha": "bcb698899d5350087a9c5880287ace891f2e11c1",
+    "author": "human",
+    "is_draft": false,
+    "already_reviewed": false,
+    "incremental_path": null
+  },
+  "bot_review_state_feedback": {
+    "review_state": {
+      "reviews": [],
+      "head_sha": "bcb698899d5350087a9c5880287ace891f2e11c1",
+      "bot_login": "worktrunk-bot",
+      "last_force_push_at": "",
+      "last_substantive": null,
+      "force_pushed_since": false,
+      "at_head": null,
+      "orphan_id": null,
+      "fresh_approval_sha": "",
+      "stale_approval_id": "",
+      "standing_approval_id": ""
+    },
+    "conversation": [],
+    "review_threads": []
+  },
+  "approval_check": "approve: no failing check on bcb698899d5350087a9c5880287ace891f2e11c1\nverdict: approve on bcb698899d5350087a9c5880287ace891f2e11c1 (exit 0)"
+}
