@@ -477,8 +477,14 @@ def test_batch_releases_issues_select_dropped(env: dict[str, str]) -> None:
             {"name": "select", "status": "completed"},
             {"name": "notify", "status": "in_progress"},
         ],
+        # A numbered extra job is not the matrix either, and its completion
+        # releases nothing.
+        [
+            {"name": "select", "status": "completed"},
+            {"name": "notify #4082", "status": "completed"},
+        ],
     ],
-    ids=["select-only", "select-and-extra-job"],
+    ids=["select-only", "select-and-extra-job", "select-and-numbered-extra-job"],
 )
 def test_batch_keeps_run_name_issues_until_the_matrix_expands(
     env: dict[str, str], jobs: list[dict[str, str]]
