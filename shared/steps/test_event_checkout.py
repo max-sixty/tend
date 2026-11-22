@@ -494,6 +494,27 @@ def test_pinning_leaves_a_pr_that_touches_no_instruction_path_alone(
     assert _tree(repo) == {"README.md": "fork readme\n"}
 
 
+def test_pinning_restores_codex_project_config(tmp_path: Path) -> None:
+    """Codex loads `.codex/config.toml` from the checkout at startup, and
+    before 0.169 `codex exec` with a writable sandbox trusted it implicitly:
+    a PR's MCP servers and settings would load. The base's copy wins and a
+    fork-added file goes."""
+    repo, event = _fork_pr(
+        tmp_path,
+        {"README.md": "base readme\n", ".codex/config.toml": "base config\n"},
+        lambda repo: (
+            _write(repo / ".codex/config.toml", "EVIL config\n"),
+            _write(repo / ".codex/hooks.json", "EVIL hooks\n"),
+        ),
+    )
+
+    _pin(repo, event)
+    assert _tree(repo) == {
+        "README.md": "base readme\n",
+        ".codex/config.toml": "base config\n",
+    }
+
+
 def test_pinning_fails_when_the_base_ref_is_missing(
     tmp_path: Path,
 ) -> None:
