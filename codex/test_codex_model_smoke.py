@@ -55,6 +55,10 @@ if os.environ["SMOKE_BEHAVIOR"] == "success":
 import os, shutil, sys
 from pathlib import Path
 args = sys.argv[1:]
+# The install runs as the action's does, before any credential is staged.
+assert "--ignore-scripts" in args
+assert "CODEX_HOME" not in os.environ
+assert not list(Path(args[args.index("--prefix")+1]).parent.rglob("auth.json"))
 Path(os.environ["SMOKE_PACKAGE"]).write_text(args[-1])
 target = Path(args[args.index("--prefix")+1], "node_modules/.bin/codex")
 target.parent.mkdir(parents=True)

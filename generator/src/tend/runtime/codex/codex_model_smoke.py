@@ -27,24 +27,22 @@ def verify(repository: Path, auth_json: str) -> None:
     version = action["inputs"]["codex_version"]["default"]
     model = DEFAULT_MODEL_BY_HARNESS["codex"]
     env = os.environ.copy()
-    for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_AUTH_JSON"):
+    for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_AUTH_JSON", "CODEX_HOME"):
         env.pop(key, None)
 
     with tempfile.TemporaryDirectory(prefix="tend-codex-smoke-") as directory:
         root = Path(directory)
-        env["CODEX_HOME"] = str(root / "home")
-        auth_file = root / "home/auth.json"
-        codex_subscription_auth.prepare(
-            codex_auth_json=auth_json, openai_api_key="", destination=auth_file
-        )
-        before = auth_file.read_bytes()
         prefix = root / "cli"
+        # Install as the action does, before any credential exists: lifecycle
+        # scripts from the package tree never run, and nothing they could
+        # reach holds the token.
         subprocess.run(
             [
                 "npm",
                 "install",
                 "--prefix",
                 str(prefix),
+                "--ignore-scripts",
                 "--no-audit",
                 "--no-fund",
                 f"@openai/codex@{version}",
@@ -54,6 +52,12 @@ def verify(repository: Path, auth_json: str) -> None:
             capture_output=True,
             timeout=180,
         )
+        env["CODEX_HOME"] = str(root / "home")
+        auth_file = root / "home/auth.json"
+        codex_subscription_auth.prepare(
+            codex_auth_json=auth_json, openai_api_key="", destination=auth_file
+        )
+        before = auth_file.read_bytes()
         workspace = root / "workspace"
         workspace.mkdir()
         response = root / "response.txt"
