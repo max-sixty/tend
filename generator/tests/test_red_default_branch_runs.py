@@ -30,17 +30,22 @@ PER_PAGE = 50
 # the conclusion's name, the closure read under `green-<workflow>`. A staged
 # `<prefix>-per_page-<k>.json` is a durable cache entry instead: a read at that
 # `per_page` gets it in place of the default page. Each answer is cut to the
-# `per_page` the URL asked for, as the endpoint does.
+# `per_page` the URL asked for, and to the `event` it names, as the endpoint does.
 FAKE_GH = (
     GH_PREAMBLE
     + r"""
 page() {
-  emit "$(jq -c --argjson n "$per_page" '.workflow_runs |= .[:$n]' "$1")"
+  emit "$(jq -c --argjson n "$per_page" --arg event "$event" \
+    '.workflow_runs |= ([.[] | select($event == "" or .event == $event)] | .[:$n])' "$1")"
 }
 
 serve() {
   per_page="${args#*per_page=}"
   per_page="${per_page%%&*}"
+  event=""
+  case "$args" in
+    *"event="*) event="${args#*event=}"; event="${event%%&*}" ;;
+  esac
   if [ -f "$RUNS_DIR/$1-per_page-$per_page.json" ]; then
     page "$RUNS_DIR/$1-per_page-$per_page.json"; return 0
   fi
@@ -74,13 +79,14 @@ def _red(
     *,
     path: str = CI,
     name: str = "ci",
+    event: str = "push",
     workflow_id: int = 250586625,
 ) -> dict:
     return {
         "id": rid,
         "name": name,
         "path": path,
-        "event": "push",
+        "event": event,
         "conclusion": "failure",
         "created_at": created_at,
         "workflow_id": workflow_id,
@@ -114,6 +120,7 @@ def _green(
     created_at: str,
     *,
     rid: int = 1,
+    event: str = "push",
     per_page: int | None = None,
 ) -> None:
     """Stage the closure read of *workflow*, or with *per_page* the durable
@@ -128,7 +135,7 @@ def _green(
                         "id": rid,
                         "name": "ci",
                         "path": f".github/workflows/{workflow}",
-                        "event": "push",
+                        "event": event,
                         "conclusion": "success",
                         "created_at": created_at,
                     }
@@ -261,6 +268,26 @@ def test_a_later_green_closes_the_path(env: dict[str, str]) -> None:
 
     assert sweep["candidates"] == []
     assert sweep["observed_green_by_path"] == {CI: "2026-09-02T00:00:00Z"}
+
+
+def test_a_green_of_another_event_leaves_the_failure_a_candidate(
+    env: dict[str, str],
+) -> None:
+    """A scheduled suite can fail on tests push CI never runs, so a later green
+    push run of the same file is no closure for a red scheduled run."""
+    _page(
+        env,
+        "failure",
+        _red(110, "2026-09-03T00:00:00Z", event="push"),
+        _red(100, "2026-09-01T00:00:00Z", event="schedule"),
+    )
+    _green(env, "ci.yaml", "2026-09-02T00:00:00Z", event="push")
+
+    sweep = _sweep(env)
+
+    assert [row["id"] for row in sweep["candidates"]] == [110, 100]
+    calls = Path(env["GH_CALLS"]).read_text()
+    assert "event=push" in calls and "event=schedule" in calls
 
 
 def test_a_committed_workflow_whose_file_is_gone_remains_a_candidate(

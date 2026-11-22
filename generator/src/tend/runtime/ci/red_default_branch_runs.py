@@ -48,16 +48,21 @@ def read_listing(url: str, *, quiet: bool = False) -> list[dict[str, Any]]:
     return _rows(_common.gh_json("api", url, quiet=quiet))
 
 
-def green_url(repo: str, branch: str, path: str) -> str:
-    """The closure listing for a committed workflow file."""
+def green_url(repo: str, branch: str, path: str, event: str) -> str:
+    """The closure listing for a committed workflow file and triggering event."""
     basename = path.rsplit("/", 1)[-1]
-    return f"repos/{repo}/actions/workflows/{basename}/runs?branch={branch}&status=success&per_page=1"
+    return (
+        f"repos/{repo}/actions/workflows/{basename}/runs"
+        f"?branch={branch}&event={event}&status=success&per_page=1"
+    )
 
 
-def observed_green(repo: str, branch: str, path: str) -> dict[str, Any] | None:
-    """The newest green returned for a committed file, or none on a 404."""
+def observed_green(
+    repo: str, branch: str, path: str, event: str
+) -> dict[str, Any] | None:
+    """The newest green returned for a committed file's event, or none on a 404."""
     try:
-        rows = read_listing(green_url(repo, branch, path), quiet=True)
+        rows = read_listing(green_url(repo, branch, path, event), quiet=True)
     except subprocess.CalledProcessError as error:
         if "HTTP 404" in (error.stderr or ""):
             return None
@@ -125,15 +130,17 @@ def main() -> int:
             red[int(row["id"])] = row
 
     # One generated path answers under a name per subject, so its closure is
-    # keyed by both. A committed file answers under its path alone: `run-name:`
-    # and a rename both move a run's `name` without changing which listing
-    # closes it, so keying those by name too would re-read one URL per name.
+    # keyed by both. A committed file answers under its path and triggering
+    # event: a scheduled suite can fail on tests a push run never executes, so a
+    # green push does not close a red schedule. `run-name:` and a rename both
+    # move a run's `name` without changing which listing closes it, so keying
+    # those by name too would re-read one URL per name.
     closures: dict[tuple[str, str], str | None] = {}
     generated: dict[int, dict[str, str]] = {}
     candidates: list[dict[str, Any]] = []
     for row in sorted(red.values(), key=lambda row: row["created_at"], reverse=True):
         is_generated = row["path"].startswith(GENERATED_PREFIX)
-        subject = (row["path"], row["name"] if is_generated else "")
+        subject = (row["path"], row["name"] if is_generated else row["event"])
         if subject not in closures:
             if is_generated:
                 workflow_id = row["workflow_id"]
@@ -141,7 +148,7 @@ def main() -> int:
                     generated[workflow_id] = generated_greens(repo, branch, workflow_id)
                 closures[subject] = generated[workflow_id].get(row["name"])
             else:
-                green = observed_green(repo, branch, row["path"])
+                green = observed_green(repo, branch, row["path"], row["event"])
                 closures[subject] = green["created_at"] if green else None
         closed_at = closures[subject]
         if closed_at and closed_at > row["created_at"]:
