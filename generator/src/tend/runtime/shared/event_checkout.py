@@ -36,7 +36,16 @@ INSTRUCTION_PATHSPECS = tuple(
         ".agents/**",
     )
 )
-SENSITIVE_PATHS = (".mcp.json", ".claude.json", ".gitmodules", ".ripgreprc", ".husky")
+# `.codex` holds Codex's project config (MCP servers, settings, hooks), which
+# `codex exec` before 0.169 trusted implicitly under a writable sandbox.
+SENSITIVE_PATHS = (
+    ".mcp.json",
+    ".claude.json",
+    ".gitmodules",
+    ".ripgreprc",
+    ".husky",
+    ".codex",
+)
 MODES = frozenset({"base", "review", "mention"})
 
 

@@ -230,8 +230,8 @@ secrets into it stays manual — their values can't be read back.
 **Config pinning** — before the agent starts, both harnesses restore every
 `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md`, `.claude/`,
 and `.agents/` in the tree, at any depth, from the base branch. Both harnesses
-also restore `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, and
-`.husky`, blocking startup-time code execution and prompt injection from a PR's
+also restore `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`,
+`.husky`, and `.codex/`, blocking startup-time code execution and prompt injection from a PR's
 own copy of these files.
 
 **Immutable releases** lock the assets and tag of each release published

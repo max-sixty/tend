@@ -497,13 +497,13 @@ takes the new pin.
 `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md`, `.claude/`,
 and `.agents/` at any depth from the PR base branch. Their CLIs load nearby
 instruction files and skills from those directories. Both harnesses also
-restore RCE-relevant config at the root: `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, and
-`.husky`. A malicious PR's `SessionStart` hook, MCP server, or injected skill
+restore RCE-relevant config at the root: `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`,
+`.husky`, and `.codex/` (Codex's project config). A malicious PR's `SessionStart` hook, MCP server, or injected skill
 is reverted before an agent reads it. The restoration is
 `git restore --source=<exact base commit>` in shell:
 base-branch versions are written back, fork-added paths removed, and a
 fork-planted symlink replaced rather than written through. The root path list
-and ordering mirror claude-code-action's `restore-config.ts`. The PR's own
+and ordering mirror claude-code-action's `restore-config.ts`, plus `.codex/`. The PR's own
 versions stay readable at `git show HEAD:<path>` for a review that wants to see
 what it changed.
 
