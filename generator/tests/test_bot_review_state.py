@@ -531,6 +531,22 @@ def test_an_approval_that_predates_the_rewrite_is_stale(env: dict[str, str]) -> 
     assert state["fresh_approval_sha"] == "", "a rewritten-away approval is not earned"
 
 
+def test_an_approval_in_the_same_second_as_the_rewrite_is_stale(
+    env: dict[str, str],
+) -> None:
+    """Timestamps have one-second resolution; a tie cannot show the approval
+    followed the rewrite, so it must read as stale rather than neither."""
+    _write(env, "REVIEWS_JSON", [_review(3, "2026-01-02T00:00:00Z", state="APPROVED")])
+    _rewrite_at(env, "2026-01-02T00:00:00Z")
+
+    state = _state(env)
+
+    assert state["stale_approval_id"] == 3
+    assert state["fresh_approval_sha"] == ""
+    assert state["force_pushed_since"] is True
+    assert state["at_head"] is None
+
+
 def test_a_later_approval_supersedes_the_stale_one(env: dict[str, str]) -> None:
     """Newest-then-test, never test-then-newest: the question is whether the
     approval now setting the PR's state is stale. Filtering first would name

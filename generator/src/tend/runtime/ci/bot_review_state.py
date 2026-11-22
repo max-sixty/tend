@@ -128,9 +128,7 @@ def review_state(
             else None
         ),
         "force_pushed_since": bool(
-            last_substantive
-            and last_force_push_at
-            and last_force_push_at > (last_substantive.get("submitted_at") or "")
+            last_substantive and not after_rewrite(last_substantive)
         ),
         "at_head": (
             {
@@ -152,7 +150,7 @@ def review_state(
             standing_approval["id"]
             if standing_approval
             and last_force_push_at
-            and (standing_approval.get("submitted_at") or "") < last_force_push_at
+            and not after_rewrite(standing_approval)
             else ""
         ),
         "standing_approval_id": (standing_approval["id"] if standing_approval else ""),

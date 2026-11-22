@@ -131,9 +131,11 @@ def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[i
 
     GitHub's runs API does not expose dispatch inputs. Triage's generated
     run-name is therefore an explicit wire format, `triage [1,2]`, retained
-    while the run has no jobs. Job names carry the same numeric identity after
-    expansion; issue titles are never keys. A queued run has no age-based
-    expiry, since how long GitHub holds one isn't ours to bound.
+    until the `select` job has completed and the matrix has expanded. From
+    then on the `triage #N` jobs alone carry the subjects, so a number
+    `select` dropped is released. Issue titles are never keys. A queued run
+    has no age-based expiry, since how long GitHub holds one isn't ours to
+    bound.
     """
     subjects: dict[int, set[int]] = {}
     for run in runs:
@@ -156,16 +158,27 @@ def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[i
                 subjects[int(run["id"])] = set()
                 continue
             selected.update(numbers)
-        for page in _common.gh_pages(
-            f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100"
-        ):
-            for job in page["jobs"]:
-                if match := SUBJECT_JOB_RE.search(str(job.get("name") or "")):
-                    number = int(match.group(1))
-                    if job["status"] == "completed":
-                        selected.discard(number)
-                    else:
-                        selected.add(number)
+        jobs = [
+            job
+            for page in _common.gh_pages(
+                f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100"
+            )
+            for job in page["jobs"]
+        ]
+        selected_done = any(
+            job.get("name") == "select" and job["status"] == "completed" for job in jobs
+        )
+        expanded = any(job.get("name") != "select" for job in jobs)
+        if selected_done and expanded:
+            # The matrix holds exactly what `select` kept.
+            selected.clear()
+        for job in jobs:
+            if match := SUBJECT_JOB_RE.search(str(job.get("name") or "")):
+                number = int(match.group(1))
+                if job["status"] == "completed":
+                    selected.discard(number)
+                else:
+                    selected.add(number)
         subjects[int(run["id"])] = selected
     return subjects
 

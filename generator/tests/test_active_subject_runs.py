@@ -445,3 +445,38 @@ def test_batch_ownership_reads_every_run_and_job_page(
     calls = Path(env["GH_CALLS"]).read_text().splitlines()
     listings = [call for call in calls if "/actions/runs" in call]
     assert all("--paginate" in call and "--slurp" in call for call in listings)
+
+
+def test_batch_releases_issues_select_dropped(env: dict[str, str]) -> None:
+    """`select` drops closed or bookkeeping issues before the matrix exists,
+    so a dropped number never gets a job to release it."""
+    _stage(
+        env,
+        "in_progress",
+        _run(201, "tend-triage", "in_progress", title="triage [4082,77]"),
+    )
+    (Path(env["RUNS_DIR"]) / "jobs-201.json").write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {"name": "select", "status": "completed"},
+                    {"name": "triage #77", "status": "in_progress"},
+                ]
+            }
+        )
+    )
+    assert _subject_runs(env) == []
+
+
+def test_batch_keeps_run_name_issues_until_the_matrix_expands(
+    env: dict[str, str],
+) -> None:
+    _stage(
+        env,
+        "in_progress",
+        _run(201, "tend-triage", "in_progress", title="triage [4082,77]"),
+    )
+    (Path(env["RUNS_DIR"]) / "jobs-201.json").write_text(
+        json.dumps({"jobs": [{"name": "select", "status": "completed"}]})
+    )
+    assert [run["id"] for run in _subject_runs(env)] == [201]
