@@ -33,7 +33,11 @@ WORKFLOW_PREFIX = ".github/workflows/tend-"
 # of its sessions is a job named for the PR it works on (`land #7`).
 TRIAGE_WORKFLOW = ".github/workflows/tend-triage.yaml"
 SUBJECT_JOBS_WORKFLOWS = {".github/workflows/tend-land.yaml", TRIAGE_WORKFLOW}
-SUBJECT_JOB_RE = re.compile(r"#(\d+)$")
+LAND_JOB_RE = re.compile(r"#(\d+)$")
+# Triage's matrix job, the only evidence that `select`'s output has expanded
+# and the only job that owns or releases an issue: a consumer's
+# `workflow_extra.jobs` can add other jobs to the run, numbered ones included.
+TRIAGE_MATRIX_JOB_RE = re.compile(r"^triage #(\d+)$")
 
 # A run whose state has not moved in this long is never going to deliver.
 # GitHub documents no queue-time cancellation for its hosted runners — the 24h
@@ -131,16 +135,21 @@ def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[i
 
     GitHub's runs API does not expose dispatch inputs. Triage's generated
     run-name is therefore an explicit wire format, `triage [1,2]`, retained
-    while the run has no jobs. Job names carry the same numeric identity after
-    expansion; issue titles are never keys. A queued run has no age-based
-    expiry, since how long GitHub holds one isn't ours to bound.
+    until the `select` job has completed and a `triage #N` matrix job has
+    appeared; a consumer's extra job is no evidence of expansion. From
+    then on the `triage #N` jobs alone carry the subjects, so a number
+    `select` dropped is released. Issue titles are never keys. A queued run
+    has no age-based expiry, since how long GitHub holds one isn't ours to
+    bound.
     """
     subjects: dict[int, set[int]] = {}
     for run in runs:
         if run.get("path") not in SUBJECT_JOBS_WORKFLOWS:
             continue
         selected: set[int] = set()
+        job_re = LAND_JOB_RE
         if run["path"] == TRIAGE_WORKFLOW:
+            job_re = TRIAGE_MATRIX_JOB_RE
             title = str(run["display_title"])
             if not title.startswith("triage "):
                 continue
@@ -156,16 +165,29 @@ def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[i
                 subjects[int(run["id"])] = set()
                 continue
             selected.update(numbers)
-        for page in _common.gh_pages(
-            f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100"
-        ):
-            for job in page["jobs"]:
-                if match := SUBJECT_JOB_RE.search(str(job.get("name") or "")):
-                    number = int(match.group(1))
-                    if job["status"] == "completed":
-                        selected.discard(number)
-                    else:
-                        selected.add(number)
+        jobs = [
+            job
+            for page in _common.gh_pages(
+                f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100"
+            )
+            for job in page["jobs"]
+        ]
+        selected_done = any(
+            job.get("name") == "select" and job["status"] == "completed" for job in jobs
+        )
+        expanded = any(
+            TRIAGE_MATRIX_JOB_RE.match(str(job.get("name") or "")) for job in jobs
+        )
+        if selected_done and expanded:
+            # The matrix holds exactly what `select` kept.
+            selected.clear()
+        for job in jobs:
+            if match := job_re.search(str(job.get("name") or "")):
+                number = int(match.group(1))
+                if job["status"] == "completed":
+                    selected.discard(number)
+                else:
+                    selected.add(number)
         subjects[int(run["id"])] = selected
     return subjects
 

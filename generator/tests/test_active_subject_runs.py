@@ -445,3 +445,54 @@ def test_batch_ownership_reads_every_run_and_job_page(
     calls = Path(env["GH_CALLS"]).read_text().splitlines()
     listings = [call for call in calls if "/actions/runs" in call]
     assert all("--paginate" in call and "--slurp" in call for call in listings)
+
+
+def test_batch_releases_issues_select_dropped(env: dict[str, str]) -> None:
+    """`select` drops closed or bookkeeping issues before the matrix exists,
+    so a dropped number never gets a job to release it."""
+    _stage(
+        env,
+        "in_progress",
+        _run(201, "tend-triage", "in_progress", title="triage [4082,77]"),
+    )
+    (Path(env["RUNS_DIR"]) / "jobs-201.json").write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {"name": "select", "status": "completed"},
+                    {"name": "triage #77", "status": "in_progress"},
+                ]
+            }
+        )
+    )
+    assert _subject_runs(env) == []
+
+
+@pytest.mark.parametrize(
+    "jobs",
+    [
+        [{"name": "select", "status": "completed"}],
+        # A consumer's `workflow_extra.jobs` addition is not the matrix.
+        [
+            {"name": "select", "status": "completed"},
+            {"name": "notify", "status": "in_progress"},
+        ],
+        # A numbered extra job is not the matrix either, and its completion
+        # releases nothing.
+        [
+            {"name": "select", "status": "completed"},
+            {"name": "notify #4082", "status": "completed"},
+        ],
+    ],
+    ids=["select-only", "select-and-extra-job", "select-and-numbered-extra-job"],
+)
+def test_batch_keeps_run_name_issues_until_the_matrix_expands(
+    env: dict[str, str], jobs: list[dict[str, str]]
+) -> None:
+    _stage(
+        env,
+        "in_progress",
+        _run(201, "tend-triage", "in_progress", title="triage [4082,77]"),
+    )
+    (Path(env["RUNS_DIR"]) / "jobs-201.json").write_text(json.dumps({"jobs": jobs}))
+    assert [run["id"] for run in _subject_runs(env)] == [201]
