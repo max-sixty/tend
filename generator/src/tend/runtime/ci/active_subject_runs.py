@@ -34,6 +34,9 @@ WORKFLOW_PREFIX = ".github/workflows/tend-"
 TRIAGE_WORKFLOW = ".github/workflows/tend-triage.yaml"
 SUBJECT_JOBS_WORKFLOWS = {".github/workflows/tend-land.yaml", TRIAGE_WORKFLOW}
 SUBJECT_JOB_RE = re.compile(r"#(\d+)$")
+# Triage's matrix job, the only evidence that `select`'s output has expanded:
+# a consumer's `workflow_extra.jobs` can add other jobs to the run.
+TRIAGE_MATRIX_JOB_RE = re.compile(r"^triage #\d+$")
 
 # A run whose state has not moved in this long is never going to deliver.
 # GitHub documents no queue-time cancellation for its hosted runners — the 24h
@@ -131,7 +134,8 @@ def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[i
 
     GitHub's runs API does not expose dispatch inputs. Triage's generated
     run-name is therefore an explicit wire format, `triage [1,2]`, retained
-    until the `select` job has completed and the matrix has expanded. From
+    until the `select` job has completed and a `triage #N` matrix job has
+    appeared; a consumer's extra job is no evidence of expansion. From
     then on the `triage #N` jobs alone carry the subjects, so a number
     `select` dropped is released. Issue titles are never keys. A queued run
     has no age-based expiry, since how long GitHub holds one isn't ours to
@@ -168,7 +172,9 @@ def fetch_job_subjects(repo: str, runs: list[dict[str, Any]]) -> dict[int, set[i
         selected_done = any(
             job.get("name") == "select" and job["status"] == "completed" for job in jobs
         )
-        expanded = any(job.get("name") != "select" for job in jobs)
+        expanded = any(
+            TRIAGE_MATRIX_JOB_RE.match(str(job.get("name") or "")) for job in jobs
+        )
         if selected_done and expanded:
             # The matrix holds exactly what `select` kept.
             selected.clear()

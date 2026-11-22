@@ -468,15 +468,25 @@ def test_batch_releases_issues_select_dropped(env: dict[str, str]) -> None:
     assert _subject_runs(env) == []
 
 
+@pytest.mark.parametrize(
+    "jobs",
+    [
+        [{"name": "select", "status": "completed"}],
+        # A consumer's `workflow_extra.jobs` addition is not the matrix.
+        [
+            {"name": "select", "status": "completed"},
+            {"name": "notify", "status": "in_progress"},
+        ],
+    ],
+    ids=["select-only", "select-and-extra-job"],
+)
 def test_batch_keeps_run_name_issues_until_the_matrix_expands(
-    env: dict[str, str],
+    env: dict[str, str], jobs: list[dict[str, str]]
 ) -> None:
     _stage(
         env,
         "in_progress",
         _run(201, "tend-triage", "in_progress", title="triage [4082,77]"),
     )
-    (Path(env["RUNS_DIR"]) / "jobs-201.json").write_text(
-        json.dumps({"jobs": [{"name": "select", "status": "completed"}]})
-    )
+    (Path(env["RUNS_DIR"]) / "jobs-201.json").write_text(json.dumps({"jobs": jobs}))
     assert [run["id"] for run in _subject_runs(env)] == [201]
