@@ -1176,6 +1176,22 @@ def test_unreadable_rollups_at_the_session_end_hand_back_unverified(
         assert "checks pending" not in result.stderr
 
 
+def test_failed_confirmations_at_the_session_end_hand_back_unverified(
+    env: dict[str, str],
+) -> None:
+    """A complete read whose confirming read fails ends the wait near the
+    session's end, even when the next read succeeds again."""
+    _near_deadline(env)
+    green = _resp(_check_run("tests"))
+    _serve(env, *[green, NULL_ROLLUP] * 4, green)
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "rollup unreadable on" in result.stdout
+    assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "2"
+
+
 def test_a_red_read_whose_confirmations_fail_at_the_session_end_is_red(
     env: dict[str, str],
 ) -> None:

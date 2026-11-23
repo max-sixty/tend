@@ -426,6 +426,8 @@ def _settle(
             repo=repo, sha=sha, run_id=run_id, workflow=workflow, skip=skip
         )
         if current is None:
+            if _deadline_near():
+                return "deadline", last
             continue
         last = current
         if not current["pending"]:
