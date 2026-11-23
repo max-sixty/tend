@@ -1169,7 +1169,26 @@ def test_unreadable_rollups_at_the_session_end_hand_back_unverified(
 
     assert result.returncode == 2, result.stdout + result.stderr
     if command == "poll":
-        assert "session ends soon — UNVERIFIED, not green" in result.stdout
+        assert "rollup unreadable on" in result.stdout
+        assert "still pending" not in result.stdout
+    else:
+        assert "rollup unreadable on" in result.stderr
+        assert "checks pending" not in result.stderr
+
+
+def test_a_red_read_whose_confirmations_fail_at_the_session_end_is_red(
+    env: dict[str, str],
+) -> None:
+    """A settled red stays red when its confirming reads fail near the end,
+    without claiming checks still run."""
+    _near_deadline(env)
+    _serve(env, _resp(_check_run("tests", conclusion="FAILURE")), NULL_ROLLUP)
+
+    result = _poll(env)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "red on" in result.stdout
+    assert "still running" not in result.stdout
 
 
 def test_a_red_beside_a_hung_job_at_the_session_end_is_red(

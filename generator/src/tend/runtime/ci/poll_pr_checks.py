@@ -524,8 +524,14 @@ def approval(
             print(f"no complete rollup read for {sha} while waiting", file=sys.stderr)
             return 2
         if outcome == "deadline" and not rollup["failed"]:
-            print(f"session ends soon with checks pending on {sha}:", file=sys.stderr)
-            print(*rollup["pending"], sep="\n", file=sys.stderr)
+            if rollup["pending"]:
+                print(
+                    f"session ends soon with checks pending on {sha}:",
+                    file=sys.stderr,
+                )
+                print(*rollup["pending"], sep="\n", file=sys.stderr)
+            else:
+                print(f"session ends soon, rollup unreadable on {sha}", file=sys.stderr)
             return 2
 
     if rollup["failed"]:
@@ -596,8 +602,9 @@ def poll(
         if last["failed"]:
             print(f"red on {sha}:")
             print(*last["failed"], sep="\n")
-            print("still running, not waited for:")
-            print(*last["pending"], sep="\n")
+            if last["pending"]:
+                print("still running, not waited for:")
+                print(*last["pending"], sep="\n")
             _unverified_note(last)
             head_note(pr=pr, repo=repo, sha=sha)
             return 1
