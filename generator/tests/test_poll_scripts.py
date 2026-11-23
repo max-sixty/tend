@@ -1140,6 +1140,62 @@ def test_a_check_pending_at_the_session_end_is_unverified(
     assert "codecov/patch" in result.stdout
 
 
+@pytest.mark.parametrize("command", ["poll", "approval"])
+def test_unreadable_rollups_at_the_session_end_hand_back_unverified(
+    env: dict[str, str], command: str
+) -> None:
+    """Reads that keep failing after a complete one still end the wait near
+    the session's end, rather than waiting until the session is killed."""
+    _near_deadline(env)
+    responses = [_resp(_check_run("tests")), NULL_ROLLUP]
+    if command == "approval":
+        # Approval waits only on a red beside pending checks.
+        red = _resp(OMNIBUS_RED, _check_run("full-tests", status="IN_PROGRESS"))
+        responses.insert(0, red)
+    _serve(env, *responses)
+
+    result = _poll(env) if command == "poll" else _approval(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    if command == "poll":
+        assert "rollup unreadable on" in result.stdout
+        assert "still pending" not in result.stdout
+    else:
+        assert "rollup unreadable on" in result.stderr
+        assert "checks pending" not in result.stderr
+
+
+def test_failed_confirmations_at_the_session_end_hand_back_unverified(
+    env: dict[str, str],
+) -> None:
+    """A complete read whose confirming read fails ends the wait near the
+    session's end, even when the next read succeeds again."""
+    _near_deadline(env)
+    green = _resp(_check_run("tests"))
+    _serve(env, *[green, NULL_ROLLUP] * 4, green)
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "rollup unreadable on" in result.stdout
+    assert Path(env["GRAPHQL_CALLS"]).read_text().strip() == "2"
+
+
+def test_a_red_read_whose_confirmations_fail_at_the_session_end_is_red(
+    env: dict[str, str],
+) -> None:
+    """A settled red stays red when its confirming reads fail near the end,
+    without claiming checks still run."""
+    _near_deadline(env)
+    _serve(env, _resp(_check_run("tests", conclusion="FAILURE")), NULL_ROLLUP)
+
+    result = _poll(env)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "red on" in result.stdout
+    assert "still running" not in result.stdout
+
+
 def test_a_red_beside_a_hung_job_at_the_session_end_is_red(
     env: dict[str, str],
 ) -> None:
