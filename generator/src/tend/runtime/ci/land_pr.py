@@ -43,14 +43,12 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 from typing import Any, Literal
 
 from tend.runtime.ci import poll_pr_checks
 from tend.runtime.shared import _common
 
-SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PUSHED_CONTEXT = f"{poll_pr_checks.LAND_CONTEXT}/pushed"
 REPAIR_CONTEXT = f"{poll_pr_checks.LAND_CONTEXT}/repair"
 #: GitHub truncates a longer status description, which would lose the policy.

@@ -1,4 +1,4 @@
-"""Tests for the CI-poll scripts in tend.runtime.ci..
+"""Tests for the CI-poll scripts in tend.runtime.ci.
 
 poll_pr_checks.py queries a *commit's* rollup, never the PR's — the false
 green this design exists to prevent is a poll silently retargeting a head
@@ -60,10 +60,6 @@ FAKE_GH = (
   "pr view "*)
     emit "$(cat "$HEAD_JSON")"
     ;;
-  "run view "*)
-    [ -f "$RUN_DIR/$3.json" ] || exit 1
-    emit "$(cat "$RUN_DIR/$3.json")"
-    ;;
   "run rerun "*)
     ;;
   "api --paginate --slurp "*"/jobs"*)
@@ -76,9 +72,6 @@ FAKE_GH = (
   api*)
     path=$2
     case "$path" in
-      repos/*/actions/runs/*/jobs*)
-        emit "$(cat "$JOBS_JSON")"
-        ;;
       repos/*/actions/jobs/*)
         emit "$(cat "$JOB_DIR/${path##*/}.json")"
         ;;
@@ -96,8 +89,6 @@ FAKE_GH = (
 esac
 """
 )
-
-FAKE_SLEEP = "#!/usr/bin/env bash\nexit 0\n"
 
 
 def _check_run(
@@ -171,13 +162,12 @@ NULL_ROLLUP = json.dumps(
 
 @pytest.fixture
 def env(tmp_path: Path) -> dict[str, str]:
-    bindir = fake_bin(tmp_path, gh=FAKE_GH, sleep=FAKE_SLEEP)
+    bindir = fake_bin(tmp_path, gh=FAKE_GH)
 
     rollups = tmp_path / "rollups"
     rollups.mkdir()
     jobs_dir = tmp_path / "jobs"
     jobs_dir.mkdir()
-    (tmp_path / "runs").mkdir()
     (tmp_path / "head.json").write_text(json.dumps({"headRefOid": HEAD_SHA}))
     (tmp_path / "jobs.json").write_text(json.dumps({"jobs": []}))
     (tmp_path / "attempts").write_text("1\n")
@@ -190,7 +180,6 @@ def env(tmp_path: Path) -> dict[str, str]:
         "HEAD_JSON": str(tmp_path / "head.json"),
         "JOBS_JSON": str(tmp_path / "jobs.json"),
         "JOB_DIR": str(jobs_dir),
-        "RUN_DIR": str(tmp_path / "runs"),
         "ATTEMPTS": str(tmp_path / "attempts"),
         "GITHUB_REPOSITORY": "owner/repo",
         "GITHUB_RUN_ID": "555",
@@ -1314,10 +1303,10 @@ def test_uppercase_sha_is_rejected_at_entry(env: dict[str, str]) -> None:
 
 
 def test_omitted_sha_is_rejected_not_reported_red(env: dict[str, str]) -> None:
-    """Omitting <sha> is the likelier arity mistake, and `set -u` would kill the
-    script with exit 1 — the code this file documents as red, which sends the
-    caller off to diagnose a CI failure that never happened. It has to land on
-    the same UNVERIFIED path as any other unusable argument."""
+    """Omitting <sha> is the likelier arity mistake. It has to land on the same
+    UNVERIFIED path (exit 2) as any other unusable argument, not on exit 1 —
+    the code this file documents as red, which sends the caller off to
+    diagnose a CI failure that never happened."""
     _serve(env, _resp(_check_run("tests")))
 
     result = _poll_args(env, "7")
@@ -1325,7 +1314,6 @@ def test_omitted_sha_is_rejected_not_reported_red(env: dict[str, str]) -> None:
 
     assert result.returncode == 2, out
     assert "Missing argument 'SHA'" in out
-    assert "unbound variable" not in out
     assert not Path(env["GH_CALLS"]).exists(), "the short call reached the API"
 
 

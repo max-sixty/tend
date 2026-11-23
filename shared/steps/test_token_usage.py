@@ -200,8 +200,7 @@ def _aimed_inside(
 def test_reconstructs_a_cancelled_session(tmp_path: Path, logs_dir: Path) -> None:
     """A cancelled session must be accounted from its session JSONL.
 
-    `tend-triage` runs with `cancel-in-progress: true`, so cancellation is
-    routine — and a cancelled session never emits a `type: "result"` event.
+    A cancelled or timed-out session never emits a `type: "result"` event.
     The step is `if: always()`, so it still writes token-usage.json and still
     uploads the artifact; only the accounting would be lost. Reporting zeros
     for a run that did real work (and may already have posted a review) biases
