@@ -388,11 +388,11 @@ def _settle(
 
     A check can also outlast the session: a status its app never reports, or a
     hung job under GitHub's default 6-hour job cap, which a session started
-    later cannot outlive. So checks still pending within
-    :data:`DEADLINE_MARGIN_SEC` of the harness's ``TEND_DEADLINE`` end the wait
-    ("deadline"), leaving the session time to act on what it read. A job
-    waiting on an environment approval never holds the wait:
-    :func:`reduce_rollup` counts it as settled without a result.
+    later cannot outlive. So checks still pending, or reads still failing
+    after a complete one, within :data:`DEADLINE_MARGIN_SEC` of the harness's
+    ``TEND_DEADLINE`` end the wait ("deadline"), leaving the session time to
+    act on what it read. A job waiting on an environment approval never holds
+    the wait: :func:`reduce_rollup` counts it as settled without a result.
     """
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     workflow = os.environ.get("GITHUB_WORKFLOW", "")
@@ -407,6 +407,10 @@ def _settle(
         if current is None:
             if last is None and waited >= REGISTRATION_SEC:
                 return "none", None
+            # Reads failing after a complete one are a blip, but not one the
+            # session can outlast.
+            if last is not None and _deadline_near():
+                return "deadline", last
             continue
         last = current
         if current["pending"]:
@@ -598,8 +602,12 @@ def poll(
             head_note(pr=pr, repo=repo, sha=sha)
             return 1
         reason = "not waiting" if outcome == "pending" else "session ends soon"
-        print(f"still pending on {sha}, {reason} — UNVERIFIED, not green:")
-        print(*last["pending"], sep="\n")
+        if last["pending"]:
+            print(f"still pending on {sha}, {reason} — UNVERIFIED, not green:")
+            print(*last["pending"], sep="\n")
+        else:
+            # A settled read whose confirming reads all failed.
+            print(f"rollup unreadable on {sha}, {reason} — UNVERIFIED, not green")
         _unverified_note(last)
         return 2
     if outcome == "none" or last is None:

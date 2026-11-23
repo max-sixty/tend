@@ -1151,6 +1151,27 @@ def test_a_check_pending_at_the_session_end_is_unverified(
     assert "codecov/patch" in result.stdout
 
 
+@pytest.mark.parametrize("command", ["poll", "approval"])
+def test_unreadable_rollups_at_the_session_end_hand_back_unverified(
+    env: dict[str, str], command: str
+) -> None:
+    """Reads that keep failing after a complete one still end the wait near
+    the session's end, rather than waiting until the session is killed."""
+    _near_deadline(env)
+    responses = [_resp(_check_run("tests")), NULL_ROLLUP]
+    if command == "approval":
+        # Approval waits only on a red beside pending checks.
+        red = _resp(OMNIBUS_RED, _check_run("full-tests", status="IN_PROGRESS"))
+        responses.insert(0, red)
+    _serve(env, *responses)
+
+    result = _poll(env) if command == "poll" else _approval(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    if command == "poll":
+        assert "session ends soon — UNVERIFIED, not green" in result.stdout
+
+
 def test_a_red_beside_a_hung_job_at_the_session_end_is_red(
     env: dict[str, str],
 ) -> None:
