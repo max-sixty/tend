@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import sys
 import time
@@ -12,7 +11,6 @@ from typing import Any, Literal
 
 from tend.runtime.shared import _common
 
-SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 RED_CONCLUSIONS = {
     "FAILURE",
     "TIMED_OUT",
