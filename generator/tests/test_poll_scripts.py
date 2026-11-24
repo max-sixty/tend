@@ -62,6 +62,10 @@ FAKE_GH = (
     ;;
   "run rerun "*)
     ;;
+  "api --paginate --slurp repos/owner/repo/actions/runs?"*)
+    [ "${RUNS_READABLE:-true}" = "true" ] || exit 1
+    jq -cs . "$RUNS_JSON"
+    ;;
   "api --paginate --slurp "*"/jobs"*)
     if [ -f "$JOBS_JSON.2" ]; then
       jq -cs . "$JOBS_JSON" "$JOBS_JSON.2"
@@ -155,6 +159,15 @@ def _resp(*nodes: dict, has_next: bool = False, end_cursor: str | None = None) -
     )
 
 
+# The PR under test (#7): its head commit, fork repository and branch.
+PR_HEAD = {
+    "headRefOid": HEAD_SHA,
+    "headRefName": "feature",
+    "headRepository": {"name": "repo"},
+    "headRepositoryOwner": {"login": "contributor"},
+}
+
+
 NULL_ROLLUP = json.dumps(
     {"data": {"repository": {"object": {"statusCheckRollup": None}}}}
 )
@@ -168,9 +181,10 @@ def env(tmp_path: Path) -> dict[str, str]:
     rollups.mkdir()
     jobs_dir = tmp_path / "jobs"
     jobs_dir.mkdir()
-    (tmp_path / "head.json").write_text(json.dumps({"headRefOid": HEAD_SHA}))
+    (tmp_path / "head.json").write_text(json.dumps(PR_HEAD))
     (tmp_path / "jobs.json").write_text(json.dumps({"jobs": []}))
     (tmp_path / "attempts").write_text("1\n")
+    (tmp_path / "runs.json").write_text(json.dumps({"workflow_runs": []}))
 
     return {
         "PATH": tool_path(bindir),
@@ -181,6 +195,7 @@ def env(tmp_path: Path) -> dict[str, str]:
         "JOBS_JSON": str(tmp_path / "jobs.json"),
         "JOB_DIR": str(jobs_dir),
         "ATTEMPTS": str(tmp_path / "attempts"),
+        "RUNS_JSON": str(tmp_path / "runs.json"),
         "GITHUB_REPOSITORY": "owner/repo",
         "GITHUB_RUN_ID": "555",
         "GITHUB_WORKFLOW": "tend-review",
@@ -358,7 +373,7 @@ def test_approval_is_undecided_when_the_head_moves_while_it_waits(
 ) -> None:
     """A red beside running checks waits for them, and a push during that wait
     makes the reviewed commit's approval moot."""
-    Path(env["HEAD_JSON"]).write_text(json.dumps({"headRefOid": "b" * 40}))
+    Path(env["HEAD_JSON"]).write_text(json.dumps(PR_HEAD | {"headRefOid": "b" * 40}))
     _serve(env, _resp(OMNIBUS_RED, MATRIX_RUNNING))
 
     result = _approval(env)
@@ -369,7 +384,7 @@ def test_approval_is_undecided_when_the_head_moves_while_it_waits(
 
 def _conflicting_head(env: dict[str, str], sha: str = HEAD_SHA) -> None:
     Path(env["HEAD_JSON"]).write_text(
-        json.dumps({"headRefOid": sha, "mergeable": "CONFLICTING"})
+        json.dumps(PR_HEAD | {"headRefOid": sha, "mergeable": "CONFLICTING"})
     )
 
 
@@ -1297,6 +1312,166 @@ def test_a_waiting_rerun_is_not_read_as_its_earlier_success(
     assert "runs/101/" in result.stdout
 
 
+def _held_ci(env: dict[str, str], *runs: dict) -> None:
+    """Serve *runs* as the commit's `pull_request` workflow runs."""
+    Path(env["RUNS_JSON"]).write_text(json.dumps({"workflow_runs": list(runs)}))
+
+
+def _run(
+    run_id: int,
+    conclusion: str | None,
+    *,
+    name: str = "ci",
+    workflow_id: int = 9,
+    prs: tuple[int, ...] = (),
+    head_repo: str = "contributor/repo",
+    head_branch: str = "feature",
+) -> dict:
+    """A `pull_request` run; by default a fork run of PR #7, whose
+    `pull_requests` GitHub leaves empty."""
+    return {
+        "id": run_id,
+        "name": name,
+        "workflow_id": workflow_id,
+        "event": "pull_request",
+        "conclusion": conclusion,
+        "html_url": f"https://github.com/o/r/actions/runs/{run_id}",
+        "pull_requests": [{"number": n} for n in prs],
+        "head_repository": {"full_name": head_repo},
+        "head_branch": head_branch,
+    }
+
+
+def test_approval_names_ci_held_for_fork_approval(env: dict[str, str]) -> None:
+    """A fork PR's run awaiting a maintainer's approval creates no check run,
+    so the rollup holds only tend-review's own check. The approval must name
+    the held run rather than read as a green one."""
+    _serve(env, _resp(_check_run("review", workflow="tend-review")))
+    _held_ci(env, _run(300, "action_required"))
+
+    result = _approval(env)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.startswith("approve: no failing check on"), result.stdout
+    assert "unverified:" in result.stdout
+    assert "ci (awaiting maintainer approval to run)" in result.stdout
+    assert "runs/300" in result.stdout
+
+
+def test_a_held_run_keeps_a_green_rollup_unverified(env: dict[str, str]) -> None:
+    """An external check can pass while the repo's own CI waits for approval."""
+    _serve(env, _resp(_status_ctx("codecov/patch", "SUCCESS")))
+    _held_ci(env, _run(300, "action_required"))
+
+    result = _poll(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "UNVERIFIED, not green" in result.stdout
+    assert "ci (awaiting maintainer approval to run)" in result.stdout
+
+
+def test_an_approved_rerun_supersedes_the_held_run(env: dict[str, str]) -> None:
+    _serve(env, _resp(_check_run("tests")))
+    _held_ci(
+        env,
+        _run(300, "action_required", prs=(7,)),
+        _run(301, "success", prs=(7,)),
+    )
+
+    assert _poll(env).returncode == 0
+    approval = _approval(env)
+    assert approval.returncode == 0
+    assert "unverified" not in approval.stdout
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        pytest.param({"prs": (8,)}, id="same-repo-pr"),
+        pytest.param({"head_repo": "someone/repo"}, id="other-fork"),
+        pytest.param({"head_branch": "elsewhere"}, id="other-fork-branch"),
+    ],
+)
+def test_another_prs_newer_run_on_the_same_commit_does_not_hide_a_held_run(
+    env: dict[str, str], other: dict
+) -> None:
+    """Two PRs can share a head commit while targeting different bases, and
+    the runs listing covers both: a newer successful run of the same workflow
+    from the other PR must not supersede this PR's held one."""
+    _serve(env, _resp(_check_run("review", workflow="tend-review")))
+    _held_ci(env, _run(300, "action_required"), _run(301, "success", **other))
+
+    approval = _approval(env)
+    assert approval.returncode == 0, approval.stdout + approval.stderr
+    assert "ci (awaiting maintainer approval to run)" in approval.stdout
+    assert "runs/300" in approval.stdout
+    assert _poll(env).returncode == 2
+
+
+def test_a_newer_run_from_the_same_fork_branch_does_not_hide_a_held_run(
+    env: dict[str, str],
+) -> None:
+    """Two PRs from one fork branch against different bases share the head
+    repository, branch and commit, and GitHub links neither's runs to a PR.
+    The other PR's newer success can't be told from this PR's, so the held run
+    stays unverified."""
+    _serve(env, _resp(_check_run("review", workflow="tend-review")))
+    _held_ci(env, _run(300, "action_required"), _run(301, "success"))
+
+    approval = _approval(env)
+    assert approval.returncode == 0, approval.stdout + approval.stderr
+    assert "ci (awaiting maintainer approval to run)" in approval.stdout
+    assert "runs/300" in approval.stdout
+    assert _poll(env).returncode == 2
+
+
+def test_another_prs_held_run_does_not_gate(env: dict[str, str]) -> None:
+    _serve(env, _resp(_check_run("tests")))
+    _held_ci(
+        env, _run(301, "success", prs=(7,)), _run(302, "action_required", prs=(8,))
+    )
+
+    assert _poll(env).returncode == 0
+    approval = _approval(env)
+    assert approval.returncode == 0
+    assert "unverified" not in approval.stdout
+
+
+def test_a_held_run_is_unattributed_when_the_fork_is_gone(
+    env: dict[str, str],
+) -> None:
+    """A deleted fork leaves no head repository to match a run against, so
+    every run GitHub links to no PR counts."""
+    Path(env["HEAD_JSON"]).write_text(
+        json.dumps(PR_HEAD | {"headRepository": None, "headRepositoryOwner": None})
+    )
+    _serve(env, _resp(_check_run("tests")))
+    _held_ci(env, _run(300, "action_required", head_repo="gone/repo"))
+
+    assert _poll(env).returncode == 2
+
+
+def test_a_skipped_held_run_does_not_gate(env: dict[str, str]) -> None:
+    _serve(env, _resp(_check_run("tests")))
+    _held_ci(env, _run(300, "action_required", name="advisory"))
+
+    result = _poll_args(env, "7", HEAD_SHA, "--skip", "advisory")
+
+    assert result.returncode == 0, result.stdout
+
+
+@pytest.mark.parametrize("command", ["poll", "approval"])
+def test_unreadable_workflow_runs_never_read_clean(
+    env: dict[str, str], command: str
+) -> None:
+    _serve(env, _resp(_check_run("tests")))
+    env = env | {"RUNS_READABLE": "false"}
+
+    result = _poll(env) if command == "poll" else _approval(env)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+
+
 def test_a_commit_with_no_checks_is_unverified(env: dict[str, str]) -> None:
     """No check registered and none ever coming look the same, so a commit
     that shows none for the registration margin reads as having none."""
@@ -1376,7 +1551,7 @@ def test_omitted_sha_is_rejected_not_reported_red(env: dict[str, str]) -> None:
 def test_moved_head_is_reported_not_absorbed(env: dict[str, str]) -> None:
     """Another actor pushing while we poll must not retarget the verdict: the
     result stays the pinned SHA's, with the move called out."""
-    Path(env["HEAD_JSON"]).write_text(json.dumps({"headRefOid": "b" * 40}))
+    Path(env["HEAD_JSON"]).write_text(json.dumps(PR_HEAD | {"headRefOid": "b" * 40}))
     _serve(env, _resp(_check_run("tests")))
 
     result = _poll(env)
@@ -1393,7 +1568,7 @@ def test_a_head_moved_while_checks_pend_ends_the_wait(env: dict[str, str]) -> No
     """The wait holds the session's concurrency group, and a review of the
     new head queues behind it — so once the pinned commit can no longer be
     merged or approved, waiting out its checks only delays that review."""
-    Path(env["HEAD_JSON"]).write_text(json.dumps({"headRefOid": "b" * 40}))
+    Path(env["HEAD_JSON"]).write_text(json.dumps(PR_HEAD | {"headRefOid": "b" * 40}))
     _serve(env, _resp(_check_run("tests", status="IN_PROGRESS")))
 
     result = _poll(env)
@@ -1410,7 +1585,7 @@ def test_a_head_moved_while_checks_pend_ends_the_wait(env: dict[str, str]) -> No
 def test_verdict_survives_a_piped_tail(env: dict[str, str]) -> None:
     """Sessions pipe the poll through `tail -N`, which keeps only the end of a
     long check list — so the last line has to carry the verdict on its own."""
-    Path(env["HEAD_JSON"]).write_text(json.dumps({"headRefOid": "b" * 40}))
+    Path(env["HEAD_JSON"]).write_text(json.dumps(PR_HEAD | {"headRefOid": "b" * 40}))
     _serve(
         env,
         _resp(
