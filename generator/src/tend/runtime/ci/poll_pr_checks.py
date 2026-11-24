@@ -327,13 +327,15 @@ def _held_runs(
     A fork PR's `pull_request` run that awaits approval concludes
     `action_required` before any job starts, so it creates no check run and
     never appears in the rollup: a commit whose CI never ran can read clean.
-    Only each workflow's latest `pull_request` run counts.
+    Each workflow's latest `pull_request` run of this PR counts.
 
     The runs listing is repository-wide, and two PRs can share a head commit
-    while targeting different bases, so a run counts only when it is this
-    PR's: its `pull_requests` names *pr*, or, as on a fork's runs, the list is
-    empty and the run's head repository and branch are the PR's. Without a
-    head repository (a deleted fork) every unattributed run counts. ``None``
+    while targeting different bases. A run whose `pull_requests` names *pr* is
+    this PR's; one naming only other PRs is not. A run naming none, as on a
+    fork's runs, may be this PR's when its head repository and branch match
+    the PR's, or when the PR's fork is deleted and there is nothing to match.
+    Two PRs from one fork branch share all of that, so such a run can't be
+    attributed: it counts when held and never supersedes a held run. ``None``
     when the runs or the PR can't be read.
     """
     head = _pr_head_branch(pr=pr, repo=repo)
@@ -348,42 +350,57 @@ def _held_runs(
     except (subprocess.CalledProcessError, ValueError, _common.UnexpectedShape):
         return None
 
-    def ours(run: dict[str, Any]) -> bool:
+    def attribution(run: dict[str, Any]) -> str | None:
+        """This PR's ("ours"), unattributable ("maybe"), or another's (None)."""
         linked = run.get("pull_requests") or []
         if linked:
-            return any(
+            named = any(
                 isinstance(entry, dict) and str(entry.get("number")) == str(pr)
                 for entry in linked
             )
-        if head_repo is None:
-            return True
-        return (
+            return "ours" if named else None
+        if head_repo is None or (
             _dig(run, "head_repository", "full_name") == head_repo
             and run.get("head_branch") == head_branch
-        )
+        ):
+            return "maybe"
+        return None
 
+    def newer(run: dict[str, Any], than: dict[str, Any] | None) -> bool:
+        return than is None or int(run.get("id") or 0) > int(than.get("id") or 0)
+
+    # Per workflow: the latest run that is this PR's, and the latest held run
+    # that may be. Only the former supersedes a held run.
     latest: dict[Any, dict[str, Any]] = {}
+    maybe_held: dict[Any, dict[str, Any]] = {}
     for page in pages:
         runs = page.get("workflow_runs") if isinstance(page, dict) else None
         if not isinstance(runs, list):
             return None
         for run in runs:
-            if (
-                not isinstance(run, dict)
-                or run.get("event") != "pull_request"
-                or not ours(run)
-            ):
+            if not isinstance(run, dict) or run.get("event") != "pull_request":
                 continue
+            kind = attribution(run)
             key = run.get("workflow_id")
-            if key not in latest or int(run.get("id") or 0) > int(
-                latest[key].get("id") or 0
-            ):
+            if kind == "ours" and newer(run, latest.get(key)):
                 latest[key] = run
-    return [
-        f"{run.get('name')} (awaiting maintainer approval to run) {run.get('html_url')}"
-        for run in latest.values()
-        if run.get("conclusion") == "action_required" and run.get("name") not in skip
-    ]
+            elif (
+                kind == "maybe"
+                and run.get("conclusion") == "action_required"
+                and newer(run, maybe_held.get(key))
+            ):
+                maybe_held[key] = run
+    held = []
+    for key in dict.fromkeys([*latest, *maybe_held]):
+        ours, maybe = latest.get(key), maybe_held.get(key)
+        run = maybe if maybe is not None and newer(maybe, ours) else ours
+        assert run is not None
+        if run.get("conclusion") == "action_required" and run.get("name") not in skip:
+            held.append(
+                f"{run.get('name')} (awaiting maintainer approval to run) "
+                f"{run.get('html_url')}"
+            )
+    return held
 
 
 def _head(*, pr: str, repo: str) -> str:

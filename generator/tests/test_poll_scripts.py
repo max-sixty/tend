@@ -1372,7 +1372,11 @@ def test_a_held_run_keeps_a_green_rollup_unverified(env: dict[str, str]) -> None
 
 def test_an_approved_rerun_supersedes_the_held_run(env: dict[str, str]) -> None:
     _serve(env, _resp(_check_run("tests")))
-    _held_ci(env, _run(300, "action_required"), _run(301, "success"))
+    _held_ci(
+        env,
+        _run(300, "action_required", prs=(7,)),
+        _run(301, "success", prs=(7,)),
+    )
 
     assert _poll(env).returncode == 0
     approval = _approval(env)
@@ -1396,6 +1400,23 @@ def test_another_prs_newer_run_on_the_same_commit_does_not_hide_a_held_run(
     from the other PR must not supersede this PR's held one."""
     _serve(env, _resp(_check_run("review", workflow="tend-review")))
     _held_ci(env, _run(300, "action_required"), _run(301, "success", **other))
+
+    approval = _approval(env)
+    assert approval.returncode == 0, approval.stdout + approval.stderr
+    assert "ci (awaiting maintainer approval to run)" in approval.stdout
+    assert "runs/300" in approval.stdout
+    assert _poll(env).returncode == 2
+
+
+def test_a_newer_run_from_the_same_fork_branch_does_not_hide_a_held_run(
+    env: dict[str, str],
+) -> None:
+    """Two PRs from one fork branch against different bases share the head
+    repository, branch and commit, and GitHub links neither's runs to a PR.
+    The other PR's newer success can't be told from this PR's, so the held run
+    stays unverified."""
+    _serve(env, _resp(_check_run("review", workflow="tend-review")))
+    _held_ci(env, _run(300, "action_required"), _run(301, "success"))
 
     approval = _approval(env)
     assert approval.returncode == 0, approval.stdout + approval.stderr
