@@ -2881,8 +2881,8 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
         ]
     # One read serves the version check and the yolo comparison, whose
     # failure advises regenerating, so both judge the same files. Raised
-    # rather than reported, so `--fix` never writes an older release's
-    # expectations over a newer one's workflows.
+    # rather than reported, so `--fix` repairs nothing once the stamps show
+    # a newer release generated the workflows.
     workflows = _fetch_workflow_files(repo)
     refuse_older_generator(
         (
