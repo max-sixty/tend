@@ -40,6 +40,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass, replace
+from fnmatch import fnmatch
 from functools import cache
 from urllib.parse import quote
 
@@ -63,6 +64,7 @@ from tend.workflows import (
     TEND_ENVIRONMENT,
     control_plane_block,
     generate_all,
+    refuse_older_generator,
 )
 
 # GitHub's base repository role IDs, as they appear in a ruleset's
@@ -1556,15 +1558,17 @@ def _credential_surface(files: dict[str, str | None] | None) -> _CredentialSurfa
     )
 
 
-def check_yolo_workflows(repo: str, cfg: Config) -> CheckResult:
+def check_yolo_workflows(
+    files: dict[str, str | None] | None, cfg: Config
+) -> CheckResult:
     """Confine yolo's operational environment to current generated workflows.
 
     The ``tend`` environment may release secrets on main. Consumer workflows
     must not use it, and stale generated workflows may have a different job
-    shape than the one Tend currently audits.
+    shape than the one Tend currently audits. ``files`` is the default
+    branch's workflows as `_fetch_workflow_files` read them.
     """
     name = "yolo-workflows"
-    files = _fetch_workflow_files(repo)
     if files is None:
         return CheckResult(
             name, None, "Could not read workflows from the default branch"
@@ -2875,6 +2879,20 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
                 "prerequisites", None, f"Could not detect default branch for {repo}"
             )
         ]
+    # One read serves the version check and the yolo comparison, whose
+    # failure advises regenerating, so both judge the same files. Raised
+    # rather than reported, so `--fix` repairs nothing once the stamps show
+    # a newer release generated the workflows.
+    workflows = _fetch_workflow_files(repo)
+    refuse_older_generator(
+        (
+            text
+            for name, text in (workflows or {}).items()
+            if fnmatch(name, "tend-*.yaml")
+        ),
+        f"cannot audit {repo}'s workflows",
+        "check",
+    )
 
     # The engine-specific auth secret is verified by check_claude_auth /
     # check_codex_auth below, which name the relevant one in their message.
@@ -2920,7 +2938,7 @@ def run_all_checks(cfg: Config, repo: str | None = None) -> list[CheckResult]:
             generation_cfg = replace(
                 cfg, default_branch=default_branch, repo_owner=owner
             )
-            results.append(check_yolo_workflows(repo, generation_cfg))
+            results.append(check_yolo_workflows(workflows, generation_cfg))
     results.append(check_actions_event_policy(repo, cfg))
     results.append(check_bot_permission(repo, cfg.bot_name))
     results.append(check_tag_protection(repo, cfg.bot_name))

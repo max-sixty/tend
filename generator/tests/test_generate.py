@@ -38,6 +38,7 @@ from tend.workflows import (
     generate_install_test,
     generate_mention,
     generate_mention_relay,
+    release,
 )
 
 from tests import ACTION_VERSION, agent_prompt, without_relay
@@ -53,6 +54,17 @@ def _minimal_config(tmp_path: Path, extra: str = "") -> Path:
 
 def test_standard_workflow_registry_matches_the_generators() -> None:
     assert STANDARD_WORKFLOWS == set(GENERATORS)
+
+
+@pytest.mark.parametrize("ref", ["main", "0.2", "0.2.9.1", "v0.2.9", "1.².3", ""])
+def test_a_ref_that_is_not_a_release_is_unordered(ref: str) -> None:
+    """Every non-release ref returns ``None`` rather than raising.
+
+    ``1.².3`` is the one that needs the strict predicate: ``str.isdigit`` is
+    true for it and ``int`` is not, so a laxer guard raises inside the failure
+    reporter's step, which is already red and still owes the run its row.
+    """
+    assert release(ref) is None
 
 
 def test_codeowners_block_is_final_and_idempotent() -> None:

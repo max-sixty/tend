@@ -240,7 +240,8 @@ def ship_workflows() -> None:
 
 @workflow_update.command("version")
 def workflow_version() -> None:
-    print(nightly_workflow_update.version(Path.cwd()))
+    stamped = nightly_workflow_update.versions(Path.cwd())
+    print(stamped[-1] if stamped else "")
 
 
 @click.command("pat-scope-audit")
