@@ -294,17 +294,52 @@ def fetch_rollup(
     )
 
 
+def _pr_head_branch(*, pr: str, repo: str) -> tuple[str | None, str] | None:
+    """The PR's head repository (``owner/name``) and branch, or ``None`` when
+    the PR can't be read. The repository is ``None`` once its fork is deleted."""
+    try:
+        response = _common.gh_json(
+            "pr",
+            "view",
+            pr,
+            "--repo",
+            repo,
+            "--json",
+            "headRefName,headRepository,headRepositoryOwner",
+            quiet=True,
+        )
+    except (subprocess.CalledProcessError, ValueError):
+        return None
+    branch = response.get("headRefName") if isinstance(response, dict) else None
+    if not isinstance(branch, str) or not branch:
+        return None
+    owner = _dig(response, "headRepositoryOwner", "login")
+    name = _dig(response, "headRepository", "name")
+    head_repo = f"{owner}/{name}" if owner and name else None
+    return head_repo, branch
+
+
 def _held_runs(
-    *, repo: str, sha: str, skip: frozenset[str] = frozenset()
+    *, pr: str, repo: str, sha: str, skip: frozenset[str] = frozenset()
 ) -> list[str] | None:
-    """Workflow runs on *sha* GitHub holds for a maintainer's approval to run.
+    """Workflow runs of PR *pr* on *sha* held for a maintainer's approval to run.
 
     A fork PR's `pull_request` run that awaits approval concludes
     `action_required` before any job starts, so it creates no check run and
     never appears in the rollup: a commit whose CI never ran can read clean.
-    Only each workflow's latest `pull_request` run counts. ``None`` when the
-    runs can't be read.
+    Only each workflow's latest `pull_request` run counts.
+
+    The runs listing is repository-wide, and two PRs can share a head commit
+    while targeting different bases, so a run counts only when it is this
+    PR's: its `pull_requests` names *pr*, or, as on a fork's runs, the list is
+    empty and the run's head repository and branch are the PR's. Without a
+    head repository (a deleted fork) every unattributed run counts. ``None``
+    when the runs or the PR can't be read.
     """
+    head = _pr_head_branch(pr=pr, repo=repo)
+    if head is None:
+        return None
+    head_repo, head_branch = head
     try:
         pages = _common.gh_pages(
             f"repos/{repo}/actions/runs?head_sha={sha}&event=pull_request&per_page=100",
@@ -312,13 +347,32 @@ def _held_runs(
         )
     except (subprocess.CalledProcessError, ValueError, _common.UnexpectedShape):
         return None
+
+    def ours(run: dict[str, Any]) -> bool:
+        linked = run.get("pull_requests") or []
+        if linked:
+            return any(
+                isinstance(entry, dict) and str(entry.get("number")) == str(pr)
+                for entry in linked
+            )
+        if head_repo is None:
+            return True
+        return (
+            _dig(run, "head_repository", "full_name") == head_repo
+            and run.get("head_branch") == head_branch
+        )
+
     latest: dict[Any, dict[str, Any]] = {}
     for page in pages:
         runs = page.get("workflow_runs") if isinstance(page, dict) else None
         if not isinstance(runs, list):
             return None
         for run in runs:
-            if not isinstance(run, dict) or run.get("event") != "pull_request":
+            if (
+                not isinstance(run, dict)
+                or run.get("event") != "pull_request"
+                or not ours(run)
+            ):
                 continue
             key = run.get("workflow_id")
             if key not in latest or int(run.get("id") or 0) > int(
@@ -583,7 +637,7 @@ def approval(
     if _conflicting(pr=pr, repo=repo, sha=sha):
         print(CONFLICT_NOTE.format(sha=sha), file=sys.stderr)
         return 2
-    held = _held_runs(repo=repo, sha=sha, skip=skip)
+    held = _held_runs(pr=pr, repo=repo, sha=sha, skip=skip)
     if held is None:
         print(f"could not read the workflow runs on {sha}", file=sys.stderr)
         return 2
@@ -678,7 +732,7 @@ def poll(
         _unverified_note(last)
         head_note(pr=pr, repo=repo, sha=sha)
         return 1
-    held = _held_runs(repo=repo, sha=sha, skip=skip) if settled else []
+    held = _held_runs(pr=pr, repo=repo, sha=sha, skip=skip) if settled else []
     if held is None:
         print(f"could not read the workflow runs on {sha} — UNVERIFIED, not green")
         return 2
