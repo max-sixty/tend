@@ -31,6 +31,7 @@ from tend.workflows import (
     codeowners_config,
     control_plane_block,
     generate_all,
+    refuse_older_generator,
 )
 
 
@@ -200,6 +201,15 @@ main.add_command(runtime)
 )
 def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> None:
     """Generate workflow files from config. Idempotent — always overwrites."""
+    outdir = Path(".github/workflows")
+    refuse_older_generator(
+        (
+            path.read_text(encoding="utf-8", errors="replace")
+            for path in outdir.glob("tend-*.yaml")
+        ),
+        f"would downgrade {outdir}",
+        "init",
+    )
     cfg = Config.load(config_path)
     cfg.default_branch = _detect_default_branch_local()
     try:
@@ -218,7 +228,6 @@ def init(config_path: Path | None, dry_run: bool, with_install_test: bool) -> No
             "a fork.",
             err=True,
         )
-    outdir = Path(".github/workflows")
 
     workflows = generate_all(cfg, with_install_test=with_install_test)
 

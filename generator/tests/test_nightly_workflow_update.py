@@ -436,7 +436,7 @@ def test_prepare_bases_a_fresh_branch_on_the_fetched_default_branch(
     assert add[-1] == "default-branch-head"
 
 
-def test_version_prints_the_oldest_stamp_numerically(
+def test_version_prints_the_newest_stamp_numerically(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -451,7 +451,7 @@ def test_version_prints_the_oldest_stamp_numerically(
 
     result = CliRunner().invoke(runtime, ["nightly-workflow-update", "version"])
     assert result.exit_code == 0
-    assert result.output == "0.9.2\n"
+    assert result.output == "0.10.0\n"
 
 
 def test_version_is_empty_without_stamped_workflows(
