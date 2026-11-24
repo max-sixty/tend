@@ -294,6 +294,44 @@ def fetch_rollup(
     )
 
 
+def _held_runs(
+    *, repo: str, sha: str, skip: frozenset[str] = frozenset()
+) -> list[str] | None:
+    """Workflow runs on *sha* GitHub holds for a maintainer's approval to run.
+
+    A fork PR's `pull_request` run that awaits approval concludes
+    `action_required` before any job starts, so it creates no check run and
+    never appears in the rollup: a commit whose CI never ran can read clean.
+    Only each workflow's latest `pull_request` run counts. ``None`` when the
+    runs can't be read.
+    """
+    try:
+        pages = _common.gh_pages(
+            f"repos/{repo}/actions/runs?head_sha={sha}&event=pull_request&per_page=100",
+            quiet=True,
+        )
+    except (subprocess.CalledProcessError, ValueError, _common.UnexpectedShape):
+        return None
+    latest: dict[Any, dict[str, Any]] = {}
+    for page in pages:
+        runs = page.get("workflow_runs") if isinstance(page, dict) else None
+        if not isinstance(runs, list):
+            return None
+        for run in runs:
+            if not isinstance(run, dict) or run.get("event") != "pull_request":
+                continue
+            key = run.get("workflow_id")
+            if key not in latest or int(run.get("id") or 0) > int(
+                latest[key].get("id") or 0
+            ):
+                latest[key] = run
+    return [
+        f"{run.get('name')} (awaiting maintainer approval to run) {run.get('html_url')}"
+        for run in latest.values()
+        if run.get("conclusion") == "action_required" and run.get("name") not in skip
+    ]
+
+
 def _head(*, pr: str, repo: str) -> str:
     """The PR's current head, or "" when it can't be read."""
     try:
@@ -484,7 +522,8 @@ def approval(
     A check that settled without a result — cancelled, stale, held for an
     environment's approval, or a conclusion outside the passing set — never
     reached a verdict, so it cannot withhold on its merits. It approves, named
-    as unverified so the approval doesn't read as a check that passed.
+    as unverified so the approval doesn't read as a check that passed. So does
+    a workflow run held for a maintainer's approval (:func:`_held_runs`).
 
     A confirmed external failure returns before Actions jobs settle; those
     jobs cannot supersede it by cancelling and replacing a workflow run.
@@ -544,6 +583,11 @@ def approval(
     if _conflicting(pr=pr, repo=repo, sha=sha):
         print(CONFLICT_NOTE.format(sha=sha), file=sys.stderr)
         return 2
+    held = _held_runs(repo=repo, sha=sha, skip=skip)
+    if held is None:
+        print(f"could not read the workflow runs on {sha}", file=sys.stderr)
+        return 2
+    rollup["unverified"] = [*rollup["unverified"], *held]
     if rollup["unverified"]:
         print(f"approve: no failing check on {sha}; unverified:")
         print(*rollup["unverified"], sep="\n")
@@ -634,9 +678,13 @@ def poll(
         _unverified_note(last)
         head_note(pr=pr, repo=repo, sha=sha)
         return 1
-    if settled and last["unverified"]:
+    held = _held_runs(repo=repo, sha=sha, skip=skip) if settled else []
+    if held is None:
+        print(f"could not read the workflow runs on {sha} — UNVERIFIED, not green")
+        return 2
+    if settled and (last["unverified"] or held):
         print(f"no result from these checks on {sha} — UNVERIFIED, not green:")
-        print(*last["unverified"], sep="\n")
+        print(*last["unverified"], *held, sep="\n")
         head_note(pr=pr, repo=repo, sha=sha)
         return 2
     if settled and _conflicting(pr=pr, repo=repo, sha=sha):
