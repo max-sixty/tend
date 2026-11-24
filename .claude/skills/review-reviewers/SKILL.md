@@ -20,7 +20,7 @@ The bot's job is to produce useful outputs: reviews, triage comments, fix commit
 
 Log parsing and outcome checking produce bulk text; run them in a subagent so the context that makes the judgments — assessing findings and remedies, deciding whether to act, drafting PRs — holds the conclusions rather than the transcripts.
 
-Expected behavior that looks suspicious — designed no-ops, designed silence, re-review after a fix commit — is listed under **Non-issues** in `review-gates.md`. Read it before a finding becomes a PR.
+Expected behavior that looks suspicious — designed no-ops, designed silence, re-review after a fix commit — is listed under **Non-issues** in `references/review-gates.md`. Read it before a finding becomes a PR.
 
 ## Target repo
 
@@ -30,7 +30,7 @@ Analysis targets a consumer repo whose CI runs are analyzed. Findings result in 
 
 Use `-R $ARGUMENTS` for commands that access the target repo (querying runs, PRs, issues). Commands without `-R` default to tend.
 
-@review-gates.md
+Read `references/review-gates.md` before assessing findings.
 
 ## Evidence accumulation
 
@@ -50,7 +50,7 @@ persists their ids, and prints both evidence windows and the gist's
 `gist_url`, which the PR bodies and summary below link.
 
 After assessing findings, write this run's findings in the format from
-`@review-gates.md` to `$TMPDIR/findings.md`. Append a `## Run
+`references/review-gates.md` to `$TMPDIR/findings.md`. Append a `## Run
 $GITHUB_RUN_ID` heading every run, including an all-clear window; the heading
 is the audit trail future runs use. Then append it:
 

@@ -3,7 +3,7 @@ vars:
   task: |
     Tend is analyzing the independent review-runs snapshots in
     observations.json. Each snapshot supplies the investigation completed so
-    far. Read /tend-ci-runner:review-runs and its shared review-gates.md, plus
+    far. Read /tend-ci-runner:review-runs and its references/review-gates.md, plus
     any guidance needed for the proposed actions. Decide what to do next in
     each snapshot: what findings support a repair, what repair if any to
     propose, and what evidence or verification is still needed. Save the

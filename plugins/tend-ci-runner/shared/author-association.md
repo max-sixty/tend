@@ -1,5 +1,5 @@
 <!-- Shared author_association tiers used across skills. -->
-<!-- Symlinked into each skill directory; changes here apply to all. -->
+<!-- Symlinked into each citing skill's references/; changes here apply to all. -->
 
 ## Author association tiers
 
