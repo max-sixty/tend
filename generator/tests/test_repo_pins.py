@@ -651,6 +651,28 @@ def test_skill_reference_citations_resolve() -> None:
     )
 
 
+# `@file.md`, as a CLAUDE.md import line or an inline span. That import is a
+# memory-file feature: a skill body reaches the session with the line verbatim,
+# so the file loads only if the session guesses to read it.
+AT_INCLUDE = re.compile(r"(?m)^@[\w./-]+\.md\s*$|`@[\w./-]+\.md`")
+
+
+def test_skills_cite_files_rather_than_at_include_them() -> None:
+    """A skill loads a neighbouring file by citing it, never by `@` import."""
+    skill_dirs = [
+        *(REPO_ROOT / "plugins").glob("*/skills/*"),
+        *(REPO_ROOT / ".claude" / "skills").glob("*"),
+    ]
+    found = [
+        f"{path.relative_to(REPO_ROOT)}: {match.group().strip()}"
+        for skill in skill_dirs
+        for path in skill.glob("**/*.md")
+        for match in AT_INCLUDE.finditer(path.read_text())
+    ]
+    listing = "\n".join(found)
+    assert not found, f"cite these as `references/<file>.md` instead:\n{listing}"
+
+
 # Inline `run:` bodies in the composite actions. Nothing else lints them:
 # actionlint only reads workflow files (it parses an action.yaml as a malformed
 # workflow — "jobs section is missing"), and the shellcheck hook's `files:`

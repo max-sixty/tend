@@ -1,5 +1,6 @@
 <!-- Evidence framework for the review-runs skill, and for tend's own -->
-<!-- review-reviewers overlay. Symlinked into each; changes here apply to both. -->
+<!-- review-reviewers overlay. Symlinked into each one's references/; changes -->
+<!-- here apply to both. -->
 <!-- It ships with the plugin: every rule here has to hold in a consumer's repo. -->
 
 ## Evidence and remedy

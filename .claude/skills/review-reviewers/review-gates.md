@@ -1,1 +1,0 @@
-../../../plugins/tend-ci-runner/shared/review-gates.md

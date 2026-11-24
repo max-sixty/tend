@@ -24,7 +24,7 @@ This skill runs **in the consumer repo**, not in tend. Improvements target `.cla
 ls .claude/skills/
 ```
 
-@review-gates.md
+Read `references/review-gates.md` before assessing findings.
 
 ## Evidence accumulation
 
@@ -49,7 +49,7 @@ list the finding headings first
 (`grep -h '^### ' "$TMPDIR"/evidence-*.md`), match on meaning, then read the
 `## Run` entry behind each candidate.
 
-After analysis, write the new findings in the format from `@review-gates.md`
+After analysis, write the new findings in the format from `references/review-gates.md`
 to `$TMPDIR/findings.md`. Include a literal `## Run $GITHUB_RUN_ID` heading.
 Then append them:
 
