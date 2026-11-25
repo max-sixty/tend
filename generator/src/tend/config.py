@@ -377,9 +377,7 @@ class Config:
                 "protected_branches must be a list of non-empty strings"
             )
 
-        secrets = raw.get("secrets", {}) or {}
-        if not isinstance(secrets, dict):
-            raise click.ClickException("secrets must be a mapping")
+        secrets = _mapping_section(raw, "secrets")
         removed = sorted(set(secrets) & set(REMOVED_SECRETS_KEYS))
         if removed:
             renames = ", ".join(
@@ -394,7 +392,7 @@ class Config:
         for key in sorted(unknown_secrets):
             click.echo(f"Warning: unknown secrets key '{key}'", err=True)
 
-        accepted_checks = _parse_accepted_checks(raw.get("checks", {}) or {}, merge)
+        accepted_checks = _parse_accepted_checks(_mapping_section(raw, "checks"), merge)
 
         setup_raw = raw.get("setup", []) or []
         setup: list[SetupStep] = []
@@ -450,9 +448,7 @@ class Config:
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
 
-        workflows_raw = raw.get("workflows") or {}
-        if not isinstance(workflows_raw, dict):
-            raise click.ClickException("workflows must be a mapping")
+        workflows_raw = _mapping_section(raw, "workflows")
         workflows: dict[str, WorkflowConfig] = {}
         for name, wf_raw in workflows_raw.items():
             if name == "codex-auth-refresh" and (
@@ -700,10 +696,18 @@ class Config:
         )
 
 
-def _parse_accepted_checks(checks: object, merge: str) -> dict[str, str]:
+def _mapping_section(raw: dict, key: str) -> dict:
+    """Return a top-level mapping section; absent or empty (`key:`) means `{}`."""
+    value = raw.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise click.ClickException(f"{key} must be a mapping")
+    return value
+
+
+def _parse_accepted_checks(checks: dict, merge: str) -> dict[str, str]:
     """Validate `checks.accepted`: check name → the maintainer's reason."""
-    if not isinstance(checks, dict):
-        raise click.ClickException("checks must be a mapping")
     unknown = set(checks) - {"accepted"}
     if unknown:
         raise click.ClickException(

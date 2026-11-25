@@ -225,13 +225,16 @@ def test_protected_branches_empty_string_rejected(tmp_path: Path) -> None:
     [
         ("secrets: [allowed]\n", "secrets must be a mapping"),
         ("secrets: CODECOV_TOKEN\n", "secrets must be a mapping"),
+        ("secrets: []\n", "secrets must be a mapping"),
         ("workflows: [review]\n", "workflows must be a mapping"),
+        ("workflows: false\n", "workflows must be a mapping"),
+        ("checks: false\n", "checks must be a mapping"),
     ],
 )
 def test_non_mapping_section_raises_config_error(
     tmp_path: Path, extra: str, message: str
 ) -> None:
-    """A list or scalar where a mapping belongs names the key, not a traceback."""
+    """A list or scalar where a mapping belongs, falsey ones included, names the key."""
     path = _write_config(tmp_path, f"bot_name: my-bot\n{extra}")
     with pytest.raises(ClickException, match=message):
         Config.load(path)
