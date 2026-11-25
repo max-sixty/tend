@@ -394,7 +394,11 @@ class Config:
 
         accepted_checks = _parse_accepted_checks(_mapping_section(raw, "checks"), merge)
 
-        setup_raw = raw.get("setup", []) or []
+        setup_raw = raw.get("setup")
+        if setup_raw is None:
+            setup_raw = []
+        elif not isinstance(setup_raw, list):
+            raise click.ClickException("setup must be a list of steps")
         setup: list[SetupStep] = []
         for i, entry in enumerate(setup_raw):
             if not isinstance(entry, dict):

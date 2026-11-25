@@ -240,6 +240,20 @@ def test_non_mapping_section_raises_config_error(
         Config.load(path)
 
 
+@pytest.mark.parametrize("setup", ["false", "{}", "''", "{run: make}", "make"])
+def test_non_list_setup_raises_config_error(tmp_path: Path, setup: str) -> None:
+    """A scalar or mapping `setup:`, falsey ones included, is rejected, not dropped."""
+    path = _write_config(tmp_path, f"bot_name: my-bot\nsetup: {setup}\n")
+    with pytest.raises(ClickException, match="setup must be a list"):
+        Config.load(path)
+
+
+def test_empty_setup_means_no_steps(tmp_path: Path) -> None:
+    for setup in ("", "[]"):
+        path = _write_config(tmp_path, f"bot_name: my-bot\nsetup: {setup}\n")
+        assert Config.load(path).setup == []
+
+
 def test_merge_defaults_to_restricted(tmp_path: Path) -> None:
     cfg = Config.load(_write_config(tmp_path, "bot_name: my-bot\n"))
 
