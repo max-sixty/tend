@@ -96,7 +96,6 @@ REMOVED_SECRETS_KEYS = {
     "openai_key": OPENAI_KEY_SECRET,
 }
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
-# POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
 
 ALLOWED_STEP_FIELDS = {
     "uses",
@@ -133,19 +132,16 @@ class SetupStep:
 class MergePolicy:
     """The small set of decisions that changes between merge modes."""
 
-    bot_can_merge: bool
     expected_runtime_bypass: str
     requires_control_plane_review: bool
 
 
 MERGE_POLICIES = {
     "restricted": MergePolicy(
-        bot_can_merge=False,
         expected_runtime_bypass="never",
         requires_control_plane_review=False,
     ),
     "yolo": MergePolicy(
-        bot_can_merge=True,
         expected_runtime_bypass="pull_requests_only",
         requires_control_plane_review=True,
     ),
@@ -381,7 +377,7 @@ class Config:
                 "protected_branches must be a list of non-empty strings"
             )
 
-        secrets = raw.get("secrets", {}) or {}
+        secrets = _mapping_section(raw, "secrets")
         removed = sorted(set(secrets) & set(REMOVED_SECRETS_KEYS))
         if removed:
             renames = ", ".join(
@@ -396,7 +392,7 @@ class Config:
         for key in sorted(unknown_secrets):
             click.echo(f"Warning: unknown secrets key '{key}'", err=True)
 
-        accepted_checks = _parse_accepted_checks(raw.get("checks", {}) or {}, merge)
+        accepted_checks = _parse_accepted_checks(_mapping_section(raw, "checks"), merge)
 
         setup_raw = raw.get("setup", []) or []
         setup: list[SetupStep] = []
@@ -452,8 +448,9 @@ class Config:
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
 
+        workflows_raw = _mapping_section(raw, "workflows")
         workflows: dict[str, WorkflowConfig] = {}
-        for name, wf_raw in (raw.get("workflows") or {}).items():
+        for name, wf_raw in workflows_raw.items():
             if name == "codex-auth-refresh" and (
                 isinstance(wf_raw, bool)
                 or isinstance(wf_raw, dict)
@@ -699,10 +696,18 @@ class Config:
         )
 
 
-def _parse_accepted_checks(checks: object, merge: str) -> dict[str, str]:
+def _mapping_section(raw: dict, key: str) -> dict:
+    """Return a top-level mapping section; absent or empty (`key:`) means `{}`."""
+    value = raw.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise click.ClickException(f"{key} must be a mapping")
+    return value
+
+
+def _parse_accepted_checks(checks: dict, merge: str) -> dict[str, str]:
     """Validate `checks.accepted`: check name → the maintainer's reason."""
-    if not isinstance(checks, dict):
-        raise click.ClickException("checks must be a mapping")
     unknown = set(checks) - {"accepted"}
     if unknown:
         raise click.ClickException(

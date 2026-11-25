@@ -220,11 +220,30 @@ def test_protected_branches_empty_string_rejected(tmp_path: Path) -> None:
         Config.load(path)
 
 
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ("secrets: [allowed]\n", "secrets must be a mapping"),
+        ("secrets: CODECOV_TOKEN\n", "secrets must be a mapping"),
+        ("secrets: []\n", "secrets must be a mapping"),
+        ("workflows: [review]\n", "workflows must be a mapping"),
+        ("workflows: false\n", "workflows must be a mapping"),
+        ("checks: false\n", "checks must be a mapping"),
+    ],
+)
+def test_non_mapping_section_raises_config_error(
+    tmp_path: Path, extra: str, message: str
+) -> None:
+    """A list or scalar where a mapping belongs, falsey ones included, names the key."""
+    path = _write_config(tmp_path, f"bot_name: my-bot\n{extra}")
+    with pytest.raises(ClickException, match=message):
+        Config.load(path)
+
+
 def test_merge_defaults_to_restricted(tmp_path: Path) -> None:
     cfg = Config.load(_write_config(tmp_path, "bot_name: my-bot\n"))
 
     assert cfg.merge == "restricted"
-    assert cfg.merge_policy.bot_can_merge is False
     assert cfg.merge_policy.expected_runtime_bypass == "never"
 
 
@@ -239,7 +258,6 @@ def test_yolo_merge_uses_codeowners_without_configured_owner(tmp_path: Path) -> 
 
     cfg = Config.load(path)
 
-    assert cfg.merge_policy.bot_can_merge is True
     assert cfg.merge_policy.expected_runtime_bypass == "pull_requests_only"
     assert cfg.merge_policy.requires_control_plane_review is True
 
