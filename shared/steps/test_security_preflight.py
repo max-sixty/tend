@@ -182,6 +182,39 @@ def test_control_plane_codeowners_accepts_the_generated_block_after_consumer_rul
     assert _accepted(fake_gh, _codeowners_answer(github=(0o100644, content)))
 
 
+@pytest.mark.parametrize(
+    ("error_line", "accepted"),
+    [("consumer", True), ("begin", False), ("end", False), (None, False)],
+)
+def test_control_plane_codeowners_judges_githubs_errors_by_line(
+    fake_gh: FakeGh, error_line: str | None, accepted: bool
+) -> None:
+    """An error GitHub reports inside the managed block, or on no line, rejects
+    it; one on a consumer rule above the block does not."""
+    content = _generated_codeowners("* @someone-else\n")
+    lines = content.splitlines()
+    begin = lines.index(security_preflight.CODEOWNERS_BEGIN) + 1
+    line = {
+        "consumer": 1,
+        "begin": begin,
+        "end": begin + len(lines[begin - 1 :]) - 1,
+        None: None,
+    }[error_line]
+    _codeowners(fake_gh)
+    fake_gh.respond(
+        "api",
+        f"repos/{REPO}/codeowners/errors?ref=main",
+        with_={"errors": [{"line": line, "kind": "Unknown owner"}]},
+    )
+    fake_gh.respond(
+        "api", "graphql", with_=_codeowners_answer(github=(0o100644, content))
+    )
+    assert (
+        security_preflight.has_valid_control_plane_codeowners(REPO, "main", "tend-bot")
+        is accepted
+    )
+
+
 def test_control_plane_codeowners_rejects_a_symlink(fake_gh: FakeGh) -> None:
     """The blob of a symlink is its target path; the mode is what tells."""
     assert not _accepted(

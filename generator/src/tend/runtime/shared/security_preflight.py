@@ -19,10 +19,11 @@ Decisions this encodes:
   it needs the exact pull-request-only state.
 - Any readable value other than ``never`` counts as bypassable, JSON ``null``
   included — an answer that isn't "never" is not a restriction.
-- A rules listing that cannot be read, or that comes back as anything but an
-  array of pages, falls through to the ``.protected`` floor too, so a GitHub
-  outage doesn't take the gate down with it. A listing that reads cleanly is
-  an answer, even when no entry in it is a usable update rule.
+- In restricted mode, a rules listing that cannot be read, or that comes back
+  as anything but an array of pages, falls through to the ``.protected`` floor
+  too, so a GitHub outage doesn't take the gate down with it. Yolo fails
+  closed here for the same reason as above. A listing that reads cleanly is an
+  answer, even when no entry in it is a usable update rule.
 
 Inputs (env): ``GITHUB_REPOSITORY``, ``TEND_MERGE``, plus the bot's
 ``GITHUB_TOKEN``, which reaches ``gh`` through the environment.
@@ -30,12 +31,11 @@ Inputs (env): ``GITHUB_REPOSITORY``, ``TEND_MERGE``, plus the bot's
 
 from __future__ import annotations
 
-import re
 from typing import Any
 from urllib.parse import quote
 
 from tend.runtime.shared import _common
-from tend.workflows import CODEOWNERS_BEGIN, CODEOWNERS_END, CONTROL_PLANE_PATHS
+from tend.workflows import CODEOWNERS_BEGIN, control_plane_block
 
 BYPASS_ERROR = (
     "The bot can bypass every restrict-updates ruleset on '{branch}' "
@@ -193,25 +193,9 @@ def has_valid_control_plane_codeowners(repo: str, branch: str, bot_name: str) ->
     if content is None:
         return False
 
-    lines = content.rstrip().splitlines()
-    if lines.count(CODEOWNERS_BEGIN) != 1 or lines.count(CODEOWNERS_END) != 1:
+    block_lines = control_plane_block(content, bot_name)
+    if block_lines is None:
         return False
-    block_lines = lines[lines.index(CODEOWNERS_BEGIN) :]
-    if (
-        len(block_lines) != len(CONTROL_PLANE_PATHS) + 2
-        or block_lines[-1] != CODEOWNERS_END
-    ):
-        return False
-    for path, line in zip(CONTROL_PLANE_PATHS, block_lines[1:-1], strict=True):
-        parts = line.split()
-        if len(parts) < 2 or parts[0] != path:
-            return False
-        if any(
-            not re.fullmatch(r"@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", owner)
-            or owner.casefold() == f"@{bot_name}".casefold()
-            for owner in parts[1:]
-        ):
-            return False
 
     response = _common.gh_json(
         "api", f"repos/{repo}/codeowners/errors?ref={quote(branch, safe='')}"
