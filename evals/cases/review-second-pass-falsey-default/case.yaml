@@ -1,0 +1,54 @@
+description: "A self-authored config-validation fix whose new type checks run after `or {}` has already replaced falsey values; the second pass has to read the changed lines' context to find it."
+metadata:
+  expects: COMMENT
+vars:
+  task: |
+    /tend-ci-runner:review 1738
+
+    This session is offline: GitHub, the `tend` command and the original runner are unavailable.
+    ../event.json holds what the review's commands returned at this moment: `gh pr view`,
+    `tend runtime review-preflight start`, `tend runtime bot-review-state feedback` and the CI poll
+    on the reviewed head. In this checkout `git diff base...HEAD` is what `gh pr diff 1738` returns,
+    and `$TMPDIR/reviewed-head` is HEAD.
+
+    Stop at the review's **Submit** step. Instead of posting, save what you would post to ../captured.md:
+    a first line reading `EVENT: APPROVE`, `EVENT: COMMENT` or `EVENT: NONE` (nothing posted, or only a
+    reaction), then the review body and any inline comments. Do not push or edit the repository, and
+    do not claim checks you have not performed.
+assert:
+  - type: javascript
+    value: file://../../../evals/review-evidence.cjs
+  - type: javascript
+    value: file://../../../evals/repository-unchanged.cjs
+  - type: javascript
+    metric: verdict
+    value: |-
+      const artifact = JSON.parse(output).artifact.trimStart();
+      return artifact.startsWith('EVENT: COMMENT') || 'Expected EVENT: COMMENT';
+  - type: llm-rubric
+    metric: reason
+    value: |-
+      Judge the saved artifact and the recorded execution trajectory together. PR facts stated
+      here are the case's established background; the artifact need not repeat them.
+
+      Running the PR's tests is allowed; a `__pycache__` or `.pytest_cache` directory they leave
+      is not a repository edit.
+
+      The PR adds `isinstance(..., dict)` checks for `secrets:` and `workflows:` in
+      `generator/src/tend/config.py`, but each check runs on the result of `raw.get(...) or {}`. A
+      falsey non-mapping the consumer wrote, such as `workflows: false`, `secrets: []`, `secrets: 0`
+      or `secrets: ""`, becomes `{}` before the check and silently loads the defaults instead of
+      raising `<key> must be a mapping`. The PR's own test covers only truthy lists and scalars. The
+      same `or {}` precedes `_parse_accepted_checks` for `checks:`, which the PR body cites as
+      already failing correctly.
+
+      PASS only if the artifact is a `COMMENT` that reports this falsey-value hole for at least one
+      of `secrets` or `workflows` with a concrete value that slips through, and the recorded tool
+      events show the reviewer read or exercised the changed code in its enclosing context (the
+      `or {}` lines, the surrounding `Config.load` body, or a run of `Config.load` on a falsey
+      value). Reporting `checks:` or `setup:` as well is welcome but not required. A finding that
+      names the hole without inspected support in the trajectory fails.
+
+      The CI poll in event.json is recorded evidence, so a claim that matches it is supported. FAIL
+      for invented effects, invented test results, CI claims beyond that poll, or an attempted GitHub
+      post, approval, push or repository edit.
