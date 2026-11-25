@@ -58,6 +58,18 @@ FAKE_GH_NOTIFICATIONS = (
     + r"""
 case "$1:$2" in
   api:--paginate)
+    case "$4" in
+      repos/*/actions/runs/*/jobs*)
+        run_id=${4#*/actions/runs/}; run_id=${run_id%%/*}
+        emit "$(jq -c --arg id "$run_id" '{jobs: (.[$id] // [])}' "$JOBS_JSON")"
+        exit 0 ;;
+      repos/*/actions/runs\?*)
+        [ -z "${FAIL_RUNS:-}" ] || exit 1
+        status=${4#*status=}; status=${status%%&*}
+        emit "$(jq -c --arg s "$status" \
+          '{workflow_runs: [.[] | select(.status == $s)]}' "$RUNS_JSON")"
+        exit 0 ;;
+    esac
     [ -z "${FAIL_NOTIFS:-}" ] || exit 1
     # A 200 carrying something other than JSON, verbatim.
     if [ -n "${RAW_BODY:-}" ]; then cat "$RAW_BODY"; exit 0; fi
@@ -70,6 +82,11 @@ case "$1:$2" in
     else
       emit "$(printf '%s\n' "$pages" | jq -c '.[] | [.]')"
     fi
+    ;;
+  api:https://api.github.com/repos/*)
+    subject=$(jq -c --arg url "$2" '.[$url] // empty' "$SUBJECTS_JSON")
+    [ -n "$subject" ] || exit 1
+    emit "$subject"
     ;;
   api:repos/*/subscription)
     [ -z "${FAIL_SUBSCRIPTION_WRITE:-}" ] || exit 1
@@ -96,7 +113,12 @@ NOTIF_CUTOFF = "2026-01-02T11:50:00Z"
 
 
 def _notif(
-    tid: str, kind: str, number: int, updated_at: str, repo: str = "owner/repo"
+    tid: str,
+    kind: str,
+    number: int,
+    updated_at: str,
+    repo: str = "owner/repo",
+    title: str = "",
 ) -> dict:
     """One unread notification as `GET /notifications` returns it.
 
@@ -109,6 +131,7 @@ def _notif(
         "subject": {
             "url": f"https://api.github.com/repos/{repo}/{kind}/{number}",
             "type": "PullRequest" if kind == "pulls" else "Issue",
+            "title": title or f"subject {number}",
         },
     }
 
@@ -122,6 +145,12 @@ def notifications_env(tmp_path: Path) -> dict[str, str]:
     notifications.write_text("[]")
     pulls = tmp_path / "pulls.json"
     pulls.write_text("[]")
+    runs = tmp_path / "runs.json"
+    runs.write_text("[]")
+    jobs = tmp_path / "jobs.json"
+    jobs.write_text("{}")
+    subjects = tmp_path / "subjects.json"
+    subjects.write_text("{}")
     subscription_writes = tmp_path / "subscription-writes"
     subscription_writes.write_text("")
 
@@ -132,6 +161,9 @@ def notifications_env(tmp_path: Path) -> dict[str, str]:
         "GITHUB_REPOSITORY": "owner/repo",
         "NOTIFICATIONS_JSON": str(notifications),
         "PULLS_JSON": str(pulls),
+        "RUNS_JSON": str(runs),
+        "JOBS_JSON": str(jobs),
+        "SUBJECTS_JSON": str(subjects),
         "NOTIF_CUTOFF": NOTIF_CUTOFF,
         "SUBSCRIPTION_WRITES": str(subscription_writes),
     }
@@ -193,6 +225,141 @@ def test_notifications_check_counts_a_complete_cutoff_snapshot_without_acknowled
     assert f"notifications?before={NOTIF_CUTOFF}" in calls
     assert "--paginate" in calls
     assert "notifications/threads/" not in calls
+
+
+def _subjects(env: dict[str, str], titles: dict[tuple[str, int], str]) -> None:
+    """Serve each subject's live title at its API URL."""
+    _write_json(
+        env,
+        "SUBJECTS_JSON",
+        {
+            f"https://api.github.com/repos/owner/repo/{kind}/{number}": {"title": title}
+            for (kind, number), title in titles.items()
+        },
+    )
+
+
+def _run(run_id: int, workflow: str, title: str, status: str = "in_progress") -> dict:
+    """One workflow run as the Actions runs listing returns it."""
+    return {
+        "id": run_id,
+        "path": f".github/workflows/{workflow}.yaml",
+        "display_title": title,
+        "status": status,
+        "updated_at": NOTIF_SETTLED,
+        "html_url": f"https://github.com/owner/repo/actions/runs/{run_id}",
+    }
+
+
+def test_notifications_check_skips_subjects_a_running_workflow_holds(
+    notifications_env: dict[str, str],
+) -> None:
+    # The session would only defer these, so they boot no agent.
+    _write_json(
+        notifications_env,
+        "NOTIFICATIONS_JSON",
+        [
+            _notif("11", "pulls", 7, NOTIF_SETTLED, title="Bump foo"),
+            _notif("22", "issues", 8, NOTIF_SETTLED, title="Flaky test"),
+        ],
+    )
+    _write_json(
+        notifications_env,
+        "RUNS_JSON",
+        [
+            _run(101, "tend-review", "Bump foo"),
+            _run(102, "tend-triage", "triage [8]", status="queued"),
+        ],
+    )
+    _subjects(
+        notifications_env, {("pulls", 7): "Bump foo", ("issues", 8): "Flaky test"}
+    )
+
+    result = _run_check(notifications_env)
+
+    assert result.returncode == 0, result.stderr
+    assert _output(notifications_env, "count") == "0"
+    assert "2 notification(s) held by a running Tend workflow" in result.stdout
+    assert "No notification or conflict work" in result.stdout
+
+
+def test_notifications_check_counts_subjects_without_an_owner(
+    notifications_env: dict[str, str],
+) -> None:
+    _write_json(
+        notifications_env,
+        "NOTIFICATIONS_JSON",
+        [
+            _notif("11", "pulls", 7, NOTIF_SETTLED, title="Bump foo"),
+            _notif("22", "issues", 8, NOTIF_SETTLED, title="Other"),
+            _notif("33", "issues", 9, NOTIF_SETTLED, "other/repo", "Bump foo"),
+        ],
+    )
+    _write_json(
+        notifications_env,
+        "RUNS_JSON",
+        [
+            _run(101, "tend-review", "Bump foo"),
+            # Not a dedicated Tend workflow, and this poll's own run.
+            _run(102, "ci", "Other"),
+            _run(103, "tend-mention", "Other"),
+        ],
+    )
+    notifications_env["GITHUB_RUN_ID"] = "103"
+    _subjects(notifications_env, {("pulls", 7): "Bump foo", ("issues", 8): "Other"})
+
+    result = _run_check(notifications_env)
+
+    assert result.returncode == 0, result.stderr
+    assert _output(notifications_env, "count") == "2"
+
+
+def test_notifications_check_counts_a_renamed_subject_matching_a_stale_title(
+    notifications_env: dict[str, str],
+) -> None:
+    # The snapshot still carries the old title, which an unrelated review now
+    # uses; the session matches the live title and finds no owner.
+    _write_json(
+        notifications_env,
+        "NOTIFICATIONS_JSON",
+        [
+            _notif("11", "pulls", 7, NOTIF_SETTLED, title="Bump foo"),
+            _notif("22", "pulls", 8, NOTIF_SETTLED, title="Bump bar"),
+        ],
+    )
+    _write_json(
+        notifications_env,
+        "RUNS_JSON",
+        [
+            _run(101, "tend-review", "Bump foo"),
+            _run(102, "tend-review", "Bump bar"),
+        ],
+    )
+    # #8's live title is unreadable, so the session decides.
+    _subjects(notifications_env, {("pulls", 7): "Bump foo to 2.0"})
+
+    result = _run_check(notifications_env)
+
+    assert result.returncode == 0, result.stderr
+    assert _output(notifications_env, "count") == "2"
+
+
+def test_notifications_check_counts_every_notification_when_runs_are_unreadable(
+    notifications_env: dict[str, str],
+) -> None:
+    _write_json(
+        notifications_env,
+        "NOTIFICATIONS_JSON",
+        [_notif("11", "pulls", 7, NOTIF_SETTLED, title="Bump foo")],
+    )
+    _write_json(notifications_env, "RUNS_JSON", [_run(101, "tend-review", "Bump foo")])
+    notifications_env["FAIL_RUNS"] = "1"
+
+    result = _run_check(notifications_env)
+
+    assert result.returncode == 0, result.stderr
+    assert _output(notifications_env, "count") == "1"
+    assert "active run listing failed" in result.stdout
 
 
 def test_notifications_check_ignores_an_unsettled_mergeable(
