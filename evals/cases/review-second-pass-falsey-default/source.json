@@ -1,0 +1,27 @@
+{
+  "kind": "trajectory",
+  "repository": "max-sixty/tend",
+  "historical_ref": "f3101bbc575327bb524fd623e434d9d81fd758aa",
+  "bot": "tend-agent",
+  "merge": "restricted",
+  "repository_instructions": true,
+  "checkout": {
+    "base": "0b45f4565001a7e86e24638d35ab61980bc5eb24",
+    "head": "21db4730651c57f22b703408f022d1275840a180"
+  },
+  "fixtures": {
+    "event.json": "57fd35cf5131611501bd2c6354536a2edc7f35c55cdcefa50074940d2dbc7f47"
+  },
+  "origin": {
+    "run": "45562114460",
+    "artifact": "claude-session-logs-n1738",
+    "transcript": "-home-runner-work-tend-tend/df42ea93-367c-4e62-a68c-79349e0dfcc9.jsonl",
+    "sha256": "67bf95ff4f38516701f28ee40569b94ebddf8ad05d2344acb7f11ffe630f8aab",
+    "harness": "claude",
+    "model": "claude-opus-5-5",
+    "production_verdict": "NONE",
+    "snapshot_at": "2026-11-25T06:39:57.429Z",
+    "pr": "https://github.com/max-sixty/tend/pull/1738"
+  },
+  "limits": "Fresh investigation of a real pinned checkout and frozen GitHub observations. No original history is supplied. Live GitHub is absent, so the reviewer cannot list other open PRs, and the checkout is the PR head rather than refs/pull/N/merge. Dependencies from the original runner are not installed."
+}

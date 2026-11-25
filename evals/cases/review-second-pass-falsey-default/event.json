@@ -1,0 +1,55 @@
+{
+  "repository": "max-sixty/tend",
+  "request": "Review PR #1738.",
+  "snapshot_at": "2026-11-25T06:39:57.429Z",
+  "pull_request": {
+    "number": 1738,
+    "url": "https://github.com/max-sixty/tend/pull/1738",
+    "title": "fix(config): reject non-mapping secrets and workflows with a config error",
+    "body": "`Config.load` crashed with an `AttributeError` traceback when `secrets:` or `workflows:` in `.config/tend.yaml` held a list or a scalar (for example `secrets: [allowed]` or `workflows: [review]`), where the neighbouring `codex:` and `checks:` keys already fail with a config error naming the key. Both now raise `secrets must be a mapping` / `workflows must be a mapping`, which `tend init` and `tend check` print as an ordinary error. A parametrized regression test in `test_config_edge_cases.py` covers both keys and failed before the fix.\n\nTwo dead bits in the same file go with it: `MergePolicy.bot_can_merge`, which nothing outside its own two test assertions reads, and a \"POSIX-ish env var name\" comment whose regex was removed earlier. No behaviour change from either.\n\nFound by the nightly survey of `generator/src/tend/config.py`. The local generator suite passes apart from the two `test_refresh_consumers.py` tests that need DNS.\n",
+    "author": "tend-agent",
+    "head_ref": "fix/config-mapping-validation",
+    "additions": 23,
+    "deletions": 7,
+    "files": [
+      {
+        "path": "generator/src/tend/config.py",
+        "additions": 6,
+        "deletions": 5,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "generator/tests/test_config_edge_cases.py",
+        "additions": 17,
+        "deletions": 2,
+        "changeType": "MODIFIED"
+      }
+    ],
+    "linked_issues": []
+  },
+  "review_preflight_start": {
+    "head_sha": "21db4730651c57f22b703408f022d1275840a180",
+    "author": "self",
+    "is_draft": false,
+    "already_reviewed": false,
+    "incremental_path": null
+  },
+  "bot_review_state_feedback": {
+    "review_state": {
+      "reviews": [],
+      "head_sha": "21db4730651c57f22b703408f022d1275840a180",
+      "bot_login": "tend-agent",
+      "last_force_push_at": "",
+      "last_substantive": null,
+      "force_pushed_since": false,
+      "at_head": null,
+      "orphan_id": null,
+      "fresh_approval_sha": "",
+      "stale_approval_id": "",
+      "standing_approval_id": ""
+    },
+    "conversation": [],
+    "review_threads": []
+  },
+  "ci_poll": "green: every gating check on 21db4730651c57f22b703408f022d1275840a180 settled green\nverdict: GREEN on 21db4730651c57f22b703408f022d1275840a180 (exit 0)"
+}
