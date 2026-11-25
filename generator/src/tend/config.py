@@ -96,7 +96,6 @@ REMOVED_SECRETS_KEYS = {
     "openai_key": OPENAI_KEY_SECRET,
 }
 _GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
-# POSIX-ish env var name: letters, digits, underscore; not starting with a digit.
 
 ALLOWED_STEP_FIELDS = {
     "uses",
@@ -133,19 +132,16 @@ class SetupStep:
 class MergePolicy:
     """The small set of decisions that changes between merge modes."""
 
-    bot_can_merge: bool
     expected_runtime_bypass: str
     requires_control_plane_review: bool
 
 
 MERGE_POLICIES = {
     "restricted": MergePolicy(
-        bot_can_merge=False,
         expected_runtime_bypass="never",
         requires_control_plane_review=False,
     ),
     "yolo": MergePolicy(
-        bot_can_merge=True,
         expected_runtime_bypass="pull_requests_only",
         requires_control_plane_review=True,
     ),
@@ -382,6 +378,8 @@ class Config:
             )
 
         secrets = raw.get("secrets", {}) or {}
+        if not isinstance(secrets, dict):
+            raise click.ClickException("secrets must be a mapping")
         removed = sorted(set(secrets) & set(REMOVED_SECRETS_KEYS))
         if removed:
             renames = ", ".join(
@@ -452,8 +450,11 @@ class Config:
                 entry = {**entry, "if": condition}
             setup.append(SetupStep(fields=dict(entry)))
 
+        workflows_raw = raw.get("workflows") or {}
+        if not isinstance(workflows_raw, dict):
+            raise click.ClickException("workflows must be a mapping")
         workflows: dict[str, WorkflowConfig] = {}
-        for name, wf_raw in (raw.get("workflows") or {}).items():
+        for name, wf_raw in workflows_raw.items():
             if name == "codex-auth-refresh" and (
                 isinstance(wf_raw, bool)
                 or isinstance(wf_raw, dict)
