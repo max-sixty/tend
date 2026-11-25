@@ -8,6 +8,7 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from tend.runtime.ci import active_subject_runs
 from tend.runtime.shared import _common
 
 GRAPHQL_QUERY = """
@@ -34,12 +35,58 @@ def _output(name: str, value: str | int) -> None:
     _common.set_output(name, str(value))
 
 
-def _notifications(cutoff: str) -> int:
+def _notifications(cutoff: str) -> list[Any]:
     try:
-        return len(_paginated(f"notifications?before={cutoff}"))
+        return _paginated(f"notifications?before={cutoff}")
     except (json.JSONDecodeError, subprocess.CalledProcessError, TypeError):
         print("::warning::notifications fetch failed; queue left for the next cycle")
-        return 0
+        return []
+
+
+def _subject(notification: object, repo: str) -> tuple[str, int] | None:
+    """The title and number of a same-repository issue or PR subject."""
+    if not isinstance(notification, dict):
+        return None
+    if (notification.get("repository") or {}).get("full_name") != repo:
+        return None
+    subject = notification.get("subject") or {}
+    url = str(subject.get("url") or "")
+    head, _, tail = url.rpartition("/")
+    if not tail.isdigit() or head.rpartition("/")[2] not in ("issues", "pulls"):
+        return None
+    return str(subject.get("title") or ""), int(tail)
+
+
+def _unowned(repo: str, notifications: list[Any], now: datetime) -> int:
+    """Count notifications no dedicated Tend run still holds.
+
+    A session defers a subject that `active-subject-runs` lists, so booting one
+    for it while a long review or triage runs only pays for that deferral. The
+    session's check stays the authority: an unreadable runs listing, or a
+    subject this can't match, counts as work.
+    """
+    subjects = [_subject(notification, repo) for notification in notifications]
+    if not any(subjects):
+        return len(notifications)
+    try:
+        runs = active_subject_runs.fetch_active_runs(repo)
+        job_subjects = active_subject_runs.fetch_job_subjects(repo, runs)
+    except (*_common.GH_READ_FAILED, KeyError, TypeError, ValueError):
+        print("::warning::active run listing failed; counting every notification")
+        return len(notifications)
+    own_run_id = int(os.environ.get("GITHUB_RUN_ID") or 0)
+    return sum(
+        subject is None
+        or not active_subject_runs.subject_runs(
+            runs,
+            subject_title=subject[0],
+            own_run_id=own_run_id,
+            now=now,
+            job_subjects=job_subjects,
+            subject_number=subject[1],
+        )
+        for subject in subjects
+    )
 
 
 def _actor_login(actor: object) -> str:
@@ -107,7 +154,8 @@ GRACE = timedelta(minutes=10)
 
 def main(*, now: datetime | None = None) -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
-    cutoff = ((now or datetime.now(UTC)) - GRACE).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = now or datetime.now(UTC)
+    cutoff = (now - GRACE).strftime("%Y-%m-%dT%H:%M:%SZ")
     _output("cutoff", cutoff)
 
     try:
@@ -126,7 +174,10 @@ def main(*, now: datetime | None = None) -> int:
     except subprocess.CalledProcessError:
         print("::warning::could not enable repository watching; retrying next cycle")
 
-    count = _notifications(cutoff)
+    notifications = _notifications(cutoff)
+    count = _unowned(repo, notifications, now) if notifications else 0
+    if owned := len(notifications) - count:
+        print(f"{owned} notification(s) held by a running Tend workflow")
     _output("count", count)
     conflict_count = _conflicts(repo)
     _output("conflict_count", conflict_count)
