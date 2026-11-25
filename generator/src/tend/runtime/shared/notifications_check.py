@@ -43,8 +43,8 @@ def _notifications(cutoff: str) -> list[Any]:
         return []
 
 
-def _subject(notification: object, repo: str) -> tuple[str, int] | None:
-    """The title and number of a same-repository issue or PR subject."""
+def _subject(notification: object, repo: str) -> tuple[str, str, int] | None:
+    """The API URL, snapshot title, and number of a same-repository issue or PR."""
     if not isinstance(notification, dict):
         return None
     if (notification.get("repository") or {}).get("full_name") != repo:
@@ -54,7 +54,7 @@ def _subject(notification: object, repo: str) -> tuple[str, int] | None:
     head, _, tail = url.rpartition("/")
     if not tail.isdigit() or head.rpartition("/")[2] not in ("issues", "pulls"):
         return None
-    return str(subject.get("title") or ""), int(tail)
+    return url, str(subject.get("title") or ""), int(tail)
 
 
 def _unowned(repo: str, notifications: list[Any], now: datetime) -> int:
@@ -75,18 +75,31 @@ def _unowned(repo: str, notifications: list[Any], now: datetime) -> int:
         print("::warning::active run listing failed; counting every notification")
         return len(notifications)
     own_run_id = int(os.environ.get("GITHUB_RUN_ID") or 0)
-    return sum(
-        subject is None
-        or not active_subject_runs.subject_runs(
-            runs,
-            subject_title=subject[0],
-            own_run_id=own_run_id,
-            now=now,
-            job_subjects=job_subjects,
-            subject_number=subject[1],
-        )
-        for subject in subjects
-    )
+
+    def held(url: str, title: str, number: int) -> bool:
+        def owned(subject_title: str) -> bool:
+            return bool(
+                active_subject_runs.subject_runs(
+                    runs,
+                    subject_title=subject_title,
+                    own_run_id=own_run_id,
+                    now=now,
+                    job_subjects=job_subjects,
+                    subject_number=number,
+                )
+            )
+
+        if not owned(title):
+            return False
+        # The snapshot title can be stale, and the session matches the live
+        # one; an unreadable subject leaves the decision to the session.
+        try:
+            live = _common.gh_json("api", url)["title"]
+        except (*_common.GH_READ_FAILED, KeyError, TypeError):
+            return False
+        return owned(str(live))
+
+    return sum(subject is None or not held(*subject) for subject in subjects)
 
 
 def _actor_login(actor: object) -> str:

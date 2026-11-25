@@ -83,6 +83,11 @@ case "$1:$2" in
       emit "$(printf '%s\n' "$pages" | jq -c '.[] | [.]')"
     fi
     ;;
+  api:https://api.github.com/repos/*)
+    subject=$(jq -c --arg url "$2" '.[$url] // empty' "$SUBJECTS_JSON")
+    [ -n "$subject" ] || exit 1
+    emit "$subject"
+    ;;
   api:repos/*/subscription)
     [ -z "${FAIL_SUBSCRIPTION_WRITE:-}" ] || exit 1
     echo "put" >> "$SUBSCRIPTION_WRITES"
@@ -144,6 +149,8 @@ def notifications_env(tmp_path: Path) -> dict[str, str]:
     runs.write_text("[]")
     jobs = tmp_path / "jobs.json"
     jobs.write_text("{}")
+    subjects = tmp_path / "subjects.json"
+    subjects.write_text("{}")
     subscription_writes = tmp_path / "subscription-writes"
     subscription_writes.write_text("")
 
@@ -156,6 +163,7 @@ def notifications_env(tmp_path: Path) -> dict[str, str]:
         "PULLS_JSON": str(pulls),
         "RUNS_JSON": str(runs),
         "JOBS_JSON": str(jobs),
+        "SUBJECTS_JSON": str(subjects),
         "NOTIF_CUTOFF": NOTIF_CUTOFF,
         "SUBSCRIPTION_WRITES": str(subscription_writes),
     }
@@ -219,6 +227,18 @@ def test_notifications_check_counts_a_complete_cutoff_snapshot_without_acknowled
     assert "notifications/threads/" not in calls
 
 
+def _subjects(env: dict[str, str], titles: dict[tuple[str, int], str]) -> None:
+    """Serve each subject's live title at its API URL."""
+    _write_json(
+        env,
+        "SUBJECTS_JSON",
+        {
+            f"https://api.github.com/repos/owner/repo/{kind}/{number}": {"title": title}
+            for (kind, number), title in titles.items()
+        },
+    )
+
+
 def _run(run_id: int, workflow: str, title: str, status: str = "in_progress") -> dict:
     """One workflow run as the Actions runs listing returns it."""
     return {
@@ -250,6 +270,9 @@ def test_notifications_check_skips_subjects_a_running_workflow_holds(
             _run(101, "tend-review", "Bump foo"),
             _run(102, "tend-triage", "triage [8]", status="queued"),
         ],
+    )
+    _subjects(
+        notifications_env, {("pulls", 7): "Bump foo", ("issues", 8): "Flaky test"}
     )
 
     result = _run_check(notifications_env)
@@ -283,6 +306,37 @@ def test_notifications_check_counts_subjects_without_an_owner(
         ],
     )
     notifications_env["GITHUB_RUN_ID"] = "103"
+    _subjects(notifications_env, {("pulls", 7): "Bump foo", ("issues", 8): "Other"})
+
+    result = _run_check(notifications_env)
+
+    assert result.returncode == 0, result.stderr
+    assert _output(notifications_env, "count") == "2"
+
+
+def test_notifications_check_counts_a_renamed_subject_matching_a_stale_title(
+    notifications_env: dict[str, str],
+) -> None:
+    # The snapshot still carries the old title, which an unrelated review now
+    # uses; the session matches the live title and finds no owner.
+    _write_json(
+        notifications_env,
+        "NOTIFICATIONS_JSON",
+        [
+            _notif("11", "pulls", 7, NOTIF_SETTLED, title="Bump foo"),
+            _notif("22", "pulls", 8, NOTIF_SETTLED, title="Bump bar"),
+        ],
+    )
+    _write_json(
+        notifications_env,
+        "RUNS_JSON",
+        [
+            _run(101, "tend-review", "Bump foo"),
+            _run(102, "tend-review", "Bump bar"),
+        ],
+    )
+    # #8's live title is unreadable, so the session decides.
+    _subjects(notifications_env, {("pulls", 7): "Bump foo to 2.0"})
 
     result = _run_check(notifications_env)
 
