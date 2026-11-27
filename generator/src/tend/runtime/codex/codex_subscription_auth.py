@@ -80,6 +80,13 @@ def _validate_consumer(bundle: Mapping[str, Any]) -> None:
         )
 
 
+def parse_full(raw: str, label: str) -> dict[str, Any]:
+    """Parse and validate a full refreshable login."""
+    bundle = _object(raw, label)
+    _validate_full(bundle)
+    return bundle
+
+
 def consumer_auth(full_bundle: Mapping[str, Any]) -> dict[str, Any]:
     """Derive the non-refreshing bundle given to concurrent Codex jobs."""
     _validate_full(full_bundle)
@@ -118,7 +125,7 @@ def prepare(*, codex_auth_json: str, openai_api_key: str, destination: Path) -> 
     )
 
 
-def _set_environment_secret(
+def set_environment_secret(
     repository: str, environment: str, name: str, value: Mapping[str, Any]
 ) -> None:
     _common.gh(
@@ -161,23 +168,24 @@ def stage_refresh(
             f"subscription auth is partially configured; missing {', '.join(missing)}"
         )
 
-    full = _object(refresh_auth_json, FULL_AUTH_SECRET)
-    _validate_full(full)
+    stage_forced_refresh(_object(refresh_auth_json, FULL_AUTH_SECRET), destination)
+    return True
 
-    staged = copy.deepcopy(full)
+
+def stage_forced_refresh(full: Mapping[str, Any], destination: Path) -> None:
+    """Stage a copy of FULL that Codex must refresh on its next request."""
+    _validate_full(full)
+    staged = copy.deepcopy(dict(full))
     # Codex 0.151 checks a JWT access token's expiry before last_refresh. An
     # unparsable token reaches the stale fallback; the refresh exchange itself
     # uses the untouched refresh token. This changes only the runner's copy.
     staged["tokens"]["access_token"] = FORCED_REFRESH_ACCESS_TOKEN
     staged["last_refresh"] = FORCED_STALE_REFRESH
     _write_auth(staged, destination)
-    return True
 
 
-def publish_refresh(
-    *, auth_file: Path, repository: str, codex_succeeded: bool = True
-) -> None:
-    """Publish the full file Codex refreshed, then its consumer projection."""
+def read_refreshed(auth_file: Path) -> dict[str, Any]:
+    """Read the full bundle Codex rewrote after a forced refresh."""
     try:
         refreshed = _object(auth_file.read_text(), FULL_AUTH_SECRET)
     except OSError as exc:
@@ -187,15 +195,21 @@ def publish_refresh(
     _validate_full(refreshed)
     if refreshed["tokens"]["access_token"] == FORCED_REFRESH_ACCESS_TOKEN:
         raise SubscriptionAuthError("Codex did not refresh the staged auth.json")
+    return refreshed
+
+
+def publish_refresh(
+    *, auth_file: Path, repository: str, codex_succeeded: bool = True
+) -> None:
+    """Publish the full file Codex refreshed, then its consumer projection."""
+    refreshed = read_refreshed(auth_file)
 
     # Rotating refresh tokens make order part of the durability contract. Once
     # Codex rotates the old token, persist the replacement before updating the
     # disposable consumer view. Persist even if the probe exited non-zero after
     # rotating; otherwise a later model error could strand the only valid token.
-    _set_environment_secret(
-        repository, REFRESH_ENVIRONMENT, FULL_AUTH_SECRET, refreshed
-    )
-    _set_environment_secret(
+    set_environment_secret(repository, REFRESH_ENVIRONMENT, FULL_AUTH_SECRET, refreshed)
+    set_environment_secret(
         repository, TEND_ENVIRONMENT, CONSUMER_AUTH_SECRET, consumer_auth(refreshed)
     )
     if not codex_succeeded:

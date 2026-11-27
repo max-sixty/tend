@@ -18,7 +18,11 @@ from pathlib import Path
 import click
 
 from tend.runtime.ci.cli import register
-from tend.runtime.codex import codex_model_smoke, codex_subscription_auth
+from tend.runtime.codex import (
+    codex_model_smoke,
+    codex_rotation_test,
+    codex_subscription_auth,
+)
 from tend.runtime.shared import _common
 
 
@@ -241,6 +245,7 @@ def codex() -> None:
 
 
 codex.add_command(codex_model_smoke.main, "model-smoke")
+codex.add_command(codex_rotation_test.main, "rotation-test")
 
 
 @codex.command("check-cli")

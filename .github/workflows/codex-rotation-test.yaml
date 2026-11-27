@@ -1,0 +1,54 @@
+# Opt-in check that a candidate Codex CLI rotates subscription credentials the
+# way the refresh action relies on. It owns the codex-rotation-test login, whose
+# refresh chain nothing else holds, and writes each rotated login back to that
+# environment's CODEX_AUTH_JSON. It never reads or writes the tend or
+# tend-codex-refresh environments.
+name: Codex rotation test
+
+on:
+  workflow_dispatch:
+    inputs:
+      codex_version:
+        description: Candidate @openai/codex version
+        required: true
+      model:
+        description: Model for the access-only request; empty uses the generator's Codex default
+        required: false
+        default: ""
+
+# Two runs would race the one refresh-token chain.
+concurrency:
+  group: codex-rotation-test
+  cancel-in-progress: false
+
+jobs:
+  rotate:
+    if: github.repository == 'max-sixty/tend' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: codex-rotation-test
+      deployment: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "20"
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+
+      - name: Rotate the test login with the candidate Codex CLI
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          GH_TOKEN: ${{ secrets.CODEX_ROTATION_TEST_PAT }}
+          CODEX_VERSION: ${{ inputs.codex_version }}
+          MODEL: ${{ inputs.model }}
+        run: >-
+          uv run --package tend --no-dev tend runtime codex rotation-test
+          --codex-version "$CODEX_VERSION" ${MODEL:+--model "$MODEL"}
