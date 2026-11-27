@@ -14,5 +14,5 @@ in parallel. Give each a distinct scope, the relevant skills and evidence,
 and its own worktree when editing. Size the fan-out to the independent work
 and available resources rather than imposing a fixed small quota. A small or
 coupled task may need no delegation. The parent reconciles findings, checks
-current ownership before outward actions, and waits for its subagents before
-reporting the sweep's outcome.
+current ownership before outward actions, and does not end its turn until its
+subagents have returned.
