@@ -31,24 +31,16 @@ Decisions this module owns:
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
-import signal
-import subprocess
-import time
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from tend.runtime.shared import _common
+from tend.runtime.shared import _common, supervise
 
 #: Transcript lines rendered to the job summary, so a long session cannot flood it.
 TRANSCRIPT_MAX_LINES = 400
-
-#: Seconds the agent has to flush after the bound's TERM, before the KILL.
-TERM_GRACE_SEC = 5
 
 #: Stderr lines quoted on a failure, read from the last this many bytes.
 STDERR_TAIL_LINES = 20
@@ -172,84 +164,6 @@ def launch_argv(
         argv.extend(["--settings", settings_file])
     argv.append(prompt)
     return argv
-
-
-@dataclass(frozen=True)
-class Supervised:
-    """How the supervised launch ended."""
-
-    #: The agent's exit code, or None when the bound killed the run.
-    exit_code: int | None
-    elapsed: int
-
-
-def supervise(
-    argv: list[str],
-    *,
-    timeout_sec: int,
-    stream_json: Path,
-    stderr_log: Path,
-) -> Supervised:
-    """Run *argv* under the bound, capturing its streams to fixed inner files.
-
-    The trusted outer supervisor reads these files only after reaping the
-    sandbox uid, through bounded no-follow descriptors.
-
-    stdin is closed explicitly. A backgrounded command got ``/dev/null`` for
-    free; this one is in the foreground and would inherit the step's, which
-    costs ``claude -p`` a three-second wait for input that never comes and feeds
-    it whatever does arrive.
-
-    Overrunning the bound asks the agent to stop before making it: a TERM to the
-    agent process group, :data:`TERM_GRACE_SEC` to flush, then the KILL. Without the
-    grace the agent's session JSONL loses its tail mid-write, and that file is
-    what the token accounting falls back on when a run produces no result event
-    — the runs that time out are exactly the ones with no result event.
-
-    The KILL is this function's ``finally`` and the only unconditional step: it
-    is what actually stops a run the TERM did not, so no path out of here,
-    exception included, may skip it. :func:`_common.raise_on_cancel` is what makes
-    "every path" include a cancelled job, which arrives as a signal rather than
-    as anything Python would raise on its own.
-
-    The KILL is followed by a wait on the child, so this inner lifecycle does
-    not return while a descendant still holds its stream descriptors. The
-    outer supervisor then reaps the entire sandbox uid.
-    """
-    start = time.monotonic()
-    agent: subprocess.Popen[bytes] | None = None
-    try:
-        with (
-            _common.raise_on_cancel(),
-            stream_json.open("wb") as out,
-            stderr_log.open("wb") as err,
-        ):
-            agent = subprocess.Popen(
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=out,
-                stderr=err,
-                start_new_session=True,
-            )
-            try:
-                returncode = agent.wait(timeout_sec)
-                # Shell convention: 128 + N when signal N killed the child.
-                code = 128 - returncode if returncode < 0 else returncode
-            except subprocess.TimeoutExpired:
-                # The bound decides, however the stop then goes: an agent that
-                # takes the TERM and one that has to be killed are the same run
-                # to a maintainer, and the code it leaves says nothing.
-                code = None
-                with contextlib.suppress(ProcessLookupError):
-                    os.killpg(agent.pid, signal.SIGTERM)
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    agent.wait(TERM_GRACE_SEC)
-    finally:
-        if agent is not None:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(agent.pid, signal.SIGKILL)
-            agent.wait()
-    return Supervised(code, round(time.monotonic() - start))
 
 
 def stream_events(stream_json: Path) -> Iterator[dict[str, Any]]:
@@ -463,14 +377,14 @@ def main() -> int:
         bot_id=env["BOT_ID"],
         ci=os.environ.get("CI") or "true",
         timeout_sec=int(env["TEND_TIMEOUT_SEC"]),
-        deadline=int(time.time()) + int(env["TEND_TIMEOUT_SEC"]),
+        deadline=supervise.deadline(int(env["TEND_TIMEOUT_SEC"])),
         settings_file=os.environ.get("TEND_AUTO_MEMORY_SETTINGS", ""),
     )
-    run = supervise(
+    run = supervise.supervise(
         argv,
         timeout_sec=int(env["TEND_TIMEOUT_SEC"]),
-        stream_json=stream_json,
-        stderr_log=stderr_log,
+        stdout=stream_json,
+        stderr=stderr_log,
     )
     timed_out = run.exit_code is None
     print(

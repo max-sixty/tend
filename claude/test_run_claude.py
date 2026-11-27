@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 from tend.runtime.claude import run_claude
-from tend.runtime.shared import _common
+from tend.runtime.shared import _common, supervise
 
 from _fakes import GithubFiles
 
@@ -733,11 +733,11 @@ def test_supervise_reaps_the_process_group_when_the_runner_cancels_the_job(
     before = signal.getsignal(signal.SIGTERM)
 
     with pytest.raises(_common.Cancelled):
-        run_claude.supervise(
+        supervise.supervise(
             ["claude"],
             timeout_sec=900,
-            stream_json=tmp_path / "stream.json",
-            stderr_log=tmp_path / "stderr.log",
+            stdout=tmp_path / "stream.json",
+            stderr=tmp_path / "stderr.log",
         )
 
     assert handlers[0] is not before, "the supervised wait ran on the default handler"
