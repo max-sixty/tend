@@ -1,10 +1,10 @@
 """Run the three stateful phases of Tend's Codex harness.
 
-The shared sandbox supervisor owns the execution lifetime; Tend's proxies own
+The shared sandbox supervisor owns the sandbox's lifetime; Tend's proxies own
 credentials. This module owns only Codex-specific mechanics that benefit from
 argv construction and file handling: installing Tend's plugins, staging the
-global instructions, and writing the fixed final-message file around
-``codex exec``.
+global instructions, and running ``codex exec`` under the run's time bound
+around the fixed final-message file.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from tend.runtime.shared import _prompt, _sandbox
+from tend.runtime.shared import _common, _prompt, _sandbox, supervise
 
 
 def _run(
@@ -138,9 +138,15 @@ def stage_agents() -> int:
 
 
 def run_codex() -> int:
-    """Run Codex and export its final message even when the process fails."""
+    """Run Codex and export its final message even when the process fails.
+
+    ``TEND_TIMEOUT_SEC`` bounds the run, as it does Claude's. ``TEND_DEADLINE``
+    is when that bound stops it, in epoch seconds, so a foreground wait — a CI
+    poll ahead of a merge or a dismissal — can hand back before it.
+    """
     if os.environ.get("TEND_INSIDE_SANDBOX") != "1":
         raise RuntimeError("Codex may run only inside the sandbox lifecycle")
+    timeout_sec = int(_common.require_env("TEND_TIMEOUT_SEC")["TEND_TIMEOUT_SEC"])
     codex = str(_required_path("CODEX_BIN"))
     auth_mode = os.environ.get("AUTH_MODE", "")
     auth_args: list[str]
@@ -195,9 +201,9 @@ def run_codex() -> int:
         # How long one empty `write_stdin` may wait on a running command; it
         # returns as soon as the command exits. Codex's 5-minute default turns
         # a long foreground wait — a CI poll — into a model turn every five
-        # minutes, so it is lifted to GitHub's 6-hour cap on the whole job.
+        # minutes, so it is lifted to the run's own bound.
         "--config",
-        "background_terminal_max_timeout=21600000",
+        f"background_terminal_max_timeout={timeout_sec * 1000}",
     ]
     if os.environ.get("TEND_AUTO_MEMORY_DIRECTORY"):
         # Native memories exclude exec sessions from generation and forbid
@@ -224,6 +230,16 @@ def run_codex() -> int:
         f"BOT_NAME={os.environ.get('BOT_NAME', '')}",
         f"BOT_ID={os.environ.get('BOT_ID', '')}",
         f"CI={os.environ.get('CI') or 'true'}",
+        f"TEND_DEADLINE={supervise.deadline(timeout_sec)}",
     ]
-    result = _run(launch, check=False)
-    return result.returncode
+    run = supervise.supervise(launch, timeout_sec=timeout_sec)
+    timed_out = run.exit_code is None
+    print(
+        f"Supervisor: status={'timeout' if timed_out else 'exited'} "
+        f"elapsed={run.elapsed}s "
+        f"codex_exit={'none' if timed_out else run.exit_code}",
+        flush=True,
+    )
+    if run.exit_code is None:
+        return _common.fail(f"Codex run exceeded {timeout_sec}s timeout")
+    return run.exit_code

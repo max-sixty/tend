@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import time
 import zlib
 from collections.abc import Callable
 from pathlib import Path
@@ -1121,28 +1120,91 @@ def test_skipped_external_red_does_not_end_the_wait(env: dict[str, str]) -> None
     assert result.returncode == 0, result.stdout
 
 
-def test_a_check_that_never_finishes_holds_the_wait(env: dict[str, str]) -> None:
+HarnessDeadline = Callable[[int], str]
+
+
+@pytest.fixture(params=["claude", "codex"])
+def harness_deadline(request: pytest.FixtureRequest, tmp_path: Path) -> HarnessDeadline:
+    """``TEND_DEADLINE`` as each harness's own launch exports it for a bound.
+
+    Drives the harness's entry point with the supervised launch faked, so the
+    deadline tests below cover what the poll reads under Claude and Codex.
+    """
+    from tend.runtime.claude import run_claude
+    from tend.runtime.codex import runner as codex_runner
+    from tend.runtime.shared import supervise
+
+    def export(timeout_sec: int) -> str:
+        launched: list[list[str]] = []
+
+        def fake(argv: list[str], **_: object) -> supervise.Supervised:
+            launched.append(argv)
+            return supervise.Supervised(0, 0)
+
+        run_dir = tmp_path / "harness-run"
+        workspace = tmp_path / "harness-workspace"
+        (workspace / ".git").mkdir(parents=True, exist_ok=True)
+        run_dir.mkdir(exist_ok=True)
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(supervise, "supervise", fake)
+            for name, value in {
+                "TEND_INSIDE_SANDBOX": "1",
+                "TEND_RUN_DIR": str(run_dir),
+                "TEND_TIMEOUT_SEC": str(timeout_sec),
+                "GITHUB_WORKSPACE": str(workspace),
+                "BOT_NAME": "tend-bot",
+                "BOT_ID": "42",
+                # Claude's launch inputs.
+                "TEND_MODEL": "opus",
+                "TEND_ALLOWED_TOOLS": "Bash",
+                "TEND_SYSTEM_PROMPT": "tend directives",
+                "TEND_PROMPT": "review the PR",
+                "TEND_AUTO_MEMORY_SETTINGS": "",
+                "SHOW_FULL_OUTPUT": "false",
+                "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "0",
+                # Codex's.
+                "CODEX_BIN": "/opt/codex/bin/codex",
+                "AUTH_MODE": "subscription",
+                "PROMPT": "review the PR",
+                "TEND_AUTO_MEMORY_DIRECTORY": "",
+            }.items():
+                monkeypatch.setenv(name, value)
+            if request.param == "claude":
+                run_claude.main()
+            else:
+                codex_runner.run_codex()
+        [argv] = launched
+        [deadline] = [arg for arg in argv if arg.startswith("TEND_DEADLINE=")]
+        return deadline.partition("=")[2]
+
+    return export
+
+
+def test_a_check_that_never_finishes_holds_the_wait(
+    env: dict[str, str], harness_deadline: HarnessDeadline
+) -> None:
     """The wait has no fixed time bound — a slow suite is waited out however
     long it runs, while the session's end is still distant."""
-    env["TEND_DEADLINE"] = str(int(time.time()) + 6 * 3600)
+    env["TEND_DEADLINE"] = harness_deadline(6 * 3600)
     _serve(env, _resp(_check_run("slow-matrix", status="IN_PROGRESS")))
 
     with pytest.raises(WaitNeverEnded):
         _poll(env)
 
 
-def _near_deadline(env: dict[str, str]) -> None:
+def _near_deadline(env: dict[str, str], harness_deadline: HarnessDeadline) -> None:
     """End the session just inside the poll's margin."""
     margin = poll_pr_checks.DEADLINE_MARGIN_SEC
-    env["TEND_DEADLINE"] = str(int(time.time()) + margin - 60)
+    env["TEND_DEADLINE"] = harness_deadline(margin - 60)
 
 
 def test_a_check_pending_at_the_session_end_is_unverified(
     env: dict[str, str],
+    harness_deadline: HarnessDeadline,
 ) -> None:
     """A check that never concludes — an abandoned app check — hands back
     before the session is killed, naming what still pends."""
-    _near_deadline(env)
+    _near_deadline(env, harness_deadline)
     _serve(
         env,
         _resp(_check_run("tests"), _check_run("codecov/patch", status="IN_PROGRESS")),
@@ -1157,11 +1219,13 @@ def test_a_check_pending_at_the_session_end_is_unverified(
 
 @pytest.mark.parametrize("command", ["poll", "approval"])
 def test_unreadable_rollups_at_the_session_end_hand_back_unverified(
-    env: dict[str, str], command: str
+    env: dict[str, str],
+    command: str,
+    harness_deadline: HarnessDeadline,
 ) -> None:
     """Reads that keep failing after a complete one still end the wait near
     the session's end, rather than waiting until the session is killed."""
-    _near_deadline(env)
+    _near_deadline(env, harness_deadline)
     responses = [_resp(_check_run("tests")), NULL_ROLLUP]
     if command == "approval":
         # Approval waits only on a red beside pending checks.
@@ -1182,10 +1246,11 @@ def test_unreadable_rollups_at_the_session_end_hand_back_unverified(
 
 def test_failed_confirmations_at_the_session_end_hand_back_unverified(
     env: dict[str, str],
+    harness_deadline: HarnessDeadline,
 ) -> None:
     """A complete read whose confirming read fails ends the wait near the
     session's end, even when the next read succeeds again."""
-    _near_deadline(env)
+    _near_deadline(env, harness_deadline)
     green = _resp(_check_run("tests"))
     _serve(env, *[green, NULL_ROLLUP] * 4, green)
 
@@ -1198,10 +1263,11 @@ def test_failed_confirmations_at_the_session_end_hand_back_unverified(
 
 def test_a_red_read_whose_confirmations_fail_at_the_session_end_is_red(
     env: dict[str, str],
+    harness_deadline: HarnessDeadline,
 ) -> None:
     """A settled red stays red when its confirming reads fail near the end,
     without claiming checks still run."""
-    _near_deadline(env)
+    _near_deadline(env, harness_deadline)
     _serve(env, _resp(_check_run("tests", conclusion="FAILURE")), NULL_ROLLUP)
 
     result = _poll(env)
@@ -1213,10 +1279,11 @@ def test_a_red_read_whose_confirmations_fail_at_the_session_end_is_red(
 
 def test_a_red_beside_a_hung_job_at_the_session_end_is_red(
     env: dict[str, str],
+    harness_deadline: HarnessDeadline,
 ) -> None:
     """A red already standing is reported when a hung job outlasts the session,
     so a review can still act on it after approving."""
-    _near_deadline(env)
+    _near_deadline(env, harness_deadline)
     _serve(
         env,
         _resp(
@@ -1234,9 +1301,10 @@ def test_a_red_beside_a_hung_job_at_the_session_end_is_red(
 
 def test_approval_withholds_a_red_still_pending_at_the_session_end(
     env: dict[str, str],
+    harness_deadline: HarnessDeadline,
 ) -> None:
     """The pre-approval wait stays fail-closed when the session's end cuts it."""
-    _near_deadline(env)
+    _near_deadline(env, harness_deadline)
     _serve(env, _resp(OMNIBUS_RED, _check_run("full-tests", status="IN_PROGRESS")))
 
     result = _approval(env)
@@ -1247,10 +1315,11 @@ def test_approval_withholds_a_red_still_pending_at_the_session_end(
 
 def test_approval_is_undecided_when_the_red_clears_but_checks_still_pend_at_the_session_end(
     env: dict[str, str],
+    harness_deadline: HarnessDeadline,
 ) -> None:
     """A red that clears during the wait doesn't approve a head whose checks
     are still pending when the session's end cuts the wait short."""
-    _near_deadline(env)
+    _near_deadline(env, harness_deadline)
     _serve(
         env,
         _resp(OMNIBUS_RED, _check_run("full-tests", status="IN_PROGRESS")),

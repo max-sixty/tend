@@ -415,6 +415,7 @@ PY
     TEND_BOUNDARY_PROBE_EXECUTABLE="$tool_root/probe" \
     CODEX_BIN="$codex_stub" CODEX_PROXY_URL="http://127.0.0.1:$probe_port/" \
     AUTH_MODE=api-key MODEL=stub-model EFFORT=high PROMPT='stub prompt' \
+    TEND_TIMEOUT_SEC=60 \
     BOT_NAME="$BOT_LOGIN" BOT_ID="$BOT_ID" \
     GITHUB_TOKEN=runner-token-must-not-cross \
     GITHUB_OUTPUT="$github_output" \
@@ -435,6 +436,7 @@ PY
   sudo -u "$SANDBOX" grep -qx 'TMPDIR=/home/tend-sandbox/tmp' "$codex_env"
   sudo -u "$SANDBOX" grep -qx 'NO_PROXY=' "$codex_env"
   sudo -u "$SANDBOX" grep -qx 'no_proxy=' "$codex_env"
+  sudo -u "$SANDBOX" grep -qE '^TEND_DEADLINE=[0-9]+$' "$codex_env"
   sudo -u "$SANDBOX" grep -q '^shell_environment_policy.set.NO_PROXY=".*127.0.0.1' \
     "$codex_argv"
   sudo -u "$SANDBOX" grep -q '^shell_environment_policy.set.no_proxy=".*127.0.0.1' \

@@ -68,6 +68,15 @@ inputs:
       `rust-v0.131.0-alpha.17`). That was `alpha`-only when the pin was
       first set; stable carries it now, so this tracks `latest`. CI's
       `test-codex-surface` job confirms whichever version is pinned.
+  timeout_seconds:
+    default: "21000"
+    description: >-
+      Maximum time the Codex run is allowed to take before the supervisor
+      stops it, the same bound and default as the Claude action's input of
+      this name: 5h50m, 10 minutes under GitHub Actions' 6-hour hosted-runner
+      job cap, so a run that fills its budget gets the supervisor's clean stop
+      and failure report instead of GitHub's own silent one. The run sees when
+      it ends as `TEND_DEADLINE`.
   checkout_mode:
     default: "base"
     description: >-
@@ -271,6 +280,7 @@ runs:
         EFFORT: ${{ inputs.effort }}
         EXTRA_ARGS: ${{ inputs.args }}
         AUTH_MODE: ${{ steps.codex_auth.outputs.mode }}
+        TEND_TIMEOUT_SEC: ${{ inputs.timeout_seconds }}
         TEND_HARNESS: codex
         ACTION_PATH: ${{ github.action_path }}/..
         # Read by tend.runtime.shared.event_checkout, inside the sandbox.

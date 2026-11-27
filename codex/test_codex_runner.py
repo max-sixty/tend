@@ -4,15 +4,31 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 import tomllib
 from pathlib import Path
 
 import pytest
 from tend.runtime.codex import runner as codex_runner
+from tend.runtime.shared import supervise
 
 
 def _result(args: list[str], *, stdout: str = "", returncode: int = 0):
     return subprocess.CompletedProcess(args, returncode, stdout, "")
+
+
+def _fake_supervise(
+    monkeypatch: pytest.MonkeyPatch,
+    calls: list[tuple[list[str], dict[str, object]]],
+    exit_code: int | None,
+) -> None:
+    """Record the supervised launch alongside the runner's other commands."""
+
+    def fake(argv: list[str], **kwargs: object) -> supervise.Supervised:
+        calls.append((argv, kwargs))
+        return supervise.Supervised(exit_code, 1)
+
+    monkeypatch.setattr(supervise, "supervise", fake)
 
 
 def _set_sandbox_env(
@@ -36,6 +52,7 @@ def _set_sandbox_env(
     monkeypatch.setenv("AGENT_ENV_FILE", str(agent_env))
     monkeypatch.setenv("SANDBOX", "tend-sandbox")
     monkeypatch.setenv("CODEX_BIN", "/opt/codex/bin/codex")
+    monkeypatch.setenv("TEND_TIMEOUT_SEC", "900")
     # The two the runner refuses to start without, cleared rather than set: a
     # test that wants them sets them itself, and the suite run inside a tend
     # session would otherwise inherit the live lifecycle's own values.
@@ -174,11 +191,10 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
 
     def run(args: list[str], **kwargs: object):
         calls.append((args, kwargs))
-        if "/opt/codex/bin/codex" in args:
-            return _result(args, returncode=7)
         return _result(args)
 
     monkeypatch.setattr(codex_runner, "_run", run)
+    _fake_supervise(monkeypatch, calls, 7)
 
     assert codex_runner.run_codex() == 7
     codex = next(args for args, _kwargs in calls if "/opt/codex/bin/codex" in args)
@@ -188,7 +204,7 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
     launch, kwargs = next(
         (args, options) for args, options in calls if "/opt/codex/bin/codex" in args
     )
-    assert kwargs["check"] is False
+    assert kwargs == {"timeout_sec": 900}
     assert "GITHUB_TOKEN=real-github-token" not in launch
     assert "GITHUB_ENV=/runner/github-env" not in launch
     assert "OPENAI_API_KEY=real-openai-key" not in launch
@@ -228,7 +244,7 @@ def test_run_withholds_runner_credentials_and_preserves_message_on_failure(
         "--config",
         "agents.max_concurrent_threads_per_session=9223372036854775807",
         "--config",
-        "background_terminal_max_timeout=21600000",
+        "background_terminal_max_timeout=900000",
         *(["--config", "features.memories=false"] if memory_enabled else []),
         "--config",
         f"model_reasoning_effort={json.dumps(effort, ensure_ascii=False)}",
@@ -264,12 +280,13 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
         return _result(args)
 
     monkeypatch.setattr(codex_runner, "_run", run)
+    _fake_supervise(monkeypatch, calls, 0)
 
     assert codex_runner.run_codex() == 0
     launch, kwargs = next(
         (args, options) for args, options in calls if "/opt/codex/bin/codex" in args
     )
-    assert kwargs["check"] is False
+    assert kwargs == {"timeout_sec": 900}
     assert all(not item.startswith("OPENAI_API_KEY=") for item in launch)
     assert "NO_PROXY=" not in launch
     assert "no_proxy=" not in launch
@@ -285,7 +302,7 @@ def test_run_uses_staged_subscription_auth_without_responses_proxy(
         "--config",
         "agents.max_concurrent_threads_per_session=9223372036854775807",
         "--config",
-        "background_terminal_max_timeout=21600000",
+        "background_terminal_max_timeout=900000",
         *(["--config", "features.memories=false"] if memory_enabled else []),
         "Review this",
     ]
@@ -303,3 +320,43 @@ def test_run_refuses_to_create_a_second_execution_boundary(
 
     with pytest.raises(RuntimeError, match="only inside the sandbox lifecycle"):
         codex_runner.run_codex()
+
+
+def _run_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _, agent_home, _ = _set_sandbox_env(tmp_path, monkeypatch)
+    run_dir = agent_home / "run"
+    run_dir.mkdir()
+    monkeypatch.setenv("TEND_RUN_DIR", str(run_dir))
+    monkeypatch.setenv("PROMPT", "Review this")
+    monkeypatch.setenv("AUTH_MODE", "subscription")
+    monkeypatch.setenv("TEND_INSIDE_SANDBOX", "1")
+    monkeypatch.setattr(codex_runner, "_run", lambda args, **_: _result(args))
+
+
+def test_run_exports_when_the_bound_stops_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A CI poll reads ``TEND_DEADLINE`` to hand back before the bound."""
+    _run_env(tmp_path, monkeypatch)
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    _fake_supervise(monkeypatch, calls, 0)
+
+    assert codex_runner.run_codex() == 0
+    [(launch, _kwargs)] = calls
+    crossing = launch[: launch.index("/opt/codex/bin/codex")]
+    [deadline] = [item for item in crossing if item.startswith("TEND_DEADLINE=")]
+    assert -5 <= int(deadline.partition("=")[2]) - 900 - time.time() <= 1
+
+
+def test_run_fails_when_the_bound_stops_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _run_env(tmp_path, monkeypatch)
+    _fake_supervise(monkeypatch, [], None)
+
+    assert codex_runner.run_codex() == 1
+    out = capsys.readouterr().out
+    assert "Supervisor: status=timeout elapsed=1s codex_exit=none" in out
+    assert "::error::Codex run exceeded 900s timeout" in out
