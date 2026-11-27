@@ -43,12 +43,38 @@ jobs:
 
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
 
-      - name: Rotate the test login with the candidate Codex CLI
+      # The write-back token reaches only the steps that run no Codex, so the
+      # candidate CLI can't read it from an ancestor's /proc/<pid>/environ.
+      - name: Check write-back
+        id: check
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
           GH_TOKEN: ${{ secrets.CODEX_ROTATION_TEST_PAT }}
+        run: uv run --package tend --no-dev tend runtime codex rotation-test check-write
+
+      - name: Rotate the test login with the candidate Codex CLI
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          CODEX_VERSION: ${{ inputs.codex_version }}
+        run: >-
+          uv run --package tend --no-dev tend runtime codex rotation-test rotate
+          --codex-version "$CODEX_VERSION" --state "$RUNNER_TEMP/codex-rotation-test"
+
+      # Persist even after a failed request: Codex may have rotated first.
+      - name: Persist the rotated login
+        if: always() && steps.check.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.CODEX_ROTATION_TEST_PAT }}
+        run: >-
+          uv run --package tend --no-dev tend runtime codex rotation-test persist
+          --state "$RUNNER_TEMP/codex-rotation-test"
+
+      - name: Verify the rotated login and its access-only view
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
           CODEX_VERSION: ${{ inputs.codex_version }}
           MODEL: ${{ inputs.model }}
         run: >-
-          uv run --package tend --no-dev tend runtime codex rotation-test
-          --codex-version "$CODEX_VERSION" ${MODEL:+--model "$MODEL"}
+          uv run --package tend --no-dev tend runtime codex rotation-test verify
+          --codex-version "$CODEX_VERSION" --state "$RUNNER_TEMP/codex-rotation-test"
+          ${MODEL:+--model "$MODEL"}

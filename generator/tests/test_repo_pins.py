@@ -459,15 +459,24 @@ def test_codex_rotation_test_owns_only_its_environment_on_canonical_main() -> No
         "ref": "${{ github.sha }}",
         "persist-credentials": False,
     }
-    assert sorted(re.findall(r"secrets\.([A-Z_]+)", path.read_text())) == [
+    assert set(re.findall(r"secrets\.([A-Z_]+)", path.read_text())) == {
         "CODEX_AUTH_JSON",
         "CODEX_ROTATION_TEST_PAT",
-    ]
-    rotate = job["steps"][-1]
-    assert "${{" not in rotate["run"]
-    assert rotate["run"].startswith(
-        "uv run --package tend --no-dev tend runtime codex rotation-test"
-    )
+    }
+    prefix = "uv run --package tend --no-dev tend runtime codex rotation-test "
+    steps = {
+        step["run"].removeprefix(prefix).split()[0]: step
+        for step in job["steps"]
+        if "run" in step
+    }
+    assert list(steps) == ["check-write", "rotate", "persist", "verify"]
+    for name, step in steps.items():
+        assert step["run"].startswith(prefix)
+        assert "${{" not in step["run"]
+        # The candidate CLI runs only in rotate and verify, which must not hold
+        # the write-back token.
+        holds_pat = "CODEX_ROTATION_TEST_PAT" in str(step.get("env", {}))
+        assert holds_pat is (name in {"check-write", "persist"})
 
 
 def test_release_requires_successful_smoke_on_exact_commit(
