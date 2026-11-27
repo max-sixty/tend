@@ -111,11 +111,11 @@ itself the go-ahead.
    come back available.
 4. **Defaults** — accept the default setup, or pick areas to change:
    - **Accept all defaults** (recommended) — no workflow overrides, a
-     placeholder instructions overlay, the badge added, and the bot bio
-     "tend agent for `<owner>/<repo>`. I triage issues and help maintain
-     `<repo>`." Nothing is locked in: every default is an ordinary edit later
-     (`.config/tend.yaml`, the files the install writes) or a re-run of
-     this skill.
+     placeholder instructions overlay, the badge added, the repo's logo as
+     the bot's avatar, and the bot bio "tend agent for `<owner>/<repo>`. I
+     triage issues and help maintain `<repo>`." Nothing is locked in: every
+     default is an ordinary edit later (`.config/tend.yaml`, the files the
+     install writes) or a re-run of this skill.
    - **Customize…** — pick the areas in a follow-up question.
 
 A **Customize…** answer gets one more multi-select question: which areas to
@@ -134,9 +134,9 @@ question at 4 options, so a new area means grouping, not appending.
   target branch, nightly actions (default: a placeholder overlay)
 - **README badge** — placement and style, or leaving it out (default:
   added, matching the README's existing badge style)
-- **Bot profile bio** — the stance line on the bot's profile (default:
-  "tend agent for `<owner>/<repo>`. I triage issues and help maintain
-  `<repo>`.")
+- **Bot profile** — the avatar and the bio's stance line (default: the
+  repo's logo, and "tend agent for `<owner>/<repo>`. I triage issues and
+  help maintain `<repo>`.")
 
 Each area selected there is asked about at its step (1, 4, 5, 10); the
 rest apply the default without asking. Steps that can't be defaulted —
@@ -154,9 +154,9 @@ window is still open.
 ## Browser sessions
 
 Step 6 (when the bot account must be created), step 7b's Codex subscription
-setup, and step 8's mint paths (8a/8b) need a browser session. Check whether
-`mcp__claude-in-chrome__*` is connected (`tabs_context_mcp`) before the
-first browser step, or any question that would offer one as an option.
+setup, step 8's mint paths (8a/8b), and step 10's avatar need a browser
+session. Check whether `mcp__claude-in-chrome__*` is connected
+(`tabs_context_mcp`) before the first browser step, or any question that would offer one as an option.
 When it is, drive the browser steps yourself rather than offering a
 hand-off choice: hand the user only the prompts automation can't cross
 (a signup CAPTCHA, a 2FA or password reauth), and resume once they
@@ -1048,7 +1048,9 @@ else
 fi
 ```
 
-## 10. Bot profile bio
+## 10. Bot profile
+
+### 10a. Bio
 
 Capture what the creator is comfortable with contributors/users asking the
 bot to do, then reflect that stance in the bot's profile bio (≤160 chars)
@@ -1087,6 +1089,30 @@ else
   GH_TOKEN=$BOT_GH_TOKEN gh api user -X PATCH -f bio="<drafted bio>"
 fi
 ```
+
+### 10b. Avatar
+
+The repo's logo as the bot's avatar marks its comments, reviews and PRs as
+the project's on every thread, where a default identicon reads as an
+anonymous account. GitHub's API can't set a profile picture, so this is a
+browser step, signed in as the bot (step 6's signup and step 8's device
+approval leave such a session).
+
+Skip it when the bot already has a picture of its own: look at
+`https://github.com/<bot-name>.png`, where GitHub's default is an identicon,
+a symmetric pattern of pixel blocks.
+
+Use the repo's logo: the README's header image, or an icon or logo under
+`assets/`, `docs/` or `.github/`. Ask instead when the user picked the bot
+profile at Kickoff, or when the repo has no logo, where keeping GitHub's
+default is one answer. GitHub crops a square image into a circle, so
+render a square PNG whose background reaches the edges, with the mark
+inside the inscribed circle, and save it outside the repo, where the
+user's browser can open it.
+
+Upload it at `https://github.com/settings/profile`, per Browser sessions:
+**Edit** under Profile Picture → **Upload a photo...** → crop →
+**Set new profile picture**.
 
 ## 11. Verify, commit and push
 
@@ -1140,6 +1166,7 @@ line picks the row that matches the chosen harness):
 - [ ] Bot access: repo collaborator with write access, invitation accepted
 - [ ] Bot notifications: watching the repository
 - [ ] Bot bio: profile bio reflects the authorization stance
+- [ ] Bot avatar: the repo's logo (unless the repo has none)
 - [ ] `uvx tend@latest check` passes
 - [ ] Committed (push requires explicit permission)
 - [ ] `tend-install-test` workflow passed on the install PR before merging
