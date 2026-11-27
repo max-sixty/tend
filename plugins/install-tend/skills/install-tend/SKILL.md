@@ -174,7 +174,7 @@ the logged-in user via the avatar menu.
 
 Create `.config/tend.yaml` with at minimum `bot_name`, plus `harness` if
 the user chose Codex (the default Claude harness can be omitted). See
-README.md "Harnesses" for the comparison.
+"Harnesses" in ${CLAUDE_SKILL_DIR}/README.md for the comparison.
 
 ```yaml
 bot_name: <bot-name>
@@ -196,8 +196,8 @@ List the secrets the repo already holds:
 gh secret list --repo "$REPO" --json name --jq '.[].name'
 ```
 
-Any repo-level secret not in `secrets.allowed` triggers a `tend check`
-warning. The operational secrets (bot token, harness auth) never belong at
+Any repo-level secret not in `secrets.allowed` fails `tend check`
+(`repo-secret-allowlist`). The operational secrets (bot token, harness auth) never belong at
 repo level — steps 7–8 store them in the `tend` environment, and a
 repo-level copy from a pre-environment install is exactly the exposure the
 environment closes, so it gets deleted once the environment copy is in
