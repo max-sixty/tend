@@ -105,7 +105,7 @@ the repository publishes again — at which point the check fails. Closing that
 window takes an admin-run `tend check`.
 
 **Workflow execution policy.** GitHub's default event policy will block
-`pull_request_target` in affected public repositories on November 2, 2026.
+`pull_request_target` in affected public repositories from December 2, 2026.
 Tend needs that event to review fork PRs with authenticated bot access.
 `tend check` verifies an active Actions event policy for each generated
 workflow using it. `tend check --fix`, run as a repository administrator,

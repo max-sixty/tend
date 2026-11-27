@@ -400,7 +400,7 @@ uvx tend@latest check --fix --repo "$REPO"
 
 For public repositories, this also checks that an active Actions event policy
 allows every generated workflow using `pull_request_target`. GitHub's default
-restriction will block that event in affected repositories on November 2, 2026.
+restriction will block that event in affected repositories from December 2, 2026.
 `--fix` creates a policy scoped to those workflow paths and their declared
 events when no applicable active event policy exists. It preserves existing
 repository and inherited restrictions; resolve a conflicting policy with its

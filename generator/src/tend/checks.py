@@ -8,7 +8,7 @@ environment's deployment branch policy, every other credential-holding
 environment's gate, the operational secrets living in the environment, and no
 repo-level secret outside the allowlist). Also verifies that public repositories
 explicitly admit generated `pull_request_target` workflows through Actions
-event policies before GitHub enforces its default block on November 2, 2026.
+event policies before GitHub enforces its default block on December 2, 2026.
 
 Uses the `gh` CLI for GitHub API access. Checks degrade gracefully when
 gh is unavailable or the token lacks permission. Almost everything read
@@ -2200,7 +2200,7 @@ def _actions_policy_state(repo: str, cfg: Config) -> _ActionsPolicyState:
             False,
             "No active Actions event policy permits pull_request_target for "
             + ", ".join(missing)
-            + ". GitHub will block it on November 2, 2026. Run tend check --fix as a repository admin.",
+            + ". GitHub's default restriction applies from December 2, 2026. Run tend check --fix as a repository admin.",
             missing=missing,
             policies=policies,
         )

@@ -4702,7 +4702,7 @@ def test_actions_policy_missing_check_and_fix_preserves_generated_events(
     )
     before = check_actions_event_policy("owner/repo", cfg)
     assert before.passed is False
-    assert "November 2, 2026" in before.message
+    assert "December 2, 2026" in before.message
     assert fix_actions_event_policy("owner/repo", cfg).passed is True
     assert len(policies) == 1
     assert policies[0]["conditions"] == {
