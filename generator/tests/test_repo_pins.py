@@ -441,6 +441,44 @@ def test_codex_smoke_uses_only_access_auth_on_canonical_main() -> None:
     ).is_file()
 
 
+def test_codex_rotation_test_owns_only_its_environment_on_canonical_main() -> None:
+    path = REPO_ROOT / ".github/workflows/codex-rotation-test.yaml"
+    workflow = YAML(typ="safe", pure=True).load(path.read_text())
+    assert set(workflow["on"]) == {"workflow_dispatch"}
+    assert workflow["concurrency"] == {
+        "group": "codex-rotation-test",
+        "cancel-in-progress": False,
+    }
+    job = workflow["jobs"]["rotate"]
+    assert job["if"] == (
+        "github.repository == 'max-sixty/tend' && github.ref == 'refs/heads/main'"
+    )
+    assert job["environment"] == {"name": "codex-rotation-test", "deployment": False}
+    assert job["permissions"] == {"contents": "read"}
+    assert job["steps"][0]["with"] == {
+        "ref": "${{ github.sha }}",
+        "persist-credentials": False,
+    }
+    assert set(re.findall(r"secrets\.([A-Z_]+)", path.read_text())) == {
+        "CODEX_AUTH_JSON",
+        "CODEX_ROTATION_TEST_PAT",
+    }
+    prefix = "uv run --package tend --no-dev tend runtime codex rotation-test "
+    steps = {
+        step["run"].removeprefix(prefix).split()[0]: step
+        for step in job["steps"]
+        if "run" in step
+    }
+    assert list(steps) == ["check-write", "rotate", "persist", "verify"]
+    for name, step in steps.items():
+        assert step["run"].startswith(prefix)
+        assert "${{" not in step["run"]
+        # The candidate CLI runs only in rotate and verify, which must not hold
+        # the write-back token.
+        holds_pat = "CODEX_ROTATION_TEST_PAT" in str(step.get("env", {}))
+        assert holds_pat is (name in {"check-write", "persist"})
+
+
 def test_release_requires_successful_smoke_on_exact_commit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

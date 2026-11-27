@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 
 import click
@@ -21,82 +22,112 @@ from tend.config import DEFAULT_MODEL_BY_HARNESS
 from tend.runtime.codex import codex_subscription_auth
 
 
+def clean_env() -> dict[str, str]:
+    """This process's environment without credentials Codex could pick up."""
+    env = os.environ.copy()
+    for key in (
+        "OPENAI_API_KEY",
+        "CODEX_API_KEY",
+        "CODEX_AUTH_JSON",
+        "CODEX_HOME",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+    ):
+        env.pop(key, None)
+    return env
+
+
+def install_cli(version: str, prefix: Path, env: Mapping[str, str]) -> Path:
+    """Install the Codex CLI at VERSION under PREFIX and return its binary."""
+    # Install as the action does, before any credential exists: lifecycle
+    # scripts from the package tree never run, and nothing they could reach
+    # holds the token.
+    subprocess.run(
+        [
+            "npm",
+            "install",
+            "--prefix",
+            str(prefix),
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund",
+            f"@openai/codex@{version}",
+        ],
+        env=env,
+        check=True,
+        capture_output=True,
+        timeout=180,
+    )
+    return prefix / "node_modules/.bin/codex"
+
+
+def access_request(
+    cli: Path,
+    root: Path,
+    env: Mapping[str, str],
+    *,
+    version: str,
+    model: str,
+    auth_json: str,
+) -> None:
+    """Require one model response using access-only AUTH_JSON in a fresh home."""
+    env = {**env, "CODEX_HOME": str(root / "home")}
+    auth_file = root / "home/auth.json"
+    codex_subscription_auth.prepare(
+        codex_auth_json=auth_json, openai_api_key="", destination=auth_file
+    )
+    before = auth_file.read_bytes()
+    workspace = root / "workspace"
+    workspace.mkdir()
+    response = root / "response.txt"
+    result = subprocess.run(
+        [
+            str(cli),
+            "exec",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--config",
+            'cli_auth_credentials_store="file"',
+            "--config",
+            'model_reasoning_effort="low"',
+            "--model",
+            model,
+            "--output-last-message",
+            str(response),
+            "Reply with MODEL_OK. Do not use tools.",
+        ],
+        cwd=workspace,
+        env=env,
+        check=False,
+        capture_output=True,
+        timeout=120,
+    )
+    if (
+        result.returncode != 0
+        or not response.is_file()
+        or not response.read_text().strip()
+    ):
+        raise click.ClickException(
+            f"Codex {version} / {model} access-only subscription request failed "
+            f"(exit {result.returncode})"
+        )
+    if auth_file.read_bytes() != before:
+        raise click.ClickException("Codex rewrote the access-only credentials")
+
+
 def verify(repository: Path, auth_json: str) -> None:
     """Request one real response using the candidate CLI/model and isolated auth."""
     action = YAML(typ="safe").load((repository / "codex/action.yaml").read_text())
     version = action["inputs"]["codex_version"]["default"]
     model = DEFAULT_MODEL_BY_HARNESS["codex"]
-    env = os.environ.copy()
-    for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_AUTH_JSON", "CODEX_HOME"):
-        env.pop(key, None)
-
+    env = clean_env()
     with tempfile.TemporaryDirectory(prefix="tend-codex-smoke-") as directory:
         root = Path(directory)
-        prefix = root / "cli"
-        # Install as the action does, before any credential exists: lifecycle
-        # scripts from the package tree never run, and nothing they could
-        # reach holds the token.
-        subprocess.run(
-            [
-                "npm",
-                "install",
-                "--prefix",
-                str(prefix),
-                "--ignore-scripts",
-                "--no-audit",
-                "--no-fund",
-                f"@openai/codex@{version}",
-            ],
-            env=env,
-            check=True,
-            capture_output=True,
-            timeout=180,
+        cli = install_cli(version, root / "cli", env)
+        access_request(
+            cli, root, env, version=version, model=model, auth_json=auth_json
         )
-        env["CODEX_HOME"] = str(root / "home")
-        auth_file = root / "home/auth.json"
-        codex_subscription_auth.prepare(
-            codex_auth_json=auth_json, openai_api_key="", destination=auth_file
-        )
-        before = auth_file.read_bytes()
-        workspace = root / "workspace"
-        workspace.mkdir()
-        response = root / "response.txt"
-        result = subprocess.run(
-            [
-                str(prefix / "node_modules/.bin/codex"),
-                "exec",
-                "--skip-git-repo-check",
-                "--sandbox",
-                "read-only",
-                "--config",
-                'cli_auth_credentials_store="file"',
-                "--config",
-                'model_reasoning_effort="low"',
-                "--model",
-                model,
-                "--output-last-message",
-                str(response),
-                "Reply with MODEL_OK. Do not use tools.",
-            ],
-            cwd=workspace,
-            env=env,
-            check=False,
-            capture_output=True,
-            timeout=120,
-        )
-        if (
-            result.returncode != 0
-            or not response.is_file()
-            or not response.read_text().strip()
-        ):
-            raise click.ClickException(
-                f"Codex {version} / {model} subscription request failed "
-                f"(exit {result.returncode}); release smoke did not complete"
-            )
-        if auth_file.read_bytes() != before:
-            raise click.ClickException(
-                "Codex rewrote the access-only smoke credentials"
-            )
     click.echo(
         f"PASS Codex {version} / {model} / subscription: model response completed"
     )

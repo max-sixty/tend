@@ -319,8 +319,15 @@ proxy together, so move uv and mitmproxy in one PR.
 
 For `codex_version`, CI's `test-codex-surface` job installs whatever is pinned
 and asserts the credential-free CLI surface the action depends on. Before a
-bump, use an isolated Plus/Pro login to run the refresh action and require both
-the full and access-only credentials to rotate. Inspect Codex's auth manager
+bump, require a passing run of the opt-in rotation test, which rotates the
+`codex-rotation-test` login with the candidate and checks both the full and
+access-only credentials:
+
+```bash
+gh workflow run codex-rotation-test.yaml --ref main -f codex_version=<candidate>
+```
+
+Inspect Codex's auth manager
 too: an unparsable access token must fall through to the stale `last_refresh`,
 and that refresh must use the refresh token without requiring the old access
 token. Reach that inspection by diffing `codex-rs/login`'s blob SHAs between the
