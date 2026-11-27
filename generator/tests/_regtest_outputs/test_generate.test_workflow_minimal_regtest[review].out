@@ -51,6 +51,7 @@ jobs:
           token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - uses: max-sixty/tend/claude@X.Y.Z
+        id: harness
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           merge: restricted
@@ -61,6 +62,11 @@ jobs:
           base_branch: ${{ github.event.pull_request.base.ref }}
           prompt: |2
             /tend-ci-runner:review ${{ github.event.pull_request.number }}
+
+      - uses: max-sixty/tend/report-failure@X.Y.Z
+        if: failure() && steps.harness.outcome == 'skipped'
+        with:
+          github_token: ${{ secrets.TEND_BOT_TOKEN }}
 
       - name: Remove the eyes reaction
         if: always()

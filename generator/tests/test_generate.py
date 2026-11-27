@@ -183,7 +183,12 @@ def test_generated_runtime_calls_have_a_pinned_bootstrap(
                 uses = step.get("uses", "")
                 needs_runtime = step.get("run", "").startswith("tend runtime ") or (
                     uses.startswith("max-sixty/tend/")
-                    and not uses.startswith("max-sixty/tend/setup-runtime@")
+                    and not uses.startswith(
+                        (
+                            "max-sixty/tend/setup-runtime@",
+                            "max-sixty/tend/report-failure@",
+                        )
+                    )
                 )
                 if needs_runtime:
                     assert any(
@@ -899,7 +904,8 @@ def test_tend_land_starts_a_session_per_pr_in_the_reviews_group(
             "cancel-in-progress": False,
         }
     # A session queued behind one that already moved the head ends before
-    # `setup:` or the agent costs anything.
+    # `setup:` or the agent costs anything. The outage report runs only on a
+    # failure, including one that left `current` unset.
     for job in ("land", "repair"):
         steps = data["jobs"][job]["steps"]
         assert steps[0]["uses"] == f"max-sixty/tend/setup-runtime@{ACTION_VERSION}"
@@ -908,6 +914,7 @@ def test_tend_land_starts_a_session_per_pr_in_the_reviews_group(
             step.get("if") == "steps.current.outputs.current == 'true'"
             or "steps.current.outputs.current == 'true'" in str(step.get("if"))
             for step in steps[2:]
+            if not step.get("uses", "").startswith("max-sixty/tend/report-failure@")
         )
     prompts = _land_prompts(generated["tend-land.yaml"].content)
     assert prompts["land"].startswith("/tend-ci-runner:merge-pr ${{ matrix.pr }}")
@@ -2681,3 +2688,36 @@ def test_per_workflow_effort_rejects_malformed_value(tmp_path: Path) -> None:
                 """),
             )
         )
+
+
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_every_harness_step_is_followed_by_a_runtime_free_outage_report(
+    tmp_path: Path, harness: str
+) -> None:
+    """A failed step ahead of the harness skips the harness's own report, so
+    each agent job reports that failure itself, and only that one: a harness
+    that ran reports its own, and excludes the security preflight."""
+    cfg = Config.load(
+        _minimal_config(
+            tmp_path,
+            f"harness: {harness}\nworkflows:\n"
+            "  ci-failures:\n    watched_workflows: [ci]\n",
+        )
+    )
+    harness_uses = f"max-sixty/tend/{harness}@{ACTION_VERSION}"
+    seen = 0
+    for workflow in generate_all(cfg):
+        for job in yaml.safe_load(workflow.content)["jobs"].values():
+            steps = job.get("steps", [])
+            for index, step in enumerate(steps):
+                if step.get("uses") != harness_uses:
+                    continue
+                seen += 1
+                assert step["id"] == "harness", workflow.filename
+                report = steps[index + 1]
+                assert report == {
+                    "uses": f"max-sixty/tend/report-failure@{ACTION_VERSION}",
+                    "if": "failure() && steps.harness.outcome == 'skipped'",
+                    "with": {"github_token": "${{ secrets.TEND_BOT_TOKEN }}"},
+                }, workflow.filename
+    assert seen >= 7

@@ -21,6 +21,7 @@
 {% else %}
       - uses: max-sixty/tend/codex@<<tend_version>>
 {% endif %}
+        id: harness
 {% if if_condition %}
         if: <<if_condition>>
 {% endif %}
@@ -51,6 +52,15 @@
           <<block_input('args', cfg.args|join('\n'))>>
 {% endif %}
           <<prompt_body>>
+
+{# The harness reports its own failures. A failed step ahead of it skips it,
+   report and all, so this reports those, from the action's source rather than
+   the runtime `setup-runtime` installs. A harness that ran and failed is left
+   to its own report, which excludes the security preflight. #}
+      - uses: max-sixty/tend/report-failure@<<tend_version>>
+        if: failure() && steps.harness.outcome == 'skipped'
+        with:
+          github_token: ${{ secrets.<<bot_token_secret>> }}
 {%- endmacro %}
 
 {# Lightweight jobs use the same locked, isolated package as the harnesses. #}

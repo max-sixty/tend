@@ -1092,8 +1092,11 @@ def test_init_notifications_has_precheck(
         for step in steps[:check_index]
     )
 
-    # Everything after the notification check is gated on its output.
-    for step in steps[check_index + 1 :]:
+    # Everything after the notification check is gated on its output, except
+    # the outage report, which runs only on a failure.
+    *gated, report = steps[check_index + 1 :]
+    assert report["uses"] == f"max-sixty/tend/report-failure@{ACTION_VERSION}"
+    for step in gated:
         assert "if" in step, (
             f"step {step.get('uses', step.get('name'))} missing if guard"
         )
@@ -1102,7 +1105,7 @@ def test_init_notifications_has_precheck(
         # workflow_dispatch bypasses the pre-check
         assert "workflow_dispatch" in step["if"]
 
-    agent_step = steps[-1]
+    agent_step = gated[-1]
     assert "steps.check.outputs.cutoff" in agent_step["with"]["prompt"]
     assert "steps.check.outputs.conflict_count" in agent_step["with"]["prompt"]
 

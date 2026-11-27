@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -476,3 +478,91 @@ def test_the_remedy_is_said_once_per_tracker(
     assert RUN_LINK in _posted(gh), "dropped the row along with the remedy"
     assert report_failure.REMEDY_COMMAND not in _posted(gh), _posted(gh)
     assert not gh.called(*RELEASES), gh.calls
+
+
+JOBS = "repos/owner/repo/actions/runs/12345/attempts/1/jobs?per_page=100"
+
+
+def _jobs(gh: FakeGh, monkeypatch: pytest.MonkeyPatch, response: Any) -> None:
+    monkeypatch.setenv("RUNNER_NAME", "runner 7")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    gh.respond("api", "--paginate", "--slurp", JOBS, with_=response)
+
+
+def _job(runner: str, status: str, *steps: tuple[str, str | None]) -> dict[str, Any]:
+    return {
+        "runner_name": runner,
+        "status": status,
+        "steps": [{"name": name, "conclusion": c} for name, c in steps],
+    }
+
+
+def test_the_job_level_report_names_the_failed_step(
+    gh: FakeGh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure ahead of the harness skips the harness's own report, so the
+    generated step's row is the only record, and the step is its diagnosis.
+
+    Only this job's failure is named: a matrix sibling on another runner shares
+    the run id, and a finished job on this runner is an earlier one."""
+    setup = "Run max-sixty/tend/setup-runtime@0.3.28"
+    _jobs(
+        gh,
+        monkeypatch,
+        [
+            {
+                "jobs": [
+                    _job("runner 2", "in_progress", ("Sibling step", "failure")),
+                    _job("runner 7", "completed", ("Earlier job", "failure")),
+                    _job(
+                        "runner 7",
+                        "in_progress",
+                        ("Set up job", "success"),
+                        (setup, "failure"),
+                        ("Run max-sixty/tend/claude@0.3.28", "skipped"),
+                        ("Run max-sixty/tend/report-failure@0.3.28", None),
+                    ),
+                ]
+            }
+        ],
+    )
+
+    assert report_failure.main(name_failed_step=True) == 0
+    body = _created_body(gh)
+    assert f"at `{setup}`" in body, body
+    assert "Sibling step" not in body and "Earlier job" not in body, body
+    assert f"| {RUN_LINK} |" in body, "the note must not displace the row"
+
+
+def test_an_unreadable_job_still_files_the_row(
+    gh: FakeGh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _jobs(gh, monkeypatch, 1)
+
+    assert report_failure.main(name_failed_step=True) == 0
+    body = _created_body(gh)
+    assert RUN_LINK in body and "Failed before" not in body, body
+
+
+def test_the_standalone_entry_point_needs_no_installed_runtime() -> None:
+    """`report-failure` runs when `setup-runtime` failed, so the reporter must
+    import from the action's source alone: any third-party import would fail
+    under the runner's bare system Python."""
+    script = Path(__file__).resolve().parents[2] / "report-failure" / "report.py"
+    probe = (
+        "import runpy, sys\n"
+        f"runpy.run_path({str(script)!r}, run_name='probe')\n"
+        "from tend.runtime.shared import report_failure\n"
+        "third = sorted({m.split('.')[0] for m in sys.modules}"
+        " & {'click', 'jinja2', 'ruamel', 'markupsafe'})\n"
+        "print(report_failure.__file__)\n"
+        "print(third)\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-I", "-c", probe],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    assert out[0].startswith(str(script.parents[1] / "generator" / "src")), out
+    assert out[1] == "[]", out
