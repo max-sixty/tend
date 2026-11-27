@@ -70,13 +70,11 @@ to a PR with a human author stays yours to poll, since no other session repairs
 it, except a review's own fix, which **Without the CI wait** in
 `/tend-ci-runner:review`'s `references/approving.md` hands to the queued review.
 
-Returning the final response ends the CI session — the runner is discarded, and the harness does not reliably resume it when a background task completes. If you return while a background command whose result was going to gate the deliverable is still running, the task either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `$TMPDIR/comment-body.md` — dies with it.
+Ending your turn can end the CI session — the runner is discarded, and the harness does not reliably resume it when background work completes. If you end it while work the deliverable needs is still running, that work either finishes invisibly or gets killed when the runner is torn down, and any staged work the maintainer was supposed to see — a committed-but-unpushed branch, a written-but-unsent `$TMPDIR/comment-body.md` — dies with it.
 
 Make the deliverable **maintainer-visible**: pushed, posted, or opened. Local-only state — a commit nobody else can see, a comment body never sent — is not recoverable on a follow-up.
 
-Corollary: don't background anything whose output gates the deliverable. If a full test suite or comprehensive lint needs to run before push, run it synchronously and accept the time cost; if it's too slow for the session budget, push first and let CI re-run it. A session that shipped a partial result is recoverable; a session that ended mid-wait with the deliverable on a local branch is not. A targeted compile plus the tests directly exercising the change is enough local confidence to ship — leave the comprehensive matrix to CI.
-
-The same holds for subagents. Run one whose result the deliverable needs in the foreground — under Claude, `Agent` with `run_in_background: false`; several such calls in one message still run concurrently and the turn continues once all return. Ending the turn is not a way to wait for a background subagent: its notification can be absorbed without re-invoking the parent, and a subagent still running when the headless session exits is killed with its work.
+Corollary: don't end your turn while anything the deliverable needs is still running. If a full test suite or comprehensive lint needs to run before push, run it synchronously and accept the time cost; if it's too slow for the session budget, push first and let CI re-run it. A session that shipped a partial result is recoverable; a session that ended mid-wait with the deliverable on a local branch is not. A targeted compile plus the tests directly exercising the change is enough local confidence to ship — leave the comprehensive matrix to CI.
 
 Before ending, re-fetch the thread you are handling: a comment that landed meanwhile may be a directive that changes the work, and a sibling run may already have done it (`/tend-ci-runner:post-to-github`).
 
