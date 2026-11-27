@@ -83,6 +83,13 @@ body links that evidence. Cited cases read as the rule's targets and age into
 trivia. A decision settled for one site belongs in a comment at that site,
 where the next session to edit it will read it.
 
+State what the session must achieve rather than how a harness gets it there:
+"don't end your turn while anything the deliverable needs is still running",
+not which tool calls run in the background or what kills them at exit.
+Harnesses change those mechanics between releases, and a session reads its own
+tools' descriptions. Name a mechanism only where a session would act wrongly
+without it and its tools don't say.
+
 When a skill's code block needs tested logic or edge-case handling, put it in
 a tested script in a `scripts/` directory beside the skill, and leave the skill
 a one-line invocation with the intent. A prose
@@ -118,24 +125,7 @@ These steps are for the overlay path. Filing upstream follows
    ---
    ```
 
-   The checkout's `.claude/` directory is bind-mounted **read-only** under
-   the sandbox (protecting bots from modifying their own skills in place), so
-   edits to `.claude/skills/` files in the working tree fail with `Read-only
-   file system`. Claude Code's harness adds a second restriction on top of
-   the read-only mount: `Edit`, `Write`, and Bash commands with
-   `.claude/skills/` as a write-target argument are denied regardless of
-   filesystem permissions
-   ([anthropics/claude-code#37157](https://github.com/anthropics/claude-code/issues/37157)).
-   The guard checks argument text, so `Write(/home/tend-sandbox/tmp/…)` and
-   `Bash(mv $TMPDIR/… SKILL.md)` both pass — the second because `SKILL.md` is a
-   bare filename inside the `cd`'d directory.
-
-   Do the edit, commit, and push from a git worktree under `$TMPDIR`, which is
-   writable and sits outside the harness's `.claude/skills/` write-guard.
-   Tend sets `$TMPDIR` before the agent starts.
-
-   <!-- TODO(anthropics/claude-code#37157): once the harness exempts .claude/skills/ as
-        documented, replace the TMPDIR-then-mv dance below with direct `Write` to the worktree path. -->
+   Do the edit, commit, and push from a git worktree under `$TMPDIR`.
 
    Base the skill branch on the repo's default branch, **not `HEAD`**. When
    this runs from `tend-mention` on a PR, the workflow has already done
@@ -149,14 +139,11 @@ These steps are for the overlay path. Filing upstream follows
    git fetch origin "$DEFAULT_BRANCH"
    git worktree add "$TMPDIR/skill-fix" -b "skills/<topic>-$GITHUB_RUN_ID" "origin/$DEFAULT_BRANCH"
 
-   # Author the new skill file at $TMPDIR/running-tend-new.md.
-   # Then move it into place from inside the worktree. mkdir -p covers the
-   # new-skill case where .claude/skills/<name>/ doesn't yet exist in the
-   # default branch. Both `cd`s stay inside subshells, so the session's own
-   # cwd never enters the worktree: the last line deletes it, and a session
-   # standing in it has no working directory for anything after this block.
-   mkdir -p "$TMPDIR/skill-fix/.claude/skills/running-tend"
-   ( cd "$TMPDIR/skill-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend-new.md" SKILL.md )
+   # Write the skill file in the worktree, at
+   # $TMPDIR/skill-fix/.claude/skills/running-tend/SKILL.md. The `cd` below
+   # stays inside a subshell, so the session's own cwd never enters the
+   # worktree: the last line deletes it, and a session standing in it has no
+   # working directory for anything after this block.
 
    (
      set -e

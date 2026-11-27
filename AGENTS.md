@@ -437,7 +437,9 @@ disagrees with us? What tend values, what this repo will spend complexity on,
 how many open PRs is too many, how much runner time is worth saving — those are
 one maintainer's calls. Shipped, they make every consumer's repo answer to
 tend's; they belong here instead. Mechanics ship freely: how GitHub behaves,
-what the harness does, what a session must never do. A default a consumer might
+what a session must never do, and the harness behavior a session would act
+wrongly without and can't see from its own tools (**What the text carries** in
+`/tend-ci-runner:propose-instructions`). A default a consumer might
 want differently ships as a default their overlay can change, stated without
 our reasoning for it.
 

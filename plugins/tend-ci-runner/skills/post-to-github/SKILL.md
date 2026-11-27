@@ -41,7 +41,7 @@ gh issue comment "$ISSUE" --body-file "$TMPDIR/comment-body.md"
 
 **Authoring fenced bodies with backticks.** When a body contains a fenced code block, the model often defensively escapes the inner fence (`` \`\`\`bash ``) "to prevent it from closing the outer fence early"; the same instinct can produce `` \`foo\` `` for inline spans. Those backslashes survive into the rendered body as literal `\` characters. Author with bare backticks. For nested fenced blocks, use a **longer outer fence** — four or five backticks outside, three inside — so the inner three-backtick fence renders intact without escaping. Writing the body to a file preserves data verbatim and removes shell quoting from the equation.
 
-Don't add job links, footers, or authorship sign-offs (e.g. `> _Written by an agent on behalf of @maintainer_`) — the bot account already conveys authorship, and the harness suppresses the client's default footer. This covers PR and issue bodies too, not just comments.
+Don't add job links, footers, or authorship sign-offs (e.g. `> _Written by an agent on behalf of @maintainer_`) — the bot account already conveys authorship. This covers PR and issue bodies too, not just comments.
 
 ## Where the reply goes
 

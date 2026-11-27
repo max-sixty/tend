@@ -25,8 +25,7 @@ agent signals.
 `/tend-ci-runner:propose-instructions` routes a bundled rule upstream to
 tend, which is this repo, so the rule lands here as a PR rather than an issue.
 That PR follows that skill's **Mechanics**, with the file under `plugins/` as
-step 2's dedup target and without step 3's read-only-mount workaround, which
-only `.claude/skills/` needs. A bundled skill's deterministic helpers live in
+step 2's dedup target. A bundled skill's deterministic helpers live in
 `generator/src/tend/runtime/ci/` and run through `tend runtime`; the generator
 test suite exercises those commands.
 

@@ -46,7 +46,7 @@ If no dependency PRs are open, note "0 dependency PRs to process" and continue t
    Use a file rather than an inline `--body` because a
    package name written as inline code puts a backtick in a double-quoted
    argument, and bash runs the span as a command. Then post, re-reading the sha
-   from disk, since shell state didn't survive the Write:
+   from disk:
 
    ```bash
    # `commit_id` pins the approval to the commit that was checked. Unpinned,

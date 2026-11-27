@@ -64,10 +64,9 @@ ORPHAN_ID=$(tend runtime bot-review-state state <number> \
   | jq -r '.orphan_id // empty')
 ```
 
-Use the printed ID as the literal `<orphan-id>` below; shell variables do not
-survive between agent tool calls. Then, in either case, **move the failed inline
-comments into the review body** as fenced code blocks with file paths,
-preserving the hidden marker when this is a draft review, and:
+Use the printed ID as the literal `<orphan-id>` below. Then, in either case,
+**move the failed inline comments into the review body** as fenced code blocks
+with file paths, preserving the hidden marker when this is a draft review, and:
 
 - **If `ORPHAN_ID` is non-empty (case a)**: edit the existing review instead of creating a duplicate.
   ```bash
