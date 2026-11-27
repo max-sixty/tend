@@ -44,6 +44,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.TEND_BOT_TOKEN }}
       - uses: max-sixty/tend/claude@X.Y.Z
+        id: harness
         if: steps.check.outputs.count != '0' || steps.check.outputs.conflict_count != '0' || github.event_name == 'workflow_dispatch'
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
@@ -58,3 +59,8 @@ jobs:
 
             Notification snapshot cutoff: ${{ steps.check.outputs.cutoff }}
             Possible conflicted bot PR count: ${{ steps.check.outputs.conflict_count }}
+
+      - uses: max-sixty/tend/report-failure@X.Y.Z
+        if: failure() && steps.harness.outcome == 'skipped'
+        with:
+          github_token: ${{ secrets.TEND_BOT_TOKEN }}

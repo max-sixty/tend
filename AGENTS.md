@@ -70,6 +70,10 @@ Four pieces:
    Call `max-sixty/tend/setup-runtime@X.Y.Z` once per job before Tend operations,
    using the same release as the harness, landing, or refresh action. It installs
    the runner's isolated CLI; harnesses install only their sandbox copy.
+   Generated agent jobs follow the harness with
+   `max-sixty/tend/report-failure@X.Y.Z`, gated on the harness being skipped by
+   a failed earlier step. It runs the outage reporter from the action's source
+   under the system Python, so it works when `setup-runtime` is what failed.
 
    Both harness runners resolve the bot's numeric ID at runtime, run security
    preflight, then select the event's topology and run the

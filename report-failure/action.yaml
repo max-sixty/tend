@@ -1,0 +1,24 @@
+name: Report a Tend failure
+description: >-
+  File or append a tend-outage row for a job that failed before its harness
+  action ran, naming the failed step. Needs no installed Tend runtime.
+inputs:
+  github_token:
+    description: The bot's token, for the outage issue.
+    required: true
+runs:
+  using: composite
+  steps:
+    # `setup-runtime` is one of the steps this reports on, so this cannot use
+    # the runtime it installs: it runs the reporter from this action's own
+    # source under the system Python. `-I` keeps the consumer's checkout and
+    # PYTHON* settings off the import path.
+    - name: Report failure
+      shell: bash
+      run: /usr/bin/python3 -I "${{ github.action_path }}/report.py"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        # See the matching step in claude/action.yaml: these resolve only in a
+        # composite step's `env:`.
+        TEND_ACTION_REF: ${{ github.action_ref }}
+        TEND_ACTION_REPOSITORY: ${{ github.action_repository }}

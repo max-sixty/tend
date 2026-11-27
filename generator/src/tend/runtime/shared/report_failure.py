@@ -3,7 +3,11 @@
 Shared verbatim by both harness actions; the caller gates it on the job being
 red, so a failure anywhere in the action — identity resolution, auth
 validation and the sandbox build ahead of the agent as much as the agent
-itself — lands in the tracker. The one exclusion is the security preflight:
+itself — lands in the tracker. A failure in a job step ahead of the harness
+action (``setup-runtime``, checkout, the consumer's ``setup:``) skips the
+action and its report with it, so the generated workflows follow the harness
+with ``report-failure``, which runs this from the action's own source under a
+bare system Python and names the failed step (:func:`failed_steps`). The one exclusion is the security preflight:
 that failure is a persistent config refusal rather than an outage, and the
 issue this files ("temporarily unavailable", closed once resolved) would never
 resolve.
@@ -30,7 +34,8 @@ Inputs (env): ``GITHUB_TOKEN`` (for ``gh``), ``GITHUB_SERVER_URL``,
 ``GITHUB_REPOSITORY``, ``GITHUB_RUN_ID``, ``GITHUB_EVENT_NAME``,
 ``GITHUB_EVENT_PATH`` (from Actions), and ``TEND_ACTION_REF`` /
 ``TEND_ACTION_REPOSITORY``, which the caller passes because
-:func:`remedy_note` cannot read them for itself.
+:func:`remedy_note` cannot read them for itself. Naming the failed step also
+reads ``GITHUB_RUN_ATTEMPT`` and ``RUNNER_NAME``.
 """
 
 from __future__ import annotations
@@ -41,8 +46,8 @@ import subprocess
 import time
 from typing import Any
 
+from tend.releases import release
 from tend.runtime.shared import _common, _issue
-from tend.workflows import release
 
 LABEL = "tend-outage"
 TITLE = "Bot temporarily unavailable"
@@ -81,7 +86,13 @@ runs, but only once a run gets far enough to start the agent.
 """
 
 
-def main() -> int:
+def main(name_failed_step: bool = False) -> int:
+    """File or append this run's row.
+
+    *name_failed_step* adds the job's failed steps under the row. Only the
+    job-level caller asks: inside a harness action the failing step is the
+    action itself, still in progress, so the read would find nothing.
+    """
     env = _common.require_env(
         "GITHUB_REPOSITORY",
         "GITHUB_SERVER_URL",
@@ -91,6 +102,8 @@ def main() -> int:
     )
     repo, run_id = env["GITHUB_REPOSITORY"], env["GITHUB_RUN_ID"]
     row = _issue.row()
+    if name_failed_step:
+        row += _block(_failed_step_note(failed_steps()))
     anchor = _issue.anchor()
 
     _issue.ensure_label(LABEL, LABEL_DESCRIPTION, LABEL_COLOR)
@@ -204,6 +217,50 @@ def remedy_note() -> str:
     if latest is None or latest <= installed:
         return ""
     return REMEDY.format(latest=tag, installed=ref, command=REMEDY_COMMAND)
+
+
+def failed_steps() -> list[str]:
+    """The names of this job's steps that have concluded ``failure``.
+
+    The jobs API reports each completed step's conclusion while the job is
+    still running. This job is the in-progress one on this runner: a matrix
+    run's legs share ``GITHUB_RUN_ID`` but each holds its own runner.
+
+    Best-effort: ``[]`` on a failed read or when no job matches, since the row
+    matters more than the step name.
+    """
+    env = os.environ
+    runner = env.get("RUNNER_NAME", "")
+    if not runner:
+        return []
+    path = (
+        f"repos/{env['GITHUB_REPOSITORY']}/actions/runs/{env['GITHUB_RUN_ID']}"
+        f"/attempts/{env.get('GITHUB_RUN_ATTEMPT') or '1'}/jobs?per_page=100"
+    )
+    try:
+        pages = _common.gh_pages(path)
+    except _common.GH_READ_FAILED:
+        return []
+    for page in pages:
+        jobs = _common.dig(page, "jobs")
+        for job in jobs if isinstance(jobs, list) else []:
+            if not isinstance(job, dict) or job.get("runner_name") != runner:
+                continue
+            if job.get("status") != "in_progress":
+                continue
+            return [
+                str(step.get("name"))
+                for step in job.get("steps") or []
+                if isinstance(step, dict) and step.get("conclusion") == "failure"
+            ]
+    return []
+
+
+def _failed_step_note(names: list[str]) -> str:
+    if not names:
+        return ""
+    listed = ", ".join(f"`{name}`" for name in names)
+    return f"Failed before the harness action ran, at {listed}."
 
 
 def _block(note: str) -> str:

@@ -121,8 +121,11 @@ Each job first calls `max-sixty/tend/setup-runtime@X.Y.Z` at that same ref.
 This installs the isolated `tend` command used by workflow checks and the action;
 the harness installs only its separate, disposable sandbox copy. Hand-written
 workflows using the Claude, Codex, landing, or credential-refresh action need
-this setup step too. The nightly regen restamps a newer tag when a new tend
-version ships.
+this setup step too. After the harness, each agent job calls
+`max-sixty/tend/report-failure@X.Y.Z`, which files a `tend-outage` row naming
+the failed step when a step ahead of the harness fails; it runs from the
+action's own source, so it needs no setup. The nightly regen restamps a newer
+tag when a new tend version ships.
 
 When the review workflow is generated, `init` also merges one ignore into
 `.github/actionlint.yaml`: the workflow's `concurrency.queue` is valid GitHub

@@ -36,6 +36,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
 
       - uses: max-sixty/tend/claude@X.Y.Z
+        id: harness
         with:
           github_token: ${{ secrets.TEND_BOT_TOKEN }}
           merge: restricted
@@ -46,3 +47,8 @@ jobs:
           base_branch: ${{ github.event.repository.default_branch }}
           prompt: |2
             /tend-ci-runner:nightly
+
+      - uses: max-sixty/tend/report-failure@X.Y.Z
+        if: failure() && steps.harness.outcome == 'skipped'
+        with:
+          github_token: ${{ secrets.TEND_BOT_TOKEN }}

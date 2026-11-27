@@ -289,8 +289,12 @@ def utcnow() -> datetime.datetime:
     timestamp a step writes or compares — a row's stamp, a "today" window, a
     baseline range — is UTC, and a local-time reading would silently shift a
     day boundary the limits are scoped to.
+
+    ``timezone.utc`` rather than ``datetime.UTC`` (3.11+): ``report-failure``
+    imports this under the runner's system Python, which is 3.10 on
+    ``ubuntu-22.04``.
     """
-    return datetime.datetime.now(datetime.UTC)
+    return datetime.datetime.now(datetime.timezone.utc)  # noqa: UP017
 
 
 def read_ndjson(path: Path) -> Iterator[dict[str, Any]]:
