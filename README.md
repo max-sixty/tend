@@ -177,7 +177,7 @@ generic credentials exposed by other jobs on that branch.
 
 **Workflow execution policy** — public repositories with Tend's review workflow
 need an active Actions event policy allowing its `pull_request_target` trigger before
-GitHub's default restriction is enforced on November 2, 2026. `tend check`
+GitHub's default restriction is enforced from December 2, 2026. `tend check`
 verifies this; a repository administrator running `tend check --fix` creates
 a policy scoped to the generated workflows and their declared events. Existing
 repository and inherited restrictions remain in force.
