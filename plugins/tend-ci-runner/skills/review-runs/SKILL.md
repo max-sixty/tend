@@ -207,19 +207,17 @@ The behavioral and workflow improvements below target **repo-local** files by de
 
 **Bundled-skill defects.** If the root cause is a gap or bug in a bundled skill (`plugins/tend-ci-runner/skills/...` in `max-sixty/tend`) — the same pattern would fire in every consumer — file the fix against tend per `/tend-ci-runner:act-in-other-repos`. Signal: the fix reads as generic instructions that would apply to any consumer.
 
-Editing `.claude/skills/` requires the read-only-mount workaround (bind-mounted read-only, plus a harness write-guard on `.claude/skills/` paths) — see `/tend-ci-runner:propose-instructions`. Adapted for review-runs (base on `HEAD` since this runs on a schedule, not a PR checkout; move each edited file into place). Choose a topic slug for each theme so separate PRs from the same run have distinct branches:
+Make each repair in a git worktree under `$TMPDIR`, as `/tend-ci-runner:propose-instructions` does, based on `HEAD` since this runs on a schedule, not a PR checkout. Choose a topic slug for each theme so separate PRs from the same run have distinct branches:
 
 
 ```bash
 TOPIC=workflow-evidence # replace with the repair's theme
 git worktree add "$TMPDIR/review-runs-fix" -b "daily/review-runs-$GITHUB_RUN_ID-$TOPIC" HEAD
 
-# Author each edited skill file at $TMPDIR/<name>.md.
-# Then move the files into place. Both `cd`s stay inside subshells, so the
-# session's own cwd never enters the worktree: the last line deletes it, and a
-# session standing in it has no working directory for Step 7 or anything after.
-( cd "$TMPDIR/review-runs-fix/.claude/skills/running-tend" && mv "$TMPDIR/running-tend.md" SKILL.md )
-# Repeat per skill file being updated.
+# Edit the skill files in the worktree, under $TMPDIR/review-runs-fix/.claude/skills/.
+# The `cd` below stays inside a subshell, so the session's own cwd never enters
+# the worktree: the last line deletes it, and a session standing in it has no
+# working directory for Step 7 or anything after.
 
 (
   set -e
@@ -231,7 +229,7 @@ git worktree add "$TMPDIR/review-runs-fix" -b "daily/review-runs-$GITHUB_RUN_ID-
 ) && git worktree remove "$TMPDIR/review-runs-fix" --force
 ```
 
-`.config/tend.yaml` and project instruction files are not under the read-only mount, but if you're already in the worktree for a `.claude/skills/` edit, do those edits there too so the branch stays self-contained.
+Edit `.config/tend.yaml` and project instruction files in the same worktree when the repair touches them, so the branch stays self-contained.
 
 - **PR** (default): Branch `daily/review-runs-$GITHUB_RUN_ID-<topic-slug>`, fix, commit, push, create with label `review-runs`. Write the description for a maintainer deciding whether the current change fixes the general behavior gap, following **Reader-facing prose** in `/tend-ci-runner:run-tend`. Link the tracking issue where it holds prior observations of the same behavior, and carry the evidence that justified promoting this finding — the run IDs, the log excerpt, and the causal assessment — in the body or a `<details>` block.
 - **Issue**: Delegate or preserve unfinished work per **Filing issues in this repo** in `/tend-ci-runner:open-pr`.
