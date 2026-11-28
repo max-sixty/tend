@@ -20,10 +20,14 @@ import time
 
 CYCLE_LENGTH = 28
 UNREVIEWED_SUFFIXES = (".lock", "package-lock.json", "pnpm-lock.yaml", ".snap")
+# pytest-regtest writes its snapshots into this directory under any suffix.
+UNREVIEWED_DIRECTORIES = ("_regtest_outputs",)
 
 
 def reviewable(path: str) -> bool:
-    return not path.endswith(UNREVIEWED_SUFFIXES)
+    return not path.endswith(UNREVIEWED_SUFFIXES) and not any(
+        part in UNREVIEWED_DIRECTORIES for part in path.split("/")[:-1]
+    )
 
 
 def survey_files(files: list[str], *, unix_day: int) -> tuple[int, list[str]]:

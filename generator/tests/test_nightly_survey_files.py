@@ -15,6 +15,7 @@ def test_a_cycle_reviews_each_path_once_in_runs_of_neighbouring_paths() -> None:
         "Cargo.lock",
         "tests/snapshots/list.snap",
         "web/__snapshots__/a.js.snap",
+        "tests/_regtest_outputs/test_render.test_minimal.out",
     ]
     bucket, selected = survey.survey_files(files + unreviewed, unix_day=10_000)
 
