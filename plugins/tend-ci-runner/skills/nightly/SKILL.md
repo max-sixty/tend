@@ -178,13 +178,13 @@ tend runtime enrich-tend-outage-issues
 
 ## Step 6: Rolling survey
 
-Run the survey script to get today's file list (rotating through the full repo over 28 days):
+Run the survey script to get today's area: a run of neighbouring tracked files in path order, rotating through the full repo over 28 days:
 
 ```bash
 tend runtime nightly-survey-files
 ```
 
-Skip files that aren't meaningfully reviewable: lock files (`uv.lock`, `Cargo.lock`, `package-lock.json`), binary assets, vendored dependencies, and generated files (build output, compiled protobuf, auto-generated workflow YAML). When unsure, check the file — a quick glance is cheaper than missing something.
+The script leaves out lock files and test snapshots. Skip other files that aren't meaningfully reviewable: binary assets, vendored dependencies, and generated files (build output, compiled protobuf, auto-generated workflow YAML). When unsure, check the file — a quick glance is cheaper than missing something.
 
 Check which of today's files an open PR already changes, and don't re-derive a fix that PR carries:
 
@@ -194,6 +194,8 @@ gh pr list --state open --limit 200 --json number,title,files \
 ```
 
 Before reviewing files, read the project's instruction files and any project-specific skills or review criteria they reference. Apply the review checklist below to each file in full.
+
+Then review the area as a whole: what it does, whether its boundaries fit, and which of its capabilities exist more than once. Follow each lead out of it, such as a copy the duplication check finds elsewhere or a caller that works around the area's code; what you find there counts among today's findings. Remedy each set of copies per **Duplication check** in `/tend-ci-runner:review`, wherever the copies sit, moving every caller when you consolidate.
 
 ## Review checklist
 
