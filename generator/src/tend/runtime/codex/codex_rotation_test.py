@@ -49,8 +49,15 @@ REFRESH_ARGS = (
 
 # npm reads `@openai/codex@<spec>` as an alias, tarball, git or file install
 # for anything but a version, which would run another package's code with the
-# login, so the dispatch input must be an exact published version.
-_EXACT_VERSION = re.compile(r"\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?")
+# login, so the dispatch input must be an exact published version. The pattern
+# is SemVer 2.0 without build metadata, the grammar npm's `semver.valid` parses:
+# no leading zeros in numeric identifiers and no empty prerelease identifiers.
+_NUMERIC = r"(?:0|[1-9]\d*)"
+_PRERELEASE_ID = rf"(?:{_NUMERIC}|\d*[A-Za-z-][0-9A-Za-z-]*)"
+_EXACT_VERSION = re.compile(
+    rf"{_NUMERIC}\.{_NUMERIC}\.{_NUMERIC}(?:-{_PRERELEASE_ID}(?:\.{_PRERELEASE_ID})*)?",
+    re.ASCII,
+)
 
 
 def _exact_version(_ctx: click.Context, _param: click.Parameter, value: str) -> str:
