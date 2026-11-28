@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -43,6 +44,26 @@ REFRESH_ARGS = (
     "--config",
     'cli_auth_credentials_store="file"',
     "Reply with the single word OK without using tools.",
+)
+
+
+# npm reads `@openai/codex@<spec>` as an alias, tarball, git or file install
+# for anything but a version, which would run another package's code with the
+# login, so the dispatch input must be an exact published version.
+_EXACT_VERSION = re.compile(r"\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?")
+
+
+def _exact_version(_ctx: click.Context, _param: click.Parameter, value: str) -> str:
+    if not _EXACT_VERSION.fullmatch(value):
+        raise click.BadParameter(f"{value!r} is not an exact @openai/codex version")
+    return value
+
+
+codex_version_option = click.option(
+    "--codex-version",
+    required=True,
+    callback=_exact_version,
+    help="Candidate @openai/codex version, exact (for example 0.171.0).",
 )
 
 
@@ -120,7 +141,7 @@ def check_write() -> None:
 
 
 @main.command("rotate")
-@click.option("--codex-version", required=True, help="Candidate @openai/codex version.")
+@codex_version_option
 @state_option
 def rotate(codex_version: str, state: Path) -> None:
     """Install the candidate and force it to refresh the staged login."""
@@ -166,7 +187,7 @@ def persist(state: Path) -> None:
 
 
 @main.command("verify")
-@click.option("--codex-version", required=True, help="Candidate @openai/codex version.")
+@codex_version_option
 @click.option(
     "--model",
     default=DEFAULT_MODEL_BY_HARNESS["codex"],

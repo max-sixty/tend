@@ -165,10 +165,40 @@ def test_candidate_steps_refuse_a_github_token(
     _install_fakes(tmp_path, monkeypatch)
     monkeypatch.setenv("ROTATION_BEHAVIOR", "success")
 
-    result = _step(command, "--codex-version", "1", "--state", str(tmp_path), pat=True)
+    result = _step(
+        command, "--codex-version", "9.9.9", "--state", str(tmp_path), pat=True
+    )
 
     assert result.exit_code != 0
     assert "must not run under a process that holds one" in result.output
+    assert not (tmp_path / "package").exists()
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "npm:other-package@1.0.0",
+        "https://example.com/codex.tgz",
+        "github:someone/codex",
+        "file:../codex",
+        "latest",
+        "^0.171.0",
+    ],
+)
+def test_rotate_installs_only_a_published_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spec: str
+) -> None:
+    # npm reads `@openai/codex@<spec>` as an alias, tarball, git or file
+    # install, which would run another package's code with the login.
+    _install_fakes(tmp_path, monkeypatch)
+    monkeypatch.setenv("ROTATION_BEHAVIOR", "success")
+
+    result = _step(
+        "rotate", "--codex-version", spec, "--state", str(tmp_path), pat=False
+    )
+
+    assert result.exit_code != 0
+    assert "exact @openai/codex version" in result.output
     assert not (tmp_path / "package").exists()
 
 
