@@ -52,16 +52,26 @@ REFRESH_ARGS = (
 # login, so the dispatch input must be an exact published version. The pattern
 # is SemVer 2.0 without build metadata, the grammar npm's `semver.valid` parses:
 # no leading zeros in numeric identifiers and no empty prerelease identifiers.
+# npm also rejects a version over 256 characters or a major, minor or patch
+# above 2**53 - 1, and `npm-package-arg` then reads the spec as a tag.
 _NUMERIC = r"(?:0|[1-9]\d*)"
 _PRERELEASE_ID = rf"(?:{_NUMERIC}|\d*[A-Za-z-][0-9A-Za-z-]*)"
 _EXACT_VERSION = re.compile(
-    rf"{_NUMERIC}\.{_NUMERIC}\.{_NUMERIC}(?:-{_PRERELEASE_ID}(?:\.{_PRERELEASE_ID})*)?",
+    rf"({_NUMERIC})\.({_NUMERIC})\.({_NUMERIC})"
+    rf"(?:-{_PRERELEASE_ID}(?:\.{_PRERELEASE_ID})*)?",
     re.ASCII,
 )
+_MAX_LENGTH = 256
+_MAX_SAFE_INTEGER = 2**53 - 1
 
 
 def _exact_version(_ctx: click.Context, _param: click.Parameter, value: str) -> str:
-    if not _EXACT_VERSION.fullmatch(value):
+    match = _EXACT_VERSION.fullmatch(value)
+    if (
+        match is None
+        or len(value) > _MAX_LENGTH
+        or any(int(core) > _MAX_SAFE_INTEGER for core in match.groups())
+    ):
         raise click.BadParameter(f"{value!r} is not an exact @openai/codex version")
     return value
 
