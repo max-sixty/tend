@@ -195,7 +195,7 @@ gh pr list --state open --limit 200 --json number,title,files \
 
 Before reviewing files, read the project's instruction files and any project-specific skills or review criteria they reference. Apply the review checklist below to each file in full.
 
-Then review the area as a whole: what it does, whether its boundaries fit, and which of its capabilities exist more than once. Follow each lead out of it, such as a copy the duplication check finds elsewhere or a caller that works around the area's code; what you find there counts among today's findings. Consolidate each set of copies into one home with every caller moved, wherever the copies sit.
+Then review the area as a whole: what it does, whether its boundaries fit, and which of its capabilities exist more than once. Follow each lead out of it, such as a copy the duplication check finds elsewhere or a caller that works around the area's code; what you find there counts among today's findings. Remedy each set of copies per **Duplication check** in `/tend-ci-runner:review`, wherever the copies sit, moving every caller when you consolidate.
 
 ## Review checklist
 

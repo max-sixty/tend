@@ -23,7 +23,7 @@ UNREVIEWED_SUFFIXES = (".lock", "package-lock.json", "pnpm-lock.yaml", ".snap")
 
 
 def reviewable(path: str) -> bool:
-    return not path.endswith(UNREVIEWED_SUFFIXES) and "snapshots/" not in path
+    return not path.endswith(UNREVIEWED_SUFFIXES)
 
 
 def survey_files(files: list[str], *, unix_day: int) -> tuple[int, list[str]]:
