@@ -165,11 +165,78 @@ def test_candidate_steps_refuse_a_github_token(
     _install_fakes(tmp_path, monkeypatch)
     monkeypatch.setenv("ROTATION_BEHAVIOR", "success")
 
-    result = _step(command, "--codex-version", "1", "--state", str(tmp_path), pat=True)
+    result = _step(
+        command, "--codex-version", "9.9.9", "--state", str(tmp_path), pat=True
+    )
 
     assert result.exit_code != 0
     assert "must not run under a process that holds one" in result.output
     assert not (tmp_path / "package").exists()
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "npm:other-package@1.0.0",
+        "https://example.com/codex.tgz",
+        "github:someone/codex",
+        "file:../codex",
+        "latest",
+        "^0.171.0",
+        # Malformed versions npm's `semver.valid` rejects.
+        "1.2.3-alpha..1",
+        "1.2.3-alpha.01",
+        "01.2.3",
+        "1.2.3-",
+        # Past npm's limits: a core component above 2**53 - 1, or more than
+        # 256 characters. `npm-package-arg` reads either as a tag.
+        "9007199254740992.0.0",
+        "0.9007199254740992.0",
+        "0.0.9007199254740992",
+        "1.2.3-" + "a" * 251,
+    ],
+)
+def test_rotate_installs_only_a_published_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spec: str
+) -> None:
+    # npm reads `@openai/codex@<spec>` as an alias, tarball, git or file
+    # install, which would run another package's code with the login.
+    _install_fakes(tmp_path, monkeypatch)
+    monkeypatch.setenv("ROTATION_BEHAVIOR", "success")
+
+    result = _step(
+        "rotate", "--codex-version", spec, "--state", str(tmp_path), pat=False
+    )
+
+    assert result.exit_code != 0
+    assert "exact @openai/codex version" in result.output
+    assert not (tmp_path / "package").exists()
+
+
+@pytest.mark.parametrize(
+    "version",
+    [
+        "0.171.0",
+        "0.172.0-alpha.3",
+        "1.2.3-0.rc-1",
+        # At npm's limits, which `semver.valid` still accepts.
+        "9007199254740991.9007199254740991.9007199254740991",
+        "1.2.3-" + "a" * 250,
+        "1.2.3-99999999999999999999",
+    ],
+)
+def test_rotate_installs_an_exact_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: str
+) -> None:
+    _install_fakes(tmp_path, monkeypatch)
+    monkeypatch.setenv("ROTATION_BEHAVIOR", "success")
+
+    result = _step(
+        "rotate", "--codex-version", version, "--state", str(tmp_path), pat=False
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "package").read_text() == f"@openai/codex@{version}"
 
 
 def test_refresh_request_matches_the_refresh_action() -> None:
