@@ -9,17 +9,24 @@ import pytest
 from tend.runtime.ci import nightly_survey_files as survey
 
 
-def test_daily_selection_assigns_each_path_to_one_stable_bucket() -> None:
-    files = [f"file-{index}.py" for index in range(100)]
-    bucket, selected = survey.survey_files(files, unix_day=10_000)
+def test_a_cycle_reviews_each_path_once_in_runs_of_neighbouring_paths() -> None:
+    files = [f"{area}/file-{index}.py" for area in "dcba" for index in range(50)]
+    unreviewed = [
+        "Cargo.lock",
+        "tests/snapshots/list.snap",
+        "web/__snapshots__/a.js.snap",
+    ]
+    bucket, selected = survey.survey_files(files + unreviewed, unix_day=10_000)
 
     assert bucket == 4
     assert selected
     selections = [
-        survey.survey_files(files, unix_day=day)[1]
+        survey.survey_files(files + unreviewed, unix_day=day)[1]
         for day in range(survey.CYCLE_LENGTH)
     ]
-    assert sorted(path for paths in selections for path in paths) == sorted(files)
+    # Read day by day, the cycle walks the reviewable tree once in path order,
+    # so each directory's files fall on consecutive days.
+    assert [path for paths in selections for path in paths] == sorted(files)
 
 
 def test_main_lists_the_tracked_files_in_the_fixed_days_bucket(

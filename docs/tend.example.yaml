@@ -455,8 +455,9 @@ bot_name: my-project-bot
 #
 # Daily (default 06:17 UTC). Resolves conflicts on open PRs, reviews recent
 # commits, restarts stalled CI causes, continues the bot's unfinished PRs,
-# closes resolved issues, surveys a rotating 1/28 of tracked files for bugs
-# and stale docs, regenerates tend workflow files.
+# closes resolved issues, surveys one area of the tree a night (a rotating
+# 1/28 of tracked files) for bugs, duplicates and stale docs, following leads
+# out of it, regenerates tend workflow files.
 #
 # workflows:
 #   nightly:
